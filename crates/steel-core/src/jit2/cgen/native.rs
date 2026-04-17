@@ -560,6 +560,56 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    pub(super) fn memq(&mut self) -> Value {
+        use MaybeStackValue::*;
+
+        let args = self
+            .shadow_stack
+            .get(self.shadow_stack.len() - 2..)
+            .unwrap();
+
+        match args {
+            &[Value(StackValue { value, .. }), Constant(ConstantValue::List(l))] => {
+                // Constant list
+                let _ = self.shadow_stack.pop();
+                // Stack value:
+                let _ = self.shadow_stack.pop();
+
+                let SteelVal::ListV(list_value) = self.constants.get(l) else {
+                    panic!()
+                };
+
+                let as_ptr: usize = unsafe {
+                    std::mem::transmute::<crate::values::lists::List<_>, _>(list_value.clone())
+                };
+
+                let value_ptr = self.builder.ins().iconst(types::I64, as_ptr as i64);
+
+                let res = self.call_function_returns_value_args_no_context(
+                    "memq-unchecked-list",
+                    &[value, value_ptr],
+                );
+
+                res
+            }
+
+            _ => {
+                let args = self
+                    .split_off(2)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+
+                let res = self.call_function_returns_value_args("memq-value", &args);
+
+                // TODO: Put the ip in the check deopt!
+                self.check_deopt();
+
+                res
+            }
+        }
+    }
+
     pub(super) fn is_string(&mut self) {
         use MaybeStackValue::*;
 

@@ -26,7 +26,7 @@ use crate::{
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     gc::Gc,
     primitives::{
-        lists::{steel_cdr, steel_is_empty, steel_list_contains, steel_pair},
+        lists::{steel_cdr, steel_is_empty, steel_list_contains, steel_memq, steel_pair},
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
         strings::{char_equals_binop, steel_char_equals},
         vectors::steel_mut_vec_set,
@@ -970,6 +970,16 @@ impl Default for JIT {
         map.add_func(
             "list-contains-value",
             abi! { list_contains_value as fn(ctx: *mut VmCore, SteelVal, SteelVal) -> bool },
+        );
+
+        map.add_func2(
+            "memq-unchecked-list",
+            abi! { memq_unchecked_list as fn(SteelVal, List<SteelVal>) -> SteelVal },
+        );
+
+        map.add_func(
+            "memq-value",
+            abi! { memq_value as fn(ctx: *mut VmCore, SteelVal, SteelVal) -> SteelVal },
         );
 
         map.add_func(
@@ -2755,6 +2765,7 @@ impl FunctionTranslator<'_> {
                     return false;
                 }
                 OpCode::SELFTAILCALLNOARITY => {
+                    // let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
                     let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
                     //
                     // TODO: Move back to using loop?
@@ -2797,27 +2808,26 @@ impl FunctionTranslator<'_> {
                     // I think.
                     let maybe_global = self._globals.get(function_index).cloned();
                     if let Some(maybe_global) = maybe_global {
-                        // Check if this is a mut func, handle it accordingly
-                        // println!("Call global tail: {}", maybe_global);
+                        match maybe_global {
+                            SteelVal::FuncV(f) if f == steel_memq && arity == 2 => {
+                                let res = self.memq();
 
-                        // match maybe_global {
-                        //     SteelVal::MutFunc(_) => {
-                        //         println!("Found mutable function")
-                        //     }
-                        //     SteelVal::FuncV(_) => {
-                        //         println!("Found normal function")
-                        //     }
+                                self.spill_cloned_stack();
 
-                        //     SteelVal::BoxedFunction(_) => {
-                        //         println!("Found boxed function")
-                        //     }
+                                // Try this out?
+                                self.inline_handle_pop(res);
+                                self.builder.ins().return_(&[]);
 
-                        //     SteelVal::BuiltIn(_) => {
-                        //         println!("Found built in")
-                        //     }
+                                let cold_block = self.builder.create_block();
+                                self.builder.switch_to_block(cold_block);
 
-                        //     _ => {}
-                        // }
+                                self.depth -= 1;
+                                self.ip = self.instructions.len() + 1;
+                                return false;
+                            }
+
+                            _ => {}
+                        }
 
                         if INLINE_STRUCT_FUNCTION_TAIL_CALLS {
                             // TODO: @Matt -> This is the issue, something is
@@ -4164,15 +4174,17 @@ impl FunctionTranslator<'_> {
                             self.shadow_stack.pop();
                             let reg = self.register_index(reg);
 
-                            let func = if can_skip_bounds_check {
-                                "cdr-reg-no-check"
+                            if can_skip_bounds_check {
+                                let func = "cdr-reg-no-check";
+                                let res = self.call_function_returns_value_args(func, &[reg]);
+                                self.push(res, InferredType::Any);
                             } else {
-                                "cdr-reg"
+                                let func = "cdr-reg";
+                                let res = self.call_function_returns_value_args(func, &[reg]);
+                                self.push(res, InferredType::Any);
+                                self.check_deopt();
                             };
 
-                            let res = self.call_function_returns_value_args(func, &[reg]);
-                            self.push(res, InferredType::Any);
-                            self.check_deopt();
                             self.ip += 2;
                         }
 
@@ -4195,10 +4207,10 @@ impl FunctionTranslator<'_> {
                                 let func = "cdr-mut-reg";
 
                                 let res = self.call_function_returns_value_args(func, &[ir_reg]);
+                                self.check_deopt();
                                 self.push(res, InferredType::Any);
                             };
 
-                            self.check_deopt();
                             self.ip += 2;
                         }
 
@@ -4347,16 +4359,15 @@ impl FunctionTranslator<'_> {
                                     self.ip += 2;
                                 }
 
-                                _ if false => {
-                                    self.shadow_stack.pop();
-                                    let reg = self.register_index(reg);
-                                    let res =
-                                        self.call_function_returns_value_args("car-reg", &[reg]);
-                                    self.push(res, InferredType::Any);
-                                    self.ip += 2;
-                                    self.check_deopt();
-                                }
-
+                                // _ if false => {
+                                //     self.shadow_stack.pop();
+                                //     let reg = self.register_index(reg);
+                                //     let res =
+                                //         self.call_function_returns_value_args("car-reg", &[reg]);
+                                //     self.push(res, InferredType::Any);
+                                //     self.ip += 2;
+                                //     self.check_deopt();
+                                // }
                                 _ => {
                                     self.shadow_stack.pop();
                                     let value = self.read_from_vm_stack(reg);
@@ -5186,12 +5197,12 @@ impl FunctionTranslator<'_> {
 
         let index = self.builder.ins().uextend(types::I64, index);
 
-        let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, index, 0);
+        let is_valid = self.builder.ins().icmp_imm(IntCC::NotEqual, index, 0);
 
         let typ = self.int;
 
         self.converging_if(
-            is_empty,
+            is_valid,
             |ctx| {
                 // Now get car:
                 // TODO:
@@ -7417,9 +7428,7 @@ impl FunctionTranslator<'_> {
             offset_of!(VmCore, sp) as i32,
         );
 
-        let beginning_scope = self.builder.ins().iconst(types::I64, amt as i64);
-
-        let rollback_index = self.builder.ins().iadd(beginning_scope, offset);
+        let rollback_index = self.builder.ins().iadd_imm(offset, amt as i64);
 
         self.truncate_stack(vm_ctx, rollback_index, Some(count as _));
     }

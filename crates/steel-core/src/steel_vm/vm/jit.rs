@@ -9,7 +9,7 @@ use super::VmCore;
 use crate::{
     gc::Gc,
     primitives::{
-        lists::{cdr_no_check, cdr_no_check_two, cons, list_ref, steel_list_contains},
+        lists::{cdr_no_check, cdr_no_check_two, cons, list_ref, steel_list_contains, steel_memq},
         numbers::add_two,
         vectors::{mut_vec_set, steel_mut_vec_set},
     },
@@ -1126,6 +1126,34 @@ fn list_contains_reg(ctx: *mut VmCore, reg: usize, lst: List<SteelVal>) -> bool 
 }
 
 #[cross_platform_fn]
+fn memq_value(ctx: *mut VmCore, value: SteelVal, lst: SteelVal) -> SteelVal {
+    let mut guard = unsafe { &mut *ctx };
+    match steel_memq(&[value, lst]) {
+        Ok(v) => v,
+        Err(e) => {
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+            SteelVal::Void
+        }
+    }
+}
+
+#[cross_platform_fn]
+fn memq_unchecked_list(value: SteelVal, lst: List<SteelVal>) -> SteelVal {
+    let mut list = lst.clone();
+    std::mem::forget(lst);
+
+    while let Some(first) = list.first() {
+        if SteelVal::ptr_eq(first, &value) {
+            return SteelVal::ListV(list);
+        }
+
+        list.cdr_mut();
+    }
+    SteelVal::BoolV(false)
+}
+
+#[cross_platform_fn]
 fn list_contains_reg_constant(ctx: *mut VmCore, reg: usize, lst: List<SteelVal>) -> bool {
     let guard = unsafe { &mut *ctx };
     let offset = guard.get_offset();
@@ -1360,9 +1388,29 @@ fn cdr_handler_reg(ctx: *mut VmCore, arg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
-    let mut arg = guard.thread.stack[offset + arg].clone();
+    let arg = &guard.thread.stack[offset + arg];
 
-    match cdr(&mut arg) {
+    fn cdr_copy(arg: &SteelVal) -> Result<SteelVal> {
+        match arg {
+            SteelVal::ListV(l) => {
+                if l.is_empty() {
+                    stop!(Generic => "cdr expects a non empty list");
+                }
+
+                match l.cdr() {
+                    Some(n) => Ok(SteelVal::ListV(n)),
+                    None => Ok(SteelVal::ListV(List::new())),
+                }
+            }
+
+            SteelVal::Pair(p) => Ok(p.cdr()),
+            arg => {
+                stop!(TypeMismatch => format!("cdr expects a list, found: {}", arg))
+            }
+        }
+    }
+
+    match cdr_copy(arg) {
         Ok(v) => v,
         Err(e) => {
             guard.result = Some(Err(e));
