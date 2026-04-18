@@ -104,7 +104,7 @@ impl LambdaMetadataTable {
 const INLINE_CAPTURE_SIZE: usize = 3;
 
 #[cfg(not(feature = "inline-captures"))]
-pub type CaptureVec = Vec<SteelVal>;
+pub type CaptureVec = steel_vec::Vec<SteelVal>;
 
 #[cfg(feature = "inline-captures")]
 pub type CaptureVec = smallvec::SmallVec<[SteelVal; INLINE_CAPTURE_SIZE]>;

@@ -26,7 +26,9 @@ use crate::{
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     gc::Gc,
     primitives::{
-        lists::{steel_cdr, steel_is_empty, steel_list_contains, steel_memq, steel_pair},
+        lists::{
+            steel_cdr, steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse,
+        },
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
         strings::{char_equals_binop, steel_char_equals},
         vectors::steel_mut_vec_set,
@@ -2824,6 +2826,26 @@ impl FunctionTranslator<'_> {
                                 self.depth -= 1;
                                 self.ip = self.instructions.len() + 1;
                                 return false;
+                            }
+
+                            SteelVal::MutFunc(f) if f == steel_reverse && arity == 1 => {
+                                // let value = self.shadow_stack.pop().unwrap();
+
+                                // match value {
+                                //     MaybeStackValue::Value(stack_value) => {
+                                //         todo!()
+                                //     },
+
+                                //     // Just leave it in place, spill the cloned stack though
+                                //     MaybeStackValue::MutRegister(_) => {
+                                //     },
+                                //     MaybeStackValue::Register(_) => {
+
+                                //         todo!()
+
+                                //     },
+                                //     MaybeStackValue::Constant(constant_value) => {},
+                                // }
                             }
 
                             _ => {}

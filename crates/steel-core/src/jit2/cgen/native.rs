@@ -220,7 +220,8 @@ impl<'a> FunctionTranslator<'a> {
                 self.ip += 1;
             }
 
-            &[MutRegister(v) | Register(v), Constant(ConstantValue::Symbol(i))] => {
+            &[MutRegister(v) | Register(v), Constant(ConstantValue::Symbol(i))]
+            | &[Constant(ConstantValue::Symbol(i)), MutRegister(v) | Register(v)] => {
                 let _ = self.shadow_stack.pop();
 
                 // Pop them off
