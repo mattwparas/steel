@@ -233,30 +233,18 @@ impl<'a> FunctionTranslator<'a> {
                 };
 
                 let as_ptr: i64 = unsafe { std::mem::transmute::<SteelString, _>(s.clone()) };
-                let value = self.builder.ins().iconst(types::I64, as_ptr);
 
                 // If they're the same type, just compare the bytes. Don't do a lookup.
                 let left_value = self.read_from_vm_stack(v);
                 let is_symbol = self.is_type(left_value, SteelVal::SYMBOL_TAG);
 
-                let res = self.converging_if(
-                    is_symbol,
-                    |ctx| {
-                        let lvalue = ctx.unbox_value_to_pointer(left_value);
-                        let rvalue = value;
+                let lvalue = self.unbox_value_to_pointer(left_value);
 
-                        // Just compare the two values directly since we're looking
-                        // at the pointers.
-                        ctx.builder.ins().icmp(IntCC::Equal, lvalue, rvalue)
-                    },
-                    |ctx| {
-                        // let left = ctx.register_index(v);
-                        // ctx.call_function_returns_value_args("eq?-reg-1", &[left, right.0])
+                // Just compare the two values directly since we're looking
+                // at the pointers.
+                let res = self.builder.ins().icmp_imm(IntCC::Equal, lvalue, as_ptr);
 
-                        ctx.builder.ins().iconst(types::I8, 0)
-                    },
-                    types::I8,
-                );
+                let res = self.builder.ins().band(is_symbol, res);
 
                 self.push(res, InferredType::UnboxedBool);
                 self.ip += 1;
@@ -291,6 +279,22 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    // Load just the symbols, and eq against each of them, unrolled?
+    pub(super) fn list_contains_constant_symbols_fast_path(
+        &mut self,
+        lhs_value: Value,
+        list: List<SteelVal>,
+    ) {
+        for item in list.iter() {
+            let v = item.clone();
+
+            let SteelVal::SymbolV(sym) = v else { panic!() };
+
+            // self.builder.ins().
+        }
+    }
+
+    // If its a constant with small amounts, we can test it via ptr eq fast path
     pub(super) fn list_contains(&mut self) {
         use MaybeStackValue::*;
 

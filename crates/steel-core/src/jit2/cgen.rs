@@ -4022,28 +4022,22 @@ impl FunctionTranslator<'_> {
                             // Get the left value
                             let lvalue = self.unbox_value_to_pointer(left_value);
 
+                            let test =
+                                self.builder
+                                    .ins()
+                                    .icmp_imm(IntCC::Equal, lvalue, as_ptr as i64);
+
+                            let fast_path = self.builder.ins().band(is_symbol, test);
+
                             let res = self.converging_if(
-                                is_symbol,
+                                fast_path,
+                                |ctx| ctx.builder.ins().iconst(types::I8, 1),
                                 |ctx| {
-                                    let rvalue = value;
-
-                                    // Just compare the two values directly since we're looking
-                                    // at the pointers.
-                                    let test = ctx.builder.ins().icmp(IntCC::Equal, lvalue, rvalue);
-
-                                    ctx.converging_if(
-                                        test,
-                                        |ctx| ctx.builder.ins().iconst(types::I8, 1),
-                                        |ctx| {
-                                            ctx.call_function_returns_value_args_no_context(
-                                                "symbol-equal?-no-drop",
-                                                &[lvalue, value],
-                                            )
-                                        },
-                                        types::I8,
+                                    ctx.call_function_returns_value_args_no_context(
+                                        "symbol-equal?-no-drop",
+                                        &[lvalue, value],
                                     )
                                 },
-                                |ctx| ctx.builder.ins().iconst(types::I8, 0),
                                 types::I8,
                             );
 

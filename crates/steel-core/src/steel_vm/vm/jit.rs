@@ -1,6 +1,6 @@
 #![allow(improper_ctypes_definitions, unused)]
 
-use core::{hint::unreachable_unchecked, mem::ManuallyDrop};
+use core::{hint::unreachable_unchecked, mem::ManuallyDrop, sync::atomic::AtomicUsize};
 
 use steel_derive::cross_platform_fn;
 use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
@@ -78,8 +78,6 @@ pub(crate) fn jit_compile_lambda(
             .get(x)
             .copied()
     });
-
-    dbg!(fn_ptr_name);
 
     // let mut inner = func.unwrap();
     let fn_pointer = ctx.thread.jit.lock().unwrap().compile_bytecode(
@@ -1150,6 +1148,7 @@ fn memq_unchecked_list(value: SteelVal, lst: List<SteelVal>) -> SteelVal {
 
         list.cdr_mut();
     }
+
     SteelVal::BoolV(false)
 }
 
