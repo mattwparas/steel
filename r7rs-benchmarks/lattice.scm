@@ -168,6 +168,7 @@
   (if (null? lst) 0 (+ (car lst) (sum (cdr lst)))))
 
 (define (run k)
+  ;; Okay, making the lattice is like instantanous
   (let* ([l2 (make-lattice '(low high)
                            (lambda (lhs rhs)
                              (case lhs
@@ -207,6 +208,30 @@
                         count
                         (lambda () (run (hide count input1)))
                         (lambda (result) (= result output)))))
+
+; (define level1
+;   (make-lattice '(low high)
+;                 (lambda (lhs rhs)
+;                   (case lhs
+;                     [(low)
+;                      (case rhs
+;                        [(low) 'equal]
+;                        [(high) 'less]
+;                        [else (error 'make-lattice "base" rhs)])]
+;                     [(high)
+;                      (case rhs
+;                        [(low) 'more]
+;                        [(high) 'equal]
+;                        [else (error 'make-lattice "base" rhs)])]
+;                     [else (error 'make-lattice "base" lhs)]))))
+
+; (define level2 (maps level1 level1))
+
+; (define level3 (maps level2 level2))
+
+; (displayln (count-maps level3 level3))
+
+; (displayln level3)
 
 (with-input-from-file "r7rs-benchmarks/inputs/lattice.input" run-benchmark)
 

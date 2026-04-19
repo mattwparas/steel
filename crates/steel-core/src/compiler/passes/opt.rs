@@ -141,8 +141,9 @@ impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
 
         self.visit(&mut lambda_function.body);
 
-        self.args
-            .truncate(self.args.len() - lambda_function.args.len());
+        for _ in &lambda_function.args {
+            self.args.pop();
+        }
     }
 
     fn visit_atom(&mut self, a: &mut Atom) {
@@ -154,6 +155,7 @@ impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
                     .find_map(|x| if x.0 == ident { Some(x.1) } else { None })
                 {
                     if let Some(r) = r {
+                        println!("Replacing {} with {}", a, r);
                         *a.ident_mut().unwrap() = r;
                     }
 
@@ -179,9 +181,19 @@ impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
 
                 if let Some(rhs) = rhs {
                     if !self.args.contains(&rhs) {
-                        // println!("Found unbound ref: {} -> {}", left, rhs);
-                        bound.push((*left, None));
-                        continue;
+                        // We'll allow these to move forward - we need to readjust
+                        // this optimization to also contains the analysis so that
+                        // we can check that these aren't mutable.
+                        //
+                        // Then, we can move stuff around intra module, and then also
+                        // run another small inlining pass
+                        if !rhs.resolve().starts_with("##__lifted_pure_function")
+                            && !rhs.resolve().starts_with("#%prim.")
+                        {
+                            println!("Found unbound ref: {} -> {}", left, rhs);
+                            bound.push((*left, None));
+                            continue;
+                        }
                     }
                 }
 
@@ -189,8 +201,23 @@ impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
             }
         }
 
+        // Bind the locals here as well
+        for (ident, _) in l.bindings.iter() {
+            if let Some(ident) = ident.atom_identifier() {
+                self.args.push(*ident);
+            }
+        }
+
         self.scope.push(bound);
         self.visit(&mut l.body_expr);
+
+        // Unbind the local values here
+        for (ident, _) in l.bindings.iter() {
+            if let Some(_) = ident.atom_identifier() {
+                self.args.pop();
+            }
+        }
+
         let bound = self.scope.pop().unwrap();
 
         if bound.is_empty() {
@@ -199,12 +226,178 @@ impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
 
         l.bindings.retain(|(ident, expr)| {
             if ident.atom_identifier().is_some() && expr.atom_identifier().is_some() {
-                if self.args.contains(expr.atom_identifier().unwrap()) {
+                let rhs = expr.atom_identifier().unwrap();
+                if self.args.contains(rhs) {
+                    return false;
+                }
+
+                if rhs.resolve().starts_with("##__lifted_pure_function")
+                    || rhs.resolve().starts_with("#%prim.")
+                {
                     return false;
                 }
             }
 
             true
         });
+    }
+}
+
+#[cfg(test)]
+mod let_var_tests {
+    use steel_parser::{
+        ast::AstTools,
+        parser::{ParseError, Parser},
+    };
+
+    use super::*;
+
+    #[test]
+    fn plain_lets_remove_local_bind_values() {
+        let expr = r#"
+(lambda (baz)
+    (%plain-let ((bar baz))
+        (%plain-let ((bananas bar))
+            (displayln bananas))))
+        "#;
+
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr.as_ref(), None).collect();
+
+        let mut parsed = parsed.unwrap();
+
+        for expr in &mut parsed {
+            RemoveLetsBoundToOtherLocalVars {
+                scope: Vec::new(),
+                args: Vec::new(),
+            }
+            .visit(expr);
+        }
+
+        parsed.pretty_print();
+    }
+
+    #[test]
+    fn complex_let_var_aliasing() {
+        let expr = r#"
+
+(define mm5609__%#__maps-rest
+        (λ (source2
+            target2
+            pas2
+            rest2
+            to-12
+            to-collect2)
+          (if (#%prim.null? rest2)
+            (to-12 pas2)
+            (%plain-let ((next3 (#%prim.car rest2))
+                (rest3 (#%prim.cdr rest2)))
+              (to-collect2
+                 (%plain-let ((function2 (λ (x4)
+                       (%plain-let ((pas25 (#%prim.cons
+                              (#%prim.cons next3 x4)
+                              pas2))
+                           (rest25 rest3))
+                         (if (#%prim.null? rest25)
+                           (to-12 pas25)
+                           (%plain-let ((next36 (#%prim.car
+                                  rest25))
+                               (rest36 (#%prim.cdr
+                                  rest25)))
+                             (to-collect2
+                                (mm5609__%#__map
+                                   (λ (x47)
+                                     (mm5609__%#__maps-rest
+                                        source2
+                                        target2
+                                        (#%prim.cons
+                                           (#%prim.cons
+                                              next36
+                                              x47)
+                                           pas25)
+                                        rest36
+                                        to-12
+                                        to-collect2))
+                                   (mm5609__%#__maps-1
+                                      source2
+                                      target2
+                                      pas25
+                                      next36))))))))
+                     (list12 (%plain-let ((new2 next3))
+                       (%plain-let ((scmp3 (#%prim.cdr
+                              source2))
+                           (tcmp3 (#%prim.cdr target2)))
+                         (%plain-let ((less4 (mm5609__%#__select-map
+                                (λ (p4)
+                                  (#%prim.eq?
+                                     (quote
+                                       less)
+                                     (scmp3
+                                        (#%prim.car p4)
+                                        new2)))
+                                #%prim.cdr
+                                pas2))
+                             (more4 (mm5609__%#__select-map
+                                (λ (p4)
+                                  (#%prim.eq?
+                                     (quote
+                                       more)
+                                     (scmp3
+                                        (#%prim.car p4)
+                                        new2)))
+                                #%prim.cdr
+                                pas2)))
+                           (mm5609__%#__zulu-select
+                              (λ (t5)
+                                (if (mm5609__%#__map-and
+                                     (λ (t26)
+                                       (#%prim.memq
+                                          (tcmp3
+                                             t26
+                                             t5)
+                                          (quote
+                                            (less equal))))
+                                     less4)
+                                  (mm5609__%#__map-and
+                                     (λ (t26)
+                                       (#%prim.memq
+                                          (tcmp3
+                                             t26
+                                             t5)
+                                          (quote
+                                            (more equal))))
+                                     more4)
+                                  #false))
+                              (#%prim.car target2)))))))
+                   (begin
+                    (closure-lifting-985229
+                            function2
+                            (quote
+                              ())
+                            list12
+                            source2
+                            target2
+                            pas2
+                            to-12
+                            to-collect2
+                            next3
+                            rest3))))))))
+            
+        "#;
+
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr.as_ref(), None).collect();
+
+        let mut parsed = parsed.unwrap();
+
+        for expr in &mut parsed {
+            RemoveLetsBoundToOtherLocalVars {
+                scope: Vec::new(),
+                args: Vec::new(),
+            }
+            .visit(expr);
+        }
+
+        parsed.pretty_print();
     }
 }
