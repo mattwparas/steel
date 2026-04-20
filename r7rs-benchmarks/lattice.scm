@@ -73,7 +73,11 @@
       (lambda (ac lst)
         (if (null? lst)
             (xreverse! ac)
-            (select-a (let ([head (car lst)]) (if (test head) (cons head ac) ac)) (cdr lst)))))
+            (select-a (let ([head (car lst)])
+                        (if (test head)
+                            (cons head ac)
+                            ac))
+                      (cdr lst)))))
     (select-a '() lst)))
 
 ; (define xreverse!
@@ -92,24 +96,31 @@
       (lambda (ac lst)
         (if (null? lst)
             (xreverse! ac)
-            (select-a (let ([head (car lst)]) (if (test head) (cons (func head) ac) ac)) (cdr lst)))))
+            (select-a (let ([head (car lst)])
+                        (if (test head)
+                            (cons (func head) ac)
+                            ac))
+                      (cdr lst)))))
     (select-a '() lst)))
+
+; (define map-and-counter 0)
 
 ;; This version of map-and tail-recurses on the last test.
 (define map-and
   (lambda (proc lst)
+    ; (set! map-and-counter (+ 1 map-and-counter))
+    ; (stdout-simple-displayln map-and-counter)
     (if (null? lst)
         #t
-        (letrec ([drudge
-                  (lambda (lst)
-                    (let ([rest (cdr lst)])
-                      (if (null? rest) (proc (car lst)) (and (proc (car lst)) (drudge rest)))))])
-          ; (if (cdr-null? lst)
-          ;     (proc (car lst))
-          ;     (and (proc (car lst)) (drudge (cdr lst)))))])
+        (letrec ([drudge (lambda (lst)
+                           (let ([rest (cdr lst)])
+                             (if (null? rest)
+                                 (proc (car lst))
+                                 (and (proc (car lst)) (drudge rest)))))])
           (drudge lst)))))
 
 (define (maps-1 source target pas new)
+
   ; (let ([scmp (lattice->cmp source)]
   ;       [tcmp (lattice->cmp target)])
   (let ([scmp (cdr source)]
@@ -129,6 +140,9 @@
                      ;; need to check the value before hand. We also don't need to clone
                      ;; the value immediately, since we know it'll escape, we just need
                      ;; the address?
+                     ; (and (map-and (lambda (t2) (memq (tcmp t2 t) '(less equal))) less)
+                     ;      (map-and (lambda (t2) (memq (tcmp t2 t) '(more equal))) more)))
+
                      (and (map-and (lambda (t2) (memq (tcmp t2 t) '(less equal))) less)
                           (map-and (lambda (t2) (memq (tcmp t2 t) '(more equal))) more)))
                    ; (lattice->elements target)))))
@@ -136,7 +150,9 @@
 
 (define (map function list1)
   (define (map1 func accum lst)
-    (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
+    (if (null? lst)
+        (reverse accum)
+        (map1 func (cons (func (car lst)) accum) (cdr lst))))
 
   (map1 function '() list1))
 
@@ -164,25 +180,36 @@
   ; (maps-rest source target '() (lattice->elements source) (lambda (x) 1) sum))
   (maps-rest source target '() (car source) (lambda (x) 1) sum))
 
+(define sum-counter 0)
+
+;; Sum calls
 (define (sum lst)
-  (if (null? lst) 0 (+ (car lst) (sum (cdr lst)))))
+  (if (null? lst)
+      0
+      (+ (car lst) (sum (cdr lst)))))
+
+(define lattice-comparator
+  (lambda (lhs rhs)
+    (case lhs
+      [(low)
+       (case rhs
+         [(low) 'equal]
+         [(high) 'less]
+         [else (error 'make-lattice "base" rhs)])]
+      [(high)
+       (case rhs
+         [(low) 'more]
+         [(high) 'equal]
+         [else (error 'make-lattice "base" rhs)])]
+      [else (error 'make-lattice "base" lhs)])))
 
 (define (run k)
   ;; Okay, making the lattice is like instantanous
   (let* ([l2 (make-lattice '(low high)
-                           (lambda (lhs rhs)
-                             (case lhs
-                               [(low)
-                                (case rhs
-                                  [(low) 'equal]
-                                  [(high) 'less]
-                                  [else (error 'make-lattice "base" rhs)])]
-                               [(high)
-                                (case rhs
-                                  [(low) 'more]
-                                  [(high) 'equal]
-                                  [else (error 'make-lattice "base" rhs)])]
-                               [else (error 'make-lattice "base" lhs)])))]
+                           ;; Okay, so we need to start doing some opts which
+                           ;; remove the actual call overhead, since setting up the
+                           ;; function call is genuinely expensive
+                           lattice-comparator)]
          [l3 (maps l2 l2)]
          [l4 (maps l3 l3)])
     (count-maps l2 l2)

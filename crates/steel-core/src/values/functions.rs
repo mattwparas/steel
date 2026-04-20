@@ -147,6 +147,9 @@ pub struct ByteCodeLambda {
 
     #[cfg(feature = "jit2")]
     pub(crate) super_instructions: Option<JitFnPointer>,
+
+    #[cfg(feature = "jit2")]
+    pub(crate) tier2: Option<JitFnPointer>,
 }
 
 impl Default for ByteCodeLambda {
@@ -161,6 +164,9 @@ impl Default for ByteCodeLambda {
             captures: Default::default(),
             #[cfg(feature = "jit2")]
             super_instructions: None,
+
+            #[cfg(feature = "jit2")]
+            tier2: None,
         }
     }
 }
@@ -292,6 +298,9 @@ impl ByteCodeLambda {
             super_instructions: None,
 
             header: None,
+
+            #[cfg(feature = "jit2")]
+            tier2: None,
         }
     }
 

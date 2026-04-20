@@ -1409,6 +1409,30 @@ impl Compiler {
         // This might have to run later?
         semantic.lower_rest_arguments();
 
+        if std::env::var("STEEL_INLINE_MORE").is_ok() {
+            for fn_size in [200, 50] {
+                semantic.inline_function_calls(Some(fn_size), self.modules())?;
+                semantic.refresh_variables();
+                let mut analysis = semantic.into_analysis();
+                self.shadowed_variable_renamer
+                    .rename_shadowed_variables(&mut expanded_statements, false);
+                analysis.fresh_from_exprs(&expanded_statements);
+                analysis.populate_captures(&expanded_statements);
+                // Do this again
+                semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+                semantic.replace_anonymous_function_calls_with_plain_lets();
+
+                let analysis = semantic.into_analysis();
+
+                expanded_statements =
+                    self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
+
+                SingleExprOptimizer::run(&mut expanded_statements);
+                // analysis.fresh_from_exprs(&expanded_statements);
+                semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+            }
+        }
+
         // Process the fixed values in the compiler
 
         #[cfg(feature = "jit2")]

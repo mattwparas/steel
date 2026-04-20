@@ -3912,7 +3912,10 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                 let name = ident.atom_identifier().unwrap();
 
                                                 if original_func_name == *name {
-                                                    let name = format!("##closure-lifting-{}", id);
+                                                    let name = format!(
+                                                        "##{}-closure-lifting-{}",
+                                                        name, id
+                                                    );
 
                                                     // Replace these with a new name,
                                                     // we're going to lift the expression out
@@ -5950,6 +5953,11 @@ impl<'a> SemanticAnalysis<'a> {
                                 lst.args[0] = ExprKind::LambdaFunction(l.clone());
                             }
                         }),
+                    );
+                } else {
+                    println!(
+                        "Skipping inlining: {} with cost: {} > {}",
+                        d.name, count, threshold
                     );
                 }
             }

@@ -82,6 +82,8 @@ pub struct JIT {
     function_map: OwnedFunctionMap,
 
     names: HashMap<u32, String>,
+
+    function_return_types: HashMap<u32, HashSet<InferredType>>,
 }
 
 pub struct FunctionMap<'a> {
@@ -1220,6 +1222,7 @@ impl Default for JIT {
             module,
             function_map,
             names: Default::default(),
+            function_return_types: Default::default(),
         }
     }
 }
@@ -1389,6 +1392,8 @@ impl JIT {
         slot: Option<&Gc<ByteCodeLambda>>,
         top_level_name: Option<InternedString>,
     ) -> Result<*const u8, String> {
+        let id = str::parse::<u32>(&name).unwrap();
+
         let inner_name = if let Some(top_level_name) = top_level_name {
             format!("{}_{}_inner", top_level_name, name)
         } else {
@@ -1396,8 +1401,7 @@ impl JIT {
             format!("{}_inner", name)
         };
 
-        self.names
-            .insert(str::parse::<u32>(&name).unwrap(), inner_name.clone());
+        self.names.insert(id, inner_name.clone());
 
         // self.ctx.set_disasm(true);
 
@@ -1432,6 +1436,7 @@ impl JIT {
 
         // Then, translate the AST nodes into Cranelift IR.
         self.translate(
+            id,
             inner_name.clone(),
             inner_id,
             arity,
@@ -1483,6 +1488,7 @@ impl JIT {
 
     fn translate(
         &mut self,
+        id: u32,
         _name: String,
         _func_id: FuncId,
         arity: u16,
@@ -1558,9 +1564,14 @@ impl JIT {
             slot,
             function_context,
             names: &self.names,
+            function_return_types: &self.function_return_types,
+            exit_types: HashSet::new(),
+            potentially_could_deopt: false,
         };
 
         trans.stack_to_ssa();
+
+        let exit_types = std::mem::take(&mut trans.exit_types);
 
         if let Some(fake_entry_block) = fake_entry_block {
             trans.builder.seal_block(fake_entry_block);
@@ -1577,6 +1588,15 @@ impl JIT {
 
         // Tell the builder we're done with this function.
         trans.builder.finalize();
+
+        if !trans.potentially_could_deopt {
+            println!("Found a candidate for tier 2 compiltion");
+        } else {
+            println!("Not a candidate for tier 2 compilation");
+        }
+
+        self.function_return_types.insert(id, exit_types);
+
         Ok(())
     }
 }
@@ -1620,6 +1640,8 @@ pub enum InferredType {
     ListOrPair,
 
     Function,
+
+    BytecodeFunction,
 
     Char,
 
@@ -2018,6 +2040,11 @@ struct FunctionTranslator<'a> {
     function_context: Option<usize>,
 
     names: &'a HashMap<u32, String>,
+
+    function_return_types: &'a HashMap<u32, HashSet<InferredType>>,
+    exit_types: HashSet<InferredType>,
+
+    potentially_could_deopt: bool,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -2222,7 +2249,12 @@ impl FunctionTranslator<'_> {
                 // OpCode::POPJMP | OpCode::POPPURE => {
                 OpCode::POPPURE => {
                     self.maybe_check_last();
-                    let (value, _) = self.shadow_pop();
+                    let (value, ty) = self.shadow_pop();
+
+                    // Whatever the exit type is, record it, if
+                    // we have it.
+                    self.exit_types.insert(ty);
+
                     self.spill_cloned_stack();
                     self.vm_pop(value);
                     self.ip = self.instructions.len() + 1;
@@ -2319,6 +2351,35 @@ impl FunctionTranslator<'_> {
                                         .ins()
                                         .ireduce(Type::int(8).unwrap(), shift_right)
                                 }
+                                InferredType::List => {
+                                    println!("GETTING HERE");
+                                    self.drop_tagged_value(test);
+                                    self.builder.ins().iconst(types::I8, 1)
+                                }
+                                _ => {
+                                    let is_bool = self.is_type(test, SteelVal::BOOL_TAG);
+                                    let amount_to_shift =
+                                        self.builder.ins().iconst(Type::int(64).unwrap(), 64);
+
+                                    let shift_right =
+                                        self.builder.ins().sshr(test, amount_to_shift);
+
+                                    let small = self
+                                        .builder
+                                        .ins()
+                                        .ireduce(Type::int(8).unwrap(), shift_right);
+
+                                    let is_false =
+                                        self.builder.ins().icmp_imm(IntCC::Equal, small, 0);
+
+                                    // Is bool and is false:
+                                    let overall = self.builder.ins().band(is_bool, is_false);
+                                    let is_truthy = self.builder.ins().bxor_imm(overall, 1);
+
+                                    self.drop_tagged_value(test);
+
+                                    is_truthy
+                                }
                                 _ => self.call_test_handler(test),
                             };
 
@@ -2345,6 +2406,8 @@ impl FunctionTranslator<'_> {
                     let arity = payload;
                     let name = CallFunctionDefinitions::arity_to_name(arity);
                     self.ip += 1;
+
+                    self.potentially_could_deopt = true;
 
                     // TODO: @Matt
                     // Lets do a hierarchical check. In the event this is a
@@ -2397,6 +2460,8 @@ impl FunctionTranslator<'_> {
                     let arity = payload;
                     let name = CallFunctionTailDefinitions::arity_to_name(arity);
                     self.ip += 1;
+
+                    self.potentially_could_deopt = true;
 
                     match self.shadow_stack.last().copied() {
                         Some(MaybeStackValue::MutRegister(i)) if USE_INLINE_LOCAL_TAIL_CALL => {
@@ -2548,7 +2613,7 @@ impl FunctionTranslator<'_> {
                     let v = self
                         .call_function_returns_value_args("new-closure", &[ip_value, offset_value]);
 
-                    self.push(v, InferredType::Function);
+                    self.push(v, InferredType::BytecodeFunction);
                 }
 
                 // Something is up here - we don't want to do this!
@@ -2577,7 +2642,7 @@ impl FunctionTranslator<'_> {
                     let v = self
                         .call_function_returns_value_args("pure-func", &[ip_value, offset_value]);
 
-                    self.push(v, InferredType::Function);
+                    self.push(v, InferredType::BytecodeFunction);
                 }
 
                 OpCode::ECLOSURE => panic!("Should not hit a ECLOSURE during jit pass"),
@@ -2708,6 +2773,16 @@ impl FunctionTranslator<'_> {
 
                     *self.let_var_stack.last_mut().unwrap() += 1;
 
+                    match typ {
+                        InferredType::List => {
+                            self.properties.add_property(
+                                ValueOrRegister::Register(local_index),
+                                Properties::ProperList,
+                            );
+                        }
+                        _ => {}
+                    }
+
                     // TODO: @mparas - in the event we're using a local value,
                     // we need to check if this is actually spilled or not.
                     //
@@ -2823,6 +2898,9 @@ impl FunctionTranslator<'_> {
                                 let cold_block = self.builder.create_block();
                                 self.builder.switch_to_block(cold_block);
 
+                                self.exit_types.insert(InferredType::List);
+                                self.exit_types.insert(InferredType::Bool);
+
                                 self.depth -= 1;
                                 self.ip = self.instructions.len() + 1;
                                 return false;
@@ -2889,15 +2967,24 @@ impl FunctionTranslator<'_> {
                         // Take this fast path if the super instructions already exists.
                         // Then we can do a direct call.
                         if function.super_instructions.is_some() {
+                            if function.tier2.is_none() {
+                                self.potentially_could_deopt = true;
+                            }
+
                             self.inline_global_tail_call(arity, function);
                             self.ip = self.instructions.len() + 1;
                             self.depth -= 1;
                         } else {
+                            self.potentially_could_deopt = true;
                             self.slow_path_deopt_tail_call(function_index, arity);
                         }
 
                         return false;
                     } else {
+                        if !matches!(func, Some(SteelVal::FuncV(_))) {
+                            self.potentially_could_deopt = true;
+                        }
+
                         self.slow_path_deopt_tail_call(function_index, arity);
                         return false;
                     }
@@ -2928,6 +3015,10 @@ impl FunctionTranslator<'_> {
                     let name = CallGlobalNoArityFunctionDefinitions::arity_to_name(arity);
 
                     let self_name = CallSelfNoArityFunctionDefinitions::arity_to_name(arity);
+
+                    // Pessimise the calls here, since in general we're going
+                    // to be calling functions that aren't primitives here.
+                    self.potentially_could_deopt = true;
 
                     // Okay, lets try to install the self call if we have the ability to.
                     //
@@ -2967,9 +3058,22 @@ impl FunctionTranslator<'_> {
                             panic!();
                         };
 
+                        let id = func.id;
+
                         let result = self.call_self_function_experimental(arity, func);
 
-                        self.push(result, InferredType::Any);
+                        let inferred_type =
+                            if let Some(ret_types) = self.function_return_types.get(&id) {
+                                if ret_types.len() == 1 {
+                                    ret_types.iter().next().copied().unwrap()
+                                } else {
+                                    InferredType::Any
+                                }
+                            } else {
+                                InferredType::Any
+                            };
+
+                        self.push(result, inferred_type);
                     } else if let Some(name) = name {
                         let result = self.call_global_function(arity, name, function_index, false);
 
@@ -3135,11 +3239,14 @@ impl FunctionTranslator<'_> {
                                 self.check_deopt();
                             } else {
                                 self.ip -= 1;
+                                self.potentially_could_deopt = true;
                                 self.call_global_impl(payload);
                             }
                         }
 
                         _ => {
+                            self.potentially_could_deopt = true;
+
                             // println!("code-gen: {:?}", global);
                             self.call_global_impl(payload);
                         }
@@ -3147,6 +3254,7 @@ impl FunctionTranslator<'_> {
                 }
 
                 OpCode::CALLGLOBAL => {
+                    self.potentially_could_deopt = true;
                     self.call_global_impl(payload);
                 }
                 OpCode::READCAPTURED => {
@@ -5975,6 +6083,11 @@ impl FunctionTranslator<'_> {
             .ins()
             .return_call_indirect(sig_ref, func_ptr, &args);
 
+        // // Look up the return type of this one:
+        // if let Some(ret_types) = self.function_return_types.get(&id) {
+        //     println!("inline global tail call return types: {:#?}", ret_types);
+        // }
+
         let cold_block = self.builder.create_block();
         self.builder.switch_to_block(cold_block);
     }
@@ -6373,6 +6486,14 @@ impl FunctionTranslator<'_> {
     // We should split off and generate the values in reverse order I believe.
     fn mut_register_to_value(&mut self, p: usize) -> (Value, InferredType) {
         let value = self.remove_from_vm_stack(p);
+
+        let inferred_type = match self.properties.get(&ValueOrRegister::Register(p)) {
+            Some(Properties::InferredType(t)) => t,
+            Some(Properties::ProperList) => InferredType::List,
+            None => InferredType::Any,
+            _ => InferredType::Any,
+        };
+
         (value, InferredType::Any)
     }
 
@@ -6386,7 +6507,14 @@ impl FunctionTranslator<'_> {
         // Increment the ref count for the value:
         self.clone_value(value);
 
-        (value, InferredType::Any)
+        let inferred_type = match self.properties.get(&ValueOrRegister::Register(p)) {
+            Some(Properties::InferredType(t)) => t,
+            Some(Properties::ProperList) => InferredType::List,
+            None => InferredType::Any,
+            _ => InferredType::Any,
+        };
+
+        (value, inferred_type)
     }
 
     fn maybe_shadow_pop(&mut self) -> Option<(Value, InferredType)> {

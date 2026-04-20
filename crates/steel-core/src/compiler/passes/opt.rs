@@ -155,7 +155,6 @@ impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
                     .find_map(|x| if x.0 == ident { Some(x.1) } else { None })
                 {
                     if let Some(r) = r {
-                        println!("Replacing {} with {}", a, r);
                         *a.ident_mut().unwrap() = r;
                     }
 
@@ -190,7 +189,6 @@ impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
                         if !rhs.resolve().starts_with("##__lifted_pure_function")
                             && !rhs.resolve().starts_with("#%prim.")
                         {
-                            println!("Found unbound ref: {} -> {}", left, rhs);
                             bound.push((*left, None));
                             continue;
                         }

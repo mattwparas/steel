@@ -2,6 +2,7 @@ use core::cmp::Ordering;
 use core::sync::atomic::AtomicU64;
 #[cfg(feature = "jit2")]
 use std::hint::unreachable_unchecked;
+use std::sync::{LazyLock, OnceLock};
 
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
@@ -718,7 +719,6 @@ pub(crate) unsafe fn cdr_no_check_two(arg: &mut SteelVal) {
             l.rest_mut();
         }
 
-        SteelVal::Pair(p) => *arg = p.cdr(),
         _ => unsafe {
             unreachable_unchecked();
         },
