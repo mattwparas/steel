@@ -1,4 +1,3 @@
-#![allow(unused)]
 #![allow(improper_ctypes_definitions)]
 #![allow(unpredictable_function_pointer_comparisons)]
 
@@ -719,6 +718,11 @@ impl Default for JIT {
         map.add_func(
             "slow-grow-stack",
             abi! { grow_stack_slow as fn(*mut VmCore) },
+        );
+
+        map.add_func(
+            "slow-stack-reserve-exact",
+            abi! { stack_ensure_capacity as fn(*mut VmCore, usize) },
         );
 
         map.add_func(
@@ -1590,9 +1594,7 @@ impl JIT {
         trans.builder.finalize();
 
         if !trans.potentially_could_deopt {
-            println!("Found a candidate for tier 2 compiltion");
-        } else {
-            println!("Not a candidate for tier 2 compilation");
+            println!("Found a candidate for tier 2 compilation: {}", _name);
         }
 
         self.function_return_types.insert(id, exit_types);
@@ -2720,16 +2722,12 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                 }
                 OpCode::TRUE => {
-                    let constant = SteelVal::BoolV(true);
-                    // let value = self.create_i128(encode(constant));
                     let value = self.encode_true();
                     self.ip += 1;
                     // self.advance_ip();
                     self.push(value, InferredType::Bool);
                 }
                 OpCode::FALSE => {
-                    let constant = SteelVal::BoolV(false);
-                    // let value = self.create_i128(encode(constant));
                     let value = self.encode_false();
                     self.ip += 1;
                     self.push(value, InferredType::Any);
@@ -4774,9 +4772,13 @@ impl FunctionTranslator<'_> {
 
                 // TODO: Figure out a way to swap these inline?
                 // Directly push these on to the stack.
+                /*
                 for arg in &args_off_the_stack {
                     ctx.push_to_vm_stack_let_var_new(*arg);
                 }
+                */
+
+                ctx.push_to_many_vm_stack_let_var_new(&args_off_the_stack);
 
                 let should_trampoline = ctx.check_should_trampoline(vm_ctx);
 
@@ -5918,7 +5920,6 @@ impl FunctionTranslator<'_> {
     fn call_self_function_experimental(&mut self, arity: usize, func: Gc<ByteCodeLambda>) -> Value {
         // let local_callee = self.get_local_callee(name);
 
-        let ctx = self.get_ctx();
         let id = func.id;
 
         /* TODO: Add this back!!
@@ -6059,9 +6060,13 @@ impl FunctionTranslator<'_> {
         // Then, truncate the stack back to where we were before:
         self.truncate_stack(vm_ctx, offset, None);
 
+        /*
         for arg in args {
             self.push_to_vm_stack(arg);
         }
+        */
+
+        self.push_to_many_vm_stack_let_var_new(&args);
 
         // Implement the body of `new_handle_tail_call_closure` here
 
@@ -6165,9 +6170,13 @@ impl FunctionTranslator<'_> {
                 // Then, truncate the stack back to where we were before:
                 ctx.truncate_stack(vm_ctx, offset, None);
 
+                /*
                 for arg in &args {
                     ctx.push_to_vm_stack(*arg);
                 }
+                */
+
+                ctx.push_to_many_vm_stack_let_var_new(&args);
 
                 // Implement the body of `new_handle_tail_call_closure` here
 
@@ -6434,34 +6443,44 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    // Spill all of these at one time!
     fn spill_cloned_stack(&mut self) {
         // println!("Spilling cloned stack: {:?}", self.shadow_stack);
 
         // assert!(!self.cloned_stack);
         // self.cloned_stack = true;
+
+        let mut values_to_spill = Vec::new();
         for value in self.shadow_stack.clone() {
             match value {
                 MaybeStackValue::Value(stack_value) => {
                     if !stack_value.spilled {
                         let steelval = stack_value.as_steelval(self);
-                        self.push_to_vm_stack(steelval);
+                        // self.push_to_vm_stack(steelval);
+
+                        values_to_spill.push(steelval);
                     }
                 }
                 MaybeStackValue::MutRegister(p) => {
                     // Read the value:
                     let (value, _) = self.mut_register_to_value(p);
-                    self.push_to_vm_stack(value);
+                    // self.push_to_vm_stack(value);
+                    values_to_spill.push(value);
                 }
                 MaybeStackValue::Register(p) => {
                     let (value, _) = self.immutable_register_to_value(p);
-                    self.push_to_vm_stack(value);
+                    // self.push_to_vm_stack(value);
+                    values_to_spill.push(value);
                 }
                 MaybeStackValue::Constant(c) => {
                     let (value, _) = c.to_value(self);
-                    self.push_to_vm_stack(value);
+                    // self.push_to_vm_stack(value);
+                    values_to_spill.push(value);
                 }
             }
         }
+
+        self.push_to_many_vm_stack_let_var_new(&values_to_spill);
     }
 
     fn shadow_pop(&mut self) -> (Value, InferredType) {
@@ -7527,9 +7546,11 @@ impl FunctionTranslator<'_> {
         let arity = args.len();
 
         // Push each value on to the stack:
-        for arg in args {
-            self.push_to_vm_stack_let_var_new(*arg);
-        }
+        // for arg in args {
+        //     self.push_to_vm_stack_let_var_new(*arg);
+        // }
+
+        self.push_to_many_vm_stack_let_var_new(&args);
 
         self.converging_if(
             should_trampoline,
@@ -8238,13 +8259,6 @@ impl FunctionTranslator<'_> {
         let capacity_offset = steel_vec::Vec::<StackFrame>::capacity_offset();
         let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
 
-        // println!(
-        //     "Offset of stackframe instuctions: {}",
-        //     offset_of!(StackFrame, instructions)
-        // );
-        // println!("StackFrame size: {}", std::mem::size_of::<StackFrame>());
-
-        // This is the actual stack, steel_vec::Vec<SteelVal>
         let stack_capacity = self.builder.ins().load(
             Type::int(64).unwrap(),
             MemFlags::trusted(),
@@ -8527,6 +8541,94 @@ impl FunctionTranslator<'_> {
 
                 // Add one to the length:
                 let new_length = ctx.builder.ins().iadd_imm(stack_length, 1);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    new_length,
+                    thread_pointer,
+                    (stack_offset + len_offset) as i32,
+                );
+            },
+        );
+    }
+
+    fn push_to_many_vm_stack_let_var_new(&mut self, values: &[Value]) {
+        let ctx = self.get_ctx();
+        let thread_offset = offset_of!(VmCore, thread);
+        let arity = values.len();
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let capacity_offset = steel_vec::Vec::<SteelVal>::capacity_offset();
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        // This is the actual stack, steel_vec::Vec<SteelVal>
+        let stack_capacity = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + capacity_offset) as i32,
+        );
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // Then, we'll say _if_ the values are equal, we can do something,
+        // otherwise we really just have to write the value in and call
+        // it a day. Lets see if this is any faster... odds are that its not,
+        // but then we can start eliding all sorts of good things because
+        // we have direct access to the stack.
+        let at_capacity = self
+            .builder
+            .ins()
+            .icmp(IntCC::Equal, stack_capacity, stack_length);
+
+        self.converging_if_no_else_no_value(
+            at_capacity,
+            // If at capacity, call grow
+            |ctx| {
+                let amt = ctx.builder.ins().iconst(types::I64, arity as i64);
+                ctx.call_function_args_no_return("slow-stack-reserve-exact", &[amt])
+            },
+            |ctx| {
+                // Write the value(s):
+                let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+                let buf_ptr = ctx.builder.ins().load(
+                    Type::int(64).unwrap(),
+                    MemFlags::trusted(),
+                    thread_pointer,
+                    (stack_offset + ptr_offset) as i32,
+                );
+
+                let size: i64 = std::mem::size_of::<SteelVal>() as _;
+                let offset = ctx.builder.ins().imul_imm(stack_length, size);
+                let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
+
+                for (index, value) in values.iter().enumerate() {
+                    ctx.builder.ins().store(
+                        MemFlags::trusted(),
+                        *value,
+                        slot_ptr,
+                        (index * size as usize) as i32,
+                    );
+                }
+
+                // Update the new length:
+                let new_length = ctx.builder.ins().iadd_imm(stack_length, arity as i64);
 
                 ctx.builder.ins().store(
                     MemFlags::trusted(),

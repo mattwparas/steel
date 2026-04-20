@@ -548,6 +548,12 @@ fn grow_stack_slow(ctx: *mut VmCore) {
 }
 
 #[cross_platform_fn]
+fn stack_ensure_capacity(ctx: *mut VmCore, capacity: usize) {
+    let mut ctx = unsafe { &mut *ctx };
+    ctx.thread.stack.reserve_exact(capacity)
+}
+
+#[cross_platform_fn]
 fn grow_frame_stack_slow(ctx: *mut VmCore) {
     let mut ctx = unsafe { &mut *ctx };
     ctx.thread.stack_frames.grow_capacity();
