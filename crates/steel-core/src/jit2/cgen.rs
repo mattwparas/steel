@@ -1418,7 +1418,7 @@ impl JIT {
             }
         }
 
-        let (params, stmts) = (Default::default(), instructions);
+        let stmts = instructions;
 
         let pointer = self.module.target_config().pointer_type();
 
@@ -1433,18 +1433,12 @@ impl JIT {
             .declare_function(&inner_name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
-        // let id = self
-        //     .module
-        //     .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
-        //     .map_err(|e| e.to_string())?;
-
         // Then, translate the AST nodes into Cranelift IR.
         self.translate(
             id,
             inner_name.clone(),
             inner_id,
             arity,
-            params,
             stmts,
             globals,
             constants,
@@ -1496,7 +1490,6 @@ impl JIT {
         _name: String,
         _func_id: FuncId,
         arity: u16,
-        params: Vec<String>,
         bytecode: &[DenseInstruction],
         globals: &[SteelVal], // stmts: Vec<Expr>,
         constants: &ConstantMap,
@@ -1571,6 +1564,7 @@ impl JIT {
             function_return_types: &self.function_return_types,
             exit_types: HashSet::new(),
             potentially_could_deopt: false,
+            tier: JitTier::Baseline,
         };
 
         trans.stack_to_ssa();
@@ -1979,6 +1973,13 @@ struct TranslationState {
     let_var_stack: Vec<usize>,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Default)]
+enum JitTier {
+    #[default]
+    Baseline,
+    Tier2,
+}
+
 /// A collection of state used for translating from toy-language AST nodes
 /// into Cranelift IR.
 struct FunctionTranslator<'a> {
@@ -2019,10 +2020,6 @@ struct FunctionTranslator<'a> {
 
     let_var_stack: Vec<usize>,
 
-    // function_context: Option<usize>,
-    // id: FuncId,
-    // call_global_all_native: bool,
-    // name: String,
     intrinsics: &'a OwnedFunctionMap,
 
     fake_entry_block: Option<Block>,
@@ -2047,6 +2044,8 @@ struct FunctionTranslator<'a> {
     exit_types: HashSet<InferredType>,
 
     potentially_could_deopt: bool,
+
+    tier: JitTier,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -2676,31 +2675,9 @@ impl FunctionTranslator<'_> {
                 // it will only be used one. Read local does since we want
                 // to clone it
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
-                    // TODO: @matt remove this and make it more general
-                    // TODO: This optimization should be more general
-                    // if payload < self.arity as usize
-                    //     && payload + 1 == self.arity as usize
-                    //     && self
-                    //         .instructions
-                    //         .get(self.ip + 1)
-                    //         .map(|x| x.op_code == OpCode::SELFTAILCALLNOARITY)
-                    //         .unwrap_or_default()
-                    // {
-                    //     // Leave the last in place
-                    //     self.ip += 1;
-                    //     let payload = self.instructions[self.ip].payload_size.to_usize();
-                    //     let _ = self
-                    //         .test_translate_tco_jmp_no_arity_loop_no_spill(payload - 1, payload);
-                    //     self.ip = self.instructions.len() + 1;
-                    //     return false;
-                    // } else {
-
-                    // let (value, inferred_type) = self.read_local_value(op, payload);
                     let value = self.spilled_read_local_value(op, payload);
                     self.ip += 1;
-                    // self.push(value, inferred_type);
                     self.shadow_push(value);
-                    // }
                 }
                 OpCode::PUSHCONST => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
@@ -5504,42 +5481,32 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ {
-            //
-            match op {
-                OpCode::READLOCAL => MaybeStackValue::Register(payload),
-                OpCode::MOVEREADLOCAL => {
-                    // Check existing stack, and see if we need to spill any existing ones:
-                    for index in 0..self.shadow_stack.len() {
-                        let item = self.shadow_stack.get_mut(index).unwrap();
+        // if payload < self.arity as _ {
+        //
+        match op {
+            OpCode::READLOCAL => MaybeStackValue::Register(payload),
+            OpCode::MOVEREADLOCAL => {
+                // Check existing stack, and see if we need to spill any existing ones:
+                for index in 0..self.shadow_stack.len() {
+                    let item = self.shadow_stack.get_mut(index).unwrap();
 
-                        match item {
-                            MaybeStackValue::Register(i) if *i == payload => {
-                                let (value, typ) = self.immutable_register_to_value(payload);
+                    match item {
+                        MaybeStackValue::Register(i) if *i == payload => {
+                            let (value, typ) = self.immutable_register_to_value(payload);
 
-                                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
-                                    value,
-                                    inferred_type: typ,
-                                    spilled: false,
-                                });
-                            }
-                            _ => {}
+                            self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                                value,
+                                inferred_type: typ,
+                                spilled: false,
+                            });
                         }
+                        _ => {}
                     }
-
-                    MaybeStackValue::MutRegister(payload)
                 }
-                _ => panic!(),
-            }
-        } else {
-            let value = self.read_from_vm_stack(payload);
-            self.clone_value(value);
 
-            MaybeStackValue::Value(StackValue {
-                value,
-                inferred_type: InferredType::Any,
-                spilled: false,
-            })
+                MaybeStackValue::MutRegister(payload)
+            }
+            _ => panic!(),
         }
     }
 
@@ -7643,6 +7610,7 @@ impl FunctionTranslator<'_> {
 
         let size: i64 = std::mem::size_of::<SteelVal>() as _;
 
+        // TODO: Don't use a loop here?
         // Use the calculated difference if thats what we have to do
         let count = count
             .map(|count| self.builder.ins().iconst(types::I64, count as i64))
@@ -7652,7 +7620,106 @@ impl FunctionTranslator<'_> {
             let loop_body = self.builder.create_block();
             let loop_exit = self.builder.create_block();
 
-            self.builder.append_block_param(loop_header, types::I64); // i
+            self.builder.append_block_param(loop_header, types::I64);
+
+            let zero = BlockArg::Value(self.builder.ins().iconst(types::I64, 0));
+            self.builder.ins().jump(loop_header, &[zero]);
+
+            self.builder.switch_to_block(loop_header);
+            let i = self.builder.block_params(loop_header)[0];
+
+            let done = self
+                .builder
+                .ins()
+                .icmp(IntCC::SignedGreaterThanOrEqual, i, count);
+            self.builder
+                .ins()
+                .brif(done, loop_exit, &[], loop_body, &[]);
+
+            self.builder.switch_to_block(loop_body);
+            self.builder.seal_block(loop_body);
+
+            let slot_index = self.builder.ins().iadd(index, i);
+            let byte_offset = self
+                .builder
+                .ins()
+                .imul_imm(slot_index, size_of::<SteelVal>() as i64);
+            let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
+            let val = self
+                .builder
+                .ins()
+                .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+            self.drop_tagged_value(val);
+
+            let i_next = BlockArg::Value(self.builder.ins().iadd_imm(i, 1));
+            self.builder.ins().jump(loop_header, &[i_next]);
+
+            self.builder.seal_block(loop_header);
+
+            self.builder.switch_to_block(loop_exit);
+            self.builder.seal_block(loop_exit);
+        }
+    }
+
+    // TODO: Pick up here! Anywhere where we're truncating, we should also keep
+    // track of what has already been moved, and then make sure that those are
+    // not included in the drop calls since we don't need to drop them anymore.
+    fn truncate_stack_write_last(&mut self, vm_ctx: Value, index: Value, new_last: Value) {
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        // Current stack length:
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // let difference = self.builder.ins().isub(stack_length, index);
+        // let new_length = self.builder.ins().iconst(types::, N)
+
+        //
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            index,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+
+        // TODO: Don't use a loop here?
+        // Use the calculated difference if thats what we have to do
+        let count = self.builder.ins().isub(stack_length, index);
+        {
+            let loop_header = self.builder.create_block();
+            let loop_body = self.builder.create_block();
+            let loop_exit = self.builder.create_block();
+
+            self.builder.append_block_param(loop_header, types::I64);
 
             let zero = BlockArg::Value(self.builder.ins().iconst(types::I64, 0));
             self.builder.ins().jump(loop_header, &[zero]);
