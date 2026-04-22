@@ -15,7 +15,9 @@
 ;; return an int - we should be able to do
 ;; ADDINT... Or also could do loop unrolling?
 (define (fib n)
-  (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))
+  (if (<= n 2)
+      1
+      (+ (fib (- n 1)) (fib (- n 2)))))
 
 ; (define (jit-fib n)
 ;   ;; Loop unrolling would do so much, assuming we can do that easily

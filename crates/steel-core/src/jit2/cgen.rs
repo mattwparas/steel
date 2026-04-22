@@ -1565,7 +1565,21 @@ impl JIT {
             exit_types: HashSet::new(),
             potentially_could_deopt: false,
             tier: JitTier::Baseline,
+            thread_pointer: None,
+            sp: None,
+            pop_count: None,
+            pop_count_plus_one: None,
+            pop_count_minus_one: None,
         };
+
+        {
+            let vm_ctx = trans.get_ctx();
+            trans.get_thread_pointer(vm_ctx);
+            trans.get_sp(vm_ctx);
+            trans.get_pop_count(vm_ctx);
+            trans.pop_count_add_one(vm_ctx);
+            trans.pop_count_sub_one(vm_ctx);
+        }
 
         trans.stack_to_ssa();
 
@@ -2046,6 +2060,15 @@ struct FunctionTranslator<'a> {
     potentially_could_deopt: bool,
 
     tier: JitTier,
+
+    thread_pointer: Option<Value>,
+
+    sp: Option<Value>,
+
+    pop_count: Option<Value>,
+
+    pop_count_plus_one: Option<Value>,
+    pop_count_minus_one: Option<Value>,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -3022,6 +3045,14 @@ impl FunctionTranslator<'_> {
                     // TODO: inline the call global here!
                     else if USE_INLINE_CALL_GLOBAL
                         && matches!(self._globals.get(payload), Some(SteelVal::Closure(_)))
+                        // And, we actually have a super instruction
+                        && self._globals.get(payload).map(|x| {
+                            if let SteelVal::Closure(c) = x {
+                                c.super_instructions.is_some()
+                            } else {
+                                false
+                            }
+                        }).unwrap_or_default()
                     {
                         // TODO: Insert guard for whether this is mutable or not!
                         // Inline the call to this global, assuming its not mutable
@@ -5771,16 +5802,13 @@ impl FunctionTranslator<'_> {
         let vm_ctx = self.get_ctx();
         // Read from VM stack, write back, drop value.
         // then, truncate
-        for (i, arg) in args.iter().enumerate() {
-            self.write_to_vm_stack(i as _, *arg);
-        }
+        // for (i, arg) in args.iter().enumerate() {
+        //     self.write_to_vm_stack(i as _, *arg);
+        // }
 
-        let index = self.builder.ins().load(
-            types::I64,
-            MemFlags::trusted(),
-            vm_ctx,
-            offset_of!(VmCore, sp) as i32,
-        );
+        self.write_to_vm_stack_starting_at(0, args, true);
+
+        let index = self.get_sp(vm_ctx);
 
         let index = self.builder.ins().iadd_imm(index, arity);
 
@@ -6013,7 +6041,7 @@ impl FunctionTranslator<'_> {
         self.increment_ref_count_closure(lookup_index);
 
         // Pass this through
-        self.update_last_stackframe(vm_ctx, lookup_index);
+        let offset = self.update_last_stackframe(vm_ctx, lookup_index);
 
         self.builder.ins().store(
             MemFlags::trusted(),
@@ -6022,18 +6050,13 @@ impl FunctionTranslator<'_> {
             offset_of!(VmCore, instructions) as i32,
         );
 
-        let offset = self.read_last_sp(vm_ctx, None);
+        // let offset = self.read_last_sp(vm_ctx, None);
 
         // Then, truncate the stack back to where we were before:
-        self.truncate_stack(vm_ctx, offset, None);
+        // self.truncate_stack(vm_ctx, offset, None);
+        // self.push_to_many_vm_stack_let_var_new(&args);
 
-        /*
-        for arg in args {
-            self.push_to_vm_stack(arg);
-        }
-        */
-
-        self.push_to_many_vm_stack_let_var_new(&args);
+        self.truncate_stack_with_args(vm_ctx, offset, &args);
 
         // Implement the body of `new_handle_tail_call_closure` here
 
@@ -6090,6 +6113,8 @@ impl FunctionTranslator<'_> {
                 .ins()
                 .icmp_imm(IntCC::NotEqual, super_instruction, 0);
 
+        // I think I just need to drop the values, not spill them, since they're
+        // going to get truncated anyway
         self.spill_cloned_stack();
 
         // TODO: Check if super instruction exists here:
@@ -6123,7 +6148,7 @@ impl FunctionTranslator<'_> {
                 ctx.ip += 1;
 
                 // Pass this through
-                ctx.update_last_stackframe(vm_ctx, closure);
+                let offset = ctx.update_last_stackframe(vm_ctx, closure);
 
                 ctx.builder.ins().store(
                     MemFlags::trusted(),
@@ -6132,18 +6157,13 @@ impl FunctionTranslator<'_> {
                     offset_of!(VmCore, instructions) as i32,
                 );
 
-                let offset = ctx.read_last_sp(vm_ctx, None);
+                // let offset = ctx.read_last_sp(vm_ctx, None);
 
                 // Then, truncate the stack back to where we were before:
-                ctx.truncate_stack(vm_ctx, offset, None);
+                // ctx.truncate_stack(vm_ctx, offset, None);
+                // ctx.push_to_many_vm_stack_let_var_new(&args);
 
-                /*
-                for arg in &args {
-                    ctx.push_to_vm_stack(*arg);
-                }
-                */
-
-                ctx.push_to_many_vm_stack_let_var_new(&args);
+                ctx.truncate_stack_with_args(vm_ctx, offset, &args);
 
                 // Implement the body of `new_handle_tail_call_closure` here
 
@@ -6706,39 +6726,39 @@ impl FunctionTranslator<'_> {
         self.ip += ip_inc;
     }
 
-    fn get_const(&mut self, op1: OpCode, payload: usize) -> (Value, InferredType) {
-        match op1 {
-            OpCode::LOADINT0 => (
-                // self.create_i128(encode(SteelVal::INT_ZERO)),
-                self.encode_integer(0),
-                InferredType::Int,
-            ),
-            OpCode::LOADINT1 => (
-                // self.create_i128(encode(SteelVal::INT_ONE)),
-                self.encode_integer(1),
-                InferredType::Int,
-            ),
-            OpCode::LOADINT2 => (
-                // self.create_i128(encode(SteelVal::INT_TWO)),
-                self.encode_integer(2),
-                InferredType::Int,
-            ),
-            OpCode::PUSHCONST => {
-                // Attempt to inline the constant, if it is something that can be inlined.
-                // Assuming we know the type of it, we can get really fancy here since
-                // we _should_ be able to do something with it if there are other types
-                // in play - we can avoid the unboxing / boxing of the type if we know
-                // what we're dealing with.
+    // fn get_const(&mut self, op1: OpCode, payload: usize) -> (Value, InferredType) {
+    //     match op1 {
+    //         OpCode::LOADINT0 => (
+    //             // self.create_i128(encode(SteelVal::INT_ZERO)),
+    //             self.encode_integer(0),
+    //             InferredType::Int,
+    //         ),
+    //         OpCode::LOADINT1 => (
+    //             // self.create_i128(encode(SteelVal::INT_ONE)),
+    //             self.encode_integer(1),
+    //             InferredType::Int,
+    //         ),
+    //         OpCode::LOADINT2 => (
+    //             // self.create_i128(encode(SteelVal::INT_TWO)),
+    //             self.encode_integer(2),
+    //             InferredType::Int,
+    //         ),
+    //         OpCode::PUSHCONST => {
+    //             // Attempt to inline the constant, if it is something that can be inlined.
+    //             // Assuming we know the type of it, we can get really fancy here since
+    //             // we _should_ be able to do something with it if there are other types
+    //             // in play - we can avoid the unboxing / boxing of the type if we know
+    //             // what we're dealing with.
 
-                let constant = self.constants.get_value(payload);
-                self.constant_to_value(payload, constant)
-            }
-            _ => (
-                self.call_function_returns_value(op_to_name_payload(op1, payload)),
-                InferredType::Any,
-            ),
-        }
-    }
+    //             let constant = self.constants.get_value(payload);
+    //             self.constant_to_value(payload, constant)
+    //         }
+    //         _ => (
+    //             self.call_function_returns_value(op_to_name_payload(op1, payload)),
+    //             InferredType::Any,
+    //         ),
+    //     }
+    // }
 
     fn constant_to_value(&mut self, payload: usize, constant: SteelVal) -> (Value, InferredType) {
         match &constant {
@@ -7319,24 +7339,10 @@ impl FunctionTranslator<'_> {
 
     // Note: This value should _not_ be dropped!
     fn read_from_vm_stack(&mut self, index: usize) -> Value {
-        let stack_pointer_offset = offset_of!(VmCore, sp);
-        // Lets do the thing?
-
         let ctx = self.get_ctx();
-        let sp = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            ctx,
-            stack_pointer_offset as i32,
-        );
+        let sp = self.get_sp(ctx);
 
-        let thread_offset = offset_of!(VmCore, thread);
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            ctx,
-            thread_offset as i32,
-        );
+        let thread_pointer = self.get_thread_pointer(ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack);
@@ -7365,24 +7371,10 @@ impl FunctionTranslator<'_> {
     }
 
     fn remove_from_vm_stack(&mut self, index: usize) -> Value {
-        let stack_pointer_offset = offset_of!(VmCore, sp);
-        // Lets do the thing?
-
         let ctx = self.get_ctx();
-        let sp = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            ctx,
-            stack_pointer_offset as i32,
-        );
+        let sp = self.get_sp(ctx);
 
-        let thread_offset = offset_of!(VmCore, thread);
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            ctx,
-            thread_offset as i32,
-        );
+        let thread_pointer = self.get_thread_pointer(ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack);
@@ -7418,24 +7410,9 @@ impl FunctionTranslator<'_> {
 
     // TODO: Should flatten these ops when calling this multiple times!
     fn write_to_vm_stack(&mut self, index: usize, value: Value) {
-        let stack_pointer_offset = offset_of!(VmCore, sp);
-        // Lets do the thing?
-
         let ctx = self.get_ctx();
-        let sp = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            ctx,
-            stack_pointer_offset as i32,
-        );
-
-        let thread_offset = offset_of!(VmCore, thread);
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            ctx,
-            thread_offset as i32,
-        );
+        let sp = self.get_sp(ctx);
+        let thread_pointer = self.get_thread_pointer(ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack);
@@ -7467,16 +7444,116 @@ impl FunctionTranslator<'_> {
             .store(MemFlags::trusted(), value, slot_ptr, 0);
     }
 
-    // ctx.thread.stack_frames.len() < 100
-    fn check_should_trampoline(&mut self, ctx: Value) -> Value {
-        let thread_offset = offset_of!(VmCore, thread);
+    fn write_to_vm_stack_starting_at_lifted(
+        &mut self,
+        index: usize,
+        values: &[Value],
+        should_drop: bool,
+        sp: Value,
+        buf_ptr: Value,
+    ) {
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
 
-        let thread_pointer = self.builder.ins().load(
+        let mut index = index;
+
+        for value in values {
+            let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+            let offset = self.builder.ins().imul_imm(local_offset, size);
+
+            let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+            if should_drop {
+                let local_value =
+                    self.builder
+                        .ins()
+                        .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+                self.drop_tagged_value(local_value);
+            }
+
+            self.builder
+                .ins()
+                .store(MemFlags::trusted(), *value, slot_ptr, 0);
+
+            index += 1;
+        }
+    }
+
+    fn drop_from_vm_stack_starting_at(
+        &mut self,
+        index: usize,
+        amt: usize,
+        sp: Value,
+        buf_ptr: Value,
+    ) {
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+
+        let mut index = index;
+
+        for _ in 0..amt {
+            let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+            let offset = self.builder.ins().imul_imm(local_offset, size);
+
+            let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+            let local_value =
+                self.builder
+                    .ins()
+                    .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+            self.drop_tagged_value(local_value);
+
+            index += 1;
+        }
+    }
+
+    fn write_to_vm_stack_starting_at(&mut self, index: usize, values: &[Value], should_drop: bool) {
+        let ctx = self.get_ctx();
+        let sp = self.get_sp(ctx);
+        let thread_pointer = self.get_thread_pointer(ctx);
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
             MemFlags::trusted(),
-            ctx,
-            thread_offset as i32,
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
         );
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+
+        let mut index = index;
+
+        for value in values {
+            let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+            let offset = self.builder.ins().imul_imm(local_offset, size);
+
+            let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+            if should_drop {
+                let local_value =
+                    self.builder
+                        .ins()
+                        .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+                self.drop_tagged_value(local_value);
+            }
+
+            self.builder
+                .ins()
+                .store(MemFlags::trusted(), *value, slot_ptr, 0);
+
+            index += 1;
+        }
+    }
+
+    // ctx.thread.stack_frames.len() < 100
+    fn check_should_trampoline(&mut self, ctx: Value) -> Value {
+        let thread_pointer = self.get_thread_pointer(ctx);
 
         // Stack frame offset:
         let stack_frame_offset = offset_of!(SteelThread, stack_frames);
@@ -7565,16 +7642,121 @@ impl FunctionTranslator<'_> {
         self.truncate_stack(vm_ctx, rollback_index, Some(count as _));
     }
 
-    fn truncate_stack(&mut self, vm_ctx: Value, index: Value, count: Option<i32>) {
-        let thread_offset = offset_of!(VmCore, thread);
+    fn truncate_stack_with_args(&mut self, vm_ctx: Value, index: Value, args: &[Value]) {
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
 
-        // This represents the first part of the thread
-        let thread_pointer = self.builder.ins().load(
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let capacity_offset = steel_vec::Vec::<SteelVal>::capacity_offset();
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        // We're going to check the capacity before we do anything
+        let stack_capacity = self.builder.ins().load(
             Type::int(64).unwrap(),
             MemFlags::trusted(),
-            vm_ctx,
-            thread_offset as i32,
+            thread_pointer,
+            (stack_offset + capacity_offset) as i32,
         );
+
+        // This is the spot:
+        // The new length will be this, so we just have to check the capacity of this
+        // if we're going to re alloc
+        let new_length = self.builder.ins().iadd_imm(index, args.len() as i64);
+
+        // Store the _new_ arity
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            new_length,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // We're calling a function which has _more_ args
+        // than we currently have. Then we need to check the capacity.
+
+        if args.len() == self.arity as usize {
+            // Write to the vm stack
+            self.write_to_vm_stack_starting_at(0, &args, true);
+        } else if args.len() > self.arity as usize {
+            let at_capacity = self
+                .builder
+                .ins()
+                .icmp(IntCC::Equal, stack_capacity, new_length);
+
+            self.converging_if_no_else_no_value(
+                at_capacity,
+                |ctx| {
+                    let amt = args.len() - ctx.arity as usize;
+                    let amt = ctx.builder.ins().iconst(types::I64, amt as i64);
+                    ctx.call_function_args_no_return("slow-stack-reserve-exact", &[amt]);
+                },
+                |ctx| {
+                    // Drop this many:
+                    let amount_to_drop = ctx.arity as usize;
+                    let sp = ctx.get_sp(vm_ctx);
+                    let thread_pointer = ctx.get_thread_pointer(vm_ctx);
+
+                    let stack_offset = offset_of!(SteelThread, stack);
+
+                    let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+                    let buf_ptr = ctx.builder.ins().load(
+                        Type::int(64).unwrap(),
+                        MemFlags::trusted(),
+                        thread_pointer,
+                        (stack_offset + ptr_offset) as i32,
+                    );
+
+                    // Write the first set:
+                    ctx.write_to_vm_stack_starting_at_lifted(
+                        0,
+                        &args[..amount_to_drop],
+                        true,
+                        sp,
+                        buf_ptr,
+                    );
+                    ctx.write_to_vm_stack_starting_at_lifted(
+                        amount_to_drop,
+                        &args[amount_to_drop..],
+                        false,
+                        sp,
+                        buf_ptr,
+                    );
+                },
+            );
+        }
+        // Then we're at args.len() < self.arity, then we don't need to check the
+        // capacity. We're always going to have a smaller final length than that,
+        // so we can just write the args in place. We can first truncate, and then
+        // start writing.
+        else {
+            let amount_to_drop = self.arity as usize - args.len();
+
+            let sp = self.get_sp(vm_ctx);
+            let thread_pointer = self.get_thread_pointer(vm_ctx);
+
+            let stack_offset = offset_of!(SteelThread, stack);
+
+            let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+            let buf_ptr = self.builder.ins().load(
+                Type::int(64).unwrap(),
+                MemFlags::trusted(),
+                thread_pointer,
+                (stack_offset + ptr_offset) as i32,
+            );
+
+            // Write the first set:
+            self.write_to_vm_stack_starting_at_lifted(0, &args, true, sp, buf_ptr);
+
+            // Just call drop on the remaining values, don't write.
+            self.drop_from_vm_stack_starting_at(args.len(), amount_to_drop, sp, buf_ptr);
+        }
+    }
+
+    fn truncate_stack(&mut self, vm_ctx: Value, index: Value, count: Option<i32>) {
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack);
@@ -7665,15 +7847,7 @@ impl FunctionTranslator<'_> {
     // track of what has already been moved, and then make sure that those are
     // not included in the drop calls since we don't need to drop them anymore.
     fn truncate_stack_write_last(&mut self, vm_ctx: Value, index: Value, new_last: Value) {
-        let thread_offset = offset_of!(VmCore, thread);
-
-        // This represents the first part of the thread
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            vm_ctx,
-            thread_offset as i32,
-        );
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack);
@@ -7691,11 +7865,12 @@ impl FunctionTranslator<'_> {
         // let difference = self.builder.ins().isub(stack_length, index);
         // let new_length = self.builder.ins().iconst(types::, N)
 
-        //
+        let new_length = self.builder.ins().iadd_imm(index, 1);
 
         self.builder.ins().store(
             MemFlags::trusted(),
-            index,
+            // index,
+            new_length,
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
@@ -7709,11 +7884,12 @@ impl FunctionTranslator<'_> {
             (stack_offset + ptr_offset) as i32,
         );
 
-        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        // let size: i64 = std::mem::size_of::<SteelVal>() as _;
 
         // TODO: Don't use a loop here?
         // Use the calculated difference if thats what we have to do
         let count = self.builder.ins().isub(stack_length, index);
+
         {
             let loop_header = self.builder.create_block();
             let loop_body = self.builder.create_block();
@@ -7758,20 +7934,21 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(loop_exit);
             self.builder.seal_block(loop_exit);
         }
+
+        let last_byte_offset = self
+            .builder
+            .ins()
+            .imul_imm(index, size_of::<SteelVal>() as i64);
+        let last_slot_ptr = self.builder.ins().iadd(buf_ptr, last_byte_offset);
+        self.builder
+            .ins()
+            .store(MemFlags::trusted(), new_last, last_slot_ptr, 0);
     }
 
     fn inline_pop_from_stack(&mut self, vm_ctx: Value) -> Value {
         // self.call_function_no_return("#%debug-stack-before");
 
-        let thread_offset = offset_of!(VmCore, thread);
-
-        // This represents the first part of the thread
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            vm_ctx,
-            thread_offset as i32,
-        );
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack);
@@ -7820,13 +7997,15 @@ impl FunctionTranslator<'_> {
     // Subtract one from the pop count, returns
     // the new pop count
     fn sub_one_pop_count(&mut self, vm_ctx: Value) -> Value {
-        let current_pop_count = self.builder.ins().load(
-            types::I64,
-            MemFlags::trusted(),
-            vm_ctx,
-            offset_of!(VmCore, pop_count) as i32,
-        );
-        let sub_one = self.builder.ins().iadd_imm(current_pop_count, -1);
+        // let current_pop_count = self.builder.ins().load(
+        //     types::I64,
+        //     MemFlags::trusted(),
+        //     vm_ctx,
+        //     offset_of!(VmCore, pop_count) as i32,
+        // );
+        let sub_one = self.pop_count_sub_one(vm_ctx);
+
+        // let sub_one = self.builder.ins().iadd_imm(current_pop_count, -1);
         self.builder.ins().store(
             MemFlags::trusted(),
             sub_one,
@@ -7854,7 +8033,7 @@ impl FunctionTranslator<'_> {
                 // its null or not. If it is, we'll want to pass the frame
                 // by value in, call drop on it, and close the things as needed
                 // in order for drop to get called.
-                let (popped_frame, fat_ptr) = ctx.inline_pop_from_stack_frames(vm_ctx);
+                let (popped_frame, _) = ctx.inline_pop_from_stack_frames(vm_ctx);
 
                 // first, we'll check if the attachments isn't null.
                 // And then, we'll invoke drop on the frame for the attachments.
@@ -7890,8 +8069,11 @@ impl FunctionTranslator<'_> {
                         // together, where I can just truncate and then immediately
                         // write this value to the end, eliminate a store of the length
                         // changing twice.
-                        ctx.truncate_stack(vm_ctx, sp, None);
-                        ctx.push_to_vm_stack(value);
+                        /*
+                                                ctx.truncate_stack(vm_ctx, sp, None);
+                                                ctx.push_to_vm_stack(value);
+                        */
+                        ctx.truncate_stack_write_last(vm_ctx, sp, value);
 
                         let ip = ctx.builder.ins().uextend(types::I64, popped_frame.ip);
                         ctx.builder.ins().store(
@@ -7937,15 +8119,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn update_last_stackframe(&mut self, vm_ctx: Value, function: Value) -> Value {
-        let thread_offset = offset_of!(VmCore, thread);
-
-        // This represents the first part of the thread
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            vm_ctx,
-            thread_offset as i32,
-        );
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack_frames);
@@ -8013,15 +8187,8 @@ impl FunctionTranslator<'_> {
 
         //     (buf_ptr, new_length)
         // } else {
-        let thread_offset = offset_of!(VmCore, thread);
 
-        // This represents the first part of the thread
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            vm_ctx,
-            thread_offset as i32,
-        );
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack_frames);
@@ -8073,17 +8240,88 @@ impl FunctionTranslator<'_> {
         )
     }
 
+    fn pop_count_sub_one(&mut self, vm_ctx: Value) -> Value {
+        if let Some(sub) = self.pop_count_minus_one {
+            sub
+        } else {
+            let current_pop_count = self.get_pop_count(vm_ctx);
+            let sub_one = self.builder.ins().iadd_imm(current_pop_count, -1);
+            self.pop_count_minus_one = Some(sub_one);
+
+            sub_one
+        }
+    }
+
+    fn pop_count_add_one(&mut self, vm_ctx: Value) -> Value {
+        if let Some(plus) = self.pop_count_plus_one {
+            plus
+        } else {
+            let current_pop_count = self.get_pop_count(vm_ctx);
+            let plus_one = self.builder.ins().iadd_imm(current_pop_count, 1);
+
+            self.pop_count_plus_one = Some(plus_one);
+
+            plus_one
+        }
+    }
+
+    fn get_pop_count(&mut self, vm_ctx: Value) -> Value {
+        if let Some(pop) = self.pop_count {
+            pop
+        } else {
+            let old_pop_count = self.builder.ins().load(
+                types::I64,
+                MemFlags::trusted(),
+                vm_ctx,
+                offset_of!(VmCore, pop_count) as i32,
+            );
+
+            self.pop_count = Some(old_pop_count);
+
+            old_pop_count
+        }
+    }
+
+    // TODO: Cache these at the start? In the function prelude?
+    fn get_thread_pointer(&mut self, vm_ctx: Value) -> Value {
+        if let Some(thread_pointer) = self.thread_pointer {
+            thread_pointer
+        } else {
+            let tp = self.builder.ins().load(
+                Type::int(64).unwrap(),
+                MemFlags::trusted(),
+                vm_ctx,
+                offset_of!(VmCore, thread) as i32,
+            );
+
+            self.thread_pointer = Some(tp);
+
+            tp
+        }
+    }
+
+    // TODO: Cache this at the beginning, since it won't change
+    // during the duration of a function call?
+    fn get_sp(&mut self, vm_ctx: Value) -> Value {
+        if let Some(sp) = self.sp {
+            sp
+        } else {
+            let sp = self.builder.ins().load(
+                Type::int(64).unwrap(),
+                MemFlags::trusted(),
+                vm_ctx,
+                offset_of!(VmCore, sp) as i32,
+            );
+
+            self.sp = Some(sp);
+
+            sp
+        }
+    }
+
     /// Pop the last stack frame off
     fn inline_pop_from_stack_frames(&mut self, vm_ctx: Value) -> (StackFrameRepr, (Value, Value)) {
-        let thread_offset = offset_of!(VmCore, thread);
-
-        // This represents the first part of the thread
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            vm_ctx,
-            thread_offset as i32,
-        );
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack_frames);
@@ -8310,15 +8548,8 @@ impl FunctionTranslator<'_> {
         fallback_ip: usize,
     ) {
         let vm_ctx = self.get_ctx();
-        let thread_offset = offset_of!(VmCore, thread);
 
-        // This represents the first part of the thread
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            vm_ctx,
-            thread_offset as i32,
-        );
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
 
         // Stack frame offset:
         let stack_frame_offset = offset_of!(SteelThread, stack_frames);
@@ -8500,15 +8731,19 @@ impl FunctionTranslator<'_> {
                     offset_of!(StackFrame, attachments) as i32,
                 );
 
-                let old_pop_count = ctx.builder.ins().load(
-                    types::I64,
-                    MemFlags::trusted(),
-                    vm_ctx,
-                    offset_of!(VmCore, pop_count) as i32,
-                );
+                // TODO: Cache the old pop count, since we're going
+                // to return to this. We can load this once per function.
+                // let old_pop_count = ctx.builder.ins().load(
+                //     types::I64,
+                //     MemFlags::trusted(),
+                //     vm_ctx,
+                //     offset_of!(VmCore, pop_count) as i32,
+                // );
 
-                // Increment pop count
-                let new_pop_count = ctx.builder.ins().iadd_imm(old_pop_count, 1);
+                // // Increment pop count
+                // let new_pop_count = ctx.builder.ins().iadd_imm(old_pop_count, 1);
+
+                let new_pop_count = ctx.pop_count_add_one(vm_ctx);
 
                 ctx.builder.ins().store(
                     MemFlags::trusted(),
@@ -8542,15 +8777,8 @@ impl FunctionTranslator<'_> {
     // Attempt to push this to the VM stack inline:
     fn push_to_vm_stack_let_var_new(&mut self, value: Value) {
         let ctx = self.get_ctx();
-        let thread_offset = offset_of!(VmCore, thread);
 
-        // This represents the first part of the thread
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            ctx,
-            thread_offset as i32,
-        );
+        let thread_pointer = self.get_thread_pointer(ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack);
@@ -8621,16 +8849,9 @@ impl FunctionTranslator<'_> {
 
     fn push_to_many_vm_stack_let_var_new(&mut self, values: &[Value]) {
         let ctx = self.get_ctx();
-        let thread_offset = offset_of!(VmCore, thread);
         let arity = values.len();
 
-        // This represents the first part of the thread
-        let thread_pointer = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            ctx,
-            thread_offset as i32,
-        );
+        let thread_pointer = self.get_thread_pointer(ctx);
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack);
@@ -8653,11 +8874,6 @@ impl FunctionTranslator<'_> {
             (stack_offset + len_offset) as i32,
         );
 
-        // Then, we'll say _if_ the values are equal, we can do something,
-        // otherwise we really just have to write the value in and call
-        // it a day. Lets see if this is any faster... odds are that its not,
-        // but then we can start eliding all sorts of good things because
-        // we have direct access to the stack.
         let at_capacity = self
             .builder
             .ins()
