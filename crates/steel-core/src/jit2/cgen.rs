@@ -7391,7 +7391,7 @@ impl FunctionTranslator<'_> {
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         self.builder.ins().load(
-            types::I128,
+            types::I64,
             MemFlags::trusted(),
             frame_base,
             (index * std::mem::size_of::<SteelVal>()) as i32 + 8,
@@ -7795,7 +7795,7 @@ impl FunctionTranslator<'_> {
                 .ins()
                 .icmp(IntCC::Equal, stack_capacity, new_length);
 
-            self.converging_if_no_else_no_value(
+            self.converging_if_no_else_no_value_then_cold(
                 at_capacity,
                 |ctx| {
                     let amt = args.len() - ctx.arity as usize;
@@ -8158,7 +8158,7 @@ impl FunctionTranslator<'_> {
                         .ins()
                         .icmp_imm(IntCC::NotEqual, popped_frame.attachments, 0);
 
-                ctx.converging_if_no_else_no_value(
+                ctx.converging_if_no_else_no_value_else_cold(
                     attachment_exists,
                     |ctx| {
                         // If the attachments exist, then we need to:
@@ -8715,7 +8715,9 @@ impl FunctionTranslator<'_> {
             .ins()
             .icmp(IntCC::Equal, stack_capacity, stack_frame_length);
 
-        self.converging_if_no_else_no_value(
+        // At capacity could be lifted to basic block branching, to avoid the check
+        // entirely.
+        self.converging_if_no_else_no_value_then_cold(
             at_capacity,
             // If at capacity, call grow
             |ctx| ctx.call_function_no_return("slow-grow-frame-stack"),
@@ -8858,18 +8860,6 @@ impl FunctionTranslator<'_> {
                     offset_of!(StackFrame, attachments) as i32,
                 );
 
-                // TODO: Cache the old pop count, since we're going
-                // to return to this. We can load this once per function.
-                // let old_pop_count = ctx.builder.ins().load(
-                //     types::I64,
-                //     MemFlags::trusted(),
-                //     vm_ctx,
-                //     offset_of!(VmCore, pop_count) as i32,
-                // );
-
-                // // Increment pop count
-                // let new_pop_count = ctx.builder.ins().iadd_imm(old_pop_count, 1);
-
                 let new_pop_count = ctx.pop_count_add_one(vm_ctx);
 
                 ctx.builder.ins().store(
@@ -8938,7 +8928,7 @@ impl FunctionTranslator<'_> {
             .ins()
             .icmp(IntCC::Equal, stack_capacity, stack_length);
 
-        self.converging_if_no_else_no_value(
+        self.converging_if_no_else_no_value_then_cold(
             at_capacity,
             // If at capacity, call grow
             |ctx| ctx.call_function_no_return("slow-grow-stack"),
@@ -9006,7 +8996,7 @@ impl FunctionTranslator<'_> {
             .ins()
             .icmp(IntCC::Equal, stack_capacity, stack_length);
 
-        self.converging_if_no_else_no_value(
+        self.converging_if_no_else_no_value_then_cold(
             at_capacity,
             // If at capacity, call grow
             |ctx| {

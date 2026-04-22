@@ -720,6 +720,34 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    pub(super) fn converging_if_no_else_no_value_else_cold(
+        &mut self,
+        test_condition: Value,
+        then: impl Fn(&mut Self),
+        merge: impl Fn(&mut Self),
+    ) {
+        let then_block = self.builder.create_block();
+        self.builder.set_cold_block(then_block);
+
+        let merge_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(test_condition, then_block, &[], merge_block, &[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        then(self);
+
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
+
+        merge(self);
+    }
+
     pub(super) fn converging_if_no_else_no_value(
         &mut self,
         test_condition: Value,
@@ -727,6 +755,35 @@ impl<'a> FunctionTranslator<'a> {
         merge: impl Fn(&mut Self),
     ) {
         let then_block = self.builder.create_block();
+
+        let merge_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(test_condition, then_block, &[], merge_block, &[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        then(self);
+
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
+
+        merge(self);
+    }
+
+    pub(super) fn converging_if_no_else_no_value_then_cold(
+        &mut self,
+        test_condition: Value,
+        then: impl Fn(&mut Self),
+        merge: impl Fn(&mut Self),
+    ) {
+        let then_block = self.builder.create_block();
+        self.builder.set_cold_block(then_block);
+
         let merge_block = self.builder.create_block();
 
         self.builder
@@ -754,6 +811,38 @@ impl<'a> FunctionTranslator<'a> {
     ) {
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(test_condition, then_block, &[], else_block, &[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        then(self);
+
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+
+        else_thunk(self);
+        self.builder.ins().jump(merge_block, &[]);
+        self.builder.switch_to_block(merge_block);
+    }
+
+    pub(super) fn converging_if_no_value_else_cold(
+        &mut self,
+        test_condition: Value,
+        then: impl Fn(&mut Self),
+        else_thunk: impl Fn(&mut Self),
+    ) {
+        let then_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
+
+        self.builder.set_cold_block(else_block);
+
         let merge_block = self.builder.create_block();
 
         self.builder
