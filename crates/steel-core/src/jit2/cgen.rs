@@ -1566,10 +1566,12 @@ impl JIT {
             potentially_could_deopt: false,
             tier: JitTier::Baseline,
             thread_pointer: None,
+            should_trampoline: None,
             sp: None,
             pop_count: None,
             pop_count_plus_one: None,
             pop_count_minus_one: None,
+            compilation_stats: CompilationStats::default(),
         };
 
         {
@@ -1579,6 +1581,7 @@ impl JIT {
             trans.get_pop_count(vm_ctx);
             trans.pop_count_add_one(vm_ctx);
             trans.pop_count_sub_one(vm_ctx);
+            // trans.check_should_trampoline(vm_ctx);
         }
 
         trans.stack_to_ssa();
@@ -1604,6 +1607,8 @@ impl JIT {
         if !trans.potentially_could_deopt {
             println!("Found a candidate for tier 2 compilation: {}", _name);
         }
+
+        println!("Stats: {:#?}", trans.compilation_stats);
 
         self.function_return_types.insert(id, exit_types);
 
@@ -1994,6 +1999,11 @@ enum JitTier {
     Tier2,
 }
 
+#[derive(Default, Clone, Debug)]
+struct CompilationStats {
+    stack_frame_pushes: usize,
+}
+
 /// A collection of state used for translating from toy-language AST nodes
 /// into Cranelift IR.
 struct FunctionTranslator<'a> {
@@ -2063,12 +2073,16 @@ struct FunctionTranslator<'a> {
 
     thread_pointer: Option<Value>,
 
+    should_trampoline: Option<Value>,
+
     sp: Option<Value>,
 
     pop_count: Option<Value>,
 
     pop_count_plus_one: Option<Value>,
     pop_count_minus_one: Option<Value>,
+
+    compilation_stats: CompilationStats,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -4480,8 +4494,8 @@ impl FunctionTranslator<'_> {
                                 Some(Properties::ProperNonEmptyList) => {
                                     self.shadow_stack.pop();
 
-                                    let value = self.read_from_vm_stack(reg);
-                                    let res = self.unchecked_car(value);
+                                    let value = self.read_from_vm_stack_unboxed(reg);
+                                    let res = self.unchecked_car_unboxed(value);
 
                                     self.clone_value(res);
 
@@ -4774,17 +4788,11 @@ impl FunctionTranslator<'_> {
                     .map(|x| x.0)
                     .collect::<Vec<_>>();
 
+                // Track the inferred type of register arguments,
+                // to the point that we can elide all sorts of drops
                 ctx.spill_stack();
 
                 let arity = args_off_the_stack.len();
-
-                // TODO: Figure out a way to swap these inline?
-                // Directly push these on to the stack.
-                /*
-                for arg in &args_off_the_stack {
-                    ctx.push_to_vm_stack_let_var_new(*arg);
-                }
-                */
 
                 ctx.push_to_many_vm_stack_let_var_new(&args_off_the_stack);
 
@@ -5268,11 +5276,7 @@ impl FunctionTranslator<'_> {
         car
     }
 
-    // First, check the tag:
-    fn unchecked_car(&mut self, value: Value) -> Value {
-        // let is_list = self.is_type(value, SteelVal::LIST_TAG);
-        let value = self.unbox_value_to_pointer(value);
-
+    fn unchecked_car_unboxed(&mut self, value: Value) -> Value {
         // Lets figure out where car is:
         let index = self
             .builder
@@ -5311,6 +5315,12 @@ impl FunctionTranslator<'_> {
             .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
 
         local_value
+    }
+
+    // First, check the tag:
+    fn unchecked_car(&mut self, value: Value) -> Value {
+        let value = self.unbox_value_to_pointer(value);
+        self.unchecked_car_unboxed(value)
     }
 
     fn checked_car(&mut self, original_value: Value, reg: usize) -> Value {
@@ -7337,8 +7347,60 @@ impl FunctionTranslator<'_> {
         self.push_to_vm_stack_let_var_new(value);
     }
 
-    // Note: This value should _not_ be dropped!
     fn read_from_vm_stack(&mut self, index: usize) -> Value {
+        let ctx = self.get_ctx();
+        let sp = self.get_sp(ctx);
+        let thread_pointer = self.get_thread_pointer(ctx);
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
+        );
+
+        debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
+
+        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
+
+        self.builder.ins().load(
+            types::I128,
+            MemFlags::trusted(),
+            frame_base,
+            (index * std::mem::size_of::<SteelVal>()) as i32,
+        )
+    }
+
+    // Read with an additional 8 offset
+    fn read_from_vm_stack_unboxed(&mut self, index: usize) -> Value {
+        let ctx = self.get_ctx();
+        let sp = self.get_sp(ctx);
+        let thread_pointer = self.get_thread_pointer(ctx);
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
+        );
+
+        debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
+
+        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
+
+        self.builder.ins().load(
+            types::I128,
+            MemFlags::trusted(),
+            frame_base,
+            (index * std::mem::size_of::<SteelVal>()) as i32 + 8,
+        )
+    }
+
+    /*
+    // Note: This value should _not_ be dropped!
+    fn read_from_vm_stack_old(&mut self, index: usize) -> Value {
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
 
@@ -7369,6 +7431,7 @@ impl FunctionTranslator<'_> {
 
         local_value
     }
+    */
 
     fn remove_from_vm_stack(&mut self, index: usize) -> Value {
         let ctx = self.get_ctx();
@@ -7377,33 +7440,55 @@ impl FunctionTranslator<'_> {
         let thread_pointer = self.get_thread_pointer(ctx);
 
         // Stack offset:
-        let stack_offset = offset_of!(SteelThread, stack);
+        // let stack_offset = offset_of!(SteelThread, stack);
 
-        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+        // let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        // let buf_ptr = self.builder.ins().load(
+        //     Type::int(64).unwrap(),
+        //     MemFlags::trusted(),
+        //     thread_pointer,
+        //     (stack_offset + ptr_offset) as i32,
+        // );
+
+        // let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        // let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+        // let offset = self.builder.ins().imul_imm(local_offset, size);
+
+        // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        // let local_value = self
+        //     .builder
+        //     .ins()
+        //     .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
             MemFlags::trusted(),
             thread_pointer,
-            (stack_offset + ptr_offset) as i32,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
         );
 
-        let size: i64 = std::mem::size_of::<SteelVal>() as _;
-        let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
-        let offset = self.builder.ins().imul_imm(local_offset, size);
+        debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
-        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
-        let local_value = self
-            .builder
-            .ins()
-            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+        let local_value = self.builder.ins().load(
+            types::I128,
+            MemFlags::trusted(),
+            frame_base,
+            (index * std::mem::size_of::<SteelVal>()) as i32,
+        );
 
         let value = self.encode_void();
 
-        self.builder
-            .ins()
-            .store(MemFlags::trusted(), value, slot_ptr, 0);
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            value,
+            frame_base,
+            (index * std::mem::size_of::<SteelVal>()) as i32,
+        );
 
         local_value
     }
@@ -7452,28 +7537,33 @@ impl FunctionTranslator<'_> {
         sp: Value,
         buf_ptr: Value,
     ) {
-        let size: i64 = std::mem::size_of::<SteelVal>() as _;
-
         let mut index = index;
 
-        for value in values {
-            let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
-            let offset = self.builder.ins().imul_imm(local_offset, size);
+        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
-            let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+        for value in values {
+            // let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+            // let offset = self.builder.ins().imul_imm(local_offset, size);
+            // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
             if should_drop {
-                let local_value =
-                    self.builder
-                        .ins()
-                        .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+                let local_value = self.builder.ins().load(
+                    types::I128,
+                    MemFlags::trusted(),
+                    frame_base,
+                    (index * std::mem::size_of::<SteelVal>()) as i32,
+                );
 
                 self.drop_tagged_value(local_value);
             }
 
-            self.builder
-                .ins()
-                .store(MemFlags::trusted(), *value, slot_ptr, 0);
+            self.builder.ins().store(
+                MemFlags::trusted(),
+                *value,
+                frame_base,
+                (index * std::mem::size_of::<SteelVal>()) as i32,
+            );
 
             index += 1;
         }
@@ -7486,20 +7576,24 @@ impl FunctionTranslator<'_> {
         sp: Value,
         buf_ptr: Value,
     ) {
-        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        // let size: i64 = std::mem::size_of::<SteelVal>() as _;
 
         let mut index = index;
+        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         for _ in 0..amt {
-            let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
-            let offset = self.builder.ins().imul_imm(local_offset, size);
+            // let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+            // let offset = self.builder.ins().imul_imm(local_offset, size);
 
-            let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+            // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
-            let local_value =
-                self.builder
-                    .ins()
-                    .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+            let local_value = self.builder.ins().load(
+                types::I128,
+                MemFlags::trusted(),
+                frame_base,
+                (index * std::mem::size_of::<SteelVal>()) as i32,
+            );
 
             self.drop_tagged_value(local_value);
 
@@ -7524,35 +7618,46 @@ impl FunctionTranslator<'_> {
             (stack_offset + ptr_offset) as i32,
         );
 
-        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        // let size: i64 = std::mem::size_of::<SteelVal>() as _;
 
         let mut index = index;
+        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         for value in values {
-            let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
-            let offset = self.builder.ins().imul_imm(local_offset, size);
-
-            let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+            // let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+            // let offset = self.builder.ins().imul_imm(local_offset, size);
+            // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
             if should_drop {
-                let local_value =
-                    self.builder
-                        .ins()
-                        .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+                let local_value = self.builder.ins().load(
+                    types::I128,
+                    MemFlags::trusted(),
+                    frame_base,
+                    (index * std::mem::size_of::<SteelVal>()) as i32,
+                );
 
                 self.drop_tagged_value(local_value);
             }
 
-            self.builder
-                .ins()
-                .store(MemFlags::trusted(), *value, slot_ptr, 0);
+            self.builder.ins().store(
+                MemFlags::trusted(),
+                *value,
+                frame_base,
+                (index * std::mem::size_of::<SteelVal>()) as i32,
+            );
 
             index += 1;
         }
     }
 
+    // We can probably just cache this per branch, so that subsequent calls
+    // can avoid this load.
     // ctx.thread.stack_frames.len() < 100
     fn check_should_trampoline(&mut self, ctx: Value) -> Value {
+        // if let Some(should_trampoline) = self.should_trampoline {
+        //     should_trampoline
+        // } else {
         let thread_pointer = self.get_thread_pointer(ctx);
 
         // Stack frame offset:
@@ -7566,9 +7671,15 @@ impl FunctionTranslator<'_> {
             (stack_frame_offset + len_offset) as i32,
         );
 
-        self.builder
+        let res = self
+            .builder
             .ins()
-            .icmp_imm(IntCC::UnsignedLessThan, stack_frame_length, 100)
+            .icmp_imm(IntCC::UnsignedLessThan, stack_frame_length, 100);
+
+        // self.should_trampoline = Some(res);
+
+        res
+        // }
     }
 
     fn inline_call_global_function(
@@ -7955,6 +8066,10 @@ impl FunctionTranslator<'_> {
 
         let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
 
+        // Stack length can also be cached per branch.
+        //
+        // Any push will increase the length, and pop
+        // will decrease the length.
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
             MemFlags::trusted(),
@@ -8540,6 +8655,13 @@ impl FunctionTranslator<'_> {
     // Note: The function _must_ have been cloned already
     // TODO: @Matt: we need a better representation for fat pointers
     // that is custom and has a stable abi in order to properly do this.
+    //
+    // Also: We can probably check the capacity at the start of the function
+    // so that we don't need to do those checks each time we call a function.
+    //
+    // For example, if there are more functions call that one, we should just
+    // grow the stack eagerly, to make sure that we're going to be at capacity,
+    // and we can avoid doing the check repeatedly on each function call
     fn push_stack_frame(
         &mut self,
         arity: i64,
@@ -8547,6 +8669,11 @@ impl FunctionTranslator<'_> {
         instr_fat_ptr: Value,
         fallback_ip: usize,
     ) {
+        // Lets just see if this is even worth it?
+        // We could insert a block before hand and link it in
+        // to avoid things?
+        self.compilation_stats.stack_frame_pushes += 1;
+
         let vm_ctx = self.get_ctx();
 
         let thread_pointer = self.get_thread_pointer(vm_ctx);
