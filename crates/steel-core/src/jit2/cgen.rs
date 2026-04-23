@@ -2923,6 +2923,9 @@ impl FunctionTranslator<'_> {
                             SteelVal::FuncV(f) if f == steel_memq && arity == 2 => {
                                 let res = self.memq();
 
+                                // Spilling the cloned stack: Coalesce the reads to avoid
+                                // repeated lookups on the buf pointer. At this point
+                                // the buf pointer is the same, so we can lift it up.
                                 self.spill_cloned_stack();
 
                                 // Try this out?
@@ -6495,6 +6498,9 @@ impl FunctionTranslator<'_> {
         self.shadow_stack.push(last);
     }
 
+    // TODO: Coalesce the reads from the stack the same
+    // way we're coalescing the reads from the stack on the
+    // spill_cloned_stack side.
     fn spill_stack(&mut self) {
         for arg in 0..self.shadow_stack.len() {
             self.shadow_spill(arg);
@@ -6504,35 +6510,52 @@ impl FunctionTranslator<'_> {
     // Spill all of these at one time!
     fn spill_cloned_stack(&mut self) {
         // println!("Spilling cloned stack: {:?}", self.shadow_stack);
-
         // assert!(!self.cloned_stack);
         // self.cloned_stack = true;
 
         let mut values_to_spill = Vec::new();
+
+        let mut buffered_reads = Vec::new();
+
+        for value in &self.shadow_stack {
+            match value {
+                MaybeStackValue::MutRegister(p) => {
+                    buffered_reads.push((*p, true));
+                }
+                MaybeStackValue::Register(p) => {
+                    buffered_reads.push((*p, false));
+                }
+                _ => {}
+            }
+        }
+
+        let coalesced_reads = self.read_multiple_from_stack(buffered_reads);
+
         for value in self.shadow_stack.clone() {
             match value {
                 MaybeStackValue::Value(stack_value) => {
                     if !stack_value.spilled {
                         let steelval = stack_value.as_steelval(self);
-                        // self.push_to_vm_stack(steelval);
-
                         values_to_spill.push(steelval);
                     }
                 }
+
+                // TODO: Buffer these reads!
                 MaybeStackValue::MutRegister(p) => {
                     // Read the value:
-                    let (value, _) = self.mut_register_to_value(p);
-                    // self.push_to_vm_stack(value);
-                    values_to_spill.push(value);
+                    // let (value, _) = self.mut_register_to_value(p);
+
+                    let value = coalesced_reads.get(&p).unwrap();
+
+                    values_to_spill.push(*value);
                 }
                 MaybeStackValue::Register(p) => {
-                    let (value, _) = self.immutable_register_to_value(p);
-                    // self.push_to_vm_stack(value);
-                    values_to_spill.push(value);
+                    let value = coalesced_reads.get(&p).unwrap();
+                    // let (value, _) = self.immutable_register_to_value(p);
+                    values_to_spill.push(*value);
                 }
                 MaybeStackValue::Constant(c) => {
                     let (value, _) = c.to_value(self);
-                    // self.push_to_vm_stack(value);
                     values_to_spill.push(value);
                 }
             }
@@ -7414,6 +7437,50 @@ impl FunctionTranslator<'_> {
 
     fn push_to_vm_stack(&mut self, value: Value) {
         self.push_to_vm_stack_let_var_new(value);
+    }
+
+    fn read_multiple_from_stack(&mut self, values: Vec<(usize, bool)>) -> HashMap<usize, Value> {
+        let ctx = self.get_ctx();
+        let sp = self.get_sp(ctx);
+        let thread_pointer = self.get_thread_pointer(ctx);
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
+        );
+
+        debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
+
+        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
+
+        let mut results = HashMap::new();
+
+        for (index, kind) in values {
+            let res = self.builder.ins().load(
+                types::I128,
+                MemFlags::trusted(),
+                frame_base,
+                (index * std::mem::size_of::<SteelVal>()) as i32,
+            );
+
+            if kind {
+                let value = self.encode_void();
+
+                self.builder.ins().store(
+                    MemFlags::trusted(),
+                    value,
+                    frame_base,
+                    (index * std::mem::size_of::<SteelVal>()) as i32,
+                );
+            }
+
+            results.insert(index, res);
+        }
+
+        results
     }
 
     // Cache this. In the event we read something twice, we're going
