@@ -1577,10 +1577,10 @@ impl JIT {
         {
             let vm_ctx = trans.get_ctx();
             trans.get_thread_pointer(vm_ctx);
-            trans.get_sp(vm_ctx);
-            trans.get_pop_count(vm_ctx);
-            trans.pop_count_add_one(vm_ctx);
-            trans.pop_count_sub_one(vm_ctx);
+            // trans.get_sp(vm_ctx);
+            // trans.get_pop_count(vm_ctx);
+            // trans.pop_count_add_one(vm_ctx);
+            // trans.pop_count_sub_one(vm_ctx);
             // trans.check_should_trampoline(vm_ctx);
         }
 
@@ -1800,9 +1800,16 @@ enum ValueOrRegister {
 }
 
 #[derive(Default, Clone)]
+struct CachedLookupMap {
+    registers: HashMap<usize, Value>,
+}
+
+#[derive(Default, Clone)]
 struct PropertyMap {
     // So we're going to do something like this.
     props: HashMap<ValueOrRegister, Vec<Properties>>,
+
+    cached_lookups: CachedLookupMap,
 }
 
 impl PropertyMap {
@@ -2794,6 +2801,12 @@ impl FunctionTranslator<'_> {
                         }
                         _ => {}
                     }
+
+                    // We can re use this value since we definitely have access to it.
+                    self.properties
+                        .cached_lookups
+                        .registers
+                        .insert(local_index, last);
 
                     // TODO: @mparas - in the event we're using a local value,
                     // we need to check if this is actually spilled or not.
@@ -6088,6 +6101,13 @@ impl FunctionTranslator<'_> {
             .ins()
             .return_call_indirect(sig_ref, func_ptr, &args);
 
+        /*
+
+        let sig_ref = self.get_jit_func(id);
+        self.builder.ins().return_call(sig_ref, &args);
+
+        */
+
         // // Look up the return type of this one:
         // if let Some(ret_types) = self.function_return_types.get(&id) {
         //     println!("inline global tail call return types: {:#?}", ret_types);
@@ -6510,7 +6530,7 @@ impl FunctionTranslator<'_> {
             _ => InferredType::Any,
         };
 
-        (value, InferredType::Any)
+        (value, inferred_type)
     }
 
     // This is a little nicer, although it isn't amazing. Extra clones for no reason.
@@ -6644,10 +6664,14 @@ impl FunctionTranslator<'_> {
             .collect()
     }
 
+    // TODO: We should coalesce register reads in order to avoid subsequent buf pointer
+    // loads?
     fn split_off(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
         let mut args = self
             .shadow_stack
             .split_off(self.shadow_stack.len() - payload);
+
+        // dbg!(&args);
 
         args = args
             .into_iter()
@@ -6700,6 +6724,8 @@ impl FunctionTranslator<'_> {
             })
             .collect();
 
+        // TODO:
+        // Check if this is necessary:
         self.maybe_patch_from_stack(&mut args);
 
         args.into_iter()
@@ -7347,7 +7373,16 @@ impl FunctionTranslator<'_> {
         self.push_to_vm_stack_let_var_new(value);
     }
 
+    // Cache this. In the event we read something twice, we're going
+    // to save the lookup, but we can save it per branch so that we
+    // don't mess things up.
     fn read_from_vm_stack(&mut self, index: usize) -> Value {
+        // Cache let vars since they're going to be on the stack,
+        // but we already had it available.
+        if let Some(local) = self.properties.cached_lookups.registers.get(&index) {
+            return *local;
+        }
+
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
         let thread_pointer = self.get_thread_pointer(ctx);
@@ -7364,12 +7399,16 @@ impl FunctionTranslator<'_> {
         let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
-        self.builder.ins().load(
+        let res = self.builder.ins().load(
             types::I128,
             MemFlags::trusted(),
             frame_base,
             (index * std::mem::size_of::<SteelVal>()) as i32,
-        )
+        );
+
+        // self.properties.cached_lookups.registers.insert(index, res);
+
+        res
     }
 
     // Read with an additional 8 offset
@@ -7655,9 +7694,10 @@ impl FunctionTranslator<'_> {
     // can avoid this load.
     // ctx.thread.stack_frames.len() < 100
     fn check_should_trampoline(&mut self, ctx: Value) -> Value {
-        // if let Some(should_trampoline) = self.should_trampoline {
-        //     should_trampoline
-        // } else {
+        if let Some(should_trampoline) = self.should_trampoline {
+            return should_trampoline;
+        }
+
         let thread_pointer = self.get_thread_pointer(ctx);
 
         // Stack frame offset:
@@ -7679,7 +7719,6 @@ impl FunctionTranslator<'_> {
         // self.should_trampoline = Some(res);
 
         res
-        // }
     }
 
     fn inline_call_global_function(
@@ -8356,28 +8395,28 @@ impl FunctionTranslator<'_> {
     }
 
     fn pop_count_sub_one(&mut self, vm_ctx: Value) -> Value {
-        if let Some(sub) = self.pop_count_minus_one {
-            sub
-        } else {
-            let current_pop_count = self.get_pop_count(vm_ctx);
-            let sub_one = self.builder.ins().iadd_imm(current_pop_count, -1);
-            self.pop_count_minus_one = Some(sub_one);
+        // if let Some(sub) = self.pop_count_minus_one {
+        //     sub
+        // } else {
+        let current_pop_count = self.get_pop_count(vm_ctx);
+        let sub_one = self.builder.ins().iadd_imm(current_pop_count, -1);
+        self.pop_count_minus_one = Some(sub_one);
 
-            sub_one
-        }
+        sub_one
+        // }
     }
 
     fn pop_count_add_one(&mut self, vm_ctx: Value) -> Value {
-        if let Some(plus) = self.pop_count_plus_one {
-            plus
-        } else {
-            let current_pop_count = self.get_pop_count(vm_ctx);
-            let plus_one = self.builder.ins().iadd_imm(current_pop_count, 1);
+        // if let Some(plus) = self.pop_count_plus_one {
+        //     plus
+        // } else {
+        let current_pop_count = self.get_pop_count(vm_ctx);
+        let plus_one = self.builder.ins().iadd_imm(current_pop_count, 1);
 
-            self.pop_count_plus_one = Some(plus_one);
+        self.pop_count_plus_one = Some(plus_one);
 
-            plus_one
-        }
+        plus_one
+        // }
     }
 
     fn get_pop_count(&mut self, vm_ctx: Value) -> Value {
@@ -8391,7 +8430,7 @@ impl FunctionTranslator<'_> {
                 offset_of!(VmCore, pop_count) as i32,
             );
 
-            self.pop_count = Some(old_pop_count);
+            // self.pop_count = Some(old_pop_count);
 
             old_pop_count
         }
@@ -8428,7 +8467,7 @@ impl FunctionTranslator<'_> {
                 offset_of!(VmCore, sp) as i32,
             );
 
-            self.sp = Some(sp);
+            // self.sp = Some(sp);
 
             sp
         }
