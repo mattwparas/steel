@@ -1572,11 +1572,13 @@ impl JIT {
             pop_count_plus_one: None,
             pop_count_minus_one: None,
             compilation_stats: CompilationStats::default(),
+            thread_id: None,
         };
 
         {
             let vm_ctx = trans.get_ctx();
             trans.get_thread_pointer(vm_ctx);
+            trans.get_thread_id();
             // trans.get_sp(vm_ctx);
             // trans.get_pop_count(vm_ctx);
             // trans.pop_count_add_one(vm_ctx);
@@ -1608,7 +1610,7 @@ impl JIT {
             println!("Found a candidate for tier 2 compilation: {}", _name);
         }
 
-        println!("Stats: {:#?}", trans.compilation_stats);
+        // println!("Stats: {:#?}", trans.compilation_stats);
 
         self.function_return_types.insert(id, exit_types);
 
@@ -1802,6 +1804,9 @@ enum ValueOrRegister {
 #[derive(Default, Clone)]
 struct CachedLookupMap {
     registers: HashMap<usize, Value>,
+
+    // Every time we pop off the stack, we'll increase this.
+    stack_length_capacity: usize,
 }
 
 #[derive(Default, Clone)]
@@ -2088,6 +2093,8 @@ struct FunctionTranslator<'a> {
 
     pop_count_plus_one: Option<Value>,
     pop_count_minus_one: Option<Value>,
+
+    thread_id: Option<Value>,
 
     compilation_stats: CompilationStats,
 }
@@ -2803,10 +2810,12 @@ impl FunctionTranslator<'_> {
                     }
 
                     // We can re use this value since we definitely have access to it.
+                    /*
                     self.properties
                         .cached_lookups
                         .registers
                         .insert(local_index, last);
+                    */
 
                     // TODO: @mparas - in the event we're using a local value,
                     // we need to check if this is actually spilled or not.
@@ -3341,6 +3350,7 @@ impl FunctionTranslator<'_> {
                                 let (value, _) = self.mut_register_to_value(r);
 
                                 self.properties.remove(&ValueOrRegister::Register(r));
+                                self.properties.cached_lookups.registers.remove(&r);
 
                                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                                     value,
@@ -3353,6 +3363,7 @@ impl FunctionTranslator<'_> {
                                 let (value, _) = self.immutable_register_to_value(r);
 
                                 self.properties.remove(&ValueOrRegister::Register(r));
+                                self.properties.cached_lookups.registers.remove(&r);
 
                                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                                     value,
@@ -3367,6 +3378,12 @@ impl FunctionTranslator<'_> {
                     // If we know exactly how many elements we're dropping:
 
                     // self.call_end_scope_handler(payload);
+
+                    // for i in payload..payload + amt {
+                    //     let i = i - self.arity as usize;
+                    //     println!("Removing: {}", i);
+                    //     self.properties.cached_lookups.registers.remove(&i);
+                    // }
 
                     self.inline_let_end_scope(payload, amt);
 
@@ -4807,7 +4824,19 @@ impl FunctionTranslator<'_> {
 
                 let arity = args_off_the_stack.len();
 
-                ctx.push_to_many_vm_stack_let_var_new(&args_off_the_stack);
+                if ctx.properties.cached_lookups.stack_length_capacity > args_off_the_stack.len() {
+                    ctx.push_to_many_vm_stack_let_var_new_unchecked(&args_off_the_stack);
+
+                    ctx.properties.cached_lookups.stack_length_capacity = ctx
+                        .properties
+                        .cached_lookups
+                        .stack_length_capacity
+                        .saturating_sub(args_off_the_stack.len());
+                } else {
+                    ctx.push_to_many_vm_stack_let_var_new(&args_off_the_stack);
+
+                    ctx.properties.cached_lookups.stack_length_capacity += args_off_the_stack.len();
+                }
 
                 let should_trampoline = ctx.check_should_trampoline(vm_ctx);
 
@@ -5477,6 +5506,7 @@ impl FunctionTranslator<'_> {
                         match item {
                             MaybeStackValue::Register(i) if *i == payload => {
                                 let (value, typ) = self.immutable_register_to_value(payload);
+                                self.properties.cached_lookups.registers.remove(&payload);
 
                                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                                     value,
@@ -5547,6 +5577,7 @@ impl FunctionTranslator<'_> {
                     match item {
                         MaybeStackValue::Register(i) if *i == payload => {
                             let (value, typ) = self.immutable_register_to_value(payload);
+                            self.properties.cached_lookups.registers.remove(&payload);
 
                             self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                                 value,
@@ -6322,13 +6353,19 @@ impl FunctionTranslator<'_> {
     }
 
     fn get_thread_id(&mut self) -> Value {
-        let ctx = self.get_ctx();
-        let thread_id =
-            self.builder
-                .ins()
-                .load(Type::int(64).unwrap(), MemFlags::trusted(), ctx, 8);
+        if let Some(thread_id) = self.thread_id {
+            thread_id
+        } else {
+            let ctx = self.get_ctx();
+            let thread_id =
+                self.builder
+                    .ins()
+                    .load(Type::int(64).unwrap(), MemFlags::trusted(), ctx, 8);
 
-        thread_id
+            self.thread_id = Some(thread_id);
+
+            thread_id
+        }
     }
 
     fn check_deopt_ptr_load(&mut self) -> Value {
@@ -6398,6 +6435,8 @@ impl FunctionTranslator<'_> {
                 let (value, _) = self.mut_register_to_value(p);
                 spilled = true;
 
+                self.properties.cached_lookups.registers.remove(&p);
+
                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                     value,
                     inferred_type: InferredType::Any,
@@ -6408,6 +6447,8 @@ impl FunctionTranslator<'_> {
                 let p = *p;
                 let (value, _) = self.immutable_register_to_value(p);
                 spilled = true;
+
+                self.properties.cached_lookups.registers.remove(&p);
 
                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                     value,
@@ -6679,6 +6720,7 @@ impl FunctionTranslator<'_> {
                 MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
                 MaybeStackValue::MutRegister(p) => {
                     let (value, _) = self.mut_register_to_value(p);
+                    self.properties.cached_lookups.registers.remove(&p);
                     MaybeStackValue::Value(StackValue {
                         value,
                         inferred_type: InferredType::Any,
@@ -6687,6 +6729,7 @@ impl FunctionTranslator<'_> {
                 }
                 MaybeStackValue::Register(p) => {
                     let (value, _) = self.immutable_register_to_value(p);
+                    self.properties.cached_lookups.registers.remove(&p);
                     MaybeStackValue::Value(StackValue {
                         value,
                         inferred_type: InferredType::Any,
@@ -7534,6 +7577,11 @@ impl FunctionTranslator<'_> {
 
     // TODO: Should flatten these ops when calling this multiple times!
     fn write_to_vm_stack(&mut self, index: usize, value: Value) {
+        self.properties
+            .cached_lookups
+            .registers
+            .insert(index, value);
+
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
         let thread_pointer = self.get_thread_pointer(ctx);
@@ -7744,7 +7792,21 @@ impl FunctionTranslator<'_> {
         //     self.push_to_vm_stack_let_var_new(*arg);
         // }
 
-        self.push_to_many_vm_stack_let_var_new(&args);
+        if self.properties.cached_lookups.stack_length_capacity > args.len() {
+            self.push_to_many_vm_stack_let_var_new_unchecked(&args);
+
+            // Record the fact that we've adjusted for this many args:
+            self.properties.cached_lookups.stack_length_capacity = self
+                .properties
+                .cached_lookups
+                .stack_length_capacity
+                .saturating_sub(args.len());
+        } else {
+            self.push_to_many_vm_stack_let_var_new(&args);
+
+            // Record the fact that we've adjusted for this many args:
+            self.properties.cached_lookups.stack_length_capacity += args.len();
+        }
 
         self.converging_if(
             should_trampoline,
@@ -7788,6 +7850,10 @@ impl FunctionTranslator<'_> {
         );
 
         let rollback_index = self.builder.ins().iadd_imm(offset, amt as i64);
+
+        // We can guarantee that there is an additional amt capacity
+        // since we've truncated the stack back by that much.
+        self.properties.cached_lookups.stack_length_capacity += amt;
 
         self.truncate_stack(vm_ctx, rollback_index, Some(count as _));
     }
@@ -8775,6 +8841,9 @@ impl FunctionTranslator<'_> {
                 // such that we can snag values from things
                 let size: i64 = std::mem::size_of::<StackFrame>() as _;
                 let offset = ctx.builder.ins().imul_imm(stack_frame_length, size);
+
+                // let offset = ctx.builder.ins().ishl_imm(stack_frame_length, 6);
+
                 let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
 
                 let sp_offset = offset_of!(VmCore, sp);
@@ -8932,6 +9001,12 @@ impl FunctionTranslator<'_> {
 
     // Attempt to push this to the VM stack inline:
     fn push_to_vm_stack_let_var_new(&mut self, value: Value) {
+        self.properties.cached_lookups.stack_length_capacity = self
+            .properties
+            .cached_lookups
+            .stack_length_capacity
+            .saturating_sub(1);
+
         let ctx = self.get_ctx();
 
         let thread_pointer = self.get_thread_pointer(ctx);
@@ -9030,10 +9105,20 @@ impl FunctionTranslator<'_> {
             (stack_offset + len_offset) as i32,
         );
 
-        let at_capacity = self
-            .builder
-            .ins()
-            .icmp(IntCC::Equal, stack_capacity, stack_length);
+        // Update the new length:
+        let new_length = self.builder.ins().iadd_imm(stack_length, arity as i64);
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            new_length,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let at_capacity =
+            self.builder
+                .ins()
+                .icmp(IntCC::UnsignedGreaterThan, new_length, stack_capacity);
 
         self.converging_if_no_else_no_value_then_cold(
             at_capacity,
@@ -9053,30 +9138,70 @@ impl FunctionTranslator<'_> {
                     (stack_offset + ptr_offset) as i32,
                 );
 
-                let size: i64 = std::mem::size_of::<SteelVal>() as _;
-                let offset = ctx.builder.ins().imul_imm(stack_length, size);
+                let offset = ctx.builder.ins().ishl_imm(stack_length, 4);
                 let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
+
+                let size: i32 = std::mem::size_of::<SteelVal>() as i32;
 
                 for (index, value) in values.iter().enumerate() {
                     ctx.builder.ins().store(
                         MemFlags::trusted(),
                         *value,
                         slot_ptr,
-                        (index * size as usize) as i32,
+                        index as i32 * size,
                     );
                 }
-
-                // Update the new length:
-                let new_length = ctx.builder.ins().iadd_imm(stack_length, arity as i64);
-
-                ctx.builder.ins().store(
-                    MemFlags::trusted(),
-                    new_length,
-                    thread_pointer,
-                    (stack_offset + len_offset) as i32,
-                );
             },
         );
+    }
+
+    fn push_to_many_vm_stack_let_var_new_unchecked(&mut self, values: &[Value]) {
+        let ctx = self.get_ctx();
+        let arity = values.len();
+
+        let thread_pointer = self.get_thread_pointer(ctx);
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // Update the new length:
+        let new_length = self.builder.ins().iadd_imm(stack_length, arity as i64);
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            new_length,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // Write the value(s):
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let offset = self.builder.ins().ishl_imm(stack_length, 4);
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        let size: i32 = std::mem::size_of::<SteelVal>() as i32;
+
+        for (index, value) in values.iter().enumerate() {
+            self.builder
+                .ins()
+                .store(MemFlags::trusted(), *value, slot_ptr, index as i32 * size);
+        }
     }
 
     /*

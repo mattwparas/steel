@@ -187,6 +187,7 @@ pub struct StackFrame {
     pub(crate) instructions: RootedInstructions,
     pub(crate) function: Gc<ByteCodeLambda>,
     pub(crate) attachments: Option<Box<StackFrameAttachments>>,
+    // pub(crate) _padding: [u8; 24],
 }
 
 impl Eq for StackFrame {}
@@ -237,6 +238,7 @@ impl StackFrame {
             ip: ip as _,
             instructions,
             attachments: None,
+            // _padding: Default::default(),
         }
     }
 
@@ -4905,6 +4907,7 @@ impl<'a> VmCore<'a> {
                 ip: self.ip as u32 + 1,
                 instructions: self.instructions,
                 attachments: None,
+                // _padding: Default::default(),
             };
             self.instructions = frame.function.body_exp();
             self.thread.stack_frames.push(frame);
@@ -4946,6 +4949,7 @@ impl<'a> VmCore<'a> {
                 ip: self.ip as u32 + 1,
                 instructions: self.instructions,
                 attachments: None,
+                // _padding: Default::default(),
             };
             self.instructions = frame.function.body_exp();
             self.thread.stack_frames.push(frame);
