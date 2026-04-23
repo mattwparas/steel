@@ -3302,6 +3302,10 @@ impl FunctionTranslator<'_> {
                     self.potentially_could_deopt = true;
                     self.call_global_impl(payload);
                 }
+
+                // TODO: Inline this, and cache the resulting captures values
+                // buffer, since this should be immutable for the duration
+                // of the function, and we can skip the bounds checks, etc.
                 OpCode::READCAPTURED => {
                     let index = self
                         .builder
@@ -3325,10 +3329,9 @@ impl FunctionTranslator<'_> {
                 OpCode::BEGINSCOPE => {
                     self.let_var_stack.push(0);
 
-                    // for arg in 0..self.stack.len() {
-                    //     self.spill(arg);
-                    // }
-
+                    // TODO: Same idea here; lets figure out a way
+                    // to coalesce any reads / writes that are happening here on the
+                    // stack into one. Same for pushing multiple values to the stack.
                     for arg in 0..self.shadow_stack.len() {
                         self.shadow_spill(arg);
                     }
