@@ -2775,21 +2775,10 @@ impl FunctionTranslator<'_> {
                     self.shadow_push(MaybeStackValue::Constant(ConstantValue::Int(2)));
                 }
 
-                // OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2 => {
-                //     let payload = self.instructions[self.ip].payload_size.to_usize();
-                //     let value = self.call_func_or_immediate(op, payload);
-                //     self.ip += 1;
-                //     self.push(value, InferredType::Int);
-                // }
                 OpCode::LetVar => {
                     self.ip += 1;
 
-                    // let spilled = self.stack.last().unwrap().spilled;
-                    // assert!(!spilled);
-
                     self.maybe_check_last();
-
-                    // self.spill(self.stack.len() - 1);
 
                     let (last, typ) = self.shadow_pop();
 
@@ -3332,9 +3321,8 @@ impl FunctionTranslator<'_> {
                     // TODO: Same idea here; lets figure out a way
                     // to coalesce any reads / writes that are happening here on the
                     // stack into one. Same for pushing multiple values to the stack.
-                    for arg in 0..self.shadow_stack.len() {
-                        self.shadow_spill(arg);
-                    }
+
+                    self.spill_stack();
 
                     self.ip += 1;
                 }
@@ -5709,12 +5697,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn translate_tco_jmp(&mut self, payload: usize) {
-        // for i in 0..self.stack.len() {
-        //     self.spill(i);
-        // }
-        for i in 0..self.shadow_stack.len() {
-            self.shadow_spill(i);
-        }
+        self.spill_stack();
 
         let local_callee = self.get_local_callee("tco-jump");
 
