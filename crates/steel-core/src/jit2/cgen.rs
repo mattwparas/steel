@@ -1505,8 +1505,6 @@ impl JIT {
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
 
-        let vm_context = builder.create_global_value(GlobalValueData::VMContext);
-
         // Create the entry block, to start emitting code in.
         let entry_block = builder.create_block();
         builder.append_block_params_for_function_params(entry_block);
@@ -6076,9 +6074,6 @@ impl FunctionTranslator<'_> {
             std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
         });
 
-        // Not sure if we're gonna need this?
-        let fallback_ip = self.ip;
-
         self.ip += 1;
 
         self.increment_ref_count_closure(lookup_index);
@@ -6145,6 +6140,9 @@ impl FunctionTranslator<'_> {
             .into_iter()
             .map(|x| x.0)
             .collect::<Vec<_>>();
+
+        // self.builder.ins().get_pinned_reg(iAddr);
+        // self.builder.ins().set_pinned_reg(addr)
 
         let vm_ctx = self.get_ctx();
 
@@ -7535,6 +7533,10 @@ impl FunctionTranslator<'_> {
     }
 
     fn read_multiple_from_stack(&mut self, values: Vec<(usize, bool)>) -> HashMap<usize, Value> {
+        if values.is_empty() {
+            return Default::default();
+        }
+
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
         let thread_pointer = self.get_thread_pointer(ctx);
@@ -7788,6 +7790,10 @@ impl FunctionTranslator<'_> {
         sp: Value,
         buf_ptr: Value,
     ) {
+        if values.is_empty() {
+            return;
+        }
+
         let mut index = index;
 
         let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
@@ -7829,6 +7835,10 @@ impl FunctionTranslator<'_> {
     ) {
         // let size: i64 = std::mem::size_of::<SteelVal>() as _;
 
+        if amt == 0 {
+            return;
+        }
+
         let mut index = index;
         let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
@@ -7853,6 +7863,10 @@ impl FunctionTranslator<'_> {
     }
 
     fn write_to_vm_stack_starting_at(&mut self, index: usize, values: &[Value], should_drop: bool) {
+        if values.is_empty() {
+            return;
+        }
+
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
         let thread_pointer = self.get_thread_pointer(ctx);
@@ -9243,6 +9257,10 @@ impl FunctionTranslator<'_> {
     }
 
     fn push_to_many_vm_stack_let_var_new(&mut self, values: &[Value]) {
+        if values.is_empty() {
+            return;
+        }
+
         let ctx = self.get_ctx();
         let arity = values.len();
 
