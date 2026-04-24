@@ -6488,9 +6488,96 @@ impl FunctionTranslator<'_> {
     // way we're coalescing the reads from the stack on the
     // spill_cloned_stack side.
     fn spill_stack(&mut self) {
+        /*
         for arg in 0..self.shadow_stack.len() {
             self.shadow_spill(arg);
         }
+        */
+
+        self.spill_stack_coalesced();
+    }
+
+    fn spill_stack_coalesced(&mut self) {
+        let mut buffered_reads = Vec::new();
+
+        for value in &self.shadow_stack {
+            match value {
+                MaybeStackValue::MutRegister(p) => {
+                    buffered_reads.push((*p, true));
+                }
+                MaybeStackValue::Register(p) => {
+                    buffered_reads.push((*p, false));
+                }
+                _ => {}
+            }
+        }
+
+        let coalesced_reads = self.read_multiple_from_stack(buffered_reads);
+
+        let mut values_to_spill = Vec::new();
+
+        for index in 0..self.shadow_stack.len() {
+            let guard = self.shadow_stack.get_mut(index).unwrap();
+            let mut spilled = false;
+            match guard {
+                MaybeStackValue::Value(stack_value) => {
+                    if !stack_value.spilled {
+                        stack_value.spilled = true;
+                        spilled = true;
+                    }
+                }
+                MaybeStackValue::MutRegister(p) => {
+                    let p = *p;
+
+                    let value = coalesced_reads.get(&p).copied().unwrap();
+
+                    spilled = true;
+
+                    self.properties.cached_lookups.registers.remove(&p);
+
+                    self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type: InferredType::Any,
+                        spilled: true,
+                    });
+                }
+                MaybeStackValue::Register(p) => {
+                    let p = *p;
+                    // let (value, _) = self.immutable_register_to_value(p);
+                    let value = coalesced_reads.get(&p).copied().unwrap();
+
+                    spilled = true;
+
+                    self.properties.cached_lookups.registers.remove(&p);
+
+                    self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type: InferredType::Any,
+                        spilled: true,
+                    });
+                }
+                MaybeStackValue::Constant(c) => {
+                    let c = *c;
+                    let (value, typ) = c.to_value(self);
+                    spilled = true;
+
+                    self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type: typ,
+                        spilled: true,
+                    });
+                }
+            }
+
+            if spilled {
+                let value = self.shadow_stack[index].into_value(self);
+                let steelval = value.as_steelval(self);
+
+                values_to_spill.push(steelval);
+            }
+        }
+
+        self.push_to_many_vm_stack_let_var_new(&values_to_spill)
     }
 
     // Spill all of these at one time!
