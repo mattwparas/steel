@@ -2850,6 +2850,7 @@ fn set_local_any_c(ctx: *mut VmCore, offset: usize, value: SteelVal) -> SteelVal
     guard.handle_set_local_value(offset, value)
 }
 
+// TODO: Inline reading the captured values. Lets see how many times this is called:
 #[cross_platform_fn]
 fn read_captured_c(ctx: *mut VmCore, index: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };

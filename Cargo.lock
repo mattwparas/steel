@@ -166,7 +166,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0c269894b6fe5e9d7ada0cf69b5bf847ff35bc25fc271f08e1d080fce80339a"
 dependencies = [
- "object",
+ "object 0.32.2",
 ]
 
 [[package]]
@@ -1156,7 +1156,7 @@ checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
 dependencies = [
  "bitflags 2.10.0",
  "crossterm_winapi",
- "derive_more",
+ "derive_more 2.1.1",
  "document-features",
  "mio",
  "parking_lot",
@@ -1332,6 +1332,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c"
 dependencies = [
  "derive_builder_core",
+ "syn 2.0.115",
+]
+
+[[package]]
+name = "derive_more"
+version = "0.99.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6edb4b64a43d977b8e99788fe3a04d483834fba1215a7e02caa415b626497f7f"
+dependencies = [
+ "proc-macro2",
+ "quote",
  "syn 2.0.115",
 ]
 
@@ -2692,6 +2703,17 @@ version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6a622008b6e321afc04970976f62ee297fdbaa6f95318ca343e3eebb9648441"
 dependencies = [
+ "flate2",
+ "memchr",
+ "ruzstd",
+]
+
+[[package]]
+name = "object"
+version = "0.36.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62948e14d923ea95ea2c7c86c71013138b66525b86bdc08d2dcc262bdb497b87"
+dependencies = [
  "memchr",
 ]
 
@@ -3472,6 +3494,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruzstd"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58c4eb8a81997cf040a091d1f7e1938aeab6749d3a0dfa73af43cdc32393483d"
+dependencies = [
+ "byteorder",
+ "derive_more 0.99.20",
+ "twox-hash",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3880,12 +3913,14 @@ dependencies = [
  "num-integer",
  "num-rational",
  "num-traits",
+ "object 0.32.2",
  "once_cell",
  "parking_lot",
  "polling 3.11.0",
  "proptest",
  "rand 0.9.2",
  "rustc-hash",
+ "rustix",
  "serde",
  "serde_json",
  "shared_vector",
@@ -3899,10 +3934,12 @@ dependencies = [
  "steel-rc",
  "steel-vec",
  "strsim",
+ "target-lexicon",
  "termimad",
  "thin-vec",
  "triomphe",
  "ureq 3.2.0",
+ "wasmtime-jit-debug",
  "weak-table",
  "which 8.0.0",
  "xdg",
@@ -4616,6 +4653,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "twox-hash"
+version = "1.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
+dependencies = [
+ "cfg-if",
+ "static_assertions",
+]
+
+[[package]]
 name = "typed-arena"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4973,6 +5020,29 @@ dependencies = [
  "libc",
  "wasmtime-internal-core",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "wasmtime-jit-debug"
+version = "34.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f935b198c58d3f85b6f8d2fedcbaf71e6f41dee3a8278d60cbe9326b82ac91aa"
+dependencies = [
+ "cc",
+ "object 0.36.7",
+ "rustix",
+ "wasmtime-versioned-export-macros",
+]
+
+[[package]]
+name = "wasmtime-versioned-export-macros"
+version = "34.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ca100ed168ffc9b37aefc07a5be440645eab612a2ff6e2ff884e8cc3740e666"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.115",
 ]
 
 [[package]]

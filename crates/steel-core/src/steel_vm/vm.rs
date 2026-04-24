@@ -4949,7 +4949,6 @@ impl<'a> VmCore<'a> {
                 ip: self.ip as u32 + 1,
                 instructions: self.instructions,
                 attachments: None,
-                // _padding: Default::default(),
             };
             self.instructions = frame.function.body_exp();
             self.thread.stack_frames.push(frame);

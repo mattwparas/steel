@@ -1168,23 +1168,52 @@ impl<'a> FunctionTranslator<'a> {
                 // have some rogue values around.
                 let ptr = ctx.unbox_value_to_pointer(value);
 
-                // The data lives at an offset of 16 from the pointer
+                let strong_count =
+                    ctx.builder
+                        .ins()
+                        .atomic_load(types::I64, MemFlags::trusted(), ptr);
+
+                let is_one = ctx.builder.ins().icmp_imm(IntCC::Equal, strong_count, 1);
                 const OFFSET: i64 = 16;
 
-                let lock_pointer = ctx.builder.ins().iadd_imm(ptr, OFFSET);
+                let data = ctx.converging_if(
+                    is_one,
+                    |ctx| {
+                        let lock_pointer = ctx.builder.ins().iadd_imm(ptr, OFFSET);
 
-                let data = ctx.with_spinlock(lock_pointer, |ctx| {
-                    let data = ctx.builder.ins().load(
-                        types::I128,
-                        MemFlags::trusted(),
-                        lock_pointer,
-                        SpinLock::<SteelVal>::data_offset() as i32,
-                    );
+                        let data = ctx.builder.ins().load(
+                            types::I128,
+                            MemFlags::trusted(),
+                            lock_pointer,
+                            SpinLock::<SteelVal>::data_offset() as i32,
+                        );
 
-                    ctx.clone_value(data);
+                        ctx.clone_value(data);
 
-                    data
-                });
+                        data
+                    },
+                    |ctx| {
+                        let lock_pointer = ctx.builder.ins().iadd_imm(ptr, OFFSET);
+
+                        let data = ctx.with_spinlock(lock_pointer, |ctx| {
+                            let data = ctx.builder.ins().load(
+                                types::I128,
+                                MemFlags::trusted(),
+                                lock_pointer,
+                                SpinLock::<SteelVal>::data_offset() as i32,
+                            );
+
+                            ctx.clone_value(data);
+
+                            data
+                        });
+
+                        data
+                    },
+                    typ,
+                );
+
+                // The data lives at an offset of 16 from the pointer
 
                 if should_drop {
                     ctx.drop_value(value);

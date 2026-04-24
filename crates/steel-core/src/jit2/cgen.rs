@@ -45,6 +45,8 @@ use crate::{
     SteelVal,
 };
 
+// const DISABLE_SPECTRE_MITIGATION: bool = true;
+
 // Various optimizations that we've added one by one.
 // Its important that we get this right
 const INLINE_STRUCT_FUNCTION_CALLS: bool = true;
@@ -59,6 +61,8 @@ const USE_EXPERIMENTAL_CALL: bool = true;
 const USE_INLINE_TAIL_CALL: bool = true;
 
 const USE_INLINE_CALL_GLOBAL: bool = true;
+
+const INLINE_READ_CAPTURED: bool = true;
 
 /// The basic JIT class.
 pub struct JIT {
@@ -83,6 +87,8 @@ pub struct JIT {
     names: HashMap<u32, String>,
 
     function_return_types: HashMap<u32, HashSet<InferredType>>,
+
+    jitdump: wasmtime_jit_debug::perf_jitdump::JitDumpFile,
 }
 
 pub struct FunctionMap<'a> {
@@ -449,7 +455,14 @@ impl Default for JIT {
 
         flag_builder.set("preserve_frame_pointers", "true").unwrap();
 
-        // flag_builder.set("enable_pinned_reg", "true").unwrap();
+        // if DISABLE_SPECTRE_MITIGATION {
+        //     flag_builder
+        //         .set("enable_heap_access_spectre_mitigation", "false")
+        //         .unwrap();
+        //     flag_builder
+        //         .set("enable_table_access_spectre_mitigation", "false")
+        //         .unwrap();
+        // }
 
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
             panic!("host machine is not supported: {}", msg);
@@ -1221,6 +1234,23 @@ impl Default for JIT {
         };
 
         let module = JITModule::new(builder);
+
+        use object::elf;
+        use target_lexicon::Architecture;
+
+        let e_machine = match target_lexicon::HOST.architecture {
+            Architecture::X86_64 => elf::EM_X86_64 as u32,
+            Architecture::Aarch64(_) => elf::EM_AARCH64 as u32,
+            Architecture::Arm(_) => elf::EM_ARM as u32,
+            _ => unimplemented!(),
+        };
+
+        let mut jitdump = wasmtime_jit_debug::perf_jitdump::JitDumpFile::new(
+            format!("./jit-{}.dump", std::process::id()),
+            e_machine,
+        )
+        .unwrap();
+
         Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
@@ -1229,6 +1259,7 @@ impl Default for JIT {
             function_map,
             names: Default::default(),
             function_return_types: Default::default(),
+            jitdump,
         }
     }
 }
@@ -1286,6 +1317,7 @@ fn write_perf_map_entry(addr: *const u8, size: usize, name: &str) {
         .open(&path)
     {
         let _ = writeln!(file, "{:x} {:x} {}", addr as usize, size, name);
+        let _ = file.flush();
     }
 }
 
@@ -1482,6 +1514,20 @@ impl JIT {
 
         // Lets figure out... what we need here
         write_perf_map_entry(code, code_size, &inner_name);
+
+        {
+            // after finalize_definitions(), for each function:
+            let ptr = code;
+            let size = code_size;
+            let code_bytes = unsafe { std::slice::from_raw_parts(ptr, size) };
+            let timestamp = self.jitdump.get_time_stamp();
+            let pid = std::process::id();
+            let tid = rustix::thread::gettid().as_raw_nonzero().get() as u32;
+
+            self.jitdump
+                .dump_code_load_record(&inner_name, code_bytes, timestamp, pid, tid)
+                .unwrap();
+        }
 
         Ok(code)
     }
@@ -3305,6 +3351,15 @@ impl FunctionTranslator<'_> {
                 OpCode::CALLGLOBAL => {
                     self.potentially_could_deopt = true;
                     self.call_global_impl(payload);
+                }
+
+                OpCode::READCAPTURED if INLINE_READ_CAPTURED => {
+                    let res = self.inline_read_captured(payload);
+
+                    // TODO: Keep track of the inferred type on the capture as well
+                    self.push(res, InferredType::Any);
+
+                    self.ip += 1;
                 }
 
                 // TODO: Inline this, and cache the resulting captures values
@@ -6374,10 +6429,12 @@ impl FunctionTranslator<'_> {
 
     fn check_deopt_ptr_load(&mut self) -> Value {
         let ctx = self.get_ctx();
-        let is_native = self
-            .builder
-            .ins()
-            .load(Type::int(8).unwrap(), MemFlags::trusted(), ctx, 0);
+        let is_native = self.builder.ins().load(
+            Type::int(8).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            offset_of!(VmCore, is_native) as i32,
+        );
 
         is_native
     }
@@ -8201,10 +8258,58 @@ impl FunctionTranslator<'_> {
             (stack_offset + ptr_offset) as i32,
         );
 
-        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        // let size: i64 = std::mem::size_of::<SteelVal>() as _;
 
         // TODO: Don't use a loop here?
         // Use the calculated difference if thats what we have to do
+        // let count = count
+        //     .map(|count| self.builder.ins().iconst(types::I64, count as i64))
+        //     .unwrap_or_else(|| self.builder.ins().isub(stack_length, index));
+        // {
+        //     let loop_header = self.builder.create_block();
+        //     let loop_body = self.builder.create_block();
+        //     let loop_exit = self.builder.create_block();
+
+        //     self.builder.append_block_param(loop_header, types::I64);
+
+        //     let zero = BlockArg::Value(self.builder.ins().iconst(types::I64, 0));
+        //     self.builder.ins().jump(loop_header, &[zero]);
+
+        //     self.builder.switch_to_block(loop_header);
+        //     let i = self.builder.block_params(loop_header)[0];
+
+        //     let done = self
+        //         .builder
+        //         .ins()
+        //         .icmp(IntCC::SignedGreaterThanOrEqual, i, count);
+        //     self.builder
+        //         .ins()
+        //         .brif(done, loop_exit, &[], loop_body, &[]);
+
+        //     self.builder.switch_to_block(loop_body);
+        //     self.builder.seal_block(loop_body);
+
+        //     let slot_index = self.builder.ins().iadd(index, i);
+        //     let byte_offset = self
+        //         .builder
+        //         .ins()
+        //         .imul_imm(slot_index, size_of::<SteelVal>() as i64);
+        //     let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
+        //     let val = self
+        //         .builder
+        //         .ins()
+        //         .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+        //     self.drop_tagged_value(val);
+
+        //     let i_next = BlockArg::Value(self.builder.ins().iadd_imm(i, 1));
+        //     self.builder.ins().jump(loop_header, &[i_next]);
+
+        //     self.builder.seal_block(loop_header);
+
+        //     self.builder.switch_to_block(loop_exit);
+        //     self.builder.seal_block(loop_exit);
+        // }
+
         let count = count
             .map(|count| self.builder.ins().iconst(types::I64, count as i64))
             .unwrap_or_else(|| self.builder.ins().isub(stack_length, index));
@@ -8299,6 +8404,62 @@ impl FunctionTranslator<'_> {
 
         // TODO: Don't use a loop here?
         // Use the calculated difference if thats what we have to do
+        // let count = self.builder.ins().isub(stack_length, index);
+
+        // {
+        //     let loop_header = self.builder.create_block();
+        //     let loop_body = self.builder.create_block();
+        //     let loop_exit = self.builder.create_block();
+
+        //     self.builder.append_block_param(loop_header, types::I64);
+
+        //     let zero = BlockArg::Value(self.builder.ins().iconst(types::I64, 0));
+        //     self.builder.ins().jump(loop_header, &[zero]);
+
+        //     self.builder.switch_to_block(loop_header);
+        //     let i = self.builder.block_params(loop_header)[0];
+
+        //     let done = self
+        //         .builder
+        //         .ins()
+        //         .icmp(IntCC::SignedGreaterThanOrEqual, i, count);
+        //     self.builder
+        //         .ins()
+        //         .brif(done, loop_exit, &[], loop_body, &[]);
+
+        //     self.builder.switch_to_block(loop_body);
+        //     self.builder.seal_block(loop_body);
+
+        //     let slot_index = self.builder.ins().iadd(index, i);
+        //     let byte_offset = self
+        //         .builder
+        //         .ins()
+        //         .imul_imm(slot_index, size_of::<SteelVal>() as i64);
+        //     let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
+        //     let val = self
+        //         .builder
+        //         .ins()
+        //         .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+        //     self.drop_tagged_value(val);
+
+        //     let i_next = BlockArg::Value(self.builder.ins().iadd_imm(i, 1));
+        //     self.builder.ins().jump(loop_header, &[i_next]);
+
+        //     self.builder.seal_block(loop_header);
+
+        //     self.builder.switch_to_block(loop_exit);
+        //     self.builder.seal_block(loop_exit);
+        // }
+
+        // let last_byte_offset = self
+        //     .builder
+        //     .ins()
+        //     .imul_imm(index, size_of::<SteelVal>() as i64);
+        // let last_slot_ptr = self.builder.ins().iadd(buf_ptr, last_byte_offset);
+        // self.builder
+        //     .ins()
+        //     .store(MemFlags::trusted(), new_last, last_slot_ptr, 0);
+
         let count = self.builder.ins().isub(stack_length, index);
 
         {
@@ -8975,6 +9136,77 @@ impl FunctionTranslator<'_> {
                 ctx.call_function_args_no_context("raw-slow-increment-closure", &[value]);
             },
         );
+    }
+
+    fn inline_read_captured(&mut self, index: usize) -> Value {
+        let vm_ctx = self.get_ctx();
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack_frames);
+        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<StackFrame>() as _;
+
+        let last = self.builder.ins().iadd_imm(stack_length, -1);
+
+        let offset = self.builder.ins().imul_imm(last, size);
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        let function = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            slot_ptr,
+            offset_of!(StackFrame, function) as i32,
+        );
+
+        // This 100% can be cached for the duration of the function,
+        // since at this point the function is really just going to be
+        // around for the duration of the time.
+        let capture_pointer = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            function,
+            // Adjust by 16 for the object header from the function
+            offset_of!(ByteCodeLambda, captures) as i32 + 16,
+        );
+
+        // let captures_buf_ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        // let capture_data_ptr = self.builder.ins().load(
+        //     types::I64,
+        //     MemFlags::trusted(),
+        //     capture_pointer,
+        //     (offset_of!(ByteCodeLambda, captures) + captures_buf_ptr_offset) as i32,
+        // );
+
+        // Just load an offset from there:
+        let value = self.builder.ins().load(
+            types::I128,
+            MemFlags::trusted(),
+            capture_pointer,
+            index as i32 * std::mem::size_of::<SteelVal>() as i32,
+        );
+
+        self.clone_value(value);
+
+        value
     }
 
     // Note: The function _must_ have been cloned already

@@ -75,6 +75,10 @@ cranelift = { version = "0.130", optional = true }
 cranelift-module = { version = "0.130", optional = true }
 cranelift-jit = { version = "0.130", optional = true }
 cranelift-native = { version = "0.130", optional = true }
+wasmtime-jit-debug = { version = "34", optional = true, features = ["perf_jitdump"] }
+object = { version = "*" }
+target-lexicon = "*"
+rustix = { version = "1", features = ["thread"] }
 
 anyhow = { version = "1", optional = true }
 
@@ -166,7 +170,7 @@ biased = ["dep:steel-rc"]
 
 
 ffi-format = []
-jit2 = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit", "dep:cranelift-native"]
+jit2 = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit", "dep:cranelift-native", "dep:wasmtime-jit-debug"]
 
 [[bench]]
 name = "my_benchmark"
