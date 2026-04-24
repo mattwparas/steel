@@ -6808,6 +6808,22 @@ impl FunctionTranslator<'_> {
             .shadow_stack
             .split_off(self.shadow_stack.len() - payload);
 
+        let mut buffered_reads = Vec::new();
+
+        for value in &args {
+            match value {
+                MaybeStackValue::MutRegister(p) => {
+                    buffered_reads.push((*p, true));
+                }
+                MaybeStackValue::Register(p) => {
+                    buffered_reads.push((*p, false));
+                }
+                _ => {}
+            }
+        }
+
+        let coalesced_reads = self.read_multiple_from_stack(buffered_reads);
+
         // dbg!(&args);
 
         args = args
@@ -6815,7 +6831,10 @@ impl FunctionTranslator<'_> {
             .map(|x| match x {
                 MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
                 MaybeStackValue::MutRegister(p) => {
-                    let (value, _) = self.mut_register_to_value(p);
+                    // let (value, _) = self.mut_register_to_value(p);
+
+                    let value = coalesced_reads.get(&p).copied().unwrap();
+
                     self.properties.cached_lookups.registers.remove(&p);
                     MaybeStackValue::Value(StackValue {
                         value,
@@ -6824,7 +6843,10 @@ impl FunctionTranslator<'_> {
                     })
                 }
                 MaybeStackValue::Register(p) => {
-                    let (value, _) = self.immutable_register_to_value(p);
+                    // let (value, _) = self.immutable_register_to_value(p);
+
+                    let value = coalesced_reads.get(&p).copied().unwrap();
+
                     self.properties.cached_lookups.registers.remove(&p);
                     MaybeStackValue::Value(StackValue {
                         value,
@@ -7548,6 +7570,8 @@ impl FunctionTranslator<'_> {
                     frame_base,
                     (index * std::mem::size_of::<SteelVal>()) as i32,
                 );
+            } else {
+                self.clone_value(res);
             }
 
             results.insert(index, res);
