@@ -449,6 +449,8 @@ impl Default for JIT {
 
         flag_builder.set("preserve_frame_pointers", "true").unwrap();
 
+        // flag_builder.set("enable_pinned_reg", "true").unwrap();
+
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
             panic!("host machine is not supported: {}", msg);
         });
@@ -1575,8 +1577,17 @@ impl JIT {
 
         {
             let vm_ctx = trans.get_ctx();
+
+            // let ptr_type = trans.module.target_config().pointer_type();
+            // let vm_ctx = trans.builder.ins().global_value(ptr_type, trans.vm_context);
+
             trans.get_thread_pointer(vm_ctx);
             trans.get_thread_id();
+
+            // Set this as a pinned register, so that we're not
+            // going to be completed messed up loading this over and over.
+            // trans.builder.ins().set_pinned_reg(vm_ctx);
+
             // trans.get_sp(vm_ctx);
             // trans.get_pop_count(vm_ctx);
             // trans.pop_count_add_one(vm_ctx);
@@ -1805,6 +1816,12 @@ struct CachedLookupMap {
 
     // Every time we pop off the stack, we'll increase this.
     stack_length_capacity: usize,
+
+    // This is a lifted reference to the actual stack pointer.
+    // In the event there is a reallocation, we'll have to
+    // invalidate this. So we can hold this in place until
+    // a call to a slow grow stack.
+    stack_buf_pointer: Option<Value>,
 }
 
 #[derive(Default, Clone)]
@@ -8339,6 +8356,31 @@ impl FunctionTranslator<'_> {
             .store(MemFlags::trusted(), new_last, last_slot_ptr, 0);
     }
 
+    fn invalidate_buf_ptr(&mut self) {
+        self.properties.cached_lookups.stack_buf_pointer.take();
+    }
+
+    fn stack_buf_ptr(&mut self, vm_ctx: Value) -> Value {
+        if let Some(buf_pointer) = self.properties.cached_lookups.stack_buf_pointer {
+            return buf_pointer;
+        }
+
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        buf_ptr
+    }
+
     fn inline_pop_from_stack(&mut self, vm_ctx: Value) -> Value {
         // self.call_function_no_return("#%debug-stack-before");
 
@@ -9220,6 +9262,8 @@ impl FunctionTranslator<'_> {
             .ins()
             .icmp(IntCC::Equal, stack_capacity, stack_length);
 
+        self.invalidate_buf_ptr();
+
         self.converging_if_no_else_no_value_then_cold(
             at_capacity,
             // If at capacity, call grow
@@ -9301,6 +9345,8 @@ impl FunctionTranslator<'_> {
             self.builder
                 .ins()
                 .icmp(IntCC::UnsignedGreaterThan, new_length, stack_capacity);
+
+        self.invalidate_buf_ptr();
 
         self.converging_if_no_else_no_value_then_cold(
             at_capacity,
@@ -9504,6 +9550,7 @@ impl FunctionTranslator<'_> {
     fn get_ctx(&mut self) -> Value {
         let ptr_type = self.module.target_config().pointer_type();
         self.builder.ins().global_value(ptr_type, self.vm_context)
+        // self.builder.ins().get_pinned_reg(ptr_type)
     }
 
     /// Call a function by name, with the first argument implicitly as the VM context.
