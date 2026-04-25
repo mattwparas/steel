@@ -1662,9 +1662,9 @@ impl JIT {
         // Tell the builder we're done with this function.
         trans.builder.finalize();
 
-        // if !trans.potentially_could_deopt {
-        //     println!("Found a candidate for tier 2 compilation: {}", _name);
-        // }
+        if !trans.potentially_could_deopt {
+            println!("Found a candidate for tier 2 compilation: {}", trans.name);
+        }
 
         // println!("Stats: {:#?}", trans.compilation_stats);
 
@@ -6465,10 +6465,12 @@ impl FunctionTranslator<'_> {
             thread_id
         } else {
             let ctx = self.get_ctx();
-            let thread_id =
-                self.builder
-                    .ins()
-                    .load(Type::int(64).unwrap(), MemFlags::trusted(), ctx, 8);
+            let thread_id = self.builder.ins().load(
+                Type::int(64).unwrap(),
+                MemFlags::trusted(),
+                ctx,
+                offset_of!(VmCore, thread_id) as i32,
+            );
 
             self.thread_id = Some(thread_id);
 

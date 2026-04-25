@@ -1503,13 +1503,13 @@ impl<'a> VmContext for VmCore<'a> {
 #[repr(C)]
 pub struct VmCore<'a> {
     pub(crate) is_native: bool,
+    pub(crate) thread: &'a mut SteelThread,
     #[cfg(feature = "biased")]
     pub(crate) thread_id: Option<steel_rc::ThreadId>,
-    pub(crate) ip: usize,
     // Can make this be a u32 now since
     // we'll never have a stack that large
     pub(crate) sp: usize,
-    pub(crate) thread: &'a mut SteelThread,
+    pub(crate) ip: usize,
     pub(crate) instructions: RootedInstructions,
     pub(crate) constants: ConstantMap,
     pub(crate) pop_count: usize,
