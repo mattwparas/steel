@@ -1216,7 +1216,7 @@ impl<'a> FunctionTranslator<'a> {
                 // The data lives at an offset of 16 from the pointer
 
                 if should_drop {
-                    ctx.drop_value(value);
+                    ctx.drop_heap_box(ptr);
                 }
 
                 data

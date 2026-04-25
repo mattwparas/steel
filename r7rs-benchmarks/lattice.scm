@@ -34,55 +34,56 @@
 ;;       equal
 ;;       uncomparable
 ;; return a new comparison routine that applies to sequences.
-(define lexico
-  (lambda (base)
-    (define lex-fixed
-      (lambda (fixed lhs rhs)
-        (define check
-          (lambda (lhs rhs)
-            (if (null? lhs)
-                fixed
-                (let ([probe (base (car lhs) (car rhs))])
-                  (if (or (eq? probe 'equal) (eq? probe fixed))
-                      (check (cdr lhs) (cdr rhs))
-                      'uncomparable)))))
-        (check lhs rhs)))
-    (define lex-first
-      (lambda (lhs rhs)
-        (if (null? lhs)
-            'equal
-            (let ([probe (base (car lhs) (car rhs))])
-              (case probe
-                [(less more) (lex-fixed probe (cdr lhs) (cdr rhs))]
-                [(equal) (lex-first (cdr lhs) (cdr rhs))]
-                [(uncomparable) 'uncomparable])))))
-    lex-first))
-
-; (define lex-fixed
-;   (lambda (fixed lhs rhs base)
-;     (define check
-;       (lambda (lhs rhs)
-;         (if (null? lhs)
-;             fixed
-;             (let ([probe (base (car lhs) (car rhs))])
-;               (if (or (eq? probe 'equal) (eq? probe fixed))
-;                   (check (cdr lhs) (cdr rhs))
-;                   'uncomparable)))))
-;     (check lhs rhs)))
-
 ; (define lexico
 ;   (lambda (base)
-
+;     (define lex-fixed
+;       (lambda (fixed lhs rhs)
+;         (define check
+;           (lambda (lhs rhs)
+;             (if (null? lhs)
+;                 fixed
+;                 (let ([probe (base (car lhs) (car rhs))])
+;                   (if (or (eq? probe 'equal) (eq? probe fixed))
+;                       (check (cdr lhs) (cdr rhs))
+;                       'uncomparable)))))
+;         (check lhs rhs)))
 ;     (define lex-first
 ;       (lambda (lhs rhs)
 ;         (if (null? lhs)
 ;             'equal
 ;             (let ([probe (base (car lhs) (car rhs))])
 ;               (case probe
-;                 [(less more) (lex-fixed probe (cdr lhs) (cdr rhs) base)]
+;                 [(less more) (lex-fixed probe (cdr lhs) (cdr rhs))]
 ;                 [(equal) (lex-first (cdr lhs) (cdr rhs))]
 ;                 [(uncomparable) 'uncomparable])))))
 ;     lex-first))
+
+(define lex-fixed
+  (lambda (fixed lhs rhs base)
+    (define check
+      (lambda (lhs rhs)
+        (if (null? lhs)
+            fixed
+            (let ([probe (base (car lhs) (car rhs))])
+              (if (or (eq? probe 'equal) (eq? probe fixed))
+                  (check (cdr lhs) (cdr rhs))
+                  'uncomparable)))))
+    (check lhs rhs)))
+
+(define lexico
+  (lambda (base)
+
+    (define lex-first
+      (lambda (lhs rhs)
+        (if (null? lhs)
+            'equal
+            (let ([probe (base (car lhs) (car rhs))])
+              (case probe
+                [(less more) (lex-fixed probe (cdr lhs) (cdr rhs) base)]
+                [(equal) (lex-first (cdr lhs) (cdr rhs))]
+                [(uncomparable) 'uncomparable])))))
+
+    lex-first))
 
 (define (make-lattice elem-list cmp-func)
   (cons elem-list cmp-func))

@@ -5,7 +5,7 @@ mod native;
 
 use core::{mem::offset_of, ptr::NonNull};
 use cranelift::{
-    codegen::ir::{ArgumentPurpose, BlockArg, FuncRef, GlobalValue, Type},
+    codegen::ir::{ArgumentPurpose, AtomicRmwOp, BlockArg, FuncRef, GlobalValue, Type},
     frontend::Switch,
     prelude::{isa::CallConv, *},
 };
@@ -63,6 +63,8 @@ const USE_INLINE_TAIL_CALL: bool = true;
 const USE_INLINE_CALL_GLOBAL: bool = true;
 
 const INLINE_READ_CAPTURED: bool = true;
+
+const USE_INLINE_DROP_HEAP_BOX: bool = true;
 
 /// The basic JIT class.
 pub struct JIT {
@@ -687,6 +689,12 @@ impl Default for JIT {
         );
 
         map.add_func2("drop-one", abi! { drop_one as fn(SteelVal) });
+
+        // TODO: Inline this!
+        map.add_func2(
+            "drop-box",
+            abi! { drop_box as fn(crate::values::closed::HeapRef<SteelVal>) },
+        );
 
         map.add_func2("#%clone-std-rc", abi! { clone_one as fn(SteelVal) });
 
@@ -4428,6 +4436,7 @@ impl FunctionTranslator<'_> {
                             self.ip += 2;
                         }
 
+                        // Can we... avoid checking this fact?
                         MaybeStackValue::MutRegister(reg) => {
                             let can_skip_bounds_check = matches!(
                                 self.properties.get(&ValueOrRegister::Register(reg)),
@@ -5372,6 +5381,25 @@ impl FunctionTranslator<'_> {
     // need the call if we have something like that
     fn drop_value(&mut self, value: Value) {
         self.call_function_args_no_context("drop-one", &[value]);
+    }
+
+    fn drop_heap_box(&mut self, value: Value) {
+        if USE_INLINE_DROP_HEAP_BOX {
+            let one = self.builder.ins().iconst(types::I64, 1);
+
+            let offset = self.builder.ins().iadd_imm(value, 8);
+
+            // Clone?
+            let old_value = self.builder.ins().atomic_rmw(
+                types::I64,
+                MemFlags::trusted(),
+                AtomicRmwOp::Sub,
+                offset,
+                one,
+            );
+        } else {
+            self.call_function_args_no_context("drop-box", &[value]);
+        }
     }
 
     fn inline_pair_car(&mut self, value: Value) -> Value {

@@ -375,6 +375,11 @@ fn drop_value(ctx: *mut VmCore, arg: SteelVal) {
 }
 
 #[cross_platform_fn]
+fn drop_box(arg: crate::values::closed::HeapRef<SteelVal>) {
+    drop(arg);
+}
+
+#[cross_platform_fn]
 fn drop_one(arg: SteelVal) {
     drop(arg);
 }
