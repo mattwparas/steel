@@ -5,7 +5,7 @@ mod native;
 
 use core::{mem::offset_of, ptr::NonNull};
 use cranelift::{
-    codegen::ir::{ArgumentPurpose, BlockArg, FuncRef, GlobalValue, StackSlot, Type},
+    codegen::ir::{ArgumentPurpose, BlockArg, FuncRef, GlobalValue, Type},
     frontend::Switch,
     prelude::{isa::CallConv, *},
 };
@@ -1535,7 +1535,7 @@ impl JIT {
     fn translate(
         &mut self,
         id: u32,
-        _name: String,
+        name: String,
         _func_id: FuncId,
         arity: u16,
         bytecode: &[DenseInstruction],
@@ -1581,6 +1581,7 @@ impl JIT {
 
         // Now translate the statements of the function body.
         let mut trans = FunctionTranslator {
+            name,
             int,
             builder,
             variables,
@@ -1661,9 +1662,9 @@ impl JIT {
         // Tell the builder we're done with this function.
         trans.builder.finalize();
 
-        if !trans.potentially_could_deopt {
-            println!("Found a candidate for tier 2 compilation: {}", _name);
-        }
+        // if !trans.potentially_could_deopt {
+        //     println!("Found a candidate for tier 2 compilation: {}", _name);
+        // }
 
         // println!("Stats: {:#?}", trans.compilation_stats);
 
@@ -2080,6 +2081,7 @@ struct CompilationStats {
 /// A collection of state used for translating from toy-language AST nodes
 /// into Cranelift IR.
 struct FunctionTranslator<'a> {
+    name: String,
     int: types::Type,
     builder: FunctionBuilder<'a>,
     variables: HashMap<String, Variable>,
@@ -5818,21 +5820,47 @@ impl FunctionTranslator<'_> {
 
             // TODO: Translate this back to being inlined!
             if amount_dropped != 0 {
+                println!(
+                    "{} - tail call amount dropped: {}",
+                    self.name, amount_dropped
+                );
+
                 // Original payload, is the original amount to call
                 let original_payload = payload;
 
                 // How many elements did we drop off
                 let payload = payload - amount_dropped;
 
-                // This is what we have left: so this will be the first n elements left
-                let args_off_the_stack = self.split_off(payload);
+                let args_before_drop = self.shadow_stack.get(self.shadow_stack.len() - payload);
 
-                let args = args_off_the_stack
-                    .into_iter()
-                    .map(|x| x.0)
-                    .collect::<Vec<_>>();
+                // Aggressive optimization: if the value is moved, we don't need to put a drop
+                // call inlined here
+                if args_before_drop
+                    .iter()
+                    .all(|x| matches!(x, MaybeStackValue::MutRegister(_)))
+                {
+                    let args_off_the_stack = self.split_off_all_mut_register(payload);
 
-                self.inline_call_self_tail_call_no_arity_loop(original_payload as _, &args);
+                    let args = args_off_the_stack
+                        .into_iter()
+                        .map(|x| x.0)
+                        .collect::<Vec<_>>();
+
+                    self.inline_call_self_tail_call_no_arity_loop_all_mut_register(
+                        original_payload as _,
+                        &args,
+                    );
+                } else {
+                    // This is what we have left: so this will be the first n elements left
+                    let args_off_the_stack = self.split_off(payload);
+
+                    let args = args_off_the_stack
+                        .into_iter()
+                        .map(|x| x.0)
+                        .collect::<Vec<_>>();
+
+                    self.inline_call_self_tail_call_no_arity_loop(original_payload as _, &args);
+                }
 
                 let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
@@ -5920,6 +5948,27 @@ impl FunctionTranslator<'_> {
         // }
 
         self.write_to_vm_stack_starting_at(0, args, true);
+
+        let index = self.get_sp(vm_ctx);
+
+        let index = self.builder.ins().iadd_imm(index, arity);
+
+        self.truncate_stack(vm_ctx, index, None);
+    }
+
+    fn inline_call_self_tail_call_no_arity_loop_all_mut_register(
+        &mut self,
+        arity: i64,
+        args: &[Value],
+    ) {
+        let vm_ctx = self.get_ctx();
+        // Read from VM stack, write back, drop value.
+        // then, truncate
+        // for (i, arg) in args.iter().enumerate() {
+        //     self.write_to_vm_stack(i as _, *arg);
+        // }
+
+        self.write_to_vm_stack_starting_at(0, args, false);
 
         let index = self.get_sp(vm_ctx);
 
@@ -6966,6 +7015,87 @@ impl FunctionTranslator<'_> {
             .collect()
     }
 
+    fn split_off_all_mut_register(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
+        let mut args = self
+            .shadow_stack
+            .split_off(self.shadow_stack.len() - payload);
+
+        let mut buffered_reads = Vec::new();
+
+        for value in &args {
+            match value {
+                MaybeStackValue::MutRegister(p) => {
+                    buffered_reads.push((*p, false));
+                }
+                MaybeStackValue::Register(p) => {
+                    buffered_reads.push((*p, false));
+                }
+                _ => {}
+            }
+        }
+
+        let coalesced_reads = self.read_multiple_from_stack_no_write_back(buffered_reads);
+
+        args = args
+            .into_iter()
+            .map(|x| match x {
+                MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
+                MaybeStackValue::MutRegister(p) => {
+                    let value = coalesced_reads.get(&p).copied().unwrap();
+                    self.properties.cached_lookups.registers.remove(&p);
+                    MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type: InferredType::Any,
+                        spilled: false,
+                    })
+                }
+                MaybeStackValue::Register(p) => {
+                    let value = coalesced_reads.get(&p).copied().unwrap();
+                    self.properties.cached_lookups.registers.remove(&p);
+                    MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type: InferredType::Any,
+                        spilled: false,
+                    })
+                }
+                MaybeStackValue::Constant(c) => {
+                    let (value, typ) = c.to_value(self);
+                    MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type: typ,
+                        spilled: false,
+                    })
+                }
+            })
+            .collect();
+
+        // Patch the args if needed
+        for arg in &args {
+            if let MaybeStackValue::Value(v) = arg {
+                self.value_to_local_map.remove(&v.value);
+            }
+        }
+
+        let mut args = args
+            .into_iter()
+            .map(|x| {
+                if let MaybeStackValue::Value(value) = x {
+                    value
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect();
+
+        // TODO:
+        // Check if this is necessary:
+        self.maybe_patch_from_stack(&mut args);
+
+        args.into_iter()
+            .map(|x| (x.as_steelval(self), x.inferred_type))
+            .collect()
+    }
+
     fn func_ret_val(
         &mut self,
         op: OpCode,
@@ -7647,6 +7777,50 @@ impl FunctionTranslator<'_> {
                     (index * std::mem::size_of::<SteelVal>()) as i32,
                 );
             } else {
+                self.clone_value(res);
+            }
+
+            results.insert(index, res);
+        }
+
+        results
+    }
+
+    fn read_multiple_from_stack_no_write_back(
+        &mut self,
+        values: Vec<(usize, bool)>,
+    ) -> HashMap<usize, Value> {
+        if values.is_empty() {
+            return Default::default();
+        }
+
+        let ctx = self.get_ctx();
+        let sp = self.get_sp(ctx);
+        let thread_pointer = self.get_thread_pointer(ctx);
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
+        );
+
+        debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
+
+        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
+
+        let mut results = HashMap::new();
+
+        for (index, kind) in values {
+            let res = self.builder.ins().load(
+                types::I128,
+                MemFlags::trusted(),
+                frame_base,
+                (index * std::mem::size_of::<SteelVal>()) as i32,
+            );
+
+            if !kind {
                 self.clone_value(res);
             }
 
