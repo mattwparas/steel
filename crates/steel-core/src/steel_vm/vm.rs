@@ -366,7 +366,7 @@ pub struct SteelThread {
     pub(crate) module_context: Vec<SteelString>,
 
     #[cfg(feature = "jit2")]
-    pub(crate) trampoline: fn(&mut VmCore, JitFnPointer),
+    pub(crate) trampoline: extern "C" fn(*mut VmCore, JitFnPointer) -> SteelVal,
 }
 
 #[derive(Clone)]
@@ -2484,13 +2484,22 @@ impl<'a> VmCore<'a> {
                         .as_ref()
                         .unwrap();
 
-                    (tramp)(self, *fn_ptr);
+                    let fn_ptr = *fn_ptr;
 
-                    self.is_native = false;
+                    // Did we return a value? If we have a result, then we did, otherwise, we did not?
+                    //
+                    // Is this right? Maybe we just need to check the is native part?
+                    let maybe_result = (tramp)(self as _, fn_ptr);
 
                     if let Some(res) = self.result.take() {
                         return res;
                     }
+
+                    if self.is_native {
+                        self.thread.stack.push(maybe_result);
+                    }
+
+                    self.is_native = false;
                 }
 
                 DenseInstruction {

@@ -45,8 +45,6 @@ use crate::{
     SteelVal,
 };
 
-// const DISABLE_SPECTRE_MITIGATION: bool = true;
-
 // Various optimizations that we've added one by one.
 // Its important that we get this right
 const INLINE_STRUCT_FUNCTION_CALLS: bool = true;
@@ -456,15 +454,6 @@ impl Default for JIT {
         flag_builder.set("opt_level", "speed").unwrap();
 
         flag_builder.set("preserve_frame_pointers", "true").unwrap();
-
-        // if DISABLE_SPECTRE_MITIGATION {
-        //     flag_builder
-        //         .set("enable_heap_access_spectre_mitigation", "false")
-        //         .unwrap();
-        //     flag_builder
-        //         .set("enable_table_access_spectre_mitigation", "false")
-        //         .unwrap();
-        // }
 
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
             panic!("host machine is not supported: {}", msg);
@@ -1371,12 +1360,15 @@ impl JIT {
         vm_param.purpose = ArgumentPurpose::VMContext;
         outer_sig.params.push(vm_param);
         outer_sig.params.push(AbiParam::new(ptr_ty));
+        outer_sig.returns.push(AbiParam::new(types::I128));
 
         let mut inner_sig = self.module.make_signature();
         let mut vm_param = AbiParam::new(ptr_ty);
         vm_param.purpose = ArgumentPurpose::VMContext;
         inner_sig.params.push(vm_param);
         inner_sig.call_conv = CallConv::Tail;
+
+        inner_sig.returns.push(AbiParam::new(types::I128));
 
         let func_id = self
             .module
@@ -1394,8 +1386,11 @@ impl JIT {
         let target = builder.block_params(block)[1];
 
         let sig_ref = builder.import_signature(inner_sig);
-        builder.ins().call_indirect(sig_ref, target, &[vm_ctx]);
-        builder.ins().return_(&[]);
+        let call = builder.ins().call_indirect(sig_ref, target, &[vm_ctx]);
+
+        let result = builder.inst_results(call)[0];
+
+        builder.ins().return_(&[result]);
 
         builder.seal_all_blocks();
         builder.finalize();
@@ -1471,6 +1466,15 @@ impl JIT {
 
         self.ctx.func.signature.params.push(param);
         self.ctx.func.signature.call_conv = CallConv::Tail;
+
+        // Return a value. If we concretely return a value,
+        // we're going to avoid writing it to the stack
+        // to save some time.
+        self.ctx
+            .func
+            .signature
+            .returns
+            .push(AbiParam::new(types::I128));
 
         let inner_id = self
             .module
@@ -1662,7 +1666,9 @@ impl JIT {
 
         // trans.builder.switch_to_block(exit_block);
 
-        trans.builder.ins().return_(&[]);
+        let void = trans.encode_void();
+
+        trans.builder.ins().return_(&[void]);
 
         trans.builder.seal_block(exit_block);
 
@@ -1673,7 +1679,7 @@ impl JIT {
         trans.builder.finalize();
 
         if !trans.potentially_could_deopt {
-            println!("Found a candidate for tier 2 compilation: {}", trans.name);
+            // println!("Found a candidate for tier 2 compilation: {}", trans.name);
         }
 
         // println!("Stats: {:#?}", trans.compilation_stats);
@@ -2381,7 +2387,14 @@ impl FunctionTranslator<'_> {
                     self.exit_types.insert(ty);
 
                     self.spill_cloned_stack();
-                    self.vm_pop(value);
+                    let real_res = self.vm_pop(value);
+
+                    // if we hit this, the value should not end up getting read?
+                    self.builder.ins().return_(&[real_res]);
+
+                    let cold_block = self.builder.create_block();
+                    self.builder.switch_to_block(cold_block);
+
                     self.ip = self.instructions.len() + 1;
                     self.depth -= 1;
 
@@ -2994,8 +3007,10 @@ impl FunctionTranslator<'_> {
                                 self.spill_cloned_stack();
 
                                 // Try this out?
-                                self.inline_handle_pop(res);
-                                self.builder.ins().return_(&[]);
+                                let real_res = self.inline_handle_pop(res);
+
+                                // TODO: Deal with this new return value
+                                self.builder.ins().return_(&[real_res]);
 
                                 let cold_block = self.builder.create_block();
                                 self.builder.switch_to_block(cold_block);
@@ -3041,10 +3056,10 @@ impl FunctionTranslator<'_> {
                                     self.inline_struct_call_no_drop(spec, arity, function_index)
                                 {
                                     self.spill_cloned_stack();
-                                    self.inline_handle_pop(value);
+                                    let real_res = self.inline_handle_pop(value);
 
-                                    // Can we do this?
-                                    self.builder.ins().return_(&[]);
+                                    // TODO: Deal with this new return value!
+                                    self.builder.ins().return_(&[real_res]);
 
                                     let cold_block = self.builder.create_block();
                                     self.builder.switch_to_block(cold_block);
@@ -4014,7 +4029,8 @@ impl FunctionTranslator<'_> {
                     let rhs_int = self.shadow_stack.pop().unwrap().into_value(self);
                     let register_l = self.shadow_stack.pop().unwrap().into_index();
 
-                    // Happy path, lets check the type of the lhs. If its an integer tag, then we can go ahead and do the thing.
+                    // Happy path, lets check the type of the lhs. If its an integer tag,
+                    // then we can go ahead and do the thing.
                     // Otherwise, we'll bail and fall through:
 
                     let local_value = self.read_from_vm_stack(register_l);
@@ -4046,12 +4062,6 @@ impl FunctionTranslator<'_> {
                         },
                         types::I8,
                     );
-
-                    // dbg!(self.local_to_value_map.get(&register_r));
-                    // dbg!(self.local_to_value_map.get(&register_l));
-
-                    // let local_value = self.read_from_vm_stack(register_l);
-                    // self.call_function_args_no_context("#%debug-steel-value", &[local_value]);
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::UnboxedBool);
@@ -4987,9 +4997,12 @@ impl FunctionTranslator<'_> {
                         // call the trampoline function (i.e. have one
                         // trampoline that we can pass by value to the
                         // tail calling convention code.)
-                        ctx.builder
-                            .ins()
-                            .call_indirect(sig_ref, super_instruction, &[vm_ctx]);
+                        let call =
+                            ctx.builder
+                                .ins()
+                                .call_indirect(sig_ref, super_instruction, &[vm_ctx]);
+
+                        let res = ctx.builder.inst_results(call)[0];
 
                         let is_still_native = ctx.builder.ins().load(
                             types::I8,
@@ -4998,12 +5011,7 @@ impl FunctionTranslator<'_> {
                             offset_of!(VmCore, is_native) as i32,
                         );
 
-                        ctx.converging_if(
-                            is_still_native,
-                            |ctx| ctx.inline_pop_from_stack(vm_ctx),
-                            |ctx| ctx.encode_void(),
-                            typ,
-                        )
+                        ctx.converging_if(is_still_native, |_| res, |ctx| ctx.encode_void(), typ)
                     },
                     |ctx| {
                         let arity = ctx.builder.ins().iconst(types::I64, arity as i64);
@@ -5853,10 +5861,10 @@ impl FunctionTranslator<'_> {
 
             // TODO: Translate this back to being inlined!
             if amount_dropped != 0 {
-                println!(
-                    "{} - tail call amount dropped: {}",
-                    self.name, amount_dropped
-                );
+                // println!(
+                //     "{} - tail call amount dropped: {}",
+                //     self.name, amount_dropped
+                // );
 
                 // Original payload, is the original amount to call
                 let original_payload = payload;
@@ -6536,7 +6544,10 @@ impl FunctionTranslator<'_> {
         // Emit the return for the else block
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
-        self.builder.ins().return_(&[]);
+
+        // Return void in the deopt case, so that if it gets double dropped we're fine.
+        let void = self.encode_void();
+        self.builder.ins().return_(&[void]);
 
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
@@ -6905,57 +6916,57 @@ impl FunctionTranslator<'_> {
     // In the event of single arg, double arg, etc, we can keep the values on the stack.
     //
     // Dispatch via the usual mechanism to see if this gets the job done
-    fn shadow_maybe_patch_from_stack(&mut self, args_off_the_stack: &mut Vec<MaybeStackValue>) {
-        let mut indices_to_get_from_shadow_stack = Vec::new();
+    // fn shadow_maybe_patch_from_stack(&mut self, args_off_the_stack: &mut Vec<MaybeStackValue>) {
+    //     let mut indices_to_get_from_shadow_stack = Vec::new();
 
-        for (idx, arg) in args_off_the_stack.iter().enumerate() {
-            if let MaybeStackValue::Value(arg) = arg {
-                if arg.spilled {
-                    indices_to_get_from_shadow_stack.push(idx);
-                }
-            }
-        }
+    //     for (idx, arg) in args_off_the_stack.iter().enumerate() {
+    //         if let MaybeStackValue::Value(arg) = arg {
+    //             if arg.spilled {
+    //                 indices_to_get_from_shadow_stack.push(idx);
+    //             }
+    //         }
+    //     }
 
-        for idx in indices_to_get_from_shadow_stack.iter().rev() {
-            let value = self.pop_value_from_vm_stack();
+    //     for idx in indices_to_get_from_shadow_stack.iter().rev() {
+    //         let value = self.pop_value_from_vm_stack();
 
-            args_off_the_stack[*idx] = MaybeStackValue::Value(StackValue {
-                value,
-                inferred_type: InferredType::Any,
-                spilled: false,
-            });
-        }
-    }
+    //         args_off_the_stack[*idx] = MaybeStackValue::Value(StackValue {
+    //             value,
+    //             inferred_type: InferredType::Any,
+    //             spilled: false,
+    //         });
+    //     }
+    // }
 
-    fn split_off_reg(&mut self, payload: usize) -> Vec<Value> {
-        let mut args = self
-            .shadow_stack
-            .split_off(self.shadow_stack.len() - payload);
+    // fn split_off_reg(&mut self, payload: usize) -> Vec<Value> {
+    //     let mut args = self
+    //         .shadow_stack
+    //         .split_off(self.shadow_stack.len() - payload);
 
-        // Patch the args if needed
-        for arg in &args {
-            if let MaybeStackValue::Value(v) = arg {
-                self.value_to_local_map.remove(&v.value);
-            }
-        }
+    //     // Patch the args if needed
+    //     for arg in &args {
+    //         if let MaybeStackValue::Value(v) = arg {
+    //             self.value_to_local_map.remove(&v.value);
+    //         }
+    //     }
 
-        self.shadow_maybe_patch_from_stack(&mut args);
+    //     self.shadow_maybe_patch_from_stack(&mut args);
 
-        // dbg!(&args);
+    //     // dbg!(&args);
 
-        args.into_iter()
-            .map(|x| match x {
-                MaybeStackValue::Value(stack_value) => stack_value.as_steelval(self),
-                MaybeStackValue::MutRegister(p) => {
-                    self.builder.ins().iconst(Type::int(64).unwrap(), p as i64)
-                }
-                MaybeStackValue::Register(p) => {
-                    self.builder.ins().iconst(Type::int(64).unwrap(), p as i64)
-                }
-                MaybeStackValue::Constant(constant_value) => constant_value.to_value(self).0,
-            })
-            .collect()
-    }
+    //     args.into_iter()
+    //         .map(|x| match x {
+    //             MaybeStackValue::Value(stack_value) => stack_value.as_steelval(self),
+    //             MaybeStackValue::MutRegister(p) => {
+    //                 self.builder.ins().iconst(Type::int(64).unwrap(), p as i64)
+    //             }
+    //             MaybeStackValue::Register(p) => {
+    //                 self.builder.ins().iconst(Type::int(64).unwrap(), p as i64)
+    //             }
+    //             MaybeStackValue::Constant(constant_value) => constant_value.to_value(self).0,
+    //         })
+    //         .collect()
+    // }
 
     // TODO: We should coalesce register reads in order to avoid subsequent buf pointer
     // loads?
@@ -7763,8 +7774,8 @@ impl FunctionTranslator<'_> {
         self.properties.infer_property_bool(condition_value, false);
     }
 
-    fn vm_pop(&mut self, value: Value) {
-        self.inline_handle_pop(value);
+    fn vm_pop(&mut self, value: Value) -> Value {
+        self.inline_handle_pop(value)
     }
 
     fn push_to_vm_stack(&mut self, value: Value) {
@@ -8279,7 +8290,11 @@ impl FunctionTranslator<'_> {
                 // to capture the stack length without needing to compute the value
                 ctx.push_stack_frame(arity as _, func, instr_fat_ptr, fallback_ip);
                 let jit_func = ctx.get_jit_func(id);
-                ctx.builder.ins().call(jit_func, &[vm_ctx]);
+
+                // Check the result here
+                let call = ctx.builder.ins().call(jit_func, &[vm_ctx]);
+
+                let res = ctx.builder.inst_results(call)[0];
 
                 // Check if native still:
                 let is_still_native = ctx.builder.ins().load(
@@ -8291,7 +8306,8 @@ impl FunctionTranslator<'_> {
 
                 ctx.converging_if(
                     is_still_native,
-                    |ctx| ctx.inline_pop_from_stack(vm_ctx),
+                    // |ctx| ctx.inline_pop_from_stack(vm_ctx),
+                    |_| res,
                     |ctx| ctx.encode_void(),
                     typ,
                 )
@@ -8825,7 +8841,7 @@ impl FunctionTranslator<'_> {
         sub_one
     }
 
-    fn inline_handle_pop(&mut self, value: Value) {
+    fn inline_handle_pop(&mut self, value: Value) -> Value {
         let vm_ctx = self.get_ctx();
         let new_pop_count = self.sub_one_pop_count(vm_ctx);
         let should_continue = self.pop_count_should_continue(new_pop_count);
@@ -8834,7 +8850,7 @@ impl FunctionTranslator<'_> {
         // to return anything. The result should just be assigned to the result
         // on the VM context; In the else case, we assign the result
         // on to the VM value. In the former case, we don't need to do anything.
-        self.converging_if_no_value(
+        self.converging_if(
             should_continue,
             |ctx| {
                 // This is the frame itself. We'll need to call drop
@@ -8883,7 +8899,9 @@ impl FunctionTranslator<'_> {
                                                 ctx.truncate_stack(vm_ctx, sp, None);
                                                 ctx.push_to_vm_stack(value);
                         */
-                        ctx.truncate_stack_write_last(vm_ctx, sp, value);
+                        // ctx.truncate_stack_write_last(vm_ctx, sp, value);
+
+                        ctx.truncate_stack(vm_ctx, sp, None);
 
                         let ip = ctx.builder.ins().uextend(types::I64, popped_frame.ip);
                         ctx.builder.ins().store(
@@ -8918,9 +8936,17 @@ impl FunctionTranslator<'_> {
                         );
                     },
                 );
+
+                value
             },
-            |ctx| ctx.call_function_args_no_return("#%pop-slow-path-finish", &[value]),
-        );
+            |ctx| {
+                ctx.call_function_args_no_return("#%pop-slow-path-finish", &[value]);
+
+                // Return void in this case
+                ctx.encode_void()
+            },
+            types::I128,
+        )
     }
 
     // Whether we should continue running:
@@ -9966,6 +9992,7 @@ impl FunctionTranslator<'_> {
 
         // VmCore pointer
         sig.params.push(param);
+        sig.returns.push(AbiParam::new(types::I128));
 
         if cfg!(target_os = "windows") {
             sig.call_conv = CallConv::SystemV;
@@ -10045,6 +10072,8 @@ impl FunctionTranslator<'_> {
         sig.params.push(param);
 
         sig.call_conv = CallConv::Tail;
+
+        sig.returns.push(AbiParam::new(types::I128));
 
         let sig_ref = self.builder.import_signature(sig);
         sig_ref

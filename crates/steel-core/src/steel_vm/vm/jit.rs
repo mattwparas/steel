@@ -42,12 +42,12 @@ pub(crate) fn jit_compile_lambda(
     }
 
     if ctx.thread.compiler.read().kernel.is_none() {
-        println!("Skipping compiling because of the kernel: {}", func.id);
+        // println!("Skipping compiling because of the kernel: {}", func.id);
         return func;
     }
 
     if func.is_multi_arity {
-        println!("Skipping compiling because it is multi arity: {}", func.id);
+        // println!("Skipping compiling because it is multi arity: {}", func.id);
         return func;
     }
 
@@ -3171,7 +3171,7 @@ fn handle_global_function_call_with_args(
 
                     let tramp = ctx.thread.trampoline;
 
-                    (tramp)(ctx, func);
+                    let res = (tramp)(ctx, func);
 
                     if ctx.is_native {
                         // if ctx.pop_count != pop_count {
@@ -3189,7 +3189,9 @@ fn handle_global_function_call_with_args(
                         debug_assert_eq!(ctx.pop_count, pop_count);
                         debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
                         // Don't deopt?
-                        Ok(ctx.thread.stack.pop().unwrap())
+                        // Ok(ctx.thread.stack.pop().unwrap())
+
+                        Ok(res)
                     } else {
                         // println!("Deopting, pushing void to stack");
 
@@ -4446,7 +4448,7 @@ macro_rules! make_call_global_function_deopt_no_arity {
 
                                     let tramp = ctx.thread.trampoline;
 
-                                    (tramp)(ctx, func);
+                                    let res = (tramp)(ctx, func);
 
                                     if ctx.is_native {
                                         // if ctx.pop_count != pop_count {
@@ -4466,7 +4468,8 @@ macro_rules! make_call_global_function_deopt_no_arity {
                                         }
 
                                         // Don't deopt?
-                                        Ok(ctx.thread.stack.pop().unwrap())
+                                        // Ok(ctx.thread.stack.pop().unwrap())
+                                        Ok(res)
                                     } else {
                                         Ok(SteelVal::Void)
                                     }
@@ -4669,7 +4672,7 @@ macro_rules! make_call_self_function_deopt_no_arity {
 
                             let tramp = ctx.thread.trampoline;
 
-                            (tramp)(ctx, func);
+                            let res = (tramp)(ctx, func);
 
                             if ctx.is_native {
                                 #[cfg(debug_assertions)]
@@ -4679,7 +4682,9 @@ macro_rules! make_call_self_function_deopt_no_arity {
                                 }
 
                                 // Don't deopt?
-                                Ok(ctx.thread.stack.pop().unwrap())
+                                // Ok(ctx.thread.stack.pop().unwrap())
+
+                                Ok(res)
                             } else {
                                 Ok(SteelVal::Void)
                             }
@@ -4801,14 +4806,15 @@ fn call_global_function_deopt_no_arity_spilled(
 
                         let tramp = ctx.thread.trampoline;
 
-                        (tramp)(ctx, func);
+                        let res = (tramp)(ctx, func);
 
                         if ctx.is_native {
                             debug_assert_eq!(ctx.pop_count, pop_count);
                             debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
 
                             // Don't deopt?
-                            Ok(ctx.thread.stack.pop().unwrap())
+                            // Ok(ctx.thread.stack.pop().unwrap())
+                            Ok(res)
                         } else {
                             Ok(SteelVal::Void)
                         }
@@ -4917,14 +4923,15 @@ fn call_global_function_deopt_spilled(
 
                         let tramp = ctx.thread.trampoline;
 
-                        (tramp)(ctx, func);
+                        let res = (tramp)(ctx, func);
 
                         if ctx.is_native {
                             debug_assert_eq!(ctx.pop_count, pop_count);
                             debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
 
                             // Don't deopt?
-                            Ok(ctx.thread.stack.pop().unwrap())
+                            // Ok(ctx.thread.stack.pop().unwrap())
+                            Ok(res)
                         } else {
                             Ok(SteelVal::Void)
                         }
