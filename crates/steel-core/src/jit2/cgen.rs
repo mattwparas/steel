@@ -696,6 +696,8 @@ impl Default for JIT {
             abi! { drop_box as fn(crate::values::closed::HeapRef<SteelVal>) },
         );
 
+        map.add_func2("log-let-var", abi! { log_counter as fn() });
+
         map.add_func2("#%clone-std-rc", abi! { clone_one as fn(SteelVal) });
 
         map.add_func2(
@@ -2848,6 +2850,9 @@ impl FunctionTranslator<'_> {
 
                 OpCode::LetVar => {
                     self.ip += 1;
+
+                    // Instrument with calls for profiling in general
+                    // self.call_function_args_no_context("log-let-var", &[]);
 
                     self.maybe_check_last();
 

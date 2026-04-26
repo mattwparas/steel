@@ -375,6 +375,15 @@ fn drop_value(ctx: *mut VmCore, arg: SteelVal) {
 }
 
 #[cross_platform_fn]
+fn log_counter() {
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    println!(
+        "Let var: {}",
+        COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
+    );
+}
+
+#[cross_platform_fn]
 fn drop_box(arg: crate::values::closed::HeapRef<SteelVal>) {
     drop(arg);
 }
