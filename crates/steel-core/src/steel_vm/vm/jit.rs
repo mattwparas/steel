@@ -510,8 +510,11 @@ fn drop_value_post_fast_decrement(arg: SteelVal) {
             bv.vec.0.fast_decrement_post_ref_count_dec();
         }
 
-        _ => {
-            panic!("Calling fast decrement post ref count on a non pointer value");
+        other => {
+            panic!(
+                "Calling fast decrement post ref count on a non pointer value: {}",
+                other
+            );
         }
     };
 }

@@ -2502,8 +2502,10 @@ impl FunctionTranslator<'_> {
                                         .ireduce(Type::int(8).unwrap(), shift_right)
                                 }
                                 InferredType::List => {
-                                    println!("GETTING HERE");
-                                    self.drop_tagged_value(test);
+                                    // self.drop_tagged_value(test);
+
+                                    self.drop_biased_rc(test);
+
                                     self.builder.ins().iconst(types::I8, 1)
                                 }
                                 _ => {
@@ -4638,6 +4640,10 @@ impl FunctionTranslator<'_> {
                                 self.shadow_push(MaybeStackValue::MutRegister(reg));
                             } else {
                                 let func = "cdr-mut-reg";
+                                self.properties.props.insert(
+                                    ValueOrRegister::Register(reg),
+                                    vec![Properties::InferredType(InferredType::Void)],
+                                );
 
                                 let res = self.call_function_returns_value_args(func, &[ir_reg]);
                                 self.check_deopt();
@@ -5409,6 +5415,21 @@ impl FunctionTranslator<'_> {
             .icmp(IntCC::Equal, thread_id, obj_thread_id);
 
         is_thread_local
+    }
+
+    // We can decide on whether to actually drop the value,
+    // based on whether or not the type needs drop glue at all.
+    //
+    // In the event we've asserted that this type does _not_
+    // need drop glue, then we're good to continue without
+    // emitting drop glue. What that means in this case is that
+    // something like unboxed types don't need drop glue.
+    fn drop_tagged_value_inferred_type(
+        &mut self,
+        tagged_value: Value,
+        inferred_type: InferredType,
+    ) {
+        todo!()
     }
 
     fn drop_biased_rc(&mut self, tagged_value: Value) {
@@ -7003,6 +7024,12 @@ impl FunctionTranslator<'_> {
             _ => InferredType::Any,
         };
 
+        // We've removed from the stack, meaning we don't need to emit drop glue for this.
+        self.properties.props.insert(
+            ValueOrRegister::Register(p),
+            vec![Properties::InferredType(InferredType::Void)],
+        );
+
         (value, inferred_type)
     }
 
@@ -7991,6 +8018,12 @@ impl FunctionTranslator<'_> {
                     frame_base,
                     (index * std::mem::size_of::<SteelVal>()) as i32,
                 );
+
+                // We've removed from the stack, meaning we don't need to emit drop glue for this.
+                self.properties.props.insert(
+                    ValueOrRegister::Register(index),
+                    vec![Properties::InferredType(InferredType::Void)],
+                );
             } else {
                 self.clone_value(res);
             }
@@ -8037,6 +8070,11 @@ impl FunctionTranslator<'_> {
 
             if !kind {
                 self.clone_value(res);
+            } else {
+                self.properties.props.insert(
+                    ValueOrRegister::Register(index),
+                    vec![Properties::InferredType(InferredType::Void)],
+                );
             }
 
             results.insert(index, res);
@@ -8238,6 +8276,8 @@ impl FunctionTranslator<'_> {
             .ins()
             .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
 
+        dbg!(self.properties.get(&ValueOrRegister::Register(index)));
+
         self.drop_tagged_value(local_value);
 
         self.builder
@@ -8275,7 +8315,18 @@ impl FunctionTranslator<'_> {
                     (index * std::mem::size_of::<SteelVal>()) as i32,
                 );
 
-                self.drop_tagged_value(local_value);
+                match self.properties.get(&ValueOrRegister::Register(index)) {
+                    // TODO: Can do even better, read less things
+                    Some(Properties::NonEmptyListOrPair) => {
+                        self.drop_biased_rc(local_value);
+                    }
+
+                    Some(Properties::InferredType(InferredType::Void)) => {}
+
+                    _ => {
+                        self.drop_tagged_value(local_value);
+                    }
+                }
             }
 
             self.builder.ins().store(
@@ -8319,7 +8370,18 @@ impl FunctionTranslator<'_> {
                 (index * std::mem::size_of::<SteelVal>()) as i32,
             );
 
-            self.drop_tagged_value(local_value);
+            match self.properties.get(&ValueOrRegister::Register(index)) {
+                // TODO: Can do even better, read less thing
+                Some(Properties::NonEmptyListOrPair) => {
+                    self.drop_biased_rc(local_value);
+                }
+
+                Some(Properties::InferredType(InferredType::Void)) => {}
+
+                _ => {
+                    self.drop_tagged_value(local_value);
+                }
+            }
 
             index += 1;
         }
@@ -8365,7 +8427,18 @@ impl FunctionTranslator<'_> {
                     (index * std::mem::size_of::<SteelVal>()) as i32,
                 );
 
-                self.drop_tagged_value(local_value);
+                match self.properties.get(&ValueOrRegister::Register(index)) {
+                    // TODO: Can do even better, read less things
+                    Some(Properties::NonEmptyListOrPair) => {
+                        self.drop_biased_rc(local_value);
+                    }
+
+                    Some(Properties::InferredType(InferredType::Void)) => {}
+
+                    _ => {
+                        self.drop_tagged_value(local_value);
+                    }
+                }
             }
 
             self.builder.ins().store(
@@ -8741,6 +8814,7 @@ impl FunctionTranslator<'_> {
                 .builder
                 .ins()
                 .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
             self.drop_tagged_value(val);
 
             let i_next = BlockArg::Value(self.builder.ins().iadd_imm(i, 1));

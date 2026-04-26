@@ -1317,6 +1317,11 @@ impl<'a> FunctionTranslator<'a> {
                             MaybeStackValue::MutRegister(i) => {
                                 let void = self.encode_void();
                                 self.write_to_vm_stack(i, void);
+
+                                self.properties.props.insert(
+                                    ValueOrRegister::Register(i),
+                                    vec![Properties::InferredType(InferredType::Void)],
+                                );
                             }
                             // Otherwise, we're fine?
                             MaybeStackValue::Register(_) => {
