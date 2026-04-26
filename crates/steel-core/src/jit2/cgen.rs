@@ -1132,6 +1132,18 @@ impl Default for JIT {
         );
 
         map.add_func_hint(
+            "gte-register-int",
+            abi! { extern_c_gte_register_int as fn(*mut VmCore, usize, SteelVal) -> bool },
+            InferredType::UnboxedBool,
+        );
+
+        map.add_func_hint(
+            "gte-register-unknown",
+            abi! { extern_c_gte_register_unknown as fn(*mut VmCore, usize, SteelVal) -> bool },
+            InferredType::UnboxedBool,
+        );
+
+        map.add_func_hint(
             "lt-register-int",
             abi! { extern_c_lt_register_int as fn(*mut VmCore, usize, SteelVal) -> bool },
             InferredType::UnboxedBool,
@@ -4069,6 +4081,163 @@ impl FunctionTranslator<'_> {
                     self.ip += 2;
                 }
 
+                // Inferred type is not int
+                OpCode::GTE
+                    if payload == 2
+                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
+                            == Some(InferredType::Int)
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2),
+                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
+                        ) =>
+                {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
+
+                    let rhs_int = self.shadow_stack.pop().unwrap().into_value(self);
+                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+
+                    // Happy path, lets check the type of the lhs. If its an integer tag,
+                    // then we can go ahead and do the thing.
+                    // Otherwise, we'll bail and fall through:
+
+                    let local_value = self.read_from_vm_stack(register_l);
+                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+                    let result = self.converging_if(
+                        is_int,
+                        |ctx| {
+                            // Just do less than or equal on the value:
+                            let lhs = ctx.unbox_value_to_pointer(local_value);
+                            let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
+
+                            let res =
+                                ctx.builder
+                                    .ins()
+                                    .icmp(IntCC::SignedGreaterThanOrEqual, lhs, rhs);
+
+                            res
+                        },
+                        |ctx| {
+                            let register_l =
+                                ctx.builder.ins().iconst(types::I64, register_l as i64);
+                            let args = [register_l, rhs_int.value];
+                            let result =
+                                ctx.call_function_returns_value_args("gte-register-int", &args);
+                            ctx.check_deopt();
+
+                            result
+                        },
+                        types::I8,
+                    );
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::UnboxedBool);
+
+                    self.ip += 2;
+                }
+
+                // TODO: Introduce an abstraction to insert blocks when _both_ types are the same.
+                // Reduce number of type checks, inline comparisons.
+                OpCode::GTE
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2),
+                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
+                        ) =>
+                {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
+
+                    let rhs_int = self.shadow_stack.pop().unwrap().into_value(self);
+                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+
+                    // Happy path, lets check the type of the lhs. If its an integer tag,
+                    // then we can go ahead and do the thing.
+                    // Otherwise, we'll bail and fall through:
+
+                    let local_value = self.read_from_vm_stack(register_l);
+
+                    let register_is_int = self.is_type(local_value, SteelVal::INT_TAG);
+                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+                    let both_int = self.builder.ins().band(register_is_int, is_int);
+
+                    let result = self.converging_if(
+                        both_int,
+                        |ctx| {
+                            // Just do less than or equal on the value:
+                            let lhs = ctx.unbox_value_to_pointer(local_value);
+                            let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
+
+                            let res =
+                                ctx.builder
+                                    .ins()
+                                    .icmp(IntCC::SignedGreaterThanOrEqual, lhs, rhs);
+
+                            res
+                        },
+                        |ctx| {
+                            let register_is_float = ctx.is_type(local_value, SteelVal::FLOAT_TAG);
+                            let is_float = ctx.is_type(local_value, SteelVal::FLOAT_TAG);
+
+                            let both_float = ctx.builder.ins().band(register_is_float, is_float);
+
+                            ctx.converging_if(
+                                both_float,
+                                |ctx| {
+                                    // Just do less than or equal on the value:
+                                    let lhs = ctx.unbox_value_to_float(local_value);
+                                    let rhs = ctx.unbox_value_to_float(rhs_int.value);
+
+                                    let res = ctx.builder.ins().fcmp(
+                                        FloatCC::GreaterThanOrEqual,
+                                        lhs,
+                                        rhs,
+                                    );
+
+                                    res
+                                },
+                                |ctx| {
+                                    let register_l =
+                                        ctx.builder.ins().iconst(types::I64, register_l as i64);
+                                    let args = [register_l, rhs_int.value];
+                                    let result = ctx.call_function_returns_value_args(
+                                        "gte-register-unknown",
+                                        &args,
+                                    );
+                                    ctx.check_deopt();
+
+                                    result
+                                },
+                                types::I8,
+                            )
+                        },
+                        types::I8,
+                    );
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::UnboxedBool);
+
+                    self.ip += 2;
+                }
+
                 OpCode::LTE
                     if payload == 2
                         && matches!(self.shadow_stack.last(), Some(MaybeStackValue::Value(_)))
@@ -4327,7 +4496,7 @@ impl FunctionTranslator<'_> {
                 }
 
                 // Lets inline equal2
-                OpCode::EQUAL | OpCode::NUMEQUAL | OpCode::EQUAL2 => {
+                OpCode::EQUAL | OpCode::NUMEQUAL => {
                     // println!("Generating code for equal");
                     self.func_ret_val(op, payload, 2, InferredType::UnboxedBool);
                 }

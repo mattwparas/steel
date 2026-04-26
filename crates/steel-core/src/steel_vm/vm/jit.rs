@@ -2741,6 +2741,61 @@ fn extern_c_lte_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool 
 }
 
 #[cross_platform_fn]
+fn extern_c_gte_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
+    use crate::primitives::numbers::realp;
+
+    assert!(matches!(b, SteelVal::IntV(_)));
+    let mut ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    if realp(a) {
+        // Avoid the drop glue. We've already asserted that this is an integer
+        let b = ManuallyDrop::new(b);
+        a >= &b
+    } else {
+        let e = SteelErr::new(
+            ErrorKind::TypeMismatch,
+            format!("expected real numbers, found: {} and {}", a, b),
+        );
+
+        unsafe {
+            let guard = &mut *ctx;
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+        }
+
+        false
+    }
+}
+
+#[cross_platform_fn]
+fn extern_c_gte_register_unknown(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
+    use crate::primitives::numbers::realp;
+
+    let mut ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    if realp(a) {
+        a >= &b
+    } else {
+        let e = SteelErr::new(
+            ErrorKind::TypeMismatch,
+            format!("expected real numbers, found: {} and {}", a, b),
+        );
+
+        unsafe {
+            let guard = &mut *ctx;
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+        }
+
+        false
+    }
+}
+
+#[cross_platform_fn]
 fn extern_c_lt_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
     use crate::primitives::numbers::realp;
 
