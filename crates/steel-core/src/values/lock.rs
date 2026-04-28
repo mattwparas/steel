@@ -30,6 +30,10 @@ impl<T> SpinLock<T> {
         self.lock()
     }
 
+    pub unsafe fn get_value(&self) -> &T {
+        unsafe { &*self.data.get() }
+    }
+
     pub fn lock(&self) -> SpinGuard<'_, T> {
         while self
             .locked

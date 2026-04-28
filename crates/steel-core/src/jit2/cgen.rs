@@ -64,6 +64,10 @@ const INLINE_READ_CAPTURED: bool = true;
 
 const USE_INLINE_DROP_HEAP_BOX: bool = true;
 
+// Use inline push global; the shared vector implementation
+// is Repr C, so we can look up values directly in this.
+const USE_INLINE_PUSH_GLOBAL: bool = true;
+
 /// The basic JIT class.
 pub struct JIT {
     /// The function builder context, which is reused across multiple
@@ -2424,20 +2428,34 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                 }
                 OpCode::PUSH => {
-                    // Let value to push:
-                    let index = self
-                        .builder
-                        .ins()
-                        .iconst(Type::int(64).unwrap(), payload as i64);
+                    if USE_INLINE_PUSH_GLOBAL {
+                        let result = self.inline_lookup_global(payload);
 
-                    let function_name = op_to_name_payload(op, payload);
+                        // Clone the resulting value, then move on
+                        self.clone_value(result);
 
-                    let result = self.call_function_returns_value_args(function_name, &[index]);
+                        // TODO: If we know the type of a global
+                        // and we also know that the value is immutable, then
+                        // we should be able to fuss with it
+                        self.push(result, InferredType::Any);
 
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::Any);
+                        self.ip += 1;
+                    } else {
+                        // Let value to push:
+                        let index = self
+                            .builder
+                            .ins()
+                            .iconst(Type::int(64).unwrap(), payload as i64);
 
-                    self.ip += 1;
+                        let function_name = op_to_name_payload(op, payload);
+
+                        let result = self.call_function_returns_value_args(function_name, &[index]);
+
+                        // Check the inferred type, if we know of it
+                        self.push(result, InferredType::Any);
+
+                        self.ip += 1;
+                    }
                 }
 
                 // TODO: Still adjust the ip as needed
@@ -2585,13 +2603,13 @@ impl FunctionTranslator<'_> {
                         {
                             // Check the type:
                             let func = self.read_from_vm_stack(*i);
-                            self.inline_call_func(arity, name, func, true);
+                            self.inline_call_func(arity, name, func, true, true);
                         }
 
                         Some(MaybeStackValue::Value(StackValue { value, .. }))
                             if USE_INLINE_CALL_FUNC =>
                         {
-                            self.inline_call_func(arity, name, *value, false);
+                            self.inline_call_func(arity, name, *value, false, true);
                         }
 
                         _ => {
@@ -3213,7 +3231,27 @@ impl FunctionTranslator<'_> {
                             };
 
                         self.push(result, inferred_type);
+                    } else if USE_INLINE_CALL_GLOBAL {
+                        // Local name here is important
+                        let name = CallFunctionDefinitions::arity_to_name(arity);
+
+                        let value = self.inline_lookup_global(payload);
+
+                        self.clone_value(value);
+
+                        self.ip += 1;
+
+                        // This pushes the value on to the shadow stack for us
+                        self.inline_call_func(arity, name, value, false, false);
                     } else if let Some(name) = name {
+                        // There is also the case that the function is not implemented yet.
+                        // For this, unfortunately I think we're going to have to look up the function,
+                        // and then call it, since it could be dynamically changing.
+                        //
+                        // We can use the same functions for calling functions, and just inline
+                        // the global lookup here as well; we can get rid of that call entirely
+                        // once global lookups are added to be inlined.
+
                         let result = self.call_global_function(arity, name, function_index, false);
 
                         // Assuming this worked, we'll want to push this result on to the stack.
@@ -5055,6 +5093,7 @@ impl FunctionTranslator<'_> {
         name: Option<&str>,
         func: Value,
         should_clone: bool,
+        should_pop_func: bool,
     ) {
         let is_closure = self.is_type(func, SteelVal::CLOSURE_TAG);
         // If it is a closure, we need to clone the value:
@@ -5072,8 +5111,10 @@ impl FunctionTranslator<'_> {
                 let vm_ctx = ctx.get_ctx();
                 let closure = ctx.unbox_value_to_pointer(func);
 
-                // Missing shadow stack pop!
-                ctx.shadow_stack.pop().unwrap();
+                if should_pop_func {
+                    // Missing shadow stack pop!
+                    ctx.shadow_stack.pop().unwrap();
+                }
 
                 // TODO: Clone / restore this for this branch,
                 // so the other branch can inherit the changes
@@ -5207,7 +5248,11 @@ impl FunctionTranslator<'_> {
                 ctx.value_to_local_map = old_map.clone();
 
                 if let Some(name) = name {
-                    let v = ctx.call_function(arity, name, false);
+                    let v = if should_pop_func {
+                        ctx.call_function(arity, name, false)
+                    } else {
+                        ctx.call_function_with_func(arity, name, false, func)
+                    };
 
                     v
                 } else {
@@ -6206,6 +6251,37 @@ impl FunctionTranslator<'_> {
         let index = self.builder.ins().iadd_imm(index, arity);
 
         self.truncate_stack(vm_ctx, index, None);
+    }
+
+    fn call_function_directly(
+        &mut self,
+        func: Value,
+        arity: usize,
+        name: &str,
+        tail: bool,
+    ) -> Value {
+        let local_callee = self.get_local_callee(name);
+
+        let ctx = self.get_ctx();
+
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let mut arg_values = vec![ctx, func, fallback_ip];
+
+        arg_values.extend(self.split_off(arity).into_iter().map(|x| x.0));
+
+        if tail {
+            self.spill_cloned_stack();
+        } else {
+            self.spill_stack();
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
     }
 
     fn call_function(&mut self, arity: usize, name: &str, tail: bool) -> Value {
@@ -9008,6 +9084,57 @@ impl FunctionTranslator<'_> {
         );
 
         buf_ptr
+    }
+
+    // 1. Probably need to check the length, slow path otherwise
+    // 2. Should figure out a better way of doing things.
+    fn inline_lookup_global(&mut self, payload: usize) -> Value {
+        let vm_ctx = self.get_ctx();
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
+
+        // Env pointer
+        let env_pointer = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            thread_pointer,
+            offset_of!(SteelThread, global_env) as i32,
+        );
+
+        let smaller: u32 = payload.try_into().unwrap();
+
+        let index = self.builder.ins().iconst(types::I32, smaller as i64);
+
+        // Amount we're going to shift by
+        let header_size = SteelList::<SteelVal>::vector_header_size();
+
+        // Length, stored at the start, after the capacity
+        let vector_length =
+            self.builder
+                .ins()
+                .load(types::I32, MemFlags::trusted(), env_pointer, 4);
+
+        // if the index > the length, return void
+        let test = self
+            .builder
+            .ins()
+            .icmp(IntCC::SignedGreaterThan, index, vector_length);
+
+        self.converging_if(
+            test,
+            |ctx| ctx.encode_void(),
+            |ctx| {
+                // Make sure this is 16
+                // let size = std::mem::size_of::<SteelVal>();
+                let index = ctx.builder.ins().uextend(types::I64, index);
+                let shift_left = ctx.builder.ins().ishl_imm(index, 4);
+                let index = ctx.builder.ins().iadd_imm(shift_left, header_size as i64);
+                let value = ctx.builder.ins().iadd(env_pointer, index);
+                ctx.builder
+                    .ins()
+                    .load(types::I128, MemFlags::trusted(), value, 0)
+            },
+            types::I128,
+        )
     }
 
     fn inline_pop_from_stack(&mut self, vm_ctx: Value) -> Value {

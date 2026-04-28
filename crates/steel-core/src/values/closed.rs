@@ -2172,6 +2172,14 @@ impl<T: HeapAble> HeapRef<T> {
         self.inner.upgrade().unwrap().lock().value.clone()
     }
 
+    pub unsafe fn inner_ref(&self) -> Option<&T> {
+        if self.inner.weak_count() == 1 {
+            Some(&(&*self.inner.as_ptr()).get_value().value)
+        } else {
+            None
+        }
+    }
+
     /// Get the value if the pointer is still valid.
     /// If this is the only thing pointing at it, then we need to drop it.
     pub(crate) fn maybe_get_from_weak(&self) -> Option<T> {

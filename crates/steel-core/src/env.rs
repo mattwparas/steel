@@ -3,6 +3,7 @@ use once_cell::sync::Lazy;
 use shared_vector::AtomicSharedVector;
 
 #[derive(Debug, Clone)]
+#[repr(transparent)]
 pub(crate) struct SharedVectorWrapper(pub AtomicSharedVector<SteelVal>);
 
 impl SharedVectorWrapper {
@@ -40,6 +41,7 @@ unsafe impl Sync for SharedVectorWrapper {}
 
 #[allow(unused)]
 #[derive(Debug)]
+#[repr(C)]
 pub struct Env {
     #[cfg(not(feature = "sync"))]
     pub(crate) bindings_vec: Vec<SteelVal>,
