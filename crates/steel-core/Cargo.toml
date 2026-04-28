@@ -75,7 +75,6 @@ cranelift = { version = "0.130", optional = true }
 cranelift-module = { version = "0.130", optional = true }
 cranelift-jit = { version = "0.130", optional = true }
 cranelift-native = { version = "0.130", optional = true }
-wasmtime-jit-debug = { version = "34", optional = true, features = ["perf_jitdump"] }
 object = { version = "*" }
 target-lexicon = "*"
 rustix = { version = "1", features = ["thread"] }
@@ -118,6 +117,9 @@ steel-imbl = { version = "7.1", optional = true, features = ["serde"] }
 icu_casemap = "2.0.0"
 
 thin-vec = { version = "0.2.14", features = ["serde"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+wasmtime-jit-debug = { version = "34", optional = true, features = ["perf_jitdump"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { version = "0.3.1", features = ["wasm_js"] }

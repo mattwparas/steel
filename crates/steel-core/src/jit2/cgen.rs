@@ -92,6 +92,7 @@ pub struct JIT {
 
     function_return_types: HashMap<u32, HashSet<InferredType>>,
 
+    #[cfg(target_os = "linux")]
     jitdump: wasmtime_jit_debug::perf_jitdump::JitDumpFile,
 }
 
@@ -1260,6 +1261,7 @@ impl Default for JIT {
             _ => unimplemented!(),
         };
 
+        #[cfg(target_os = "linux")]
         let mut jitdump = wasmtime_jit_debug::perf_jitdump::JitDumpFile::new(
             format!("./jit-{}.dump", std::process::id()),
             e_machine,
@@ -1274,6 +1276,7 @@ impl Default for JIT {
             function_map,
             names: Default::default(),
             function_return_types: Default::default(),
+            #[cfg(target_os = "linux")]
             jitdump,
         }
     }
@@ -1545,6 +1548,7 @@ impl JIT {
         // Lets figure out... what we need here
         write_perf_map_entry(code, code_size, &inner_name);
 
+        #[cfg(target_os = "linux")]
         {
             // after finalize_definitions(), for each function:
             let ptr = code;
