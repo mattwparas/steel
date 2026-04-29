@@ -975,6 +975,59 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    pub(super) fn binop_add_value_both(
+        &mut self,
+        left: Value,
+        right: Value,
+    ) -> (Value, InferredType) {
+        let left_is_int = self.is_type(left, SteelVal::INT_TAG);
+        let right_is_int = self.is_type(right, SteelVal::INT_TAG);
+        let both_int = self.builder.ins().band(left_is_int, right_is_int);
+
+        let sp = |ctx: &mut Self| {
+            let args = [left, right];
+            let result = ctx.call_function_returns_value_args("add-binop", &args);
+
+            ctx.check_deopt();
+
+            result
+        };
+
+        let typ = self.int;
+
+        let res = self.converging_if(
+            both_int,
+            |ctx| {
+                // This is pointer sized, we're good to shrink it down
+                // to a pointer. both have to be int tag, otherwise we fall back to
+                // a function, and we'll return the usual
+                let left_payload = ctx.unbox_value_to_pointer(left);
+                let right_payload = ctx.unbox_value_to_pointer(right);
+
+                // Add the values, did they overflow?
+                let (added, overflow_flag) =
+                    ctx.builder.ins().sadd_overflow(left_payload, right_payload);
+
+                ctx.converging_if(
+                    overflow_flag,
+                    sp,
+                    |ctx| {
+                        // Happy path, just return the boxed integer value.
+                        ctx.encode_value(SteelVal::INT_TAG as _, added)
+                    },
+                    typ,
+                )
+            },
+            |ctx| {
+                let res = sp(ctx);
+                res
+            },
+            typ,
+        );
+
+        (res, InferredType::Number)
+    }
+
     pub(super) fn binop_add_value_register(
         &mut self,
         left: usize,

@@ -1094,8 +1094,21 @@ impl Default for JIT {
         );
 
         map.add_func_hint(
+            "sub-binop-both-reg",
+            abi! { extern_c_sub_two_both_reg as fn(ctx: *mut VmCore, a: usize, b: usize) -> SteelVal },
+            InferredType::Number,
+        );
+
+        map.add_func_hint(
             "sub-binop-int-reg",
             abi! { extern_c_sub_two_int_reg
+            as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
+            InferredType::Number,
+        );
+
+        map.add_func_hint(
+            "add-binop-int-reg",
+            abi! { extern_c_add_two_int_reg
             as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
             InferredType::Number,
         );
@@ -3540,6 +3553,70 @@ impl FunctionTranslator<'_> {
                     // self.call_end_scope_handler_new(payload, amt);
                 }
 
+                // When we have two registers, we can add them in place.
+                // we should use type inference if we have it
+                OpCode::SUB
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                            ])
+                        ) =>
+                {
+                    let register_r = self.shadow_stack.pop().unwrap().into_index();
+                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+
+                    // Read both from the vm stack - we could read them together,
+                    // but for now this will do
+                    let local_value_r = self.read_from_vm_stack(register_r);
+                    let local_value_l = self.read_from_vm_stack(register_l);
+
+                    let is_right_int = self.is_type(local_value_r, SteelVal::INT_TAG);
+                    let is_left_int = self.is_type(local_value_l, SteelVal::INT_TAG);
+
+                    let both_int = self.builder.ins().band(is_right_int, is_left_int);
+
+                    // TODO: Adjust all of these things - in the event we're subtracting two
+                    // integer values, then we need to do
+                    let sp = |ctx: &mut Self| {
+                        let register_l = ctx.builder.ins().iconst(types::I64, register_l as i64);
+                        let register_r = ctx.builder.ins().iconst(types::I64, register_r as i64);
+                        let args = [register_l, register_r];
+                        let result =
+                            ctx.call_function_returns_value_args("sub-binop-both-reg", &args);
+
+                        ctx.check_deopt();
+
+                        result
+                    };
+
+                    let result = self.converging_if(
+                        both_int,
+                        |ctx| {
+                            let lhs = ctx.unbox_value_to_pointer(local_value_l);
+                            let rhs = ctx.unbox_value_to_pointer(local_value_r);
+
+                            let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
+
+                            ctx.converging_if(
+                                overflow_flag,
+                                sp,
+                                |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
+                                types::I128,
+                            )
+                        },
+                        sp,
+                        types::I128,
+                    );
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Number);
+
+                    self.ip += 2;
+                }
+
                 // TODO: Generalize this to any immediate!
                 OpCode::SUB
                     if payload == 2
@@ -3789,6 +3866,68 @@ impl FunctionTranslator<'_> {
                     self.ip += 2;
                 }
 
+                OpCode::ADD
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                                MaybeStackValue::Constant(ConstantValue::Int(_))
+                            ])
+                        ) =>
+                {
+                    let rhs_int = self
+                        .shadow_stack
+                        .pop()
+                        .unwrap()
+                        .into_constant_int(self)
+                        .unwrap();
+                    let register_index = self.shadow_stack.pop().unwrap().into_index();
+
+                    let local_value = self.read_from_vm_stack(register_index);
+                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+                    let sp = |ctx: &mut Self| {
+                        let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+
+                        let value = ctx.encode_integer(rhs_int as i64);
+
+                        let args = [register, value];
+                        let result =
+                            ctx.call_function_returns_value_args("add-binop-int-reg", &args);
+
+                        result
+                    };
+
+                    let result = self.converging_if(
+                        is_int,
+                        |ctx| {
+                            // If its an int, then we'll do checked subtraction:
+                            let lhs = ctx.unbox_value_to_pointer(local_value);
+                            let rhs = ctx.builder.ins().iconst(types::I64, rhs_int as i64);
+
+                            let (subbed, overflow_flag) = ctx.builder.ins().sadd_overflow(lhs, rhs);
+
+                            ctx.converging_if(
+                                overflow_flag,
+                                sp,
+                                |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
+                                types::I128,
+                            )
+                        },
+                        sp,
+                        types::I128,
+                    );
+
+                    // let args = [register, value];
+                    // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Number);
+
+                    self.ip += 2;
+                }
+
                 // Specializing addition such that we'll handle when the first argument
                 // is a register.
                 //
@@ -3884,19 +4023,24 @@ impl FunctionTranslator<'_> {
                     let register_r = self.shadow_stack.pop().unwrap().into_index();
                     let register_l = self.shadow_stack.pop().unwrap().into_index();
 
-                    // // dbg!(self.local_to_value_map.get(&register_r));
-                    // // dbg!(self.local_to_value_map.get(&register_l));
-
-                    // let register_r = self.builder.ins().iconst(types::I64, register_r as i64);
-                    // let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
-
-                    // let args = [register_l, register_r];
-                    // let result = self.call_function_returns_value_args("add-binop-reg-2", &args);
-
-                    // // Check the inferred type, if we know of it
-                    // self.push(result, InferredType::Number);
-
                     let (res, t) = self.binop_add_value_register(register_l, register_r);
+
+                    self.push(res, t);
+
+                    self.ip += 2;
+                }
+
+                OpCode::ADD
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[MaybeStackValue::Value(_), MaybeStackValue::Value(_),])
+                        ) =>
+                {
+                    let value_r = self.shadow_stack.pop().unwrap().into_value(self).value;
+                    let value_l = self.shadow_stack.pop().unwrap().into_value(self).value;
+
+                    let (res, t) = self.binop_add_value_both(value_l, value_r);
 
                     self.push(res, t);
 
@@ -3930,12 +4074,12 @@ impl FunctionTranslator<'_> {
                 // of constant, we can probably encode that a little bit more effectively
                 // in the generated code.
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
-                    // if op == OpCode::ADD {
-                    //     println!(
-                    //         "Getting here: {:?}",
-                    //         self.shadow_stack.get(self.shadow_stack.len() - 2)
-                    //     );
-                    // }
+                    if op == OpCode::ADD {
+                        println!(
+                            "Getting here: {:?}",
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..)
+                        );
+                    }
                     // Call the func
                     self.func_ret_val(op, payload, 2, InferredType::Number);
                     self.check_deopt();

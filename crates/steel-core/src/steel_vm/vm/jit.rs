@@ -2564,6 +2564,30 @@ fn extern_c_sub_two_int_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelV
 }
 
 #[cross_platform_fn]
+fn extern_c_add_two_int_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+    // Lets try to avoid the drop glue getting generated here?
+    let b = std::mem::ManuallyDrop::new(b);
+    let rhs = if let SteelVal::IntV(i) = &*b {
+        *i
+    } else {
+        unsafe { unreachable_unchecked() }
+    };
+
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    match add_primitive(&[a.clone(), SteelVal::IntV(rhs as _)]) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+            SteelVal::Void
+        }
+    }
+}
+
+#[cross_platform_fn]
 fn extern_c_sub_two_float_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     // Lets try to avoid the drop glue getting generated here?
@@ -2641,6 +2665,24 @@ fn extern_c_sub_two_int(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal 
                 SteelVal::Void
             }
         },
+    }
+}
+
+#[cross_platform_fn]
+fn extern_c_sub_two_both_reg(ctx: *mut VmCore, l: usize, r: usize) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[l + offset];
+    let b = &ctx.thread.stack[r + offset];
+
+    match crate::primitives::numbers::sub_two(a, b) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+            SteelVal::Void
+        }
     }
 }
 
