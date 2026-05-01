@@ -48,7 +48,8 @@ impl<T> Arc<T> {
     }
 
     pub fn as_ptr(&self) -> *const T {
-        self.ptr.as_ptr() as _
+        let ptr = self.ptr.as_ptr();
+        unsafe { std::ptr::addr_of_mut!((*ptr).data) }
     }
 
     pub fn try_unwrap(this: Self) -> Result<T, Self> {
@@ -161,7 +162,8 @@ impl<T: ?Sized> Weak<T> {
     }
 
     pub fn as_ptr(&self) -> *const T {
-        self.ptr.as_ptr() as _
+        let ptr = self.ptr.as_ptr();
+        unsafe { std::ptr::addr_of_mut!((*ptr).data) }
     }
 
     pub fn upgrade(&self) -> Option<Arc<T>> {

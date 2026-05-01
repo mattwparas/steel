@@ -1359,6 +1359,16 @@ impl Compiler {
             semantic.refresh_variables();
         }
 
+        // Do it twice...
+        if std::env::var("STEEL_CLOSURE_LIFTING")
+            .as_ref()
+            .map(|x| x.as_str())
+            != Ok("false")
+        {
+            semantic.lift_closures();
+            semantic.refresh_variables();
+        }
+
         // TODO: Configure inlining function size
 
         // Loop unrolling. That is probably what we need?

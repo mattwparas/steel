@@ -1659,7 +1659,11 @@ impl Heap {
         self.vector_free_list.allocate(value)
     }
 
+    // TODO: We can probably fast path the case where we _don't_
+    // have an allocation to make. In the event we're not allocating,
+    // we don't need to pass all of these values.
     // Clean up the values?
+    #[inline(always)]
     pub fn allocate<'a>(
         &mut self,
         value: SteelVal,
@@ -1681,6 +1685,7 @@ impl Heap {
         self.memory_free_list.allocate(value)
     }
 
+    #[inline(always)]
     fn value_collection<'a>(
         &mut self,
         value: &SteelVal,

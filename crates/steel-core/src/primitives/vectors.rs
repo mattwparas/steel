@@ -1201,7 +1201,7 @@ pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "vector-ref", constant = true)]
 #[inline(always)]
-pub fn vec_ref(vec: &SteelVal, idx: &SteelVal) -> Result<SteelVal> {
+pub fn vec_ref(vec: &mut SteelVal, idx: &SteelVal) -> Result<SteelVal> {
     // First, ensure the index is a valid non-negative integer
     if let SteelVal::IntV(i) = idx {
         if *i < 0 {
@@ -1215,26 +1215,30 @@ pub fn vec_ref(vec: &SteelVal, idx: &SteelVal) -> Result<SteelVal> {
             SteelVal::MutableVector(v) => {
                 // TODO: If we move this into a context aware function,
                 // then we can avoid the lookup cost since we won't be in a safepoint.
-                // if let Some(guard) = unsafe { v.inner_ref() } {
-                //     if idx_usize >= guard.len() {
-                //         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
-                //     }
+                if let Some(guard) = unsafe { v.inner_ref() } {
+                    if idx_usize >= guard.len() {
+                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+                    }
 
-                //     Ok(guard[idx_usize].clone())
-                // } else {
-                let ptr = v.strong_ptr();
-                let guard = &ptr.lock().value;
+                    Ok(guard[idx_usize].clone())
+                } else {
+                    // v.inner.as_ptr()
 
-                // TODO: Not sure if we can really do this. When entering vec_ref
-                // its possible the values are frozen.
-                // let guard = &(unsafe { &(*v.inner.as_ptr()) }.read()).value;
+                    // let ptr = v.strong_ptr();
+                    // let guard = &ptr.lock().value;
 
-                if idx_usize >= guard.len() {
-                    stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+                    let guard = &(unsafe { &(*v.inner.as_ptr()) }.lock());
+
+                    // TODO: Not sure if we can really do this. When entering vec_ref
+                    // its possible the values are frozen.
+                    let guard = &guard.value;
+
+                    if idx_usize >= guard.len() {
+                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+                    }
+
+                    Ok(guard[idx_usize].clone())
                 }
-
-                Ok(guard[idx_usize].clone())
-                // }
             }
 
             SteelVal::VectorV(v) => {

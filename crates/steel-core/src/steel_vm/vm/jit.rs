@@ -992,8 +992,8 @@ fn is_empty_value(value: SteelVal) -> SteelVal {
 }
 
 #[cross_platform_fn]
-fn vector_ref_handler_c(ctx: *mut VmCore, vec: SteelVal, index: SteelVal) -> SteelVal {
-    match vec_ref(&vec, &index) {
+fn vector_ref_handler_c(ctx: *mut VmCore, mut vec: SteelVal, index: SteelVal) -> SteelVal {
+    match vec_ref(&mut vec, &index) {
         Ok(v) => v,
         Err(e) => {
             unsafe {
@@ -1012,7 +1012,7 @@ fn vector_ref_handler_register(ctx: *mut VmCore, vec_reg: u16, index: SteelVal) 
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
-    let vec = &guard.thread.stack[vec_reg as usize + offset];
+    let vec = &mut guard.thread.stack[vec_reg as usize + offset];
 
     match vec_ref(vec, &index) {
         Ok(v) => v,
@@ -1030,10 +1030,69 @@ fn vector_ref_handler_register_two(ctx: *mut VmCore, vec_reg: usize, index: usiz
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
-    let vec = &guard.thread.stack[vec_reg + offset];
-    let index = &guard.thread.stack[index + offset];
 
-    match vec_ref(vec, index) {
+    let mut thunk = || {
+        let temp_idx = &guard.thread.stack[index + offset];
+        if let SteelVal::IntV(i) = temp_idx {
+            let i = *i;
+
+            if i < 0 {
+                stop!(Generic => "vector-ref expects a positive integer, found: {:?}", i);
+            }
+
+            let idx_usize = i as usize;
+
+            let vec = &mut guard.thread.stack[vec_reg + offset];
+
+            // Now match on the vector type
+            match vec {
+                SteelVal::MutableVector(v) => {
+                    // TODO: If we move this into a context aware function,
+                    // then we can avoid the lookup cost since we won't be in a safepoint.
+                    if let Some(guard) = unsafe { v.inner_ref() } {
+                        if idx_usize >= guard.len() {
+                            stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+                        }
+
+                        Ok(guard[idx_usize].clone())
+                    } else {
+                        let guard = &(unsafe { &(*v.inner.as_ptr()) }.lock());
+
+                        let guard = &guard.value;
+
+                        if idx_usize >= guard.len() {
+                            stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+                        }
+
+                        Ok(guard[idx_usize].clone())
+                    }
+                }
+
+                SteelVal::VectorV(v) => {
+                    if idx_usize < v.len() {
+                        Ok(v[idx_usize].clone())
+                    } else {
+                        let e = format!(
+                            "Index out of bounds - attempted to access index: {} with length: {}",
+                            idx_usize,
+                            v.len()
+                        );
+                        stop!(Generic => e);
+                    }
+                }
+
+                _ => stop!(TypeMismatch => format!(
+                    "vector-ref expected a vector and a number, found: {:?} and {:?}",
+                    &guard.thread.stack[vec_reg + offset], guard.thread.stack[index + offset]
+                )),
+            }
+        } else {
+            let idx = guard.thread.stack[index + offset].clone();
+            stop!(TypeMismatch => "vector-ref expects an integer index, found: {:?}", idx);
+        }
+    };
+
+    match thunk() {
         Ok(v) => v,
         Err(e) => {
             guard.result = Some(Err(e));
@@ -4358,7 +4417,80 @@ make_call_function_deopt!(
     (call_function_deopt_5, a, b, c, d, e),
     (call_function_deopt_6, a, b, c, d, e, f),
     (call_function_deopt_7, a, b, c, d, e, f, g),
-    (call_function_deopt_8, a, b, c, d, e, f, g, h)
+    (call_function_deopt_8, a, b, c, d, e, f, g, h),
+    (call_function_deopt_9, a, b, c, d, e, f, g, h, i),
+    (call_function_deopt_10, a, b, c, d, e, f, g, h, i, j),
+    (call_function_deopt_11, a, b, c, d, e, f, g, h, i, j, k),
+    (call_function_deopt_12, a, b, c, d, e, f, g, h, i, j, k, l),
+    (
+        call_function_deopt_13,
+        a,
+        b,
+        c,
+        d,
+        e,
+        f,
+        g,
+        h,
+        i,
+        j,
+        k,
+        l,
+        m
+    ),
+    (
+        call_function_deopt_14,
+        a,
+        b,
+        c,
+        d,
+        e,
+        f,
+        g,
+        h,
+        i,
+        j,
+        k,
+        l,
+        m,
+        n
+    ),
+    (
+        call_function_deopt_15,
+        a,
+        b,
+        c,
+        d,
+        e,
+        f,
+        g,
+        h,
+        i,
+        j,
+        k,
+        l,
+        m,
+        n,
+        o
+    ),
+    (
+        call_function_deopt_16,
+        a,
+        b,
+        c,
+        d,
+        e,
+        f,
+        g,
+        h,
+        i,
+        j,
+        k,
+        l,
+        m,
+        n,
+        o
+    )
 );
 
 macro_rules! make_call_function_tail_deopt {
