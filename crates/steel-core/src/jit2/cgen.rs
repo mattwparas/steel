@@ -4479,6 +4479,62 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val_named("lte-binop-int", payload, 2, InferredType::Bool);
                 }
 
+                OpCode::NUMEQUAL
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[MaybeStackValue::Value(_), MaybeStackValue::Value(_),])
+                        ) =>
+                {
+                    // Lets assume, for now, that we'll happy path the case where they're both
+                    // ints. We would need to implement something more sophisticated for checking
+                    // otherwise.
+
+                    // This will be our constant value:
+                    let right = self.shadow_stack.pop().unwrap().into_value(self).value;
+                    let left = self.shadow_stack.pop().unwrap().into_value(self).value;
+
+                    // Check if the tags are the same, and they're numeric:
+                    let left_int = self.is_type(left, SteelVal::INT_TAG);
+                    let right_int = self.is_type(right, SteelVal::INT_TAG);
+
+                    let both_int = self.builder.ins().band(left_int, right_int);
+
+                    // Just check equality of the unboxed values
+
+                    let res = self.converging_if(
+                        both_int,
+                        |ctx| {
+                            // We can't rely on the tag matching in this world unfortunately.
+                            // Tags coming from rust land in debug mode could have garbage in the
+                            // padding that otherwise isn't there in the release build.
+                            let left_payload = ctx.unbox_value_to_pointer(left);
+                            let right_payload = ctx.unbox_value_to_pointer(right);
+                            ctx.builder
+                                .ins()
+                                .icmp(IntCC::Equal, left_payload, right_payload)
+                        },
+                        |ctx| {
+                            // Handle the else case here as well
+                            let vm_ctx = ctx.get_ctx();
+
+                            let res = ctx.call_function_returns_value_args_no_context(
+                                "num-equal-value-bool",
+                                &[vm_ctx, left, right],
+                            );
+
+                            // Make sure to check the deopt case here
+                            ctx.check_deopt();
+
+                            res
+                        },
+                        types::I8,
+                    );
+
+                    self.push(res, InferredType::UnboxedBool);
+                    self.ip += 2;
+                }
+
                 // In the event they're register @ value, we can probably just flip it
                 OpCode::NUMEQUAL
                     if payload == 2
@@ -4543,6 +4599,75 @@ impl FunctionTranslator<'_> {
                     self.push(res, InferredType::UnboxedBool);
                     self.ip += 2;
                 }
+
+                // In the event they're register @ value, we can probably just flip it
+                OpCode::NUMEQUAL
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::Value(_),
+                                MaybeStackValue::Constant(ConstantValue::Int(_)),
+                            ])
+                        )
+                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
+                            == Some(InferredType::Int) =>
+                {
+                    // Lets assume, for now, that we'll happy path the case where they're both
+                    // ints. We would need to implement something more sophisticated for checking
+                    // otherwise.
+
+                    let int = self
+                        .shadow_stack
+                        .pop()
+                        .unwrap()
+                        .into_constant_int(self)
+                        .unwrap();
+
+                    // This is now our register; this is where the values will live.
+                    let value = self.shadow_stack.pop().unwrap().into_value(self).value;
+
+                    // Check if the tags are the same, and they're numeric:
+                    let is_value_int = self.is_type(value, SteelVal::INT_TAG);
+
+                    // Just check equality of the unboxed values
+
+                    let res = self.converging_if(
+                        is_value_int,
+                        |ctx| {
+                            // We can't rely on the tag matching in this world unfortunately.
+                            // Tags coming from rust land in debug mode could have garbage in the
+                            // padding that otherwise isn't there in the release build.
+                            let register_payload = ctx.unbox_value_to_pointer(value);
+                            ctx.builder
+                                .ins()
+                                .icmp_imm(IntCC::Equal, register_payload, int as i64)
+                        },
+                        |ctx| {
+                            // Handle the else case here as well
+                            // todo!();
+
+                            let vm_ctx = ctx.get_ctx();
+
+                            let last = ctx.encode_integer(int as _);
+
+                            let res = ctx.call_function_returns_value_args_no_context(
+                                "num-equal-value-bool",
+                                &[vm_ctx, value, last],
+                            );
+
+                            // Make sure to check the deopt case here
+                            ctx.check_deopt();
+
+                            res
+                        },
+                        types::I8,
+                    );
+
+                    self.push(res, InferredType::UnboxedBool);
+                    self.ip += 2;
+                }
+
                 // TODO: @Matt
                 //
                 // This is where we have to be better; use the registers, use the constants,
