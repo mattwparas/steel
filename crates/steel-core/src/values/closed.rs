@@ -977,6 +977,14 @@ fn free_list_continues_allocating_in_the_middle() {
     drop(right_half)
 }
 
+#[inline]
+fn run_explicit_merge() {
+    #[cfg(feature = "biased")]
+    {
+        steel_rc::QueueHandle::run_explicit_merge();
+    }
+}
+
 #[cfg(feature = "sync")]
 impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     // TODO: Calculate the overhead!
@@ -1683,12 +1691,8 @@ impl Heap {
         synchronizer: &mut Synchronizer,
         force: bool,
     ) {
-        #[cfg(feature = "biased")]
-        {
-            steel_rc::QueueHandle::run_explicit_merge();
-        }
-
         if self.memory_free_list.percent_full() > 0.95 || force {
+            run_explicit_merge();
             // let now = crate::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "SteelVal gc invocation");
@@ -1847,12 +1851,8 @@ impl Heap {
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
-        #[cfg(feature = "biased")]
-        {
-            steel_rc::QueueHandle::run_explicit_merge();
-        }
-
         if self.vector_free_list.percent_full() > 0.50 && self.vector_free_list.should_run_weak {
+            run_explicit_merge();
             self.vector_free_list.weak_collection();
 
             if self.vector_free_list.percent_full() > 0.30 {
@@ -1861,6 +1861,7 @@ impl Heap {
         }
 
         if self.vector_free_list.percent_full() > 0.95 {
+            run_explicit_merge();
             // let now = crate::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");

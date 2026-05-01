@@ -304,6 +304,20 @@ impl ByteCodeLambda {
         }
     }
 
+    pub fn from_prototype(proto: &Self, captures: CaptureVec) -> Self {
+        Self {
+            id: proto.id,
+            arity: proto.arity,
+            is_multi_arity: proto.is_multi_arity,
+            header: proto.header,
+            body_exp: proto.body_exp.clone(),
+            captures,
+            contract: proto.contract.clone(),
+            super_instructions: proto.super_instructions,
+            tier2: proto.tier2,
+        }
+    }
+
     pub(crate) fn from_serialized(
         heap: &mut HeapSerializer,
         mut value: SerializedLambda,

@@ -6125,12 +6125,7 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
         .closure_interner
         .get(&closure_id)
     {
-        // log::trace!("Fetching closure from cache");
-
-        let mut prototype = prototype.clone();
-        prototype.set_captures(captures);
-        // prototype.set_heap_allocated(heap_vars);
-        prototype
+        ByteCodeLambda::from_prototype(prototype, captures)
     } else {
         // log::trace!("Constructing closure for the first time");
 

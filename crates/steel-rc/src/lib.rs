@@ -685,6 +685,11 @@ impl QueueHandle {
         }
     }
 
+    // TODO: @Matt
+    // Audit where this is getting run! It doesn't need to run
+    // nearly as much as we have it running during GC runs. We can probably
+    // just run it after the gc collection rather than during every
+    // allocation.
     pub fn run_explicit_merge() -> usize {
         let current = ThreadId::current_thread();
 
