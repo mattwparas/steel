@@ -31,7 +31,7 @@ steel-core = { path = "./crates/steel-core", version = "0.8.2", features = [
 ] }
 
 [features]
-default = ["mimalloc"]
+default = ["snmalloc"]
 build-info = ["vergen"]
 mimalloc = ["dep:mimalloc"]
 snmalloc = ["dep:snmalloc-rs"]
@@ -56,10 +56,9 @@ clap = { version = "4.5.39", features = ["derive"] }
 clap_complete = "4.5.52"
 steel-doc = { path = "./crates/steel-doc", version = "0.8.2" }
 mimalloc = { version = "0.1.47", optional = true }
-snmalloc-rs = { version = "0.3.8", optional = true, default-features = false, features = [
+snmalloc-rs = { version = "0.7.4", optional = true, default-features = false, features = [
     "build_cc",
     "usewait-on-address",
-    "native-cpu",
     "lto"
 ] }
 

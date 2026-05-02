@@ -10,6 +10,10 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+#[cfg(feature = "snmalloc")]
+#[global_allocator]
+static GLOBAL: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
+
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let clap_args = SteelCliArgs::parse();
