@@ -15,8 +15,7 @@ pub struct RenameShadowedVariables {
     // HACK: Pointing the identifier to its old, premangled self
     scope: ScopeSet<InternedString, FxBuildHasher>,
     reverse_map: ScopeMap<InternedString, InternedString>,
-    // Modify the variable with the depth
-    shadows: ScopeMap<InternedString, usize, FxBuildHasher>,
+    shadows: ScopeMap<InternedString, InternedString, FxBuildHasher>,
     str_modifiers: FxHashMap<usize, CompactString>,
     rename_all: bool,
 }
@@ -76,6 +75,32 @@ impl RenameShadowedVariables {
             renamer.visit(expr);
         }
     }
+
+    fn construct_unique_rename(&mut self, original: InternedString) -> InternedString {
+        let modifier = self.scope.depth();
+
+        let mut base = CompactString::new("##") + original.resolve();
+        if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
+            base.push(char_modifier);
+        } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
+            base.push_str(str_modifier);
+        } else {
+            self.str_modifiers
+                .insert(modifier, compact_str::format_compact!("{}", modifier));
+            base.push_str(self.str_modifiers.get(&modifier).unwrap());
+        }
+
+        let mut candidate: InternedString = base.clone().into();
+        let mut counter: u32 = 0;
+        while self.scope.contains(&candidate) {
+            let mut next = base.clone();
+            next.push('_');
+            next.push_str(&counter.to_string());
+            candidate = next.into();
+            counter += 1;
+        }
+        candidate
+    }
 }
 
 impl VisitorMutRefUnit for RenameShadowedVariables {
@@ -89,36 +114,14 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                 };
 
                 if self.rename_all || self.scope.contains(variable) {
-                    let modifier = self.scope.depth();
-                    self.shadows.define(*variable, modifier);
-                    // println!("Renaming: {} -> {}", variable.resolve());
-
                     let prev = *variable;
+                    let new_name = self.construct_unique_rename(prev);
+                    self.shadows.define(prev, new_name);
 
-                    // Create a mutable string to mangle
-                    let mut mut_var = CompactString::new("##") + variable.resolve();
-
-                    if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
-                        mut_var.push(char_modifier);
-                    } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
-                        mut_var.push_str(str_modifier);
-                    } else {
-                        self.str_modifiers
-                            .insert(modifier, compact_str::format_compact!("{}", modifier));
-                        mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
-                    }
-                    // println!(
-                    //     "define - Renaming: {} -> {} @ depth: {}",
-                    //     variable.resolve(),
-                    //     mut_var,
-                    //     modifier
-                    // );
-
-                    *variable = mut_var.into();
+                    *variable = new_name;
 
                     if a.syn.introduced_via_macro {
-                        // println!("Defining: {} -> {}", prev.resolve(), variable.resolve());
-                        self.reverse_map.define(prev, *variable);
+                        self.reverse_map.define(prev, new_name);
                     }
                 }
 
@@ -146,40 +149,17 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
             };
 
             if self.rename_all || self.scope.contains(variable) {
-                // println!("Renaming: {}", variable.resolve());
-
-                let modifier = self.scope.depth();
-                self.shadows.define(*variable, modifier);
-
                 let prev = *variable;
+                let new_name = self.construct_unique_rename(prev);
+                self.shadows.define(prev, new_name);
 
-                // Create a mutable string to mangle
-                let mut mut_var = CompactString::new("##") + variable.resolve();
+                *variable = new_name;
 
-                if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
-                    mut_var.push(char_modifier);
-                } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
-                    mut_var.push_str(str_modifier);
-                } else {
-                    self.str_modifiers
-                        .insert(modifier, compact_str::format_compact!("{}", modifier));
-                    mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
-                }
-                // println!("Renaming: {} -> {}", variable.resolve(), mut_var);
-
-                *variable = mut_var.into();
-
-                self.scope.define(*variable);
+                self.scope.define(new_name);
 
                 if syn.introduced_via_macro {
-                    // println!("Defining: {} -> {}", prev.resolve(), variable.resolve());
-                    self.reverse_map.define(prev, *variable);
+                    self.reverse_map.define(prev, new_name);
                 }
-
-                // if let Some(prev) = syn.previous_name {
-                //     println!("Defining: {} -> {}", prev.resolve(), variable.resolve());
-                //     self.reverse_map.define(prev, *variable);
-                // }
 
                 continue;
             }
@@ -222,32 +202,15 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
         // println!("Shadows: {:?}", self.shadows.iter().map(|x| x.resolve()).collect::<Vec<_>>());
 
         if let Some(ident) = a.ident_mut() {
-            if let Some(modifier) = self.shadows.get(ident) {
+            if let Some(new_name) = self.shadows.get(ident).copied() {
                 // If the value is unresolved, but there is in scope a value
                 // that was also introduced via macro, then we want to resolve
                 // this variable to point to that one as well.
                 if unresolved && !self.reverse_map.contains_key(ident) {
-                    // println!("Skipping mangling: {}", a);
-                    // println!("Introduced via macro: {}", a.syn.introduced_via_macro);
                     return;
                 }
 
-                // Append the variable with the depth it occurs at.
-                // Now, shadowing shouldn't actually _be_ a problem
-                // ident.push(char::from_digit(*modifier as u32, 10).unwrap());
-
-                let mut mut_ident = CompactString::new("##") + ident.resolve();
-
-                if let Some(char_modifier) = char::from_digit(*modifier as u32, 10) {
-                    mut_ident.push(char_modifier)
-                } else if let Some(str_modifier) = self.str_modifiers.get(modifier) {
-                    mut_ident.push_str(str_modifier)
-                } else {
-                    panic!("The modifier should be defined by now")
-                }
-
-                *ident = mut_ident.into();
-
+                *ident = new_name;
                 self.modified = true;
             }
         }
@@ -275,30 +238,16 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
             };
 
             if self.rename_all || self.scope.contains(variable) {
-                let modifier = self.scope.depth();
-                self.shadows.define(*variable, modifier);
                 let prev = *variable;
+                let new_name = self.construct_unique_rename(prev);
+                self.shadows.define(prev, new_name);
 
-                let mut mut_var = CompactString::new("##") + variable.resolve();
+                *variable = new_name;
 
-                if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
-                    mut_var.push(char_modifier);
-                } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
-                    mut_var.push_str(str_modifier);
-                } else {
-                    self.str_modifiers
-                        .insert(modifier, compact_str::format_compact!("{}", modifier));
-                    mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
-                }
-
-                // println!("Renaming: {} -> {}", variable.resolve(), mut_var);
-                *variable = mut_var.into();
-
-                self.scope.define(*variable);
+                self.scope.define(new_name);
 
                 if syn.introduced_via_macro {
-                    // println!("Defining: {} -> {}", prev.resolve(), variable.resolve());
-                    self.reverse_map.define(prev, *variable);
+                    self.reverse_map.define(prev, new_name);
                 }
 
                 continue;

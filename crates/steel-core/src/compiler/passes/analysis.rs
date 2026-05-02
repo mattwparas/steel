@@ -1447,7 +1447,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         for arg in l.local_bindings() {
             let name = arg.atom_identifier().unwrap();
 
-            // dbg!(name.resolve());
             // dbg!(self.scope.keys().map(|x| x.resolve()).collect::<Vec<_>>());
 
             let scoped_info = self.info.scope.remove(name).unwrap();

@@ -1356,6 +1356,8 @@ impl Compiler {
             != Ok("false")
         {
             semantic.lift_closures();
+            self.shadowed_variable_renamer
+                .rename_shadowed_variables(&mut semantic.exprs, false);
             semantic.refresh_variables();
         }
 
@@ -1366,6 +1368,8 @@ impl Compiler {
             != Ok("false")
         {
             semantic.lift_closures();
+            self.shadowed_variable_renamer
+                .rename_shadowed_variables(&mut semantic.exprs, false);
             semantic.refresh_variables();
         }
 
@@ -1375,10 +1379,10 @@ impl Compiler {
         // Inlining?
         if std::env::var("STEEL_INLINE").is_ok() {
             semantic.inline_function_calls(Some(75), self.modules())?;
+            self.shadowed_variable_renamer
+                .rename_shadowed_variables(&mut semantic.exprs, false);
             semantic.refresh_variables();
             let mut analysis = semantic.into_analysis();
-            self.shadowed_variable_renamer
-                .rename_shadowed_variables(&mut expanded_statements, false);
             analysis.fresh_from_exprs(&expanded_statements);
             analysis.populate_captures(&expanded_statements);
             // Do this again
