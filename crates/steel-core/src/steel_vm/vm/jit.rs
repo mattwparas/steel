@@ -1600,9 +1600,20 @@ fn cdr_handler_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
-    let mut arg = guard.thread.stack[offset + arg].clone();
+    let mut arg = &guard.thread.stack[offset + arg];
 
-    unsafe { cdr_no_check(&mut arg) }
+    fn cdr_copy(arg: &SteelVal) -> SteelVal {
+        match arg {
+            SteelVal::ListV(l) => match l.cdr() {
+                Some(n) => SteelVal::ListV(n),
+                None => SteelVal::ListV(List::new()),
+            },
+
+            _ => unsafe { unreachable_unchecked() },
+        }
+    }
+
+    unsafe { cdr_copy(&arg) }
 }
 
 #[cross_platform_fn]

@@ -1964,7 +1964,7 @@ impl PropertyMap {
 
     pub fn add_property(&mut self, value: ValueOrRegister, prop: Properties) {
         if let Some(exists) = self.props.get_mut(&value) {
-            println!("Adding property: {:?} to exists: {:?}", prop, exists);
+            // println!("Adding property: {:?} to exists: {:?}", prop, exists);
             match prop {
                 Properties::NonEmptyListOrPair => {
                     for p in exists.iter() {
@@ -2019,7 +2019,7 @@ impl PropertyMap {
                 }
             }
 
-            println!("Results: {:?}", exists);
+            // println!("Results: {:?}", exists);
         } else {
             self.props.insert(value, vec![prop]);
         }
@@ -2035,6 +2035,7 @@ impl PropertyMap {
                     }
                     Properties::CheckedList(value_or_register) => {
                         if branch {
+                            // println!("Adding proper list at branch");
                             self.add_property(*value_or_register, Properties::ProperList)
                         } else {
                             // Mark as not a list? Is that even worth checking?
@@ -2339,6 +2340,9 @@ impl<'a> FunctionTranslator<'a> {
             // Decrement the depth which is implicitly incremented by the stack to ssa call
             ctx.depth -= 1;
         });
+
+        // Mark the else block as cold
+        // self.builder.set_cold_block(else_block);
 
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
@@ -3129,7 +3133,8 @@ impl FunctionTranslator<'_> {
 
                     match typ {
                         InferredType::List => {
-                            self.properties.add_property(
+                            // println!("Adding proper list at let var: {}", local_index);
+                            self.properties.set_property(
                                 ValueOrRegister::Register(local_index),
                                 Properties::ProperList,
                             );
@@ -3754,9 +3759,13 @@ impl FunctionTranslator<'_> {
 
                     self.inline_let_end_scope(payload, amt);
 
-                    for p in properties_to_remove {
-                        self.properties.remove(&ValueOrRegister::Register(p));
+                    for i in payload..payload + amt {
+                        self.properties.remove(&ValueOrRegister::Register(i));
                     }
+
+                    // for p in properties_to_remove {
+                    //     self.properties.remove(&ValueOrRegister::Register(p));
+                    // }
 
                     // self.call_end_scope_handler_new(payload, amt);
                 }
@@ -5153,6 +5162,7 @@ impl FunctionTranslator<'_> {
 
                             if can_skip_bounds_check {
                                 let func = "cdr-mut-reg-no-check";
+                                // println!("Adding inferred type void for register: {}", reg);
                                 self.properties.props.insert(
                                     ValueOrRegister::Register(reg),
                                     vec![Properties::InferredType(InferredType::Void)],
@@ -5161,6 +5171,7 @@ impl FunctionTranslator<'_> {
                                 self.shadow_push(MaybeStackValue::MutRegister(reg));
                             } else {
                                 let func = "cdr-mut-reg";
+                                // println!("Adding inferred type void for register: {}", reg);
                                 self.properties.props.insert(
                                     ValueOrRegister::Register(reg),
                                     vec![Properties::InferredType(InferredType::Void)],
@@ -7755,6 +7766,7 @@ impl FunctionTranslator<'_> {
             None => InferredType::Any,
             _ => InferredType::Any,
         };
+        // println!("Adding inferred type void for register: {}", p);
 
         // We've removed from the stack, meaning we don't need to emit drop glue for this.
         self.properties.props.insert(
@@ -8707,7 +8719,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn check_then_properties(&mut self, condition_value: Value) {
-        self.properties.infer_property_bool(condition_value, false);
+        self.properties.infer_property_bool(condition_value, true);
     }
 
     fn vm_pop(&mut self, value: Value) -> Value {
@@ -8758,6 +8770,7 @@ impl FunctionTranslator<'_> {
                     frame_base,
                     (index * std::mem::size_of::<SteelVal>()) as i32,
                 );
+                // println!("Adding inferred type void for register: {}", index);
 
                 // We've removed from the stack, meaning we don't need to emit drop glue for this.
                 self.properties.props.insert(
@@ -8811,6 +8824,7 @@ impl FunctionTranslator<'_> {
             if !kind {
                 self.clone_value(res);
             } else {
+                // println!("Adding inferred type void for register: {}", index);
                 self.properties.props.insert(
                     ValueOrRegister::Register(index),
                     vec![Properties::InferredType(InferredType::Void)],
