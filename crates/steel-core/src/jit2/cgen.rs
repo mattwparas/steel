@@ -45,6 +45,8 @@ use crate::{
     SteelVal,
 };
 
+const USE_LBBV: bool = false;
+
 // Various optimizations that we've added one by one.
 // Its important that we get this right
 const INLINE_STRUCT_FUNCTION_CALLS: bool = true;
@@ -690,6 +692,11 @@ impl Default for JIT {
             abi! { drop_box as fn(crate::values::closed::HeapRef<SteelVal>) },
         );
 
+        map.add_func2(
+            "drop-boxed-vec",
+            abi! { drop_boxed_vec as fn(crate::values::closed::HeapRef<Vec<SteelVal>>) },
+        );
+
         map.add_func2("log-let-var", abi! { log_counter as fn() });
 
         map.add_func2("#%clone-std-rc", abi! { clone_one as fn(SteelVal) });
@@ -947,6 +954,11 @@ impl Default for JIT {
         map.add_func(
             "vector-ref-reg-2",
             abi! { vector_ref_handler_register_two as fn(*mut VmCore, usize, usize) -> SteelVal },
+        );
+
+        map.add_func(
+            "vector-ref-reg-2-unboxed-index",
+            abi! { vector_ref_handler_register_two_unboxed as fn(*mut VmCore, usize, usize) -> SteelVal },
         );
 
         map.add_func(
@@ -1612,8 +1624,6 @@ impl JIT {
 
         let vm_context = builder.create_global_value(GlobalValueData::VMContext);
 
-        let variables = Default::default();
-
         let fake_entry_block = if contains_tail_call {
             let fake_entry = builder.create_block();
             builder.ins().jump(fake_entry, &[]);
@@ -1625,13 +1635,13 @@ impl JIT {
         };
 
         let exit_block = builder.create_block();
+        let mut exit_types = HashSet::new();
 
         // Now translate the statements of the function body.
         let mut trans = FunctionTranslator {
             name,
             int,
             builder,
-            variables,
             module: &mut self.module,
             instructions: bytecode,
             ip: 0,
@@ -1656,7 +1666,7 @@ impl JIT {
             function_context,
             names: &self.names,
             function_return_types: &self.function_return_types,
-            exit_types: HashSet::new(),
+            exit_types: &mut exit_types,
             potentially_could_deopt: false,
             tier: JitTier::Baseline,
             thread_pointer: None,
@@ -1691,8 +1701,6 @@ impl JIT {
 
         trans.stack_to_ssa();
 
-        let exit_types = std::mem::take(&mut trans.exit_types);
-
         if let Some(fake_entry_block) = fake_entry_block {
             trans.builder.seal_block(fake_entry_block);
         }
@@ -1711,9 +1719,9 @@ impl JIT {
         // Tell the builder we're done with this function.
         trans.builder.finalize();
 
-        if !trans.potentially_could_deopt {
-            // println!("Found a candidate for tier 2 compilation: {}", trans.name);
-        }
+        // if !trans.potentially_could_deopt {
+        // println!("Found a candidate for tier 2 compilation: {}", trans.name);
+        // }
 
         // println!("Stats: {:#?}", trans.compilation_stats);
 
@@ -1773,6 +1781,8 @@ pub enum InferredType {
 
     // TODO: See if we can lift this out, as it inflates the size
     Struct(StructTypeDescriptor),
+
+    MutableVector,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -2063,6 +2073,8 @@ enum Properties {
     ConditionGreaterThan(ValueOrRegister, i64),
     ConditionLessThan(ValueOrRegister, i64),
 
+    PositiveInteger,
+
     // Realized encoding of the above
     GreaterThan(i64),
     LessThan(i64),
@@ -2104,17 +2116,6 @@ impl MaybeStackValue {
     }
 }
 
-// TODO: Start using this during branching. It can be replaced
-// with immutable data structures to save on allocations if it
-// becomes cumbersome with all the cloning.
-struct TranslationState {
-    shadow_stack: Vec<MaybeStackValue>,
-    value_to_local_map: HashMap<Value, usize>,
-    local_to_value_map: HashMap<usize, InferredType>,
-    properties: PropertyMap,
-    let_var_stack: Vec<usize>,
-}
-
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 enum JitTier {
     #[default]
@@ -2133,7 +2134,6 @@ struct FunctionTranslator<'a> {
     name: String,
     int: types::Type,
     builder: FunctionBuilder<'a>,
-    variables: HashMap<String, Variable>,
     module: &'a mut JITModule,
 
     // We're gonna use a cursor to understand the before and after implications
@@ -2189,7 +2189,7 @@ struct FunctionTranslator<'a> {
     names: &'a HashMap<u32, String>,
 
     function_return_types: &'a HashMap<u32, HashSet<InferredType>>,
-    exit_types: HashSet<InferredType>,
+    exit_types: &'a mut HashSet<InferredType>,
 
     potentially_could_deopt: bool,
 
@@ -2209,6 +2209,145 @@ struct FunctionTranslator<'a> {
     thread_id: Option<Value>,
 
     compilation_stats: CompilationStats,
+}
+
+struct ForkedState {
+    ip: usize,
+    shadow_stack: Vec<MaybeStackValue>,
+    value_to_local_map: HashMap<Value, usize>,
+    local_to_value_map: HashMap<usize, InferredType>,
+    properties: PropertyMap,
+    tco: bool,
+    let_var_stack: Vec<usize>,
+    fake_entry_block: Option<Block>,
+    exit_block: Block,
+    visited: HashSet<usize>,
+    depth: usize,
+    if_bound: Option<usize>,
+    if_stack: Vec<usize>,
+    vm_context: GlobalValue,
+    function_context: Option<usize>,
+    potentially_could_deopt: bool,
+    tier: JitTier,
+    thread_pointer: Option<Value>,
+    should_trampoline: Option<Value>,
+    sp: Option<Value>,
+    pop_count: Option<Value>,
+    pop_count_plus_one: Option<Value>,
+    pop_count_minus_one: Option<Value>,
+    thread_id: Option<Value>,
+    compilation_stats: CompilationStats,
+}
+
+impl<'a> FunctionTranslator<'a> {
+    // Okay, so what this means is that we're going to _branch_ across the various
+    // properties. We can encode arbitrary properties along this, and the goal
+    // would be to then generate code related to either one.
+    fn branch_on_register(&mut self, register: usize, types: &[Properties]) {
+        todo!();
+    }
+
+    // Do a converging if; attempt to unify the values?
+    fn branch_on_condition_and_property(
+        &mut self,
+        test_condition: Value,
+        register: usize,
+        positive_property: Properties,
+        negative_property: Properties,
+        positive_thunk: impl FnOnce(&mut Self) -> Value,
+        negative_thunk: impl FnOnce(&mut Self) -> Value,
+        merge_thunk: impl Fn(&mut Self, Value),
+    ) {
+        // Branch, but don't merge
+        let then_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(test_condition, then_block, &[], else_block, &[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        // Fork on that condition:
+        self.fork(|ctx| {
+            ctx.properties
+                .add_property(ValueOrRegister::Register(register), positive_property);
+            let value = positive_thunk(ctx);
+            merge_thunk(ctx, value);
+            ctx.stack_to_ssa();
+            // Decrement the depth which is implicitly incremented by the stack to ssa call
+            ctx.depth -= 1;
+        });
+
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+        self.properties
+            .add_property(ValueOrRegister::Register(register), negative_property);
+
+        let value = negative_thunk(self);
+        merge_thunk(self, value);
+        // Do the rest of the thing, from the usual position:
+    }
+
+    fn fork(&mut self, func: impl FnOnce(&mut Self)) {
+        let state = ForkedState {
+            ip: self.ip,
+            shadow_stack: self.shadow_stack.clone(),
+            value_to_local_map: self.value_to_local_map.clone(),
+            local_to_value_map: self.local_to_value_map.clone(),
+            properties: self.properties.clone(),
+            tco: self.tco,
+            let_var_stack: self.let_var_stack.clone(),
+            fake_entry_block: self.fake_entry_block,
+            exit_block: self.exit_block,
+            visited: self.visited.clone(),
+            depth: self.depth,
+            if_bound: self.if_bound,
+            if_stack: self.if_stack.clone(),
+            vm_context: self.vm_context,
+            function_context: self.function_context,
+            potentially_could_deopt: self.potentially_could_deopt,
+            tier: self.tier,
+            thread_pointer: self.thread_pointer,
+            should_trampoline: self.should_trampoline,
+            sp: self.sp,
+            pop_count: self.pop_count,
+            pop_count_plus_one: self.pop_count_plus_one,
+            pop_count_minus_one: self.pop_count_minus_one,
+            thread_id: self.thread_id,
+            compilation_stats: self.compilation_stats.clone(),
+        };
+
+        // Run the whole show, and then reset back:
+        func(self);
+
+        self.ip = state.ip;
+        self.shadow_stack = state.shadow_stack;
+        self.value_to_local_map = state.value_to_local_map;
+        self.local_to_value_map = state.local_to_value_map;
+        self.properties = state.properties;
+        self.tco = state.tco;
+        self.let_var_stack = state.let_var_stack;
+        self.fake_entry_block = state.fake_entry_block;
+        self.exit_block = state.exit_block;
+        self.visited = state.visited;
+        self.depth = state.depth;
+        self.if_bound = state.if_bound;
+        self.if_stack = state.if_stack;
+        self.vm_context = state.vm_context;
+        self.function_context = state.function_context;
+        self.potentially_could_deopt = state.potentially_could_deopt;
+        self.tier = state.tier;
+        self.thread_pointer = state.thread_pointer;
+        self.should_trampoline = state.should_trampoline;
+        self.sp = state.sp;
+        self.pop_count = state.pop_count;
+        self.pop_count_plus_one = state.pop_count_plus_one;
+        self.pop_count_minus_one = state.pop_count_minus_one;
+        self.thread_id = state.thread_id;
+        self.compilation_stats = state.compilation_stats;
+    }
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -5052,6 +5191,60 @@ impl FunctionTranslator<'_> {
                             // dbg!(self.properties.get(&ValueOrRegister::Register(reg)));
 
                             match self.properties.get(&ValueOrRegister::Register(reg)) {
+                                Some(Properties::NonNull) if USE_LBBV => {
+                                    self.shadow_stack.pop();
+                                    let value = self.read_from_vm_stack(reg);
+
+                                    let typ = self.int;
+
+                                    let is_list = self.is_type(value, SteelVal::LIST_TAG);
+
+                                    self.branch_on_condition_and_property(
+                                        is_list,
+                                        reg,
+                                        Properties::ProperNonEmptyList,
+                                        Properties::InferredType(InferredType::Pair),
+                                        |ctx| ctx.unchecked_car(value),
+                                        |ctx| {
+                                            let is_pair = ctx.is_type(value, SteelVal::PAIR_TAG);
+
+                                            ctx.converging_if(
+                                                is_pair,
+                                                // Inline car for a pair:
+                                                |ctx| ctx.inline_pair_car(value),
+                                                |ctx| {
+                                                    let reg = ctx.register_index(reg);
+                                                    let res = ctx.call_function_returns_value_args(
+                                                        "car-reg",
+                                                        &[reg],
+                                                    );
+
+                                                    res
+                                                },
+                                                typ,
+                                            )
+                                        },
+                                        |ctx, res| {
+                                            ctx.clone_value(res);
+                                            ctx.push(res, InferredType::Any);
+                                            ctx.ip += 2;
+                                        },
+                                    );
+
+                                    // let res = self.converging_if(
+                                    //     is_list,
+                                    //     |ctx| ctx.unchecked_car(value),
+                                    //     |ctx| {
+                                    //     },
+                                    //     typ,
+                                    // );
+
+                                    // self.properties.add_property(
+                                    //     ValueOrRegister::Register(reg),
+                                    //     Properties::NonEmptyListOrPair,
+                                    // );
+                                }
+
                                 Some(Properties::NonNull) => {
                                     self.shadow_stack.pop();
                                     let value = self.read_from_vm_stack(reg);
@@ -5308,16 +5501,39 @@ impl FunctionTranslator<'_> {
                         &[MaybeStackValue::MutRegister(v) | MaybeStackValue::Register(v), MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i)] =>
                         {
                             let vector = self.register_index(v);
-                            let index = self.register_index(i);
 
-                            // Pop them off
-                            self.shadow_stack.pop();
-                            self.shadow_stack.pop();
+                            let res = match self.properties.get(&ValueOrRegister::Register(i)) {
+                                Some(Properties::PositiveInteger) => {
+                                    self.shadow_stack.pop();
+                                    self.shadow_stack.pop();
 
-                            let res = self.call_function_returns_value_args(
-                                "vector-ref-reg-2",
-                                &[vector, index],
-                            );
+                                    let index = self.read_from_vm_stack_unboxed(i);
+
+                                    self.call_function_returns_value_args(
+                                        "vector-ref-reg-2-unboxed-index",
+                                        &[vector, index],
+                                    )
+                                }
+
+                                _ => {
+                                    let index = self.register_index(i);
+
+                                    // If we're indexing with a value
+                                    self.properties.add_property(
+                                        ValueOrRegister::Register(i),
+                                        Properties::PositiveInteger,
+                                    );
+
+                                    // Pop them off
+                                    self.shadow_stack.pop();
+                                    self.shadow_stack.pop();
+
+                                    self.call_function_returns_value_args(
+                                        "vector-ref-reg-2",
+                                        &[vector, index],
+                                    )
+                                }
+                            };
 
                             self.push(res, InferredType::Any);
                             self.ip += 2;
@@ -5656,7 +5872,81 @@ impl FunctionTranslator<'_> {
         // Don't need to check deopt on predicates
     }
 
+    fn drop_weak_rc(&mut self, value: Value) {
+        let value = self.unbox_value_to_pointer(value);
+
+        if USE_INLINE_DROP_HEAP_BOX {
+            let one = self.builder.ins().iconst(types::I64, 1);
+
+            let offset = self.builder.ins().iadd_imm(value, 8);
+
+            // Clone?
+            let old_value = self.builder.ins().atomic_rmw(
+                types::I64,
+                MemFlags::trusted(),
+                AtomicRmwOp::Sub,
+                offset,
+                one,
+            );
+        } else {
+            self.call_function_args_no_context("drop-one", &[value]);
+        }
+    }
+
     fn drop_tagged_value(&mut self, value: Value) {
+        let tag = self.get_tag(value);
+
+        let mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, SteelVal::UNBOXED_MASK as i64);
+        let shifted = self.builder.ins().ushr(mask, tag);
+        let is_unboxed = self.builder.ins().band_imm(shifted, 1);
+
+        self.converging_if_no_value(
+            is_unboxed,
+            //
+            |_| {
+                // Do nothing, we don't want to invoke any drop glue
+                // since this type is unboxed anyway
+            },
+            |ctx| {
+                let special_rc_mask = ctx
+                    .builder
+                    .ins()
+                    .iconst(types::I64, SteelVal::SPECIAL_RC_MASK as i64);
+                let special_rc_shifted = ctx.builder.ins().ushr(special_rc_mask, tag);
+                let is_special_rc = ctx.builder.ins().band_imm(special_rc_shifted, 1);
+
+                ctx.converging_if_no_value(
+                    is_special_rc,
+                    |ctx| {
+                        ctx.drop_biased_rc(value);
+                    },
+                    |ctx| {
+                        let weak_rc_mask = ctx
+                            .builder
+                            .ins()
+                            .iconst(types::I64, SteelVal::WEAK_RC_MASK as i64);
+                        let weak_rc_shifted = ctx.builder.ins().ushr(weak_rc_mask, tag);
+                        let is_weak_rc = ctx.builder.ins().band_imm(weak_rc_shifted, 1);
+
+                        ctx.converging_if_no_value(
+                            is_weak_rc,
+                            |ctx| {
+                                ctx.drop_weak_rc(value);
+                            },
+                            |ctx| {
+                                ctx.drop_value(value);
+                            },
+                        );
+                    },
+                );
+            },
+        );
+    }
+
+    fn drop_tagged_value_old(&mut self, value: Value) {
         let tag = self.get_tag(value);
 
         let mask = self
@@ -5920,6 +6210,25 @@ impl FunctionTranslator<'_> {
             );
         } else {
             self.call_function_args_no_context("drop-box", &[value]);
+        }
+    }
+
+    fn drop_heap_box_vec(&mut self, value: Value) {
+        if USE_INLINE_DROP_HEAP_BOX {
+            let one = self.builder.ins().iconst(types::I64, 1);
+
+            let offset = self.builder.ins().iadd_imm(value, 8);
+
+            // Clone?
+            let old_value = self.builder.ins().atomic_rmw(
+                types::I64,
+                MemFlags::trusted(),
+                AtomicRmwOp::Sub,
+                offset,
+                one,
+            );
+        } else {
+            self.call_function_args_no_context("drop-boxed-vec", &[value]);
         }
     }
 

@@ -389,6 +389,11 @@ fn drop_box(arg: crate::values::closed::HeapRef<SteelVal>) {
 }
 
 #[cross_platform_fn]
+fn drop_boxed_vec(arg: crate::values::closed::HeapRef<Vec<SteelVal>>) {
+    drop(arg);
+}
+
+#[cross_platform_fn]
 fn drop_one(arg: SteelVal) {
     drop(arg);
 }
@@ -1089,6 +1094,71 @@ fn vector_ref_handler_register_two(ctx: *mut VmCore, vec_reg: usize, index: usiz
         } else {
             let idx = guard.thread.stack[index + offset].clone();
             stop!(TypeMismatch => "vector-ref expects an integer index, found: {:?}", idx);
+        }
+    };
+
+    match thunk() {
+        Ok(v) => v,
+        Err(e) => {
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[cross_platform_fn]
+fn vector_ref_handler_register_two_unboxed(ctx: *mut VmCore, vec_reg: usize, i: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+
+    let offset = guard.get_offset();
+
+    let mut thunk = || {
+        let idx_usize = i as usize;
+
+        let vec = &mut guard.thread.stack[vec_reg + offset];
+
+        // Now match on the vector type
+        match vec {
+            SteelVal::MutableVector(v) => {
+                // TODO: If we move this into a context aware function,
+                // then we can avoid the lookup cost since we won't be in a safepoint.
+                if let Some(guard) = unsafe { v.inner_ref() } {
+                    if idx_usize >= guard.len() {
+                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+                    }
+
+                    Ok(guard[idx_usize].clone())
+                } else {
+                    let guard = &(unsafe { &(*v.inner.as_ptr()) }.lock());
+
+                    let guard = &guard.value;
+
+                    if idx_usize >= guard.len() {
+                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+                    }
+
+                    Ok(guard[idx_usize].clone())
+                }
+            }
+
+            SteelVal::VectorV(v) => {
+                if idx_usize < v.len() {
+                    Ok(v[idx_usize].clone())
+                } else {
+                    let e = format!(
+                        "Index out of bounds - attempted to access index: {} with length: {}",
+                        idx_usize,
+                        v.len()
+                    );
+                    stop!(Generic => e);
+                }
+            }
+
+            _ => stop!(TypeMismatch => format!(
+                "vector-ref expected a vector and a number, found: {:?} and {:?}",
+                &guard.thread.stack[vec_reg + offset], i )),
         }
     };
 

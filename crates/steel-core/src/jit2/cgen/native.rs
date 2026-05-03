@@ -142,6 +142,25 @@ impl<'a> FunctionTranslator<'a> {
                 self.check_deopt();
             }
 
+            &[MutRegister(i) | Register(i), _, _] => {
+                self.properties.add_property(
+                    ValueOrRegister::Register(i),
+                    Properties::InferredType(InferredType::MutableVector),
+                );
+
+                let args = self
+                    .split_off(3)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+
+                let res = self.call_function_returns_value_args("vector-set-args", &args);
+
+                self.push(res, InferredType::Any);
+                self.ip += 1;
+                self.check_deopt();
+            }
+
             // Spill all by value
             _ => {
                 let args = self

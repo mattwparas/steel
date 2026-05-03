@@ -2685,6 +2685,8 @@ impl SteelVal {
         Self::HEAP_REF_VALUE_TAG,
     ];
 
+    pub const WEAK_STEEL_RC_TAGS: [u8; 2] = [Self::HEAP_REF_VECTOR_TAG, Self::HEAP_REF_VALUE_TAG];
+
     pub const UNBOXED_TAGS: [u8; 9] = [
         Self::BOOL_TAG,
         Self::FLOAT_TAG,
@@ -2710,6 +2712,35 @@ impl SteelVal {
     pub const STANDARD_RC_MASK: u64 = (1 << SteelVal::CONTINUATION_TAG)
         | (1 << SteelVal::HEAP_REF_VECTOR_TAG)
         | (1 << SteelVal::HEAP_REF_VALUE_TAG);
+
+    pub const SPECIAL_RC_MASK: u64 = (1 << SteelVal::CLOSURE_TAG)
+        | (1 << SteelVal::VECTOR_TAG)
+        | (1 << SteelVal::STRING_TAG)
+        | (1 << SteelVal::SYMBOL_TAG)
+        | (1 << SteelVal::CUSTOM_TAG)
+        | (1 << SteelVal::HASHMAP_TAG)
+        | (1 << SteelVal::HASHSET_TAG)
+        | (1 << SteelVal::STRUCT_TAG)
+        | (1 << SteelVal::PORT_TAG)
+        | (1 << SteelVal::ITER_TAG)
+        | (1 << SteelVal::REDUCER_TAG)
+        | (1 << SteelVal::ASYNC_FUNCTION_POINTER_TAG)
+        | (1 << SteelVal::BOXED_FUTURE_TAG)
+        | (1 << SteelVal::STREAM_TAG)
+        | (1 << SteelVal::LIST_TAG)
+        | (1 << SteelVal::PAIR_TAG)
+        | (1 << SteelVal::BOXED_ITERATOR_TAG)
+        | (1 << SteelVal::SYNTAX_OBJECT_TAG)
+        | (1 << SteelVal::BOXED_VALUE_TAG)
+        | (1 << SteelVal::OPAQUE_TAG)
+        | (1 << SteelVal::BIG_NUM_TAG)
+        | (1 << SteelVal::BIG_RATIONAL_TAG)
+        | (1 << SteelVal::COMPLEX_TAG)
+        | (1 << SteelVal::BYTEVECTOR_TAG)
+        | (1 << SteelVal::BOXED_FUNCTION_TAG);
+
+    pub const WEAK_RC_MASK: u64 =
+        (1 << SteelVal::HEAP_REF_VECTOR_TAG) | (1 << SteelVal::HEAP_REF_VALUE_TAG);
 }
 
 impl Eq for SteelVal {}

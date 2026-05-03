@@ -60,7 +60,9 @@
     ;;            limit)
     (let _-*- ([limit limit]
                [res '()])
-      (if (zero? limit) res (let ([limit (- limit 1)]) (_-*- limit (cons limit res)))))))
+      (if (zero? limit)
+          res
+          (let ([limit (- limit 1)]) (_-*- limit (cons limit res)))))))
 
 ;; Fold over the integers [0, limit).
 (define gnatural-fold

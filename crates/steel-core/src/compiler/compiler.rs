@@ -1350,39 +1350,17 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
-        if std::env::var("STEEL_CLOSURE_LIFTING")
-            .as_ref()
-            .map(|x| x.as_str())
-            != Ok("false")
-        {
-            semantic.lift_closures();
-            self.shadowed_variable_renamer
-                .rename_shadowed_variables(&mut semantic.exprs, false);
-            semantic.refresh_variables();
-        }
-
-        // Do it twice...
-        if std::env::var("STEEL_CLOSURE_LIFTING")
-            .as_ref()
-            .map(|x| x.as_str())
-            != Ok("false")
-        {
-            semantic.lift_closures();
-            self.shadowed_variable_renamer
-                .rename_shadowed_variables(&mut semantic.exprs, false);
-            semantic.refresh_variables();
-        }
-
-        // Do it a third!
-        if std::env::var("STEEL_CLOSURE_LIFTING")
-            .as_ref()
-            .map(|x| x.as_str())
-            != Ok("false")
-        {
-            semantic.lift_closures();
-            self.shadowed_variable_renamer
-                .rename_shadowed_variables(&mut semantic.exprs, false);
-            semantic.refresh_variables();
+        for _ in 0..3 {
+            if std::env::var("STEEL_CLOSURE_LIFTING")
+                .as_ref()
+                .map(|x| x.as_str())
+                != Ok("false")
+            {
+                semantic.lift_closures();
+                self.shadowed_variable_renamer
+                    .rename_shadowed_variables(&mut semantic.exprs, false);
+                semantic.refresh_variables();
+            }
         }
 
         // TODO: Configure inlining function size
