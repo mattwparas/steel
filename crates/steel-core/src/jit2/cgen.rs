@@ -45,8 +45,6 @@ use crate::{
     SteelVal,
 };
 
-const USE_LBBV: bool = false;
-
 // Various optimizations that we've added one by one.
 // Its important that we get this right
 const INLINE_STRUCT_FUNCTION_CALLS: bool = true;
@@ -1661,6 +1659,7 @@ impl JIT {
             depth: 0,
             if_stack: Vec::new(),
             if_bound: None,
+            if_merge_blocks: Vec::new(),
             vm_context,
             slot,
             function_context,
@@ -1677,6 +1676,7 @@ impl JIT {
             pop_count_minus_one: None,
             compilation_stats: CompilationStats::default(),
             thread_id: None,
+            use_lbbv: std::env::var("STEEL_LBBV").is_ok(),
         };
 
         {
@@ -1953,18 +1953,60 @@ impl PropertyMap {
         })
     }
 
+    pub fn set_property(&mut self, value: ValueOrRegister, prop: Properties) {
+        if let Some(exists) = self.props.get_mut(&value) {
+            exists.clear();
+            exists.push(prop);
+        } else {
+            self.props.insert(value, vec![prop]);
+        }
+    }
+
     pub fn add_property(&mut self, value: ValueOrRegister, prop: Properties) {
         if let Some(exists) = self.props.get_mut(&value) {
+            println!("Adding property: {:?} to exists: {:?}", prop, exists);
             match prop {
                 Properties::NonEmptyListOrPair => {
-                    for p in exists {
+                    for p in exists.iter() {
+                        if let Properties::NonEmptyListOrPair = p {
+                            break;
+                        }
+                    }
+
+                    for p in exists.iter() {
+                        if let Properties::ProperNonEmptyList = p {
+                            break;
+                        }
+                    }
+
+                    for p in exists.iter_mut() {
                         if let Properties::ProperList = p {
                             *p = Properties::ProperNonEmptyList;
+                            break;
+                        }
+                    }
+
+                    for p in exists.iter_mut() {
+                        if let Properties::NonNull = p {
+                            *p = Properties::NonEmptyListOrPair;
+                            break;
                         }
                     }
                 }
                 Properties::ProperList => {
-                    for p in exists {
+                    for p in exists.iter() {
+                        if let Properties::ProperList = p {
+                            break;
+                        }
+                    }
+
+                    for p in exists.iter() {
+                        if let Properties::ProperNonEmptyList = p {
+                            break;
+                        }
+                    }
+
+                    for p in exists.iter_mut() {
                         if let Properties::NonEmptyListOrPair = p {
                             *p = Properties::ProperNonEmptyList;
                         }
@@ -1976,6 +2018,8 @@ impl PropertyMap {
                     exists.push(prop);
                 }
             }
+
+            println!("Results: {:?}", exists);
         } else {
             self.props.insert(value, vec![prop]);
         }
@@ -2180,6 +2224,11 @@ struct FunctionTranslator<'a> {
 
     if_stack: Vec<usize>,
 
+    // Stack of merge blocks for enclosing if/else constructs. The innermost
+    // IF's merge block is on top. A fork that exits at `if_bound` uses this
+    // to register its tail as an extra predecessor of the right merge block.
+    if_merge_blocks: Vec<Block>,
+
     vm_context: GlobalValue,
     // vm_context: StackSlot,
     // generators: LazyInstructionGenerators,
@@ -2209,6 +2258,8 @@ struct FunctionTranslator<'a> {
     thread_id: Option<Value>,
 
     compilation_stats: CompilationStats,
+
+    use_lbbv: bool,
 }
 
 struct ForkedState {
@@ -2225,6 +2276,7 @@ struct ForkedState {
     depth: usize,
     if_bound: Option<usize>,
     if_stack: Vec<usize>,
+    if_merge_blocks: Vec<Block>,
     vm_context: GlobalValue,
     function_context: Option<usize>,
     potentially_could_deopt: bool,
@@ -2240,13 +2292,6 @@ struct ForkedState {
 }
 
 impl<'a> FunctionTranslator<'a> {
-    // Okay, so what this means is that we're going to _branch_ across the various
-    // properties. We can encode arbitrary properties along this, and the goal
-    // would be to then generate code related to either one.
-    fn branch_on_register(&mut self, register: usize, types: &[Properties]) {
-        todo!();
-    }
-
     // Do a converging if; attempt to unify the values?
     fn branch_on_condition_and_property(
         &mut self,
@@ -2254,9 +2299,9 @@ impl<'a> FunctionTranslator<'a> {
         register: usize,
         positive_property: Properties,
         negative_property: Properties,
-        positive_thunk: impl FnOnce(&mut Self) -> Value,
-        negative_thunk: impl FnOnce(&mut Self) -> Value,
-        merge_thunk: impl Fn(&mut Self, Value),
+        positive_thunk: impl FnOnce(&mut Self) -> (Value, InferredType),
+        negative_thunk: impl FnOnce(&mut Self) -> (Value, InferredType),
+        merge_thunk: impl Fn(&mut Self, Value, InferredType),
     ) {
         // Branch, but don't merge
         let then_block = self.builder.create_block();
@@ -2272,10 +2317,25 @@ impl<'a> FunctionTranslator<'a> {
         // Fork on that condition:
         self.fork(|ctx| {
             ctx.properties
-                .add_property(ValueOrRegister::Register(register), positive_property);
-            let value = positive_thunk(ctx);
-            merge_thunk(ctx, value);
+                .set_property(ValueOrRegister::Register(register), positive_property);
+            let (value, typ) = positive_thunk(ctx);
+            merge_thunk(ctx, value, typ);
             ctx.stack_to_ssa();
+
+            if ctx.if_bound == Some(ctx.ip) {
+                let merge = *ctx
+                    .if_merge_blocks
+                    .last()
+                    .expect("if_bound is set but no enclosing if merge block was registered - check translate_if_else_value");
+                let return_value = ctx.shadow_pop().0;
+                ctx.builder
+                    .ins()
+                    .jump(merge, &[BlockArg::Value(return_value)]);
+            } else if ctx.ip > ctx.instructions.len() {
+                let value = ctx.encode_void();
+                ctx.builder.ins().return_(&[value]);
+            }
+
             // Decrement the depth which is implicitly incremented by the stack to ssa call
             ctx.depth -= 1;
         });
@@ -2283,10 +2343,10 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
         self.properties
-            .add_property(ValueOrRegister::Register(register), negative_property);
+            .set_property(ValueOrRegister::Register(register), negative_property);
 
-        let value = negative_thunk(self);
-        merge_thunk(self, value);
+        let (value, typ) = negative_thunk(self);
+        merge_thunk(self, value, typ);
         // Do the rest of the thing, from the usual position:
     }
 
@@ -2305,6 +2365,7 @@ impl<'a> FunctionTranslator<'a> {
             depth: self.depth,
             if_bound: self.if_bound,
             if_stack: self.if_stack.clone(),
+            if_merge_blocks: self.if_merge_blocks.clone(),
             vm_context: self.vm_context,
             function_context: self.function_context,
             potentially_could_deopt: self.potentially_could_deopt,
@@ -2335,6 +2396,7 @@ impl<'a> FunctionTranslator<'a> {
         self.depth = state.depth;
         self.if_bound = state.if_bound;
         self.if_stack = state.if_stack;
+        self.if_merge_blocks = state.if_merge_blocks;
         self.vm_context = state.vm_context;
         self.function_context = state.function_context;
         self.potentially_could_deopt = state.potentially_could_deopt;
@@ -3642,6 +3704,8 @@ impl FunctionTranslator<'_> {
 
                     let amt = self.let_var_stack.pop().unwrap();
 
+                    let mut properties_to_remove = Vec::new();
+
                     // println!("let end scope amount: {}", amt);
 
                     for index in 0..self.shadow_stack.len() {
@@ -3652,7 +3716,8 @@ impl FunctionTranslator<'_> {
                                 let (value, _) = self.mut_register_to_value(r);
 
                                 self.properties.remove(&ValueOrRegister::Register(r));
-                                self.properties.cached_lookups.registers.remove(&r);
+
+                                properties_to_remove.push(r);
 
                                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                                     value,
@@ -3688,6 +3753,10 @@ impl FunctionTranslator<'_> {
                     // }
 
                     self.inline_let_end_scope(payload, amt);
+
+                    for p in properties_to_remove {
+                        self.properties.remove(&ValueOrRegister::Register(p));
+                    }
 
                     // self.call_end_scope_handler_new(payload, amt);
                 }
@@ -5053,8 +5122,6 @@ impl FunctionTranslator<'_> {
                                 Properties::NonEmptyListOrPair,
                             );
 
-                            let can_skip_bounds_check = false;
-
                             self.shadow_stack.pop();
                             let reg = self.register_index(reg);
 
@@ -5079,13 +5146,17 @@ impl FunctionTranslator<'_> {
                                 Some(Properties::ProperNonEmptyList)
                             );
 
-                            // let can_skip_bounds_check = false;
+                            let can_skip_bounds_check = false;
 
                             self.shadow_stack.pop();
                             let ir_reg = self.register_index(reg);
 
                             if can_skip_bounds_check {
                                 let func = "cdr-mut-reg-no-check";
+                                self.properties.props.insert(
+                                    ValueOrRegister::Register(reg),
+                                    vec![Properties::InferredType(InferredType::Void)],
+                                );
                                 self.call_function_args_no_return(func, &[ir_reg]);
                                 self.shadow_push(MaybeStackValue::MutRegister(reg));
                             } else {
@@ -5191,7 +5262,7 @@ impl FunctionTranslator<'_> {
                             // dbg!(self.properties.get(&ValueOrRegister::Register(reg)));
 
                             match self.properties.get(&ValueOrRegister::Register(reg)) {
-                                Some(Properties::NonNull) if USE_LBBV => {
+                                Some(Properties::NonNull) if self.use_lbbv => {
                                     self.shadow_stack.pop();
                                     let value = self.read_from_vm_stack(reg);
 
@@ -5203,12 +5274,12 @@ impl FunctionTranslator<'_> {
                                         is_list,
                                         reg,
                                         Properties::ProperNonEmptyList,
-                                        Properties::InferredType(InferredType::Pair),
-                                        |ctx| ctx.unchecked_car(value),
+                                        Properties::NonEmptyListOrPair,
+                                        |ctx| (ctx.unchecked_car(value), InferredType::Any),
                                         |ctx| {
                                             let is_pair = ctx.is_type(value, SteelVal::PAIR_TAG);
 
-                                            ctx.converging_if(
+                                            let value = ctx.converging_if_else_cold(
                                                 is_pair,
                                                 // Inline car for a pair:
                                                 |ctx| ctx.inline_pair_car(value),
@@ -5219,14 +5290,17 @@ impl FunctionTranslator<'_> {
                                                         &[reg],
                                                     );
 
+                                                    ctx.check_deopt();
                                                     res
                                                 },
                                                 typ,
-                                            )
+                                            );
+
+                                            (value, InferredType::Any)
                                         },
-                                        |ctx, res| {
+                                        |ctx, res, typ| {
                                             ctx.clone_value(res);
-                                            ctx.push(res, InferredType::Any);
+                                            ctx.push(res, typ);
                                             ctx.ip += 2;
                                         },
                                     );
@@ -8321,6 +8395,11 @@ impl FunctionTranslator<'_> {
         // the return values to it from the branches.
         self.builder.append_block_param(merge_block, self.int);
 
+        // Make this merge block visible to any LBBV fork that runs inside
+        // the then/else branches so it can register its tail as an extra
+        // predecessor.
+        self.if_merge_blocks.push(merge_block);
+
         // Test the if condition and conditionally branch.
         self.builder
             .ins()
@@ -8616,6 +8695,9 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(then_block);
         self.builder.seal_block(else_block);
         // self.builder.seal_block(merge_block);
+
+        let popped = self.if_merge_blocks.pop();
+        debug_assert_eq!(popped, Some(merge_block));
 
         phi
     }
@@ -8975,7 +9057,11 @@ impl FunctionTranslator<'_> {
 
                 match self.properties.get(&ValueOrRegister::Register(index)) {
                     // TODO: Can do even better, read less things
-                    Some(Properties::NonEmptyListOrPair) => {
+                    Some(
+                        Properties::NonEmptyListOrPair
+                        | Properties::ProperNonEmptyList
+                        | Properties::ProperList,
+                    ) => {
                         self.drop_biased_rc(local_value);
                     }
 
@@ -9030,7 +9116,11 @@ impl FunctionTranslator<'_> {
 
             match self.properties.get(&ValueOrRegister::Register(index)) {
                 // TODO: Can do even better, read less thing
-                Some(Properties::NonEmptyListOrPair) => {
+                Some(
+                    Properties::NonEmptyListOrPair
+                    | Properties::ProperNonEmptyList
+                    | Properties::ProperList,
+                ) => {
                     self.drop_biased_rc(local_value);
                 }
 
@@ -9087,7 +9177,11 @@ impl FunctionTranslator<'_> {
 
                 match self.properties.get(&ValueOrRegister::Register(index)) {
                     // TODO: Can do even better, read less things
-                    Some(Properties::NonEmptyListOrPair) => {
+                    Some(
+                        Properties::NonEmptyListOrPair
+                        | Properties::ProperNonEmptyList
+                        | Properties::ProperList,
+                    ) => {
                         self.drop_biased_rc(local_value);
                     }
 

@@ -919,6 +919,44 @@ impl<'a> FunctionTranslator<'a> {
         result
     }
 
+    pub(super) fn converging_if_else_cold(
+        &mut self,
+        test_condition: Value,
+        then: impl Fn(&mut Self) -> Value,
+        else_thunk: impl Fn(&mut Self) -> Value,
+        typ: Type,
+    ) -> Value {
+        let then_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+
+        self.builder.set_cold_block(else_block);
+
+        self.builder.append_block_param(merge_block, typ);
+
+        self.builder
+            .ins()
+            .brif(test_condition, then_block, &[], else_block, &[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        let res = BlockArg::Value(then(self));
+
+        self.builder.ins().jump(merge_block, &[res]);
+
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+
+        let then_res = BlockArg::Value(else_thunk(self));
+        self.builder.ins().jump(merge_block, &[then_res]);
+        self.builder.switch_to_block(merge_block);
+
+        let result = self.builder.block_params(merge_block)[0];
+
+        result
+    }
+
     // TODO: Implement binop add directly. Assume naively that the values are probably integers,
     // and then implement the checked addition. We can branch for addition for ints / floats, anything else
     // should fall through to the generic case.
@@ -1181,7 +1219,14 @@ impl<'a> FunctionTranslator<'a> {
                     // Elide the call entirely if its a non empty list, or if
                     // we know that the value is something else at this point based
                     // on the inferred type.
-                    (Some(Properties::NonEmptyListOrPair), _) => {
+                    (
+                        Some(
+                            Properties::NonEmptyListOrPair
+                            | Properties::ProperNonEmptyList
+                            | Properties::ProperList,
+                        ),
+                        _,
+                    ) => {
                         self.shadow_stack.pop();
                         let res = self.builder.ins().iconst(types::I8, 0);
                         self.push(res, InferredType::UnboxedBool);
