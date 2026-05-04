@@ -3215,6 +3215,14 @@ impl FunctionTranslator<'_> {
 
                     return false;
                 }
+                // TODO:
+                //
+                // Once we hit the self tail call no arity, we can unroll the call one time (basically)
+                // by then calling into a specialized version of the function, where the types
+                // are known. So, we fork from here; re compile the whole input function, and then
+                // hit a direct call into that. We mark that this thing is specialized, so it won't
+                // continuously do that; next iterations will do that. We'll also need to mark which
+                // jump back points are known so that we can keep those across boundaries.
                 OpCode::SELFTAILCALLNOARITY => {
                     // let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
                     let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
