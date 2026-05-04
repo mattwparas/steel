@@ -64,6 +64,8 @@ const INLINE_READ_CAPTURED: bool = true;
 
 const USE_INLINE_DROP_HEAP_BOX: bool = true;
 
+const USE_INPLACE_WRITES: bool = true;
+
 // Use inline push global; the shared vector implementation
 // is Repr C, so we can look up values directly in this.
 const USE_INLINE_PUSH_GLOBAL: bool = true;
@@ -927,6 +929,11 @@ impl Default for JIT {
         );
 
         map.add_func(
+            "cons-handler-register-register",
+            abi! { cons_handler_register_register as fn (*mut VmCore, usize, usize) },
+        );
+
+        map.add_func(
             "car-reg",
             abi! { car_handler_reg as fn(*mut VmCore, usize) -> SteelVal },
         );
@@ -1285,7 +1292,7 @@ impl Default for JIT {
         };
 
         #[cfg(target_os = "linux")]
-        let mut jitdump = wasmtime_jit_debug::perf_jitdump::JitDumpFile::new(
+        let jitdump = wasmtime_jit_debug::perf_jitdump::JitDumpFile::new(
             format!("./jit-{}.dump", std::process::id()),
             e_machine,
         )
@@ -5077,7 +5084,7 @@ impl FunctionTranslator<'_> {
                         //     todo!()
                         // }
 
-                        // Probably
+                        // Probably could instead just write the value back to the register
                         &[MaybeStackValue::Value(_), MaybeStackValue::MutRegister(l)] => {
                             let register = self.shadow_stack.pop().unwrap().into_index();
                             let value = self
@@ -5097,6 +5104,35 @@ impl FunctionTranslator<'_> {
                             );
 
                             let result = MaybeStackValue::MutRegister(l);
+
+                            // TODO: Make the type as inferred?
+
+                            // Check the inferred type, if we know of it
+                            self.shadow_push(result);
+
+                            self.ip += 2;
+                        }
+
+                        &[MaybeStackValue::MutRegister(v), MaybeStackValue::MutRegister(l)] => {
+                            let register = self.shadow_stack.pop().unwrap().into_index();
+                            let value = self.shadow_stack.pop().unwrap().into_index();
+
+                            let register = self.builder.ins().iconst(types::I64, register as i64);
+                            let value = self.register_index(value);
+
+                            // Just... leave it in place if it mutates the register.
+                            // We can lazily have the register move around.
+                            self.call_function_args_no_return(
+                                "cons-handler-register-register",
+                                &[value, register],
+                            );
+
+                            let result = MaybeStackValue::MutRegister(l);
+
+                            self.properties.set_property(
+                                ValueOrRegister::Register(v),
+                                Properties::InferredType(InferredType::Void),
+                            );
 
                             // TODO: Make the type as inferred?
 
@@ -5155,7 +5191,7 @@ impl FunctionTranslator<'_> {
                                 Some(Properties::ProperNonEmptyList)
                             );
 
-                            let can_skip_bounds_check = false;
+                            // let can_skip_bounds_check = false;
 
                             self.shadow_stack.pop();
                             let ir_reg = self.register_index(reg);
@@ -5163,10 +5199,16 @@ impl FunctionTranslator<'_> {
                             if can_skip_bounds_check {
                                 let func = "cdr-mut-reg-no-check";
                                 // println!("Adding inferred type void for register: {}", reg);
-                                self.properties.props.insert(
+                                // self.properties.props.insert(
+                                //     ValueOrRegister::Register(reg),
+                                //     vec![Properties::InferredType(InferredType::Void)],
+                                // );
+
+                                self.properties.set_property(
                                     ValueOrRegister::Register(reg),
-                                    vec![Properties::InferredType(InferredType::Void)],
+                                    Properties::ProperList,
                                 );
+
                                 self.call_function_args_no_return(func, &[ir_reg]);
                                 self.shadow_push(MaybeStackValue::MutRegister(reg));
                             } else {
@@ -5270,8 +5312,6 @@ impl FunctionTranslator<'_> {
                             //     Some(Properties::NonEmptyList)
                             // );
 
-                            // dbg!(self.properties.get(&ValueOrRegister::Register(reg)));
-
                             match self.properties.get(&ValueOrRegister::Register(reg)) {
                                 Some(Properties::NonNull) if self.use_lbbv => {
                                     self.shadow_stack.pop();
@@ -5315,19 +5355,6 @@ impl FunctionTranslator<'_> {
                                             ctx.ip += 2;
                                         },
                                     );
-
-                                    // let res = self.converging_if(
-                                    //     is_list,
-                                    //     |ctx| ctx.unchecked_car(value),
-                                    //     |ctx| {
-                                    //     },
-                                    //     typ,
-                                    // );
-
-                                    // self.properties.add_property(
-                                    //     ValueOrRegister::Register(reg),
-                                    //     Properties::NonEmptyListOrPair,
-                                    // );
                                 }
 
                                 Some(Properties::NonNull) => {
@@ -9030,8 +9057,6 @@ impl FunctionTranslator<'_> {
             .ins()
             .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
 
-        dbg!(self.properties.get(&ValueOrRegister::Register(index)));
-
         self.drop_tagged_value(local_value);
 
         self.builder
@@ -9062,13 +9087,6 @@ impl FunctionTranslator<'_> {
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
             if should_drop {
-                let local_value = self.builder.ins().load(
-                    types::I128,
-                    MemFlags::trusted(),
-                    frame_base,
-                    (index * std::mem::size_of::<SteelVal>()) as i32,
-                );
-
                 match self.properties.get(&ValueOrRegister::Register(index)) {
                     // TODO: Can do even better, read less things
                     Some(
@@ -9076,12 +9094,26 @@ impl FunctionTranslator<'_> {
                         | Properties::ProperNonEmptyList
                         | Properties::ProperList,
                     ) => {
+                        let local_value = self.builder.ins().load(
+                            types::I128,
+                            MemFlags::trusted(),
+                            frame_base,
+                            (index * std::mem::size_of::<SteelVal>()) as i32,
+                        );
+
                         self.drop_biased_rc(local_value);
                     }
 
                     Some(Properties::InferredType(InferredType::Void)) => {}
 
                     _ => {
+                        let local_value = self.builder.ins().load(
+                            types::I128,
+                            MemFlags::trusted(),
+                            frame_base,
+                            (index * std::mem::size_of::<SteelVal>()) as i32,
+                        );
+
                         self.drop_tagged_value(local_value);
                     }
                 }
@@ -9121,13 +9153,6 @@ impl FunctionTranslator<'_> {
 
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
-            let local_value = self.builder.ins().load(
-                types::I128,
-                MemFlags::trusted(),
-                frame_base,
-                (index * std::mem::size_of::<SteelVal>()) as i32,
-            );
-
             match self.properties.get(&ValueOrRegister::Register(index)) {
                 // TODO: Can do even better, read less thing
                 Some(
@@ -9135,12 +9160,26 @@ impl FunctionTranslator<'_> {
                     | Properties::ProperNonEmptyList
                     | Properties::ProperList,
                 ) => {
+                    let local_value = self.builder.ins().load(
+                        types::I128,
+                        MemFlags::trusted(),
+                        frame_base,
+                        (index * std::mem::size_of::<SteelVal>()) as i32,
+                    );
+
                     self.drop_biased_rc(local_value);
                 }
 
                 Some(Properties::InferredType(InferredType::Void)) => {}
 
                 _ => {
+                    let local_value = self.builder.ins().load(
+                        types::I128,
+                        MemFlags::trusted(),
+                        frame_base,
+                        (index * std::mem::size_of::<SteelVal>()) as i32,
+                    );
+
                     self.drop_tagged_value(local_value);
                 }
             }
@@ -9182,13 +9221,6 @@ impl FunctionTranslator<'_> {
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
             if should_drop {
-                let local_value = self.builder.ins().load(
-                    types::I128,
-                    MemFlags::trusted(),
-                    frame_base,
-                    (index * std::mem::size_of::<SteelVal>()) as i32,
-                );
-
                 match self.properties.get(&ValueOrRegister::Register(index)) {
                     // TODO: Can do even better, read less things
                     Some(
@@ -9196,12 +9228,26 @@ impl FunctionTranslator<'_> {
                         | Properties::ProperNonEmptyList
                         | Properties::ProperList,
                     ) => {
+                        let local_value = self.builder.ins().load(
+                            types::I128,
+                            MemFlags::trusted(),
+                            frame_base,
+                            (index * std::mem::size_of::<SteelVal>()) as i32,
+                        );
+
                         self.drop_biased_rc(local_value);
                     }
 
                     Some(Properties::InferredType(InferredType::Void)) => {}
 
                     _ => {
+                        let local_value = self.builder.ins().load(
+                            types::I128,
+                            MemFlags::trusted(),
+                            frame_base,
+                            (index * std::mem::size_of::<SteelVal>()) as i32,
+                        );
+
                         self.drop_tagged_value(local_value);
                     }
                 }

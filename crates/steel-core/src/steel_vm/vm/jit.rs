@@ -1487,6 +1487,32 @@ fn cons_handler_value_register(ctx: *mut VmCore, mut arg: SteelVal, mut arg2: us
 }
 
 #[cross_platform_fn]
+fn cons_handler_register_register(ctx: *mut VmCore, mut arg: usize, mut arg2: usize) {
+    use crate::values::lists::Pair;
+
+    let guard = unsafe { &mut *ctx };
+    guard.ip += 2;
+
+    let offset = guard.get_offset();
+    let mut arg1 = std::mem::replace(&mut guard.thread.stack[offset + arg], SteelVal::Void);
+    let mut arg2 = &mut guard.thread.stack[offset + arg2];
+
+    // This might be faster?
+    match arg2 {
+        SteelVal::ListV(right) => {
+            // Leave it in place
+            right.cons_mut(arg1);
+        }
+        // Silly, but this then gives us a special "pair" that is different
+        // from a real bonafide list
+        right => {
+            let res = SteelVal::Pair(Gc::new(Pair::cons(arg1, right.clone())));
+            *right = res;
+        }
+    }
+}
+
+#[cross_platform_fn]
 fn cons_handler_value(ctx: *mut VmCore, mut arg: SteelVal, mut arg2: SteelVal) -> SteelVal {
     // let mut arg = ManuallyDrop::new(arg);
     // let mut arg2 = ManuallyDrop::new(arg2);
