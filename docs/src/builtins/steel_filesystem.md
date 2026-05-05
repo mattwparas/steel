@@ -273,6 +273,19 @@ Checks whether the given value is a #<ReadDir>
 (read-dir-iter? my-iter) ;; => #true
 (read-dir-iter "not an iter") ;; => #false
 ```
+### **rename!**
+Renames a file or directory, replacing any data at the destination.
+
+(rename! source destination) -> void?
+
+* source : (string?) - The file or directory to rename.
+* destination : (string?) - The destination to which to move the file or directory.
+
+#### Examples
+```scheme
+> (rename! "logs/today.json" "logs/tomorrow.json") ;;
+> (rename! "logs" "backup") ;;
+```
 ### **glob**
 ### **glob-iter-next!**
 ### **path->string**
