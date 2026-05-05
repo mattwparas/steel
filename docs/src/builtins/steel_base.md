@@ -366,6 +366,23 @@ Append multiple byte vectors into a new bytevector.
 
 (bytes-append #u8(0) #u8(1) #u8() #u8(2)) ;; => #u8(#x00 #x01 #x02)
 ```
+### **bytes-copy**
+Creates a copy of a bytevector.
+
+(bytevector-copy vector [start end]) -> bytes?
+
+* vector : bytes?
+* start: int? = 0
+* end: int? = (bytes-length vector)
+
+#### Examples
+
+```scheme
+(define vec (bytes 1 2 3 4 5))
+
+(bytes-copy vec) ;; => (bytes 1 2 3 4 5)
+(bytes-copy vec 1 3) ;; => (bytes 2 3)
+```
 ### **bytes-length**
 Returns the length of the given byte vector
 
@@ -425,23 +442,18 @@ integer range from 0 - 255 (inclusive)
 ```scheme
 (bytevector 65 112 112 108 101)
 ```
+### **bytevector-append**
+Alias of `bytes-append`.
 ### **bytevector-copy**
-Creates a copy of a bytevector.
-
-(bytevector-copy vector [start end]) -> bytes?
-
-* vector : bytes?
-* start: int? = 0
-* end: int? = (bytes-length vector)
-
-#### Examples
-
-```scheme
-(define vec (bytes 1 2 3 4 5))
-
-(bytevector-copy vec) ;; => (bytes 1 2 3 4 5)
-(bytevector-copy vec 1 3) ;; => (bytes 2 3)
-```
+Alias of `bytes-copy`.
+### **bytevector-length**
+Alias of `bytes-length`.
+### **bytevector-u8-ref**
+Alias of `bytes-ref`.
+### **bytevector-u8-set!**
+Alias of `bytes-set!`.
+### **bytevector?**
+Alias of `bytes?`.
 ### **canonicalize-path**
 Returns canonical path with all components normalized.
 
@@ -2087,6 +2099,8 @@ Creates a bytevector given a length and a default value.
 ```scheme
 (make-bytes 6 42) ;; => (bytes 42 42 42 42 42)
 ```
+### **make-bytevector**
+Alias of `make-bytes`.
 ### **make-polar**
 Make a complex number out of a magnitude `r` and an angle `θ`, so that the result is `r * (cos θ + i sin θ)`
 
