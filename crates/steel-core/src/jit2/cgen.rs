@@ -1726,9 +1726,9 @@ impl JIT {
         // Tell the builder we're done with this function.
         trans.builder.finalize();
 
-        // if !trans.potentially_could_deopt {
-        // println!("Found a candidate for tier 2 compilation: {}", trans.name);
-        // }
+        if !trans.potentially_could_deopt {
+            println!("Found a candidate for tier 2 compilation: {}", trans.name);
+        }
 
         // println!("Stats: {:#?}", trans.compilation_stats);
 
@@ -6766,9 +6766,6 @@ impl FunctionTranslator<'_> {
         //     .stack
         //     .drain(self.stack.len() - payload..)
         //     .collect::<Vec<_>>();
-
-        // self.maybe_patch_from_stack(&mut args_off_the_stack);
-        // self.shadow_stack.get(self.shadow_stack.len() - payload..);
 
         if payload > 0 {
             let mut amount_dropped = 0;
