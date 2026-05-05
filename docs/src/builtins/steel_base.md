@@ -2801,18 +2801,18 @@ This procedure is an alias of `truncate-remainder`.
 > (remainder 5 -2) ;; => 1
 > (remainder -5 -2) ;; => -1
 ```
-### **rename!**
+### **rename-file-or-directory!**
 Renames a file or directory, replacing any data at the destination.
 
-(rename! source destination) -> void?
+(rename-file-or-directory! source destination) -> void?
 
 * source : (string?) - The file or directory to rename.
 * destination : (string?) - The destination to which to move the file or directory.
 
 #### Examples
 ```scheme
-> (rename! "logs/today.json" "logs/tomorrow.json") ;;
-> (rename! "logs" "backup") ;;
+> (rename-file-or-directory! "logs/today.json" "logs/tomorrow.json") ;;
+> (rename-file-or-directory! "logs" "backup") ;;
 ```
 ### **rest**
 Returns the rest of the list. Will raise an error if the list is empty.

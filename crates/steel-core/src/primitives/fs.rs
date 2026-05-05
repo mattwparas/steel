@@ -86,7 +86,7 @@ pub fn fs_module() -> BuiltInModule {
     module
         .register_native_fn_definition(DELETE_DIRECTORY_DEFINITION)
         .register_native_fn_definition(CREATE_DIRECTORY_DEFINITION)
-        .register_native_fn_definition(RENAME_DEFINITION)
+        .register_native_fn_definition(RENAME_FILE_OR_DIRECTORY_DEFINITION)
         .register_native_fn_definition(COPY_DIRECTORY_RECURSIVELY_DEFINITION)
         .register_native_fn_definition(IS_DIR_DEFINITION)
         .register_native_fn_definition(IS_FILE_DEFINITION)
@@ -372,19 +372,22 @@ pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
 
 /// Renames a file or directory, replacing any data at the destination.
 ///
-/// (rename! source destination) -> void?
+/// (rename-file-or-directory! source destination) -> void?
 ///
 /// * source : (string?) - The file or directory to rename.
 /// * destination : (string?) - The destination to which to move the file or directory.
 ///
 /// # Examples
 /// ```scheme
-/// > (rename! "logs/today.json" "logs/tomorrow.json") ;;
-/// > (rename! "logs" "backup") ;;
+/// > (rename-file-or-directory! "logs/today.json" "logs/tomorrow.json") ;;
+/// > (rename-file-or-directory! "logs" "backup") ;;
 /// ```
 ///
-#[steel_derive::function(name = "rename!")]
-pub fn rename(source: &SteelString, destination: &SteelString) -> Result<SteelVal> {
+#[steel_derive::function(name = "rename-file-or-directory!")]
+pub fn rename_file_or_directory(
+    source: &SteelString,
+    destination: &SteelString,
+) -> Result<SteelVal> {
     std::fs::rename(source.as_str(), destination.as_str())?;
 
     Ok(SteelVal::Void)
