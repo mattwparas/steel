@@ -4,6 +4,8 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+const USE_LIFTED_LAMBDAS_AS_ROOTS: bool = false;
+
 /// At the REPL or within an application, a script might be repeatedly
 /// loaded. In this situation, the behavior that Steel picks is that
 /// values that are shadowed are still there. Right now - we just leave
@@ -144,7 +146,7 @@ impl SymbolMap {
             .pop_next_free()
             .unwrap_or_else(|| self.values.len());
 
-        {
+        if USE_LIFTED_LAMBDAS_AS_ROOTS {
             let resolved = ident.resolve();
 
             if resolved.starts_with("##__lifted_pure_function")
