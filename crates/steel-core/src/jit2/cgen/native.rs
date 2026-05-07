@@ -1635,3 +1635,156 @@ fn emit_spinlock_unlock_inline(builder: &mut FunctionBuilder, lock_ptr: Value) {
         .ins()
         .atomic_store(MemFlags::trusted(), zero, lock_ptr);
 }
+
+struct ForkedState {
+    ip: usize,
+    shadow_stack: Vec<MaybeStackValue>,
+    value_to_local_map: HashMap<Value, usize>,
+    local_to_value_map: HashMap<usize, InferredType>,
+    properties: PropertyMap,
+    tco: bool,
+    let_var_stack: Vec<usize>,
+    fake_entry_block: Option<Block>,
+    exit_block: Block,
+    visited: HashSet<usize>,
+    depth: usize,
+    if_bound: Option<usize>,
+    if_stack: Vec<usize>,
+    if_merge_blocks: Vec<Block>,
+    vm_context: GlobalValue,
+    function_context: Option<usize>,
+    potentially_could_deopt: bool,
+    tier: JitTier,
+    thread_pointer: Option<Value>,
+    should_trampoline: Option<Value>,
+    sp: Option<Value>,
+    pop_count: Option<Value>,
+    pop_count_plus_one: Option<Value>,
+    pop_count_minus_one: Option<Value>,
+    thread_id: Option<Value>,
+    compilation_stats: CompilationStats,
+}
+
+impl<'a> FunctionTranslator<'a> {
+    // Do a converging if; attempt to unify the values?
+    pub(super) fn branch_on_condition_and_property(
+        &mut self,
+        test_condition: Value,
+        register: usize,
+        positive_property: Properties,
+        negative_property: Properties,
+        positive_thunk: impl FnOnce(&mut Self) -> (Value, InferredType),
+        negative_thunk: impl FnOnce(&mut Self) -> (Value, InferredType),
+        merge_thunk: impl Fn(&mut Self, Value, InferredType),
+    ) {
+        // Branch, but don't merge
+        let then_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(test_condition, then_block, &[], else_block, &[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        // Fork on that condition:
+        self.fork(|ctx| {
+            ctx.properties
+                .set_property(ValueOrRegister::Register(register), positive_property);
+            let (value, typ) = positive_thunk(ctx);
+            merge_thunk(ctx, value, typ);
+            ctx.stack_to_ssa();
+
+            if ctx.if_bound == Some(ctx.ip) {
+                let merge = *ctx
+                    .if_merge_blocks
+                    .last()
+                    .expect("if_bound is set but no enclosing if merge block was registered - check translate_if_else_value");
+                let return_value = ctx.shadow_pop().0;
+                ctx.builder
+                    .ins()
+                    .jump(merge, &[BlockArg::Value(return_value)]);
+            } else if ctx.ip > ctx.instructions.len() {
+                let value = ctx.encode_void();
+                ctx.builder.ins().return_(&[value]);
+            }
+
+            // Decrement the depth which is implicitly incremented by the stack to ssa call
+            ctx.depth -= 1;
+        });
+
+        // Mark the else block as cold
+        // self.builder.set_cold_block(else_block);
+
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+        self.properties
+            .set_property(ValueOrRegister::Register(register), negative_property);
+
+        let (value, typ) = negative_thunk(self);
+        merge_thunk(self, value, typ);
+        // Do the rest of the thing, from the usual position:
+    }
+
+    fn fork(&mut self, func: impl FnOnce(&mut Self)) {
+        let state = ForkedState {
+            ip: self.ip,
+            shadow_stack: self.shadow_stack.clone(),
+            value_to_local_map: self.value_to_local_map.clone(),
+            local_to_value_map: self.local_to_value_map.clone(),
+            properties: self.properties.clone(),
+            tco: self.tco,
+            let_var_stack: self.let_var_stack.clone(),
+            fake_entry_block: self.fake_entry_block,
+            exit_block: self.exit_block,
+            visited: self.visited.clone(),
+            depth: self.depth,
+            if_bound: self.if_bound,
+            if_stack: self.if_stack.clone(),
+            if_merge_blocks: self.if_merge_blocks.clone(),
+            vm_context: self.vm_context,
+            function_context: self.function_context,
+            potentially_could_deopt: self.potentially_could_deopt,
+            tier: self.tier,
+            thread_pointer: self.thread_pointer,
+            should_trampoline: self.should_trampoline,
+            sp: self.sp,
+            pop_count: self.pop_count,
+            pop_count_plus_one: self.pop_count_plus_one,
+            pop_count_minus_one: self.pop_count_minus_one,
+            thread_id: self.thread_id,
+            compilation_stats: self.compilation_stats.clone(),
+        };
+
+        // Run the whole show, and then reset back:
+        func(self);
+
+        self.ip = state.ip;
+        self.shadow_stack = state.shadow_stack;
+        self.value_to_local_map = state.value_to_local_map;
+        self.local_to_value_map = state.local_to_value_map;
+        self.properties = state.properties;
+        self.tco = state.tco;
+        self.let_var_stack = state.let_var_stack;
+        self.fake_entry_block = state.fake_entry_block;
+        self.exit_block = state.exit_block;
+        self.visited = state.visited;
+        self.depth = state.depth;
+        self.if_bound = state.if_bound;
+        self.if_stack = state.if_stack;
+        self.if_merge_blocks = state.if_merge_blocks;
+        self.vm_context = state.vm_context;
+        self.function_context = state.function_context;
+        self.potentially_could_deopt = state.potentially_could_deopt;
+        self.tier = state.tier;
+        self.thread_pointer = state.thread_pointer;
+        self.should_trampoline = state.should_trampoline;
+        self.sp = state.sp;
+        self.pop_count = state.pop_count;
+        self.pop_count_plus_one = state.pop_count_plus_one;
+        self.pop_count_minus_one = state.pop_count_minus_one;
+        self.thread_id = state.thread_id;
+        self.compilation_stats = state.compilation_stats;
+    }
+}

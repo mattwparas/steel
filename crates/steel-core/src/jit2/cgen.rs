@@ -11,11 +11,8 @@ use cranelift::{
 };
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
-use std::{collections::HashSet, slice};
-use std::{
-    collections::{HashMap, VecDeque},
-    mem::ManuallyDrop,
-};
+use std::collections::HashSet;
+use std::{collections::HashMap, mem::ManuallyDrop};
 use steel_derive::cross_platform_fn;
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 use steel_parser::interner::InternedString;
@@ -25,9 +22,7 @@ use crate::{
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     gc::Gc,
     primitives::{
-        lists::{
-            steel_cdr, steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse,
-        },
+        lists::{steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse},
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
         strings::{char_equals_binop, steel_char_equals},
         vectors::steel_mut_vec_set,
@@ -64,7 +59,7 @@ const INLINE_READ_CAPTURED: bool = true;
 
 const USE_INLINE_DROP_HEAP_BOX: bool = true;
 
-const USE_INPLACE_WRITES: bool = true;
+// const USE_INPLACE_WRITES: bool = true;
 
 // Use inline push global; the shared vector implementation
 // is Repr C, so we can look up values directly in this.
@@ -82,7 +77,7 @@ pub struct JIT {
     ctx: codegen::Context,
 
     /// The data description, which is to data objects what `ctx` is to functions.
-    data_description: DataDescription,
+    // data_description: DataDescription,
 
     /// The module, with the jit backend, which manages the JIT'd
     /// functions.
@@ -1301,7 +1296,6 @@ impl Default for JIT {
         Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
-            data_description: DataDescription::new(),
             module,
             function_map,
             names: Default::default(),
@@ -1688,22 +1682,8 @@ impl JIT {
 
         {
             let vm_ctx = trans.get_ctx();
-
-            // let ptr_type = trans.module.target_config().pointer_type();
-            // let vm_ctx = trans.builder.ins().global_value(ptr_type, trans.vm_context);
-
             trans.get_thread_pointer(vm_ctx);
             trans.get_thread_id();
-
-            // Set this as a pinned register, so that we're not
-            // going to be completed messed up loading this over and over.
-            // trans.builder.ins().set_pinned_reg(vm_ctx);
-
-            // trans.get_sp(vm_ctx);
-            // trans.get_pop_count(vm_ctx);
-            // trans.pop_count_add_one(vm_ctx);
-            // trans.pop_count_sub_one(vm_ctx);
-            // trans.check_should_trampoline(vm_ctx);
         }
 
         trans.stack_to_ssa();
@@ -1730,7 +1710,7 @@ impl JIT {
             println!("Found a candidate for tier 2 compilation: {}", trans.name);
         }
 
-        // println!("Stats: {:#?}", trans.compilation_stats);
+        println!("Stats: {:#?}", trans.compilation_stats);
 
         self.function_return_types.insert(id, exit_types);
 
@@ -2178,6 +2158,7 @@ enum JitTier {
 #[derive(Default, Clone, Debug)]
 struct CompilationStats {
     stack_frame_pushes: usize,
+    max_stack_size: usize,
 }
 
 /// A collection of state used for translating from toy-language AST nodes
@@ -2270,159 +2251,6 @@ struct FunctionTranslator<'a> {
     use_lbbv: bool,
 }
 
-struct ForkedState {
-    ip: usize,
-    shadow_stack: Vec<MaybeStackValue>,
-    value_to_local_map: HashMap<Value, usize>,
-    local_to_value_map: HashMap<usize, InferredType>,
-    properties: PropertyMap,
-    tco: bool,
-    let_var_stack: Vec<usize>,
-    fake_entry_block: Option<Block>,
-    exit_block: Block,
-    visited: HashSet<usize>,
-    depth: usize,
-    if_bound: Option<usize>,
-    if_stack: Vec<usize>,
-    if_merge_blocks: Vec<Block>,
-    vm_context: GlobalValue,
-    function_context: Option<usize>,
-    potentially_could_deopt: bool,
-    tier: JitTier,
-    thread_pointer: Option<Value>,
-    should_trampoline: Option<Value>,
-    sp: Option<Value>,
-    pop_count: Option<Value>,
-    pop_count_plus_one: Option<Value>,
-    pop_count_minus_one: Option<Value>,
-    thread_id: Option<Value>,
-    compilation_stats: CompilationStats,
-}
-
-impl<'a> FunctionTranslator<'a> {
-    // Do a converging if; attempt to unify the values?
-    fn branch_on_condition_and_property(
-        &mut self,
-        test_condition: Value,
-        register: usize,
-        positive_property: Properties,
-        negative_property: Properties,
-        positive_thunk: impl FnOnce(&mut Self) -> (Value, InferredType),
-        negative_thunk: impl FnOnce(&mut Self) -> (Value, InferredType),
-        merge_thunk: impl Fn(&mut Self, Value, InferredType),
-    ) {
-        // Branch, but don't merge
-        let then_block = self.builder.create_block();
-        let else_block = self.builder.create_block();
-
-        self.builder
-            .ins()
-            .brif(test_condition, then_block, &[], else_block, &[]);
-
-        self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
-
-        // Fork on that condition:
-        self.fork(|ctx| {
-            ctx.properties
-                .set_property(ValueOrRegister::Register(register), positive_property);
-            let (value, typ) = positive_thunk(ctx);
-            merge_thunk(ctx, value, typ);
-            ctx.stack_to_ssa();
-
-            if ctx.if_bound == Some(ctx.ip) {
-                let merge = *ctx
-                    .if_merge_blocks
-                    .last()
-                    .expect("if_bound is set but no enclosing if merge block was registered - check translate_if_else_value");
-                let return_value = ctx.shadow_pop().0;
-                ctx.builder
-                    .ins()
-                    .jump(merge, &[BlockArg::Value(return_value)]);
-            } else if ctx.ip > ctx.instructions.len() {
-                let value = ctx.encode_void();
-                ctx.builder.ins().return_(&[value]);
-            }
-
-            // Decrement the depth which is implicitly incremented by the stack to ssa call
-            ctx.depth -= 1;
-        });
-
-        // Mark the else block as cold
-        // self.builder.set_cold_block(else_block);
-
-        self.builder.switch_to_block(else_block);
-        self.builder.seal_block(else_block);
-        self.properties
-            .set_property(ValueOrRegister::Register(register), negative_property);
-
-        let (value, typ) = negative_thunk(self);
-        merge_thunk(self, value, typ);
-        // Do the rest of the thing, from the usual position:
-    }
-
-    fn fork(&mut self, func: impl FnOnce(&mut Self)) {
-        let state = ForkedState {
-            ip: self.ip,
-            shadow_stack: self.shadow_stack.clone(),
-            value_to_local_map: self.value_to_local_map.clone(),
-            local_to_value_map: self.local_to_value_map.clone(),
-            properties: self.properties.clone(),
-            tco: self.tco,
-            let_var_stack: self.let_var_stack.clone(),
-            fake_entry_block: self.fake_entry_block,
-            exit_block: self.exit_block,
-            visited: self.visited.clone(),
-            depth: self.depth,
-            if_bound: self.if_bound,
-            if_stack: self.if_stack.clone(),
-            if_merge_blocks: self.if_merge_blocks.clone(),
-            vm_context: self.vm_context,
-            function_context: self.function_context,
-            potentially_could_deopt: self.potentially_could_deopt,
-            tier: self.tier,
-            thread_pointer: self.thread_pointer,
-            should_trampoline: self.should_trampoline,
-            sp: self.sp,
-            pop_count: self.pop_count,
-            pop_count_plus_one: self.pop_count_plus_one,
-            pop_count_minus_one: self.pop_count_minus_one,
-            thread_id: self.thread_id,
-            compilation_stats: self.compilation_stats.clone(),
-        };
-
-        // Run the whole show, and then reset back:
-        func(self);
-
-        self.ip = state.ip;
-        self.shadow_stack = state.shadow_stack;
-        self.value_to_local_map = state.value_to_local_map;
-        self.local_to_value_map = state.local_to_value_map;
-        self.properties = state.properties;
-        self.tco = state.tco;
-        self.let_var_stack = state.let_var_stack;
-        self.fake_entry_block = state.fake_entry_block;
-        self.exit_block = state.exit_block;
-        self.visited = state.visited;
-        self.depth = state.depth;
-        self.if_bound = state.if_bound;
-        self.if_stack = state.if_stack;
-        self.if_merge_blocks = state.if_merge_blocks;
-        self.vm_context = state.vm_context;
-        self.function_context = state.function_context;
-        self.potentially_could_deopt = state.potentially_could_deopt;
-        self.tier = state.tier;
-        self.thread_pointer = state.thread_pointer;
-        self.should_trampoline = state.should_trampoline;
-        self.sp = state.sp;
-        self.pop_count = state.pop_count;
-        self.pop_count_plus_one = state.pop_count_plus_one;
-        self.pop_count_minus_one = state.pop_count_minus_one;
-        self.thread_id = state.thread_id;
-        self.compilation_stats = state.compilation_stats;
-    }
-}
-
 pub fn split_big(a: i128) -> [i64; 2] {
     [(a >> 64) as i64, a as i64]
 }
@@ -2446,35 +2274,19 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::READLOCAL1, _) => "read-local-1",
         (OpCode::READLOCAL2, _) => "read-local-2",
         (OpCode::READLOCAL3, _) => "read-local-3",
-
-        // (OpCode::READLOCAL, 4) => "read-local-4",
-        // (OpCode::READLOCAL, 5) => "read-local-5",
-        // (OpCode::READLOCAL, 6) => "read-local-6",
-        // (OpCode::READLOCAL, 7) => "read-local-7",
-        // (OpCode::READLOCAL, 8) => "read-local-8",
         (OpCode::READLOCAL, _) => "read-local-any",
-
         (OpCode::READCAPTURED, _) => "read-captured",
-
         (OpCode::MOVEREADLOCAL0, _) => "move-read-local-0",
         (OpCode::MOVEREADLOCAL1, _) => "move-read-local-1",
         (OpCode::MOVEREADLOCAL2, _) => "move-read-local-2",
         (OpCode::MOVEREADLOCAL3, _) => "move-read-local-3",
-        // (OpCode::MOVEREADLOCAL, 4) => "move-read-local-4",
-        // (OpCode::MOVEREADLOCAL, 5) => "move-read-local-5",
-        // (OpCode::MOVEREADLOCAL, 6) => "move-read-local-6",
-        // (OpCode::MOVEREADLOCAL, 7) => "move-read-local-7",
-        // (OpCode::MOVEREADLOCAL, 8) => "move-read-local-8",
         (OpCode::MOVEREADLOCAL, _) => "move-read-local-any",
-
         (OpCode::ADD, 2) => "add-binop",
         (OpCode::ADD, 3) => "add-three",
         (OpCode::ADD, 4) => "add-four",
         (OpCode::SUB, 2) => "sub-binop",
         (OpCode::SUB, 3) => "sub-three",
-
         (OpCode::SUB, 1) => "sub-negate",
-
         (OpCode::LT, 2) => "lt-binop",
         (OpCode::LTE, 2) => "lte-binop",
         (OpCode::GT, 2) => "gt-binop",
@@ -2483,22 +2295,16 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::MUL, 3) => "mult-three",
         (OpCode::DIV, 2) => "div-two",
         (OpCode::PUSH, _) => "push-global-value",
-
         (OpCode::NOT, _) => "not-value",
-
-        // TODO!()
         (OpCode::NUMEQUAL, 2) => "num-equal-value-bool",
         (OpCode::EQUAL2, _) => "equal-binop-bool",
         (OpCode::EQUAL, _) => "equal-binop-bool",
-
         (OpCode::CAR, _) => "car-handler-value",
         (OpCode::CDR, _) => "cdr-handler-value",
         (OpCode::CONS, _) => "cons-handler-value",
-
         (OpCode::NEWBOX, _) => "box-handler",
         (OpCode::UNBOX, _) => "unbox-handler",
         (OpCode::SETBOX, _) => "set-box-handler",
-
         (OpCode::LISTREF, _) => "list-ref-value",
         (OpCode::VECTORREF, _) => "vector-ref-value",
 
@@ -2507,13 +2313,6 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
             other
         ),
     }
-}
-
-// TODO: This is certainly no good. We should instead not use transmute,
-// but rather encode the enum variant manually as to not create any
-// nasal demons
-fn encode(value: SteelVal) -> i128 {
-    unsafe { core::mem::transmute(value) }
 }
 
 impl FunctionTranslator<'_> {
@@ -2565,17 +2364,11 @@ impl FunctionTranslator<'_> {
     fn stack_to_ssa(&mut self) -> bool {
         self.depth += 1;
         while self.ip < self.instructions.len() {
-            if let Some(last) = self.if_bound {
-                // Have to tell if the if statement converged, and to continue
-                // going from there
-                if self.ip == last {
-                    // println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% breaking");
-                    // let instr = self.instructions[self.ip];
-                    // let op = instr.op_code;
-                    // let payload = instr.payload_size.to_usize();
-                    // println!("{:?}:{} @ {}", op, payload, self.ip);
-                    // println!("length: {}", self.instructions.len());
+            // At every point, we're
+            self.record_stack_size();
 
+            if let Some(last) = self.if_bound {
+                if self.ip == last {
                     self.depth -= 1;
                     return false;
                 }
@@ -2595,14 +2388,6 @@ impl FunctionTranslator<'_> {
             let op = instr.op_code;
             let payload = instr.payload_size.to_usize();
 
-            // println!("{:?}:{} @ {}", op, payload, self.ip);
-
-            // if self.queue.len() == 10000 {
-            //     self.queue.pop_front();
-            // }
-
-            // self.queue.push_back((op, self.ip, payload));
-
             if !self.visited.insert(self.ip) {
                 panic!("Already visited this instruction",);
             }
@@ -2615,14 +2400,6 @@ impl FunctionTranslator<'_> {
                 OpCode::SCLOSURE => {
                     panic!("Deprecated opcode");
                 }
-                // Primitives can be checked to see if we have
-                // better information, and then can be inlined
-                // accordingly with a trampoline without needing
-                // a special opcode.
-                // OpCode::CALLPRIMITIVE => {
-                //     todo!("{:?}", op);
-                // }
-                // OpCode::POPJMP | OpCode::POPPURE => {
                 OpCode::POPPURE => {
                     self.maybe_check_last();
                     let (value, ty) = self.shadow_pop();
@@ -2646,14 +2423,8 @@ impl FunctionTranslator<'_> {
                     return false;
                 }
                 OpCode::VOID => {
-                    // Push void onto stack?
-                    // let void = SteelVal::Void;
-                    // let value = self.create_i128(encode(void));
-
                     let value = self.encode_void();
-
                     self.push(value, InferredType::Void);
-
                     self.ip += 1;
                 }
                 OpCode::PUSH => {
@@ -2694,7 +2465,7 @@ impl FunctionTranslator<'_> {
                         self.shadow_stack.last(),
                         Some(MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_))
                     ) {
-                        let test = self.shadow_stack.pop().unwrap();
+                        let test = self.shadow_stack_pop().unwrap();
 
                         let false_instr = self.instructions[self.ip].payload_size;
                         let true_instr = self.ip + 1;
@@ -2720,7 +2491,7 @@ impl FunctionTranslator<'_> {
 
                             // dbg!(self.builder.func.dfg.value_type(test_bool));
 
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
 
                             self.translate_if_else_value(
                                 test_bool,
@@ -2865,7 +2636,7 @@ impl FunctionTranslator<'_> {
                     match self.shadow_stack.last().copied() {
                         Some(MaybeStackValue::MutRegister(i)) if USE_INLINE_LOCAL_TAIL_CALL => {
                             // Remove the register argument
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
 
                             // We don't need to clone, because we've just read it from the stack.
                             let value = self.remove_from_vm_stack(i);
@@ -2904,7 +2675,7 @@ impl FunctionTranslator<'_> {
                             if USE_INLINE_LOCAL_TAIL_CALL =>
                         {
                             // Remove the register argument
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
 
                             let is_closure = self.is_type(value, SteelVal::CLOSURE_TAG);
 
@@ -2938,7 +2709,7 @@ impl FunctionTranslator<'_> {
 
                         Some(MaybeStackValue::Register(i)) if USE_INLINE_LOCAL_TAIL_CALL => {
                             // Remove the register argument
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
 
                             // We don't need to clone, because we've just read it from the stack.
                             let value = self.read_from_vm_stack(i);
@@ -3797,8 +3568,8 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let register_r = self.shadow_stack.pop().unwrap().into_index();
-                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+                    let register_r = self.shadow_stack_pop().unwrap().into_index();
+                    let register_l = self.shadow_stack_pop().unwrap().into_index();
 
                     // Read both from the vm stack - we could read them together,
                     // but for now this will do
@@ -3860,8 +3631,8 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let constant_value = self.shadow_stack.pop();
-                    let register_index = self.shadow_stack.pop().unwrap().into_index();
+                    let constant_value = self.shadow_stack_pop();
+                    let register_index = self.shadow_stack_pop().unwrap().into_index();
 
                     let local_value = self.read_from_vm_stack(register_index);
                     let is_int = self.is_type(local_value, SteelVal::INT_TAG);
@@ -3951,8 +3722,8 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let value = self.shadow_stack.pop().unwrap().into_value(self);
-                    let register_index = self.shadow_stack.pop().unwrap().into_index();
+                    let value = self.shadow_stack_pop().unwrap().into_value(self);
+                    let register_index = self.shadow_stack_pop().unwrap().into_index();
 
                     // Do the shift here, in an effort to avoid passing more stuff?
                     let value = value.as_steelval(self);
@@ -4011,8 +3782,8 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let value = self.shadow_stack.pop().unwrap().into_value(self);
-                    let register_index = self.shadow_stack.pop().unwrap().into_index();
+                    let value = self.shadow_stack_pop().unwrap().into_value(self);
+                    let register_index = self.shadow_stack_pop().unwrap().into_index();
 
                     // Do the shift here, in an effort to avoid passing more stuff?
                     let value = value.as_steelval(self);
@@ -4062,8 +3833,8 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let value = self.shadow_stack.pop().unwrap().into_value(self);
-                    let register = self.shadow_stack.pop().unwrap().into_index();
+                    let value = self.shadow_stack_pop().unwrap().into_value(self);
+                    let register = self.shadow_stack_pop().unwrap().into_index();
 
                     let register = self.builder.ins().iconst(types::I64, register as i64);
 
@@ -4114,7 +3885,7 @@ impl FunctionTranslator<'_> {
                         .unwrap()
                         .into_constant_int(self)
                         .unwrap();
-                    let register_index = self.shadow_stack.pop().unwrap().into_index();
+                    let register_index = self.shadow_stack_pop().unwrap().into_index();
 
                     let local_value = self.read_from_vm_stack(register_index);
                     let is_int = self.is_type(local_value, SteelVal::INT_TAG);
@@ -4175,11 +3946,11 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let value = self.shadow_stack.pop().unwrap().into_value(self);
+                    let value = self.shadow_stack_pop().unwrap().into_value(self);
 
                     let value_as_steelval = value.as_steelval(self);
 
-                    let register = self.shadow_stack.pop().unwrap().into_index();
+                    let register = self.shadow_stack_pop().unwrap().into_index();
 
                     // Lets check the left hand size, handle overflow as necessary:
 
@@ -4252,8 +4023,8 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let register_r = self.shadow_stack.pop().unwrap().into_index();
-                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+                    let register_r = self.shadow_stack_pop().unwrap().into_index();
+                    let register_l = self.shadow_stack_pop().unwrap().into_index();
 
                     let (res, t) = self.binop_add_value_register(register_l, register_r);
 
@@ -4269,8 +4040,8 @@ impl FunctionTranslator<'_> {
                             Some(&[MaybeStackValue::Value(_), MaybeStackValue::Value(_),])
                         ) =>
                 {
-                    let value_r = self.shadow_stack.pop().unwrap().into_value(self).value;
-                    let value_l = self.shadow_stack.pop().unwrap().into_value(self).value;
+                    let value_r = self.shadow_stack_pop().unwrap().into_value(self).value;
+                    let value_l = self.shadow_stack_pop().unwrap().into_value(self).value;
 
                     let (res, t) = self.binop_add_value_both(value_l, value_r);
 
@@ -4286,10 +4057,10 @@ impl FunctionTranslator<'_> {
                             Some(&[MaybeStackValue::Value(_), MaybeStackValue::Value(_)])
                         ) =>
                 {
-                    let MaybeStackValue::Value(r) = self.shadow_stack.pop().unwrap() else {
+                    let MaybeStackValue::Value(r) = self.shadow_stack_pop().unwrap() else {
                         panic!()
                     };
-                    let MaybeStackValue::Value(l) = self.shadow_stack.pop().unwrap() else {
+                    let MaybeStackValue::Value(l) = self.shadow_stack_pop().unwrap() else {
                         panic!()
                     };
 
@@ -4353,7 +4124,7 @@ impl FunctionTranslator<'_> {
                         })
                         .unwrap();
 
-                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+                    let register_l = self.shadow_stack_pop().unwrap().into_index();
 
                     // Happy path, lets check the type of the lhs. If its an integer tag, then we can go ahead and do the thing.
                     // Otherwise, we'll bail and fall through:
@@ -4458,8 +4229,8 @@ impl FunctionTranslator<'_> {
                         }
                     }
 
-                    let rhs_int = self.shadow_stack.pop().unwrap().into_value(self);
-                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+                    let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
+                    let register_l = self.shadow_stack_pop().unwrap().into_index();
 
                     // Happy path, lets check the type of the lhs. If its an integer tag,
                     // then we can go ahead and do the thing.
@@ -4522,8 +4293,8 @@ impl FunctionTranslator<'_> {
                         }
                     }
 
-                    let rhs_int = self.shadow_stack.pop().unwrap().into_value(self);
-                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+                    let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
+                    let register_l = self.shadow_stack_pop().unwrap().into_index();
 
                     // Happy path, lets check the type of the lhs. If its an integer tag,
                     // then we can go ahead and do the thing.
@@ -4585,8 +4356,8 @@ impl FunctionTranslator<'_> {
                         }
                     }
 
-                    let rhs_int = self.shadow_stack.pop().unwrap().into_value(self);
-                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+                    let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
+                    let register_l = self.shadow_stack_pop().unwrap().into_index();
 
                     // Happy path, lets check the type of the lhs. If its an integer tag,
                     // then we can go ahead and do the thing.
@@ -4677,8 +4448,8 @@ impl FunctionTranslator<'_> {
                         }
                     }
 
-                    let rhs_int = self.shadow_stack.pop().unwrap().into_value(self);
-                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+                    let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
+                    let register_l = self.shadow_stack_pop().unwrap().into_index();
 
                     let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
 
@@ -4723,8 +4494,8 @@ impl FunctionTranslator<'_> {
                     // otherwise.
 
                     // This will be our constant value:
-                    let right = self.shadow_stack.pop().unwrap().into_value(self).value;
-                    let left = self.shadow_stack.pop().unwrap().into_value(self).value;
+                    let right = self.shadow_stack_pop().unwrap().into_value(self).value;
+                    let left = self.shadow_stack_pop().unwrap().into_value(self).value;
 
                     // Check if the tags are the same, and they're numeric:
                     let left_int = self.is_type(left, SteelVal::INT_TAG);
@@ -4785,10 +4556,10 @@ impl FunctionTranslator<'_> {
                     // otherwise.
 
                     // This will be our constant value:
-                    let last = self.shadow_stack.pop().unwrap().into_value(self);
+                    let last = self.shadow_stack_pop().unwrap().into_value(self);
 
                     // This is now our register; this is where the values will live.
-                    let register = self.shadow_stack.pop().unwrap().into_index();
+                    let register = self.shadow_stack_pop().unwrap().into_index();
                     let register_value = self.read_from_vm_stack(register);
 
                     // Check if the tags are the same, and they're numeric:
@@ -4857,7 +4628,7 @@ impl FunctionTranslator<'_> {
                         .unwrap();
 
                     // This is now our register; this is where the values will live.
-                    let value = self.shadow_stack.pop().unwrap().into_value(self).value;
+                    let value = self.shadow_stack_pop().unwrap().into_value(self).value;
 
                     // Check if the tags are the same, and they're numeric:
                     let is_value_int = self.is_type(value, SteelVal::INT_TAG);
@@ -4947,8 +4718,8 @@ impl FunctionTranslator<'_> {
                         &[MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i), MaybeStackValue::Value(v)]
                         | &[MaybeStackValue::Value(v), MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i)] =>
                         {
-                            self.shadow_stack.pop();
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
+                            self.shadow_stack_pop();
 
                             let register_index = self.builder.ins().iconst(types::I64, i as i64);
 
@@ -4965,8 +4736,8 @@ impl FunctionTranslator<'_> {
                         &[MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i), MaybeStackValue::Constant(ConstantValue::Symbol(v))]
                         | &[MaybeStackValue::Constant(ConstantValue::Symbol(v)), MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i)] =>
                         {
-                            self.shadow_stack.pop();
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
+                            self.shadow_stack_pop();
 
                             let constant = self.constants.get(v);
                             let SteelVal::SymbolV(s) = constant else {
@@ -5016,8 +4787,8 @@ impl FunctionTranslator<'_> {
                         &[MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i), MaybeStackValue::Constant(v)]
                         | &[MaybeStackValue::Constant(v), MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i)] =>
                         {
-                            self.shadow_stack.pop();
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
+                            self.shadow_stack_pop();
 
                             let register_index = self.builder.ins().iconst(types::I64, i as i64);
 
@@ -5054,7 +4825,7 @@ impl FunctionTranslator<'_> {
                         Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
                     ) =>
                 {
-                    let last = self.shadow_stack.pop().unwrap().into_index();
+                    let last = self.shadow_stack_pop().unwrap().into_index();
                     let value = self.read_from_vm_stack(last);
                     let result = self.check_null_no_drop(value);
 
@@ -5094,7 +4865,7 @@ impl FunctionTranslator<'_> {
 
                         // Probably could instead just write the value back to the register
                         &[MaybeStackValue::Value(_), MaybeStackValue::MutRegister(l)] => {
-                            let register = self.shadow_stack.pop().unwrap().into_index();
+                            let register = self.shadow_stack_pop().unwrap().into_index();
                             let value = self
                                 .shadow_stack
                                 .pop()
@@ -5122,8 +4893,8 @@ impl FunctionTranslator<'_> {
                         }
 
                         &[MaybeStackValue::MutRegister(v), MaybeStackValue::MutRegister(l)] => {
-                            let register = self.shadow_stack.pop().unwrap().into_index();
-                            let value = self.shadow_stack.pop().unwrap().into_index();
+                            let register = self.shadow_stack_pop().unwrap().into_index();
+                            let value = self.shadow_stack_pop().unwrap().into_index();
 
                             let register = self.builder.ins().iconst(types::I64, register as i64);
                             let value = self.register_index(value);
@@ -5175,7 +4946,7 @@ impl FunctionTranslator<'_> {
                                 Properties::NonEmptyListOrPair,
                             );
 
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
                             let reg = self.register_index(reg);
 
                             if can_skip_bounds_check {
@@ -5201,7 +4972,7 @@ impl FunctionTranslator<'_> {
 
                             // let can_skip_bounds_check = false;
 
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
                             let ir_reg = self.register_index(reg);
 
                             if can_skip_bounds_check {
@@ -5322,7 +5093,7 @@ impl FunctionTranslator<'_> {
 
                             match self.properties.get(&ValueOrRegister::Register(reg)) {
                                 Some(Properties::NonNull) if self.use_lbbv => {
-                                    self.shadow_stack.pop();
+                                    self.shadow_stack_pop();
                                     let value = self.read_from_vm_stack(reg);
 
                                     let typ = self.int;
@@ -5366,7 +5137,7 @@ impl FunctionTranslator<'_> {
                                 }
 
                                 Some(Properties::NonNull) => {
-                                    self.shadow_stack.pop();
+                                    self.shadow_stack_pop();
                                     let value = self.read_from_vm_stack(reg);
 
                                     let typ = self.int;
@@ -5411,7 +5182,7 @@ impl FunctionTranslator<'_> {
                                 }
 
                                 Some(Properties::ProperNonEmptyList) => {
-                                    self.shadow_stack.pop();
+                                    self.shadow_stack_pop();
 
                                     let value = self.read_from_vm_stack_unboxed(reg);
                                     let res = self.unchecked_car_unboxed(value);
@@ -5432,7 +5203,7 @@ impl FunctionTranslator<'_> {
                                 //     self.check_deopt();
                                 // }
                                 _ => {
-                                    self.shadow_stack.pop();
+                                    self.shadow_stack_pop();
                                     let value = self.read_from_vm_stack(reg);
 
                                     let typ = self.int;
@@ -5504,7 +5275,7 @@ impl FunctionTranslator<'_> {
 
                     match last {
                         MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i) => {
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
                             let value = self.read_from_vm_stack(i);
                             let res = self.unbox_value_checked_register(value, false);
 
@@ -5513,7 +5284,7 @@ impl FunctionTranslator<'_> {
                         }
 
                         MaybeStackValue::Value(StackValue { value, .. }) => {
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
                             let res = self.unbox_value_checked_register(value, true);
                             self.ip += 2;
                             self.push(res, InferredType::Any);
@@ -5551,7 +5322,7 @@ impl FunctionTranslator<'_> {
                     if last_ref.map(|x| x.inferred_type) == Some(InferredType::UnboxedBool) {
                         let test = last_ref.unwrap().value;
                         // let test = self.builder.ins().uextend(types::I64, test);
-                        self.shadow_stack.pop();
+                        self.shadow_stack_pop();
                         // let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
 
                         let value = self.builder.ins().bxor_imm(test, 1);
@@ -5624,8 +5395,8 @@ impl FunctionTranslator<'_> {
 
                             let res = match self.properties.get(&ValueOrRegister::Register(i)) {
                                 Some(Properties::PositiveInteger) => {
-                                    self.shadow_stack.pop();
-                                    self.shadow_stack.pop();
+                                    self.shadow_stack_pop();
+                                    self.shadow_stack_pop();
 
                                     let index = self.read_from_vm_stack_unboxed(i);
 
@@ -5645,8 +5416,8 @@ impl FunctionTranslator<'_> {
                                     );
 
                                     // Pop them off
-                                    self.shadow_stack.pop();
-                                    self.shadow_stack.pop();
+                                    self.shadow_stack_pop();
+                                    self.shadow_stack_pop();
 
                                     self.call_function_returns_value_args(
                                         "vector-ref-reg-2",
@@ -5662,7 +5433,7 @@ impl FunctionTranslator<'_> {
                         {
                             let index = self.shadow_pop();
                             let vector = self.register_index_small(v);
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
 
                             let res = self.call_function_returns_value_args(
                                 "vector-ref-reg-1",
@@ -5689,9 +5460,17 @@ impl FunctionTranslator<'_> {
             }
         }
 
+        self.record_stack_size();
         self.depth -= 1;
 
         return true;
+    }
+
+    fn record_stack_size(&mut self) {
+        self.compilation_stats.max_stack_size = self
+            .compilation_stats
+            .max_stack_size
+            .max(self.shadow_stack.len());
     }
 
     // TODO: We have to include the arity check as well!
@@ -5722,7 +5501,7 @@ impl FunctionTranslator<'_> {
 
                 if should_pop_func {
                     // Missing shadow stack pop!
-                    ctx.shadow_stack.pop().unwrap();
+                    ctx.shadow_stack_pop().unwrap();
                 }
 
                 // TODO: Clone / restore this for this branch,
@@ -6776,7 +6555,7 @@ impl FunctionTranslator<'_> {
                     MaybeStackValue::Constant(_) => break,
                     MaybeStackValue::MutRegister(r) => {
                         if r == (payload - amount_dropped - 1) {
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
                             amount_dropped += 1;
                         } else {
                             break;
@@ -6784,7 +6563,7 @@ impl FunctionTranslator<'_> {
                     }
                     MaybeStackValue::Register(r) => {
                         if r == (payload - amount_dropped - 1) {
-                            self.shadow_stack.pop();
+                            self.shadow_stack_pop();
                             amount_dropped += 1;
                         } else {
                             break;
@@ -7769,8 +7548,12 @@ impl FunctionTranslator<'_> {
         self.push_to_many_vm_stack_let_var_new(&values_to_spill);
     }
 
+    fn shadow_stack_pop(&mut self) -> Option<MaybeStackValue> {
+        self.shadow_stack.pop()
+    }
+
     fn shadow_pop(&mut self) -> (Value, InferredType) {
-        let last = self.shadow_stack.pop().unwrap();
+        let last = self.shadow_stack_pop().unwrap();
 
         match last {
             MaybeStackValue::Value(last) => {
@@ -7829,35 +7612,35 @@ impl FunctionTranslator<'_> {
         (value, inferred_type)
     }
 
-    fn maybe_shadow_pop(&mut self) -> Option<(Value, InferredType)> {
-        let last = self.shadow_stack.pop()?;
+    // fn maybe_shadow_pop(&mut self) -> Option<(Value, InferredType)> {
+    //     let last = self.shadow_stack.pop()?;
 
-        Some(match last {
-            MaybeStackValue::Value(last) => {
-                // What is going on here?
-                if last.spilled && self.ip > self.instructions.len() {
-                    // dbg!(&self.shadow_stack);
-                    // dbg!(self.ip);
-                    // dbg!(self.instructions.len());
-                    // pretty_print_dense_instructions(&self.instructions);
-                    return None;
-                }
+    //     Some(match last {
+    //         MaybeStackValue::Value(last) => {
+    //             // What is going on here?
+    //             if last.spilled && self.ip > self.instructions.len() {
+    //                 // dbg!(&self.shadow_stack);
+    //                 // dbg!(self.ip);
+    //                 // dbg!(self.instructions.len());
+    //                 // pretty_print_dense_instructions(&self.instructions);
+    //                 return None;
+    //             }
 
-                assert!(!last.spilled);
+    //             assert!(!last.spilled);
 
-                // Pop it off the stack?
-                // self.pop_value_from_vm_stack();
+    //             // Pop it off the stack?
+    //             // self.pop_value_from_vm_stack();
 
-                self.value_to_local_map.remove(&last.value);
-                (last.as_steelval(self), last.inferred_type)
-            }
+    //             self.value_to_local_map.remove(&last.value);
+    //             (last.as_steelval(self), last.inferred_type)
+    //         }
 
-            // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
-            MaybeStackValue::MutRegister(p) => self.mut_register_to_value(p),
-            MaybeStackValue::Register(p) => self.immutable_register_to_value(p),
-            MaybeStackValue::Constant(c) => c.to_value(self),
-        })
-    }
+    //         // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
+    //         MaybeStackValue::MutRegister(p) => self.mut_register_to_value(p),
+    //         MaybeStackValue::Register(p) => self.immutable_register_to_value(p),
+    //         MaybeStackValue::Constant(c) => c.to_value(self),
+    //     })
+    // }
 
     fn maybe_patch_from_stack(&mut self, args_off_the_stack: &mut Vec<StackValue>) {
         let mut indices_to_get_from_shadow_stack = Vec::new();
@@ -8587,26 +8370,9 @@ impl FunctionTranslator<'_> {
 
         self.stack_to_ssa();
 
-        // println!("---------- else done ----------");
-
-        // if let Some(else_offset) = else_offset {
-        //     assert_eq!(self.ip, else_offset)
-        // }
-
-        // println!(
-        //     "ip after else: {} - instructions length: {}",
-        //     self.ip,
-        //     self.instructions.len()
-        // );
-
         assert_eq!(self.depth, depth);
 
         let else_out_of_bounds = self.ip > self.instructions.len();
-
-        // dbg!(then_out_of_bounds);
-        // dbg!(else_out_of_bounds);
-        // dbg!(self.ip);
-        // dbg!(self.instructions.len());
 
         // Returned, therefore we don't need to do anything.
         let else_return = if else_out_of_bounds {
@@ -9806,6 +9572,7 @@ impl FunctionTranslator<'_> {
         self.properties.cached_lookups.stack_buf_pointer.take();
     }
 
+    /*
     fn stack_buf_ptr(&mut self, vm_ctx: Value) -> Value {
         if let Some(buf_pointer) = self.properties.cached_lookups.stack_buf_pointer {
             return buf_pointer;
@@ -9826,6 +9593,7 @@ impl FunctionTranslator<'_> {
 
         buf_ptr
     }
+    */
 
     // 1. Probably need to check the length, slow path otherwise
     // 2. Should figure out a better way of doing things.
@@ -9934,15 +9702,8 @@ impl FunctionTranslator<'_> {
     // Subtract one from the pop count, returns
     // the new pop count
     fn sub_one_pop_count(&mut self, vm_ctx: Value) -> Value {
-        // let current_pop_count = self.builder.ins().load(
-        //     types::I64,
-        //     MemFlags::trusted(),
-        //     vm_ctx,
-        //     offset_of!(VmCore, pop_count) as i32,
-        // );
         let sub_one = self.pop_count_sub_one(vm_ctx);
 
-        // let sub_one = self.builder.ins().iadd_imm(current_pop_count, -1);
         self.builder.ins().store(
             MemFlags::trusted(),
             sub_one,
@@ -10006,12 +9767,6 @@ impl FunctionTranslator<'_> {
                         // together, where I can just truncate and then immediately
                         // write this value to the end, eliminate a store of the length
                         // changing twice.
-                        /*
-                                                ctx.truncate_stack(vm_ctx, sp, None);
-                                                ctx.push_to_vm_stack(value);
-                        */
-                        // ctx.truncate_stack_write_last(vm_ctx, sp, value);
-
                         ctx.truncate_stack(vm_ctx, sp, None);
 
                         let ip = ctx.builder.ins().uextend(types::I64, popped_frame.ip);
@@ -10030,7 +9785,7 @@ impl FunctionTranslator<'_> {
                         );
 
                         // let sp = ctx.read_last_sp(vm_ctx, Some(fat_ptr));
-                        let sp = ctx.read_last_sp(vm_ctx, None);
+                        let sp = ctx.read_last_sp(vm_ctx);
 
                         // TODO: @Matt
                         // Call drop on the function here!
@@ -10128,13 +9883,7 @@ impl FunctionTranslator<'_> {
     // make this better by passing in the length from
     // the previous read so we don't have to read all
     // this stuff. Its already read from before.
-    fn read_last_sp(&mut self, vm_ctx: Value, fat_ptr: Option<(Value, Value)>) -> Value {
-        // let (buf_ptr, new_length) = if let Some((buf_ptr, length)) = fat_ptr {
-        //     let new_length = self.builder.ins().iadd_imm(length, -1);
-
-        //     (buf_ptr, new_length)
-        // } else {
-
+    fn read_last_sp(&mut self, vm_ctx: Value) -> Value {
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
         // Stack offset:
@@ -10147,9 +9896,6 @@ impl FunctionTranslator<'_> {
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
-
-        // (buf_ptr, new_length)
-        // };
 
         let condition = self.builder.ins().icmp_imm(IntCC::Equal, stack_length, 0);
 
@@ -10188,28 +9934,17 @@ impl FunctionTranslator<'_> {
     }
 
     fn pop_count_sub_one(&mut self, vm_ctx: Value) -> Value {
-        // if let Some(sub) = self.pop_count_minus_one {
-        //     sub
-        // } else {
         let current_pop_count = self.get_pop_count(vm_ctx);
         let sub_one = self.builder.ins().iadd_imm(current_pop_count, -1);
         self.pop_count_minus_one = Some(sub_one);
-
         sub_one
-        // }
     }
 
     fn pop_count_add_one(&mut self, vm_ctx: Value) -> Value {
-        // if let Some(plus) = self.pop_count_plus_one {
-        //     plus
-        // } else {
         let current_pop_count = self.get_pop_count(vm_ctx);
         let plus_one = self.builder.ins().iadd_imm(current_pop_count, 1);
-
         self.pop_count_plus_one = Some(plus_one);
-
         plus_one
-        // }
     }
 
     fn get_pop_count(&mut self, vm_ctx: Value) -> Value {
@@ -10222,8 +9957,6 @@ impl FunctionTranslator<'_> {
                 vm_ctx,
                 offset_of!(VmCore, pop_count) as i32,
             );
-
-            // self.pop_count = Some(old_pop_count);
 
             old_pop_count
         }
@@ -10259,8 +9992,6 @@ impl FunctionTranslator<'_> {
                 vm_ctx,
                 offset_of!(VmCore, sp) as i32,
             );
-
-            // self.sp = Some(sp);
 
             sp
         }
@@ -10533,15 +10264,6 @@ impl FunctionTranslator<'_> {
             offset_of!(ByteCodeLambda, captures) as i32 + 16,
         );
 
-        // let captures_buf_ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
-
-        // let capture_data_ptr = self.builder.ins().load(
-        //     types::I64,
-        //     MemFlags::trusted(),
-        //     capture_pointer,
-        //     (offset_of!(ByteCodeLambda, captures) + captures_buf_ptr_offset) as i32,
-        // );
-
         // Just load an offset from there:
         let value = self.builder.ins().load(
             types::I128,
@@ -10648,18 +10370,7 @@ impl FunctionTranslator<'_> {
 
                 let arity = -arity;
 
-                // TODO: Load the stack length, not the old sp!
-                // let old_sp = ctx.builder.ins().load(
-                //     types::I64,
-                //     MemFlags::trusted(),
-                //     vm_ctx,
-                //     sp_offset as i32,
-                // );
                 let new_sp = ctx.builder.ins().iadd_imm(stack_length, arity as i64);
-
-                // ctx.call_function_no_return("#%debug-stack");
-                // ctx.call_function_args_no_context("#%debug-value", &[stack_length]);
-                // ctx.call_function_args_no_context("#%debug-value", &[new_sp]);
 
                 ctx.builder
                     .ins()
@@ -10678,25 +10389,10 @@ impl FunctionTranslator<'_> {
 
                 // Instruction pointer:
 
-                /*
-                let ip = ctx.builder.ins().load(
-                    types::I64,
-                    MemFlags::trusted(),
-                    vm_ctx,
-                    offset_of!(VmCore, ip) as i32,
-                );
-
-                // Reduce to 32 bits to store in the stack frame
-                let ip = ctx.builder.ins().ireduce(types::I32, ip);
-                */
-
                 let ip_plus_one = ctx
                     .builder
                     .ins()
                     .iconst(types::I32, (fallback_ip + 1) as i64);
-
-                // ctx.call_function_args_no_context("#%debug-count", &[ip_plus_one]);
-                // println!("Calculated ip here: {}", ctx.ip);
 
                 ctx.builder.ins().store(
                     MemFlags::trusted(),
@@ -10713,10 +10409,6 @@ impl FunctionTranslator<'_> {
                     vm_ctx,
                     offset_of!(VmCore, instructions) as i32,
                 );
-
-                // ctx.call_function_args_no_context("#%debug-instructions", &[current_instructions]);
-
-                // ctx.call_function_args_no_context("#%debug-instructions2", &[instr_fat_ptr]);
 
                 // TODO: This doesn't work correctly; we need to
                 // construct a fat pointer here. So I need something
@@ -11010,24 +10702,6 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    /*
-    fn push_to_vm_stack_let_var(&mut self, value: Value) {
-        let name = "push-to-vm-stack-let-var";
-
-        let local_callee = self.get_local_callee(name);
-
-        let ctx = self.get_ctx();
-        let arg_values = [ctx, value];
-
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
-        let _call = self.builder.ins().call(local_callee, &arg_values);
-        // let result = self.builder.inst_results(call)[0];
-        // result
-    }
-    */
-
     fn push_const_index(&mut self, index: usize) -> Value {
         let local_callee = self.get_local_callee("push-const-index");
 
@@ -11066,7 +10740,7 @@ impl FunctionTranslator<'_> {
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
         let arg_values = [ctx];
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _ = self.builder.ins().call(local_callee, &arg_values);
     }
 
     fn get_signature(&self, name: &str) -> Signature {
