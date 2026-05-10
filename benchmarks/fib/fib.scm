@@ -19,6 +19,8 @@
       1
       (+ (fib (- n 1)) (fib (- n 2)))))
 
+(fib 38)
+
 ; (define (jit-fib n)
 ;   ;; Loop unrolling would do so much, assuming we can do that easily
 ;   (if (<= n 2) 1 (+ (jit-fib (- n 1)) (jit-fib (- n 2)))))
