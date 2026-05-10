@@ -3649,15 +3649,23 @@ impl FunctionTranslator<'_> {
                             self.shadow_stack.get(self.shadow_stack.len() - 2..),
                             Some(&[
                                 MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
-                                MaybeStackValue::Constant(ConstantValue::Int(1))
+                                MaybeStackValue::Constant(ConstantValue::Int(_))
                             ])
                         ) =>
                 {
-                    let constant_value = self.shadow_stack_pop();
+                    let constant_value = self
+                        .shadow_stack_pop()
+                        .unwrap()
+                        .into_constant_int(self)
+                        .unwrap();
                     let register_index = self.shadow_stack_pop().unwrap().into_index();
 
-                    let local_value = self.read_from_vm_stack(register_index);
-                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+                    let (tag, local_value) = self.read_from_vm_stack_split(register_index);
+
+                    let is_int =
+                        self.builder
+                            .ins()
+                            .icmp_imm(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
 
                     let sp = |ctx: &mut Self| {
                         let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
@@ -3678,15 +3686,21 @@ impl FunctionTranslator<'_> {
                             {
                                 if v >= 0 {
                                     // If its an int, then we'll do checked subtraction:
-                                    let lhs = ctx.unbox_value_to_pointer(local_value);
+                                    // let lhs = ctx.unbox_value_to_pointer(local_value);
+                                    let lhs = local_value;
 
-                                    let subbed = ctx.builder.ins().iadd_imm(lhs, -1);
+                                    // Negate it and do an immediate add
+                                    let subbed =
+                                        ctx.builder.ins().iadd_imm(lhs, -(constant_value as i64));
                                     ctx.encode_value(SteelVal::INT_TAG as _, subbed)
                                 } else {
-                                    let lhs = ctx.unbox_value_to_pointer(local_value);
-                                    let value =
-                                        constant_value.unwrap().into_value(ctx).as_steelval(ctx);
-                                    let rhs = ctx.unbox_value_to_pointer(value);
+                                    // let lhs = ctx.unbox_value_to_pointer(local_value);
+                                    let lhs = local_value;
+                                    // let value = ctx.encode_integer(constant_value as _);
+                                    // let rhs = ctx.unbox_value_to_pointer(value);
+
+                                    let rhs =
+                                        ctx.builder.ins().iconst(types::I64, constant_value as i64);
 
                                     let (subbed, overflow_flag) =
                                         ctx.builder.ins().ssub_overflow(lhs, rhs);
@@ -3699,10 +3713,9 @@ impl FunctionTranslator<'_> {
                                     )
                                 }
                             } else {
-                                let lhs = ctx.unbox_value_to_pointer(local_value);
-                                let value =
-                                    constant_value.unwrap().into_value(ctx).as_steelval(ctx);
-                                let rhs = ctx.unbox_value_to_pointer(value);
+                                let lhs = local_value;
+                                let rhs =
+                                    ctx.builder.ins().iconst(types::I64, constant_value as i64);
 
                                 let (subbed, overflow_flag) =
                                     ctx.builder.ins().ssub_overflow(lhs, rhs);
@@ -4252,20 +4265,26 @@ impl FunctionTranslator<'_> {
                     }
 
                     let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
+
                     let register_l = self.shadow_stack_pop().unwrap().into_index();
 
                     // Happy path, lets check the type of the lhs. If its an integer tag,
                     // then we can go ahead and do the thing.
                     // Otherwise, we'll bail and fall through:
 
-                    let local_value = self.read_from_vm_stack(register_l);
-                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+                    let (tag, local_value) = self.read_from_vm_stack_split(register_l);
+
+                    let is_int =
+                        self.builder
+                            .ins()
+                            .icmp_imm(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
 
                     let result = self.converging_if(
                         is_int,
                         |ctx| {
                             // Just do less than or equal on the value:
-                            let lhs = ctx.unbox_value_to_pointer(local_value);
+                            // let lhs = ctx.unbox_value_to_pointer(local_value);
+                            let lhs = local_value;
                             let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
 
                             let res =
@@ -4279,6 +4298,85 @@ impl FunctionTranslator<'_> {
                             let register_l =
                                 ctx.builder.ins().iconst(types::I64, register_l as i64);
                             let args = [register_l, rhs_int.value];
+                            let result =
+                                ctx.call_function_returns_value_args("lte-register-int", &args);
+                            ctx.check_deopt();
+
+                            result
+                        },
+                        types::I8,
+                    );
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::UnboxedBool);
+
+                    self.ip += 2;
+                }
+
+                OpCode::LTE
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.last(),
+                            Some(MaybeStackValue::Constant(ConstantValue::Int(_)))
+                        )
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2),
+                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
+                        ) =>
+                {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
+
+                    let rhs_int = self
+                        .shadow_stack_pop()
+                        .unwrap()
+                        .into_constant_int(self)
+                        .unwrap();
+
+                    let register_l = self.shadow_stack_pop().unwrap().into_index();
+
+                    // Happy path, lets check the type of the lhs. If its an integer tag,
+                    // then we can go ahead and do the thing.
+                    // Otherwise, we'll bail and fall through:
+
+                    let (tag, local_value) = self.read_from_vm_stack_split(register_l);
+
+                    let is_int =
+                        self.builder
+                            .ins()
+                            .icmp_imm(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
+
+                    let result = self.converging_if(
+                        is_int,
+                        |ctx| {
+                            // Just do less than or equal on the value:
+                            // let lhs = ctx.unbox_value_to_pointer(local_value);
+                            let lhs = local_value;
+                            // let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
+
+                            let res = ctx.builder.ins().icmp_imm(
+                                IntCC::SignedLessThanOrEqual,
+                                lhs,
+                                rhs_int as i64,
+                            );
+
+                            res
+                        },
+                        |ctx| {
+                            let register_l =
+                                ctx.builder.ins().iconst(types::I64, register_l as i64);
+
+                            let value = ctx.encode_integer(rhs_int as _);
+
+                            let args = [register_l, value];
                             let result =
                                 ctx.call_function_returns_value_args("lte-register-int", &args);
                             ctx.check_deopt();
@@ -8693,6 +8791,42 @@ impl FunctionTranslator<'_> {
         // self.properties.cached_lookups.registers.insert(index, res);
 
         res
+    }
+
+    // Read the tag and payload from the vm stack separately; this is helpful
+    // in the event that we are then splitting on the value from the stack itself.
+    fn read_from_vm_stack_split(&mut self, index: usize) -> (Value, Value) {
+        let ctx = self.get_ctx();
+        let sp = self.get_sp(ctx);
+        let thread_pointer = self.get_thread_pointer(ctx);
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
+        );
+
+        debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
+
+        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
+
+        let tag = self.builder.ins().load(
+            types::I8,
+            MemFlags::trusted(),
+            frame_base,
+            (index * std::mem::size_of::<SteelVal>()) as i32,
+        );
+
+        let value = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            frame_base,
+            (index * std::mem::size_of::<SteelVal>() + 8) as i32,
+        );
+
+        (tag, value)
     }
 
     // Read with an additional 8 offset

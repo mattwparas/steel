@@ -692,6 +692,7 @@ fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
 ///   │  ^^^ cdr expects a non empty list
 /// ```
 #[steel_derive::function(name = "cdr", constant = true)]
+#[inline(always)]
 pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
     match core::mem::replace(arg, SteelVal::Void) {
         SteelVal::ListV(mut l) => {
