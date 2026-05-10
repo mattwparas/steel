@@ -1496,7 +1496,7 @@ impl JIT {
                 cranelift_module::FuncOrDataId::Func(func_id) => {
                     return Ok(self.module.get_finalized_function(func_id));
                 }
-                cranelift_module::FuncOrDataId::Data(data_id) => panic!(),
+                cranelift_module::FuncOrDataId::Data(_) => panic!(),
             }
         }
 
@@ -3444,8 +3444,30 @@ impl FunctionTranslator<'_> {
                     self.call_global_impl(payload);
                 }
 
+                // Pattern is
+                // READCAPTURED
+                // UNBOX
+                //
+                // we can
+                OpCode::READCAPTURED
+                    if INLINE_READ_CAPTURED
+                        && self.instructions.get(self.ip + 1).map(|x| x.op_code)
+                            == Some(OpCode::UNBOX) =>
+                {
+                    let value = self.inline_read_captured(payload, true);
+                    // Advance for the read captured, but we can elide the unbox since its not
+                    // going to escape - we're just reading the box value. We can probably inline this
+                    // even more but it'll be fine for now.
+                    self.ip += 1;
+
+                    let res = self.unbox_value_checked_register(value, false);
+                    self.ip += 2;
+
+                    self.push(res, InferredType::Any);
+                }
+
                 OpCode::READCAPTURED if INLINE_READ_CAPTURED => {
-                    let res = self.inline_read_captured(payload);
+                    let res = self.inline_read_captured(payload, true);
 
                     // TODO: Keep track of the inferred type on the capture as well
                     self.push(res, InferredType::Any);
@@ -10215,7 +10237,7 @@ impl FunctionTranslator<'_> {
         );
     }
 
-    fn inline_read_captured(&mut self, index: usize) -> Value {
+    fn inline_read_captured(&mut self, index: usize, clone: bool) -> Value {
         let vm_ctx = self.get_ctx();
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
@@ -10272,7 +10294,9 @@ impl FunctionTranslator<'_> {
             index as i32 * std::mem::size_of::<SteelVal>() as i32,
         );
 
-        self.clone_value(value);
+        if clone {
+            self.clone_value(value);
+        }
 
         value
     }
