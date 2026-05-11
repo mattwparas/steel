@@ -5214,20 +5214,32 @@ impl FunctionTranslator<'_> {
                             match self.properties.get(&ValueOrRegister::Register(reg)) {
                                 Some(Properties::NonNull) if self.use_lbbv => {
                                     self.shadow_stack_pop();
-                                    let value = self.read_from_vm_stack(reg);
+                                    // let value = self.read_from_vm_stack(reg);
+
+                                    let (tag, value) = self.read_from_vm_stack_split(reg);
 
                                     let typ = self.int;
 
-                                    let is_list = self.is_type(value, SteelVal::LIST_TAG);
+                                    // let is_list = self.is_type(value, SteelVal::LIST_TAG);
+
+                                    let is_list = self.builder.ins().icmp_imm(
+                                        IntCC::Equal,
+                                        tag,
+                                        SteelVal::LIST_TAG as i64,
+                                    );
 
                                     self.branch_on_condition_and_property(
                                         is_list,
                                         reg,
                                         Properties::ProperNonEmptyList,
                                         Properties::NonEmptyListOrPair,
-                                        |ctx| (ctx.unchecked_car(value), InferredType::Any),
+                                        |ctx| (ctx.unchecked_car_unboxed(value), InferredType::Any),
                                         |ctx| {
-                                            let is_pair = ctx.is_type(value, SteelVal::PAIR_TAG);
+                                            let is_pair = ctx.builder.ins().icmp_imm(
+                                                IntCC::Equal,
+                                                tag,
+                                                SteelVal::PAIR_TAG as i64,
+                                            );
 
                                             let value = ctx.converging_if_else_cold(
                                                 is_pair,
@@ -5258,22 +5270,26 @@ impl FunctionTranslator<'_> {
 
                                 Some(Properties::NonNull) => {
                                     self.shadow_stack_pop();
-                                    let value = self.read_from_vm_stack(reg);
+                                    let (tag, value) = self.read_from_vm_stack_split(reg);
 
                                     let typ = self.int;
 
-                                    let is_list = self.is_type(value, SteelVal::LIST_TAG);
+                                    let is_list = self.builder.ins().icmp_imm(
+                                        IntCC::Equal,
+                                        tag,
+                                        SteelVal::LIST_TAG as i64,
+                                    );
 
                                     let res = self.converging_if(
                                         is_list,
-                                        |ctx| ctx.unchecked_car(value),
+                                        |ctx| ctx.unchecked_car_unboxed(value),
                                         |ctx| {
                                             let is_pair = ctx.is_type(value, SteelVal::PAIR_TAG);
 
                                             ctx.converging_if(
                                                 is_pair,
                                                 // Inline car for a pair:
-                                                |ctx| ctx.inline_pair_car(value),
+                                                |ctx| ctx.inline_pair_car_unboxed(value),
                                                 |ctx| {
                                                     let reg = ctx.register_index(reg);
                                                     let res = ctx.call_function_returns_value_args(
@@ -6249,6 +6265,15 @@ impl FunctionTranslator<'_> {
         } else {
             self.call_function_args_no_context("drop-boxed-vec", &[value]);
         }
+    }
+
+    fn inline_pair_car_unboxed(&mut self, value: Value) -> Value {
+        let car = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlags::trusted(), value, 16);
+
+        car
     }
 
     fn inline_pair_car(&mut self, value: Value) -> Value {
