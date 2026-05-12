@@ -1294,9 +1294,36 @@ pub fn ffi_module() -> BuiltInModule {
         .register_fn("mutable-string", || MutableString {
             string: RString::new(),
         })
+        .register_fn(
+            "mutable-string-push",
+            |str: &mut MutableString, character: char| {
+                str.string.push(character);
+            },
+        )
+        .register_fn("mutable-string-clear", |str: &mut MutableString| {
+            str.string.clear();
+        })
+        .register_fn(
+            "mutable-byte-buffer-clear",
+            |str: &mut MutableByteVector| {
+                str.buffer.clear();
+            },
+        )
+        .register_fn(
+            "mutable-string-set!",
+            |str: &mut MutableByteVector, index: u64, character: char| {
+                str.buffer[index as usize] = character as u8;
+            },
+        )
         .register_fn("mutable-byte-buffer", || MutableByteVector {
             buffer: RVec::new(),
-        });
+        })
+        .register_fn(
+            "mutable-byte-buffer-push",
+            |buffer: &mut MutableByteVector, value: u8| {
+                buffer.buffer.push(value);
+            },
+        );
 
     #[cfg(feature = "sync")]
     module.register_native_fn_definition(FUNCTION_TO_FFI_FUNCTION_DEFINITION);

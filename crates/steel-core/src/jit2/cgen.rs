@@ -1774,6 +1774,7 @@ pub enum InferredType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct StackValue {
+    // Unfortunately this could be both a i128 or (i8, i64)
     value: Value,
     inferred_type: InferredType,
     // Whether or not the value is spilled
@@ -1883,6 +1884,7 @@ impl ConstantValue {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 enum MaybeStackValue {
+    // If we're on the stack, this could be any size.
     Value(StackValue),
 
     // These should already be spilled by default.
@@ -3192,6 +3194,9 @@ impl FunctionTranslator<'_> {
 
                             let result = self.call_self_function_experimental(arity, slot);
 
+                            // TODO: Somehow... we'll have to change the calling convention
+                            // to always be (tag, Value), and handle that accordingly
+                            // in the function signature wherever possible
                             self.push(result, InferredType::Any);
                         } else {
                             let slot = self.slot.unwrap().clone();
@@ -7004,6 +7009,11 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    fn test(&mut self) {
+        // self.builder.ins().iconcat(lo, hi)
+        // self.builder.ins()
+    }
+
     fn call_self_function_experimental(&mut self, arity: usize, func: Gc<ByteCodeLambda>) -> Value {
         // let local_callee = self.get_local_callee(name);
 
@@ -8285,24 +8295,25 @@ impl FunctionTranslator<'_> {
         encoded_rhs
     }
 
+    // fn unbox_value_to_pointer(&mut self, value: Value) -> Value {
+    //     let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
+    //     let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
+    //     self.builder.ins().ireduce(types::I64, encoded_rhs)
+    // }
+
     fn unbox_value_to_pointer(&mut self, value: Value) -> Value {
-        let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
-        let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
-        self.builder.ins().ireduce(types::I64, encoded_rhs)
+        let (_, high) = self.builder.ins().isplit(value);
+        high
     }
 
     fn unbox_value_to_float(&mut self, value: Value) -> Value {
-        let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
-        let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
-        let shrunk = self.builder.ins().ireduce(types::I64, encoded_rhs);
-
+        let (_, high) = self.builder.ins().isplit(value);
         self.builder
             .ins()
-            .bitcast(types::F64, MemFlags::new(), shrunk)
+            .bitcast(types::F64, MemFlags::new(), high)
     }
 
     fn get_tag(&mut self, value: Value) -> Value {
-        // Split the value into two:
         self.builder.ins().ireduce(types::I8, value)
     }
 
@@ -9295,6 +9306,9 @@ impl FunctionTranslator<'_> {
                 // TODO: Consider moving this up before things are pushed on in order
                 // to capture the stack length without needing to compute the value
                 ctx.push_stack_frame(arity as _, func, instr_fat_ptr, fallback_ip);
+
+                // TODO: Change the calling convention of the function to return a
+                // (tag, Value) rather than an i128 value directly.
                 let jit_func = ctx.get_jit_func(id);
 
                 // Check the result here
