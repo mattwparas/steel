@@ -1381,7 +1381,7 @@ impl Compiler {
         }
 
         if std::env::var("STEEL_INLINE_RECURSIVE").is_ok() {
-            semantic.recursively_inline_function_calls(8)?;
+            semantic.recursively_inline_function_calls(2)?;
             semantic.refresh_variables();
             let mut analysis = semantic.into_analysis();
             self.shadowed_variable_renamer

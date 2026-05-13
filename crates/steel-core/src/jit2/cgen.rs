@@ -1655,6 +1655,7 @@ impl JIT {
             intrinsics: &self.function_map,
             fake_entry_block,
             exit_block,
+            deopt_return_block: None,
             properties: Default::default(),
             visited: HashSet::default(),
             depth: 0,
@@ -2207,6 +2208,7 @@ struct FunctionTranslator<'a> {
 
     fake_entry_block: Option<Block>,
     exit_block: Block,
+    deopt_return_block: Option<Block>,
     visited: HashSet<usize>,
 
     depth: usize,
@@ -5679,7 +5681,7 @@ impl FunctionTranslator<'_> {
                 // the id of the instruction.
                 let super_instruction = ctx.builder.ins().load(
                     types::I64,
-                    MemFlags::trusted(),
+                    MemFlags::trusted().with_readonly(),
                     closure,
                     // Offset for the RC payload
                     16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
@@ -5712,14 +5714,14 @@ impl FunctionTranslator<'_> {
 
                         let rcbox_ptr = ctx.builder.ins().load(
                             types::I64,
-                            MemFlags::trusted(),
+                            MemFlags::trusted().with_readonly(),
                             closure,
                             body_exp_offset,
                         );
 
                         let len = ctx.builder.ins().load(
                             types::I64,
-                            MemFlags::trusted(),
+                            MemFlags::trusted().with_readonly(),
                             closure,
                             body_exp_offset + 8,
                         );
@@ -6051,10 +6053,12 @@ impl FunctionTranslator<'_> {
 
     fn check_value_tl(&mut self, value: Value) -> Value {
         let thread_id = self.get_thread_id();
-        let obj_thread_id =
-            self.builder
-                .ins()
-                .load(Type::int(64).unwrap(), MemFlags::new(), value, 0);
+        let obj_thread_id = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted().with_readonly(),
+            value,
+            0,
+        );
 
         // Now, we're going to check if the value is local to this thread:
         let is_thread_local = self
@@ -6100,11 +6104,13 @@ impl FunctionTranslator<'_> {
             let local_count =
                 self.builder
                     .ins()
-                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+                    .load(Type::int(32).unwrap(), MemFlags::trusted(), value, 8);
 
             let sub_one = self.builder.ins().iadd_imm(local_count, -1);
 
-            self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
+            self.builder
+                .ins()
+                .store(MemFlags::trusted(), sub_one, value, 8);
 
             let yes_drop = self.builder.create_block();
             let merge_block = self.builder.create_block();
@@ -6172,13 +6178,15 @@ impl FunctionTranslator<'_> {
             let local_count =
                 self.builder
                     .ins()
-                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+                    .load(Type::int(32).unwrap(), MemFlags::trusted(), value, 8);
 
             // let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
 
             let sub_one = self.builder.ins().iadd_imm(local_count, -1);
 
-            self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
+            self.builder
+                .ins()
+                .store(MemFlags::trusted(), sub_one, value, 8);
 
             let yes_drop = self.builder.create_block();
             let merge_block = self.builder.create_block();
@@ -6273,20 +6281,20 @@ impl FunctionTranslator<'_> {
     }
 
     fn inline_pair_car_unboxed(&mut self, value: Value) -> Value {
-        let car = self
-            .builder
-            .ins()
-            .load(types::I128, MemFlags::trusted(), value, 16);
+        let car =
+            self.builder
+                .ins()
+                .load(types::I128, MemFlags::trusted().with_readonly(), value, 16);
 
         car
     }
 
     fn inline_pair_car(&mut self, value: Value) -> Value {
         let value = self.unbox_value_to_pointer(value);
-        let car = self
-            .builder
-            .ins()
-            .load(types::I128, MemFlags::trusted(), value, 16);
+        let car =
+            self.builder
+                .ins()
+                .load(types::I128, MemFlags::trusted().with_readonly(), value, 16);
 
         car
     }
@@ -7209,9 +7217,12 @@ impl FunctionTranslator<'_> {
 
         // TODO: This is not going to work here. Instead, we need to load
         // the id of the instruction.
+        // See note in inline_call_func: super_instructions is effectively
+        // readonly for execution purposes (tier upgrades install a still-valid
+        // pointer; a stale None just misses the JIT optimization opportunity).
         let super_instruction = self.builder.ins().load(
             types::I64,
-            MemFlags::trusted(),
+            MemFlags::trusted().with_readonly(),
             closure,
             // Offset for the RC payload
             16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
@@ -7233,16 +7244,18 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 let body_exp_offset = 16 + offset_of!(ByteCodeLambda, body_exp) as i32;
 
+                // See note in inline_call_func: body_exp's buffer pointer and
+                // length are immutable after the lambda is constructed.
                 let rcbox_ptr = ctx.builder.ins().load(
                     types::I64,
-                    MemFlags::trusted(),
+                    MemFlags::trusted().with_readonly(),
                     closure,
                     body_exp_offset,
                 );
 
                 let len = ctx.builder.ins().load(
                     types::I64,
-                    MemFlags::trusted(),
+                    MemFlags::trusted().with_readonly(),
                     closure,
                     body_exp_offset + 8,
                 );
@@ -7434,24 +7447,38 @@ impl FunctionTranslator<'_> {
         let result = self.check_deopt_ptr_load();
 
         let then_block = self.builder.create_block();
-        let else_block = self.builder.create_block();
+        let deopt_block = self.get_or_create_deopt_block();
 
+        // is_native == true -> continue in then_block; otherwise jump to the
+        // shared deopt return block.
         self.builder
             .ins()
-            .brif(result, then_block, &[], else_block, &[]);
-
-        // Emit the return for the else block
-        self.builder.switch_to_block(else_block);
-        self.builder.seal_block(else_block);
-
-        // Return void in the deopt case, so that if it gets double dropped we're fine.
-        let void = self.encode_void();
-        self.builder.ins().return_(&[void]);
+            .brif(result, then_block, &[], deopt_block, &[]);
 
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
+    }
 
-        // todo!()
+    fn get_or_create_deopt_block(&mut self) -> Block {
+        if let Some(block) = self.deopt_return_block {
+            return block;
+        }
+
+        let current_block = self
+            .builder
+            .current_block()
+            .expect("check_deopt called outside of any block");
+
+        let deopt_block = self.builder.create_block();
+        self.builder.switch_to_block(deopt_block);
+
+        let void = self.encode_void();
+        self.builder.ins().return_(&[void]);
+
+        self.builder.switch_to_block(current_block);
+
+        self.deopt_return_block = Some(deopt_block);
+        deopt_block
     }
 
     fn func_ret_val_named(
@@ -10396,11 +10423,13 @@ impl FunctionTranslator<'_> {
                 let local_count =
                     ctx.builder
                         .ins()
-                        .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+                        .load(Type::int(32).unwrap(), MemFlags::trusted(), value, 8);
 
                 let add_one = ctx.builder.ins().iadd_imm(local_count, 1);
 
-                ctx.builder.ins().store(MemFlags::new(), add_one, value, 8);
+                ctx.builder
+                    .ins()
+                    .store(MemFlags::trusted(), add_one, value, 8);
             },
             |ctx| {
                 // TODO: @Matt - we can inline this as well!
@@ -10448,12 +10477,9 @@ impl FunctionTranslator<'_> {
             offset_of!(StackFrame, function) as i32,
         );
 
-        // This 100% can be cached for the duration of the function,
-        // since at this point the function is really just going to be
-        // around for the duration of the time.
         let capture_pointer = self.builder.ins().load(
             types::I64,
-            MemFlags::trusted(),
+            MemFlags::trusted().with_readonly(),
             function,
             // Adjust by 16 for the object header from the function
             offset_of!(ByteCodeLambda, captures) as i32 + 16,
@@ -10462,7 +10488,7 @@ impl FunctionTranslator<'_> {
         // Just load an offset from there:
         let value = self.builder.ins().load(
             types::I128,
-            MemFlags::trusted(),
+            MemFlags::trusted().with_readonly(),
             capture_pointer,
             index as i32 * std::mem::size_of::<SteelVal>() as i32,
         );
