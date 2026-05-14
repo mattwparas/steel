@@ -7447,38 +7447,27 @@ impl FunctionTranslator<'_> {
         let result = self.check_deopt_ptr_load();
 
         let then_block = self.builder.create_block();
-        let deopt_block = self.get_or_create_deopt_block();
+        let (deopt_block, needs_fill) = match self.deopt_return_block {
+            Some(b) => (b, false),
+            None => {
+                let b = self.builder.create_block();
+                self.deopt_return_block = Some(b);
+                (b, true)
+            }
+        };
 
-        // is_native == true -> continue in then_block; otherwise jump to the
-        // shared deopt return block.
         self.builder
             .ins()
             .brif(result, then_block, &[], deopt_block, &[]);
 
-        self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
-    }
-
-    fn get_or_create_deopt_block(&mut self) -> Block {
-        if let Some(block) = self.deopt_return_block {
-            return block;
+        if needs_fill {
+            self.builder.switch_to_block(deopt_block);
+            let void = self.encode_void();
+            self.builder.ins().return_(&[void]);
         }
 
-        let current_block = self
-            .builder
-            .current_block()
-            .expect("check_deopt called outside of any block");
-
-        let deopt_block = self.builder.create_block();
-        self.builder.switch_to_block(deopt_block);
-
-        let void = self.encode_void();
-        self.builder.ins().return_(&[void]);
-
-        self.builder.switch_to_block(current_block);
-
-        self.deopt_return_block = Some(deopt_block);
-        deopt_block
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
     }
 
     fn func_ret_val_named(
