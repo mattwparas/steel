@@ -339,7 +339,10 @@ value and `set-strong-box!` to update it.
 Strong boxes are reference counted and are _not_ tracked by the garbage
 collector. Storing a value that (directly or indirectly) refers back to the
 box creates a reference count cycle that will never be reclaimed, leaking
-memory. Prefer `box` unless you specifically need a strong box.
+memory. Because they skip the GC bookkeeping that `box` requires, strong
+boxes are slightly more efficient, so they are the preferred option when you
+are certain no cycles can form (or are willing to accept the leak if one
+does).
 
 #### Examples
 ```scheme
@@ -3069,7 +3072,10 @@ Stores a new value inside a strong box created with `box-strong`.
 Strong boxes are reference counted and are _not_ tracked by the garbage
 collector. Storing a value that (directly or indirectly) refers back to the
 box creates a reference count cycle that will never be reclaimed, leaking
-memory. Prefer `set-box!` unless you specifically need a strong box.
+memory. Because they skip the GC bookkeeping that `box` requires, strong
+boxes are slightly more efficient, so they are the preferred option when you
+are certain no cycles can form (or are willing to accept the leak if one
+does).
 
 #### Examples
 ```scheme
@@ -3963,7 +3969,10 @@ Returns the value stored inside a strong box created with `box-strong`.
 Strong boxes are reference counted and are _not_ tracked by the garbage
 collector. Storing a value that (directly or indirectly) refers back to the
 box creates a reference count cycle that will never be reclaimed, leaking
-memory. Prefer `box` unless you specifically need a strong box.
+memory. Because they skip the GC bookkeeping that `box` requires, strong
+boxes are slightly more efficient, so they are the preferred option when you
+are certain no cycles can form (or are willing to accept the leak if one
+does).
 
 #### Examples
 ```scheme

@@ -2177,7 +2177,10 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 /// Strong boxes are reference counted and are _not_ tracked by the garbage
 /// collector. Storing a value that (directly or indirectly) refers back to the
 /// box creates a reference count cycle that will never be reclaimed, leaking
-/// memory. Prefer `box` unless you specifically need a strong box.
+/// memory. Because they skip the GC bookkeeping that `box` requires, strong
+/// boxes are slightly more efficient, so they are the preferred option when you
+/// are certain no cycles can form (or are willing to accept the leak if one
+/// does).
 ///
 /// # Examples
 /// ```scheme
@@ -2199,7 +2202,10 @@ pub fn unbox(value: &GcMut<SteelVal>) -> SteelVal {
 /// Strong boxes are reference counted and are _not_ tracked by the garbage
 /// collector. Storing a value that (directly or indirectly) refers back to the
 /// box creates a reference count cycle that will never be reclaimed, leaking
-/// memory. Prefer `set-box!` unless you specifically need a strong box.
+/// memory. Because they skip the GC bookkeeping that `box` requires, strong
+/// boxes are slightly more efficient, so they are the preferred option when you
+/// are certain no cycles can form (or are willing to accept the leak if one
+/// does).
 ///
 /// # Examples
 /// ```scheme
@@ -2222,7 +2228,10 @@ pub fn set_box(value: &GcMut<SteelVal>, update_to: SteelVal) {
 /// Strong boxes are reference counted and are _not_ tracked by the garbage
 /// collector. Storing a value that (directly or indirectly) refers back to the
 /// box creates a reference count cycle that will never be reclaimed, leaking
-/// memory. Prefer `box` unless you specifically need a strong box.
+/// memory. Because they skip the GC bookkeeping that `box` requires, strong
+/// boxes are slightly more efficient, so they are the preferred option when you
+/// are certain no cycles can form (or are willing to accept the leak if one
+/// does).
 ///
 /// # Examples
 /// ```scheme
