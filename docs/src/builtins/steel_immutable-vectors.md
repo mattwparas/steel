@@ -151,6 +151,19 @@ Converts a vector of characters into a string.
 > (define A (vector #\a #\b #\c)) ;;
 > (vector->string A) ;; => "abc"
 ```
+### **vector-append**
+Combines the given vectors into a single new mutable vector.
+
+(vector-append . vecs) -> vector?
+
+* vecs : vector? - The vectors to combine.
+
+#### Examples
+```scheme
+> (define A (mutable-vector 1 2 3)) ;;
+> (define B (mutable-vector 4 5 6)) ;;
+> (vector-append A B) ;; => '#(1 2 3 4 5 6)
+```
 ### **vector-copy**
 Returns a new copy of the given vector.
 
@@ -162,6 +175,19 @@ Returns a new copy of the given vector.
 ```scheme
 > (define A (vector 1 2 3)) ;;
 > (vector-copy A) ;; => '#(1 2 3)
+```
+### **vector-immutable**
+Constructs an immutable vector from the given arguments.
+
+This is an alias for `immutable-vector`.
+
+(vector-immutable . args) -> immutable-vector?
+
+* args : any? - The values to store in the immutable vector.
+
+#### Examples
+```scheme
+> (vector-immutable 1 2 3) ;; => '#(1 2 3)
 ```
 ### **vector-push-front**
 Pushes a value to the front of the vector, returning a new vector.
@@ -176,5 +202,3 @@ Pushes a value to the front of the vector, returning a new vector.
 > (define A (immutable-vector 1 2 3)) ;;
 > (vector-push-front A 5) ;; => '#(5 1 2 3)
 ```
-### **vector-append**
-### **vector-immutable**

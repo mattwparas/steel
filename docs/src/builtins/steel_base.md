@@ -366,6 +366,19 @@ Append multiple byte vectors into a new bytevector.
 
 (bytes-append #u8(0) #u8(1) #u8() #u8(2)) ;; => #u8(#x00 #x01 #x02)
 ```
+### **bytes-clear!**
+Removes all bytes from the given bytevector, leaving it empty.
+
+(bytes-clear! vector)
+
+* vector : bytes?
+
+#### Examples
+```scheme
+(define my-bytes (bytes 0 1 2 3))
+(bytes-clear! my-bytes)
+my-bytes ;; => #u8()
+```
 ### **bytes-copy**
 Creates a copy of a bytevector.
 
@@ -389,6 +402,20 @@ Returns the length of the given byte vector
 #### Examples
 ```scheme
 (bytes-length (bytes 1 2 3 4 5)) ;; => 5
+```
+### **bytes-push!**
+Appends a byte to the end of the given bytevector, growing it in place.
+
+(bytes-push! vector byte)
+
+* vector : bytes?
+* byte : byte?
+
+#### Examples
+```scheme
+(define my-bytes (bytes 0 1 2))
+(bytes-push! my-bytes 3)
+my-bytes ;; =>  #u8(#x00 #x01 #x02 #x03)
 ```
 ### **bytes-ref**
 Fetches the byte at the given index within the bytevector.
@@ -3855,6 +3882,20 @@ Returns the length of the given vector.
 > (define V (immutable-vector 1 2 3 4)) ;;
 > (vector-length V) ;; => 4
 ```
+### **vector-push!**
+Appends a value to the back of a mutable vector, growing it in place.
+
+(vector-push! vec value) -> void?
+
+* vec : vector? - The mutable vector to push onto.
+* value : any? - The value to append.
+
+#### Examples
+```scheme
+> (define V (mutable-vector 1 2 3)) ;;
+> (vector-push! V 4) ;;
+> V ;; => '#(1 2 3 4)
+```
 ### **vector-ref**
 Retrieves the value at a specified index in an immutable or mutable vector.
 
@@ -4174,8 +4215,6 @@ Create a zipping iterator
 ### **box-strong**
 ### **breakpoint!**
 ### **bytes->serialized**
-### **bytes-clear!**
-### **bytes-push!**
 ### **call-with-current-continuation**
 ### **call-with-exception-handler**
 ### **call/cc**
@@ -4322,7 +4361,6 @@ Create a zipping iterator
 ### **unbox-strong**
 ### **value->iterator**
 ### **value->string**
-### **vector-push!**
 ### **wait->stdout**
 ### **which**
 ### **will-execute**
