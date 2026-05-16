@@ -7,7 +7,7 @@ use crate::values::lists::List;
 use crate::values::port::{Peekable, SteelPort, SteelPortRepr};
 use crate::values::structs::SteelResult;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
-use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
+use crate::SteelErr;
 use crate::{stop, SteelVal};
 use std::io::{BufReader, BufWriter};
 use std::process::{Child, Command, Stdio};
@@ -22,8 +22,8 @@ pub fn process_module() -> BuiltInModule {
         .register_native_fn_definition(STDOUT_PIPED_OTHER_DEFINITION)
         .register_native_fn_definition(SPAWN_PROCESS_DEFINITION)
         .register_native_fn_definition(WAIT_DEFINITION)
-        .register_fn("wait->stdout", ChildProcess::wait_with_stdout)
-        .register_fn("which", binary_exists_on_path)
+        .register_native_fn_definition(WAIT_WITH_STDOUT_DEFINITION)
+        .register_native_fn_definition(BINARY_EXISTS_ON_PATH_DEFINITION)
         .register_native_fn_definition(CHILD_STDERR_DEFINITION)
         .register_native_fn_definition(CHILD_STDOUT_DEFINITION)
         .register_native_fn_definition(CHILD_STDIN_DEFINITION)
@@ -170,6 +170,13 @@ pub fn clear_env_var(builder: SteelVal) -> Result<SteelVal, SteelErr> {
 }
 
 // TODO: @matt - add ways to override stdout, stderr, stdin, with ports
+/// Configures the command builder so that the spawned child's stdin, stdout, and
+/// stderr are all connected to pipes, letting the parent process read from and
+/// write to them. Returns the command builder.
+///
+/// (set-stdout-piped! process) -> CommandBuilder?
+///
+/// * process : CommandBuilder?
 #[function(name = "set-stdout-piped!")]
 pub fn stdout_piped(builder: SteelVal) -> Result<SteelVal, SteelErr> {
     let mut guard = CommandBuilder::as_mut_ref(&builder)?;
@@ -178,6 +185,12 @@ pub fn stdout_piped(builder: SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(builder)
 }
 
+/// Equivalent to `set-stdout-piped!`: connects the spawned child's stdin,
+/// stdout, and stderr to pipes. Returns the command builder.
+///
+/// (set-piped-stdout! process) -> CommandBuilder?
+///
+/// * process : CommandBuilder?
 #[function(name = "set-piped-stdout!")]
 pub fn stdout_piped_other(builder: SteelVal) -> Result<SteelVal, SteelErr> {
     let mut guard = CommandBuilder::as_mut_ref(&builder)?;
@@ -424,6 +437,28 @@ pub fn wait(builder: &SteelVal) -> Result<SteelVal, SteelErr> {
     command_guard.wait().into_steelval()
 }
 
+/// Wait for the subprocess to finish, capturing its stdout. Returns a result
+/// holding everything the process wrote to stdout, decoded as a UTF-8 string.
+/// The process must have been started with stdout piped (for example via
+/// `with-stdout-piped`) for this to capture any output.
+///
+/// (wait->stdout process) -> (Result? string?)
+///
+/// * process : ChildProcess?
+///
+/// ```scheme
+/// > (~> (command "echo" (list "hello"))
+///       with-stdout-piped
+///       spawn-process
+///       unwrap-ok
+///       wait->stdout)
+/// ```
+#[function(name = "wait->stdout")]
+pub fn wait_with_stdout(builder: &SteelVal) -> Result<SteelVal, SteelErr> {
+    let mut command_guard = ChildProcess::as_mut_ref(&builder)?;
+    command_guard.wait_with_stdout().into_steelval()
+}
+
 /// Get a handle to the stdout handle of the child process. The process
 /// must have been started with the `with-stdout-piped` option for this
 /// to be available, otherwise stdout will be inherited. This will return
@@ -495,6 +530,19 @@ struct ChildProcess {
     child: Option<Child>,
 }
 
+/// Searches the directories listed on the `PATH` environment variable for the
+/// given executable, returning its absolute path as a string, or `#false` if it
+/// cannot be found.
+///
+/// (which binary) -> (or string? #false)
+///
+/// * binary : string?
+///
+/// ```scheme
+/// > (which "ls") ;; => "/bin/ls"
+/// > (which "some-nonexistent-binary") ;; => #false
+/// ```
+#[function(name = "which")]
 fn binary_exists_on_path(binary: String) -> Option<String> {
     #[cfg(not(any(target_family = "wasm", target_env = "newlib")))]
     match which::which(binary) {

@@ -42,6 +42,19 @@ impl Custom for glob::MatchOptions {}
 impl Custom for glob::PatternError {}
 impl Custom for glob::Paths {}
 
+/// Returns an iterator over the paths matching the given glob pattern. An
+/// optional second argument supplies match options. Use `glob-iter-next!` to
+/// advance the resulting iterator.
+///
+/// (glob pattern [options]) -> glob-iterator?
+///
+/// * pattern : string?
+/// * options : match-options? - optional matching options
+///
+/// ```scheme
+/// > (define paths (glob "src/*.rs"))
+/// > (glob-iter-next! paths) ;; => the first matching path
+/// ```
 #[steel_derive::function(name = "glob")]
 pub fn glob(pattern: SteelString, mut rest: RestArgsIter<'_, &SteelVal>) -> Result<SteelVal> {
     use crate::rvals::FromSteelVal;
@@ -60,6 +73,12 @@ pub fn glob(pattern: SteelString, mut rest: RestArgsIter<'_, &SteelVal>) -> Resu
         .into_steelval()
 }
 
+/// Advances a glob iterator created by `glob`, returning the next matching
+/// path, or `#false` once the iterator has been exhausted.
+///
+/// (glob-iter-next! paths) -> (or path? #false)
+///
+/// * paths : glob-iterator?
 #[steel_derive::function(name = "glob-iter-next!")]
 pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
     let mut paths = glob::Paths::as_mut_ref(paths)?;
@@ -70,6 +89,11 @@ pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Converts a path into its string representation.
+///
+/// (path->string path) -> string?
+///
+/// * path : path?
 #[steel_derive::function(name = "path->string")]
 pub fn path_to_string(path: &SteelVal) -> Result<SteelVal> {
     <PathBuf as rvals::AsRefSteelVal>::as_ref(path)?

@@ -1639,14 +1639,95 @@ fn constants_module() -> BuiltInModule {
     module
 }
 
+/// Retrieves the value of the given environment variable as a string. Raises an
+/// error if the variable is not set.
+///
+/// (env-var name) -> string?
+///
+/// * name : string?
+///
+/// ```scheme
+/// > (env-var "PATH") ;; => "/usr/bin:/bin:..."
+/// ```
+#[steel_derive::function(name = "env-var")]
 fn get_environment_variable(var: String) -> Result<SteelVal> {
     std::env::var(var)
         .map(|x| x.into_steelval().unwrap())
         .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
 }
 
+/// Retrieves the value of the given environment variable as a string, returning
+/// a `Result` instead of raising if the variable is not set.
+///
+/// (maybe-get-env-var name) -> (Result? string?)
+///
+/// * name : string?
+#[steel_derive::function(name = "maybe-get-env-var")]
 fn maybe_get_environment_variable(var: String) -> SteelResult<SteelVal, SteelErr> {
     get_environment_variable(var).into()
+}
+
+/// Returns the name of the operating system that this Steel runtime was built
+/// for, for example `"linux"`, `"macos"`, or `"windows"`.
+///
+/// (current-os!) -> string?
+#[steel_derive::function(name = "current-os!")]
+fn current_os() -> &'static str {
+    std::env::consts::OS
+}
+
+/// Returns the CPU architecture that this Steel runtime was built for, for
+/// example `"x86_64"` or `"aarch64"`.
+///
+/// (target-arch!) -> string?
+#[steel_derive::function(name = "target-arch!")]
+fn target_arch() -> &'static str {
+    std::env::consts::ARCH
+}
+
+/// Returns the filename prefix used for dynamic libraries on the current
+/// platform, for example `"lib"` on Linux and macOS, or `""` on Windows.
+///
+/// (platform-dll-prefix!) -> string?
+#[steel_derive::function(name = "platform-dll-prefix!")]
+fn platform_dll_prefix() -> &'static str {
+    std::env::consts::DLL_PREFIX
+}
+
+/// Returns the file extension used for dynamic libraries on the current
+/// platform, for example `"so"`, `"dylib"`, or `"dll"`.
+///
+/// (platform-dll-extension!) -> string?
+#[steel_derive::function(name = "platform-dll-extension!")]
+fn platform_dll_extension() -> &'static str {
+    std::env::consts::DLL_EXTENSION
+}
+
+/// Returns the primary path component separator for the current platform as a
+/// string, for example `"/"` on Unix or `"\"` on Windows.
+///
+/// (path-separator) -> string?
+#[steel_derive::function(name = "path-separator")]
+fn path_separator() -> &'static str {
+    std::path::MAIN_SEPARATOR_STR
+}
+
+/// Returns `#true` if this Steel runtime was compiled with support for building
+/// dynamic libraries (the `dylib-build` feature).
+///
+/// (feature-dylib-build?) -> bool?
+#[steel_derive::function(name = "feature-dylib-build?")]
+fn feature_dylib_build() -> bool {
+    cfg!(feature = "dylib-build")
+}
+
+/// Returns the path to the Steel home directory - the `STEEL_HOME` location used
+/// to resolve installed packages and cogs - or `#false` if it is not set.
+///
+/// (steel-home-location) -> (or string? #false)
+#[steel_derive::function(name = "steel-home-location")]
+fn steel_home_location() -> Option<String> {
+    steel_home()
 }
 
 fn sandboxed_meta_module() -> BuiltInModule {
@@ -2420,8 +2501,8 @@ fn meta_module() -> BuiltInModule {
         // Check whether the iterator is done
         .register_value("#%iterator-finished", ITERATOR_FINISHED.with(|x| x.clone()))
         .register_value("%iterator?", gen_pred!(BoxedIterator))
-        .register_fn("env-var", get_environment_variable)
-        .register_fn("maybe-get-env-var", maybe_get_environment_variable)
+        .register_native_fn_definition(GET_ENVIRONMENT_VARIABLE_DEFINITION)
+        .register_native_fn_definition(MAYBE_GET_ENVIRONMENT_VARIABLE_DEFINITION)
         // TODO: Maybe just remove this, or provide a steel wrapper in place of this
         .register_fn("set-env-var!", |name, val| unsafe {
             std::env::set_var::<String, String>(name, val)
@@ -2459,13 +2540,11 @@ fn meta_module() -> BuiltInModule {
             SteelVal::FuncV(attach_contract_struct),
         )
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
-        .register_fn("current-os!", || std::env::consts::OS)
-        .register_fn("target-arch!", || std::env::consts::ARCH)
-        .register_fn("platform-dll-prefix!", || std::env::consts::DLL_PREFIX)
-        .register_fn("path-separator", || std::path::MAIN_SEPARATOR_STR)
-        .register_fn("platform-dll-extension!", || {
-            std::env::consts::DLL_EXTENSION
-        })
+        .register_native_fn_definition(CURRENT_OS_DEFINITION)
+        .register_native_fn_definition(TARGET_ARCH_DEFINITION)
+        .register_native_fn_definition(PLATFORM_DLL_PREFIX_DEFINITION)
+        .register_native_fn_definition(PATH_SEPARATOR_DEFINITION)
+        .register_native_fn_definition(PLATFORM_DLL_EXTENSION_DEFINITION)
         .register_fn(
             "#%build-dylib",
             |_args: Vec<String>, _env_vars: Vec<(String, String)>| {
@@ -2474,10 +2553,10 @@ fn meta_module() -> BuiltInModule {
                     .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
             },
         )
-        .register_fn("feature-dylib-build?", || cfg!(feature = "dylib-build"))
+        .register_native_fn_definition(FEATURE_DYLIB_BUILD_DEFINITION)
         .register_native_fn_definition(COMMAND_LINE_DEFINITION)
         .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
-        .register_fn("steel-home-location", steel_home)
+        .register_native_fn_definition(STEEL_HOME_LOCATION_DEFINITION)
         .register_fn("%#interner-memory-usage", interned_current_memory_usage)
         .register_native_fn_definition(PUSH_MODULE_CONTEXT_DEFINITION)
         .register_native_fn_definition(POP_MODULE_CONTEXT_DEFINITION)

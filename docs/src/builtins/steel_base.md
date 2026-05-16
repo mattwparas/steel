@@ -993,6 +993,11 @@ Returns the number of milliseconds since the Unix epoch as an inexact number.
 Returns the number of milliseconds since the Unix epoch as an integer.
 
 (current-milliseconds) -> int?
+### **current-os!**
+Returns the name of the operating system that this Steel runtime was built
+for, for example `"linux"`, `"macos"`, or `"windows"`.
+
+(current-os!) -> string?
 ### **current-second**
 Returns the number of seconds since the Unix epoch as an integer.
 
@@ -1121,6 +1126,17 @@ Create an enumerating iterator
 #### Examples
 ```scheme
 (transduce (list 1 3 5) (enumerating) (into-list)) ;; => '((0 1) (1 3) (2 5))
+```
+### **env-var**
+Retrieves the value of the given environment variable as a string. Raises an
+error if the variable is not set.
+
+(env-var name) -> string?
+
+* name : string?
+
+```scheme
+> (env-var "PATH") ;; => "/usr/bin:/bin:..."
 ```
 ### **eof-object**
 Returns an EOF object.
@@ -1327,6 +1343,11 @@ Sums all given floats
 > (f+ 1.1 2.2) ;; => 3.3
 > (f+ 3.3 3.3 3.3) ;; => 9.9
 ```
+### **feature-dylib-build?**
+Returns `#true` if this Steel runtime was compiled with support for building
+dynamic libraries (the `dylib-build` feature).
+
+(feature-dylib-build?) -> bool?
 ### **file-metadata**
 Access the file metadata for a given path
 ### **file-name**
@@ -1522,6 +1543,27 @@ Extracts the string contents from a port created with `open-output-string`.
 (get-output-string port?) -> string?
 ### **get-tls**
 Get the value out of the thread local storage slot.
+### **glob**
+Returns an iterator over the paths matching the given glob pattern. An
+optional second argument supplies match options. Use `glob-iter-next!` to
+advance the resulting iterator.
+
+(glob pattern [options]) -> glob-iterator?
+
+* pattern : string?
+* options : match-options? - optional matching options
+
+```scheme
+> (define paths (glob "src/*.rs"))
+> (glob-iter-next! paths) ;; => the first matching path
+```
+### **glob-iter-next!**
+Advances a glob iterator created by `glob`, returning the next matching
+path, or `#false` once the iterator has been exhausted.
+
+(glob-iter-next! paths) -> (or path? #false)
+
+* paths : glob-iterator?
 ### **hash**
 Creates an immutable hash table with each given `key` mapped to the following `val`.
 Each key must have a val, so the total number of arguments must be even.
@@ -2275,6 +2317,13 @@ Create a mapping iterator
 ```scheme
 (transduce (list 1 2 3) (mapping (λ (x) (+ x 1))) (into-list)) ;; => '(2 3 4)
 ```
+### **maybe-get-env-var**
+Retrieves the value of the given environment variable as a string, returning
+a `Result` instead of raising if the variable is not set.
+
+(maybe-get-env-var name) -> (Result? string?)
+
+* name : string?
 ### **member**
 Return the first tail of the list, where the car is `equal?` to the given obj.
 Returns `#f`, if no element is found.
@@ -2681,6 +2730,12 @@ Gets the extension from a path.
 > (path->extension "logs") ;; => void
 > (path->extension "logs/today.json") ;; => ".json"
 ```
+### **path->string**
+Converts a path into its string representation.
+
+(path->string path) -> string?
+
+* path : path?
 ### **path-exists?**
 Checks if a path exists.
 
@@ -2693,6 +2748,21 @@ Checks if a path exists.
 > (path-exists? "logs") ;; => #true
 > (path-exists? "backup/logs") ;; => #false
 ```
+### **path-separator**
+Returns the primary path component separator for the current platform as a
+string, for example `"/"` on Unix or `"\"` on Windows.
+
+(path-separator) -> string?
+### **platform-dll-extension!**
+Returns the file extension used for dynamic libraries on the current
+platform, for example `"so"`, `"dylib"`, or `"dll"`.
+
+(platform-dll-extension!) -> string?
+### **platform-dll-prefix!**
+Returns the filename prefix used for dynamic libraries on the current
+platform, for example `"lib"` on Linux and macOS, or `""` on Windows.
+
+(platform-dll-prefix!) -> string?
 ### **pop-front**
 Returns the first element of the given vector.
 
@@ -3061,6 +3131,21 @@ the box held previously.
 Alias of `with-current-dir`.
 ### **set-env-var!**
 Alias of `with-env-var`.
+### **set-piped-stdout!**
+Equivalent to `set-stdout-piped!`: connects the spawned child's stdin,
+stdout, and stderr to pipes. Returns the command builder.
+
+(set-piped-stdout! process) -> CommandBuilder?
+
+* process : CommandBuilder?
+### **set-stdout-piped!**
+Configures the command builder so that the spawned child's stdin, stdout, and
+stderr are all connected to pipes, letting the parent process read from and
+write to them. Returns the command builder.
+
+(set-stdout-piped! process) -> CommandBuilder?
+
+* process : CommandBuilder?
 ### **set-strong-box!**
 Stores a new value inside a strong box created with `box-strong`.
 
@@ -3234,6 +3319,11 @@ Gets the port handle to stdin
 ```scheme
 > (stdin) ;; => #<input-port:stdin>
 ```
+### **steel-home-location**
+Returns the path to the Steel home directory - the `STEEL_HOME` location used
+to resolve installed packages and cogs - or `#false` if it is not set.
+
+(steel-home-location) -> (or string? #false)
 ### **string**
 Constructs a string from the given characters
 
@@ -3772,6 +3862,11 @@ Returns the tangent value of the input angle, measured in radians.
 > (tan 2.0) ;; => -2.185039863261519
 > (tan 3.14) ;; => -0.0015926549364072232
 ```
+### **target-arch!**
+Returns the CPU architecture that this Steel runtime was built for, for
+example `"x86_64"` or `"aarch64"`.
+
+(target-arch!) -> string?
 ### **third**
 Get the third element of the list. Raises an error if the list does not have an element in the third position.
 
@@ -4208,6 +4303,23 @@ of the awaited subprocess.
       unwrap-ok
       wait)
 ```
+### **wait->stdout**
+Wait for the subprocess to finish, capturing its stdout. Returns a result
+holding everything the process wrote to stdout, decoded as a UTF-8 string.
+The process must have been started with stdout piped (for example via
+`with-stdout-piped`) for this to capture any output.
+
+(wait->stdout process) -> (Result? string?)
+
+* process : ChildProcess?
+
+```scheme
+> (~> (command "echo" (list "hello"))
+      with-stdout-piped
+      spawn-process
+      unwrap-ok
+      wait->stdout)
+```
 ### **weak-box-value**
 Returns the value contained in the weak box.
 If the garbage collector has proven that the previous content
@@ -4220,6 +4332,19 @@ then default-value (which defaults to #f) is returned.
 (set! value #f) ;; Wipe out the previous value
 (#%gc-collect)
 (weak-box-value value) ;; => #false
+```
+### **which**
+Searches the directories listed on the `PATH` environment variable for the
+given executable, returning its absolute path as a string, or `#false` if it
+cannot be found.
+
+(which binary) -> (or string? #false)
+
+* binary : string?
+
+```scheme
+> (which "ls") ;; => "/bin/ls"
+> (which "some-nonexistent-binary") ;; => #false
 ```
 ### **with-cleared-env-vars**
 Removes all environment variables for the child.
@@ -4451,14 +4576,12 @@ Create a zipping iterator
 ### **current-function-span**
 ### **current-module**
 ### **current-module-relative**
-### **current-os!**
 ### **current-thread-id**
 ### **debug-globals**
 ### **deserialize-value**
 ### **dump-profiler**
 ### **emit-expanded**
 ### **empty-stream**
-### **env-var**
 ### **eqv?**
 ### **error-object?**
 ### **error-with-span**
@@ -4466,7 +4589,6 @@ Create a zipping iterator
 ### **eval!**
 ### **eval-string**
 ### **expand!**
-### **feature-dylib-build?**
 ### **flush-output-port**
 ### **function-arity**
 ### **function-name**
@@ -4474,8 +4596,6 @@ Create a zipping iterator
 ### **futures-join-all**
 ### **get-contract-struct**
 ### **get-test-mode**
-### **glob**
-### **glob-iter-next!**
 ### **hash-get**
 ### **immutable-vector?**
 ### **inspect**
@@ -4504,15 +4624,10 @@ Create a zipping iterator
 ### **make-callstack-profiler**
 ### **make-struct-type**
 ### **make-will-executor**
-### **maybe-get-env-var**
 ### **memory-address**
 ### **module->exports**
 ### **multi-arity?**
 ### **mutable-vector?**
-### **path->string**
-### **path-separator**
-### **platform-dll-extension!**
-### **platform-dll-prefix!**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**
@@ -4531,13 +4646,10 @@ Create a zipping iterator
 ### **run!**
 ### **serialize-value**
 ### **serialized->bytes**
-### **set-piped-stdout!**
-### **set-stdout-piped!**
 ### **set-test-mode!**
 ### **span-file-id**
 ### **stdout**
 ### **stdout-simple-displayln**
-### **steel-home-location**
 ### **stream-car**
 ### **stream-cons**
 ### **stream-empty?**
@@ -4552,15 +4664,12 @@ Create a zipping iterator
 ### **syntax-span**
 ### **syntax/loc**
 ### **syntax?**
-### **target-arch!**
 ### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**
 ### **try-list-ref**
 ### **value->iterator**
 ### **value->string**
-### **wait->stdout**
-### **which**
 ### **will-execute**
 ### **will-register**
 ### **would-block**

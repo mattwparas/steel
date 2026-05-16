@@ -42,10 +42,31 @@ does).
 ### **command-line**
 Returns the command line passed to this process,
 including the command name as first argument.
+### **current-os!**
+Returns the name of the operating system that this Steel runtime was built
+for, for example `"linux"`, `"macos"`, or `"windows"`.
+
+(current-os!) -> string?
+### **env-var**
+Retrieves the value of the given environment variable as a string. Raises an
+error if the variable is not set.
+
+(env-var name) -> string?
+
+* name : string?
+
+```scheme
+> (env-var "PATH") ;; => "/usr/bin:/bin:..."
+```
 ### **error-object-message**
 Returns the message of an error object.
 
 (error-object-message error?) -> string?
+### **feature-dylib-build?**
+Returns `#true` if this Steel runtime was compiled with support for building
+dynamic libraries (the `dylib-build` feature).
+
+(feature-dylib-build?) -> bool?
 ### **make-weak-box**
 Allocates a weak box.
 
@@ -55,6 +76,28 @@ the weak box value will always return #false.
 
 In other words, a weak box does not keep the value contained alive through
 a gc collection.
+### **maybe-get-env-var**
+Retrieves the value of the given environment variable as a string, returning
+a `Result` instead of raising if the variable is not set.
+
+(maybe-get-env-var name) -> (Result? string?)
+
+* name : string?
+### **path-separator**
+Returns the primary path component separator for the current platform as a
+string, for example `"/"` on Unix or `"\"` on Windows.
+
+(path-separator) -> string?
+### **platform-dll-extension!**
+Returns the file extension used for dynamic libraries on the current
+platform, for example `"so"`, `"dylib"`, or `"dll"`.
+
+(platform-dll-extension!) -> string?
+### **platform-dll-prefix!**
+Returns the filename prefix used for dynamic libraries on the current
+platform, for example `"lib"` on Linux and macOS, or `""` on Windows.
+
+(platform-dll-prefix!) -> string?
 ### **set-box!**
 Stores a new value inside a box created with `box`, returning the value that
 the box held previously.
@@ -92,6 +135,16 @@ does).
 > (set-strong-box! b 2) ;;
 > (unbox-strong b) ;; => 2
 ```
+### **steel-home-location**
+Returns the path to the Steel home directory - the `STEEL_HOME` location used
+to resolve installed packages and cogs - or `#false` if it is not set.
+
+(steel-home-location) -> (or string? #false)
+### **target-arch!**
+Returns the CPU architecture that this Steel runtime was built for, for
+example `"x86_64"` or `"aarch64"`.
+
+(target-arch!) -> string?
 ### **unbox**
 Returns the value stored inside a box created with `box`.
 
@@ -159,18 +212,15 @@ then default-value (which defaults to #f) is returned.
 ### **current-function-span**
 ### **current-module**
 ### **current-module-relative**
-### **current-os!**
 ### **debug-globals**
 ### **deserialize-value**
 ### **dump-profiler**
 ### **emit-expanded**
-### **env-var**
 ### **error-with-span**
 ### **eval**
 ### **eval!**
 ### **eval-string**
 ### **expand!**
-### **feature-dylib-build?**
 ### **function-arity**
 ### **function-name**
 ### **futures-join-all**
@@ -185,13 +235,9 @@ then default-value (which defaults to #f) is returned.
 ### **make-callstack-profiler**
 ### **make-struct-type**
 ### **make-will-executor**
-### **maybe-get-env-var**
 ### **memory-address**
 ### **module->exports**
 ### **multi-arity?**
-### **path-separator**
-### **platform-dll-extension!**
-### **platform-dll-prefix!**
 ### **poll!**
 ### **raise-error**
 ### **raise-error-with-span**
@@ -201,9 +247,7 @@ then default-value (which defaults to #f) is returned.
 ### **serialized->bytes**
 ### **set-env-var!**
 ### **set-test-mode!**
-### **steel-home-location**
 ### **struct->list**
-### **target-arch!**
 ### **value->iterator**
 ### **value->string**
 ### **will-execute**
