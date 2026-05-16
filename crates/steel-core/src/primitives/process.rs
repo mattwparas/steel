@@ -6,8 +6,8 @@ use crate::rvals::{AsRefMutSteelVal, AsRefSteelVal, FromSteelVal, IntoSteelVal, 
 use crate::values::lists::List;
 use crate::values::port::{Peekable, SteelPort, SteelPortRepr};
 use crate::values::structs::SteelResult;
-use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
 use crate::SteelErr;
+use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
 use crate::{stop, SteelVal};
 use std::io::{BufReader, BufWriter};
 use std::process::{Child, Command, Stdio};
