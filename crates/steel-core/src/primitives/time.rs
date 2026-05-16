@@ -8,7 +8,6 @@ use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use steel_derive::function;
 
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::steel_vm::register_fn::RegisterFn;
 
 pub(crate) const TIME_MODULE_DOC: MarkdownDoc<'static> = MarkdownDoc::from_str(
     r#"
@@ -67,51 +66,111 @@ impl Custom for SystemTime {
     }
 }
 
+/// Returns the current date in the local time zone as a naive date (a date
+/// without any time zone information attached).
+///
+/// (naive-current-date-local) -> naive-date?
 #[function(name = "naive-current-date-local")]
 fn naive_current_date() -> NaiveDate {
     Local::now().date_naive()
 }
 
+/// Constructs a naive date from a year, month, and day. Returns `#false` if the
+/// given values do not form a valid calendar date.
+///
+/// (naive-date-ymd year month day) -> naive-date?
+///
+/// * year : int?
+/// * month : int? - the month, from 1 to 12
+/// * day : int? - the day of the month, from 1 to 31
 #[function(name = "naive-date-ymd")]
 fn naive_date(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year, month, day)
 }
 
+/// Combines a naive date with an hour, minute, and second to produce a naive
+/// date-time. Returns `#false` if the time values are out of range.
+///
+/// (naive-date-and-hms date hour minute second) -> naive-date-time?
+///
+/// * date : naive-date?
+/// * hour : int? - the hour, from 0 to 23
+/// * minute : int? - the minute, from 0 to 59
+/// * second : int? - the second, from 0 to 59
 #[function(name = "naive-date-and-hms")]
 fn with_time(date: NaiveDate, hour: u32, minute: u32, second: u32) -> Option<NaiveDateTime> {
     date.and_hms_opt(hour, minute, second)
 }
 
+/// Returns the year of the given naive date.
+///
+/// (naive-date-year date) -> int?
+///
+/// * date : naive-date?
 #[function(name = "naive-date-year")]
 fn date_year(date: NaiveDate) -> i32 {
     date.year()
 }
 
+/// Returns the month of the given naive date, from 1 to 12.
+///
+/// (naive-date-month date) -> int?
+///
+/// * date : naive-date?
 #[function(name = "naive-date-month")]
 fn date_month(date: NaiveDate) -> u32 {
     date.month()
 }
 
+/// Returns the day of the month of the given naive date, from 1 to 31.
+///
+/// (naive-date-day date) -> int?
+///
+/// * date : naive-date?
 #[function(name = "naive-date-day")]
 fn date_day(date: NaiveDate) -> u32 {
     date.day()
 }
 
+/// Returns `#true` if the first system time is strictly later than the second.
+///
+/// (system-time>? left right) -> bool?
+///
+/// * left : system-time?
+/// * right : system-time?
 #[function(name = "system-time>?")]
 fn system_time_gt(left: SystemTime, right: SystemTime) -> bool {
     left > right
 }
 
+/// Returns `#true` if the first system time is strictly earlier than the second.
+///
+/// (system-time<? left right) -> bool?
+///
+/// * left : system-time?
+/// * right : system-time?
 #[function(name = "system-time<?")]
 fn system_time_lt(left: SystemTime, right: SystemTime) -> bool {
     left < right
 }
 
+/// Returns `#true` if the first system time is later than or equal to the second.
+///
+/// (system-time>= left right) -> bool?
+///
+/// * left : system-time?
+/// * right : system-time?
 #[function(name = "system-time>=")]
 fn system_time_gte(left: SystemTime, right: SystemTime) -> bool {
     left >= right
 }
 
+/// Returns `#true` if the first system time is earlier than or equal to the second.
+///
+/// (system-time<= left right) -> bool?
+///
+/// * left : system-time?
+/// * right : system-time?
 #[function(name = "system-time<=")]
 fn system_time_lte(left: SystemTime, right: SystemTime) -> bool {
     left <= right
@@ -199,19 +258,89 @@ fn system_time_duration_since(
         .map_err(|x| crate::throw!(Generic => format!("{:?}", x))())
 }
 
+/// Returns the current instant from a monotonic clock. Pair with
+/// `instant/elapsed` or `duration-since` to measure how much time has passed.
+///
+/// (instant/now) -> instant?
+#[function(name = "instant/now")]
+fn instant_now() -> Instant {
+    Instant::now()
+}
+
+/// Returns the duration that has elapsed since the given instant was created.
+///
+/// (instant/elapsed instant) -> duration?
+///
+/// * instant : instant?
+#[function(name = "instant/elapsed")]
+fn instant_elapsed(instant: Instant) -> Duration {
+    instant.elapsed()
+}
+
+/// Returns the duration of time that elapsed from `earlier` to `instant`.
+///
+/// (duration-since instant earlier) -> duration?
+///
+/// * instant : instant?
+/// * earlier : instant? - an instant created no later than `instant`
+#[function(name = "duration-since")]
+fn duration_since(instant: Instant, earlier: Instant) -> Duration {
+    instant.duration_since(earlier)
+}
+
+/// Returns the number of whole seconds contained in the given duration.
+///
+/// (duration->seconds dur) -> int?
+///
+/// * dur : duration?
+#[function(name = "duration->seconds")]
+fn duration_to_seconds(duration: Duration) -> u64 {
+    duration.as_secs()
+}
+
+/// Returns the total number of whole milliseconds contained in the given duration.
+///
+/// (duration->millis dur) -> int?
+///
+/// * dur : duration?
+#[function(name = "duration->millis")]
+fn duration_to_millis(duration: Duration) -> u128 {
+    duration.as_millis()
+}
+
+/// Returns the total number of whole microseconds contained in the given duration.
+///
+/// (duration->micros dur) -> int?
+///
+/// * dur : duration?
+#[function(name = "duration->micros")]
+fn duration_to_micros(duration: Duration) -> u128 {
+    duration.as_micros()
+}
+
+/// Returns the total number of nanoseconds contained in the given duration.
+///
+/// (duration->nanos dur) -> int?
+///
+/// * dur : duration?
+#[function(name = "duration->nanos")]
+fn duration_to_nanos(duration: Duration) -> u128 {
+    duration.as_nanos()
+}
+
 pub fn time_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/time".to_string());
 
     module.register_doc("steel/time", TIME_MODULE_DOC);
 
     module
-        .register_fn("instant/now", Instant::now)
-        .register_fn("instant/elapsed", Instant::elapsed)
-        .register_fn("duration-since", Instant::duration_since)
-        .register_fn("duration->seconds", Duration::as_secs)
-        .register_fn("duration->millis", Duration::as_millis)
-        .register_fn("duration->micros", Duration::as_micros)
-        .register_fn("duration->nanos", Duration::as_nanos)
+        .register_native_fn_definition(INSTANT_NOW_DEFINITION)
+        .register_native_fn_definition(INSTANT_ELAPSED_DEFINITION)
+        .register_native_fn_definition(DURATION_SINCE_DEFINITION)
+        .register_native_fn_definition(DURATION_TO_SECONDS_DEFINITION)
+        .register_native_fn_definition(DURATION_TO_MILLIS_DEFINITION)
+        .register_native_fn_definition(DURATION_TO_MICROS_DEFINITION)
+        .register_native_fn_definition(DURATION_TO_NANOS_DEFINITION)
         .register_native_fn_definition(SYSTEM_TIME_DURATION_SINCE_DEFINITION)
         .register_native_fn_definition(SYSTEM_TIME_NOW_DEFINITION)
         .register_native_fn_definition(SYSTEM_TIME_GTE_DEFINITION)
