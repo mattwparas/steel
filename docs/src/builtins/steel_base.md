@@ -311,6 +311,46 @@ Returns true if the value is a boolean (`#true` or `#false`).
 > (boolean? 0)
 #false
 ```
+### **box**
+Creates a mutable box holding the given value. The box is tracked by the
+garbage collector, so values stored in it (including ones that form cycles)
+are reclaimed safely. Use `unbox` to read the value and `set-box!` to update
+it.
+
+(box value) -> box?
+
+* value : any? - The initial value to store in the box.
+
+#### Examples
+```scheme
+> (define b (box 10)) ;;
+> (unbox b) ;; => 10
+> (set-box! b 20) ;; => 10
+> (unbox b) ;; => 20
+```
+### **box-strong**
+Creates a strong box holding the given value. Use `unbox-strong` to read the
+value and `set-strong-box!` to update it.
+
+(box-strong value) -> box-strong?
+
+* value : any? - The initial value to store in the box.
+
+Strong boxes are reference counted and are _not_ tracked by the garbage
+collector. Storing a value that (directly or indirectly) refers back to the
+box creates a reference count cycle that will never be reclaimed, leaking
+memory. Because they skip the GC bookkeeping that `box` requires, strong
+boxes are slightly more efficient, so they are the preferred option when you
+are certain no cycles can form (or are willing to accept the leak if one
+does).
+
+#### Examples
+```scheme
+> (define b (box-strong 10)) ;;
+> (unbox-strong b) ;; => 10
+> (set-strong-box! b 20) ;;
+> (unbox-strong b) ;; => 20
+```
 ### **byte?**
 Returns `#t` if the given value is a byte, meaning an exact
 integer between 0 and 255 inclusive, `#f` otherwise.
@@ -366,6 +406,19 @@ Append multiple byte vectors into a new bytevector.
 
 (bytes-append #u8(0) #u8(1) #u8() #u8(2)) ;; => #u8(#x00 #x01 #x02)
 ```
+### **bytes-clear!**
+Removes all bytes from the given bytevector, leaving it empty.
+
+(bytes-clear! vector)
+
+* vector : bytes?
+
+#### Examples
+```scheme
+(define my-bytes (bytes 0 1 2 3))
+(bytes-clear! my-bytes)
+my-bytes ;; => #u8()
+```
 ### **bytes-copy**
 Creates a copy of a bytevector.
 
@@ -389,6 +442,20 @@ Returns the length of the given byte vector
 #### Examples
 ```scheme
 (bytes-length (bytes 1 2 3 4 5)) ;; => 5
+```
+### **bytes-push!**
+Appends a byte to the end of the given bytevector, growing it in place.
+
+(bytes-push! vector byte)
+
+* vector : bytes?
+* byte : byte?
+
+#### Examples
+```scheme
+(define my-bytes (bytes 0 1 2))
+(bytes-push! my-bytes 3)
+my-bytes ;; =>  #u8(#x00 #x01 #x02 #x03)
 ```
 ### **bytes-ref**
 Fetches the byte at the given index within the bytevector.
@@ -926,6 +993,11 @@ Returns the number of milliseconds since the Unix epoch as an inexact number.
 Returns the number of milliseconds since the Unix epoch as an integer.
 
 (current-milliseconds) -> int?
+### **current-os!**
+Returns the name of the operating system that this Steel runtime was built
+for, for example `"linux"`, `"macos"`, or `"windows"`.
+
+(current-os!) -> string?
 ### **current-second**
 Returns the number of seconds since the Unix epoch as an integer.
 
@@ -978,12 +1050,43 @@ Creates a taking iterator combinator
 ```scheme
 (transduce (list 1 2 3 4 5) (dropping 3) (into-list)) ;; => '(4 5)
 ```
+### **duration->micros**
+Returns the total number of whole microseconds contained in the given duration.
+
+(duration->micros dur) -> int?
+
+* dur : duration?
+### **duration->millis**
+Returns the total number of whole milliseconds contained in the given duration.
+
+(duration->millis dur) -> int?
+
+* dur : duration?
+### **duration->nanos**
+Returns the total number of nanoseconds contained in the given duration.
+
+(duration->nanos dur) -> int?
+
+* dur : duration?
+### **duration->seconds**
+Returns the number of whole seconds contained in the given duration.
+
+(duration->seconds dur) -> int?
+
+* dur : duration?
 ### **duration->string**
 Returns a string representation of a duration
 
 (duration->string dur)
 
 * dur : duration?
+### **duration-since**
+Returns the duration of time that elapsed from `earlier` to `instant`.
+
+(duration-since instant earlier) -> duration?
+
+* instant : instant?
+* earlier : instant? - an instant created no later than `instant`
 ### **empty-channel-object?**
 Returns `#t` if the value is an empty-channel object.
 
@@ -1023,6 +1126,17 @@ Create an enumerating iterator
 #### Examples
 ```scheme
 (transduce (list 1 3 5) (enumerating) (into-list)) ;; => '((0 1) (1 3) (2 5))
+```
+### **env-var**
+Retrieves the value of the given environment variable as a string. Raises an
+error if the variable is not set.
+
+(env-var name) -> string?
+
+* name : string?
+
+```scheme
+> (env-var "PATH") ;; => "/usr/bin:/bin:..."
 ```
 ### **eof-object**
 Returns an EOF object.
@@ -1229,6 +1343,11 @@ Sums all given floats
 > (f+ 1.1 2.2) ;; => 3.3
 > (f+ 3.3 3.3 3.3) ;; => 9.9
 ```
+### **feature-dylib-build?**
+Returns `#true` if this Steel runtime was compiled with support for building
+dynamic libraries (the `dylib-build` feature).
+
+(feature-dylib-build?) -> bool?
 ### **file-metadata**
 Access the file metadata for a given path
 ### **file-name**
@@ -1424,6 +1543,27 @@ Extracts the string contents from a port created with `open-output-string`.
 (get-output-string port?) -> string?
 ### **get-tls**
 Get the value out of the thread local storage slot.
+### **glob**
+Returns an iterator over the paths matching the given glob pattern. An
+optional second argument supplies match options. Use `glob-iter-next!` to
+advance the resulting iterator.
+
+(glob pattern [options]) -> glob-iterator?
+
+* pattern : string?
+* options : match-options? - optional matching options
+
+```scheme
+> (define paths (glob "src/*.rs"))
+> (glob-iter-next! paths) ;; => the first matching path
+```
+### **glob-iter-next!**
+Advances a glob iterator created by `glob`, returning the next matching
+path, or `#false` once the iterator has been exhausted.
+
+(glob-iter-next! paths) -> (or path? #false)
+
+* paths : glob-iterator?
 ### **hash**
 Creates an immutable hash table with each given `key` mapped to the following `val`.
 Each key must have a val, so the total number of arguments must be even.
@@ -1828,6 +1968,17 @@ Checks if a given value is an input port
 > (input-port? (stdin)) ;; => #true
 > (input-port? "foo") ;; => #false
 ```
+### **instant/elapsed**
+Returns the duration that has elapsed since the given instant was created.
+
+(instant/elapsed instant) -> duration?
+
+* instant : instant?
+### **instant/now**
+Returns the current instant from a monotonic clock. Pair with
+`instant/elapsed` or `duration-since` to measure how much time has passed.
+
+(instant/now) -> instant?
 ### **int->string**
 Converts an integer into a string.
 
@@ -2166,6 +2317,13 @@ Create a mapping iterator
 ```scheme
 (transduce (list 1 2 3) (mapping (λ (x) (+ x 1))) (into-list)) ;; => '(2 3 4)
 ```
+### **maybe-get-env-var**
+Retrieves the value of the given environment variable as a string, returning
+a `Result` instead of raising if the variable is not set.
+
+(maybe-get-env-var name) -> (Result? string?)
+
+* name : string?
 ### **member**
 Return the first tail of the list, where the car is `equal?` to the given obj.
 Returns `#f`, if no element is found.
@@ -2306,6 +2464,48 @@ Removes and returns the last element of the vector.
 ```
 ### **mutex**
 Construct a new mutex
+### **naive-current-date-local**
+Returns the current date in the local time zone as a naive date (a date
+without any time zone information attached).
+
+(naive-current-date-local) -> naive-date?
+### **naive-date-and-hms**
+Combines a naive date with an hour, minute, and second to produce a naive
+date-time. Returns `#false` if the time values are out of range.
+
+(naive-date-and-hms date hour minute second) -> naive-date-time?
+
+* date : naive-date?
+* hour : int? - the hour, from 0 to 23
+* minute : int? - the minute, from 0 to 59
+* second : int? - the second, from 0 to 59
+### **naive-date-day**
+Returns the day of the month of the given naive date, from 1 to 31.
+
+(naive-date-day date) -> int?
+
+* date : naive-date?
+### **naive-date-month**
+Returns the month of the given naive date, from 1 to 12.
+
+(naive-date-month date) -> int?
+
+* date : naive-date?
+### **naive-date-year**
+Returns the year of the given naive date.
+
+(naive-date-year date) -> int?
+
+* date : naive-date?
+### **naive-date-ymd**
+Constructs a naive date from a year, month, and day. Returns `#false` if the
+given values do not form a valid calendar date.
+
+(naive-date-ymd year month day) -> naive-date?
+
+* year : int?
+* month : int? - the month, from 1 to 12
+* day : int? - the day of the month, from 1 to 31
 ### **nan?**
 Returns `#t` if the real number is Nan.
 
@@ -2530,6 +2730,12 @@ Gets the extension from a path.
 > (path->extension "logs") ;; => void
 > (path->extension "logs/today.json") ;; => ".json"
 ```
+### **path->string**
+Converts a path into its string representation.
+
+(path->string path) -> string?
+
+* path : path?
 ### **path-exists?**
 Checks if a path exists.
 
@@ -2542,6 +2748,21 @@ Checks if a path exists.
 > (path-exists? "logs") ;; => #true
 > (path-exists? "backup/logs") ;; => #false
 ```
+### **path-separator**
+Returns the primary path component separator for the current platform as a
+string, for example `"/"` on Unix or `"\"` on Windows.
+
+(path-separator) -> string?
+### **platform-dll-extension!**
+Returns the file extension used for dynamic libraries on the current
+platform, for example `"so"`, `"dylib"`, or `"dll"`.
+
+(platform-dll-extension!) -> string?
+### **platform-dll-prefix!**
+Returns the filename prefix used for dynamic libraries on the current
+platform, for example `"lib"` on Linux and macOS, or `""` on Windows.
+
+(platform-dll-prefix!) -> string?
 ### **pop-front**
 Returns the first element of the given vector.
 
@@ -2891,10 +3112,62 @@ error[E11]: Generic
 1 │ (second '())
   │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
 ```
+### **set-box!**
+Stores a new value inside a box created with `box`, returning the value that
+the box held previously.
+
+(set-box! the-box value) -> any?
+
+* the-box : box? - The box to mutate.
+* value : any? - The new value to store in the box.
+
+#### Examples
+```scheme
+> (define b (box 1)) ;;
+> (set-box! b 2) ;; => 1
+> (unbox b) ;; => 2
+```
 ### **set-current-dir!**
 Alias of `with-current-dir`.
 ### **set-env-var!**
 Alias of `with-env-var`.
+### **set-piped-stdout!**
+Equivalent to `set-stdout-piped!`: connects the spawned child's stdin,
+stdout, and stderr to pipes. Returns the command builder.
+
+(set-piped-stdout! process) -> CommandBuilder?
+
+* process : CommandBuilder?
+### **set-stdout-piped!**
+Configures the command builder so that the spawned child's stdin, stdout, and
+stderr are all connected to pipes, letting the parent process read from and
+write to them. Returns the command builder.
+
+(set-stdout-piped! process) -> CommandBuilder?
+
+* process : CommandBuilder?
+### **set-strong-box!**
+Stores a new value inside a strong box created with `box-strong`.
+
+(set-strong-box! the-box value) -> void?
+
+* the-box : box-strong? - The strong box to mutate.
+* value : any? - The new value to store in the box.
+
+Strong boxes are reference counted and are _not_ tracked by the garbage
+collector. Storing a value that (directly or indirectly) refers back to the
+box creates a reference count cycle that will never be reclaimed, leaking
+memory. Because they skip the GC bookkeeping that `box` requires, strong
+boxes are slightly more efficient, so they are the preferred option when you
+are certain no cycles can form (or are willing to accept the leak if one
+does).
+
+#### Examples
+```scheme
+> (define b (box-strong 1)) ;;
+> (set-strong-box! b 2) ;;
+> (unbox-strong b) ;; => 2
+```
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
 with this TLS.
@@ -3046,6 +3319,11 @@ Gets the port handle to stdin
 ```scheme
 > (stdin) ;; => #<input-port:stdin>
 ```
+### **steel-home-location**
+Returns the path to the Steel home directory - the `STEEL_HOME` location used
+to resolve installed packages and cogs - or `#false` if it is not set.
+
+(steel-home-location) -> (or string? #false)
 ### **string**
 Constructs a string from the given characters
 
@@ -3519,6 +3797,34 @@ Gets the duration between two system times.
 Returns the current `SystemTime`.
 
 (system-time/now) -> SystemTime?
+### **system-time<=**
+Returns `#true` if the first system time is earlier than or equal to the second.
+
+(system-time<= left right) -> bool?
+
+* left : system-time?
+* right : system-time?
+### **system-time<?**
+Returns `#true` if the first system time is strictly earlier than the second.
+
+(system-time<? left right) -> bool?
+
+* left : system-time?
+* right : system-time?
+### **system-time>=**
+Returns `#true` if the first system time is later than or equal to the second.
+
+(system-time>= left right) -> bool?
+
+* left : system-time?
+* right : system-time?
+### **system-time>?**
+Returns `#true` if the first system time is strictly later than the second.
+
+(system-time>? left right) -> bool?
+
+* left : system-time?
+* right : system-time?
 ### **take**
 Returns the first n elements of the list l as a new list.
 
@@ -3556,6 +3862,11 @@ Returns the tangent value of the input angle, measured in radians.
 > (tan 2.0) ;; => -2.185039863261519
 > (tan 3.14) ;; => -0.0015926549364072232
 ```
+### **target-arch!**
+Returns the CPU architecture that this Steel runtime was built for, for
+example `"x86_64"` or `"aarch64"`.
+
+(target-arch!) -> string?
 ### **third**
 Get the third element of the list. Raises an error if the list does not have an element in the third position.
 
@@ -3731,6 +4042,38 @@ but may be computed more efficiently.
 > (truncate/ 5 -2) ;; => (-2 1)
 > (truncate/ -5 -2) ;; => (2 -1)
 ```
+### **unbox**
+Returns the value stored inside a box created with `box`.
+
+(unbox the-box) -> any?
+
+* the-box : box? - The box to read from.
+
+#### Examples
+```scheme
+> (define b (box 'a)) ;;
+> (unbox b) ;; => 'a
+```
+### **unbox-strong**
+Returns the value stored inside a strong box created with `box-strong`.
+
+(unbox-strong the-box) -> any?
+
+* the-box : box-strong? - The strong box to read from.
+
+Strong boxes are reference counted and are _not_ tracked by the garbage
+collector. Storing a value that (directly or indirectly) refers back to the
+box creates a reference count cycle that will never be reclaimed, leaking
+memory. Because they skip the GC bookkeeping that `box` requires, strong
+boxes are slightly more efficient, so they are the preferred option when you
+are certain no cycles can form (or are willing to accept the leak if one
+does).
+
+#### Examples
+```scheme
+> (define b (box-strong 'a)) ;;
+> (unbox-strong b) ;; => 'a
+```
 ### **utf8->string**
 Alias of `bytes->string/utf8`.
 ### **utf8-length**
@@ -3855,6 +4198,20 @@ Returns the length of the given vector.
 > (define V (immutable-vector 1 2 3 4)) ;;
 > (vector-length V) ;; => 4
 ```
+### **vector-push!**
+Appends a value to the back of a mutable vector, growing it in place.
+
+(vector-push! vec value) -> void?
+
+* vec : vector? - The mutable vector to push onto.
+* value : any? - The value to append.
+
+#### Examples
+```scheme
+> (define V (mutable-vector 1 2 3)) ;;
+> (vector-push! V 4) ;;
+> V ;; => '#(1 2 3 4)
+```
 ### **vector-ref**
 Retrieves the value at a specified index in an immutable or mutable vector.
 
@@ -3946,6 +4303,23 @@ of the awaited subprocess.
       unwrap-ok
       wait)
 ```
+### **wait->stdout**
+Wait for the subprocess to finish, capturing its stdout. Returns a result
+holding everything the process wrote to stdout, decoded as a UTF-8 string.
+The process must have been started with stdout piped (for example via
+`with-stdout-piped`) for this to capture any output.
+
+(wait->stdout process) -> (Result? string?)
+
+* process : ChildProcess?
+
+```scheme
+> (~> (command "echo" (list "hello"))
+      with-stdout-piped
+      spawn-process
+      unwrap-ok
+      wait->stdout)
+```
 ### **weak-box-value**
 Returns the value contained in the weak box.
 If the garbage collector has proven that the previous content
@@ -3958,6 +4332,19 @@ then default-value (which defaults to #f) is returned.
 (set! value #f) ;; Wipe out the previous value
 (#%gc-collect)
 (weak-box-value value) ;; => #false
+```
+### **which**
+Searches the directories listed on the `PATH` environment variable for the
+given executable, returning its absolute path as a string, or `#false` if it
+cannot be found.
+
+(which binary) -> (or string? #false)
+
+* binary : string?
+
+```scheme
+> (which "ls") ;; => "/bin/ls"
+> (which "some-nonexistent-binary") ;; => #false
 ```
 ### **with-cleared-env-vars**
 Removes all environment variables for the child.
@@ -4170,12 +4557,8 @@ Create a zipping iterator
 ### **atom?**
 ### **attach-contract-struct!**
 ### **block-on**
-### **box**
-### **box-strong**
 ### **breakpoint!**
 ### **bytes->serialized**
-### **bytes-clear!**
-### **bytes-push!**
 ### **call-with-current-continuation**
 ### **call-with-exception-handler**
 ### **call/cc**
@@ -4193,19 +4576,12 @@ Create a zipping iterator
 ### **current-function-span**
 ### **current-module**
 ### **current-module-relative**
-### **current-os!**
 ### **current-thread-id**
 ### **debug-globals**
 ### **deserialize-value**
 ### **dump-profiler**
-### **duration->micros**
-### **duration->millis**
-### **duration->nanos**
-### **duration->seconds**
-### **duration-since**
 ### **emit-expanded**
 ### **empty-stream**
-### **env-var**
 ### **eqv?**
 ### **error-object?**
 ### **error-with-span**
@@ -4213,7 +4589,6 @@ Create a zipping iterator
 ### **eval!**
 ### **eval-string**
 ### **expand!**
-### **feature-dylib-build?**
 ### **flush-output-port**
 ### **function-arity**
 ### **function-name**
@@ -4221,13 +4596,9 @@ Create a zipping iterator
 ### **futures-join-all**
 ### **get-contract-struct**
 ### **get-test-mode**
-### **glob**
-### **glob-iter-next!**
 ### **hash-get**
 ### **immutable-vector?**
 ### **inspect**
-### **instant/elapsed**
-### **instant/now**
 ### **into-count**
 ### **into-for-each**
 ### **into-hashmap**
@@ -4253,21 +4624,10 @@ Create a zipping iterator
 ### **make-callstack-profiler**
 ### **make-struct-type**
 ### **make-will-executor**
-### **maybe-get-env-var**
 ### **memory-address**
 ### **module->exports**
 ### **multi-arity?**
 ### **mutable-vector?**
-### **naive-current-date-local**
-### **naive-date-and-hms**
-### **naive-date-day**
-### **naive-date-month**
-### **naive-date-year**
-### **naive-date-ymd**
-### **path->string**
-### **path-separator**
-### **platform-dll-extension!**
-### **platform-dll-prefix!**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**
@@ -4286,15 +4646,10 @@ Create a zipping iterator
 ### **run!**
 ### **serialize-value**
 ### **serialized->bytes**
-### **set-box!**
-### **set-piped-stdout!**
-### **set-stdout-piped!**
-### **set-strong-box!**
 ### **set-test-mode!**
 ### **span-file-id**
 ### **stdout**
 ### **stdout-simple-displayln**
-### **steel-home-location**
 ### **stream-car**
 ### **stream-cons**
 ### **stream-empty?**
@@ -4309,22 +4664,12 @@ Create a zipping iterator
 ### **syntax-span**
 ### **syntax/loc**
 ### **syntax?**
-### **system-time<=**
-### **system-time<?**
-### **system-time>=**
-### **system-time>?**
-### **target-arch!**
 ### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**
 ### **try-list-ref**
-### **unbox**
-### **unbox-strong**
 ### **value->iterator**
 ### **value->string**
-### **vector-push!**
-### **wait->stdout**
-### **which**
 ### **will-execute**
 ### **will-register**
 ### **would-block**

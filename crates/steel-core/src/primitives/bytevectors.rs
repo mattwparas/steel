@@ -260,6 +260,19 @@ pub fn bytes_set(value: &mut SteelByteVector, index: usize, byte: u8) -> Result<
     Ok(SteelVal::Void)
 }
 
+/// Appends a byte to the end of the given bytevector, growing it in place.
+///
+/// (bytes-push! vector byte)
+///
+/// * vector : bytes?
+/// * byte : byte?
+///
+/// # Examples
+/// ```scheme
+/// (define my-bytes (bytes 0 1 2))
+/// (bytes-push! my-bytes 3)
+/// my-bytes ;; =>  #u8(#x00 #x01 #x02 #x03)
+/// ```
 #[function(name = "bytes-push!")]
 pub fn bytes_push(value: &mut SteelByteVector, byte: u8) -> Result<SteelVal> {
     let mut guard = value.vec.write();
@@ -267,6 +280,18 @@ pub fn bytes_push(value: &mut SteelByteVector, byte: u8) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
+/// Removes all bytes from the given bytevector, leaving it empty.
+///
+/// (bytes-clear! vector)
+///
+/// * vector : bytes?
+///
+/// # Examples
+/// ```scheme
+/// (define my-bytes (bytes 0 1 2 3))
+/// (bytes-clear! my-bytes)
+/// my-bytes ;; => #u8()
+/// ```
 #[function(name = "bytes-clear!")]
 pub fn bytes_clear(value: &mut SteelByteVector) -> Result<SteelVal> {
     let mut guard = value.vec.write();

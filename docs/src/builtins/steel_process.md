@@ -58,6 +58,21 @@ Alias of `wait`.
 Alias of `with-current-dir`.
 ### **set-env-var!**
 Alias of `with-env-var`.
+### **set-piped-stdout!**
+Equivalent to `set-stdout-piped!`: connects the spawned child's stdin,
+stdout, and stderr to pipes. Returns the command builder.
+
+(set-piped-stdout! process) -> CommandBuilder?
+
+* process : CommandBuilder?
+### **set-stdout-piped!**
+Configures the command builder so that the spawned child's stdin, stdout, and
+stderr are all connected to pipes, letting the parent process read from and
+write to them. Returns the command builder.
+
+(set-stdout-piped! process) -> CommandBuilder?
+
+* process : CommandBuilder?
 ### **spawn-process**
 Spawn the given process. Returns a result indicating whether the process was
 able to be spawned.
@@ -86,6 +101,36 @@ of the awaited subprocess.
       spawn-process
       unwrap-ok
       wait)
+```
+### **wait->stdout**
+Wait for the subprocess to finish, capturing its stdout. Returns a result
+holding everything the process wrote to stdout, decoded as a UTF-8 string.
+The process must have been started with stdout piped (for example via
+`with-stdout-piped`) for this to capture any output.
+
+(wait->stdout process) -> (Result? string?)
+
+* process : ChildProcess?
+
+```scheme
+> (~> (command "echo" (list "hello"))
+      with-stdout-piped
+      spawn-process
+      unwrap-ok
+      wait->stdout)
+```
+### **which**
+Searches the directories listed on the `PATH` environment variable for the
+given executable, returning its absolute path as a string, or `#false` if it
+cannot be found.
+
+(which binary) -> (or string? #false)
+
+* binary : string?
+
+```scheme
+> (which "ls") ;; => "/bin/ls"
+> (which "some-nonexistent-binary") ;; => #false
 ```
 ### **with-cleared-env-vars**
 Removes all environment variables for the child.
@@ -245,8 +290,4 @@ Removes an environment variable for the child.
 ### **ChildProcess?**
 ### **CommandBuilder?**
 ### **command-builder?**
-### **set-piped-stdout!**
-### **set-stdout-piped!**
 ### **subprocess?**
-### **wait->stdout**
-### **which**

@@ -238,6 +238,18 @@ fn immutable_vector_copy(vector: &SteelVector, rest: RestArgsIter<'_, isize>) ->
     Ok(SteelVal::VectorV(Gc::new(copy).into()))
 }
 
+/// Combines the given vectors into a single new mutable vector.
+///
+/// (vector-append . vecs) -> vector?
+///
+/// * vecs : vector? - The vectors to combine.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (mutable-vector 1 2 3)) ;;
+/// > (define B (mutable-vector 4 5 6)) ;;
+/// > (vector-append A B) ;; => '#(1 2 3 4 5 6)
+/// ```
 // TODO: Fix this!
 #[steel_derive::context(name = "vector-append", arity = "AtLeast(0)")]
 fn vector_append(
@@ -1003,6 +1015,18 @@ pub fn immutable_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
     ))
 }
 
+/// Constructs an immutable vector from the given arguments.
+///
+/// This is an alias for `immutable-vector`.
+///
+/// (vector-immutable . args) -> immutable-vector?
+///
+/// * args : any? - The values to store in the immutable vector.
+///
+/// # Examples
+/// ```scheme
+/// > (vector-immutable 1 2 3) ;; => '#(1 2 3)
+/// ```
 // TODO: Fix this naming issue
 #[steel_derive::native(name = "vector-immutable", arity = "AtLeast(0)")]
 pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVal> {
@@ -1097,6 +1121,19 @@ pub fn mut_vec_get(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Appends a value to the back of a mutable vector, growing it in place.
+///
+/// (vector-push! vec value) -> void?
+///
+/// * vec : vector? - The mutable vector to push onto.
+/// * value : any? - The value to append.
+///
+/// # Examples
+/// ```scheme
+/// > (define V (mutable-vector 1 2 3)) ;;
+/// > (vector-push! V 4) ;;
+/// > V ;; => '#(1 2 3 4)
+/// ```
 // TODO: This _should_ increase the size count on the maybe_memory_size on the heap
 // since it is a growable structure, we'll need to know to rerun the GC when that size
 // increases past a certain amount
