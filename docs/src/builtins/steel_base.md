@@ -311,6 +311,43 @@ Returns true if the value is a boolean (`#true` or `#false`).
 > (boolean? 0)
 #false
 ```
+### **box**
+Creates a mutable box holding the given value. The box is tracked by the
+garbage collector, so values stored in it (including ones that form cycles)
+are reclaimed safely. Use `unbox` to read the value and `set-box!` to update
+it.
+
+(box value) -> box?
+
+* value : any? - The initial value to store in the box.
+
+#### Examples
+```scheme
+> (define b (box 10)) ;;
+> (unbox b) ;; => 10
+> (set-box! b 20) ;; => 10
+> (unbox b) ;; => 20
+```
+### **box-strong**
+Creates a strong box holding the given value. Use `unbox-strong` to read the
+value and `set-strong-box!` to update it.
+
+(box-strong value) -> box-strong?
+
+* value : any? - The initial value to store in the box.
+
+Strong boxes are reference counted and are _not_ tracked by the garbage
+collector. Storing a value that (directly or indirectly) refers back to the
+box creates a reference count cycle that will never be reclaimed, leaking
+memory. Prefer `box` unless you specifically need a strong box.
+
+#### Examples
+```scheme
+> (define b (box-strong 10)) ;;
+> (unbox-strong b) ;; => 10
+> (set-strong-box! b 20) ;;
+> (unbox-strong b) ;; => 20
+```
 ### **byte?**
 Returns `#t` if the given value is a byte, meaning an exact
 integer between 0 and 255 inclusive, `#f` otherwise.
@@ -2918,10 +2955,44 @@ error[E11]: Generic
 1 │ (second '())
   │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
 ```
+### **set-box!**
+Stores a new value inside a box created with `box`, returning the value that
+the box held previously.
+
+(set-box! the-box value) -> any?
+
+* the-box : box? - The box to mutate.
+* value : any? - The new value to store in the box.
+
+#### Examples
+```scheme
+> (define b (box 1)) ;;
+> (set-box! b 2) ;; => 1
+> (unbox b) ;; => 2
+```
 ### **set-current-dir!**
 Alias of `with-current-dir`.
 ### **set-env-var!**
 Alias of `with-env-var`.
+### **set-strong-box!**
+Stores a new value inside a strong box created with `box-strong`.
+
+(set-strong-box! the-box value) -> void?
+
+* the-box : box-strong? - The strong box to mutate.
+* value : any? - The new value to store in the box.
+
+Strong boxes are reference counted and are _not_ tracked by the garbage
+collector. Storing a value that (directly or indirectly) refers back to the
+box creates a reference count cycle that will never be reclaimed, leaking
+memory. Prefer `set-box!` unless you specifically need a strong box.
+
+#### Examples
+```scheme
+> (define b (box-strong 1)) ;;
+> (set-strong-box! b 2) ;;
+> (unbox-strong b) ;; => 2
+```
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
 with this TLS.
@@ -3758,6 +3829,35 @@ but may be computed more efficiently.
 > (truncate/ 5 -2) ;; => (-2 1)
 > (truncate/ -5 -2) ;; => (2 -1)
 ```
+### **unbox**
+Returns the value stored inside a box created with `box`.
+
+(unbox the-box) -> any?
+
+* the-box : box? - The box to read from.
+
+#### Examples
+```scheme
+> (define b (box 'a)) ;;
+> (unbox b) ;; => 'a
+```
+### **unbox-strong**
+Returns the value stored inside a strong box created with `box-strong`.
+
+(unbox-strong the-box) -> any?
+
+* the-box : box-strong? - The strong box to read from.
+
+Strong boxes are reference counted and are _not_ tracked by the garbage
+collector. Storing a value that (directly or indirectly) refers back to the
+box creates a reference count cycle that will never be reclaimed, leaking
+memory. Prefer `box` unless you specifically need a strong box.
+
+#### Examples
+```scheme
+> (define b (box-strong 'a)) ;;
+> (unbox-strong b) ;; => 'a
+```
 ### **utf8->string**
 Alias of `bytes->string/utf8`.
 ### **utf8-length**
@@ -4211,8 +4311,6 @@ Create a zipping iterator
 ### **atom?**
 ### **attach-contract-struct!**
 ### **block-on**
-### **box**
-### **box-strong**
 ### **breakpoint!**
 ### **bytes->serialized**
 ### **call-with-current-continuation**
@@ -4325,10 +4423,8 @@ Create a zipping iterator
 ### **run!**
 ### **serialize-value**
 ### **serialized->bytes**
-### **set-box!**
 ### **set-piped-stdout!**
 ### **set-stdout-piped!**
-### **set-strong-box!**
 ### **set-test-mode!**
 ### **span-file-id**
 ### **stdout**
@@ -4357,8 +4453,6 @@ Create a zipping iterator
 ### **thread::current/id**
 ### **transduce**
 ### **try-list-ref**
-### **unbox**
-### **unbox-strong**
 ### **value->iterator**
 ### **value->string**
 ### **wait->stdout**

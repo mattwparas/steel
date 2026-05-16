@@ -2083,11 +2083,36 @@ pub fn set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> SteelVal 
     value.set_and_return(update)
 }
 
+/// Returns the value stored inside a box created with `box`.
+///
+/// (unbox the-box) -> any?
+///
+/// * the-box : box? - The box to read from.
+///
+/// # Examples
+/// ```scheme
+/// > (define b (box 'a)) ;;
+/// > (unbox b) ;; => 'a
+/// ```
 #[steel_derive::function(name = "unbox")]
 pub fn plain_unbox_mutable(value: &HeapRef<SteelVal>) -> SteelVal {
     value.get()
 }
 
+/// Stores a new value inside a box created with `box`, returning the value that
+/// the box held previously.
+///
+/// (set-box! the-box value) -> any?
+///
+/// * the-box : box? - The box to mutate.
+/// * value : any? - The new value to store in the box.
+///
+/// # Examples
+/// ```scheme
+/// > (define b (box 1)) ;;
+/// > (set-box! b 2) ;; => 1
+/// > (unbox b) ;; => 2
+/// ```
 #[steel_derive::function(name = "set-box!")]
 pub fn plain_set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> SteelVal {
     value.set_and_return(update)
@@ -2105,6 +2130,23 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
     Some(Ok(SteelVal::Void))
 }
 
+/// Creates a mutable box holding the given value. The box is tracked by the
+/// garbage collector, so values stored in it (including ones that form cycles)
+/// are reclaimed safely. Use `unbox` to read the value and `set-box!` to update
+/// it.
+///
+/// (box value) -> box?
+///
+/// * value : any? - The initial value to store in the box.
+///
+/// # Examples
+/// ```scheme
+/// > (define b (box 10)) ;;
+/// > (unbox b) ;; => 10
+/// > (set-box! b 20) ;; => 10
+/// > (unbox b) ;; => 20
+/// ```
+#[steel_derive::context(name = "box", arity = "Exact(1)")]
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() != 1 {
         return Some(Err(
@@ -2126,14 +2168,72 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     Some(Ok(SteelVal::HeapAllocated(allocated_var)))
 }
 
+/// Returns the value stored inside a strong box created with `box-strong`.
+///
+/// (unbox-strong the-box) -> any?
+///
+/// * the-box : box-strong? - The strong box to read from.
+///
+/// Strong boxes are reference counted and are _not_ tracked by the garbage
+/// collector. Storing a value that (directly or indirectly) refers back to the
+/// box creates a reference count cycle that will never be reclaimed, leaking
+/// memory. Prefer `box` unless you specifically need a strong box.
+///
+/// # Examples
+/// ```scheme
+/// > (define b (box-strong 'a)) ;;
+/// > (unbox-strong b) ;; => 'a
+/// ```
 #[steel_derive::function(name = "unbox-strong")]
 pub fn unbox(value: &GcMut<SteelVal>) -> SteelVal {
     value.read().clone()
 }
 
+/// Stores a new value inside a strong box created with `box-strong`.
+///
+/// (set-strong-box! the-box value) -> void?
+///
+/// * the-box : box-strong? - The strong box to mutate.
+/// * value : any? - The new value to store in the box.
+///
+/// Strong boxes are reference counted and are _not_ tracked by the garbage
+/// collector. Storing a value that (directly or indirectly) refers back to the
+/// box creates a reference count cycle that will never be reclaimed, leaking
+/// memory. Prefer `set-box!` unless you specifically need a strong box.
+///
+/// # Examples
+/// ```scheme
+/// > (define b (box-strong 1)) ;;
+/// > (set-strong-box! b 2) ;;
+/// > (unbox-strong b) ;; => 2
+/// ```
 #[steel_derive::function(name = "set-strong-box!")]
 pub fn set_box(value: &GcMut<SteelVal>, update_to: SteelVal) {
     *value.write() = update_to;
+}
+
+/// Creates a strong box holding the given value. Use `unbox-strong` to read the
+/// value and `set-strong-box!` to update it.
+///
+/// (box-strong value) -> box-strong?
+///
+/// * value : any? - The initial value to store in the box.
+///
+/// Strong boxes are reference counted and are _not_ tracked by the garbage
+/// collector. Storing a value that (directly or indirectly) refers back to the
+/// box creates a reference count cycle that will never be reclaimed, leaking
+/// memory. Prefer `box` unless you specifically need a strong box.
+///
+/// # Examples
+/// ```scheme
+/// > (define b (box-strong 10)) ;;
+/// > (unbox-strong b) ;; => 10
+/// > (set-strong-box! b 20) ;;
+/// > (unbox-strong b) ;; => 20
+/// ```
+#[steel_derive::function(name = "box-strong")]
+pub fn box_strong(value: SteelVal) -> SteelVal {
+    SteelVal::boxed(value)
 }
 
 pub fn black_box(_: &[SteelVal]) -> Result<SteelVal> {
@@ -2329,14 +2429,14 @@ fn meta_module() -> BuiltInModule {
             "#%struct-update",
             SteelVal::MutFunc(struct_update_primitive),
         )
-        .register_fn("box-strong", SteelVal::boxed)
+        .register_native_fn_definition(BOX_STRONG_DEFINITION)
         .register_native_fn_definition(UNBOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_DEFINITION)
         .register_native_fn_definition(MAKE_WEAK_BOX_DEFINITION)
         .register_native_fn_definition(WEAK_BOX_VALUE_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
         .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
-        .register_value("box", SteelVal::BuiltIn(make_mutable_box))
+        .register_native_fn_definition(MAKE_MUTABLE_BOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(UNBOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(PLAIN_UNBOX_MUTABLE_DEFINITION)
