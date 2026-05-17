@@ -2125,7 +2125,25 @@ impl MaybeStackValue {
     }
 
     fn into_value(self, ctx: &mut FunctionTranslator) -> StackValue {
-        self.as_value(ctx).unwrap()
+        match self {
+            Self::Value(_) | Self::Constant(_) => self.as_value(ctx).unwrap(),
+            Self::MutRegister(p) => {
+                let (value, inferred_type) = ctx.mut_register_to_value(p);
+                StackValue {
+                    value,
+                    inferred_type,
+                    spilled: false,
+                }
+            }
+            Self::Register(p) => {
+                let (value, inferred_type) = ctx.immutable_register_to_value(p);
+                StackValue {
+                    value,
+                    inferred_type,
+                    spilled: false,
+                }
+            }
+        }
     }
 
     fn into_constant_int(self, ctx: &mut FunctionTranslator) -> Option<isize> {
@@ -4082,10 +4100,8 @@ impl FunctionTranslator<'_> {
                             Some(&[MaybeStackValue::Value(_), MaybeStackValue::Value(_),])
                         ) =>
                 {
-                    let value_r = self.shadow_stack_pop().unwrap().into_value(self).value;
-                    let value_l = self.shadow_stack_pop().unwrap().into_value(self).value;
-
-                    let (res, t) = self.binop_add_value_both(value_l, value_r);
+                    let args = self.split_off(2);
+                    let (res, t) = self.binop_add_value_both(args[0].0, args[1].0);
 
                     self.push(res, t);
 
@@ -4119,12 +4135,6 @@ impl FunctionTranslator<'_> {
                 // of constant, we can probably encode that a little bit more effectively
                 // in the generated code.
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
-                    if op == OpCode::ADD {
-                        println!(
-                            "Getting here: {:?}",
-                            self.shadow_stack.get(self.shadow_stack.len() - 2..)
-                        );
-                    }
                     // Call the func
                     self.func_ret_val(op, payload, 2, InferredType::Number);
                     self.check_deopt();
@@ -7720,7 +7730,16 @@ impl FunctionTranslator<'_> {
     }
 
     fn shadow_stack_pop(&mut self) -> Option<MaybeStackValue> {
-        self.shadow_stack.pop()
+        let popped = self.shadow_stack.pop();
+
+        if matches!(
+            popped,
+            Some(MaybeStackValue::Value(StackValue { spilled: true, .. }))
+        ) {
+            self.decrement_vm_stack_len(1);
+        }
+
+        popped
     }
 
     fn shadow_pop(&mut self) -> (Value, InferredType) {
@@ -10779,6 +10798,40 @@ impl FunctionTranslator<'_> {
                     (stack_offset + len_offset) as i32,
                 );
             },
+        );
+    }
+
+    fn decrement_vm_stack_len(&mut self, n: i64) {
+        if n == 0 {
+            return;
+        }
+
+        self.properties.cached_lookups.stack_length_capacity = self
+            .properties
+            .cached_lookups
+            .stack_length_capacity
+            .saturating_add(n as usize);
+
+        let ctx = self.get_ctx();
+        let thread_pointer = self.get_thread_pointer(ctx);
+
+        let stack_offset = offset_of!(SteelThread, stack);
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let new_length = self.builder.ins().iadd_imm(stack_length, -n);
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            new_length,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
         );
     }
 

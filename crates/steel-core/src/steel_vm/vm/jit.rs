@@ -2538,8 +2538,6 @@ impl<'a> VmCore<'a> {
 // extern_binop!(extern_c_add_two, add_primitive);
 #[cross_platform_fn]
 fn extern_c_add_two(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
-    // println!("Calling add with: {} - {}", a, b);
-
     // let a = ManuallyDrop::new(a);
     // let b = ManuallyDrop::new(b);
     match add_two(&a, &b) {
@@ -3166,14 +3164,39 @@ fn new_callglobal_tail_handler_deopt_test(
     // inspect(ctx, &[func.clone()]);
     // println!("What is left on the stack: {:#?}", ctx.thread.stack);
 
+    if let SteelVal::BuiltIn(f) = &func {
+        let f = *f;
+        ctx.ip = fallback_ip;
+        ctx.is_native = false;
+        let len = args.len();
+        for val in args.iter_mut() {
+            ctx.thread
+                .stack
+                .push(core::mem::replace(val, SteelVal::Void));
+        }
+        let base = ctx.thread.stack.len() - len;
+        match ctx.call_builtin_func(f, len) {
+            Ok(()) => {
+                if ctx.thread.stack.len() > base {
+                    let v = ctx.thread.stack.pop().unwrap();
+                    extern_handle_pop(ctx, v);
+                }
+            }
+            Err(e) => {
+                ctx.result = Some(Err(e));
+            }
+        }
+        return SteelVal::Void;
+    }
+
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
         // SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
-        | SteelVal::BuiltIn(_)
-        | SteelVal::CustomStruct(_) => true,
+        | SteelVal::CustomStruct(_)
+        | SteelVal::BuiltIn(_) => true,
         _ => false,
     };
 
