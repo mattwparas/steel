@@ -980,6 +980,53 @@ fn free_list_continues_allocating_in_the_middle() {
 }
 
 #[cfg(feature = "sync")]
+#[test]
+fn parallel_mark_counts_each_slot_exactly_once() {
+    use std::sync::{Arc, Barrier};
+
+    let num_slots = 4000;
+    let num_threads = 8;
+
+    let slots: Arc<Vec<HeapElement<SteelVal>>> = Arc::new(
+        (0..num_slots)
+            .map(|_| StandardShared::new(MutContainer::new(HeapAllocated::new(SteelVal::Void))))
+            .collect(),
+    );
+
+    let barrier = Arc::new(Barrier::new(num_threads));
+
+    let handles: Vec<_> = (0..num_threads)
+        .map(|_| {
+            let slots = Arc::clone(&slots);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                let queue = crossbeam_queue::SegQueue::new();
+                let mut local_queue = Vec::new();
+                let mut ctx = MarkAndSweepContextRefQueue {
+                    local_queue: &mut local_queue,
+                    queue: &queue,
+                    stats: MarkAndSweepStats::default(),
+                };
+
+                barrier.wait();
+                for slot in slots.iter() {
+                    ctx.mark_heap_reference(slot);
+                }
+
+                ctx.stats.memory_reached_count
+            })
+        })
+        .collect();
+
+    let total: usize = handles.into_iter().map(|h| h.join().unwrap()).sum();
+
+    assert_eq!(total, num_slots);
+    for slot in slots.iter() {
+        assert!(slot.read().is_reachable());
+    }
+}
+
+#[cfg(feature = "sync")]
 impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     // TODO: Calculate the overhead!
     // How big is this?
@@ -1724,11 +1771,17 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.memory_free_list.alloc_count =
-                    self.memory_free_list.elements.len() - stats.memory_reached_count;
+                self.memory_free_list.alloc_count = self
+                    .memory_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.memory_reached_count);
 
-                self.vector_free_list.alloc_count =
-                    self.vector_free_list.elements.len() - stats.vector_reached_count;
+                self.vector_free_list.alloc_count = self
+                    .vector_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.vector_reached_count);
 
                 // Estimate what that memory size is?
                 if self.memory_free_list.grow_count > RESET_LIMIT {
@@ -1894,11 +1947,17 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.vector_free_list.alloc_count =
-                    self.vector_free_list.elements.len() - stats.vector_reached_count;
+                self.vector_free_list.alloc_count = self
+                    .vector_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.vector_reached_count);
 
-                self.memory_free_list.alloc_count =
-                    self.memory_free_list.elements.len() - stats.memory_reached_count;
+                self.memory_free_list.alloc_count = self
+                    .memory_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.memory_reached_count);
 
                 // if self.vector_free_list.percent_full() > 0.75 {
                 if self.vector_free_list.grow_count > RESET_LIMIT {
@@ -2304,12 +2363,12 @@ impl<'a> MarkAndSweepContext<'a> {
         &mut self,
         heap_ref: &StandardSharedMut<HeapAllocated<SteelVal>>,
     ) {
-        if heap_ref.read().is_reachable() {
-            return;
-        }
-
         {
-            heap_ref.write().mark_reachable();
+            let mut guard = heap_ref.write();
+            if guard.is_reachable() {
+                return;
+            }
+            guard.mark_reachable();
         }
 
         self.stats.memory_reached_count += 1;
@@ -2322,12 +2381,12 @@ impl<'a> MarkAndSweepContext<'a> {
         &mut self,
         heap_vector: &StandardSharedMut<HeapAllocated<Vec<SteelVal>>>,
     ) {
-        if heap_vector.read().is_reachable() {
-            return;
-        }
-
         {
-            heap_vector.write().mark_reachable();
+            let mut guard = heap_vector.write();
+            if guard.is_reachable() {
+                return;
+            }
+            guard.mark_reachable();
         }
 
         self.stats.vector_reached_count += 1;
@@ -2372,12 +2431,12 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
         &mut self,
         heap_ref: &StandardSharedMut<HeapAllocated<SteelVal>>,
     ) {
-        if heap_ref.read().is_reachable() {
-            return;
-        }
-
         {
-            heap_ref.write().mark_reachable();
+            let mut guard = heap_ref.write();
+            if guard.is_reachable() {
+                return;
+            }
+            guard.mark_reachable();
         }
 
         self.stats.memory_reached_count += 1;
@@ -2390,12 +2449,12 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
         &mut self,
         heap_vector: &StandardSharedMut<HeapAllocated<Vec<SteelVal>>>,
     ) {
-        if heap_vector.read().is_reachable() {
-            return;
-        }
-
         {
-            heap_vector.write().mark_reachable();
+            let mut guard = heap_vector.write();
+            if guard.is_reachable() {
+                return;
+            }
+            guard.mark_reachable();
         }
 
         self.stats.vector_reached_count += 1;
