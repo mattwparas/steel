@@ -1885,7 +1885,6 @@ impl Heap {
                     .saturating_sub(stats.memory_reached_count);
 
                 // if !self.vector_free_list.has_sufficient_memory_pressure() {
-                // (vector_free_list.alloc_count handled above)
                 // if self.vector_free_list.percent_full() > 0.75 {
                 if self.vector_free_list.grow_count > RESET_LIMIT {
                     // Compact the free list.
