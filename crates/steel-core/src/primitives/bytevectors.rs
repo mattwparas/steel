@@ -839,7 +839,7 @@ pub fn s32_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> 
             throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
         )
         .map(|x| {
-            let int = s32::from_ne_bytes([x[0], x[1], x[2], x[3]]);
+            let int = i32::from_ne_bytes([x[0], x[1], x[2], x[3]]);
             SteelVal::IntV(int as isize)
         })
 }
