@@ -1179,6 +1179,34 @@ fn free_list_continues_allocating_in_the_middle() {
     drop(right_half)
 }
 
+#[test]
+fn compaction_reindexes_survivors() {
+    let mut free_list: FreeList<SteelVal> = FreeList::new();
+
+    let pointers = (0..200)
+        .map(|x| free_list.allocate(SteelVal::IntV(x)))
+        .collect::<Vec<_>>();
+    let kept: Vec<_> = pointers
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, p)| (i % 2 == 0).then_some((i as isize, p)))
+        .collect();
+
+    free_list.weak_collection();
+    free_list.compact();
+
+    for (i, x) in free_list.elements.iter().enumerate() {
+        assert_eq!(x.read().index as usize, i);
+    }
+
+    for (value, ptr) in &kept {
+        assert_eq!(ptr.get(), SteelVal::IntV(*value));
+    }
+
+    drop(kept);
+    free_list.weak_collection();
+}
+
 #[cfg(feature = "sync")]
 #[test]
 fn parallel_mark_counts_each_slot_exactly_once() {
@@ -1395,13 +1423,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     fn collect_on_condition(&mut self, func: fn(&HeapElement<T>, &Marks) -> bool) -> usize {
         log::debug!(target: "gc", "Free count before weak collection: {}", self.alloc_count);
         let mut amount_dropped = 0;
-        for x in self.elements.iter() {
-            if func(x, &self.marks) {
-                let index = x.read().index as usize;
-                if self.marks.get(index) {
-                    self.marks.clear(index);
-                    amount_dropped += 1;
-                }
+        for (index, x) in self.elements.iter().enumerate() {
+            if func(x, &self.marks) && self.marks.get(index) {
+                self.marks.clear(index);
+                amount_dropped += 1;
             }
         }
 
@@ -1616,13 +1641,10 @@ impl<T: HeapAble + 'static> FreeList<T> {
     fn collect_on_condition(&mut self, func: fn(&HeapElement<T>, &Marks) -> bool) -> usize {
         log::debug!(target: "gc", "Free count before weak collection: {}", self.alloc_count);
         let mut amount_dropped = 0;
-        for x in self.elements.iter() {
-            if func(x, &self.marks) {
-                let index = x.read().index as usize;
-                if self.marks.get(index) {
-                    self.marks.clear(index);
-                    amount_dropped += 1;
-                }
+        for (index, x) in self.elements.iter().enumerate() {
+            if func(x, &self.marks) && self.marks.get(index) {
+                self.marks.clear(index);
+                amount_dropped += 1;
             }
         }
 
