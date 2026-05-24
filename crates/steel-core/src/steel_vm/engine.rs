@@ -2141,6 +2141,27 @@ impl Engine {
         self.register_value_inner(name, value)
     }
 
+    /// Registers a variadic native function under `name`. The function receives the
+    /// raw `&[SteelVal]` arguments and returns a `Result<SteelVal>`. `arity`, when
+    /// `Some`, declares the expected fixed arity; callers must still check argument
+    /// counts inside `func` if they need a runtime error.
+    pub fn register_native_fn(
+        &mut self,
+        name: &str,
+        arity: Option<u32>,
+        func: impl Fn(&[SteelVal]) -> Result<SteelVal> + Send + Sync + 'static,
+    ) -> &mut Self {
+        let name_arc = Arc::new(name.to_string());
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
+                Arc::new(func),
+                Some(name_arc),
+                arity,
+            ))),
+        )
+    }
+
     pub fn update_value(&mut self, name: &str, value: SteelVal) -> Option<&mut Self> {
         let idx = self.virtual_machine.compiler.read().get_idx(name)?;
 

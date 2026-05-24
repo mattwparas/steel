@@ -10,7 +10,7 @@ use cranelift::{
     prelude::{isa::CallConv, *},
 };
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{DataDescription, FuncId, Linkage, Module};
+use cranelift_module::{FuncId, Linkage, Module};
 use std::collections::HashSet;
 use std::{collections::HashMap, mem::ManuallyDrop};
 use steel_derive::cross_platform_fn;
@@ -23,8 +23,8 @@ use crate::{
     gc::Gc,
     primitives::{
         lists::{steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse},
-        ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
-        strings::{char_equals_binop, steel_char_equals},
+        ports::{eof_objectp_jit, steel_eof_objectp},
+        strings::steel_char_equals,
         vectors::steel_mut_vec_set,
     },
     rvals::{FunctionSignature, SteelString},
@@ -296,59 +296,6 @@ fn type_to_ir_type<T>() -> Type {
     Type::int(core::mem::size_of::<T>() as u16 * 8).unwrap()
 }
 
-// Build table mapping the function signatures
-// from the runtime representation to their specialized one via op codes.
-
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
-struct PrimitiveSignature {
-    func: i64,
-    arity: usize,
-    shape: &'static [CallKind],
-}
-
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
-enum CallKind {
-    Value,
-    Ref,
-    RefMut,
-}
-
-enum FunctionOrInstructionSet {
-    Pointer(i64),
-    InstructionSet(fn(&mut FunctionTranslator, arity: usize)),
-    InstructionSetWithFallback(fn(&mut FunctionTranslator, arity: usize) -> bool, i64),
-}
-
-struct PrimitiveTable {
-    map: HashMap<PrimitiveSignature, i64>,
-}
-
-impl PrimitiveTable {
-    pub fn new() -> Self {
-        let mut map = HashMap::new();
-
-        map.insert(
-            PrimitiveSignature {
-                func: steel_read_char as *const () as i64,
-                arity: 1,
-                shape: &[CallKind::Ref],
-            },
-            read_char_single_ref as *const () as i64,
-        );
-
-        map.insert(
-            PrimitiveSignature {
-                func: steel_char_equals as *const () as i64,
-                arity: 2,
-                shape: &[CallKind::Value, CallKind::Value],
-            },
-            char_equals_binop as *const () as i64,
-        );
-
-        Self { map }
-    }
-}
-
 macro_rules! abi {
     ($func:ident as $($tokens:tt)*) => {
         {
@@ -377,7 +324,7 @@ fn debug_int(value: i64) {
 
 #[cross_platform_fn]
 fn debug_value(value: SteelVal) {
-    let mut value = ManuallyDrop::new(value);
+    let value = ManuallyDrop::new(value);
     println!("Value: {}", &*value);
 }
 
@@ -1276,22 +1223,24 @@ impl Default for JIT {
 
         let module = JITModule::new(builder);
 
-        use object::elf;
-        use target_lexicon::Architecture;
-
-        let e_machine = match target_lexicon::HOST.architecture {
-            Architecture::X86_64 => elf::EM_X86_64 as u32,
-            Architecture::Aarch64(_) => elf::EM_AARCH64 as u32,
-            Architecture::Arm(_) => elf::EM_ARM as u32,
-            _ => unimplemented!(),
-        };
-
         #[cfg(target_os = "linux")]
-        let jitdump = wasmtime_jit_debug::perf_jitdump::JitDumpFile::new(
-            format!("./jit-{}.dump", std::process::id()),
-            e_machine,
-        )
-        .unwrap();
+        let jitdump = {
+            use object::elf;
+            use target_lexicon::Architecture;
+
+            let e_machine = match target_lexicon::HOST.architecture {
+                Architecture::X86_64 => elf::EM_X86_64 as u32,
+                Architecture::Aarch64(_) => elf::EM_AARCH64 as u32,
+                Architecture::Arm(_) => elf::EM_ARM as u32,
+                _ => unimplemented!(),
+            };
+
+            wasmtime_jit_debug::perf_jitdump::JitDumpFile::new(
+                format!("./jit-{}.dump", std::process::id()),
+                e_machine,
+            )
+            .unwrap()
+        };
 
         Self {
             builder_context: FunctionBuilderContext::new(),
@@ -1572,19 +1521,21 @@ impl JIT {
         // Lets figure out... what we need here
         write_perf_map_entry(code, code_size, &inner_name);
 
-        #[cfg(target_os = "linux")]
-        {
-            // after finalize_definitions(), for each function:
-            let ptr = code;
-            let size = code_size;
-            let code_bytes = unsafe { std::slice::from_raw_parts(ptr, size) };
-            let timestamp = self.jitdump.get_time_stamp();
-            let pid = std::process::id();
-            let tid = rustix::thread::gettid().as_raw_nonzero().get() as u32;
+        if std::env::var("STEEL_JIT_DUMP").is_ok() {
+            #[cfg(target_os = "linux")]
+            {
+                // after finalize_definitions(), for each function:
+                let ptr = code;
+                let size = code_size;
+                let code_bytes = unsafe { std::slice::from_raw_parts(ptr, size) };
+                let timestamp = self.jitdump.get_time_stamp();
+                let pid = std::process::id();
+                let tid = rustix::thread::gettid().as_raw_nonzero().get() as u32;
 
-            self.jitdump
-                .dump_code_load_record(&inner_name, code_bytes, timestamp, pid, tid)
-                .unwrap();
+                self.jitdump
+                    .dump_code_load_record(&inner_name, code_bytes, timestamp, pid, tid)
+                    .unwrap();
+            }
         }
 
         Ok(code)
@@ -1707,11 +1658,13 @@ impl JIT {
         // Tell the builder we're done with this function.
         trans.builder.finalize();
 
+        /*
         if !trans.potentially_could_deopt {
             println!("Found a candidate for tier 2 compilation: {}", trans.name);
         }
 
         println!("Stats: {:#?}", trans.compilation_stats);
+        */
 
         self.function_return_types.insert(id, exit_types);
 
@@ -2572,7 +2525,6 @@ impl FunctionTranslator<'_> {
 
                                     is_truthy
                                 }
-                                _ => self.call_test_handler(test),
                             };
 
                             self.translate_if_else_value(
@@ -2580,13 +2532,8 @@ impl FunctionTranslator<'_> {
                                 true_instr,
                                 false_instr.to_usize(),
                             );
-
-                            // self.push(res, InferredType::Any);
                         }
                     }
-
-                    // self.depth -= 1;
-                    // return false;
                 }
                 OpCode::JMP | OpCode::POPJMP => {
                     // println!("Jumping from {} -> {}", self.ip, payload);
@@ -3307,8 +3254,6 @@ impl FunctionTranslator<'_> {
                     // Check the actual value that we're looking up, see if its there
                     let function_index = payload;
 
-                    // dbg!(function_index);
-
                     let global = self._globals.get(function_index);
 
                     match global.cloned() {
@@ -3316,22 +3261,6 @@ impl FunctionTranslator<'_> {
                             // Attempt the other call
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
-
-                            // Install lots of lookups for this stuff
-                            // if f == crate::primitives::strings::steel_char_equals
-                            //     as FunctionSignature
-                            //     && arity == 2
-                            // {
-                            //     self.char_equals(arity);
-                            // }
-                            /*
-                            else if f == steel_read_char as FunctionSignature
-                                && arity == 1
-                                && false
-                            {
-                                self.read_char(arity);
-                            }
-                            */
 
                             // TODO: Can we abstract this into its own thing?
                             match f {
@@ -3615,56 +3544,7 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let register_r = self.shadow_stack_pop().unwrap().into_index();
-                    let register_l = self.shadow_stack_pop().unwrap().into_index();
-
-                    // Read both from the vm stack - we could read them together,
-                    // but for now this will do
-                    let local_value_r = self.read_from_vm_stack(register_r);
-                    let local_value_l = self.read_from_vm_stack(register_l);
-
-                    let is_right_int = self.is_type(local_value_r, SteelVal::INT_TAG);
-                    let is_left_int = self.is_type(local_value_l, SteelVal::INT_TAG);
-
-                    let both_int = self.builder.ins().band(is_right_int, is_left_int);
-
-                    // TODO: Adjust all of these things - in the event we're subtracting two
-                    // integer values, then we need to do
-                    let sp = |ctx: &mut Self| {
-                        let register_l = ctx.builder.ins().iconst(types::I64, register_l as i64);
-                        let register_r = ctx.builder.ins().iconst(types::I64, register_r as i64);
-                        let args = [register_l, register_r];
-                        let result =
-                            ctx.call_function_returns_value_args("sub-binop-both-reg", &args);
-
-                        ctx.check_deopt();
-
-                        result
-                    };
-
-                    let result = self.converging_if(
-                        both_int,
-                        |ctx| {
-                            let lhs = ctx.unbox_value_to_pointer(local_value_l);
-                            let rhs = ctx.unbox_value_to_pointer(local_value_r);
-
-                            let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
-
-                            ctx.converging_if(
-                                overflow_flag,
-                                sp,
-                                |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
-                                types::I128,
-                            )
-                        },
-                        sp,
-                        types::I128,
-                    );
-
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::Number);
-
-                    self.ip += 2;
+                    self.sub_register_two();
                 }
 
                 // TODO: Generalize this to any immediate!
@@ -3678,91 +3558,7 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let constant_value = self
-                        .shadow_stack_pop()
-                        .unwrap()
-                        .into_constant_int(self)
-                        .unwrap();
-                    let register_index = self.shadow_stack_pop().unwrap().into_index();
-
-                    let (tag, local_value) = self.read_from_vm_stack_split(register_index);
-
-                    let is_int =
-                        self.builder
-                            .ins()
-                            .icmp_imm(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
-
-                    let sp = |ctx: &mut Self| {
-                        let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
-                        let value = ctx.encode_integer(1);
-                        let args = [register, value];
-                        let result =
-                            ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
-
-                        result
-                    };
-
-                    let result = self.converging_if(
-                        is_int,
-                        |ctx| {
-                            if let Some(Properties::GreaterThan(v)) = ctx
-                                .properties
-                                .get(&ValueOrRegister::Register(register_index))
-                            {
-                                if v >= 0 {
-                                    // If its an int, then we'll do checked subtraction:
-                                    // let lhs = ctx.unbox_value_to_pointer(local_value);
-                                    let lhs = local_value;
-
-                                    // Negate it and do an immediate add
-                                    let subbed =
-                                        ctx.builder.ins().iadd_imm(lhs, -(constant_value as i64));
-                                    ctx.encode_value(SteelVal::INT_TAG as _, subbed)
-                                } else {
-                                    // let lhs = ctx.unbox_value_to_pointer(local_value);
-                                    let lhs = local_value;
-                                    // let value = ctx.encode_integer(constant_value as _);
-                                    // let rhs = ctx.unbox_value_to_pointer(value);
-
-                                    let rhs =
-                                        ctx.builder.ins().iconst(types::I64, constant_value as i64);
-
-                                    let (subbed, overflow_flag) =
-                                        ctx.builder.ins().ssub_overflow(lhs, rhs);
-
-                                    ctx.converging_if(
-                                        overflow_flag,
-                                        sp,
-                                        |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
-                                        types::I128,
-                                    )
-                                }
-                            } else {
-                                let lhs = local_value;
-                                let rhs =
-                                    ctx.builder.ins().iconst(types::I64, constant_value as i64);
-
-                                let (subbed, overflow_flag) =
-                                    ctx.builder.ins().ssub_overflow(lhs, rhs);
-
-                                ctx.converging_if(
-                                    overflow_flag,
-                                    sp,
-                                    |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
-                                    types::I128,
-                                )
-                            }
-
-                            // // If its an int, then we'll do checked subtraction:
-                        },
-                        sp,
-                        types::I128,
-                    );
-
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::Number);
-
-                    self.ip += 2;
+                    self.sub_register_constant();
                 }
 
                 // TODO: Depending on the inferred type, we can save a lot of
@@ -3782,51 +3578,7 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let value = self.shadow_stack_pop().unwrap().into_value(self);
-                    let register_index = self.shadow_stack_pop().unwrap().into_index();
-
-                    // Do the shift here, in an effort to avoid passing more stuff?
-                    let value = value.as_steelval(self);
-
-                    let local_value = self.read_from_vm_stack(register_index);
-                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
-
-                    let sp = |ctx: &mut Self| {
-                        let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
-                        let args = [register, value];
-                        let result =
-                            ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
-
-                        result
-                    };
-
-                    let result = self.converging_if(
-                        is_int,
-                        |ctx| {
-                            // If its an int, then we'll do checked subtraction:
-                            let lhs = ctx.unbox_value_to_pointer(local_value);
-                            let rhs = ctx.unbox_value_to_pointer(value);
-
-                            let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
-
-                            ctx.converging_if(
-                                overflow_flag,
-                                sp,
-                                |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
-                                types::I128,
-                            )
-                        },
-                        sp,
-                        types::I128,
-                    );
-
-                    // let args = [register, value];
-                    // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
-
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::Number);
-
-                    self.ip += 2;
+                    self.sub_register_int_constant();
                 }
 
                 OpCode::SUB
@@ -3842,44 +3594,7 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let value = self.shadow_stack_pop().unwrap().into_value(self);
-                    let register_index = self.shadow_stack_pop().unwrap().into_index();
-
-                    // Do the shift here, in an effort to avoid passing more stuff?
-                    let value = value.as_steelval(self);
-
-                    let local_value = self.read_from_vm_stack(register_index);
-                    let is_float = self.is_type(local_value, SteelVal::FLOAT_TAG);
-
-                    let sp = |ctx: &mut Self| {
-                        let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
-                        let args = [register, value];
-                        let result =
-                            ctx.call_function_returns_value_args("sub-binop-float-reg", &args);
-
-                        result
-                    };
-
-                    let result = self.converging_if(
-                        is_float,
-                        |ctx| {
-                            // If its an int, then we'll do checked subtraction:
-                            let lhs = ctx.unbox_value_to_float(local_value);
-                            let rhs = ctx.unbox_value_to_float(value);
-                            let subbed = ctx.builder.ins().fsub(lhs, rhs);
-                            ctx.encode_float_value(subbed)
-                        },
-                        sp,
-                        types::I128,
-                    );
-
-                    // let args = [register, value];
-                    // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
-
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::Float);
-
-                    self.ip += 2;
+                    self.sub_register_float();
                 }
 
                 // TODO: Handle floats as well, just like the above.
@@ -5617,6 +5332,227 @@ impl FunctionTranslator<'_> {
         self.depth -= 1;
 
         return true;
+    }
+
+    fn sub_register_float(&mut self) {
+        let value = self.shadow_stack_pop().unwrap().into_value(self);
+        let register_index = self.shadow_stack_pop().unwrap().into_index();
+
+        // Do the shift here, in an effort to avoid passing more stuff?
+        let value = value.as_steelval(self);
+
+        let local_value = self.read_from_vm_stack(register_index);
+        let is_float = self.is_type(local_value, SteelVal::FLOAT_TAG);
+
+        let sp = |ctx: &mut Self| {
+            let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+            let args = [register, value];
+            let result = ctx.call_function_returns_value_args("sub-binop-float-reg", &args);
+
+            result
+        };
+
+        let result = self.converging_if(
+            is_float,
+            |ctx| {
+                // If its an int, then we'll do checked subtraction:
+                let lhs = ctx.unbox_value_to_float(local_value);
+                let rhs = ctx.unbox_value_to_float(value);
+                let subbed = ctx.builder.ins().fsub(lhs, rhs);
+                ctx.encode_float_value(subbed)
+            },
+            sp,
+            types::I128,
+        );
+
+        // let args = [register, value];
+        // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+        // Check the inferred type, if we know of it
+        self.push(result, InferredType::Float);
+
+        self.ip += 2;
+    }
+
+    fn sub_register_int_constant(&mut self) {
+        let value = self.shadow_stack_pop().unwrap().into_value(self);
+        let register_index = self.shadow_stack_pop().unwrap().into_index();
+
+        // Do the shift here, in an effort to avoid passing more stuff?
+        let value = value.as_steelval(self);
+
+        let local_value = self.read_from_vm_stack(register_index);
+        let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+        let sp = |ctx: &mut Self| {
+            let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+            let args = [register, value];
+            let result = ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+            result
+        };
+
+        let result = self.converging_if(
+            is_int,
+            |ctx| {
+                // If its an int, then we'll do checked subtraction:
+                let lhs = ctx.unbox_value_to_pointer(local_value);
+                let rhs = ctx.unbox_value_to_pointer(value);
+
+                let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
+
+                ctx.converging_if(
+                    overflow_flag,
+                    sp,
+                    |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
+                    types::I128,
+                )
+            },
+            sp,
+            types::I128,
+        );
+
+        // let args = [register, value];
+        // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+        // Check the inferred type, if we know of it
+        self.push(result, InferredType::Number);
+
+        self.ip += 2;
+    }
+
+    fn sub_register_constant(&mut self) {
+        let constant_value = self
+            .shadow_stack_pop()
+            .unwrap()
+            .into_constant_int(self)
+            .unwrap();
+        let register_index = self.shadow_stack_pop().unwrap().into_index();
+
+        let (tag, local_value) = self.read_from_vm_stack_split(register_index);
+
+        let is_int = self
+            .builder
+            .ins()
+            .icmp_imm(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
+
+        let sp = |ctx: &mut Self| {
+            let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+            let value = ctx.encode_integer(1);
+            let args = [register, value];
+            let result = ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+            result
+        };
+
+        let result = self.converging_if(
+            is_int,
+            |ctx| {
+                if let Some(Properties::GreaterThan(v)) = ctx
+                    .properties
+                    .get(&ValueOrRegister::Register(register_index))
+                {
+                    if v >= 0 {
+                        // If its an int, then we'll do checked subtraction:
+                        // let lhs = ctx.unbox_value_to_pointer(local_value);
+                        let lhs = local_value;
+
+                        // Negate it and do an immediate add
+                        let subbed = ctx.builder.ins().iadd_imm(lhs, -(constant_value as i64));
+                        ctx.encode_value(SteelVal::INT_TAG as _, subbed)
+                    } else {
+                        // let lhs = ctx.unbox_value_to_pointer(local_value);
+                        let lhs = local_value;
+                        // let value = ctx.encode_integer(constant_value as _);
+                        // let rhs = ctx.unbox_value_to_pointer(value);
+
+                        let rhs = ctx.builder.ins().iconst(types::I64, constant_value as i64);
+
+                        let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
+
+                        ctx.converging_if(
+                            overflow_flag,
+                            sp,
+                            |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
+                            types::I128,
+                        )
+                    }
+                } else {
+                    let lhs = local_value;
+                    let rhs = ctx.builder.ins().iconst(types::I64, constant_value as i64);
+
+                    let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
+
+                    ctx.converging_if(
+                        overflow_flag,
+                        sp,
+                        |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
+                        types::I128,
+                    )
+                }
+
+                // // If its an int, then we'll do checked subtraction:
+            },
+            sp,
+            types::I128,
+        );
+
+        // Check the inferred type, if we know of it
+        self.push(result, InferredType::Number);
+
+        self.ip += 2;
+    }
+
+    fn sub_register_two(&mut self) {
+        let register_r = self.shadow_stack_pop().unwrap().into_index();
+        let register_l = self.shadow_stack_pop().unwrap().into_index();
+
+        // Read both from the vm stack - we could read them together,
+        // but for now this will do
+        let local_value_r = self.read_from_vm_stack(register_r);
+        let local_value_l = self.read_from_vm_stack(register_l);
+
+        let is_right_int = self.is_type(local_value_r, SteelVal::INT_TAG);
+        let is_left_int = self.is_type(local_value_l, SteelVal::INT_TAG);
+
+        let both_int = self.builder.ins().band(is_right_int, is_left_int);
+
+        // TODO: Adjust all of these things - in the event we're subtracting two
+        // integer values, then we need to do
+        let sp = |ctx: &mut Self| {
+            let register_l = ctx.builder.ins().iconst(types::I64, register_l as i64);
+            let register_r = ctx.builder.ins().iconst(types::I64, register_r as i64);
+            let args = [register_l, register_r];
+            let result = ctx.call_function_returns_value_args("sub-binop-both-reg", &args);
+
+            ctx.check_deopt();
+
+            result
+        };
+
+        let result = self.converging_if(
+            both_int,
+            |ctx| {
+                let lhs = ctx.unbox_value_to_pointer(local_value_l);
+                let rhs = ctx.unbox_value_to_pointer(local_value_r);
+
+                let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
+
+                ctx.converging_if(
+                    overflow_flag,
+                    sp,
+                    |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
+                    types::I128,
+                )
+            },
+            sp,
+            types::I128,
+        );
+
+        // Check the inferred type, if we know of it
+        self.push(result, InferredType::Number);
+
+        self.ip += 2;
     }
 
     fn record_stack_size(&mut self) {
