@@ -59,11 +59,13 @@ pub fn bytevector_module() -> BuiltInModule {
 
     module
         .register_native_fn_definition(F32_BYTES_REF_DEFINITION)
-        .register_native_fn_definition(F32_BYTES_SET_DEFINITION);
+        .register_native_fn_definition(F32_BYTES_SET_DEFINITION)
+        .register_native_fn_definition(F32_DOT_PRODUCT_DEFINITION);
 
     module
         .register_native_fn_definition(F64_BYTES_REF_DEFINITION)
-        .register_native_fn_definition(F64_BYTES_SET_DEFINITION);
+        .register_native_fn_definition(F64_BYTES_SET_DEFINITION)
+        .register_native_fn_definition(F64_DOT_PRODUCT_DEFINITION);
 
     module
 }
@@ -1039,4 +1041,87 @@ pub fn s8_bytes_set(value: &mut SteelByteVector, index: usize, byte: i8) -> Resu
     guard[index] = byte as _;
 
     Ok(SteelVal::Void)
+}
+
+#[inline(always)]
+pub fn bytes_as_f32<'a>(bytes: &'a [u8]) -> Option<&'a [f32]> {
+    let (prefix, floats, suffix): (&[u8], &[f32], &[u8]) = unsafe { bytes.align_to::<f32>() };
+
+    if prefix.is_empty() && suffix.is_empty() {
+        Some(floats)
+    } else {
+        None
+    }
+}
+
+#[function(name = "bytevector-f32-dot")]
+pub fn f32_dot_product(a: &SteelByteVector, b: &SteelByteVector) -> Result<SteelVal> {
+    let a_bytes = a.vec.read();
+    let b_bytes = b.vec.read();
+    assert_eq!(a_bytes.len(), b_bytes.len());
+
+    // TODO: Better error handling here
+    let a = bytes_as_f32(&a_bytes).expect("a misaligned");
+    let b = bytes_as_f32(&b_bytes).expect("b misaligned");
+
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+    let a_rem = a_chunks.remainder();
+    let b_rem = b_chunks.remainder();
+
+    let mut acc = [0.0f32; 8];
+    for (ac, bc) in a_chunks.zip(b_chunks) {
+        let ac: &[f32; 8] = ac.try_into().unwrap();
+        let bc: &[f32; 8] = bc.try_into().unwrap();
+        for i in 0..8 {
+            acc[i] = ac[i].mul_add(bc[i], acc[i]);
+        }
+    }
+
+    let main: f32 = acc.iter().sum();
+    let tail: f32 = a_rem
+        .iter()
+        .zip(b_rem)
+        .map(|(x, y)| x.mul_add(*y, 0.0))
+        .sum();
+    Ok(SteelVal::NumV((main + tail) as _))
+}
+
+#[inline(always)]
+pub fn bytes_as_f64<'a>(bytes: &'a [u8]) -> Option<&'a [f64]> {
+    let (prefix, floats, suffix): (&[u8], &[f64], &[u8]) = unsafe { bytes.align_to::<f64>() };
+    if prefix.is_empty() && suffix.is_empty() {
+        Some(floats)
+    } else {
+        None
+    }
+}
+
+#[function(name = "bytevector-f64-dot")]
+pub fn f64_dot_product(a: &SteelByteVector, b: &SteelByteVector) -> Result<SteelVal> {
+    let a_bytes = a.vec.read();
+    let b_bytes = b.vec.read();
+    assert_eq!(a_bytes.len(), b_bytes.len());
+
+    // TODO: Better error handling here
+    let a = bytes_as_f64(&a_bytes).expect("a misaligned");
+    let b = bytes_as_f64(&b_bytes).expect("b misaligned");
+
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+    let a_rem = a_chunks.remainder();
+    let b_rem = b_chunks.remainder();
+
+    let mut acc = [0.0f64; 8];
+    for (ac, bc) in a_chunks.zip(b_chunks) {
+        let ac: &[f64; 8] = ac.try_into().unwrap();
+        let bc: &[f64; 8] = bc.try_into().unwrap();
+        for i in 0..8 {
+            acc[i] = ac[i].mul_add(bc[i], acc[i]);
+        }
+    }
+
+    let main: f64 = acc.iter().sum();
+    let tail: f64 = a_rem.iter().zip(b_rem).map(|(x, y)| x * y).sum();
+    Ok(SteelVal::NumV(main + tail))
 }
