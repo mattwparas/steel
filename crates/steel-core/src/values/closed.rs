@@ -19,10 +19,7 @@ use crate::{
         shared::{MutContainer, ShareableMut, StandardShared, StandardSharedMut, WeakShared},
         GcMut,
     },
-    rvals::{
-        AsRefSteelVal, Custom, IntoSteelVal, OpaqueIterator, RestArgsIter, SteelComplex,
-        SteelVector,
-    },
+    rvals::{AsRefSteelVal, Custom, IntoSteelVal, OpaqueIterator, SteelComplex, SteelVector},
     steel_vm::vm::{Continuation, ContinuationMark, Synchronizer, VmCore},
     values::lists::List,
     SteelErr,
@@ -84,6 +81,9 @@ pub struct GlobalSlotRecycler {
     slots: HashSet<usize>,
 
     queue: Vec<SteelVal>,
+
+    memory_marks: Option<MarksPtr>,
+    vector_marks: Option<MarksPtr>,
 }
 
 impl GlobalSlotRecycler {
@@ -124,6 +124,9 @@ impl GlobalSlotRecycler {
         // collection.
         heap.memory_free_list.mark_all_unreachable();
         heap.vector_free_list.mark_all_unreachable();
+
+        self.memory_marks = Some(heap.memory_free_list.marks.as_ptr_view());
+        self.vector_marks = Some(heap.vector_free_list.marks.as_ptr_view());
 
         // Actually walk the tree, looking for unreachable stuff
         self.visit();
@@ -323,6 +326,8 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
+            memory_marks: self.memory_marks.unwrap(),
+            vector_marks: self.vector_marks.unwrap(),
             stats: MarkAndSweepStats::default(),
         };
 
@@ -353,6 +358,8 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
+            memory_marks: self.memory_marks.unwrap(),
+            vector_marks: self.vector_marks.unwrap(),
             stats: MarkAndSweepStats::default(),
         };
 
@@ -379,6 +386,8 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
+            memory_marks: self.memory_marks.unwrap(),
+            vector_marks: self.vector_marks.unwrap(),
             stats: MarkAndSweepStats::default(),
         };
 
@@ -587,7 +596,7 @@ impl WillExecutor {
     }
 
     // Returns the pair of values next to be used. Not the best data structure choice.
-    fn find_next(&self) -> Option<Pair> {
+    fn find_next(&self, memory_marks: &Marks, vector_marks: &Marks) -> Option<Pair> {
         log::debug!(target: "will", "Finding the next value in the will executor list");
         // Proactively check if the value is ready to be received.
         // TODO: Merge the behavior below and above since we can just return this value
@@ -651,14 +660,24 @@ impl WillExecutor {
                     // the values.
                     SteelVal::MutableVector(heap_ref) => {
                         WeakShared::weak_count(&heap_ref.inner) == 1
-                            || !heap_ref.inner.upgrade().unwrap().read().is_reachable()
+                            || !heap_ref
+                                .inner
+                                .upgrade()
+                                .unwrap()
+                                .read()
+                                .is_reachable(vector_marks)
                     }
                     SteelVal::BoxedIterator(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::SyntaxObject(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::Boxed(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::HeapAllocated(heap_ref) => {
                         WeakShared::weak_count(&heap_ref.inner) == 1
-                            || !heap_ref.inner.upgrade().unwrap().read().is_reachable()
+                            || !heap_ref
+                                .inner
+                                .upgrade()
+                                .unwrap()
+                                .read()
+                                .is_reachable(memory_marks)
                     }
                     SteelVal::Reference(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::BigNum(gc) => Gc::strong_count(gc) == 1,
@@ -735,9 +754,13 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     // and then otherwise drain the vector and put them in when found.
     if let SteelVal::Pair(pair) = ctx
         .thread
-        .enter_safepoint(|_| -> Result<SteelVal, SteelErr> {
+        .enter_safepoint(|thread| -> Result<SteelVal, SteelErr> {
             loop {
-                if let Some(value) = executor.find_next() {
+                let next = {
+                    let heap = thread.heap.lock();
+                    executor.find_next(&heap.memory_free_list.marks, &heap.vector_free_list.marks)
+                };
+                if let Some(value) = next {
                     return Ok(SteelVal::Pair(Gc::new(value)));
                 } else {
                     // Control frequency here, but for when there is no throughput,
@@ -821,21 +844,195 @@ pub fn make_weak_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Steel
 /// (#%gc-collect)
 /// (weak-box-value value) ;; => #false
 /// ```
-#[steel_derive::function(name = "weak-box-value")]
-pub fn weak_box_value(
-    value: &SteelVal,
-    mut rest: RestArgsIter<&SteelVal>,
-) -> Result<SteelVal, SteelErr> {
-    let inner = WeakBox::as_ref(value)?;
+#[steel_derive::context(name = "weak-box-value", arity = "AtLeast(1)")]
+pub fn weak_box_value(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
+    let inner = match WeakBox::as_ref(&args[0]) {
+        Ok(inner) => inner,
+        Err(e) => return Some(Err(e)),
+    };
 
-    // Check if its reachable?
-    if let Some(value) = inner.value.maybe_get_from_weak() {
-        Ok(value)
-    } else {
-        Ok(rest
-            .next()
-            .map(|x| x.unwrap().clone())
-            .unwrap_or(SteelVal::BoolV(false)))
+    let got = {
+        let heap = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+        inner
+            .value
+            .maybe_get_from_weak(&heap.memory_free_list.marks)
+    };
+
+    let result = got.unwrap_or_else(|| args.get(1).cloned().unwrap_or(SteelVal::BoolV(false)));
+
+    Some(Ok(result))
+}
+
+#[cfg(feature = "sync")]
+type MarkCell = core::sync::atomic::AtomicU8;
+#[cfg(not(feature = "sync"))]
+type MarkCell = u8;
+
+#[cfg(feature = "sync")]
+use core::sync::atomic::Ordering::Relaxed;
+
+#[derive(Debug)]
+pub(crate) struct Marks(Vec<MarkCell>);
+
+impl Marks {
+    fn new() -> Marks {
+        Marks(Vec::new())
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    #[inline]
+    fn get(&self, index: usize) -> bool {
+        self.0[index] != 0
+    }
+
+    #[cfg(feature = "sync")]
+    #[inline]
+    fn get(&self, index: usize) -> bool {
+        self.0[index].load(Relaxed) != 0
+    }
+
+    #[cfg(not(feature = "sync"))]
+    #[inline]
+    fn set(&mut self, index: usize) {
+        self.0[index] = 1;
+    }
+
+    #[cfg(feature = "sync")]
+    #[inline]
+    fn set(&mut self, index: usize) {
+        *self.0[index].get_mut() = 1;
+    }
+
+    #[cfg(not(feature = "sync"))]
+    #[inline]
+    fn clear(&mut self, index: usize) {
+        self.0[index] = 0;
+    }
+
+    #[cfg(feature = "sync")]
+    #[inline]
+    fn clear(&mut self, index: usize) {
+        *self.0[index].get_mut() = 0;
+    }
+
+    #[cfg(not(feature = "sync"))]
+    fn clear_all(&mut self) {
+        self.0.fill(0);
+    }
+
+    #[cfg(feature = "sync")]
+    fn clear_all(&mut self) {
+        for cell in self.0.iter_mut() {
+            *cell.get_mut() = 0;
+        }
+    }
+
+    #[cfg(not(feature = "sync"))]
+    fn count_free(&self) -> usize {
+        self.0.iter().filter(|&&b| b == 0).count()
+    }
+
+    #[cfg(feature = "sync")]
+    fn count_free(&mut self) -> usize {
+        self.0
+            .as_mut_slice()
+            .iter_mut()
+            .map(|cell| *cell.get_mut())
+            .filter(|&b| b == 0)
+            .count()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    fn first_free_from(&self, start: usize) -> Option<usize> {
+        self.0[start..]
+            .iter()
+            .position(|&b| b == 0)
+            .map(|p| p + start)
+    }
+
+    #[cfg(feature = "sync")]
+    fn first_free_from(&mut self, start: usize) -> Option<usize> {
+        self.0[start..]
+            .iter_mut()
+            .position(|cell| *cell.get_mut() == 0)
+            .map(|p| p + start)
+    }
+
+    #[cfg(not(feature = "sync"))]
+    fn extend_free(&mut self, additional: usize) {
+        let new_len = self.0.len() + additional;
+        self.0.resize(new_len, 0);
+    }
+
+    #[cfg(feature = "sync")]
+    fn extend_free(&mut self, additional: usize) {
+        self.0.extend((0..additional).map(|_| MarkCell::new(0)));
+    }
+
+    #[cfg(not(feature = "sync"))]
+    fn reset_all_reachable(&mut self, len: usize) {
+        self.0.clear();
+        self.0.resize(len, 1);
+    }
+
+    #[cfg(feature = "sync")]
+    fn reset_all_reachable(&mut self, len: usize) {
+        self.0.clear();
+        self.0.extend((0..len).map(|_| MarkCell::new(1)));
+    }
+
+    #[cfg(not(feature = "sync"))]
+    fn clone_marks(&self) -> Marks {
+        Marks(self.0.clone())
+    }
+
+    #[cfg(feature = "sync")]
+    fn clone_marks(&self) -> Marks {
+        Marks(
+            self.0
+                .iter()
+                .map(|cell| MarkCell::new(cell.load(Relaxed)))
+                .collect(),
+        )
+    }
+
+    fn as_ptr_view(&mut self) -> MarksPtr {
+        MarksPtr {
+            ptr: self.0.as_mut_ptr(),
+            len: self.0.len(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MarksPtr {
+    ptr: *mut MarkCell,
+    len: usize,
+}
+
+unsafe impl Send for MarksPtr {}
+unsafe impl Sync for MarksPtr {}
+
+impl MarksPtr {
+    #[cfg(not(feature = "sync"))]
+    #[inline]
+    unsafe fn test_and_set(&self, index: usize) -> bool {
+        debug_assert!(index < self.len);
+        let cell = self.ptr.add(index);
+        let prev = *cell;
+        *cell = 1;
+        prev == 0
+    }
+
+    #[cfg(feature = "sync")]
+    #[inline]
+    unsafe fn test_and_set(&self, index: usize) -> bool {
+        debug_assert!(index < self.len);
+        (*self.ptr.add(index)).swap(1, Relaxed) == 0
     }
 }
 
@@ -852,6 +1049,9 @@ struct FreeList<T: HeapAble> {
     // allocate a whole bunch more. Can probably just get away with a vec of vecs to avoid
     // copying everything.
     elements: Vec<HeapElement<T>>,
+
+    marks: Marks,
+
     cursor: usize,
 
     // Available count
@@ -873,16 +1073,16 @@ impl<T: HeapAble> Clone for FreeList<T> {
             cursor: self.cursor,
             alloc_count: self.alloc_count,
             grow_count: self.grow_count,
+            marks: self.marks.clone_marks(),
             elements: self
                 .elements
                 .iter()
                 .map(|x| {
                     let guard = x.read();
-                    let inner = guard.value.clone();
                     StandardShared::new(MutContainer::new(HeapAllocated {
-                        reachable: guard.reachable,
                         finalizer: guard.finalizer,
-                        value: inner,
+                        index: guard.index,
+                        value: guard.value.clone(),
                     }))
                 })
                 .collect(),
@@ -911,7 +1111,7 @@ fn basic_free_list_usage() {
     free_list.weak_collection();
 
     for var in &free_list.elements {
-        assert!(!var.read().is_reachable());
+        assert!(!var.read().is_reachable(&free_list.marks));
     }
 }
 
@@ -928,11 +1128,11 @@ fn free_list_continues_allocating_when_full() {
         .collect::<Vec<_>>();
 
     for var in &free_list.elements[0..count] {
-        assert!(var.read().is_reachable());
+        assert!(var.read().is_reachable(&free_list.marks));
     }
 
     for var in &free_list.elements[count..] {
-        assert!(!var.read().is_reachable());
+        assert!(!var.read().is_reachable(&free_list.marks));
     }
 
     drop(pointers);
@@ -940,7 +1140,7 @@ fn free_list_continues_allocating_when_full() {
     free_list.weak_collection();
 
     for var in &free_list.elements {
-        assert!(!var.read().is_reachable());
+        assert!(!var.read().is_reachable(&free_list.marks));
     }
 }
 
@@ -957,11 +1157,11 @@ fn free_list_continues_allocating_in_the_middle() {
         .collect::<Vec<_>>();
 
     for var in &free_list.elements[0..count] {
-        assert!(var.read().is_reachable());
+        assert!(var.read().is_reachable(&free_list.marks));
     }
 
     for var in &free_list.elements[count..] {
-        assert!(!var.read().is_reachable());
+        assert!(!var.read().is_reachable(&free_list.marks));
     }
 
     let right_half = pointers.split_off(100);
@@ -973,7 +1173,7 @@ fn free_list_continues_allocating_in_the_middle() {
     // Check that the first 100 elements are in fact, gone
 
     for var in &free_list.elements[0..100] {
-        assert!(!var.read().is_reachable());
+        assert!(!var.read().is_reachable(&free_list.marks));
     }
 
     drop(right_half)
@@ -987,9 +1187,18 @@ fn parallel_mark_counts_each_slot_exactly_once() {
     let num_slots = 4000;
     let num_threads = 8;
 
+    let mut marks = Marks::new();
+    marks.extend_free(num_slots);
+    let marks_ptr = marks.as_ptr_view();
+
     let slots: Arc<Vec<HeapElement<SteelVal>>> = Arc::new(
         (0..num_slots)
-            .map(|_| StandardShared::new(MutContainer::new(HeapAllocated::new(SteelVal::Void))))
+            .map(|i| {
+                StandardShared::new(MutContainer::new(HeapAllocated::new(
+                    SteelVal::Void,
+                    i as u32,
+                )))
+            })
             .collect(),
     );
 
@@ -999,6 +1208,8 @@ fn parallel_mark_counts_each_slot_exactly_once() {
         .map(|_| {
             let slots = Arc::clone(&slots);
             let barrier = Arc::clone(&barrier);
+            let memory_marks = marks_ptr;
+            let vector_marks = marks_ptr;
             std::thread::spawn(move || {
                 let queue = crossbeam_queue::SegQueue::new();
                 let mut local_queue = Vec::new();
@@ -1006,6 +1217,8 @@ fn parallel_mark_counts_each_slot_exactly_once() {
                     local_queue: &mut local_queue,
                     queue: &queue,
                     stats: MarkAndSweepStats::default(),
+                    memory_marks,
+                    vector_marks,
                 };
 
                 barrier.wait();
@@ -1022,7 +1235,7 @@ fn parallel_mark_counts_each_slot_exactly_once() {
 
     assert_eq!(total, num_slots);
     for slot in slots.iter() {
-        assert!(slot.read().is_reachable());
+        assert!(marks.get(slot.read().index as usize));
     }
 }
 
@@ -1038,6 +1251,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         let mut res = FreeList {
             elements: Vec::new(),
+            marks: Marks::new(),
             cursor: 0,
             alloc_count: 0,
             grow_count: 0,
@@ -1057,16 +1271,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
     // Update the counts for things
     fn recount(&mut self) {
-        self.alloc_count = 0;
-        for element in &mut self.elements {
-            let guard = element.read();
-            if !guard.is_reachable() {
-                // Replace with an empty value... for now.
-                // Want to keep the memory counts down.
-                // let value = core::mem::replace(&mut guard.value, T::empty());
-                self.alloc_count += 1;
-            }
-        }
+        self.alloc_count = self.marks.count_free();
     }
 
     fn percent_full(&self) -> f64 {
@@ -1088,9 +1293,12 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // Can probably make this a lot bigger
         let current = self.elements.len().max(amount);
 
-        self.cursor = self.elements.len();
+        let start = self.elements.len();
+        self.cursor = start;
 
         self.elements.reserve(current);
+
+        self.marks.extend_free(current);
 
         log::debug!(target: "gc", "Time to extend the heap vec");
 
@@ -1099,12 +1307,12 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
         // be snatched on demand?
-        self.elements.extend(
-            core::iter::repeat_with(|| {
-                StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
-            })
-            .take(current),
-        );
+        self.elements.extend((0..current).map(|i| {
+            StandardShared::new(MutContainer::new(HeapAllocated::new(
+                T::empty(),
+                (start + i) as u32,
+            )))
+        }));
 
         log::debug!(target: "gc", "Growing the heap by: {}", current);
 
@@ -1113,7 +1321,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.marks.get(self.cursor));
         }
     }
 
@@ -1127,7 +1335,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.marks.get(self.cursor));
         }
     }
 
@@ -1137,9 +1345,11 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     }
 
     fn allocate(&mut self, value: T) -> HeapRef<T> {
+        let cursor = self.cursor;
+
         // Drain, moving values around...
         // is that expensive?
-        let guard = &mut self.elements[self.cursor];
+        let guard = &mut self.elements[cursor];
 
         // Allocate into this field
         let mut heap_guard = guard.write();
@@ -1149,25 +1359,19 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // freed?
         heap_guard.value = value;
 
-        heap_guard.reachable = true;
         let weak_ptr = StandardShared::downgrade(guard);
         drop(heap_guard);
+
+        self.marks.set(cursor);
 
         // self.elements[self.cursor] = pointer;
         self.alloc_count -= 1;
 
         // Find where to assign the next slot optimistically?
-        let next_slot = self.elements[self.cursor..]
-            .iter()
-            .position(|x| !x.read().is_reachable());
+        let next_slot = self.marks.first_free_from(cursor);
 
         if let Some(next_slot) = next_slot {
-            self.cursor += next_slot;
-
-            // #[cfg(debug_assertions)]
-            // {
-            // assert!(!self.elements[self.cursor].read().is_reachable());
-            // }
+            self.cursor = next_slot;
         } else {
             // TODO: Handle compaction and moving things around so the
             // cursor has a chance to actually find stuff that has been
@@ -1177,45 +1381,29 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
                 // Extend the heap, move the cursor to the end
                 self.extend_heap();
-
-                // assert!(!self.elements[self.cursor].read().is_reachable());
             } else {
                 // Move to the beginning.
-                self.cursor = self
-                    .elements
-                    .iter()
-                    .position(|x| !x.read().is_reachable())
-                    .unwrap();
-
-                // assert!(!self.elements[self.cursor].read().is_reachable());
+                self.cursor = self.marks.first_free_from(0).unwrap();
             }
         }
-
-        // assert!(!self.elements[self.cursor].read().is_reachable());
 
         HeapRef { inner: weak_ptr }
     }
 
     // Can incrementally collect with the from / to space, assuming that the collections
     // are done incrementally from the other side.
-    fn collect_on_condition(&mut self, func: fn(&HeapElement<T>) -> bool) -> usize {
+    fn collect_on_condition(&mut self, func: fn(&HeapElement<T>, &Marks) -> bool) -> usize {
         log::debug!(target: "gc", "Free count before weak collection: {}", self.alloc_count);
         let mut amount_dropped = 0;
-
-        self.elements.iter_mut().for_each(|x| {
-            // This is... a little gnarly? We don't want to lock each time, but it could
-            // help. Allocations can now be genuinely reused since we're manipulating
-            // what is inside the pointer
-            if func(x) {
-                let mut guard = x.write();
-
-                if guard.reachable {
-                    guard.reachable = false;
-                    // Reset the values as well?
+        for x in self.elements.iter() {
+            if func(x, &self.marks) {
+                let index = x.read().index as usize;
+                if self.marks.get(index) {
+                    self.marks.clear(index);
                     amount_dropped += 1;
                 }
             }
-        });
+        }
 
         self.alloc_count += amount_dropped;
         log::debug!(target: "gc", "Free count after weak collection: {}", self.alloc_count);
@@ -1226,34 +1414,41 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     // Full weak collection
     fn weak_collection(&mut self) -> usize {
         // Just mark them to be dead
-        let res = self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0);
+        let res = self.collect_on_condition(|inner, _marks| StandardShared::weak_count(inner) == 0);
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.marks.get(self.cursor));
         }
         res
     }
 
     fn mark_all_unreachable(&mut self) {
-        self.elements.iter_mut().for_each(|x| x.write().reset());
+        self.marks.clear_all();
     }
 
     // Compact every once in a while
     // TODO: Move this on to its own thread
     fn compact(&mut self) {
+        let marks = &self.marks;
+
         #[cfg(feature = "sync")]
         if let Some(sender) = &self.forward {
             sender.send(core::mem::take(&mut self.elements)).unwrap();
             self.elements = self.backward.as_ref().unwrap().recv().unwrap();
         } else {
-            self.elements.retain(|x| x.read().is_reachable());
+            self.elements.retain(|x| marks.get(x.read().index as usize));
             self.elements.shrink_to_fit();
         }
 
         #[cfg(not(feature = "sync"))]
         {
-            self.elements.retain(|x| x.read().is_reachable());
+            self.elements.retain(|x| marks.get(x.read().index as usize));
             self.elements.shrink_to_fit();
+        }
+        let survivors = self.elements.len();
+        self.marks.reset_all_reachable(survivors);
+        for (i, x) in self.elements.iter().enumerate() {
+            x.write().index = i as u32;
         }
 
         log::debug!(target: "gc", "Heap size after compaction: {}", self.elements.len());
@@ -1262,12 +1457,12 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         self.extend_heap();
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.marks.get(self.cursor));
         }
     }
 
     fn strong_collection(&mut self) -> usize {
-        self.collect_on_condition(|inner| !inner.read().is_reachable())
+        self.collect_on_condition(|inner, marks| !marks.get(inner.read().index as usize))
     }
 }
 
@@ -1283,6 +1478,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
         let mut res = FreeList {
             elements: Vec::new(),
+            marks: Marks::new(),
             cursor: 0,
             alloc_count: 0,
             grow_count: 0,
@@ -1300,16 +1496,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
     // Update the counts for things
     fn recount(&mut self) {
-        self.alloc_count = 0;
-        for element in &mut self.elements {
-            let guard = element.read();
-            if !guard.is_reachable() {
-                // Replace with an empty value... for now.
-                // Want to keep the memory counts down.
-                // let value = core::mem::replace(&mut guard.value, T::empty());
-                self.alloc_count += 1;
-            }
-        }
+        self.alloc_count = self.marks.count_free();
     }
 
     fn percent_full(&self) -> f64 {
@@ -1331,9 +1518,12 @@ impl<T: HeapAble + 'static> FreeList<T> {
         // Can probably make this a lot bigger
         let current = self.elements.len().max(Self::EXTEND_CHUNK);
 
-        self.cursor = self.elements.len();
+        let start = self.elements.len();
+        self.cursor = start;
 
         self.elements.reserve(current);
+
+        self.marks.extend_free(current);
 
         log::debug!(target: "gc", "Time to extend the heap vec");
 
@@ -1342,12 +1532,12 @@ impl<T: HeapAble + 'static> FreeList<T> {
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
         // be snatched on demand?
-        self.elements.extend(
-            core::iter::repeat_with(|| {
-                StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
-            })
-            .take(current),
-        );
+        self.elements.extend((0..current).map(|i| {
+            StandardShared::new(MutContainer::new(HeapAllocated::new(
+                T::empty(),
+                (start + i) as u32,
+            )))
+        }));
 
         log::debug!(target: "gc", "Growing the heap by: {}", current);
 
@@ -1356,7 +1546,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.marks.get(self.cursor));
         }
     }
 
@@ -1366,7 +1556,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.marks.get(self.cursor));
         }
     }
 
@@ -1376,9 +1566,11 @@ impl<T: HeapAble + 'static> FreeList<T> {
     }
 
     fn allocate(&mut self, value: T) -> HeapRef<T> {
+        let cursor = self.cursor;
+
         // Drain, moving values around...
         // is that expensive?
-        let guard = &mut self.elements[self.cursor];
+        let guard = &mut self.elements[cursor];
 
         // Allocate into this field
         let mut heap_guard = guard.write();
@@ -1388,25 +1580,19 @@ impl<T: HeapAble + 'static> FreeList<T> {
         // freed?
         heap_guard.value = value;
 
-        heap_guard.reachable = true;
         let weak_ptr = StandardShared::downgrade(&guard);
         drop(heap_guard);
+
+        self.marks.set(cursor);
 
         // self.elements[self.cursor] = pointer;
         self.alloc_count -= 1;
 
         // Find where to assign the next slot optimistically?
-        let next_slot = self.elements[self.cursor..]
-            .iter()
-            .position(|x| !x.read().is_reachable());
+        let next_slot = self.marks.first_free_from(cursor);
 
         if let Some(next_slot) = next_slot {
-            self.cursor += next_slot;
-
-            // #[cfg(debug_assertions)]
-            // {
-            // assert!(!self.elements[self.cursor].read().is_reachable());
-            // }
+            self.cursor = next_slot;
         } else {
             // TODO: Handle compaction and moving things around so the
             // cursor has a chance to actually find stuff that has been
@@ -1416,44 +1602,29 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
                 // Extend the heap, move the cursor to the end
                 self.extend_heap();
-
-                // assert!(!self.elements[self.cursor].read().is_reachable());
             } else {
                 // Move to the beginning.
-                self.cursor = self
-                    .elements
-                    .iter()
-                    .position(|x| !x.read().is_reachable())
-                    .unwrap();
-
-                // assert!(!self.elements[self.cursor].read().is_reachable());
+                self.cursor = self.marks.first_free_from(0).unwrap();
             }
         }
-
-        // assert!(!self.elements[self.cursor].read().is_reachable());
 
         HeapRef { inner: weak_ptr }
     }
 
     // Can incrementally collect with the from / to space, assuming that the collections
     // are done incrementally from the other side.
-    fn collect_on_condition(&mut self, func: fn(&HeapElement<T>) -> bool) -> usize {
+    fn collect_on_condition(&mut self, func: fn(&HeapElement<T>, &Marks) -> bool) -> usize {
         log::debug!(target: "gc", "Free count before weak collection: {}", self.alloc_count);
         let mut amount_dropped = 0;
-
-        self.elements.iter_mut().for_each(|x| {
-            // This is... a little gnarly? We don't want to lock each time, but it could
-            // help. Allocations can now be genuinely reused since we're manipulating
-            // what is inside the pointer
-            if func(x) {
-                let mut guard = x.write();
-
-                if guard.reachable {
-                    guard.reachable = false;
+        for x in self.elements.iter() {
+            if func(x, &self.marks) {
+                let index = x.read().index as usize;
+                if self.marks.get(index) {
+                    self.marks.clear(index);
                     amount_dropped += 1;
                 }
             }
-        });
+        }
 
         self.alloc_count += amount_dropped;
         log::debug!(target: "gc", "Free count after weak collection: {}", self.alloc_count);
@@ -1464,34 +1635,41 @@ impl<T: HeapAble + 'static> FreeList<T> {
     // Full weak collection
     fn weak_collection(&mut self) -> usize {
         // Just mark them to be dead
-        let res = self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0);
+        let res = self.collect_on_condition(|inner, _marks| StandardShared::weak_count(inner) == 0);
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.marks.get(self.cursor));
         }
         res
     }
 
     fn mark_all_unreachable(&mut self) {
-        self.elements.iter_mut().for_each(|x| x.write().reset());
+        self.marks.clear_all();
     }
 
     // Compact every once in a while
     // TODO: Move this on to its own thread
     fn compact(&mut self) {
+        let marks = &self.marks;
+
         #[cfg(feature = "sync")]
         if let Some(sender) = &self.forward {
             sender.send(core::mem::take(&mut self.elements)).unwrap();
             self.elements = self.backward.as_ref().unwrap().recv().unwrap();
         } else {
-            self.elements.retain(|x| x.read().is_reachable());
+            self.elements.retain(|x| marks.get(x.read().index as usize));
             self.elements.shrink_to_fit();
         }
 
         #[cfg(not(feature = "sync"))]
         {
-            self.elements.retain(|x| x.read().is_reachable());
+            self.elements.retain(|x| marks.get(x.read().index as usize));
             self.elements.shrink_to_fit();
+        }
+        let survivors = self.elements.len();
+        self.marks.reset_all_reachable(survivors);
+        for (i, x) in self.elements.iter().enumerate() {
+            x.write().index = i as u32;
         }
 
         log::debug!(target: "gc", "Heap size after compaction: {}", self.elements.len());
@@ -1500,20 +1678,22 @@ impl<T: HeapAble + 'static> FreeList<T> {
         self.extend_heap();
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.marks.get(self.cursor));
         }
     }
 
     fn strong_collection(&mut self) -> usize {
-        self.collect_on_condition(|inner| !inner.read().is_reachable())
+        self.collect_on_condition(|inner, marks| !marks.get(inner.read().index as usize))
     }
 }
 
 impl FreeList<Vec<SteelVal>> {
     fn allocate_vec(&mut self, value: impl Iterator<Item = SteelVal>) -> HeapRef<Vec<SteelVal>> {
+        let cursor = self.cursor;
+
         // Drain, moving values around...
         // is that expensive?
-        let guard = &mut self.elements[self.cursor];
+        let guard = &mut self.elements[cursor];
 
         // Allocate into this field
         let mut heap_guard = guard.write();
@@ -1534,25 +1714,19 @@ impl FreeList<Vec<SteelVal>> {
 
         heap_guard.value.shrink_to_fit();
 
-        heap_guard.reachable = true;
         let weak_ptr = StandardShared::downgrade(guard);
         drop(heap_guard);
+
+        self.marks.set(cursor);
 
         // self.elements[self.cursor] = pointer;
         self.alloc_count -= 1;
 
         // Find where to assign the next slot optimistically?
-        let next_slot = self.elements[self.cursor..]
-            .iter()
-            .position(|x| !x.read().is_reachable());
+        let next_slot = self.marks.first_free_from(cursor);
 
         if let Some(next_slot) = next_slot {
-            self.cursor += next_slot;
-
-            // #[cfg(debug_assertions)]
-            // {
-            // assert!(!self.elements[self.cursor].read().is_reachable());
-            // }
+            self.cursor = next_slot;
         } else {
             // TODO: Handle compaction and moving things around so the
             // cursor has a chance to actually find stuff that has been
@@ -1562,21 +1736,11 @@ impl FreeList<Vec<SteelVal>> {
 
                 // Extend the heap, move the cursor to the end
                 self.extend_heap();
-
-                // assert!(!self.elements[self.cursor].read().is_reachable());
             } else {
                 // Move to the beginning.
-                self.cursor = self
-                    .elements
-                    .iter()
-                    .position(|x| !x.read().is_reachable())
-                    .unwrap();
-
-                // assert!(!self.elements[self.cursor].read().is_reachable());
+                self.cursor = self.marks.first_free_from(0).unwrap();
             }
         }
-
-        // assert!(!self.elements[self.cursor].read().is_reachable());
 
         HeapRef { inner: weak_ptr }
     }
@@ -1585,7 +1749,7 @@ impl FreeList<Vec<SteelVal>> {
         let mut amount = 0;
         for element in &self.elements {
             let mut guard = element.write();
-            if guard.is_reachable() {
+            if self.marks.get(guard.index as usize) {
                 amount += guard.value.len()
             } else {
                 // Eagerly clear the value if its not reachable
@@ -1613,7 +1777,6 @@ fn spawn_background_dropper<T: HeapAble + Sync + Send + 'static>(
 
             // TODO: when compacting, keep values that have been registered with a will
             // executor.
-            current.retain(|x| x.read().is_reachable());
             current.shrink_to_fit();
         }
     });
@@ -2037,8 +2200,12 @@ impl Heap {
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
 
+        let memory_marks = self.memory_free_list.marks.as_ptr_view();
+        let vector_marks = self.vector_free_list.marks.as_ptr_view();
         let mut context = MarkAndSweepContext {
             queue: &mut self.mark_and_sweep_queue,
+            memory_marks,
+            vector_marks,
             stats: MarkAndSweepStats::default(),
         };
 
@@ -2101,7 +2268,7 @@ impl Heap {
         log::debug!(target: "gc", "Stack size: {}", context.queue.len());
 
         #[cfg(feature = "sync")]
-        let count = MARKER.mark(context.queue);
+        let count = MARKER.mark(context.queue, context.memory_marks, context.vector_marks);
 
         #[cfg(not(feature = "sync"))]
         let count = {
@@ -2130,7 +2297,7 @@ unsafe impl Send for ParallelMarker {}
 #[cfg(feature = "sync")]
 struct MarkerWorker {
     // Tell the thread to wake up
-    sender: Sender<()>,
+    sender: Sender<(MarksPtr, MarksPtr)>,
     ack: Receiver<MarkAndSweepStats>,
     handle: JoinHandle<()>,
 }
@@ -2155,12 +2322,14 @@ impl ParallelMarker {
                 let cloned_queue = cloned_queue;
                 // This... might be too big?
                 let mut local_queue = Vec::with_capacity(4096);
-                for _ in receiver {
+                for (memory_marks, vector_marks) in receiver {
                     let now = crate::time::Instant::now();
 
                     let mut context = MarkAndSweepContextRefQueue {
                         queue: &cloned_queue,
                         local_queue: &mut local_queue,
+                        memory_marks,
+                        vector_marks,
                         stats: MarkAndSweepStats::default(),
                     };
 
@@ -2190,7 +2359,12 @@ impl ParallelMarker {
         }
     }
 
-    pub fn mark(&self, queue: &[SteelVal]) -> MarkAndSweepStats {
+    pub fn mark(
+        &self,
+        queue: &[SteelVal],
+        memory_marks: MarksPtr,
+        vector_marks: MarksPtr,
+    ) -> MarkAndSweepStats {
         let guard = self.senders.lock().unwrap();
 
         for value in queue.iter() {
@@ -2201,7 +2375,7 @@ impl ParallelMarker {
         }
 
         for worker in guard.iter() {
-            worker.sender.send(()).unwrap();
+            worker.sender.send((memory_marks, vector_marks)).unwrap();
         }
 
         let mut count = MarkAndSweepStats::default();
@@ -2242,7 +2416,7 @@ impl<T: HeapAble> HeapRef<T> {
 
     /// Get the value if the pointer is still valid.
     /// If this is the only thing pointing at it, then we need to drop it.
-    pub(crate) fn maybe_get_from_weak(&self) -> Option<T> {
+    pub(crate) fn maybe_get_from_weak(&self, marks: &Marks) -> Option<T> {
         let inner = self.inner.upgrade()?;
 
         // Check if this thing is reachable? How?
@@ -2251,10 +2425,9 @@ impl<T: HeapAble> HeapRef<T> {
             // the only things pointing to it
             let mut value = inner.write();
 
-            if value.is_reachable() {
+            if value.is_reachable(marks) {
                 Some(value.value.clone())
             } else {
-                value.reachable = false;
                 value.value = T::empty();
                 None
             }
@@ -2310,10 +2483,10 @@ impl<T: HeapAble> HeapRef<T> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct HeapAllocated<T: Clone + core::fmt::Debug + PartialEq + Eq> {
-    pub(crate) reachable: bool,
     pub(crate) finalizer: bool,
+    pub(crate) index: u32,
     pub(crate) value: T,
 }
 
@@ -2332,29 +2505,23 @@ fn check_size_of_heap_allocated_value() {
 }
 
 impl<T: Clone + core::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
-    pub fn new(value: T) -> Self {
+    pub fn new(value: T, index: u32) -> Self {
         Self {
-            reachable: false,
             finalizer: false,
+            index,
             value,
         }
     }
 
-    pub fn is_reachable(&self) -> bool {
-        self.reachable
-    }
-
-    pub(crate) fn mark_reachable(&mut self) {
-        self.reachable = true;
-    }
-
-    pub(crate) fn reset(&mut self) {
-        self.reachable = false;
+    pub(crate) fn is_reachable(&self, marks: &Marks) -> bool {
+        marks.get(self.index as usize)
     }
 }
 
 pub struct MarkAndSweepContext<'a> {
     queue: &'a mut Vec<SteelVal>,
+    memory_marks: MarksPtr,
+    vector_marks: MarksPtr,
     stats: MarkAndSweepStats,
 }
 
@@ -2363,17 +2530,17 @@ impl<'a> MarkAndSweepContext<'a> {
         &mut self,
         heap_ref: &StandardSharedMut<HeapAllocated<SteelVal>>,
     ) {
-        {
-            let mut guard = heap_ref.write();
-            if guard.is_reachable() {
+        let value = {
+            let guard = heap_ref.read();
+            if !unsafe { self.memory_marks.test_and_set(guard.index as usize) } {
                 return;
             }
-            guard.mark_reachable();
-        }
+            guard.value.clone()
+        };
 
         self.stats.memory_reached_count += 1;
 
-        self.push_back(heap_ref.read().value.clone());
+        self.push_back(value);
     }
 
     // Visit the heap vector, mark it as visited!
@@ -2382,11 +2549,10 @@ impl<'a> MarkAndSweepContext<'a> {
         heap_vector: &StandardSharedMut<HeapAllocated<Vec<SteelVal>>>,
     ) {
         {
-            let mut guard = heap_vector.write();
-            if guard.is_reachable() {
+            let guard = heap_vector.read();
+            if !unsafe { self.vector_marks.test_and_set(guard.index as usize) } {
                 return;
             }
-            guard.mark_reachable();
         }
 
         self.stats.vector_reached_count += 1;
@@ -2422,6 +2588,8 @@ pub struct MarkAndSweepContextRefQueue<'a> {
     // Try to push on to local queue first.
     local_queue: &'a mut Vec<SteelValPointer>,
     queue: &'a crossbeam_queue::SegQueue<SteelValPointer>,
+    memory_marks: MarksPtr,
+    vector_marks: MarksPtr,
     stats: MarkAndSweepStats,
 }
 
@@ -2432,11 +2600,10 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
         heap_ref: &StandardSharedMut<HeapAllocated<SteelVal>>,
     ) {
         {
-            let mut guard = heap_ref.write();
-            if guard.is_reachable() {
+            let guard = heap_ref.read();
+            if !unsafe { self.memory_marks.test_and_set(guard.index as usize) } {
                 return;
             }
-            guard.mark_reachable();
         }
 
         self.stats.memory_reached_count += 1;
@@ -2450,11 +2617,10 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
         heap_vector: &StandardSharedMut<HeapAllocated<Vec<SteelVal>>>,
     ) {
         {
-            let mut guard = heap_vector.write();
-            if guard.is_reachable() {
+            let guard = heap_vector.read();
+            if !unsafe { self.vector_marks.test_and_set(guard.index as usize) } {
                 return;
             }
-            guard.mark_reachable();
         }
 
         self.stats.vector_reached_count += 1;
@@ -2819,6 +2985,8 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         let mut queue = Vec::new();
         let mut temporary_queue = MarkAndSweepContext {
             queue: &mut queue,
+            memory_marks: self.memory_marks.clone(),
+            vector_marks: self.vector_marks.clone(),
             stats: MarkAndSweepStats::default(),
         };
 
