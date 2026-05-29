@@ -39,14 +39,8 @@
 (define (math-atan2 y x)
   (cond
     [(> x 0.0) (atan (/ y x))]
-    [(< y 0.0)
-     (if (= x 0.0)
-         constant-minus-pi/2
-         (+ (atan (/ y x)) constant-minus-pi))]
-    [else
-     (if (= x 0.0)
-         constant-pi/2
-         (+ (atan (/ y x)) constant-pi))]))
+    [(< y 0.0) (if (= x 0.0) constant-minus-pi/2 (+ (atan (/ y x)) constant-minus-pi))]
+    [else (if (= x 0.0) constant-pi/2 (+ (atan (/ y x)) constant-pi))]))
 
 ;; -- POINTS -------------------------------------------------------------------
 
@@ -4706,10 +4700,7 @@
   (tfo-apply (var-tfo var) (atom (var-nuc var))))
 
 (define (get-var id lst)
-  (let ([v (car lst)])
-    (if (= id (var-id v))
-        v
-        (get-var id (cdr lst)))))
+  (let ([v (car lst)]) (if (= id (var-id v)) v (get-var id (cdr lst)))))
 
 (define (make-relative-nuc tfo n)
   (cond
@@ -5183,9 +5174,7 @@
 (define (maximum lst)
   (let loop ([m (car lst)]
              [l (cdr lst)])
-    (if (null? l)
-        m
-        (let ([x (car l)]) (loop (if (> x m) x m) (cdr l))))))
+    (if (null? l) m (let ([x (car l)]) (loop (if (> x m) x m) (cdr l))))))
 
 (define (run input)
   (most-distant-atom (pseudoknot input)))

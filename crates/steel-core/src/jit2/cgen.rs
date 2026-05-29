@@ -1161,6 +1161,7 @@ impl Default for JIT {
         );
 
         map.add_func_hint("div-two", extern_c_div_two as VmBinOp, InferredType::Number);
+        map.add_func_hint("div-one", extern_c_div_one as Vm02, InferredType::Number);
 
         // TODO: Pick up from here!
         map.add_func("read-local-0", read_local_0_value_c as Vm01);
@@ -1812,11 +1813,16 @@ impl ConstantValue {
                 ctx.constant_to_value(i, constant)
             }
 
+            ConstantValue::Bool(b) if b => (ctx.encode_true(), InferredType::Bool),
+
+            ConstantValue::Bool(b) if !b => (ctx.encode_false(), InferredType::Bool),
+
             _ => {
                 // let value = ctx.create_i128(encode(self.as_steelval()));
                 // let value = ctx.encode_void();
                 // (value, self.as_typ())
 
+                dbg!(self);
                 panic!()
             }
         }
@@ -2269,6 +2275,7 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::MUL, 2) => "mult-two",
         (OpCode::MUL, 3) => "mult-three",
         (OpCode::DIV, 2) => "div-two",
+        (OpCode::DIV, 1) => "div-one",
         (OpCode::PUSH, _) => "push-global-value",
         (OpCode::NOT, _) => "not-value",
         (OpCode::NUMEQUAL, 2) => "num-equal-value-bool",
@@ -9303,7 +9310,14 @@ impl FunctionTranslator<'_> {
                     typ,
                 )
             },
-            |ctx| ctx.call_function_returns_value_args("#%setup-closure", &[func]),
+            |ctx| {
+                let arity_val = ctx.builder.ins().iconst(types::I64, arity as i64);
+                let fallback_ip_val = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
+                ctx.call_function_returns_value_args(
+                    "#%setup-closure-arity",
+                    &[func, arity_val, fallback_ip_val],
+                )
+            },
             typ,
         )
     }

@@ -527,7 +527,7 @@ fn r7rs_benchmark_test_suite_two() {
 }
 
 #[test]
-fn r7rs_benchmark_test_suite() {
+fn r7rs_benchmark_test_suite_one() {
     let benches = &[
         "r7rs-benchmarks/scheme.scm",
         "r7rs-benchmarks/simplex.scm",

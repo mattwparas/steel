@@ -3061,6 +3061,22 @@ extern_binop!(extern_c_mult_two, multiply_primitive);
 extern_binop!(extern_c_div_two, divide_primitive);
 
 #[cross_platform_fn]
+fn extern_c_div_one(ctx: *mut VmCore, a: SteelVal) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+
+    let res = divide_primitive(&[a]);
+
+    match res {
+        Ok(v) => v,
+        Err(e) => {
+            guard.is_native = false;
+            guard.result = Some(Err(e));
+            SteelVal::Void
+        }
+    }
+}
+
+#[cross_platform_fn]
 fn push_const_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_const() }
 }
