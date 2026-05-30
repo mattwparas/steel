@@ -133,22 +133,20 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     let name = func.id.to_string();
 
                     // let mut inner = func.unwrap();
-                    let fn_pointer = ctx
-                        .thread
-                        .jit
-                        .lock()
-                        .unwrap()
-                        .compile_bytecode(
-                            name,
-                            func.arity,
-                            &func.body_exp,
-                            &ctx.thread.global_env.roots(),
-                            &ctx.thread.constant_map,
-                            None,
-                            None,
-                            None,
-                        )
-                        .unwrap();
+                    let compiled = ctx.thread.jit.lock().unwrap().compile_bytecode(
+                        name,
+                        func.arity,
+                        &func.body_exp,
+                        &ctx.thread.global_env.roots(),
+                        &ctx.thread.constant_map,
+                        None,
+                        None,
+                        None,
+                    );
+                    let fn_pointer = match compiled {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    };
 
                     let super_instructions = Some(fn_pointer);
                     func.super_instructions = super_instructions;
@@ -201,22 +199,20 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
         let name = func.id.to_string();
 
         // let mut inner = func.unwrap();
-        let fn_pointer = ctx
-            .thread
-            .jit
-            .lock()
-            .unwrap()
-            .compile_bytecode(
-                name,
-                func.arity,
-                &func.body_exp,
-                &ctx.thread.global_env.roots(),
-                &ctx.thread.constant_map,
-                function_name,
-                None,
-                None,
-            )
-            .unwrap();
+        let compiled = ctx.thread.jit.lock().unwrap().compile_bytecode(
+            name,
+            func.arity,
+            &func.body_exp,
+            &ctx.thread.global_env.roots(),
+            &ctx.thread.constant_map,
+            function_name,
+            None,
+            None,
+        );
+        let fn_pointer = match compiled {
+            Ok(p) => p,
+            Err(_) => return Some(Ok(function.clone())),
+        };
 
         let super_instructions = Some(fn_pointer);
         func.super_instructions = super_instructions;
@@ -3191,9 +3187,11 @@ fn new_callglobal_tail_handler_deopt_test(
                 .push(core::mem::replace(val, SteelVal::Void));
         }
         let base = ctx.thread.stack.len() - len;
+        let frames_before = ctx.thread.stack_frames.len();
         match ctx.call_builtin_func(f, len) {
             Ok(()) => {
-                if ctx.thread.stack.len() > base {
+                let transferred_control = ctx.thread.stack_frames.len() != frames_before;
+                if !transferred_control && ctx.thread.stack.len() > base {
                     let v = ctx.thread.stack.pop().unwrap();
                     extern_handle_pop(ctx, v);
                 }

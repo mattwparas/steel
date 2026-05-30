@@ -839,7 +839,9 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
 
+        let ip_before = self.ip;
         then(self);
+        self.ip = ip_before;
 
         self.builder.ins().jump(merge_block, &[]);
 

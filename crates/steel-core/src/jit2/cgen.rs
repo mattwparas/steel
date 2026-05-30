@@ -9,7 +9,7 @@ use cranelift::{
     frontend::Switch,
     prelude::{isa::CallConv, *},
 };
-use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_jit::{ArenaMemoryProvider, JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use std::collections::HashSet;
 use std::{collections::HashMap, mem::ManuallyDrop};
@@ -411,6 +411,17 @@ impl Default for JIT {
             .finish(settings::Flags::new(flag_builder))
             .unwrap();
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+
+        let arena_mib = std::env::var("STEEL_JIT_MEMORY_SIZE")
+            .ok()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .filter(|mib| *mib > 0)
+            .unwrap_or(256)
+            .min(2047);
+        builder.memory_provider(Box::new(
+            ArenaMemoryProvider::new_with_size(arena_mib << 20)
+                .expect("failed to reserve JIT code arena"),
+        ));
 
         for op_code in OPCODES_ARRAY {
             builder.symbol(
@@ -1515,7 +1526,9 @@ impl JIT {
             .unwrap_or(0);
 
         self.module.clear_context(&mut self.ctx);
-        self.module.finalize_definitions().unwrap();
+        self.module
+            .finalize_definitions()
+            .map_err(|e| e.to_string())?;
 
         let code = self.module.get_finalized_function(inner_id);
 
@@ -4624,9 +4637,16 @@ impl FunctionTranslator<'_> {
                                 fast_path,
                                 |ctx| ctx.builder.ins().iconst(types::I8, 1),
                                 |ctx| {
-                                    ctx.call_function_returns_value_args_no_context(
-                                        "symbol-equal?-no-drop",
-                                        &[lvalue, value],
+                                    ctx.converging_if(
+                                        is_symbol,
+                                        |ctx| {
+                                            ctx.call_function_returns_value_args_no_context(
+                                                "symbol-equal?-no-drop",
+                                                &[lvalue, value],
+                                            )
+                                        },
+                                        |ctx| ctx.builder.ins().iconst(types::I8, 0),
+                                        types::I8,
                                     )
                                 },
                                 types::I8,
