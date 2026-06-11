@@ -388,6 +388,16 @@ impl<'a> FromFFIArg<'a> for RVec<u8> {
     }
 }
 
+impl<'a> FromFFIArg<'a> for Vec<u8> {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        if let FFIArg::ByteVector(b) = val {
+            RResult::ROk(b.into())
+        } else {
+            conversion_error!(bytevector, val)
+        }
+    }
+}
+
 impl<'a, T: Custom + Clone + 'static> FromFFIArg<'a> for T {
     fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
         let lifted = unsafe { core::mem::transmute::<FFIArg<'a>, FFIArg<'static>>(val) };
@@ -425,6 +435,18 @@ impl From<usize> for FFIValue {
 impl From<String> for FFIValue {
     fn from(value: String) -> Self {
         FFIValue::StringV(RString::from(value))
+    }
+}
+
+impl From<Vec<u8>> for FFIValue {
+    fn from(value: Vec<u8>) -> Self {
+        FFIValue::ByteVector(RVec::from(value))
+    }
+}
+
+impl From<RVec<u8>> for FFIValue {
+    fn from(value: RVec<u8>) -> Self {
+        FFIValue::ByteVector(value)
     }
 }
 
