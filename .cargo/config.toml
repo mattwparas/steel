@@ -1,0 +1,8 @@
+[target.aarch64-unknown-linux-gnu]
+linker = "/usr/bin/aarch64-linux-gnu-gcc"
+
+[alias]
+xtask = "run --package xtask --"
+
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
