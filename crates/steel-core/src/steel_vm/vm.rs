@@ -5895,6 +5895,10 @@ fn get_module_relative_context(
         return Some(Ok(SteelVal::BoolV(false)));
     };
 
+    if cfg!(target_family = "wasm") {
+        return Some(Ok(SteelVal::BoolV(false)));
+    }
+
     let dirs = &ctx.thread.compiler.read().search_dirs;
 
     let relative = fully_qualified_to_relative(last, dirs).unwrap();
