@@ -432,7 +432,7 @@ pub fn taking(amt: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-/// Creates a taking iterator combinator
+/// Creates a dropping iterator combinator
 ///
 /// (dropping integer?) -> iterator?
 ///
