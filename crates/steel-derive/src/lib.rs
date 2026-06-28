@@ -262,9 +262,21 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                 quote! {}
             };
 
+            let hash_impl = if should_impl_hash {
+                quote! {
+                    fn try_as_dyn_hash(&self) -> Option<&dyn #prefix::rvals::DynHash> {
+                        Some(self)
+                    }
+                }
+            } else {
+                quote! {}
+            };
+
             let generated = quote! {
                 impl #prefix::rvals::Custom for #name {
                     #equality_impl
+
+                    #hash_impl
                 }
 
                 impl #name {
