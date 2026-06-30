@@ -1489,6 +1489,15 @@ impl Compiler {
         // Make sure to apply the peephole optimizations
         raw_program.apply_optimizations();
 
+        // Lets see if we can snag the push / pop module contexts to delineate the actual
+        // module contexts at the bytecode level:
+
+        let modules = chunk_modules(&raw_program);
+
+        if !modules.is_empty() {
+            println!("Found modules: {:#?}", modules);
+        }
+
         // Lets see everything that gets run!
         // raw_program.debug_print_log();
 
@@ -1592,6 +1601,61 @@ impl Compiler {
 
         Ok(expanded_statements)
     }
+}
+
+#[derive(Debug)]
+struct ModuleChunk {
+    name: InternedString,
+    start: (usize, usize),
+    end: Option<(usize, usize)>,
+}
+
+fn chunk_modules(raw_program: &RawProgramWithSymbols) -> Vec<ModuleChunk> {
+    let mut module_chunks: Vec<ModuleChunk> = Vec::new();
+
+    for (chunk_index, chunk) in raw_program.instructions.iter().enumerate() {
+        for (index, expr) in chunk.iter().enumerate() {
+            match expr.op_code {
+                OpCode::CALLPRIMITIVE => {
+                    if let Some(func) = expr.contents.as_ref().and_then(|x| match x {
+                        Expr::Atom(x) => {
+                            if let TokenType::Identifier(i) = x.ty {
+                                if i.resolve() == "#%prim.#%push-module-context" {
+                                    chunk.get(index - 1)
+                                } else if i.resolve() == "#%prim.#%pop-module-context" {
+                                    let last_ref = module_chunks.last_mut().unwrap();
+
+                                    // Might be off by one here
+                                    last_ref.end = Some((chunk_index, index));
+
+                                    None
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }) {
+                        if let Some(Expr::Atom(x)) = &func.contents {
+                            if let TokenType::StringLiteral(s) = x.ty {
+                                module_chunks.push(ModuleChunk {
+                                    name: s,
+                                    start: (chunk_index, index - 1),
+                                    end: None,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                _ => {}
+            }
+        }
+    }
+
+    module_chunks
 }
 
 fn filter_provides(expanded_statements: Vec<ExprKind>) -> Vec<ExprKind> {
