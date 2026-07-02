@@ -1603,6 +1603,16 @@ impl Compiler {
     }
 }
 
+/*
+
+In order to properly cache / save a module, I think we need a few things:
+
+1. We need the cached module information. This includes the AST itself; otherwise we're unable to do
+   macro stuff / analysis / etc.
+2. The bytecode itself saves us from needing to reply everything directly.
+3. ???
+
+*/
 #[derive(Debug)]
 struct ModuleChunk {
     name: InternedString,
