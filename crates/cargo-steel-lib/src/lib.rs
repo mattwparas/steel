@@ -14,51 +14,55 @@ TODO:
 */
 
 pub fn steel_home() -> Option<PathBuf> {
-    std::env::var("STEEL_HOME")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(|| {
-            let home = env_home::env_home_dir().map(|x| x.join(".steel"));
-
-            if let Some(home) = home {
-                if home.exists() {
-                    return Some(home);
-                }
-
-                #[cfg(target_os = "windows")]
-                {
-                    if let Err(e) = std::fs::create_dir(&home) {
-                        eprintln!("Unable to create steel home directory {:?}: {}", home, e)
-                    }
-
-                    return Some(home);
-                }
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let bd = xdg::BaseDirectories::new();
-                let home = bd.data_home;
-
-                home.map(|mut x: PathBuf| {
-                    x.push("steel");
-
-                    // Just go ahead and initialize the directory, even though
-                    // this is probably not the best place to do this. This almost
-                    // assuredly could be lifted out of this check since failing here
-                    // could cause some annoyance.
-                    if !x.exists() {
-                        if let Err(e) = std::fs::create_dir(&x) {
-                            eprintln!("Unable to create steel home directory {:?}: {}", x, e)
-                        }
-                    }
-
-                    x
-                })
+    let home = env_home::env_home_dir();
+    if let Some(path) = std::env::var("STEEL_HOME").ok().map(PathBuf::from) {
+        if let Ok(rest) = path.strip_prefix("~") {
+            home.map_or(path.clone(), |h| h.join(rest))
+        } else {
+            path
+        }
+        .into()
+    } else {
+        let steel_home = home.map(|x| x.join(".steel"));
+        if let Some(home) = steel_home {
+            if home.exists() {
+                return Some(home);
             }
 
             #[cfg(target_os = "windows")]
-            None
-        })
+            {
+                if let Err(e) = std::fs::create_dir(&home) {
+                    eprintln!("Unable to create steel home directory {:?}: {}", home, e)
+                }
+
+                return Some(home);
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let bd = xdg::BaseDirectories::new();
+            let home = bd.data_home;
+
+            home.map(|mut x: PathBuf| {
+                x.push("steel");
+
+                // Just go ahead and initialize the directory, even though
+                // this is probably not the best place to do this. This almost
+                // assuredly could be lifted out of this check since failing here
+                // could cause some annoyance.
+                if !x.exists() {
+                    if let Err(e) = std::fs::create_dir(&x) {
+                        eprintln!("Unable to create steel home directory {:?}: {}", x, e)
+                    }
+                }
+
+                x
+            })
+        }
+
+        #[cfg(target_os = "windows")]
+        None
+    }
 }
 
 pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<bool, Box<dyn Error>> {
