@@ -1068,7 +1068,9 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // Do this here?
     let mut thread = ctx.thread.clone();
 
-    // println!("Created thread");
+    thread.stack.clear();
+    thread.stack_frames.clear();
+    thread.current_frame = StackFrame::main();
 
     // let interrupt = Arc::new(AtomicBool::new(false));
     // Let this thread have its own interrupt handler
