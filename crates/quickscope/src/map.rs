@@ -1,11 +1,12 @@
 use std::{
     borrow::Borrow,
-    collections::{hash_map::RandomState, HashSet},
+    collections::hash_map::RandomState,
     hash::{BuildHasher, Hash},
     ops::Index,
 };
 
 use indexmap::IndexMap;
+use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
 type ScopeMapValueStack<V> = SmallVec<[V; 1]>;
@@ -35,13 +36,13 @@ pub struct ScopeMap<K, V, S: BuildHasher = RandomState> {
     /// Stores the layers of the stack.
     ///
     /// Each layer contains map indices indicating which variables are created or updated in that layer.
-    layers: Vec<HashSet<usize>>,
+    layers: Vec<FxHashSet<usize>>,
     /// The number of currently empty variable stacks.
     ///
     /// Used internally to accurately calculate the number of active variables.
     empty_key_count: usize,
 
-    reused_layers: Vec<HashSet<usize>>,
+    reused_layers: Vec<FxHashSet<usize>>,
 }
 
 impl<K, V, S: Default + BuildHasher> Default for ScopeMap<K, V, S> {
@@ -688,6 +689,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> ScopeMap<K, V, S> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn map_init() {
