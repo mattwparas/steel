@@ -221,14 +221,12 @@ impl<'a> ConstantEvaluatorManager<'a> {
                     break;
                 }
 
+                self.changed = true;
                 eval.changed = false;
             }
 
             results.push(output)
         }
-
-        // Only run this on an expr by expr basis
-        self.changed = false;
 
         Ok(results)
 

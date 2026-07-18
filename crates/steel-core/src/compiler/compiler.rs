@@ -1285,8 +1285,7 @@ impl Compiler {
         semantic.refresh_variables();
 
         // Replace mutation with boxes
-        semantic.populate_captures();
-        semantic.populate_captures();
+        semantic.populate_captures_twice();
 
         semantic.replace_mutable_captured_variables_with_boxes();
 
@@ -1558,11 +1557,9 @@ impl Compiler {
                 for _ in 0..3 {
                     expanded_statements = manager.run(expanded_statements)?;
 
-                    // if !manager.changed {
-                    //     break;
-                    // }
-
-                    // manager.changed = false;
+                    if !manager.changed {
+                        break;
+                    }
                 }
             }
             OptLevel::Two => {

@@ -390,9 +390,11 @@ impl Analysis {
         analysis
     }
 
-    pub fn populate_captures_twice(&mut self, exprs: &[ExprKind]) {
-        // Resolve all mutated and captured vars so that they're mutated after they've been captured
-        let mut mutated_and_captured_vars = self
+    /// Resolve all mutated and captured vars so that they're mutated after they've been captured,
+    /// returning whether any flag was newly set. If nothing was propagated, the analysis has
+    /// reached a fixpoint with respect to these flags.
+    fn propagate_mutated_and_captured(&mut self) -> bool {
+        let mutated_and_captured_vars = self
             .function_info
             .values()
             .flat_map(|x| x.captured_vars.iter().map(|x| &x.1))
@@ -401,87 +403,37 @@ impl Analysis {
             .map(|x| x.id)
             .collect::<FxHashSet<_>>();
 
-        for value in self.function_info.values_mut() {
-            for (_, x) in value.captured_vars.iter_mut() {
-                if mutated_and_captured_vars.contains(&x.id) {
-                    x.mutated = true;
-                    x.captured = true;
-                }
-            }
+        let mut changed = false;
 
-            for (_, x) in value.arguments.iter_mut() {
+        for value in self.function_info.values_mut() {
+            for (_, x) in value
+                .captured_vars
+                .iter_mut()
+                .chain(value.arguments.iter_mut())
+            {
                 if mutated_and_captured_vars.contains(&x.id) {
+                    changed = changed || !(x.mutated && x.captured);
                     x.mutated = true;
                     x.captured = true;
                 }
             }
         }
+
+        changed
+    }
+
+    pub fn populate_captures_twice(&mut self, exprs: &[ExprKind]) {
+        self.propagate_mutated_and_captured();
 
         self.run(exprs);
 
-        mutated_and_captured_vars.clear();
-
-        self.function_info
-            .values()
-            // .flat_map(|x| x.captured_vars.values())
-            .flat_map(|x| x.captured_vars.iter().map(|x| &x.1))
-            .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
-            .filter(|x| x.captured && x.mutated)
-            .map(|x| x.id)
-            .for_each(|x| {
-                mutated_and_captured_vars.insert(x);
-            });
-
-        for value in self.function_info.values_mut() {
-            // for x in value.captured_vars.values_mut() {
-            for (_, x) in value.captured_vars.iter_mut() {
-                if mutated_and_captured_vars.contains(&x.id) {
-                    x.mutated = true;
-                    x.captured = true;
-                }
-            }
-
-            // for x in value.arguments.values_mut() {
-            for (_, x) in value.arguments.iter_mut() {
-                if mutated_and_captured_vars.contains(&x.id) {
-                    x.mutated = true;
-                    x.captured = true;
-                }
-            }
-        }
+        self.propagate_mutated_and_captured();
 
         self.run(exprs);
     }
 
     pub fn populate_captures(&mut self, exprs: &[ExprKind]) {
-        // Resolve all mutated and captured vars so that they're mutated after they've been captured
-        let mutated_and_captured_vars = self
-            .function_info
-            .values()
-            // .flat_map(|x| x.captured_vars.values())
-            .flat_map(|x| x.captured_vars.iter().map(|x| &x.1))
-            .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
-            .filter(|x| x.captured && x.mutated)
-            .map(|x| x.id)
-            .collect::<FxHashSet<_>>();
-
-        for value in self.function_info.values_mut() {
-            // for x in value.captured_vars.values_mut() {
-            for (_, x) in value.captured_vars.iter_mut() {
-                if mutated_and_captured_vars.contains(&x.id) {
-                    x.mutated = true;
-                    x.captured = true;
-                }
-            }
-
-            // for x in value.arguments.values_mut() {
-            for (_, x) in value.arguments.iter_mut() {
-                if mutated_and_captured_vars.contains(&x.id) {
-                    x.mutated = true;
-                    x.captured = true;
-                }
-            }
-        }
+        self.propagate_mutated_and_captured();
 
         self.run(exprs);
     }
