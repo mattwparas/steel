@@ -826,13 +826,7 @@ impl Engine {
 
         engine.virtual_machine.compiler.write().sources = program.sources;
 
-        // TODO: The constant map needs to be brought back as well. Install it here.
-        // it needs to get installed in the VM and the compiler. Lets just try that now.
-
         let raw_program = SerializableRawProgramWithSymbols::into_raw_program(program.program);
-
-        engine.virtual_machine.constant_map = raw_program.constant_map.clone();
-        engine.virtual_machine.compiler.write().constant_map = raw_program.constant_map.clone();
 
         let results = engine.run_raw_program(raw_program);
 
@@ -1850,8 +1844,10 @@ impl Engine {
 
     pub fn raw_program_to_executable(
         &mut self,
-        program: RawProgramWithSymbols,
+        mut program: RawProgramWithSymbols,
     ) -> Result<Executable> {
+        program.merge_constants_into(&mut self.virtual_machine.compiler.write().constant_map)?;
+
         let symbol_map_offset = self.virtual_machine.compiler.read().symbol_map.len();
 
         let result = program.build(
@@ -2628,6 +2624,65 @@ mod engine_api_tests {
         assert!(engine
             .compile_and_run_raw_program("(external-get-value-imm *external*)")
             .is_err());
+    }
+}
+
+#[cfg(test)]
+mod serialized_program_tests {
+    use super::*;
+
+    const PROGRAM_SOURCE: &str = r#"
+        (define quoted-global 'quokka-constant)
+        (define literal-global 4242)
+        (define evaled-global (eval '(quote wallaby-constant)))
+    "#;
+
+    fn observable_state(engine: &mut Engine) -> (SteelVal, SteelVal, SteelVal, Vec<SteelVal>) {
+        let post_run_eval = engine
+            .compile_and_run_raw_program("(eval '(quote heron-constant))")
+            .unwrap();
+
+        (
+            engine.extract_value("quoted-global").unwrap(),
+            engine.extract_value("literal-global").unwrap(),
+            engine.extract_value("evaled-global").unwrap(),
+            post_run_eval,
+        )
+    }
+
+    #[test]
+    fn running_deserialized_program_matches_source_compiled_engine() {
+        let program_path = std::env::temp_dir().join(format!(
+            "steel-serialized-program-test-{}.bin",
+            std::process::id()
+        ));
+
+        let mut emitting_engine = Engine::new();
+        emitting_engine
+            .emit_raw_program_no_path(PROGRAM_SOURCE)
+            .unwrap()
+            .into_serializable_program()
+            .unwrap()
+            .serialize_to_path(&program_path)
+            .unwrap();
+
+        let mut deserializing_engine = Engine::new();
+        let deserialized =
+            SerializableRawProgramWithSymbols::deserialize_from_path(&program_path).unwrap();
+        std::fs::remove_file(&program_path).unwrap();
+        deserializing_engine
+            .run_raw_program(deserialized.into_raw_program())
+            .unwrap();
+
+        let mut source_engine = Engine::new();
+        source_engine
+            .compile_and_run_raw_program(PROGRAM_SOURCE)
+            .unwrap();
+
+        assert_eq!(
+            observable_state(&mut deserializing_engine),
+            observable_state(&mut source_engine)
+        );
     }
 }
 
