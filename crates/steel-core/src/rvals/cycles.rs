@@ -662,9 +662,9 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
     }
 
     fn visit_void(&mut self) -> Self::Output {}
-    fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
+    fn visit_string(&mut self, _string: SteelString<A>) -> Self::Output {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
-    fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
+    fn visit_symbol(&mut self, _symbol: SteelString<A>) -> Self::Output {}
 
     // If we have cycles here, it is game over - we probably don't want to be
     // able to render to these easily?
@@ -965,9 +965,9 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
     fn visit_bigrational(&mut self, _: Gc<BigRational>) {}
     fn visit_char(&mut self, _c: char) {}
     fn visit_void(&mut self) {}
-    fn visit_string(&mut self, _string: SteelString) {}
+    fn visit_string(&mut self, _string: SteelString<A>) {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) {}
-    fn visit_symbol(&mut self, _symbol: SteelString) {}
+    fn visit_symbol(&mut self, _symbol: SteelString<A>) {}
     fn visit_port(&mut self, _port: SteelPort) {}
     fn visit_future(&mut self, _future: Gc<FutureResult>) {}
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) {}
@@ -1691,9 +1691,9 @@ pub trait BreadthFirstSearchSteelValVisitor<A: crate::gc::Allocator + Clone + 's
     fn visit_char(&mut self, _: char) -> Self::Output;
     fn visit_immutable_vector(&mut self, vector: SteelVector<A>) -> Self::Output;
     fn visit_void(&mut self) -> Self::Output;
-    fn visit_string(&mut self, string: SteelString) -> Self::Output;
+    fn visit_string(&mut self, string: SteelString<A>) -> Self::Output;
     fn visit_function_pointer(&mut self, ptr: FunctionSignature) -> Self::Output;
-    fn visit_symbol(&mut self, symbol: SteelString) -> Self::Output;
+    fn visit_symbol(&mut self, symbol: SteelString<A>) -> Self::Output;
     fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output;
     fn visit_hash_map(&mut self, hashmap: SteelHashMap<A>) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet<A>) -> Self::Output;
@@ -1787,9 +1787,9 @@ pub trait BreadthFirstSearchSteelValVisitor2<A: crate::gc::Allocator + Clone + '
     fn visit_char(&mut self, _: char) -> Self::Output;
     fn visit_immutable_vector(&mut self, vector: SteelVector<A>) -> Self::Output;
     fn visit_void(&mut self) -> Self::Output;
-    fn visit_string(&mut self, string: SteelString) -> Self::Output;
+    fn visit_string(&mut self, string: SteelString<A>) -> Self::Output;
     fn visit_function_pointer(&mut self, ptr: FunctionSignature) -> Self::Output;
-    fn visit_symbol(&mut self, symbol: SteelString) -> Self::Output;
+    fn visit_symbol(&mut self, symbol: SteelString<A>) -> Self::Output;
     fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output;
     fn visit_hash_map(&mut self, hashmap: SteelHashMap<A>) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet<A>) -> Self::Output;
@@ -1884,9 +1884,9 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a, A: crate::gc::Allocator
     fn visit_char(&mut self, _: char) -> Self::Output;
     fn visit_immutable_vector(&mut self, vector: &'a SteelVector<A>) -> Self::Output;
     fn visit_void(&mut self) -> Self::Output;
-    fn visit_string(&mut self, string: &'a SteelString) -> Self::Output;
+    fn visit_string(&mut self, string: &'a SteelString<A>) -> Self::Output;
     fn visit_function_pointer(&mut self, ptr: FunctionSignature) -> Self::Output;
-    fn visit_symbol(&mut self, symbol: &'a SteelString) -> Self::Output;
+    fn visit_symbol(&mut self, symbol: &'a SteelString<A>) -> Self::Output;
     fn visit_custom_type(&mut self, custom_type: &'a GcMut<Box<dyn CustomType>>) -> Self::Output;
     fn visit_hash_map(&mut self, hashmap: &'a SteelHashMap<A>) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: &'a SteelHashSet<A>) -> Self::Output;
@@ -2520,9 +2520,9 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
     fn visit_complex(&mut self, _: Gc<SteelComplex>) -> Self::Output {}
     fn visit_char(&mut self, _c: char) -> Self::Output {}
     fn visit_void(&mut self) -> Self::Output {}
-    fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
+    fn visit_string(&mut self, _string: SteelString<A>) -> Self::Output {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
-    fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
+    fn visit_symbol(&mut self, _symbol: SteelString<A>) -> Self::Output {}
     fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
     fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}

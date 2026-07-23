@@ -900,9 +900,31 @@ impl<A: Allocator + Clone + 'static> AllocString<A> {
     }
 
     pub fn as_str(&self) -> &str {
-        // Safety: `bytes` is only ever populated by `new_in`/`from_string_in` from an
-        // already-valid `&str`/`String`, and never mutated afterwards.
+        // Safety: `bytes` is only ever populated by `new_in`/`from_string_in`/`push`/
+        // `push_str` from already-valid `&str`/`char` data.
         unsafe { core::str::from_utf8_unchecked(&self.bytes) }
+    }
+
+    pub fn push(&mut self, c: char) {
+        let mut buf = [0u8; 4];
+        self.bytes.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+    }
+
+    pub fn push_str(&mut self, s: &str) {
+        self.bytes.extend_from_slice(s.as_bytes());
+    }
+
+    pub fn allocator(&self) -> A {
+        self.bytes.allocator().clone()
+    }
+}
+
+#[cfg(all(feature = "sync", feature = "biased", feature = "allocator-api2", not(feature = "triomphe")))]
+impl<A: Allocator + Clone + 'static> Clone for AllocString<A> {
+    fn clone(&self) -> Self {
+        Self {
+            bytes: self.bytes.clone(),
+        }
     }
 }
 
@@ -912,6 +934,13 @@ impl<A: Allocator + Clone + 'static> Deref for AllocString<A> {
 
     fn deref(&self) -> &str {
         self.as_str()
+    }
+}
+
+#[cfg(all(feature = "sync", feature = "biased", feature = "allocator-api2", not(feature = "triomphe")))]
+impl<A: Allocator + Clone + 'static> AsRef<OsStr> for AllocString<A> {
+    fn as_ref(&self) -> &OsStr {
+        OsStr::new(self.as_str())
     }
 }
 

@@ -1735,11 +1735,11 @@ pub enum SteelValGeneric<A: crate::gc::Allocator + Clone + 'static = crate::gc::
     /// Void return value
     Void,
     /// Represents strings
-    StringV(SteelString),
+    StringV(SteelString<A>),
     /// Represents built in rust functions
     FuncV(FunctionSignature),
     /// Represents a symbol, internally represented as `String`s
-    SymbolV(SteelString),
+    SymbolV(SteelString<A>),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(GcMut<Box<dyn CustomType>>), // TODO: @Matt - consider using just a mutex here, to relax some of the bounds?
     // Embedded HashMap
@@ -2179,11 +2179,102 @@ impl<A: crate::gc::Allocator + Clone + 'static> SteelValGeneric<A> {
 //     Boxed(HeapRef),
 // }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// `SteelString` is cfg-split the same way `Gc<T>`/`Gc<T, A>` is (see gc.rs): the
+// `sync+biased+allocator-api2` combo is the only one where a `Gc<T, A>` with a non-`Global`
+// `A` actually exists, so it's the only one where routing string storage through `A` (via
+// `AllocString<A>`, see gc.rs) means anything. Every other feature combo keeps the original,
+// non-generic `Gc<String>` representation, with `A` carried only as a zero-sized
+// `PhantomData` marker so `SteelValGeneric<A>`'s `StringV`/`SymbolV` variants can name a
+// single `SteelString<A>` type in both worlds (bare `SteelString` still means
+// `SteelString<Global>` via the default, exactly as before, so the many call sites that
+// never think about allocators at all don't need to change).
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
 #[repr(C)]
-pub struct SteelString(pub(crate) Gc<String>);
+pub struct SteelString<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global>(
+    pub(crate) Gc<String>,
+    core::marker::PhantomData<A>,
+);
 
-impl Deref for SteelString {
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelString<A> {
+    fn clone(&self) -> Self {
+        SteelString(self.0.clone(), core::marker::PhantomData)
+    }
+}
+
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for SteelString<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> Eq for SteelString<A> {}
+
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> PartialOrd for SteelString<A> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> Ord for SteelString<A> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> std::hash::Hash for SteelString<A> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
+    }
+}
+
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelString<A> {
     type Target = crate::gc::Shared<String>;
 
     fn deref(&self) -> &Self::Target {
@@ -2194,75 +2285,346 @@ impl Deref for SteelString {
 #[cfg(not(feature = "sync"))]
 impl From<Arc<String>> for SteelString {
     fn from(value: Arc<String>) -> Self {
-        SteelString(Gc(Rc::new((*value).clone())))
+        SteelString(Gc(Rc::new((*value).clone())), core::marker::PhantomData)
     }
 }
 
 #[cfg(all(feature = "sync", feature = "triomphe", not(feature = "biased")))]
 impl From<Arc<String>> for SteelString {
     fn from(value: Arc<String>) -> Self {
-        SteelString(Gc(triomphe::Arc::new((*value).clone())))
+        SteelString(
+            Gc(triomphe::Arc::new((*value).clone())),
+            core::marker::PhantomData,
+        )
     }
 }
 
-#[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    not(feature = "triomphe"),
+    not(feature = "allocator-api2")
+))]
 impl From<Arc<String>> for SteelString {
     fn from(value: Arc<String>) -> Self {
-        SteelString(Gc(steel_rc::BiasedRc::new((*value).clone())))
+        SteelString(
+            Gc(steel_rc::BiasedRc::new((*value).clone())),
+            core::marker::PhantomData,
+        )
     }
 }
 
-impl From<&str> for SteelString {
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> From<&str> for SteelString<A> {
     fn from(val: &str) -> Self {
-        SteelString(Gc::new(val.to_string()))
+        SteelString(Gc::new(val.to_string()), core::marker::PhantomData)
     }
 }
 
-impl From<&String> for SteelString {
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> From<&String> for SteelString<A> {
     fn from(val: &String) -> Self {
-        SteelString(Gc::new(val.to_owned()))
+        SteelString(Gc::new(val.to_owned()), core::marker::PhantomData)
     }
 }
 
-impl From<String> for SteelString {
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> From<String> for SteelString<A> {
     fn from(val: String) -> Self {
-        SteelString(Gc::new(val))
+        SteelString(Gc::new(val), core::marker::PhantomData)
     }
 }
 
-impl From<crate::gc::Shared<String>> for SteelString {
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> From<crate::gc::Shared<String>> for SteelString<A> {
     fn from(val: crate::gc::Shared<String>) -> Self {
-        SteelString(Gc(val))
+        SteelString(Gc(val), core::marker::PhantomData)
     }
 }
 
-impl From<Gc<String>> for SteelString {
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> From<Gc<String>> for SteelString<A> {
     fn from(val: Gc<String>) -> Self {
-        SteelString(val)
+        SteelString(val, core::marker::PhantomData)
     }
 }
 
-impl From<SteelString> for crate::gc::Shared<String> {
-    fn from(value: SteelString) -> Self {
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> From<SteelString<A>> for crate::gc::Shared<String> {
+    fn from(value: SteelString<A>) -> Self {
         value.0 .0
     }
 }
 
-impl From<SteelString> for Gc<String> {
-    fn from(value: SteelString) -> Self {
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> From<SteelString<A>> for Gc<String> {
+    fn from(value: SteelString<A>) -> Self {
         value.0
     }
 }
 
-impl core::fmt::Display for SteelString {
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Display for SteelString<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0.as_str())
     }
 }
 
-impl core::fmt::Debug for SteelString {
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for SteelString<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.0.as_str())
+    }
+}
+
+// The `sync+biased+allocator-api2` instantiation: string storage actually routed through
+// `A` via `AllocString<A>` (gc.rs). `Gc<AllocString<A>, A>` stays an 8-byte thin pointer for
+// the same reason `Gc<T, A>` does generally (§3.2/§3.4 of ALLOCATOR_SPEC.md), so this doesn't
+// change `SteelValGeneric<A>`'s size budget.
+//
+// Manual trait impls (rather than derives) for the same reason as `Gc<T, A>`: a derive would
+// add `A: PartialEq`/`A: Hash`/etc. bounds that `Global` (and most real allocators) don't
+// implement.
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+#[repr(C)]
+pub struct SteelString<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global>(
+    pub(crate) Gc<crate::gc::AllocString<A>, A>,
+);
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> SteelString<A> {
+    pub fn new_in(s: &str, alloc: A) -> Self {
+        SteelString(Gc::new_in(crate::gc::AllocString::new_in(s, alloc.clone()), alloc))
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelString<A> {
+    fn clone(&self) -> Self {
+        SteelString(self.0.clone())
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for SteelString<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> Eq for SteelString<A> {}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> PartialOrd for SteelString<A> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.as_str().partial_cmp(other.as_str())
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> Ord for SteelString<A> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> std::hash::Hash for SteelString<A> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state)
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelString<A> {
+    type Target = crate::gc::Shared<crate::gc::AllocString<A>, A>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0 .0
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> From<crate::gc::AllocString<A>> for SteelString<A> {
+    fn from(val: crate::gc::AllocString<A>) -> Self {
+        let alloc = val.allocator();
+        SteelString(Gc::new_in(val, alloc))
+    }
+}
+
+// Only `Global` can be produced "for free" -- a real custom allocator carries state (an
+// arena pointer, a ring-buffer cursor, ...) that has to come from somewhere, so there's no
+// sensible blanket `From<&str> for SteelString<A>`. Code running under a custom allocator
+// uses `SteelString::new_in` instead.
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl From<&str> for SteelString<crate::gc::Global> {
+    fn from(val: &str) -> Self {
+        SteelString::new_in(val, crate::gc::Global)
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl From<&String> for SteelString<crate::gc::Global> {
+    fn from(val: &String) -> Self {
+        SteelString::new_in(val, crate::gc::Global)
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl From<String> for SteelString<crate::gc::Global> {
+    fn from(val: String) -> Self {
+        SteelString::new_in(&val, crate::gc::Global)
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl From<Arc<String>> for SteelString<crate::gc::Global> {
+    fn from(value: Arc<String>) -> Self {
+        SteelString::new_in(&value, crate::gc::Global)
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Display for SteelString<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for SteelString<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.as_str())
     }
 }
 
