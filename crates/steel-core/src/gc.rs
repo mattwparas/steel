@@ -877,6 +877,129 @@ impl AsRef<str> for Gc<String> {
     }
 }
 
+// `std::String` has no allocator parameter on stable Rust, and no stable-Rust,
+// allocator-api2-based `String<A>` crate exists (see ALLOCATOR_SPEC.md §3.4). A `Gc<str, A>`
+// (reusing BiasedRc's unsized-DST support) was tried and rejected: it's a fat pointer (2
+// words), and swapping a single SteelVal variant's payload from thin to fat grows the whole
+// 33-variant enum past its 16-byte budget, not just that one variant. This wraps a `Sized`
+// buffer instead, so `Gc<AllocString<A>, A>` stays an 8-byte thin pointer like `Gc<String>`
+// does today.
+#[cfg(all(feature = "sync", feature = "biased", feature = "allocator-api2", not(feature = "triomphe")))]
+pub struct AllocString<A: Allocator + Clone + 'static = Global> {
+    bytes: allocator_api2::vec::Vec<u8, A>,
+}
+
+#[cfg(all(feature = "sync", feature = "biased", feature = "allocator-api2", not(feature = "triomphe")))]
+impl<A: Allocator + Clone + 'static> AllocString<A> {
+    pub fn new_in(s: &str, alloc: A) -> Self {
+        let mut bytes = allocator_api2::vec::Vec::with_capacity_in(s.len(), alloc);
+        bytes.extend_from_slice(s.as_bytes());
+        Self { bytes }
+    }
+
+    pub fn from_string_in(s: String, alloc: A) -> Self {
+        Self::new_in(&s, alloc)
+    }
+
+    pub fn as_str(&self) -> &str {
+        // Safety: `bytes` is only ever populated by `new_in`/`from_string_in` from an
+        // already-valid `&str`/`String`, and never mutated afterwards.
+        unsafe { core::str::from_utf8_unchecked(&self.bytes) }
+    }
+}
+
+#[cfg(all(feature = "sync", feature = "biased", feature = "allocator-api2", not(feature = "triomphe")))]
+impl<A: Allocator + Clone + 'static> Deref for AllocString<A> {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+#[cfg(all(feature = "sync", feature = "biased", feature = "allocator-api2", not(feature = "triomphe")))]
+impl<A: Allocator + Clone + 'static> fmt::Display for AllocString<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+#[cfg(all(feature = "sync", feature = "biased", feature = "allocator-api2", not(feature = "triomphe")))]
+impl<A: Allocator + Clone + 'static> fmt::Debug for AllocString<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.as_str())
+    }
+}
+
+#[cfg(all(feature = "sync", feature = "biased", feature = "allocator-api2", not(feature = "triomphe")))]
+impl<A: Allocator + Clone + 'static> PartialEq for AllocString<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+#[cfg(all(feature = "sync", feature = "biased", feature = "allocator-api2", not(feature = "triomphe")))]
+impl<A: Allocator + Clone + 'static> Eq for AllocString<A> {}
+
+#[cfg(all(feature = "sync", feature = "biased", feature = "allocator-api2", not(feature = "triomphe")))]
+#[cfg(test)]
+mod alloc_string_tests {
+    use super::*;
+    use std::ptr::NonNull;
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+    use std::sync::Arc;
+    use allocator_api2::alloc::AllocError;
+
+    #[derive(Clone)]
+    struct CountingAllocator {
+        allocs: Arc<AtomicUsize>,
+    }
+
+    unsafe impl Allocator for CountingAllocator {
+        fn allocate(&self, layout: std::alloc::Layout) -> Result<NonNull<[u8]>, AllocError> {
+            self.allocs.fetch_add(1, Relaxed);
+            Global.allocate(layout)
+        }
+
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: std::alloc::Layout) {
+            unsafe { Global.deallocate(ptr, layout) }
+        }
+    }
+
+    #[test]
+    fn allocates_through_the_given_allocator() {
+        let alloc = CountingAllocator {
+            allocs: Arc::new(AtomicUsize::new(0)),
+        };
+
+        let s = AllocString::new_in("hello world", alloc.clone());
+        assert_eq!(alloc.allocs.load(Relaxed), 1);
+        assert_eq!(s.as_str(), "hello world");
+        assert_eq!(&*s, "hello world");
+
+        let owned = AllocString::from_string_in("goodbye".to_string(), alloc.clone());
+        assert_eq!(alloc.allocs.load(Relaxed), 2);
+        assert_eq!(owned.as_str(), "goodbye");
+    }
+
+    #[test]
+    fn wrapped_in_gc_stays_thin() {
+        // The property this whole design is for: Gc<AllocString<A>, A> is Sized-wrapping,
+        // so it stays an 8-byte thin pointer -- unlike Gc<str, A>, which is a 16-byte fat
+        // pointer and would blow SteelVal's budget (see ALLOCATOR_SPEC.md §3.4).
+        assert_eq!(
+            core::mem::size_of::<Gc<AllocString<CountingAllocator>, CountingAllocator>>(),
+            core::mem::size_of::<usize>()
+        );
+    }
+
+    #[test]
+    fn empty_string_is_valid() {
+        let unicode = AllocString::new_in("héllo wörld 🎉", Global);
+        assert_eq!(unicode.as_str(), "héllo wörld 🎉");
+    }
+}
+
 #[cfg(feature = "unsafe-internals")]
 pub mod unsafe_roots {
 
