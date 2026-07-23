@@ -1506,31 +1506,19 @@ impl<T> BiasedRc<[T]> {
     /// Creates a new reference-counted slice with uninitialized contents.
     #[inline]
     pub fn new_uninit_slice(len: usize) -> BiasedRc<[mem::MaybeUninit<T>]> {
-        let inner = RcBox::allocate_slice(Self::build_new_meta(), len, false, Global);
-        BiasedRc::from_inner(inner.into())
+        Self::new_uninit_slice_in(len, Global)
     }
 
     /// Creates a new reference-counted slice with uninitialized contents, with the memory being
     /// filled with 0 bytes.
     #[inline]
     pub fn new_zeroed_slice(len: usize) -> BiasedRc<[mem::MaybeUninit<T>]> {
-        let inner = RcBox::allocate_slice(Self::build_new_meta(), len, true, Global);
-        BiasedRc::from_inner(inner.into())
+        Self::new_zeroed_slice_in(len, Global)
     }
 
     #[inline]
     unsafe fn copy_from_slice_unchecked(src: &[T]) -> Self {
-        let len = src.len();
-        let inner = RcBox::allocate_slice(Self::build_new_meta(), len, false, Global);
-        let dest = ptr::addr_of_mut!((*inner).data).cast();
-
-        // Safety: The freshly allocated `RcBox` can't alias `src` and the payload can be fully
-        // initialized by copying the slice memory. The copying is also safe as long as the safety
-        // requirements for calling this are fulfilled.
-        unsafe {
-            src.as_ptr().copy_to_nonoverlapping(dest, src.len());
-            BiasedRc::from_inner(inner.assume_init().into())
-        }
+        unsafe { Self::copy_from_slice_unchecked_in(src, Global) }
     }
 }
 
@@ -1542,17 +1530,86 @@ impl<T: Copy> BiasedRc<[T]> {
     }
 }
 
+impl<T, A: Allocator + Clone + 'static> BiasedRc<[T], A> {
+    /// Creates a new reference-counted slice with uninitialized contents, allocated via `alloc`.
+    #[inline]
+    pub fn new_uninit_slice_in(len: usize, alloc: A) -> BiasedRc<[mem::MaybeUninit<T>], A> {
+        let inner = RcBox::allocate_slice(Self::build_new_meta(), len, false, alloc);
+        BiasedRc::from_inner(inner.into())
+    }
+
+    /// Creates a new reference-counted slice with uninitialized contents, with the memory being
+    /// filled with 0 bytes, allocated via `alloc`.
+    #[inline]
+    pub fn new_zeroed_slice_in(len: usize, alloc: A) -> BiasedRc<[mem::MaybeUninit<T>], A> {
+        let inner = RcBox::allocate_slice(Self::build_new_meta(), len, true, alloc);
+        BiasedRc::from_inner(inner.into())
+    }
+
+    #[inline]
+    unsafe fn copy_from_slice_unchecked_in(src: &[T], alloc: A) -> Self {
+        let len = src.len();
+        let inner = RcBox::allocate_slice(Self::build_new_meta(), len, false, alloc);
+        let dest = ptr::addr_of_mut!((*inner).data).cast();
+
+        // Safety: The freshly allocated `RcBox` can't alias `src` and the payload can be fully
+        // initialized by copying the slice memory. The copying is also safe as long as the safety
+        // requirements for calling this are fulfilled.
+        unsafe {
+            src.as_ptr().copy_to_nonoverlapping(dest, src.len());
+            BiasedRc::from_inner(inner.assume_init().into())
+        }
+    }
+
+    /// Creates a new reference-counted slice by cloning every element of `src`, allocated via
+    /// `alloc`.
+    #[inline]
+    pub fn from_slice_in(src: &[T], alloc: A) -> Self
+    where
+        T: Clone,
+    {
+        let mut builder = SliceBuilder::new_in(Self::build_new_meta(), src.len(), alloc);
+        for item in src {
+            builder.append(Clone::clone(item));
+        }
+        Self::from_inner(builder.finish().into())
+    }
+
+    /// Creates a new reference-counted slice from `src`, allocated via `alloc`.
+    #[inline]
+    pub fn from_vec_in(mut src: Vec<T>, alloc: A) -> Self {
+        unsafe {
+            let result = Self::copy_from_slice_unchecked_in(&src[..], alloc);
+
+            // Set the length of `src`, so that the moved items are not dropped.
+            src.set_len(0);
+
+            result
+        }
+    }
+}
+
+impl<T: Copy, A: Allocator + Clone + 'static> BiasedRc<[T], A> {
+    /// Creates a new reference-counted slice by copying `src`, allocated via `alloc`.
+    #[inline]
+    pub fn copy_from_slice_in(src: &[T], alloc: A) -> Self {
+        // Safety: `T` is `Copy`.
+        unsafe { Self::copy_from_slice_unchecked_in(src, alloc) }
+    }
+}
+
 #[must_use]
-pub(crate) struct SliceBuilder<'a, T> {
-    rcbox: &'a mut RcBox<[MaybeUninit<T>], Global>,
+pub(crate) struct SliceBuilder<'a, T, A: Allocator + Clone + 'static = Global> {
+    rcbox: &'a mut RcBox<[MaybeUninit<T>], A>,
     n_elems: usize,
 }
 
-impl<'a, T> SliceBuilder<'a, T> {
-    /// Constructs a new builder for a `RcBox<[T]>` with a slice length of `length`
+impl<'a, T, A: Allocator + Clone + 'static> SliceBuilder<'a, T, A> {
+    /// Constructs a new builder for a `RcBox<[T], A>` with a slice length of `length`,
+    /// allocated via `alloc`.
     #[inline]
-    pub fn new(meta: RcWord, length: usize) -> Self {
-        let rcbox = RcBox::<T, Global>::allocate_slice(meta, length, false, Global);
+    pub fn new_in(meta: RcWord, length: usize, alloc: A) -> Self {
+        let rcbox = RcBox::<T, A>::allocate_slice(meta, length, false, alloc);
         Self { rcbox, n_elems: 0 }
     }
 
@@ -1570,7 +1627,7 @@ impl<'a, T> SliceBuilder<'a, T> {
     /// # Panics
     /// Panics if the number of appended elements doesn't match the promised length.
     #[inline]
-    pub fn finish(self) -> &'a mut RcBox<[T], Global> {
+    pub fn finish(self) -> &'a mut RcBox<[T], A> {
         assert_eq!(self.n_elems, self.rcbox.data.len());
         let rcbox: *mut _ = self.rcbox;
         std::mem::forget(self);
@@ -1578,7 +1635,7 @@ impl<'a, T> SliceBuilder<'a, T> {
     }
 }
 
-impl<T> Drop for SliceBuilder<'_, T> {
+impl<T, A: Allocator + Clone + 'static> Drop for SliceBuilder<'_, T, A> {
     /// Drops the already cloned elements and deallocates the temporary `RcBox`
     ///
     /// Only reached if the builder wasn't consumed by `finish`, which should only happen in
@@ -1606,36 +1663,21 @@ impl<T> From<T> for BiasedRc<T> {
 impl<T: Clone> From<&[T]> for BiasedRc<[T]> {
     #[inline]
     fn from(src: &[T]) -> Self {
-        let mut builder = SliceBuilder::new(Self::build_new_meta(), src.len());
-        for item in src {
-            builder.append(Clone::clone(item));
-        }
-        Self::from_inner(builder.finish().into())
+        Self::from_slice_in(src, Global)
     }
 }
 
 impl<T> From<Vec<T>> for BiasedRc<[T]> {
     #[inline]
-    fn from(mut src: Vec<T>) -> Self {
-        unsafe {
-            let result = BiasedRc::<_>::copy_from_slice_unchecked(&src[..]);
-
-            // Set the length of `src`, so that the moved items are not dropped.
-            src.set_len(0);
-
-            result
-        }
+    fn from(src: Vec<T>) -> Self {
+        Self::from_vec_in(src, Global)
     }
 }
 
 impl From<&str> for BiasedRc<str> {
     #[inline]
     fn from(src: &str) -> Self {
-        let bytes = BiasedRc::<_>::copy_from_slice(src.as_bytes());
-        let inner =
-            unsafe { (bytes.ptr.as_ptr() as *mut _ as *mut RcBox<str, Global>).as_mut() }.unwrap();
-        mem::forget(bytes);
-        Self::from_inner(inner.into())
+        Self::from_str_in(src, Global)
     }
 }
 
@@ -1643,6 +1685,25 @@ impl From<String> for BiasedRc<str> {
     #[inline]
     fn from(src: String) -> Self {
         Self::from(&src[..])
+    }
+}
+
+impl<A: Allocator + Clone + 'static> BiasedRc<str, A> {
+    /// Creates a new reference-counted string slice by copying `src`'s bytes, allocated via
+    /// `alloc`.
+    #[inline]
+    pub fn from_str_in(src: &str, alloc: A) -> Self {
+        let bytes = BiasedRc::<[u8], A>::copy_from_slice_in(src.as_bytes(), alloc);
+        let inner =
+            unsafe { (bytes.ptr.as_ptr() as *mut _ as *mut RcBox<str, A>).as_mut() }.unwrap();
+        mem::forget(bytes);
+        Self::from_inner(inner.into())
+    }
+
+    /// Creates a new reference-counted string slice from `src`, allocated via `alloc`.
+    #[inline]
+    pub fn from_string_in(src: String, alloc: A) -> Self {
+        Self::from_str_in(&src[..], alloc)
     }
 }
 
@@ -1712,6 +1773,58 @@ fn test_custom_allocator() {
         alloc.deallocs.load(Relaxed),
         1,
         "last drop must deallocate exactly once"
+    );
+}
+
+#[test]
+fn test_custom_allocator_slice_and_str() {
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct CountingAllocator {
+        allocs: Arc<AtomicUsize>,
+    }
+
+    unsafe impl Allocator for CountingAllocator {
+        fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, ApiAllocError> {
+            self.allocs.fetch_add(1, Relaxed);
+            Global.allocate(layout)
+        }
+
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+            unsafe { Global.deallocate(ptr, layout) }
+        }
+    }
+
+    register_thread();
+
+    let alloc = CountingAllocator {
+        allocs: Arc::new(AtomicUsize::new(0)),
+    };
+
+    let s = BiasedRc::<str, _>::from_str_in("hello world", alloc.clone());
+    assert_eq!(alloc.allocs.load(Relaxed), 1);
+    assert_eq!(&*s, "hello world");
+
+    let v = BiasedRc::<[i32], _>::from_slice_in(&[1, 2, 3], alloc.clone());
+    assert_eq!(alloc.allocs.load(Relaxed), 2);
+    assert_eq!(&*v, [1, 2, 3]);
+
+    let v2 = BiasedRc::<[i32], _>::from_vec_in(vec![4, 5, 6], alloc.clone());
+    assert_eq!(alloc.allocs.load(Relaxed), 3);
+    assert_eq!(&*v2, [4, 5, 6]);
+
+    // Unlike the sized case, an unsized handle (`str`/`[T]`) is inherently a fat pointer
+    // (address + length) regardless of `A` -- that's a property of Rust DSTs, not something
+    // `A` adds. What *does* hold is that `A` doesn't grow it any further beyond that.
+    assert_eq!(
+        mem::size_of::<BiasedRc<str, CountingAllocator>>(),
+        mem::size_of::<BiasedRc<str>>()
+    );
+    assert_eq!(
+        mem::size_of::<BiasedRc<str, CountingAllocator>>(),
+        2 * mem::size_of::<usize>()
     );
 }
 
