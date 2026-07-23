@@ -1,5 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(all(feature = "jit2", feature = "allocator-api2"))]
+compile_error!(
+    "jit2 and allocator-api2 cannot be enabled together: jit2's compiled super-instructions \
+     are raw `fn(&mut VmCore)` pointers with no allocator-generic representation (see \
+     ALLOCATOR_SPEC.md)"
+);
+
 extern crate alloc;
 extern crate im_rc;
 #[macro_use]

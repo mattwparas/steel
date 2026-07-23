@@ -13,6 +13,16 @@ use crate::parser::kernel::{
     GlobalSymbolMap, ParentScopeSet, TOP_LEVEL_GLOBAL_MAP, TOP_LEVEL_SCOPE_MAP,
 };
 use crate::parser::replace_idents::expand_template;
+#[cfg(feature = "jit2")]
+use crate::primitives::lists::car;
+#[cfg(feature = "jit2")]
+use crate::primitives::lists::cdr;
+#[cfg(feature = "jit2")]
+use crate::primitives::lists::is_empty;
+#[cfg(feature = "jit2")]
+use crate::primitives::subtract_primitive;
+#[cfg(feature = "jit2")]
+use crate::primitives::vectors::vec_ref;
 use crate::primitives::numbers::add_two_fallible;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
