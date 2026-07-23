@@ -85,11 +85,11 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "allocator-api2"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c583acf993cf4245c4acb0a2cc2ab1f9cc097de73411bb6d3647ff6af2b1013d"
+checksum = "c880a97d28a3681c0267bd29cff89621202715b065127cd445fa0f0fe0aa2880"
 dependencies = [
- "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -3667,11 +3667,11 @@ dependencies = [
 
 [[package]]
 name = "shared_vector"
-version = "0.4.5"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "673aacfea9afcf271e69d700140dc2a3e2ff44b1092dd0de71fdd4e5c26672a2"
+checksum = "db178a7b1e552c11440665d314451b8dc12bfc4da84212728292bbbd08f28f6f"
 dependencies = [
- "allocator-api2 0.2.21",
+ "allocator-api2 0.4.0",
 ]
 
 [[package]]
@@ -3836,7 +3836,7 @@ name = "steel-core"
 version = "0.8.2"
 dependencies = [
  "abi_stable",
- "allocator-api2 0.3.1",
+ "allocator-api2 0.4.0",
  "anyhow",
  "arc-swap",
  "async-ffi",
@@ -4028,7 +4028,7 @@ dependencies = [
 name = "steel-rc"
 version = "0.8.2"
 dependencies = [
- "allocator-api2 0.3.1",
+ "allocator-api2 0.4.0",
  "dashmap 6.1.0",
  "parking_lot",
  "rustc-hash",

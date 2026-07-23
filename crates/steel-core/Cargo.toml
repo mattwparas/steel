@@ -13,7 +13,7 @@ name = "steel"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-allocator-api2 = { version="0.3.1", features=["std", "alloc", "serde"] }
+allocator-api2 = { version="0.4.0", features=["std", "alloc", "serde"] }
 
 im-rc = { version = "15.1.0", features = ["serde"] }
 codespan-reporting = "0.11.1"
@@ -105,7 +105,7 @@ glob = "0.3.2"
 # For helping discover the steel home location
 xdg = "3.0.0"
 
-shared_vector = "0.4.4"
+shared_vector = "0.5"
 
 steel-imbl = { version = "7.1", optional = true, features = ["serde"] }
 icu_casemap = "2.0.0"
