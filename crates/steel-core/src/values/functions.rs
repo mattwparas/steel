@@ -144,7 +144,7 @@ pub type CaptureVec<A = crate::gc::Global> = allocator_api2::vec::Vec<SteelValGe
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-pub(crate) fn take_captures<A: crate::gc::Allocator + Clone + 'static>(
+pub(crate) fn take_captures<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
     captures: &mut CaptureVec<A>,
 ) -> CaptureVec<A> {
     let alloc = captures.allocator().clone();
@@ -158,10 +158,64 @@ pub(crate) fn take_captures<A: crate::gc::Allocator + Clone + 'static>(
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-pub(crate) fn take_captures<A: crate::gc::Allocator + Clone + 'static>(
+pub(crate) fn take_captures<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
     captures: &mut CaptureVec<A>,
 ) -> CaptureVec<A> {
     core::mem::take(captures)
+}
+
+#[cfg(all(
+    not(feature = "inline-captures"),
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+pub(crate) fn empty_captures_in<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(alloc: A) -> CaptureVec<A> {
+    allocator_api2::vec::Vec::new_in(alloc)
+}
+
+#[cfg(not(all(
+    not(feature = "inline-captures"),
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+pub(crate) fn empty_captures_in<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    _alloc: A,
+) -> CaptureVec<A> {
+    CaptureVec::default()
+}
+
+/// Same as `empty_captures_in`, but pre-reserves `capacity` slots -- used when the number of
+/// captured variables is known up front (closure construction in the VM's inner loop).
+#[cfg(all(
+    not(feature = "inline-captures"),
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+pub(crate) fn captures_with_capacity_in<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    capacity: usize,
+    alloc: A,
+) -> CaptureVec<A> {
+    allocator_api2::vec::Vec::with_capacity_in(capacity, alloc)
+}
+
+#[cfg(not(all(
+    not(feature = "inline-captures"),
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+pub(crate) fn captures_with_capacity_in<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    capacity: usize,
+    _alloc: A,
+) -> CaptureVec<A> {
+    CaptureVec::with_capacity(capacity)
 }
 
 // A closure's own heap block is squarely in scope for allocator-routing (unlike, say, a
@@ -187,7 +241,7 @@ pub type ByteCodeLambdaGc<A> = Gc<ByteCodeLambda<A>, A>;
 pub type ByteCodeLambdaGc<A> = Gc<ByteCodeLambda<A>>;
 
 #[derive(Clone)]
-pub struct ByteCodeLambda<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub struct ByteCodeLambda<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     pub(crate) id: u32,
     /// body of the function with identifiers yet to be bound
     #[cfg(feature = "dynamic")]
@@ -230,7 +284,7 @@ pub struct ByteCodeLambda<A: crate::gc::Allocator + Clone + 'static = crate::gc:
 // though only `id`/`arity`/`is_multi_arity` are actually printed -- `Global` happens to be
 // `Debug`, but a real custom allocator (an arena, a ring buffer, ...) generally isn't, and
 // there's no reason to require it just to print a closure.
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for ByteCodeLambda<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for ByteCodeLambda<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ByteCodeLambda")
             .field("id", &self.id)
@@ -240,16 +294,16 @@ impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for ByteCodeLam
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for ByteCodeLambda<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for ByteCodeLambda<A> {
     fn eq(&self, other: &Self) -> bool {
         // self.body_exp == other.body_exp &&
         self.arity == other.arity && self.id == other.id
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Eq for ByteCodeLambda<A> {}
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Eq for ByteCodeLambda<A> {}
 
-impl<A: crate::gc::Allocator + Clone + 'static> core::hash::Hash for ByteCodeLambda<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::hash::Hash for ByteCodeLambda<A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
         // self.body_exp.as_ptr().hash(state);
@@ -329,7 +383,7 @@ impl core::ops::Deref for RootedInstructions {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> ByteCodeLambda<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> ByteCodeLambda<A> {
     pub fn new(
         id: u32,
         body_exp: StandardShared<[DenseInstruction]>,
@@ -482,7 +536,20 @@ impl ByteCodeLambda<crate::gc::Global> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> ByteCodeLambda<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> ByteCodeLambda<A> {
+    /// The `A`-generic counterpart to `rooted`/`main` (which need `CaptureVec::default()`,
+    /// only available for `Global`, same as `Gc::new`). Used for the bootstrap/"no captures
+    /// yet" closures `SteelThread<A>::execute` roots the running instructions to.
+    pub fn rooted_in(instructions: StandardShared<[DenseInstruction]>, alloc: A) -> Self {
+        Self::new(
+            SyntaxObjectId::fresh().into(),
+            instructions,
+            0,
+            false,
+            empty_captures_in(alloc),
+        )
+    }
+
     pub fn set_captures(&mut self, captures: CaptureVec<A>) {
         self.captures = captures;
     }

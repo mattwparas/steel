@@ -1,6 +1,7 @@
 use crate::gc::shared::{MutableContainer, ShareableMut};
 use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::ContinuationMark};
 use crate::values::lists::Pair;
+use crate::values::lists::PairGc;
 use num_bigint::BigInt;
 use std::{cell::Cell, collections::VecDeque};
 
@@ -26,7 +27,7 @@ use super::*;
 /// but not stack-flat for that (currently unreachable) case.
 fn push_concrete_into<A, V>(visitor: &mut V, value: SteelVal)
 where
-    A: crate::gc::Allocator + Clone + 'static,
+    A: crate::gc::Allocator + Clone + Send + Sync + 'static,
     V: BreadthFirstSearchSteelValVisitor<A>,
 {
     if core::any::TypeId::of::<A>() == core::any::TypeId::of::<crate::gc::Global>() {
@@ -56,7 +57,7 @@ where
 /// (e.g. a doubly-linked list's `prev`/`next` -- a real cycle, not just deep nesting)
 /// needs that shared state to be recognized and broken (`#N#`); without it, printing
 /// recurses forever between the two sides of the cycle.
-fn as_generic_ref<A: crate::gc::Allocator + Clone + 'static>(
+fn as_generic_ref<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
     value: &SteelVal,
 ) -> Option<&SteelValGeneric<A>> {
     if core::any::TypeId::of::<A>() == core::any::TypeId::of::<crate::gc::Global>() {
@@ -71,7 +72,7 @@ fn as_generic_ref<A: crate::gc::Allocator + Clone + 'static>(
 
 #[derive(Default)]
 // Keep track of any reference counted values that are visited, in a pointer
-pub(super) struct CycleDetector<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub(super) struct CycleDetector<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     // Recording things that have already been seen
     cycles: FxHashMap<(usize, usize), usize>,
 
@@ -90,7 +91,7 @@ enum FormatType {
     TopLevel,
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> CycleDetector<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> CycleDetector<A> {
     pub(super) fn detect_and_display_cycles(
         val: &SteelValGeneric<A>,
         f: &mut fmt::Formatter,
@@ -471,24 +472,24 @@ impl<A: crate::gc::Allocator + Clone + 'static> CycleDetector<A> {
     }
 }
 
-fn replace_with_void<A: crate::gc::Allocator + Clone + 'static>(value: &mut SteelValGeneric<A>) -> SteelValGeneric<A> {
+fn replace_with_void<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(value: &mut SteelValGeneric<A>) -> SteelValGeneric<A> {
     core::mem::replace(value, SteelValGeneric::Void)
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> SteelValGeneric<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> SteelValGeneric<A> {
     fn make_void(&mut self) -> SteelValGeneric<A> {
         core::mem::replace(self, SteelValGeneric::Void)
     }
 }
 
-pub(crate) struct SteelCycleCollector<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub(crate) struct SteelCycleCollector<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     cycles: FxHashMap<(usize, usize), usize>,
     values: List<SteelValGeneric<A>>,
 }
 
 impl Custom for SteelCycleCollector {}
 
-impl<A: crate::gc::Allocator + Clone + 'static> SteelCycleCollector<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> SteelCycleCollector<A> {
     pub fn from_root(value: SteelValGeneric<A>) -> Self {
         let mut queue = Vec::new();
 
@@ -582,7 +583,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> SteelCycleCollector<A> {
     }
 }
 
-struct CycleCollector<'a, A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+struct CycleCollector<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     // Keep a mapping of the pointer -> gensym
     visited: FxHashSet<(usize, usize)>,
 
@@ -600,7 +601,7 @@ struct CycleCollector<'a, A: crate::gc::Allocator + Clone + 'static = crate::gc:
     found_mutable: bool,
 }
 
-impl<'a, A: crate::gc::Allocator + Clone + 'static> CycleCollector<'a, A> {
+impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> CycleCollector<'a, A> {
     fn add(&mut self, val: (usize, usize), steelval: &SteelValGeneric<A>) -> bool {
         if !self.found_mutable {
             return false;
@@ -626,7 +627,7 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> CycleCollector<'a, A> {
     }
 }
 
-impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVisitor<A> for CycleCollector<'a, A> {
+impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> BreadthFirstSearchSteelValVisitor<A> for CycleCollector<'a, A> {
     type Output = ();
 
     fn default_output(&mut self) -> Self::Output {}
@@ -784,7 +785,7 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
     }
 
     // TODO: Revisit this!
-    fn visit_pair(&mut self, pair: Gc<Pair<A>>) -> Self::Output {
+    fn visit_pair(&mut self, pair: PairGc<A>) -> Self::Output {
         if !self.add((pair.as_ptr() as usize, 0), &SteelValGeneric::Pair(pair.clone())) {
             self.push_back(pair.car());
             self.push_back(pair.cdr());
@@ -807,7 +808,7 @@ pub(crate) mod drop_impls {
         pub static FORMAT_BUFFER: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
     }
 
-    impl<A: crate::gc::Allocator + Clone + 'static> Drop for SteelVector<A> {
+    impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Drop for SteelVector<A> {
         fn drop(&mut self) {
             if self.0.is_empty() {
                 return;
@@ -825,7 +826,7 @@ pub(crate) mod drop_impls {
         }
     }
 
-    impl<A: crate::gc::Allocator + Clone + 'static> Drop for SteelHashMap<A> {
+    impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Drop for SteelHashMap<A> {
         fn drop(&mut self) {
             if self.0.is_empty() {
                 return;
@@ -874,7 +875,7 @@ pub(crate) mod drop_impls {
         }
     }
 
-    impl<A: crate::gc::Allocator + Clone + 'static> Drop for LazyStream<A> {
+    impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Drop for LazyStream<A> {
         fn drop(&mut self) {
             if self.initial_value == SteelValGeneric::Void && self.stream_thunk == SteelValGeneric::Void {
                 return;
@@ -908,13 +909,13 @@ pub(crate) mod drop_impls {
     // }
 }
 
-pub struct IterativeDropHandler<'a, A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub struct IterativeDropHandler<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     drop_buffer: &'a mut VecDeque<SteelValGeneric<A>>,
     #[cfg(feature = "experimental-drop-handler")]
     moved_threads: bool,
 }
 
-impl<'a, A: crate::gc::Allocator + Clone + 'static> IterativeDropHandler<'a, A> {
+impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> IterativeDropHandler<'a, A> {
     pub fn bfs(drop_buffer: &'a mut VecDeque<SteelValGeneric<A>>) {
         IterativeDropHandler {
             drop_buffer,
@@ -925,7 +926,7 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> IterativeDropHandler<'a, A> 
     }
 }
 
-impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVisitor<A> for IterativeDropHandler<'a, A> {
+impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> BreadthFirstSearchSteelValVisitor<A> for IterativeDropHandler<'a, A> {
     type Output = ();
 
     fn default_output(&mut self) -> Self::Output {}
@@ -1285,7 +1286,7 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
         }
     }
 
-    fn visit_pair(&mut self, pair: Gc<Pair<A>>) -> Self::Output {
+    fn visit_pair(&mut self, pair: PairGc<A>) -> Self::Output {
         if let Ok(inner) = Gc::try_unwrap(pair) {
             self.push_back(inner.car);
             self.push_back(inner.cdr);
@@ -1296,12 +1297,12 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
 // TODO: Figure out a more elegant way to do this!
 
 #[cfg(feature = "experimental-drop-handler")]
-pub struct OwnedIterativeDropHandler<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub struct OwnedIterativeDropHandler<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     drop_buffer: VecDeque<SteelValGeneric<A>>,
 }
 
 #[cfg(feature = "experimental-drop-handler")]
-impl<A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVisitor<A>
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> BreadthFirstSearchSteelValVisitor<A>
     for OwnedIterativeDropHandler<A>
 {
     type Output = ();
@@ -1607,7 +1608,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVisito
         ret
     }
 
-    fn visit_pair(&mut self, pair: Gc<Pair<A>>) -> Self::Output {
+    fn visit_pair(&mut self, pair: PairGc<A>) -> Self::Output {
         if let Ok(inner) = Gc::try_unwrap(pair) {
             self.push_back(inner.car);
             self.push_back(inner.cdr);
@@ -1615,7 +1616,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVisito
     }
 }
 
-pub trait BreadthFirstSearchSteelValVisitor<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub trait BreadthFirstSearchSteelValVisitor<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     type Output;
 
     fn default_output(&mut self) -> Self::Output;
@@ -1707,11 +1708,11 @@ pub trait BreadthFirstSearchSteelValVisitor<A: crate::gc::Allocator + Clone + 's
     fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelValGeneric<A>>) -> Self::Output;
     fn visit_reference_value(&mut self, reference: Gc<OpaqueReference<'static>>) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelValGeneric<A>>) -> Self::Output;
-    fn visit_pair(&mut self, pair: Gc<Pair<A>>) -> Self::Output;
+    fn visit_pair(&mut self, pair: PairGc<A>) -> Self::Output;
     fn visit_bytevector(&mut self, bytevector: SteelByteVector) -> Self::Output;
 }
 
-pub trait BreadthFirstSearchSteelValVisitor2<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub trait BreadthFirstSearchSteelValVisitor2<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     type Output;
 
     fn default_output(&mut self) -> Self::Output;
@@ -1803,11 +1804,11 @@ pub trait BreadthFirstSearchSteelValVisitor2<A: crate::gc::Allocator + Clone + '
     fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelValGeneric<A>>) -> Self::Output;
     fn visit_reference_value(&mut self, reference: Gc<OpaqueReference<'static>>) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelValGeneric<A>>) -> Self::Output;
-    fn visit_pair(&mut self, pair: Gc<Pair<A>>) -> Self::Output;
+    fn visit_pair(&mut self, pair: PairGc<A>) -> Self::Output;
     fn visit_bytevector(&mut self, bytevector: SteelByteVector) -> Self::Output;
 }
 
-pub trait BreadthFirstSearchSteelValReferenceVisitor<'a, A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub trait BreadthFirstSearchSteelValReferenceVisitor<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     type Output;
 
     fn default_output(&mut self) -> Self::Output;
@@ -1903,7 +1904,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a, A: crate::gc::Allocator
         reference: &'a Gc<OpaqueReference<'static>>,
     ) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: &'a HeapRef<SteelValGeneric<A>>) -> Self::Output;
-    fn visit_pair(&mut self, pair: &'a Gc<Pair<A>>) -> Self::Output;
+    fn visit_pair(&mut self, pair: &'a PairGc<A>) -> Self::Output;
 }
 
 // `SteelValPointer` is unconditionally concrete (raw pointers into `Global`-backed
@@ -2002,13 +2003,13 @@ fn eq_depth() -> usize {
     0
 }
 
-struct RecursiveEqualityHandler<'a, A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+struct RecursiveEqualityHandler<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     left: EqualityVisitor<'a, A>,
     right: EqualityVisitor<'a, A>,
     visited: &'a mut FxHashSet<(usize, usize)>,
 }
 
-impl<'a, A: crate::gc::Allocator + Clone + 'static> RecursiveEqualityHandler<'a, A> {
+impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> RecursiveEqualityHandler<'a, A> {
     pub fn compare_equality(&mut self, left: SteelValGeneric<A>, right: SteelValGeneric<A>) -> bool {
         self.left.push_back(left);
         self.right.push_back(right);
@@ -2477,7 +2478,7 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> RecursiveEqualityHandler<'a,
 }
 
 // TODO: This _needs_ to use references. Or otherwise we'll thrash stuff on drop
-pub struct EqualityVisitor<'a, A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub struct EqualityVisitor<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     // Mark each node that we've visited, if we encounter any mutable objects
     // on the way, then we'll start using the visited set. But we'll optimistically
     // assume that there are no mutable objects, and we won't start using this
@@ -2486,7 +2487,7 @@ pub struct EqualityVisitor<'a, A: crate::gc::Allocator + Clone + 'static = crate
     queue: &'a mut Vec<SteelValGeneric<A>>,
 }
 
-impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVisitor<A> for EqualityVisitor<'a, A> {
+impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> BreadthFirstSearchSteelValVisitor<A> for EqualityVisitor<'a, A> {
     type Output = ();
 
     fn default_output(&mut self) -> Self::Output {}
@@ -2631,13 +2632,13 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
         // }
     }
 
-    fn visit_pair(&mut self, pair: Gc<Pair<A>>) -> Self::Output {
+    fn visit_pair(&mut self, pair: PairGc<A>) -> Self::Output {
         self.push_back(pair.car());
         self.push_back(pair.cdr());
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for SteelValGeneric<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for SteelValGeneric<A> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Void, Void) => true,

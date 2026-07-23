@@ -8,30 +8,30 @@ type Alloc = crate::gc::Global;
 
 // Make a transducer actually contain an option to a rooted value, otherwise
 // it is a source agnostic transformer on the (eventual) input
-pub struct Transducer<A: crate::gc::Allocator + Clone + 'static = Alloc> {
+pub struct Transducer<A: crate::gc::Allocator + Clone + Send + Sync + 'static = Alloc> {
     // root: Gc<SteelVal>,
     pub ops: Vec<Transducers<A>>,
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for Transducer<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for Transducer<A> {
     fn clone(&self) -> Self {
         Transducer {
             ops: self.ops.clone(),
         }
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for Transducer<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for Transducer<A> {
     fn eq(&self, other: &Self) -> bool {
         self.ops == other.ops
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> core::hash::Hash for Transducer<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::hash::Hash for Transducer<A> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.ops.hash(state);
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Transducer<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Transducer<A> {
     pub fn new() -> Self {
         Transducer { ops: Vec::new() }
     }
@@ -45,13 +45,13 @@ impl<A: crate::gc::Allocator + Clone + 'static> Transducer<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Default for Transducer<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Default for Transducer<A> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub enum Transducers<A: crate::gc::Allocator + Clone + 'static = Alloc> {
+pub enum Transducers<A: crate::gc::Allocator + Clone + Send + Sync + 'static = Alloc> {
     Map(SteelValGeneric<A>),          // function
     Filter(SteelValGeneric<A>),       // function
     Take(SteelValGeneric<A>),         // integer
@@ -72,7 +72,7 @@ pub enum Transducers<A: crate::gc::Allocator + Clone + 'static = Alloc> {
     MapPair(SteelValGeneric<A>),
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for Transducers<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for Transducers<A> {
     fn clone(&self) -> Self {
         match self {
             Self::Map(v) => Self::Map(v.clone()),
@@ -94,7 +94,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Clone for Transducers<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for Transducers<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for Transducers<A> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Map(a), Self::Map(b)) => a == b,
@@ -117,7 +117,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for Transducers<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> core::hash::Hash for Transducers<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::hash::Hash for Transducers<A> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         core::mem::discriminant(self).hash(state);
         match self {
@@ -141,12 +141,12 @@ impl<A: crate::gc::Allocator + Clone + 'static> core::hash::Hash for Transducers
 // This should just describe how a sequence of values can be reduced
 // assert that the function passed in has an arity of 2
 // and the initival
-pub struct ReducerFunc<A: crate::gc::Allocator + Clone + 'static = Alloc> {
+pub struct ReducerFunc<A: crate::gc::Allocator + Clone + Send + Sync + 'static = Alloc> {
     pub(crate) initial_value: SteelValGeneric<A>,
     pub(crate) function: SteelValGeneric<A>,
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for ReducerFunc<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for ReducerFunc<A> {
     fn clone(&self) -> Self {
         ReducerFunc {
             initial_value: self.initial_value.clone(),
@@ -154,7 +154,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Clone for ReducerFunc<A> {
         }
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for ReducerFunc<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for ReducerFunc<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ReducerFunc")
             .field("initial_value", &self.initial_value)
@@ -162,20 +162,20 @@ impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for ReducerFunc
             .finish()
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for ReducerFunc<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for ReducerFunc<A> {
     fn eq(&self, other: &Self) -> bool {
         self.initial_value == other.initial_value && self.function == other.function
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> Eq for ReducerFunc<A> {}
-impl<A: crate::gc::Allocator + Clone + 'static> core::hash::Hash for ReducerFunc<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Eq for ReducerFunc<A> {}
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::hash::Hash for ReducerFunc<A> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.initial_value.hash(state);
         self.function.hash(state);
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> ReducerFunc<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> ReducerFunc<A> {
     fn new(initial_value: SteelValGeneric<A>, function: SteelValGeneric<A>) -> Self {
         ReducerFunc {
             initial_value,
@@ -187,7 +187,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> ReducerFunc<A> {
 // Defines how to collect a function
 // defaults to the same input type?
 
-pub enum Reducer<A: crate::gc::Allocator + Clone + 'static = Alloc> {
+pub enum Reducer<A: crate::gc::Allocator + Clone + Send + Sync + 'static = Alloc> {
     // Sum the sequence
     Sum,
     // Multiply the sequence
@@ -218,7 +218,7 @@ pub enum Reducer<A: crate::gc::Allocator + Clone + 'static = Alloc> {
     Generic(ReducerFunc<A>),
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for Reducer<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for Reducer<A> {
     fn clone(&self) -> Self {
         match self {
             Self::Sum => Self::Sum,
@@ -239,7 +239,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Clone for Reducer<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for Reducer<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for Reducer<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Sum => write!(f, "Sum"),
@@ -260,7 +260,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for Reducer<A> 
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for Reducer<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for Reducer<A> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Sum, Self::Sum)
@@ -281,9 +281,9 @@ impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for Reducer<A> {
         }
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> Eq for Reducer<A> {}
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Eq for Reducer<A> {}
 
-impl<A: crate::gc::Allocator + Clone + 'static> core::hash::Hash for Reducer<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::hash::Hash for Reducer<A> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         core::mem::discriminant(self).hash(state);
         match self {

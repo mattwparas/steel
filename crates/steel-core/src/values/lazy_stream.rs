@@ -2,13 +2,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::rvals::{SerializableSteelVal, SteelVal, SteelValGeneric};
 
-pub struct LazyStream<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub struct LazyStream<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     pub initial_value: SteelValGeneric<A>, // argument to stream
     pub stream_thunk: SteelValGeneric<A>,  // function to get the next value
     pub empty_stream: bool,
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for LazyStream<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for LazyStream<A> {
     fn clone(&self) -> Self {
         LazyStream {
             initial_value: self.initial_value.clone(),
@@ -25,7 +25,7 @@ pub struct SerializableStream {
     pub empty_stream: bool,
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> LazyStream<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> LazyStream<A> {
     // Perhaps do some error checking here in order to determine
     // if the arguments passed are actually valid
     pub fn new(initial_value: SteelValGeneric<A>, stream_thunk: SteelValGeneric<A>) -> Self {

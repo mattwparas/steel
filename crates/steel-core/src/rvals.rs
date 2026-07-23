@@ -797,13 +797,13 @@ impl ast::TryFromSteelValVisitorForExprKind {
     }
 }
 
-pub struct Syntax<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub struct Syntax<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     pub(crate) raw: Option<SteelValGeneric<A>>,
     pub(crate) syntax: SteelValGeneric<A>,
     span: Span,
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for Syntax<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for Syntax<A> {
     fn clone(&self) -> Self {
         Syntax {
             raw: self.raw.clone(),
@@ -813,7 +813,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Clone for Syntax<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for Syntax<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for Syntax<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Syntax")
             .field("raw", &self.raw)
@@ -823,7 +823,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for Syntax<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Syntax<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Syntax<A> {
     pub fn new(syntax: SteelValGeneric<A>, span: Span) -> Syntax<A> {
         Self {
             raw: None,
@@ -1552,28 +1552,28 @@ pub fn into_serializable_value(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
 
-pub struct SteelVector<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global>(
+pub struct SteelVector<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global>(
     pub(crate) Gc<Vector<SteelValGeneric<A>>>,
 );
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelVector<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for SteelVector<A> {
     fn clone(&self) -> Self {
         SteelVector(self.0.clone())
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for SteelVector<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for SteelVector<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for SteelVector<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for SteelVector<A> {
     fn eq(&self, other: &Self) -> bool {
         *self.0 == *other.0
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> Eq for SteelVector<A> {}
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Eq for SteelVector<A> {}
 
-impl<A: crate::gc::Allocator + Clone + 'static> FromIterator<SteelValGeneric<A>>
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> FromIterator<SteelValGeneric<A>>
     for SteelVector<A>
 {
     fn from_iter<T: IntoIterator<Item = SteelValGeneric<A>>>(iter: T) -> Self {
@@ -1582,7 +1582,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> FromIterator<SteelValGeneric<A>>
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelVector<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Deref for SteelVector<A> {
     type Target = Vector<SteelValGeneric<A>>;
 
     fn deref(&self) -> &Self::Target {
@@ -1590,7 +1590,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelVector<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> From<Gc<Vector<SteelValGeneric<A>>>>
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> From<Gc<Vector<SteelValGeneric<A>>>>
     for SteelVector<A>
 {
     fn from(value: Gc<Vector<SteelValGeneric<A>>>) -> Self {
@@ -1598,28 +1598,28 @@ impl<A: crate::gc::Allocator + Clone + 'static> From<Gc<Vector<SteelValGeneric<A
     }
 }
 
-pub struct SteelHashMap<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global>(
+pub struct SteelHashMap<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global>(
     pub(crate) Gc<HashMap<SteelValGeneric<A>, SteelValGeneric<A>>>,
 );
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelHashMap<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for SteelHashMap<A> {
     fn clone(&self) -> Self {
         SteelHashMap(self.0.clone())
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for SteelHashMap<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for SteelHashMap<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for SteelHashMap<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for SteelHashMap<A> {
     fn eq(&self, other: &Self) -> bool {
         *self.0 == *other.0
     }
 }
 
 #[cfg(feature = "imbl")]
-impl<A: crate::gc::Allocator + Clone + 'static> Hash for SteelHashMap<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Hash for SteelHashMap<A> {
     fn hash<H>(&self, state: &mut H)
     where
         H: Hasher,
@@ -1630,7 +1630,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Hash for SteelHashMap<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelHashMap<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Deref for SteelHashMap<A> {
     type Target = HashMap<SteelValGeneric<A>, SteelValGeneric<A>>;
 
     fn deref(&self) -> &Self::Target {
@@ -1638,7 +1638,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelHashMap<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static>
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static>
     From<Gc<HashMap<SteelValGeneric<A>, SteelValGeneric<A>>>> for SteelHashMap<A>
 {
     fn from(value: Gc<HashMap<SteelValGeneric<A>, SteelValGeneric<A>>>) -> Self {
@@ -1646,28 +1646,28 @@ impl<A: crate::gc::Allocator + Clone + 'static>
     }
 }
 
-pub struct SteelHashSet<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global>(
+pub struct SteelHashSet<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global>(
     pub(crate) Gc<HashSet<SteelValGeneric<A>>>,
 );
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelHashSet<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for SteelHashSet<A> {
     fn clone(&self) -> Self {
         SteelHashSet(self.0.clone())
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for SteelHashSet<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for SteelHashSet<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for SteelHashSet<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for SteelHashSet<A> {
     fn eq(&self, other: &Self) -> bool {
         *self.0 == *other.0
     }
 }
 
 #[cfg(feature = "imbl")]
-impl<A: crate::gc::Allocator + Clone + 'static> Hash for SteelHashSet<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Hash for SteelHashSet<A> {
     fn hash<H>(&self, state: &mut H)
     where
         H: Hasher,
@@ -1678,7 +1678,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Hash for SteelHashSet<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelHashSet<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Deref for SteelHashSet<A> {
     type Target = HashSet<SteelValGeneric<A>>;
 
     fn deref(&self) -> &Self::Target {
@@ -1686,7 +1686,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelHashSet<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> From<Gc<HashSet<SteelValGeneric<A>>>>
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> From<Gc<HashSet<SteelValGeneric<A>>>>
     for SteelHashSet<A>
 {
     fn from(value: Gc<HashSet<SteelValGeneric<A>>>) -> Self {
@@ -1716,7 +1716,7 @@ pub enum TypeKind {
 /// the codebase uses; only code that opts into a custom allocator names
 /// `SteelValGeneric<MyAlloc>` explicitly.
 #[repr(C, u8)]
-pub enum SteelValGeneric<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub enum SteelValGeneric<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     /// Represents a bytecode closure.
     Closure(crate::values::functions::ByteCodeLambdaGc<A>),
     /// Represents a boolean value.
@@ -1770,7 +1770,7 @@ pub enum SteelValGeneric<A: crate::gc::Allocator + Clone + 'static = crate::gc::
     // List
     ListV(crate::values::lists::List<SteelValGeneric<A>>),
     // Holds a pair that contains 2 `SteelVal`.
-    Pair(Gc<crate::values::lists::Pair<A>>),
+    Pair(crate::values::lists::PairGc<A>),
     // Mutable functions
     MutFunc(MutFunctionSignature),
     // Built in functions
@@ -1803,7 +1803,7 @@ pub enum SteelValGeneric<A: crate::gc::Allocator + Clone + 'static = crate::gc::
 /// means by "a Steel value." See `SteelValGeneric`'s doc comment and ALLOCATOR_SPEC.md.
 pub type SteelVal = SteelValGeneric<crate::gc::Global>;
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelValGeneric<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for SteelValGeneric<A> {
     #[inline(always)]
     fn clone(&self) -> Self {
         match self {
@@ -1850,7 +1850,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelValGeneric<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Default for SteelValGeneric<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Default for SteelValGeneric<A> {
     fn default() -> Self {
         Self::Void
     }
@@ -2060,7 +2060,7 @@ impl SteelVal {
     // }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> SteelValGeneric<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> SteelValGeneric<A> {
     pub fn as_ptr_usize(&self) -> Option<usize> {
         match self {
             Closure(l) => Some(l.as_ptr() as usize),
@@ -2195,7 +2195,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> SteelValGeneric<A> {
     not(feature = "triomphe")
 )))]
 #[repr(C)]
-pub struct SteelString<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global>(
+pub struct SteelString<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global>(
     pub(crate) Gc<String>,
     core::marker::PhantomData<A>,
 );
@@ -2206,7 +2206,7 @@ pub struct SteelString<A: crate::gc::Allocator + Clone + 'static = crate::gc::Gl
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for SteelString<A> {
     fn clone(&self) -> Self {
         SteelString(self.0.clone(), core::marker::PhantomData)
     }
@@ -2218,7 +2218,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for SteelString<A> {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
@@ -2230,7 +2230,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> Eq for SteelString<A> {}
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Eq for SteelString<A> {}
 
 #[cfg(not(all(
     feature = "sync",
@@ -2238,7 +2238,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Eq for SteelString<A> {}
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> PartialOrd for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialOrd for SteelString<A> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(&other.0)
     }
@@ -2250,7 +2250,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> PartialOrd for SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> Ord for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Ord for SteelString<A> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.0.cmp(&other.0)
     }
@@ -2262,7 +2262,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Ord for SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> std::hash::Hash for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> std::hash::Hash for SteelString<A> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state)
     }
@@ -2274,7 +2274,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> std::hash::Hash for SteelString<
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Deref for SteelString<A> {
     type Target = crate::gc::Shared<String>;
 
     fn deref(&self) -> &Self::Target {
@@ -2320,7 +2320,7 @@ impl From<Arc<String>> for SteelString {
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> From<&str> for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> From<&str> for SteelString<A> {
     fn from(val: &str) -> Self {
         SteelString(Gc::new(val.to_string()), core::marker::PhantomData)
     }
@@ -2332,7 +2332,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> From<&str> for SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> From<&String> for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> From<&String> for SteelString<A> {
     fn from(val: &String) -> Self {
         SteelString(Gc::new(val.to_owned()), core::marker::PhantomData)
     }
@@ -2344,7 +2344,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> From<&String> for SteelString<A>
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> From<String> for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> From<String> for SteelString<A> {
     fn from(val: String) -> Self {
         SteelString(Gc::new(val), core::marker::PhantomData)
     }
@@ -2356,7 +2356,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> From<String> for SteelString<A> 
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> From<crate::gc::Shared<String>> for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> From<crate::gc::Shared<String>> for SteelString<A> {
     fn from(val: crate::gc::Shared<String>) -> Self {
         SteelString(Gc(val), core::marker::PhantomData)
     }
@@ -2368,7 +2368,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> From<crate::gc::Shared<String>> 
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> From<Gc<String>> for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> From<Gc<String>> for SteelString<A> {
     fn from(val: Gc<String>) -> Self {
         SteelString(val, core::marker::PhantomData)
     }
@@ -2380,7 +2380,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> From<Gc<String>> for SteelString
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> From<SteelString<A>> for crate::gc::Shared<String> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> From<SteelString<A>> for crate::gc::Shared<String> {
     fn from(value: SteelString<A>) -> Self {
         value.0 .0
     }
@@ -2392,7 +2392,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> From<SteelString<A>> for crate::
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> From<SteelString<A>> for Gc<String> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> From<SteelString<A>> for Gc<String> {
     fn from(value: SteelString<A>) -> Self {
         value.0
     }
@@ -2404,7 +2404,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> From<SteelString<A>> for Gc<Stri
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Display for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Display for SteelString<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0.as_str())
     }
@@ -2416,7 +2416,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Display for SteelStri
     feature = "allocator-api2",
     not(feature = "triomphe")
 )))]
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for SteelString<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.0.as_str())
     }
@@ -2437,7 +2437,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for SteelString
     not(feature = "triomphe")
 ))]
 #[repr(C)]
-pub struct SteelString<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global>(
+pub struct SteelString<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global>(
     pub(crate) Gc<crate::gc::AllocString<A>, A>,
 );
 
@@ -2447,7 +2447,7 @@ pub struct SteelString<A: crate::gc::Allocator + Clone + 'static = crate::gc::Gl
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> SteelString<A> {
     pub fn new_in(s: &str, alloc: A) -> Self {
         SteelString(Gc::new_in(crate::gc::AllocString::new_in(s, alloc.clone()), alloc))
     }
@@ -2463,7 +2463,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for SteelString<A> {
     fn clone(&self) -> Self {
         SteelString(self.0.clone())
     }
@@ -2475,7 +2475,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Clone for SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for SteelString<A> {
     fn eq(&self, other: &Self) -> bool {
         self.as_str() == other.as_str()
     }
@@ -2487,7 +2487,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> Eq for SteelString<A> {}
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Eq for SteelString<A> {}
 
 #[cfg(all(
     feature = "sync",
@@ -2495,7 +2495,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Eq for SteelString<A> {}
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> PartialOrd for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialOrd for SteelString<A> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.as_str().partial_cmp(other.as_str())
     }
@@ -2507,7 +2507,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> PartialOrd for SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> Ord for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Ord for SteelString<A> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.as_str().cmp(other.as_str())
     }
@@ -2519,7 +2519,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Ord for SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> std::hash::Hash for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> std::hash::Hash for SteelString<A> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.as_str().hash(state)
     }
@@ -2531,7 +2531,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> std::hash::Hash for SteelString<
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Deref for SteelString<A> {
     type Target = crate::gc::Shared<crate::gc::AllocString<A>, A>;
 
     fn deref(&self) -> &Self::Target {
@@ -2545,7 +2545,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> Deref for SteelString<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> From<crate::gc::AllocString<A>> for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> From<crate::gc::AllocString<A>> for SteelString<A> {
     fn from(val: crate::gc::AllocString<A>) -> Self {
         let alloc = val.allocator();
         SteelString(Gc::new_in(val, alloc))
@@ -2610,7 +2610,7 @@ impl From<Arc<String>> for SteelString<crate::gc::Global> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Display for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Display for SteelString<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
@@ -2622,7 +2622,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Display for SteelStri
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for SteelString<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for SteelString<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.as_str())
     }
@@ -2836,7 +2836,7 @@ fn slow_path_eq_lists(
     */
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Hash for SteelValGeneric<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Hash for SteelValGeneric<A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         core::mem::discriminant(self).hash(state);
         match self {
@@ -2887,62 +2887,64 @@ impl<A: crate::gc::Allocator + Clone + 'static> Hash for SteelValGeneric<A> {
     }
 }
 
-impl SteelVal {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> SteelValGeneric<A> {
     #[inline(always)]
     pub fn is_truthy(&self) -> bool {
         match &self {
-            SteelVal::BoolV(false) => false,
+            Self::BoolV(false) => false,
             _ => true,
         }
     }
 
     #[inline(always)]
     pub fn is_future(&self) -> bool {
-        matches!(self, SteelVal::FutureV(_))
+        matches!(self, Self::FutureV(_))
     }
 
     pub fn is_function(&self) -> bool {
         matches!(
             self,
-            BoxedFunction(_)
-                | Closure(_)
-                | FuncV(_)
+            Self::BoxedFunction(_)
+                | Self::Closure(_)
+                | Self::FuncV(_)
                 // | ContractedFunction(_)
-                | BuiltIn(_)
-                | MutFunc(_)
+                | Self::BuiltIn(_)
+                | Self::MutFunc(_)
         )
     }
 
     // pub fn is_contract(&self) -> bool {
     //     matches!(self, Contract(_))
     // }
+}
 
+impl SteelVal {
     pub fn empty_hashmap() -> SteelVal {
         SteelVal::HashMapV(Gc::new(HashMap::new()).into())
     }
 }
 
-impl SteelVal {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> SteelValGeneric<A> {
     // pub fn res_iterator
 
     pub fn list_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> core::result::Result<&List<SteelVal>, E> {
+    ) -> core::result::Result<&List<SteelValGeneric<A>>, E> {
         match self {
             Self::ListV(v) => Ok(v),
             _ => Err(err()),
         }
     }
 
-    pub fn list(&self) -> Option<&List<SteelVal>> {
+    pub fn list(&self) -> Option<&List<SteelValGeneric<A>>> {
         match self {
             Self::ListV(l) => Some(l),
             _ => None,
         }
     }
 
-    pub fn pair(&self) -> Option<&Gc<crate::values::lists::Pair>> {
+    pub fn pair(&self) -> Option<&crate::values::lists::PairGc<A>> {
         match self {
             Self::Pair(p) => Some(p),
             _ => None,
@@ -2981,7 +2983,7 @@ impl SteelVal {
     pub fn vector_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> core::result::Result<Vector<SteelVal>, E> {
+    ) -> core::result::Result<Vector<SteelValGeneric<A>>, E> {
         match self {
             Self::VectorV(v) => Ok(v.0.unwrap()),
             _ => Err(err()),
@@ -3035,7 +3037,7 @@ impl SteelVal {
     pub fn closure_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> core::result::Result<Gc<ByteCodeLambda>, E> {
+    ) -> core::result::Result<crate::values::functions::ByteCodeLambdaGc<A>, E> {
         match self {
             Self::Closure(c) => Ok(c.clone()),
             _ => Err(err()),
@@ -3085,21 +3087,21 @@ impl SteelVal {
         }
     }
 
-    pub fn as_string(&self) -> Option<&SteelString> {
+    pub fn as_string(&self) -> Option<&SteelString<A>> {
         match self {
             Self::StringV(s) => Some(s),
             _ => None,
         }
     }
 
-    pub fn as_symbol(&self) -> Option<&SteelString> {
+    pub fn as_symbol(&self) -> Option<&SteelString<A>> {
         match self {
             Self::SymbolV(s) => Some(s),
             _ => None,
         }
     }
 
-    pub fn as_syntax_object(&self) -> Option<&Syntax> {
+    pub fn as_syntax_object(&self) -> Option<&Syntax<A>> {
         match self {
             Self::SyntaxObject(s) => Some(s),
             _ => None,
@@ -3127,7 +3129,7 @@ impl SteelVal {
     // }
 
     pub fn closure_arity(&self) -> Option<usize> {
-        if let SteelVal::Closure(c) = self {
+        if let Self::Closure(c) = self {
             Some(c.arity())
         } else {
             None
@@ -3135,13 +3137,13 @@ impl SteelVal {
     }
 }
 
-impl SteelVal {
-    pub const INT_ZERO: SteelVal = SteelVal::IntV(0);
-    pub const INT_ONE: SteelVal = SteelVal::IntV(1);
-    pub const INT_TWO: SteelVal = SteelVal::IntV(2);
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> SteelValGeneric<A> {
+    pub const INT_ZERO: Self = Self::IntV(0);
+    pub const INT_ONE: Self = Self::IntV(1);
+    pub const INT_TWO: Self = Self::IntV(2);
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Eq for SteelValGeneric<A> {}
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Eq for SteelValGeneric<A> {}
 
 fn integer_float_equality(int: isize, float: f64) -> bool {
     let converted = float as isize;
@@ -3201,7 +3203,7 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(BoolV(result))
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> PartialOrd for SteelValGeneric<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialOrd for SteelValGeneric<A> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // TODO: Attempt to avoid converting to f64 for cases below as it may lead to precision loss
         // at tiny and large values.
@@ -3361,7 +3363,7 @@ impl<A: crate::gc::Allocator + Clone + 'static> PartialOrd for SteelValGeneric<A
                 // rather than calling the registered `realp` builtin (a concrete,
                 // Global-only `FunctionSignature`, since Rust function pointers can't
                 // be generic over `A`) -- this is a purely structural variant check.
-                fn is_real<A: crate::gc::Allocator + Clone + 'static>(
+                fn is_real<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
                     value: &SteelValGeneric<A>,
                 ) -> bool {
                     matches!(
@@ -3388,13 +3390,13 @@ impl<'a> fmt::Display for SteelValDisplay<'a> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> fmt::Display for SteelValGeneric<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> fmt::Display for SteelValGeneric<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         CycleDetector::detect_and_display_cycles(self, f, true)
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> fmt::Debug for SteelValGeneric<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> fmt::Debug for SteelValGeneric<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // at the top level, print a ' if we are
         // trying to print a symbol or list

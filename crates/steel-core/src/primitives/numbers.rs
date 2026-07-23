@@ -2300,7 +2300,7 @@ fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
 ///
 /// # Precondition
 /// - `x` and `y` must be valid numerical types.
-fn multiply_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+pub(crate) fn multiply_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
     match (x, y) {
         (SteelVal::NumV(x), SteelVal::NumV(y)) => (x * y).into_steelval(),
         (SteelVal::NumV(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::NumV(x)) => {

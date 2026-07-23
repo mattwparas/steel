@@ -13,12 +13,12 @@ use crate::{
 
 // TODO:
 // Builtin immutable pairs
-pub struct Pair<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+pub struct Pair<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     pub(crate) car: SteelValGeneric<A>,
     pub(crate) cdr: SteelValGeneric<A>,
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Clone for Pair<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Clone for Pair<A> {
     fn clone(&self) -> Self {
         Pair {
             car: self.car.clone(),
@@ -27,14 +27,14 @@ impl<A: crate::gc::Allocator + Clone + 'static> Clone for Pair<A> {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> core::hash::Hash for Pair<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::hash::Hash for Pair<A> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.car.hash(state);
         self.cdr.hash(state);
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> Pair<A> {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Pair<A> {
     pub fn cons(car: SteelValGeneric<A>, cdr: SteelValGeneric<A>) -> Self {
         Pair { car, cdr }
     }
@@ -62,7 +62,28 @@ impl From<Pair> for SteelVal {
     }
 }
 
-impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for Pair<A> {
+// A cons cell allocated via `cons` on a non-list right-hand-side is squarely in scope for
+// allocator-routing (it's the direct backing for the `cons`/`car`/`cdr` hot-path opcodes --
+// see ALLOCATOR_SPEC.md), so this alias picks the right `Gc` arity per cfg, the same way
+// `ByteCodeLambdaGc<A>` does: `Gc<T, A>` (the 2-parameter form) only exists at all under
+// `sync+biased+allocator-api2`.
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+pub type PairGc<A> = Gc<Pair<A>, A>;
+
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+pub type PairGc<A> = Gc<Pair<A>>;
+
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for Pair<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "({} . {})", &self.car, &self.cdr)
     }
@@ -135,7 +156,7 @@ mod list_drop_handler {
 
     use crate::rvals::cycles::IterativeDropHandler;
 
-    impl<A: crate::gc::Allocator + Clone + 'static> DropHandler<im_lists::list::GenericList<crate::rvals::SteelValGeneric<A>, PointerType, 4, 2, Self>>
+    impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> DropHandler<im_lists::list::GenericList<crate::rvals::SteelValGeneric<A>, PointerType, 4, 2, Self>>
         for ListDropHandler
     {
         #[inline(always)]

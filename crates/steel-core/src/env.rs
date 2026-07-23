@@ -37,7 +37,7 @@ use shared_vector::AtomicSharedVector;
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-pub(crate) struct SharedVectorWrapper<A: Allocator + Clone + 'static = Global>(
+pub(crate) struct SharedVectorWrapper<A: Allocator + Clone + Send + Sync + 'static = Global>(
     pub AtomicSharedVector<SteelValGeneric<A>, A>,
 );
 
@@ -47,7 +47,7 @@ pub(crate) struct SharedVectorWrapper<A: Allocator + Clone + 'static = Global>(
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: Allocator + Clone + 'static> Clone for SharedVectorWrapper<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> Clone for SharedVectorWrapper<A> {
     fn clone(&self) -> Self {
         SharedVectorWrapper(self.0.clone())
     }
@@ -59,7 +59,7 @@ impl<A: Allocator + Clone + 'static> Clone for SharedVectorWrapper<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: Allocator + Clone + 'static> core::fmt::Debug for SharedVectorWrapper<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for SharedVectorWrapper<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
@@ -71,7 +71,7 @@ impl<A: Allocator + Clone + 'static> core::fmt::Debug for SharedVectorWrapper<A>
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: Allocator + Clone + 'static> SharedVectorWrapper<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> SharedVectorWrapper<A> {
     pub fn set_idx(&mut self, idx: usize, val: SteelValGeneric<A>) -> SteelValGeneric<A> {
         let guard = self.0.get_mut(idx).unwrap();
         let output = guard.clone();
@@ -121,7 +121,7 @@ impl<A: Allocator + Clone + 'static> SharedVectorWrapper<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-unsafe impl<A: Allocator + Clone + 'static> Sync for SharedVectorWrapper<A> {}
+unsafe impl<A: Allocator + Clone + Send + Sync + 'static> Sync for SharedVectorWrapper<A> {}
 
 #[cfg(not(all(
     feature = "sync",
@@ -178,7 +178,7 @@ impl SharedVectorWrapper {
 unsafe impl Sync for SharedVectorWrapper {}
 
 #[allow(unused)]
-pub struct Env<A: Allocator + Clone + 'static = Global> {
+pub struct Env<A: Allocator + Clone + Send + Sync + 'static = Global> {
     #[cfg(not(feature = "sync"))]
     pub(crate) bindings_vec: Vec<SteelVal>,
     #[cfg(not(feature = "sync"))]
@@ -213,7 +213,7 @@ pub struct Env<A: Allocator + Clone + 'static = Global> {
 }
 
 #[cfg(not(feature = "sync"))]
-impl<A: Allocator + Clone + 'static> core::fmt::Debug for Env<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for Env<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Env")
             .field("bindings_vec", &self.bindings_vec)
@@ -229,7 +229,7 @@ impl<A: Allocator + Clone + 'static> core::fmt::Debug for Env<A> {
         not(feature = "triomphe")
     ))
 ))]
-impl<A: Allocator + Clone + 'static> core::fmt::Debug for Env<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for Env<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Env").field("bindings", &self.bindings).finish()
     }
@@ -241,7 +241,7 @@ impl<A: Allocator + Clone + 'static> core::fmt::Debug for Env<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: Allocator + Clone + 'static> core::fmt::Debug for Env<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for Env<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Env").field("bindings", &self.bindings).finish()
     }
@@ -253,7 +253,7 @@ impl<A: Allocator + Clone + 'static> core::fmt::Debug for Env<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: Allocator + Clone + 'static> Clone for Env<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> Clone for Env<A> {
     fn clone(&self) -> Self {
         Self {
             bindings: self.bindings.clone(),
@@ -269,7 +269,7 @@ impl<A: Allocator + Clone + 'static> Clone for Env<A> {
         not(feature = "triomphe")
     ))
 ))]
-impl<A: Allocator + Clone + 'static> Clone for Env<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> Clone for Env<A> {
     fn clone(&self) -> Self {
         Self {
             bindings: self.bindings.clone(),
@@ -279,7 +279,7 @@ impl<A: Allocator + Clone + 'static> Clone for Env<A> {
 }
 
 #[cfg(not(feature = "sync"))]
-impl<A: Allocator + Clone + 'static> Clone for Env<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> Clone for Env<A> {
     fn clone(&self) -> Self {
         Self {
             bindings_vec: self.bindings_vec.clone(),
@@ -289,7 +289,7 @@ impl<A: Allocator + Clone + 'static> Clone for Env<A> {
 }
 
 #[cfg(not(feature = "sync"))]
-impl<A: Allocator + Clone + 'static> Env<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> Env<A> {
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
         self.bindings_vec.get(idx).cloned()
     }
@@ -381,7 +381,7 @@ impl<A: Allocator + Clone + 'static> Env<A> {
         not(feature = "triomphe")
     ))
 ))]
-impl<A: Allocator + Clone + 'static> Env<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> Env<A> {
     pub fn len(&self) -> usize {
         self.bindings.0.len()
     }
@@ -453,7 +453,7 @@ impl<A: Allocator + Clone + 'static> Env<A> {
     feature = "allocator-api2",
     not(feature = "triomphe")
 ))]
-impl<A: Allocator + Clone + 'static> Env<A> {
+impl<A: Allocator + Clone + Send + Sync + 'static> Env<A> {
     pub fn len(&self) -> usize {
         self.bindings.0.len()
     }

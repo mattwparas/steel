@@ -13,13 +13,7 @@ use crate::parser::kernel::{
     GlobalSymbolMap, ParentScopeSet, TOP_LEVEL_GLOBAL_MAP, TOP_LEVEL_SCOPE_MAP,
 };
 use crate::parser::replace_idents::expand_template;
-use crate::primitives::lists::car;
-use crate::primitives::lists::cdr;
-use crate::primitives::lists::is_empty;
-use crate::primitives::lists::steel_cons;
-use crate::primitives::lists::steel_list_ref;
 use crate::primitives::numbers::add_two_fallible;
-use crate::primitives::vectors::vec_ref;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
 use crate::rvals::AsRefMutSteelVal;
@@ -28,9 +22,6 @@ use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::rvals::FromSteelVal as _;
 use crate::rvals::SteelString;
 use crate::rvals::{as_underlying_type, AsRefSteelValFromRef};
-use crate::steel_vm::primitives::steel_set_box_mutable;
-use crate::steel_vm::primitives::steel_unbox_mutable;
-use crate::steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive, steel_not};
 use crate::values::closed::Heap;
 use crate::values::closed::MarkAndSweepContext;
 use crate::values::functions::CaptureVec;
@@ -45,7 +36,7 @@ use crate::{
 };
 use crate::{
     compiler::program::Executable,
-    primitives::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive},
+    primitives::{add_primitive, divide_primitive, multiply_primitive},
     steel_vm::primitives::{equality_primitive, lte_primitive},
     values::transducers::Transducers,
 };
@@ -55,7 +46,7 @@ use crate::{
     gc::Gc,
     parser::span::Span,
     rerrs::{ErrorKind, SteelErr},
-    rvals::{Result, SteelVal},
+    rvals::{Result, SteelVal, SteelValGeneric},
     values::functions::ByteCodeLambda,
 };
 use alloc::sync::Arc;
@@ -162,32 +153,52 @@ impl DehydratedStackTrace {
 //     Transducer,
 // }
 
-#[derive(Debug, Clone)]
-pub struct StackFrameAttachments {
-    pub(crate) handler: Option<SteelVal>,
+#[derive(Clone)]
+pub struct StackFrameAttachments<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
+    pub(crate) handler: Option<SteelValGeneric<A>>,
     weak_continuation_mark: Option<WeakContinuation>,
+}
+
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for StackFrameAttachments<A> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StackFrameAttachments")
+            .field("handler", &self.handler)
+            .field("weak_continuation_mark", &self.weak_continuation_mark)
+            .finish()
+    }
 }
 
 // This should be the go to thing for handling basically everything we need
 // Then - do I want to always reference the last one, or just refer to the current one?
 // TODO: We'll need to add these functions to the GC as well
 
-#[derive(Debug, Clone)]
-pub struct StackFrame {
+#[derive(Clone)]
+pub struct StackFrame<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     sp: u32,
 
-    pub(crate) function: Gc<ByteCodeLambda>,
+    pub(crate) function: crate::values::functions::ByteCodeLambdaGc<A>,
 
     ip: u32,
 
     instructions: RootedInstructions,
 
-    pub(crate) attachments: Option<Box<StackFrameAttachments>>,
+    pub(crate) attachments: Option<Box<StackFrameAttachments<A>>>,
 }
 
-impl Eq for StackFrame {}
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> core::fmt::Debug for StackFrame::<A> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StackFrame")
+            .field("sp", &self.sp)
+            .field("ip", &self.ip)
+            .field("instructions", &self.instructions)
+            .field("attachments", &self.attachments)
+            .finish()
+    }
+}
 
-impl PartialEq for StackFrame {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Eq for StackFrame::<A> {}
+
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> PartialEq for StackFrame::<A> {
     fn eq(&self, other: &Self) -> bool {
         self.sp == other.sp
             && self.attachments.as_ref().map(|x| &x.handler)
@@ -219,11 +230,11 @@ thread_local! {
     static THE_EMPTY_INSTRUCTION_SET: StandardShared<[DenseInstruction]> = StandardShared::from([]);
 }
 
-impl StackFrame {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> StackFrame::<A> {
     #[inline(always)]
     pub fn new(
         stack_index: usize,
-        function: Gc<ByteCodeLambda>,
+        function: crate::values::functions::ByteCodeLambdaGc<A>,
         ip: usize,
         instructions: RootedInstructions,
     ) -> Self {
@@ -234,6 +245,24 @@ impl StackFrame {
             instructions,
             attachments: None,
         }
+    }
+
+    /// The `A`-generic counterpart to `main` (which needs `Gc::new`/`ByteCodeLambda::main`,
+    /// only available for `Global`).
+    pub fn main_in(alloc: A) -> Self {
+        let function = Gc::new_in(
+            ByteCodeLambda::rooted_in(
+                StandardShared::from(&[] as &[DenseInstruction]),
+                alloc.clone(),
+            ),
+            alloc,
+        );
+        StackFrame::new(
+            0,
+            function,
+            0,
+            RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
+        )
     }
 
     fn with_continuation_mark(mut self, continuation_mark: Continuation) -> Self {
@@ -255,18 +284,8 @@ impl StackFrame {
         self
     }
 
-    pub fn main() -> Self {
-        let function = Gc::new(ByteCodeLambda::main(Vec::new()));
-        StackFrame::new(
-            0,
-            function,
-            0,
-            RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
-        )
-    }
-
     #[inline(always)]
-    pub fn set_function(&mut self, function: Gc<ByteCodeLambda>) {
+    pub fn set_function(&mut self, function: crate::values::functions::ByteCodeLambdaGc<A>) {
         self.function = function;
     }
 
@@ -289,7 +308,7 @@ impl StackFrame {
         }
     }
 
-    pub fn with_handler(mut self, handler: SteelVal) -> Self {
+    pub fn with_handler(mut self, handler: SteelValGeneric<A>) -> Self {
         // self.handler = Some(Shared::new(handler));
 
         match &mut self.attachments {
@@ -305,6 +324,18 @@ impl StackFrame {
             }
         }
         self
+    }
+}
+
+impl StackFrame<crate::gc::Global> {
+    pub fn main() -> Self {
+        let function = Gc::new(ByteCodeLambda::main(Vec::new()));
+        StackFrame::new(
+            0,
+            function,
+            0,
+            RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
+        )
     }
 }
 
@@ -388,27 +419,29 @@ pub enum ThreadState {
 /// The thread execution context
 #[derive(Clone)]
 #[repr(C)]
-pub struct SteelThread {
+pub struct SteelThread<
+    A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global,
+> {
     // TODO: Figure out how to best broadcast changes
     // to the rest of the world? Right now pausing threads
     // means we can get away with one environment that is
     // shared, but in reality this should just be
-    pub(crate) global_env: Env,
-    pub(crate) stack: Vec<SteelVal>,
+    pub(crate) global_env: Env<A>,
+    pub(crate) stack: Vec<SteelValGeneric<A>>,
 
     #[cfg(feature = "dynamic")]
     profiler: OpCodeOccurenceProfiler,
 
-    pub(crate) function_interner: FunctionInterner,
-    pub(crate) heap: Arc<parking_lot::Mutex<Heap>>,
+    pub(crate) function_interner: FunctionInterner<A>,
+    pub(crate) heap: Arc<parking_lot::Mutex<Heap<A>>>,
     pub(crate) runtime_options: RunTimeOptions,
-    pub(crate) current_frame: StackFrame,
-    pub(crate) stack_frames: Vec<StackFrame>,
+    pub(crate) current_frame: StackFrame<A>,
+    pub(crate) stack_frames: Vec<StackFrame<A>>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) interrupted: Option<Arc<AtomicBool>>,
-    pub(crate) synchronizer: Synchronizer,
+    pub(crate) synchronizer: Synchronizer<A>,
     // This will be static, for the thread.
-    pub(crate) thread_local_storage: Vec<SteelVal>,
+    pub(crate) thread_local_storage: Vec<SteelValGeneric<A>>,
 
     // Store... more stuff here
     pub(crate) compiler: alloc::sync::Arc<RwLock<Compiler>>,
@@ -420,7 +453,12 @@ pub struct SteelThread {
     #[cfg(feature = "jit2")]
     pub(crate) jit: Arc<Mutex<crate::jit2::cgen::JIT>>,
 
-    pub(crate) module_context: Vec<SteelString>,
+    pub(crate) module_context: Vec<SteelString<A>>,
+
+    // The allocator instance this thread's own hot-path allocations route through (the
+    // operand stack's contents, closures, boxes, ...). Compile-time/`Global`-only
+    // machinery (`compiler`, `constant_map`) is untouched by this -- see ALLOCATOR_SPEC.md.
+    pub(crate) alloc: A,
 }
 
 #[derive(Clone)]
@@ -439,10 +477,11 @@ impl RunTimeOptions {
 }
 
 // TODO: This object probably needs to be shared as well
-#[derive(Default, Clone)]
-pub struct FunctionInterner {
-    closure_interner: rustc_hash::FxHashMap<u32, ByteCodeLambda>,
-    pub(crate) pure_function_interner: rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
+#[derive(Clone)]
+pub struct FunctionInterner<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
+    closure_interner: rustc_hash::FxHashMap<u32, ByteCodeLambda<A>>,
+    pub(crate) pure_function_interner:
+        rustc_hash::FxHashMap<u32, crate::values::functions::ByteCodeLambdaGc<A>>,
     // Functions will store a reference to a slot here, rather than any other way
     // getting the span can be super late bound then, and we don't need to worry about
     // cache misses nearly as much
@@ -456,7 +495,21 @@ pub struct FunctionInterner {
     pub(crate) spans: rustc_hash::FxHashMap<u32, Shared<[Span]>>,
 
     #[cfg(feature = "jit2")]
-    jit_funcs: rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
+    jit_funcs: rustc_hash::FxHashMap<u32, crate::values::functions::ByteCodeLambdaGc<A>>,
+}
+
+// Not derived: `derive(Default)` would add an `A: Default` bound even though
+// `FxHashMap`'s `Default` doesn't need its key/value types to be `Default`.
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Default for FunctionInterner<A> {
+    fn default() -> Self {
+        Self {
+            closure_interner: Default::default(),
+            pure_function_interner: Default::default(),
+            spans: Default::default(),
+            #[cfg(feature = "jit2")]
+            jit_funcs: Default::default(),
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -492,33 +545,215 @@ impl ThreadStateController {
 }
 
 #[derive(Clone)]
-pub(crate) struct ThreadContext {
-    pub(crate) ctx: std::sync::Weak<AtomicCell<Option<*mut SteelThread>>>,
-    pub(crate) handle: SteelVal,
+pub(crate) struct ThreadContext<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
+    pub(crate) ctx: std::sync::Weak<AtomicCell<Option<*mut SteelThread<A>>>>,
+    pub(crate) handle: SteelValGeneric<A>,
 }
 
 #[derive(Clone)]
-pub struct Synchronizer {
+pub struct Synchronizer<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     // All of the threads that have been created
     // from the root of the runtime. Since we're now operating
     // in a world in which these kinds of threads might basically
     // share memory space, we probably need to handle this
-    pub(crate) threads: Arc<Mutex<Vec<ThreadContext>>>,
+    pub(crate) threads: Arc<Mutex<Vec<ThreadContext<A>>>>,
     // The signal to actually tell all the threads to stop
     pub(crate) state: ThreadStateController,
 
     // If we're at a safe point, then this will include a _live_ pointer
     // to the context. Once we exit the safe point, we're done.
-    pub(crate) ctx: Arc<AtomicCell<Option<*mut SteelThread>>>,
+    pub(crate) ctx: Arc<AtomicCell<Option<*mut SteelThread<A>>>>,
 
     spawned_via_make_thread: bool,
 }
 
 // TODO: Until I figure out how to note have this be the case
-unsafe impl Sync for Synchronizer {}
-unsafe impl Send for Synchronizer {}
+unsafe impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Sync for Synchronizer<A> {}
+unsafe impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Send for Synchronizer<A> {}
 
-impl Synchronizer {
+/// `ThreadHandle::forked_thread_handle` (steel_vm/vm/threads.rs) is always
+/// `Weak<Mutex<SteelThread<Global>>>` -- `spawn-native-thread`/`make-thread` are among the
+/// builtins that need direct `&mut VmCore` access and stay `Global`-only for now (see
+/// ALLOCATOR_SPEC.md), so a forked thread is always a `Global` one regardless of what `A`
+/// the `Synchronizer<A>` doing the enumerating happens to be. `TypeId`-proven identity
+/// cast, same technique as `rvals::cycles::push_concrete_into`: only actually reachable
+/// when `A == Global` (a private, non-`Global` `SteelThread<A>` never populates `threads`
+/// with a forked-thread entry in the first place, since spawning one is itself a
+/// `Global`-only operation).
+fn as_generic_thread_mut<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    thread: &'a mut SteelThread<crate::gc::Global>,
+) -> Option<&'a mut SteelThread<A>> {
+    if core::any::TypeId::of::<A>() == core::any::TypeId::of::<crate::gc::Global>() {
+        Some(unsafe {
+            core::mem::transmute::<&'a mut SteelThread<crate::gc::Global>, &'a mut SteelThread<A>>(
+                thread,
+            )
+        })
+    } else {
+        None
+    }
+}
+
+/// Same as `as_generic_thread_mut`, for a shared reference.
+fn as_generic_thread_ref<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    thread: &'a SteelThread<crate::gc::Global>,
+) -> Option<&'a SteelThread<A>> {
+    if core::any::TypeId::of::<A>() == core::any::TypeId::of::<crate::gc::Global>() {
+        Some(unsafe {
+            core::mem::transmute::<&'a SteelThread<crate::gc::Global>, &'a SteelThread<A>>(thread)
+        })
+    } else {
+        None
+    }
+}
+
+/// `TypeId`-proven identity cast: `SteelValGeneric<A>` and `SteelVal` are the same type
+/// exactly when `A == Global`, same technique as `rvals::cycles::push_concrete_into`. Used
+/// to bridge into procedure-like content that's always concrete regardless of the caller's
+/// own `A` -- plain `fn` pointers (`FuncV`/`BoxedFunction`/`MutFunc`) have no way to accept
+/// an allocator instance, and structs-used-as-procedures go through the Global-only
+/// `UserDefinedStruct` (see ALLOCATOR_SPEC.md).
+fn as_concrete_value<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    value: SteelValGeneric<A>,
+) -> Option<SteelVal> {
+    if core::any::TypeId::of::<A>() == core::any::TypeId::of::<crate::gc::Global>() {
+        Some(unsafe { core::mem::transmute_copy(&core::mem::ManuallyDrop::new(value)) })
+    } else {
+        None
+    }
+}
+
+/// The reverse of `as_concrete_value`. Only ever called after already proving `A == Global`
+/// via a prior `as_concrete_value` call in the same function, so the `unwrap` can't fail.
+fn as_generic_value<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    value: SteelVal,
+) -> Option<SteelValGeneric<A>> {
+    if core::any::TypeId::of::<A>() == core::any::TypeId::of::<crate::gc::Global>() {
+        Some(unsafe { core::mem::transmute_copy(&core::mem::ManuallyDrop::new(value)) })
+    } else {
+        None
+    }
+}
+
+/// Slice-reference counterpart to `as_concrete_value` -- reinterprets a whole
+/// `&[SteelValGeneric<A>]` as `&[SteelVal]` in one shot (rather than cloning element by
+/// element) once `A == Global` is proven, since the two have identical layout in that case.
+/// Used for the native `fn(&[SteelVal]) -> Result<SteelVal>`/`Fn(&[SteelVal]) -> Result<SteelVal>`
+/// builtins (`FuncV`/`BoxedFunction`), which have no allocator-generic representation -- see
+/// `as_concrete_value`.
+fn as_concrete_slice<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    slice: &[SteelValGeneric<A>],
+) -> Option<&[SteelVal]> {
+    if core::any::TypeId::of::<A>() == core::any::TypeId::of::<crate::gc::Global>() {
+        Some(unsafe { core::mem::transmute::<&[SteelValGeneric<A>], &[SteelVal]>(slice) })
+    } else {
+        None
+    }
+}
+
+/// Mutable-slice counterpart to `as_concrete_slice`, for `MutFunc`.
+fn as_concrete_slice_mut<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    slice: &mut [SteelValGeneric<A>],
+) -> Option<&mut [SteelVal]> {
+    if core::any::TypeId::of::<A>() == core::any::TypeId::of::<crate::gc::Global>() {
+        Some(unsafe { core::mem::transmute::<&mut [SteelValGeneric<A>], &mut [SteelVal]>(slice) })
+    } else {
+        None
+    }
+}
+
+/// `TypeId`-proven identity cast for `&mut VmCore<'a, A>` -> `&mut VmCore<'a, Global>`.
+/// `Continuation`/`ContinuationMark` (call/cc's snapshot of the VM state) are Global-only
+/// (see ALLOCATOR_SPEC.md) -- capturing/replaying a continuation is only supported when
+/// `A == Global`, a compile-time-enforced restriction (these methods live on
+/// `impl VmCore<'a, Global>` specifically) rather than a runtime one, since call/cc's
+/// snapshot touches the whole VM state, not just one value.
+fn as_concrete_vmcore<'a, 'b, A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    vm: &'b mut VmCore<'a, A>,
+) -> Option<&'b mut VmCore<'a, crate::gc::Global>> {
+    if core::any::TypeId::of::<A>() == core::any::TypeId::of::<crate::gc::Global>() {
+        Some(unsafe {
+            core::mem::transmute::<&'b mut VmCore<'a, A>, &'b mut VmCore<'a, crate::gc::Global>>(
+                vm,
+            )
+        })
+    } else {
+        None
+    }
+}
+
+/// Same as `as_concrete_vmcore`, for a shared reference.
+fn as_concrete_vmcore_ref<'a, 'b, A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    vm: &'b VmCore<'a, A>,
+) -> Option<&'b VmCore<'a, crate::gc::Global>> {
+    if core::any::TypeId::of::<A>() == core::any::TypeId::of::<crate::gc::Global>() {
+        Some(unsafe {
+            core::mem::transmute::<&'b VmCore<'a, A>, &'b VmCore<'a, crate::gc::Global>>(vm)
+        })
+    } else {
+        None
+    }
+}
+
+/// Global-only fallback for `SteelThread::call_function_from_mut_slice`: everything except
+/// `Closure` (handled generically by the caller) is concrete procedure-like content with no
+/// way to accept an allocator instance -- see `as_concrete_value`.
+fn call_concrete_function_from_mut_slice(
+    function: SteelVal,
+    args: &mut [SteelVal],
+) -> Result<SteelVal> {
+    match function {
+        SteelVal::FuncV(func) => func(args).map_err(|x| x.set_span_if_none(Span::default())),
+        SteelVal::BoxedFunction(func) => {
+            func.func()(args).map_err(|x| x.set_span_if_none(Span::default()))
+        }
+        SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(Span::default())),
+        SteelVal::CustomStruct(ref s) => {
+            if let Some(procedure) = s.maybe_proc() {
+                if let SteelVal::HeapAllocated(h) = procedure {
+                    call_concrete_function_from_mut_slice(h.get(), args)
+                } else {
+                    call_concrete_function_from_mut_slice(procedure.clone(), args)
+                }
+            } else {
+                stop!(TypeMismatch => format!("application not a procedure: {function}"))
+            }
+        }
+        _ => {
+            stop!(TypeMismatch => format!("application not a procedure: {function}"))
+        }
+    }
+}
+
+/// The owned-`Vec`-of-args counterpart to `call_concrete_function_from_mut_slice`, used by
+/// `SteelThread::call_function`.
+fn call_concrete_function(function: SteelVal, mut args: Vec<SteelVal>) -> Result<SteelVal> {
+    match function {
+        SteelVal::FuncV(func) => func(&args).map_err(|x| x.set_span_if_none(Span::default())),
+        SteelVal::BoxedFunction(func) => {
+            func.func()(&args).map_err(|x| x.set_span_if_none(Span::default()))
+        }
+        SteelVal::MutFunc(func) => {
+            func(&mut args).map_err(|x| x.set_span_if_none(Span::default()))
+        }
+        SteelVal::CustomStruct(ref s) => {
+            if let Some(procedure) = s.maybe_proc() {
+                if let SteelVal::HeapAllocated(h) = procedure {
+                    call_concrete_function(h.get(), args)
+                } else {
+                    call_concrete_function(procedure.clone(), args)
+                }
+            } else {
+                stop!(TypeMismatch => format!("application not a procedure: {function}"))
+            }
+        }
+        _ => {
+            stop!(TypeMismatch => format!("application not a procedure: {function}"))
+        }
+    }
+}
+
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Synchronizer<A> {
     pub fn new() -> Self {
         Self {
             threads: Arc::new(Mutex::new(Vec::new())),
@@ -533,14 +768,14 @@ impl Synchronizer {
 
     pub(crate) unsafe fn maybe_call_per_ctx(
         &self,
-        mut func: impl FnMut(&mut SteelThread),
+        mut func: impl FnMut(&mut SteelThread<A>),
         timeout_ms: u128,
     ) {
         let guard = self.threads.lock().unwrap();
 
         // IMPORTANT - This needs to be all threads except the currently
         // executing one.
-        for ThreadContext { ctx, handle } in guard.iter() {
+        for ThreadContext::<A> { ctx, handle } in guard.iter() {
             if let Some(ctx) = ctx.upgrade() {
                 if Arc::ptr_eq(&ctx, &self.ctx) {
                     continue;
@@ -558,14 +793,18 @@ impl Synchronizer {
 
                         break;
                     } else {
-                        if let SteelVal::Custom(c) = &handle {
+                        if let SteelValGeneric::<A>::Custom(c) = &handle {
                             if let Some(inner) =
                                 as_underlying_type::<ThreadHandle>(c.read().as_ref())
                             {
                                 if let Some(forked_thread_handle) = &inner.forked_thread_handle {
                                     if let Some(upgraded) = forked_thread_handle.upgrade() {
                                         if let Ok(mut live_ctx) = upgraded.try_lock() {
-                                            (func)(&mut live_ctx);
+                                            if let Some(live_ctx) =
+                                                as_generic_thread_mut::<A>(&mut live_ctx)
+                                            {
+                                                (func)(live_ctx);
+                                            }
 
                                             break;
                                         }
@@ -587,12 +826,12 @@ impl Synchronizer {
         }
     }
 
-    pub(crate) unsafe fn call_per_ctx(&self, mut func: impl FnMut(&mut SteelThread)) {
+    pub(crate) unsafe fn call_per_ctx(&self, mut func: impl FnMut(&mut SteelThread<A>)) {
         let guard = self.threads.lock().unwrap();
 
         // IMPORTANT - This needs to be all threads except the currently
         // executing one.
-        for ThreadContext { ctx, handle } in guard.iter() {
+        for ThreadContext::<A> { ctx, handle } in guard.iter() {
             'inner: loop {
                 if let Some(ctx) = ctx.upgrade() {
                     if Arc::ptr_eq(&ctx, &self.ctx) {
@@ -607,14 +846,18 @@ impl Synchronizer {
 
                         break 'inner;
                     } else {
-                        if let SteelVal::Custom(c) = &handle {
+                        if let SteelValGeneric::<A>::Custom(c) = &handle {
                             if let Some(inner) =
                                 as_underlying_type::<ThreadHandle>(c.read().as_ref())
                             {
                                 if let Some(forked_thread_handle) = &inner.forked_thread_handle {
                                     if let Some(upgraded) = forked_thread_handle.upgrade() {
                                         if let Ok(mut live_ctx) = upgraded.try_lock() {
-                                            (func)(&mut live_ctx);
+                                            if let Some(live_ctx) =
+                                                as_generic_thread_mut::<A>(&mut live_ctx)
+                                            {
+                                                (func)(live_ctx);
+                                            }
 
                                             break 'inner;
                                         }
@@ -630,12 +873,12 @@ impl Synchronizer {
         }
     }
 
-    pub(crate) unsafe fn enumerate_stacks(&mut self, context: &mut MarkAndSweepContext) {
+    pub(crate) unsafe fn enumerate_stacks(&mut self, context: &mut MarkAndSweepContext<A>) {
         // TODO: Continue...
         let guard = self.threads.lock().unwrap();
 
         // Wait for all the threads to be legal
-        for ThreadContext { ctx, handle } in guard.iter() {
+        for ThreadContext::<A> { ctx, handle } in guard.iter() {
             loop {
                 if let Some(ctx) = ctx.upgrade() {
                     // Don't pause myself, enter safepoint from main thread?
@@ -672,33 +915,38 @@ impl Synchronizer {
 
                         break;
                     } else {
-                        if let SteelVal::Custom(c) = &handle {
+                        if let SteelValGeneric::<A>::Custom(c) = &handle {
                             if let Some(inner) =
                                 as_underlying_type::<ThreadHandle>(c.read().as_ref())
                             {
                                 if let Some(forked_thread_handle) = &inner.forked_thread_handle {
                                     if let Some(upgraded) = forked_thread_handle.upgrade() {
                                         if let Ok(live_ctx) = upgraded.try_lock() {
-                                            for value in &live_ctx.stack {
-                                                context.push_back(value.clone());
-                                            }
-
-                                            for frame in &live_ctx.stack_frames {
-                                                for value in frame.function.captures() {
+                                            if let Some(live_ctx) =
+                                                as_generic_thread_ref::<A>(&live_ctx)
+                                            {
+                                                for value in &live_ctx.stack {
                                                     context.push_back(value.clone());
                                                 }
-                                            }
 
-                                            for value in live_ctx.current_frame.function.captures()
-                                            {
-                                                context.push_back(value.clone());
-                                            }
+                                                for frame in &live_ctx.stack_frames {
+                                                    for value in frame.function.captures() {
+                                                        context.push_back(value.clone());
+                                                    }
+                                                }
 
-                                            for value in &live_ctx.thread_local_storage {
-                                                context.push_back(value.clone());
-                                            }
+                                                for value in
+                                                    live_ctx.current_frame.function.captures()
+                                                {
+                                                    context.push_back(value.clone());
+                                                }
 
-                                            context.visit();
+                                                for value in &live_ctx.thread_local_storage {
+                                                    context.push_back(value.clone());
+                                                }
+
+                                                context.visit();
+                                            }
 
                                             break;
                                         }
@@ -721,7 +969,7 @@ impl Synchronizer {
 
         // Stop other threads, wait until we've gathered acknowledgements
         self.threads.lock().unwrap().iter().for_each(|x| {
-            if let SteelVal::Custom(c) = &x.handle {
+            if let SteelValGeneric::<A>::Custom(c) = &x.handle {
                 if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
                     inner.thread_state_manager.pause_for_safepoint();
                 }
@@ -734,7 +982,7 @@ impl Synchronizer {
 
         // Go through, and resume all of the threads
         self.threads.lock().unwrap().iter().for_each(|x| {
-            if let SteelVal::Custom(c) = &x.handle {
+            if let SteelValGeneric::<A>::Custom(c) = &x.handle {
                 if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
                     inner.thread_state_manager.resume();
                     inner.thread.unpark();
@@ -744,30 +992,42 @@ impl Synchronizer {
     }
 }
 
-impl SteelThread {
+impl SteelThread<crate::gc::Global> {
     pub fn new(compiler: alloc::sync::Arc<RwLock<Compiler>>) -> SteelThread {
-        let synchronizer = Synchronizer::new();
+        Self::new_in(compiler, crate::gc::Global)
+    }
+}
+
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> SteelThread<A> {
+    pub fn new_in(compiler: alloc::sync::Arc<RwLock<Compiler>>, alloc: A) -> SteelThread<A> {
+        let synchronizer = Synchronizer::<A>::new();
         let weak_ctx = Arc::downgrade(&synchronizer.ctx);
 
-        // Get a handle to the current thread?
-        let handle = ThreadHandle {
-            handle: Mutex::new(None),
-            thread: std::thread::current(),
-            thread_state_manager: synchronizer.state.clone(),
-            forked_thread_handle: None,
+        // Get a handle to the current thread? `ThreadHandle`/`spawn-native-thread` are
+        // Global-only (see ALLOCATOR_SPEC.md) -- registering one only makes sense (and only
+        // type-checks) when A == Global. A private, non-Global instance never spawns
+        // further native threads sharing its state, so `synchronizer.threads` staying empty
+        // is correct, not just expedient.
+        if let Some(handle) = as_generic_value::<A>(
+            ThreadHandle {
+                handle: Mutex::new(None),
+                thread: std::thread::current(),
+                thread_state_manager: synchronizer.state.clone(),
+                forked_thread_handle: None,
+            }
+            .into_steelval()
+            .unwrap(),
+        ) {
+            // TODO: Entering safepoint should happen often
+            // for the main thread?
+            synchronizer.threads.lock().unwrap().push(ThreadContext {
+                ctx: weak_ctx,
+                handle,
+            });
         }
-        .into_steelval()
-        .unwrap();
-
-        // TODO: Entering safepoint should happen often
-        // for the main thread?
-        synchronizer.threads.lock().unwrap().push(ThreadContext {
-            ctx: weak_ctx,
-            handle,
-        });
 
         SteelThread {
-            global_env: Env::root(),
+            global_env: Env::root_in(alloc.clone()),
             stack: Vec::with_capacity(128),
 
             #[cfg(feature = "dynamic")]
@@ -778,7 +1038,7 @@ impl SteelThread {
             heap: Arc::new(parking_lot::Mutex::new(Heap::new())),
             runtime_options: RunTimeOptions::new(),
             stack_frames: Vec::with_capacity(128),
-            current_frame: StackFrame::main(),
+            current_frame: StackFrame::main_in(alloc.clone()),
             // Should probably just have this be Option<ConstantMap> - but then every time we look up
             // something we'll have to deal with the fact that its wrapped in an option. Another options
             // Would just have all programs compiled in this thread just share a constant map. For now,
@@ -799,16 +1059,17 @@ impl SteelThread {
             jit: Arc::new(Mutex::new(crate::jit2::cgen::JIT::default())),
             module_context: Vec::new(),
             // delayed_dropper: DelayedDropper::new(),
+            alloc,
         }
     }
 
     #[inline(always)]
-    fn local_set(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
+    fn local_set(&mut self, idx: usize, val: SteelValGeneric<A>) -> Result<SteelValGeneric<A>> {
         self.global_env.repl_set_idx(idx, val)
     }
 
     #[cfg(feature = "sync")]
-    pub(crate) fn with_locked_env<T, F: FnOnce(&mut Self, &mut SharedVectorWrapper) -> T>(
+    pub(crate) fn with_locked_env<T, F: FnOnce(&mut Self, &mut SharedVectorWrapper<A>) -> T>(
         &mut self,
         thunk: F,
     ) -> T {
@@ -850,7 +1111,7 @@ impl SteelThread {
     // Allow this thread to be available for garbage collection
     // during the duration of the provided thunk
     #[inline(always)]
-    pub fn enter_safepoint<T>(&mut self, mut finish: impl FnMut(&SteelThread) -> T) -> T {
+    pub fn enter_safepoint<T>(&mut self, mut finish: impl FnMut(&SteelThread<A>) -> T) -> T {
         // TODO:
         // Only need to actually enter the safepoint if another
         // thread exists
@@ -889,8 +1150,8 @@ impl SteelThread {
 
     pub fn enter_safepoint_once(
         &mut self,
-        finish: impl FnOnce(&SteelThread) -> Result<SteelVal>,
-    ) -> Result<SteelVal> {
+        finish: impl FnOnce(&SteelThread<A>) -> Result<SteelValGeneric<A>>,
+    ) -> Result<SteelValGeneric<A>> {
         // TODO:
         // Only need to actually enter the safepoint if another
         // thread exists
@@ -938,7 +1199,7 @@ impl SteelThread {
         self
     }
 
-    pub fn insert_binding(&mut self, idx: usize, value: SteelVal) {
+    pub fn insert_binding(&mut self, idx: usize, value: SteelValGeneric<A>) {
         let _ = self.enter_safepoint(|thread| thread.heap.lock_arc());
 
         #[cfg(feature = "sync")]
@@ -952,13 +1213,13 @@ impl SteelThread {
         });
     }
 
-    pub fn extract_value(&self, idx: usize) -> Option<SteelVal> {
+    pub fn extract_value(&self, idx: usize) -> Option<SteelValGeneric<A>> {
         // self.global_env.extract(idx)
         self.global_env.repl_maybe_lookup_idx(idx)
     }
 
     // Run the executable
-    pub fn run_executable(&mut self, program: &Executable) -> Result<Vec<SteelVal>> {
+    pub fn run_executable(&mut self, program: &Executable) -> Result<Vec<SteelValGeneric<A>>> {
         let Executable {
             instructions,
             constant_map,
@@ -995,9 +1256,9 @@ impl SteelThread {
     #[allow(unused)]
     pub fn call_fn_from_mut_slice(
         &mut self,
-        function: SteelVal,
-        args: &mut [SteelVal],
-    ) -> Result<SteelVal> {
+        function: SteelValGeneric<A>,
+        args: &mut [SteelValGeneric<A>],
+    ) -> Result<SteelValGeneric<A>> {
         let constants = self.compiler.read().constant_map.clone();
 
         self.call_function_from_mut_slice(constants, function, args)
@@ -1006,94 +1267,52 @@ impl SteelThread {
     pub(crate) fn call_function_from_mut_slice(
         &mut self,
         constant_map: ConstantMap,
-        function: SteelVal,
-        args: &mut [SteelVal],
-    ) -> Result<SteelVal> {
-        match function {
-            SteelVal::FuncV(func) => func(args).map_err(|x| x.set_span_if_none(Span::default())),
-            SteelVal::BoxedFunction(func) => {
-                func.func()(args).map_err(|x| x.set_span_if_none(Span::default()))
-            }
-            // SteelVal::ContractedFunction(cf) => {
-            //     let arg_vec: Vec<_> = args.into_iter().collect();
-            //     cf.apply(arg_vec, cur_inst_span, self)
-            // }
-            SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(Span::default())),
-            // SteelVal::BuiltIn(func) => {
-            //     let arg_vec: Vec<_> = args.into_iter().collect();
-            //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
-            // }
-            SteelVal::CustomStruct(ref s) => {
-                if let Some(procedure) = s.maybe_proc() {
-                    if let SteelVal::HeapAllocated(h) = procedure {
-                        self.call_function_from_mut_slice(constant_map, h.get(), args)
-                    } else {
-                        self.call_function_from_mut_slice(constant_map, procedure.clone(), args)
-                    }
-                } else {
-                    stop!(TypeMismatch => format!("application not a procedure: {function}"))
-                }
-            }
+        function: SteelValGeneric<A>,
+        args: &mut [SteelValGeneric<A>],
+    ) -> Result<SteelValGeneric<A>> {
+        if let SteelValGeneric::<A>::Closure(closure) = function {
+            // Create phony span vec
+            let spans = closure
+                .body_exp()
+                .iter()
+                .map(|_| Span::default())
+                .collect::<Vec<_>>();
 
-            SteelVal::Closure(closure) => {
-                // Create phony span vec
-                let spans = closure
-                    .body_exp()
-                    .iter()
-                    .map(|_| Span::default())
-                    .collect::<Vec<_>>();
+            let mut vm_instance = VmCore::<A>::new_unchecked(
+                // Shared::new([]),
+                RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
+                constant_map,
+                self,
+                &spans,
+            );
 
-                let mut vm_instance = VmCore::new_unchecked(
-                    // Shared::new([]),
-                    RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
-                    constant_map,
-                    self,
-                    &spans,
-                );
-
-                vm_instance.call_with_args(&closure, args.iter().cloned())
-            }
-            _ => {
-                stop!(TypeMismatch => format!("application not a procedure: {function}"))
-            }
+            return vm_instance.call_with_args(&closure, args.iter().cloned());
         }
+
+        // FuncV/BoxedFunction/MutFunc are plain `fn` pointers hardcoded to concrete
+        // `SteelVal`, and a struct used as a procedure (`CustomStruct::maybe_proc`) is
+        // always concrete too (`UserDefinedStruct` is a Global-only exception) -- neither
+        // has any way to accept an allocator instance (see ALLOCATOR_SPEC.md). TypeId-proven
+        // identity cast, same technique as `rvals::cycles::push_concrete_into`.
+        let Some(concrete_fn) = as_concrete_value::<A>(function) else {
+            stop!(Generic => "this procedure requires the Global allocator, and cannot be called under a custom allocator")
+        };
+        // Safety: just proved `A == Global` above, so `[SteelValGeneric<A>]`/`[SteelVal]`
+        // are identically the same type.
+        let concrete_args: &mut [SteelVal] = unsafe { core::mem::transmute(&mut *args) };
+        let result = call_concrete_function_from_mut_slice(concrete_fn, concrete_args)?;
+        Ok(as_generic_value::<A>(result).unwrap())
     }
 
     pub(crate) fn call_function(
         &mut self,
         constant_map: ConstantMap,
-        function: SteelVal,
-        mut args: Vec<SteelVal>,
-    ) -> Result<SteelVal> {
+        function: SteelValGeneric<A>,
+        args: Vec<SteelValGeneric<A>>,
+    ) -> Result<SteelValGeneric<A>> {
         match function {
-            SteelVal::FuncV(func) => func(&args).map_err(|x| x.set_span_if_none(Span::default())),
-            SteelVal::BoxedFunction(func) => {
-                func.func()(&args).map_err(|x| x.set_span_if_none(Span::default()))
-            }
-            // SteelVal::ContractedFunction(cf) => {
-            //     let arg_vec: Vec<_> = args.into_iter().collect();
-            //     cf.apply(arg_vec, cur_inst_span, self)
-            // }
-            SteelVal::MutFunc(func) => {
-                func(&mut args).map_err(|x| x.set_span_if_none(Span::default()))
-            }
-            // SteelVal::BuiltIn(func) => {
-            //     let arg_vec: Vec<_> = args.into_iter().collect();
-            //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
-            // }
-            SteelVal::CustomStruct(ref s) => {
-                if let Some(procedure) = s.maybe_proc() {
-                    if let SteelVal::HeapAllocated(h) = procedure {
-                        self.call_function(constant_map, h.get(), args)
-                    } else {
-                        self.call_function(constant_map, procedure.clone(), args)
-                    }
-                } else {
-                    stop!(TypeMismatch => format!("application not a procedure: {function}"))
-                }
-            }
-            SteelVal::ContinuationFunction(c) => {
-                let mut vm_instance = VmCore::new_unchecked(
+            SteelValGeneric::<A>::ContinuationFunction(c) => {
+                let mut vm_instance = VmCore::<A>::new_unchecked(
                     RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
                     constant_map,
                     self,
@@ -1102,7 +1321,7 @@ impl SteelThread {
 
                 vm_instance.call_cont_with_args(c, args)
             }
-            SteelVal::Closure(closure) => {
+            SteelValGeneric::<A>::Closure(closure) => {
                 // TODO: Revisit if we need this phony span vec!
                 let spans = closure
                     .body_exp()
@@ -1110,7 +1329,7 @@ impl SteelThread {
                     .map(|_| Span::default())
                     .collect::<Vec<_>>();
 
-                let mut vm_instance = VmCore::new_unchecked(
+                let mut vm_instance = VmCore::<A>::new_unchecked(
                     RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
                     constant_map,
                     self,
@@ -1119,8 +1338,17 @@ impl SteelThread {
 
                 vm_instance.call_with_args(&closure, args)
             }
-            _ => {
-                stop!(TypeMismatch => format!("application not a procedure: {function}"))
+            other => {
+                // Same reasoning as `call_function_from_mut_slice`: everything left
+                // (FuncV/BoxedFunction/MutFunc/structs-as-procedures) is Global-only content.
+                let Some(concrete_fn) = as_concrete_value::<A>(other) else {
+                    stop!(Generic => "this procedure requires the Global allocator, and cannot be called under a custom allocator")
+                };
+                // Safety: just proved `A == Global` above, so `Vec<SteelValGeneric<A>>`/
+                // `Vec<SteelVal>` are identically the same type.
+                let concrete_args: Vec<SteelVal> = unsafe { core::mem::transmute(args) };
+                let result = call_concrete_function(concrete_fn, concrete_args)?;
+                Ok(as_generic_value::<A>(result).unwrap())
             }
         }
     }
@@ -1130,7 +1358,7 @@ impl SteelThread {
         instructions: StandardShared<[DenseInstruction]>,
         constant_map: ConstantMap,
         spans: Shared<[Span]>,
-    ) -> Result<SteelVal> {
+    ) -> Result<SteelValGeneric<A>> {
         #[cfg(feature = "dynamic")]
         self.profiler.reset();
 
@@ -1139,15 +1367,17 @@ impl SteelThread {
 
         let keep_alive = instructions.clone();
 
-        self.current_frame
-            .set_function(Gc::new(ByteCodeLambda::rooted(keep_alive.clone())));
+        self.current_frame.set_function(Gc::new_in(
+            ByteCodeLambda::rooted_in(keep_alive.clone(), self.alloc.clone()),
+            self.alloc.clone(),
+        ));
 
         let raw_keep_alive = StandardShared::into_raw(keep_alive);
 
         // TODO: Figure out how to keep the first set of instructions around
         // during a continuation? Does it get allocated into something? If its the
         // root one, we should move it into a function?
-        let mut vm_instance = VmCore::new(
+        let mut vm_instance = VmCore::<A>::new(
             RootedInstructions::new(instructions),
             constant_map,
             self,
@@ -1191,20 +1421,29 @@ impl SteelThread {
 
                     if let Some(handler) = last.attachments.as_mut().and_then(|x| x.handler.take())
                     {
+                        // The exception "condition" object goes through `SteelVal::Custom`,
+                        // which is always concrete (`dyn CustomType` isn't object-safe with
+                        // generic methods -- see ALLOCATOR_SPEC.md), so invoking a handler
+                        // only works when A == Global.
+                        let condition = e.into_steelval()?;
+                        let Some(condition) = as_generic_value::<A>(condition) else {
+                            stop!(Generic => "exception handlers require the Global allocator, and cannot be invoked under a custom allocator")
+                        };
+
                         // Drop the stack BACK to where it was on this level
                         vm_instance.thread.stack.truncate(last.sp as _);
-                        vm_instance.thread.stack.push(e.into_steelval()?);
+                        vm_instance.thread.stack.push(condition);
 
                         // If we're at the top level, we need to handle this _slightly_ differently
                         // if vm_instance.stack_frames.is_empty() {
                         // Somehow update the main instruction group to _just_ be the new group
                         match handler {
-                            SteelVal::Closure(closure) => {
+                            SteelValGeneric::<A>::Closure(closure) => {
                                 if vm_instance.thread.stack_frames.is_empty() {
                                     vm_instance.sp = last.sp as _;
 
                                     // Push on a dummy stack frame if we're at the top
-                                    vm_instance.thread.stack_frames.push(StackFrame::new(
+                                    vm_instance.thread.stack_frames.push(StackFrame::<A>::new(
                                         last.sp as _,
                                         Gc::clone(&closure),
                                         0,
@@ -1345,19 +1584,23 @@ impl ContinuationMark {
 
 impl Continuation {
     #[inline(always)]
-    pub fn close_marks(ctx: &VmCore<'_>, stack_frame: &StackFrame) -> bool {
-        // if let Some(cont_mark) = stack_frame
-        //     .weak_continuation_mark
-        //     .as_ref()
-        //     .and_then(|x| WeakShared::upgrade(&x.inner))
-        // {
-
+    // Generic over `A`: `weak_continuation_mark` is always concrete (`Continuation`/call/cc
+    // is Global-only, see ALLOCATOR_SPEC.md), but a stack frame under a non-`Global` `A`
+    // will simply never have one set in the first place -- the `Some(cont_mark)` branch,
+    // where `ctx` actually needs to bridge to the concrete world, is only ever reached when
+    // `A == Global` in practice, so the `TypeId`-cast there always succeeds.
+    pub fn close_marks<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+        ctx: &VmCore<'_, A>,
+        stack_frame: &StackFrame<A>,
+    ) -> bool {
         if let Some(cont_mark) = stack_frame.attachments.as_ref().and_then(|x| {
             x.weak_continuation_mark
                 .as_ref()
                 .and_then(|x| WeakShared::upgrade(&x.inner))
         }) {
-            cont_mark.write().close(ctx);
+            if let Some(ctx) = as_concrete_vmcore_ref(ctx) {
+                cont_mark.write().close(ctx);
+            }
 
             return true;
         }
@@ -1533,7 +1776,7 @@ pub trait VmContext {
 pub type BuiltInSignature =
     for<'a, 'b> fn(&'a mut VmCore<'b>, &[SteelVal]) -> Option<Result<SteelVal>>;
 
-impl<'a> VmContext for VmCore<'a> {
+impl<'a> VmContext for VmCore<'a, crate::gc::Global> {
     fn call_transduce(
         &mut self,
         ops: &[Transducers],
@@ -1626,11 +1869,11 @@ impl<'a> VmContext for VmCore<'a> {
 // }
 
 #[repr(C)]
-pub struct VmCore<'a> {
+pub struct VmCore<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
     pub(crate) is_native: bool,
     pub(crate) ip: usize,
     pub(crate) sp: usize,
-    pub(crate) thread: &'a mut SteelThread,
+    pub(crate) thread: &'a mut SteelThread<A>,
     pub(crate) instructions: RootedInstructions,
     // TODO: Replace this with a thread local constant map!
     // that way reads are fast - and any updates to it are
@@ -1639,20 +1882,20 @@ pub struct VmCore<'a> {
     pub(crate) pop_count: usize,
     pub(crate) depth: usize,
     pub(crate) root_spans: &'a [Span],
-    pub(crate) return_value: Option<SteelVal>,
+    pub(crate) return_value: Option<SteelValGeneric<A>>,
     // TODO: This means we've entered the native section of the code
-    pub(crate) result: Option<Result<SteelVal>>,
+    pub(crate) result: Option<Result<SteelValGeneric<A>>>,
 }
 
 // TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
 //
-impl<'a> VmCore<'a> {
+impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> {
     fn new_unchecked(
         instructions: RootedInstructions,
         constants: ConstantMap,
-        thread: &'a mut SteelThread,
+        thread: &'a mut SteelThread<A>,
         root_spans: &'a [Span],
-    ) -> VmCore<'a> {
+    ) -> VmCore<'a, A> {
         VmCore {
             instructions,
             constants,
@@ -1671,9 +1914,9 @@ impl<'a> VmCore<'a> {
     fn new(
         instructions: RootedInstructions,
         constants: ConstantMap,
-        thread: &'a mut SteelThread,
+        thread: &'a mut SteelThread<A>,
         root_spans: &'a [Span],
-    ) -> Result<VmCore<'a>> {
+    ) -> Result<VmCore<'a, A>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
         }
@@ -1691,86 +1934,6 @@ impl<'a> VmCore<'a> {
             is_native: false,
             result: None,
         })
-    }
-
-    #[cfg(feature = "sync")]
-    pub fn steel_function_to_rust_function(
-        &self,
-        func: SteelVal,
-    ) -> Box<dyn Fn(&mut [SteelVal]) -> Result<SteelVal> + Send + Sync + 'static> {
-        let thread = self.make_thread();
-        let rooted = func.as_rooted();
-
-        Box::new(move |args: &mut [SteelVal]| {
-            let func = rooted.value();
-
-            let mut guard = thread.lock().unwrap();
-            guard.call_fn_from_mut_slice(func.clone(), args)
-        })
-    }
-
-    #[cfg(feature = "sync")]
-    pub(crate) fn steel_function_to_arc_rust_function(
-        &self,
-        func: SteelVal,
-    ) -> Arc<dyn Fn(&[SteelVal]) -> Result<SteelVal> + Send + Sync + 'static> {
-        let thread = self.make_thread();
-        let rooted = func.as_rooted();
-
-        Arc::new(move |args: &[SteelVal]| {
-            let func = rooted.value();
-            let mut guard = thread.lock().unwrap();
-            let mut args = args.to_vec();
-            guard.call_fn_from_mut_slice(func.clone(), &mut args)
-        })
-    }
-
-    // Copy the thread of execution. This just blindly copies the thread, and closes
-    // the continuations found.
-    // TODO: Add this thread to the parent VM thread handler -> this is necessary
-    // for safepoints to work correctly
-    #[cfg(feature = "sync")]
-    pub fn make_thread(&self) -> Arc<Mutex<SteelThread>> {
-        let mut thread = self.thread.clone();
-
-        let controller = ThreadStateController::default();
-        thread.synchronizer.state = controller.clone();
-        // This thread needs its own context
-        thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
-
-        thread.synchronizer.spawned_via_make_thread = true;
-
-        let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
-
-        thread.id = EngineId::new();
-
-        let forked_thread = Arc::new(Mutex::new(thread));
-
-        let value = ThreadHandle {
-            handle: Mutex::new(None),
-            thread: std::thread::current(),
-            thread_state_manager: controller,
-            forked_thread_handle: Some(Arc::downgrade(&forked_thread)),
-        }
-        .into_steelval()
-        .unwrap();
-
-        self.thread
-            .synchronizer
-            .threads
-            .lock()
-            .unwrap()
-            .push(ThreadContext {
-                ctx: weak_ctx,
-                handle: value.clone(),
-            });
-
-        for frame in &self.thread.stack_frames {
-            self.close_continuation_marks(frame);
-        }
-        self.close_continuation_marks(&self.thread.current_frame);
-
-        forked_thread
     }
 
     fn park_thread_while_paused(&self) {
@@ -1820,7 +1983,7 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    pub fn make_box(&mut self, value: SteelVal) -> SteelVal {
+    pub fn make_box(&mut self, value: SteelValGeneric<A>) -> SteelValGeneric<A> {
         let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
         let allocated_var = heap_lock.allocate(
             value,
@@ -1831,12 +1994,12 @@ impl<'a> VmCore<'a> {
             &mut self.thread.synchronizer,
         );
 
-        SteelVal::HeapAllocated(allocated_var)
+        SteelValGeneric::<A>::HeapAllocated(allocated_var)
     }
 
     // TODO: Accept a slice instead, or an iterator with a known size.
     // That way we can take advantage of a pre allocation.
-    pub fn make_mutable_vector(&mut self, values: Vec<SteelVal>) -> SteelVal {
+    pub fn make_mutable_vector(&mut self, values: Vec<SteelValGeneric<A>>) -> SteelValGeneric<A> {
         let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
         let allocated_var = heap_lock.allocate_vector(
             values,
@@ -1847,13 +2010,13 @@ impl<'a> VmCore<'a> {
             &mut self.thread.synchronizer,
         );
 
-        SteelVal::MutableVector(allocated_var)
+        SteelValGeneric::<A>::MutableVector(allocated_var)
     }
 
     pub fn make_mutable_vector_iter(
         &mut self,
-        values: impl Iterator<Item = SteelVal> + Clone,
-    ) -> SteelVal {
+        values: impl Iterator<Item = SteelValGeneric<A>> + Clone,
+    ) -> SteelValGeneric<A> {
         let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
 
         let allocated_var = heap_lock.allocate_vector_iter(
@@ -1865,7 +2028,7 @@ impl<'a> VmCore<'a> {
             &mut self.thread.synchronizer,
         );
 
-        SteelVal::MutableVector(allocated_var)
+        SteelValGeneric::<A>::MutableVector(allocated_var)
     }
 
     pub(crate) fn gc_collect(&mut self) {
@@ -1890,6 +2053,13 @@ impl<'a> VmCore<'a> {
     //     // self.thread.heap.lock().unwrap().weak_collection();
     // }
 
+}
+
+// `Continuation`/`ContinuationMark` (call/cc's snapshot of the VM state) are Global-only
+// (see ALLOCATOR_SPEC.md) -- every caller of these methods is already concrete (`call_cc`,
+// `ContinuationMark::close`, etc. all take a bare `&VmCore`/`&mut VmCore`, defaulting to
+// `Global`), so there's no generic call site needing a `TypeId`-cast bridge here at all.
+impl<'a> VmCore<'a, crate::gc::Global> {
     fn new_open_continuation_from_state(&self) -> Continuation {
         let offset = self.get_offset();
         Continuation {
@@ -1955,7 +2125,9 @@ impl<'a> VmCore<'a> {
             closed_continuation: None,
         }
     }
+}
 
+impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> {
     pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
         let last = self.thread.stack_frames.len();
         DehydratedStackTrace::new(
@@ -1983,7 +2155,11 @@ impl<'a> VmCore<'a> {
                 .collect(),
         )
     }
+}
 
+// Same reasoning as the other `Continuation`-related block above: every caller is already
+// concrete.
+impl<'a> VmCore<'a, crate::gc::Global> {
     // #[inline(always)]
     fn set_state_from_continuation(&mut self, continuation: ClosedContinuation) {
         // dbg!(&continuation.stack);
@@ -2055,12 +2231,14 @@ impl<'a> VmCore<'a> {
     fn construct_continuation_function(&self) -> Continuation {
         self.new_open_continuation_from_state()
     }
+}
 
+impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> {
     // Reset state FULLY
     pub(crate) fn call_with_instructions_and_reset_state(
         &mut self,
         closure: RootedInstructions,
-    ) -> Result<SteelVal> {
+    ) -> Result<SteelValGeneric<A>> {
         let old_ip = self.ip;
         let old_instructions = core::mem::replace(&mut self.instructions, closure);
         let old_pop_count = self.pop_count;
@@ -2109,21 +2287,28 @@ impl<'a> VmCore<'a> {
 
                     if let Some(handler) = last.attachments.as_mut().and_then(|x| x.handler.take())
                     {
+                        // Same reasoning as the equivalent path in `execute`: the condition
+                        // object is always concrete `SteelVal::Custom` content.
+                        let condition = e.into_steelval()?;
+                        let Some(condition) = as_generic_value::<A>(condition) else {
+                            stop!(Generic => "exception handlers require the Global allocator, and cannot be invoked under a custom allocator")
+                        };
+
                         // Drop the stack BACK to where it was on this level
                         self.thread.stack.truncate(last.sp as _);
 
-                        self.thread.stack.push(e.into_steelval()?);
+                        self.thread.stack.push(condition);
 
                         // If we're at the top level, we need to handle this _slightly_ differently
                         // if vm_instance.stack_frames.is_empty() {
                         // Somehow update the main instruction group to _just_ be the new group
                         match handler {
-                            SteelVal::Closure(closure) => {
+                            SteelValGeneric::<A>::Closure(closure) => {
                                 if self.thread.stack_frames.is_empty() {
                                     self.sp = last.sp as _;
 
                                     // Push on a dummy stack frame if we're at the top
-                                    self.thread.stack_frames.push(StackFrame::new(
+                                    self.thread.stack_frames.push(StackFrame::<A>::new(
                                         last.sp as _,
                                         Gc::clone(&closure),
                                         0,
@@ -2193,25 +2378,42 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     pub(crate) fn call_func_or_else<F: FnOnce() -> SteelErr>(
         &mut self,
-        func: &SteelVal,
-        arg: SteelVal,
+        func: &SteelValGeneric<A>,
+        arg: SteelValGeneric<A>,
         cur_inst_span: &Span,
         err: F,
-    ) -> Result<SteelVal> {
+    ) -> Result<SteelValGeneric<A>> {
         match func {
-            SteelVal::FuncV(func) => {
+            SteelValGeneric::<A>::Closure(closure) => self.call_with_one_arg(closure, arg),
+            // FuncV/BoxedFunction/MutFunc are plain `fn` pointers hardcoded to concrete
+            // `SteelVal` (see ALLOCATOR_SPEC.md) -- the function itself is always concrete
+            // regardless of `A`, but `arg` is still `SteelValGeneric<A>`, so it's the thing
+            // that needs the `TypeId`-proven identity cast here.
+            SteelValGeneric::<A>::FuncV(func) => {
+                let Some(arg) = as_concrete_value::<A>(arg) else {
+                    return Err(err());
+                };
                 let arg_vec = [arg];
-                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                let result = func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))?;
+                Ok(as_generic_value::<A>(result).unwrap())
             }
-            SteelVal::BoxedFunction(func) => {
+            SteelValGeneric::<A>::BoxedFunction(func) => {
+                let Some(arg) = as_concrete_value::<A>(arg) else {
+                    return Err(err());
+                };
                 let arg_vec = [arg];
-                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                let result =
+                    func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))?;
+                Ok(as_generic_value::<A>(result).unwrap())
             }
-            SteelVal::MutFunc(func) => {
+            SteelValGeneric::<A>::MutFunc(func) => {
+                let Some(arg) = as_concrete_value::<A>(arg) else {
+                    return Err(err());
+                };
                 let mut arg_vec = [arg];
-                func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                let result = func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))?;
+                Ok(as_generic_value::<A>(result).unwrap())
             }
-            SteelVal::Closure(closure) => self.call_with_one_arg(closure, arg),
             _ => Err(err()),
         }
     }
@@ -2219,34 +2421,53 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     pub(crate) fn call_func_or_else_two_args<F: FnOnce() -> SteelErr>(
         &mut self,
-        func: &SteelVal,
-        arg1: SteelVal,
-        arg2: SteelVal,
+        func: &SteelValGeneric<A>,
+        arg1: SteelValGeneric<A>,
+        arg2: SteelValGeneric<A>,
         cur_inst_span: &Span,
         err: F,
-    ) -> Result<SteelVal> {
+    ) -> Result<SteelValGeneric<A>> {
         match func {
-            SteelVal::FuncV(func) => {
+            SteelValGeneric::<A>::Closure(closure) => self.call_with_two_args(closure, arg1, arg2),
+            SteelValGeneric::<A>::FuncV(func) => {
+                let (Some(arg1), Some(arg2)) =
+                    (as_concrete_value::<A>(arg1), as_concrete_value::<A>(arg2))
+                else {
+                    return Err(err());
+                };
                 let arg_vec = [arg1, arg2];
-                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                let result = func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))?;
+                Ok(as_generic_value::<A>(result).unwrap())
             }
-            SteelVal::BoxedFunction(func) => {
+            SteelValGeneric::<A>::BoxedFunction(func) => {
+                let (Some(arg1), Some(arg2)) =
+                    (as_concrete_value::<A>(arg1), as_concrete_value::<A>(arg2))
+                else {
+                    return Err(err());
+                };
                 let arg_vec = [arg1, arg2];
-                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                let result =
+                    func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))?;
+                Ok(as_generic_value::<A>(result).unwrap())
             }
-            // SteelVal::ContractedFunction(cf) => {
+            // SteelValGeneric::<A>::ContractedFunction(cf) => {
             //     let arg_vec = vec![arg1, arg2];
             //     cf.apply(arg_vec, cur_inst_span, self)
             // }
-            SteelVal::MutFunc(func) => {
+            SteelValGeneric::<A>::MutFunc(func) => {
+                let (Some(arg1), Some(arg2)) =
+                    (as_concrete_value::<A>(arg1), as_concrete_value::<A>(arg2))
+                else {
+                    return Err(err());
+                };
                 let mut arg_vec: Vec<_> = vec![arg1, arg2];
-                func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                let result = func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))?;
+                Ok(as_generic_value::<A>(result).unwrap())
             }
-            // SteelVal::BuiltIn(func) => {
+            // SteelValGeneric::<A>::BuiltIn(func) => {
             //     let arg_vec = [arg1, arg2];
             //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             // }
-            SteelVal::Closure(closure) => self.call_with_two_args(closure, arg1, arg2),
             _ => Err(err()),
         }
     }
@@ -2254,29 +2475,51 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     pub(crate) fn call_func_or_else_many_args<F: FnOnce() -> SteelErr>(
         &mut self,
-        func: &SteelVal,
-        args: impl IntoIterator<Item = SteelVal>,
+        func: &SteelValGeneric<A>,
+        args: impl IntoIterator<Item = SteelValGeneric<A>>,
         cur_inst_span: &Span,
         err: F,
-    ) -> Result<SteelVal> {
+    ) -> Result<SteelValGeneric<A>> {
         match func {
-            SteelVal::FuncV(func) => {
-                let arg_vec: Vec<_> = args.into_iter().collect();
-                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+            SteelValGeneric::<A>::Closure(closure) => self.call_with_args(closure, args),
+            SteelValGeneric::<A>::FuncV(func) => {
+                let Some(arg_vec) = args
+                    .into_iter()
+                    .map(as_concrete_value::<A>)
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return Err(err());
+                };
+                let result = func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))?;
+                Ok(as_generic_value::<A>(result).unwrap())
             }
-            SteelVal::BoxedFunction(func) => {
-                let arg_vec: Vec<_> = args.into_iter().collect();
-                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+            SteelValGeneric::<A>::BoxedFunction(func) => {
+                let Some(arg_vec) = args
+                    .into_iter()
+                    .map(as_concrete_value::<A>)
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return Err(err());
+                };
+                let result =
+                    func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))?;
+                Ok(as_generic_value::<A>(result).unwrap())
             }
-            SteelVal::MutFunc(func) => {
-                let mut arg_vec: Vec<_> = args.into_iter().collect();
-                func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+            SteelValGeneric::<A>::MutFunc(func) => {
+                let Some(mut arg_vec) = args
+                    .into_iter()
+                    .map(as_concrete_value::<A>)
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return Err(err());
+                };
+                let result = func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))?;
+                Ok(as_generic_value::<A>(result).unwrap())
             }
-            // SteelVal::BuiltIn(func) => {
+            // SteelValGeneric::<A>::BuiltIn(func) => {
             //     let arg_vec: Vec<_> = args.into_iter().collect();
             //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             // }
-            SteelVal::Closure(closure) => self.call_with_args(closure, args),
             _ => Err(err()),
         }
     }
@@ -2285,8 +2528,8 @@ impl<'a> VmCore<'a> {
     pub(crate) fn call_cont_with_args(
         &mut self,
         cont: Continuation,
-        args: impl IntoIterator<Item = SteelVal>,
-    ) -> Result<SteelVal> {
+        args: impl IntoIterator<Item = SteelValGeneric<A>>,
+    ) -> Result<SteelValGeneric<A>> {
         for arg in args {
             self.thread.stack.push(arg);
         }
@@ -2299,7 +2542,7 @@ impl<'a> VmCore<'a> {
             .ok_or_else(throw!(Generic => "stack empty at pop!"))
     }
 
-    // pub(crate) fn eval_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
+    // pub(crate) fn eval_executable(&mut self, executable: &Executable) -> Result<Vec<SteelValGeneric<A>>> {
     //     // let prev_length = self.thread.stack.len();
 
     //     // let prev_stack_frames = core::mem::take(&mut self.thread.stack_frames);
@@ -2341,9 +2584,9 @@ impl<'a> VmCore<'a> {
     // Call with an arbitrary number of arguments
     pub(crate) fn call_with_args(
         &mut self,
-        closure: &Gc<ByteCodeLambda>,
-        args: impl IntoIterator<Item = SteelVal>,
-    ) -> Result<SteelVal> {
+        closure: &crate::values::functions::ByteCodeLambdaGc<A>,
+        args: impl IntoIterator<Item = SteelValGeneric<A>>,
+    ) -> Result<SteelValGeneric<A>> {
         let prev_length = self.thread.stack.len();
         // let prev_stack_frame = self.thread.current_frame.clone();
         // let stack_frame_len = self.thread.stack_frames.len();
@@ -2351,7 +2594,7 @@ impl<'a> VmCore<'a> {
         let instructions = closure.body_exp();
 
         // TODO:
-        self.thread.stack_frames.push(StackFrame::new(
+        self.thread.stack_frames.push(StackFrame::<A>::new(
             prev_length,
             Gc::clone(closure),
             0,
@@ -2381,14 +2624,14 @@ impl<'a> VmCore<'a> {
     // Calling convention
     pub(crate) fn call_with_two_args(
         &mut self,
-        closure: &Gc<ByteCodeLambda>,
-        arg1: SteelVal,
-        arg2: SteelVal,
-    ) -> Result<SteelVal> {
+        closure: &crate::values::functions::ByteCodeLambdaGc<A>,
+        arg1: SteelValGeneric<A>,
+        arg2: SteelValGeneric<A>,
+    ) -> Result<SteelValGeneric<A>> {
         let prev_length = self.thread.stack.len();
         // self.stack_index.push(prev_length);
 
-        self.thread.stack_frames.push(StackFrame::new(
+        self.thread.stack_frames.push(StackFrame::<A>::new(
             prev_length,
             Gc::clone(closure),
             0,
@@ -2410,12 +2653,12 @@ impl<'a> VmCore<'a> {
     // Calling convention
     pub(crate) fn call_with_one_arg(
         &mut self,
-        closure: &Gc<ByteCodeLambda>,
-        arg: SteelVal,
-    ) -> Result<SteelVal> {
+        closure: &crate::values::functions::ByteCodeLambdaGc<A>,
+        arg: SteelValGeneric<A>,
+    ) -> Result<SteelValGeneric<A>> {
         let prev_length = self.thread.stack.len();
 
-        self.thread.stack_frames.push(StackFrame::new(
+        self.thread.stack_frames.push(StackFrame::<A>::new(
             prev_length,
             Gc::clone(closure),
             0,
@@ -2432,12 +2675,12 @@ impl<'a> VmCore<'a> {
 
     pub(crate) fn call_with_one_arg_test<const M: bool>(
         &mut self,
-        closure: &Gc<ByteCodeLambda>,
-        arg: SteelVal,
-    ) -> Result<SteelVal> {
+        closure: &crate::values::functions::ByteCodeLambdaGc<A>,
+        arg: SteelValGeneric<A>,
+    ) -> Result<SteelValGeneric<A>> {
         let prev_length = self.thread.stack.len();
 
-        self.thread.stack_frames.push(StackFrame::new(
+        self.thread.stack_frames.push(StackFrame::<A>::new(
             prev_length,
             Gc::clone(closure),
             0,
@@ -2455,7 +2698,7 @@ impl<'a> VmCore<'a> {
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
-    pub(crate) fn vm(&mut self) -> Result<SteelVal> {
+    pub(crate) fn vm(&mut self) -> Result<SteelValGeneric<A>> {
         // if self.depth > 1024 {
         if self.depth > 1024 * 128 {
             // TODO: Unwind the callstack? Patch over to the VM call stack rather than continue to do recursive calls?
@@ -2490,7 +2733,11 @@ impl<'a> VmCore<'a> {
                     self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
 
                 // get the const
-                let const_val = self.constants.get_value(push_const.payload_size.to_usize());
+                let raw_const_val = self.constants.get_value(push_const.payload_size.to_usize());
+                let const_val = match constant_to_generic(&raw_const_val, &self.thread.alloc) {
+                    Ok(value) => value,
+                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                };
 
                 let result = match $name(&[local_value, const_val]) {
                     Ok(value) => value,
@@ -2516,7 +2763,7 @@ impl<'a> VmCore<'a> {
                     self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
 
                 // get the const value, if it can fit into the value...
-                let const_val = SteelVal::IntV(push_const.payload_size.to_usize() as isize);
+                let const_val = SteelValGeneric::<A>::IntV(push_const.payload_size.to_usize() as isize);
 
                 // sub_handler_none_int
 
@@ -2646,7 +2893,7 @@ impl<'a> VmCore<'a> {
 
                     // if let Some(last) = self.thread.stack_frames.last().map(|x| x.function.clone())
                     // {
-                    //     inspect(self, &[SteelVal::Closure(last.clone())]);
+                    //     inspect(self, &[SteelValGeneric::<A>::Closure(last.clone())]);
                     // }
 
                     if let Some(res) = self.result.take() {
@@ -2712,7 +2959,7 @@ impl<'a> VmCore<'a> {
                     let local_value =
                         self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
 
-                    let result = match subtract_primitive(&[local_value, SteelVal::IntV(1)]) {
+                    let result = match subtract_primitive_generic(&[local_value, SteelValGeneric::<A>::IntV(1)]) {
                         Ok(value) => value,
                         Err(e) => return Err(e.set_span_if_none(self.current_span())),
                     };
@@ -2753,7 +3000,7 @@ impl<'a> VmCore<'a> {
                     let index = self.thread.stack.pop().unwrap();
                     let last_mut = self.thread.stack.last_mut().unwrap();
 
-                    let result = match vec_ref(last_mut, &index) {
+                    let result = match vec_ref_generic(last_mut, &index) {
                         Ok(value) => value,
                         Err(e) => return Err(e.set_span_if_none(self.current_span())),
                     };
@@ -2784,7 +3031,7 @@ impl<'a> VmCore<'a> {
                     // unbox_handler(self)?;
 
                     let last = self.thread.stack.last_mut().unwrap();
-                    if let SteelVal::HeapAllocated(var) = last {
+                    if let SteelValGeneric::<A>::HeapAllocated(var) = last {
                         *last = var.get();
                     } else {
                         stop!(TypeMismatch => format!("Unable to unbox non box: {}", last); self.current_span())
@@ -2798,7 +3045,7 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     let mut last = self.thread.stack.pop().unwrap();
-                    if let SteelVal::HeapAllocated(var) = last {
+                    if let SteelValGeneric::<A>::HeapAllocated(var) = last {
                         last = var.get();
                     } else {
                         stop!(TypeMismatch => format!("Unable to unbox non box: {}", last); self.current_span())
@@ -2813,7 +3060,7 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     let mut last = self.thread.stack.pop().unwrap();
-                    if let SteelVal::HeapAllocated(var) = last {
+                    if let SteelValGeneric::<A>::HeapAllocated(var) = last {
                         last = var.get();
                     } else {
                         stop!(TypeMismatch => format!("Unable to unbox non box: {}", last); self.current_span())
@@ -2854,25 +3101,25 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::ADDREGISTER,
                     ..
                 } => {
-                    inline_register_primitive!(add_primitive)
+                    inline_register_primitive!(add_primitive_generic)
                 }
                 DenseInstruction {
                     op_code: OpCode::SUBREGISTER,
                     ..
                 } => {
-                    inline_register_primitive!(subtract_primitive)
+                    inline_register_primitive!(subtract_primitive_generic)
                 }
                 DenseInstruction {
                     op_code: OpCode::LTEREGISTER,
                     ..
                 } => {
-                    inline_register_primitive!(lte_primitive)
+                    inline_register_primitive!(lte_primitive_generic)
                 }
                 DenseInstruction {
                     op_code: OpCode::ADDIMMEDIATE,
                     ..
                 } => {
-                    inline_register_primitive_immediate!(add_primitive)
+                    inline_register_primitive_immediate!(add_primitive_generic)
                 }
                 DenseInstruction {
                     op_code: OpCode::SUBIMMEDIATE,
@@ -2893,20 +3140,20 @@ impl<'a> VmCore<'a> {
 
                     let result = match l {
                         // Fast path with an integer, otherwise slow path
-                        SteelVal::IntV(l) => {
+                        SteelValGeneric::<A>::IntV(l) => {
                             match l.checked_sub(&r) {
-                                Some(r) => SteelVal::IntV(r),
+                                Some(r) => SteelValGeneric::<A>::IntV(r),
                                 // Slow path
-                                None => SteelVal::BigNum(Gc::new(BigInt::from(*l) - r)),
+                                None => SteelValGeneric::<A>::BigNum(Gc::new(BigInt::from(*l) - r)),
                             }
                         }
 
-                        SteelVal::NumV(_)
-                        | SteelVal::Rational(_)
-                        | SteelVal::BigNum(_)
-                        | SteelVal::BigRational(_) => {
+                        SteelValGeneric::<A>::NumV(_)
+                        | SteelValGeneric::<A>::Rational(_)
+                        | SteelValGeneric::<A>::BigNum(_)
+                        | SteelValGeneric::<A>::BigRational(_) => {
                             // TODO: Create a specialized version of this!
-                            subtract_primitive(&[l.clone(), SteelVal::IntV(r)])
+                            subtract_primitive_generic(&[l.clone(), SteelValGeneric::<A>::IntV(r)])
                                 .map_err(|x| x.set_span_if_none(self.current_span()))?
                         }
                         _ => {
@@ -2941,17 +3188,17 @@ impl<'a> VmCore<'a> {
                     // let result = lte_handler_none_int(self, local_value, const_val)?;
 
                     let result = match l {
-                        SteelVal::IntV(_)
-                        | SteelVal::NumV(_)
-                        | SteelVal::Rational(_)
-                        | SteelVal::BigNum(_)
-                        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+                        SteelValGeneric::<A>::IntV(_)
+                        | SteelValGeneric::<A>::NumV(_)
+                        | SteelValGeneric::<A>::Rational(_)
+                        | SteelValGeneric::<A>::BigNum(_)
+                        | SteelValGeneric::<A>::BigRational(_) => l.clone() <= SteelValGeneric::<A>::IntV(r),
                         _ => {
                             stop!(TypeMismatch => format!("lte expected an number, found: {}", l); self.current_span())
                         }
                     };
 
-                    self.thread.stack.push(SteelVal::BoolV(result));
+                    self.thread.stack.push(SteelValGeneric::<A>::BoolV(result));
 
                     self.ip += 2;
                 }
@@ -2978,11 +3225,11 @@ impl<'a> VmCore<'a> {
                     // let result = lte_handler_none_int(self, local_value, const_val)?;
 
                     let result = match l {
-                        SteelVal::IntV(_)
-                        | SteelVal::NumV(_)
-                        | SteelVal::Rational(_)
-                        | SteelVal::BigNum(_)
-                        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+                        SteelValGeneric::<A>::IntV(_)
+                        | SteelValGeneric::<A>::NumV(_)
+                        | SteelValGeneric::<A>::Rational(_)
+                        | SteelValGeneric::<A>::BigNum(_)
+                        | SteelValGeneric::<A>::BigRational(_) => l.clone() <= SteelValGeneric::<A>::IntV(r),
                         _ => {
                             stop!(TypeMismatch => format!("lte expected an number, found: {}", l); self.current_span())
                         }
@@ -3015,7 +3262,7 @@ impl<'a> VmCore<'a> {
                     let right = self.thread.stack.pop().unwrap();
                     let left = self.thread.stack.last_mut().unwrap();
 
-                    let result = match add_two_fallible(left, &right) {
+                    let result = match add_two_generic(left, &right) {
                         Ok(value) => value,
                         Err(e) => return Err(e.set_span_if_none(self.current_span())),
                     };
@@ -3032,7 +3279,7 @@ impl<'a> VmCore<'a> {
                     let right = self.thread.stack.pop().unwrap();
                     let left = self.thread.stack.pop().unwrap();
 
-                    let result = match handlers::add_handler_none_none(&left, &right) {
+                    let result = match add_two_generic(&left, &right) {
                         Ok(value) => value,
                         Err(e) => return Err(e.set_span_if_none(self.current_span())),
                     };
@@ -3059,20 +3306,20 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    inline_primitive!(multiply_primitive, payload_size)
+                    inline_primitive!(multiply_primitive_generic, payload_size)
                 }
                 DenseInstruction {
                     op_code: OpCode::DIV,
                     payload_size,
                     ..
-                } => inline_primitive!(divide_primitive, payload_size),
+                } => inline_primitive!(divide_primitive_generic, payload_size),
 
                 DenseInstruction {
                     op_code: OpCode::EQUAL,
                     payload_size,
                     ..
                 } => {
-                    inline_primitive!(equality_primitive, payload_size);
+                    inline_primitive!(equality_primitive_generic, payload_size);
                 }
 
                 DenseInstruction {
@@ -3081,7 +3328,7 @@ impl<'a> VmCore<'a> {
                 } => {
                     let top = self.thread.stack.pop().unwrap();
                     let last = self.thread.stack.last_mut().unwrap();
-                    *last = SteelVal::BoolV(last == &top);
+                    *last = SteelValGeneric::<A>::BoolV(last == &top);
                     self.ip += 2;
                 }
 
@@ -3089,12 +3336,14 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::EQUALCONST,
                     payload_size,
                 } => {
-                    self.constants
-                        .get_map(payload_size.to_usize(), |const_value: &SteelVal| {
-                            let last = self.thread.stack.last_mut().unwrap();
-                            let res = last == const_value;
-                            *last = SteelVal::BoolV(res);
-                        });
+                    let raw_const_value = self.constants.get_value(payload_size.to_usize());
+                    let const_value = match constant_to_generic(&raw_const_value, &self.thread.alloc) {
+                        Ok(value) => value,
+                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    };
+                    let last = self.thread.stack.last_mut().unwrap();
+                    let res = last == &const_value;
+                    *last = SteelValGeneric::<A>::BoolV(res);
 
                     self.ip += 3;
                 }
@@ -3112,8 +3361,8 @@ impl<'a> VmCore<'a> {
                 } => {
                     // Simply fast path case for checking null or empty
                     let last = self.thread.stack.last_mut().unwrap();
-                    let result = is_empty(last);
-                    *last = SteelVal::BoolV(result);
+                    let result = is_empty_generic(last);
+                    *last = SteelValGeneric::<A>::BoolV(result);
                     self.ip += 2;
                 }
 
@@ -3123,7 +3372,7 @@ impl<'a> VmCore<'a> {
                 } => {
                     // Simply fast path case for checking null or empty
                     let last = self.thread.stack.pop().unwrap();
-                    let result = is_empty(&last);
+                    let result = is_empty_generic(&last);
                     self.ip += 2;
                     if result {
                         self.ip += 1;
@@ -3172,7 +3421,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::VOID,
                     ..
                 } => {
-                    self.thread.stack.push(SteelVal::Void);
+                    self.thread.stack.push(SteelValGeneric::<A>::Void);
                     self.ip += 1;
                 }
                 DenseInstruction {
@@ -3185,7 +3434,9 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    let val = self.constants.get_value(payload_size.to_usize());
+                    let raw_val = self.constants.get_value(payload_size.to_usize());
+                    let val = constant_to_generic(&raw_val, &self.thread.alloc)
+                        .map_err(|e| e.set_span_if_none(self.current_span()))?;
                     self.thread.stack.push(val);
                     self.ip += 1;
                 }
@@ -3278,7 +3529,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::TRUE,
                     ..
                 } => {
-                    self.thread.stack.push(SteelVal::BoolV(true));
+                    self.thread.stack.push(SteelValGeneric::<A>::BoolV(true));
                     self.ip += 1;
                 }
 
@@ -3286,7 +3537,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::FALSE,
                     ..
                 } => {
-                    self.thread.stack.push(SteelVal::BoolV(false));
+                    self.thread.stack.push(SteelValGeneric::<A>::BoolV(false));
                     self.ip += 1;
                 }
 
@@ -3294,21 +3545,21 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::LOADINT0,
                     ..
                 } => {
-                    self.thread.stack.push(SteelVal::INT_ZERO);
+                    self.thread.stack.push(SteelValGeneric::<A>::INT_ZERO);
                     self.ip += 1;
                 }
                 DenseInstruction {
                     op_code: OpCode::LOADINT1,
                     ..
                 } => {
-                    self.thread.stack.push(SteelVal::INT_ONE);
+                    self.thread.stack.push(SteelValGeneric::<A>::INT_ONE);
                     self.ip += 1;
                 }
                 DenseInstruction {
                     op_code: OpCode::LOADINT2,
                     ..
                 } => {
-                    self.thread.stack.push(SteelVal::INT_TWO);
+                    self.thread.stack.push(SteelValGeneric::<A>::INT_TWO);
                     self.ip += 1;
                 }
 
@@ -3316,9 +3567,9 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::LOADINT1POP,
                     ..
                 } => {
-                    // self.thread.stack.push(SteelVal::INT_TWO);
+                    // self.thread.stack.push(SteelValGeneric::<A>::INT_TWO);
                     self.ip += 1;
-                    if let Some(r) = self.handle_pop_pure_value(SteelVal::INT_ONE) {
+                    if let Some(r) = self.handle_pop_pure_value(SteelValGeneric::<A>::INT_ONE) {
                         return r;
                     }
                 }
@@ -3470,12 +3721,19 @@ impl<'a> VmCore<'a> {
                         FuncV(f) => {
                             let last_index = self.thread.stack.len() - payload_size;
                             let result =
-                                match self.thread.enter_safepoint(move |ctx: &SteelThread| {
-                                    f(&ctx.stack[last_index..])
+                                match self.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
+                                    match as_concrete_slice(&ctx.stack[last_index..]) {
+                                        Some(args) => f(args),
+                                        None => {
+                                            stop!(Generic => "cannot call this native function under a custom allocator")
+                                        }
+                                    }
                                 }) {
                                     Ok(v) => v,
                                     Err(e) => return Err(e.set_span_if_none(self.current_span())),
                                 };
+
+                            let result = as_generic_value(result).unwrap();
 
                             // This is the old way... lets see if the below way improves the speed
                             self.thread.stack.truncate(last_index);
@@ -3528,12 +3786,19 @@ impl<'a> VmCore<'a> {
                         FuncV(f) => {
                             let last_index = self.thread.stack.len() - payload_size;
                             let result =
-                                match self.thread.enter_safepoint(move |ctx: &SteelThread| {
-                                    f(&ctx.stack[last_index..])
+                                match self.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
+                                    match as_concrete_slice(&ctx.stack[last_index..]) {
+                                        Some(args) => f(args),
+                                        None => {
+                                            stop!(Generic => "cannot call this native function under a custom allocator")
+                                        }
+                                    }
                                 }) {
                                     Ok(v) => v,
                                     Err(e) => return Err(e.set_span_if_none(self.current_span())),
                                 };
+
+                            let result = as_generic_value(result).unwrap();
 
                             // This is the old way... lets see if the below way improves the speed
                             self.thread.stack.truncate(last_index);
@@ -3688,7 +3953,7 @@ impl<'a> VmCore<'a> {
                             .drain(self.thread.stack.len() - amount_to_remove..)
                             .collect();
 
-                        let list = SteelVal::ListV(values);
+                        let list = SteelValGeneric::<A>::ListV(values);
 
                         self.thread.stack.push(list);
 
@@ -3838,9 +4103,9 @@ impl<'a> VmCore<'a> {
                             })
                             .collect();
 
-                        SteelVal::ByteVector(crate::rvals::SteelByteVector::new(buffer))
+                        SteelValGeneric::<A>::ByteVector(crate::rvals::SteelByteVector::new(buffer))
                     } else {
-                        SteelVal::VectorV(crate::rvals::SteelVector(Gc::new(args.into())))
+                        SteelValGeneric::<A>::VectorV(crate::rvals::SteelVector(Gc::new(args.into())))
                     };
 
                     self.thread.stack.push(val);
@@ -3873,8 +4138,8 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    fn move_from_stack(&mut self, offset: usize) -> SteelVal {
-        core::mem::replace(&mut self.thread.stack[offset], SteelVal::Void)
+    fn move_from_stack(&mut self, offset: usize) -> SteelValGeneric<A> {
+        core::mem::replace(&mut self.thread.stack[offset], SteelValGeneric::<A>::Void)
     }
 
     pub(crate) fn current_span_for_index(&self, ip: usize) -> Span {
@@ -3946,7 +4211,7 @@ impl<'a> VmCore<'a> {
     // stack will need to be instrumented with the point in time that we are at
     // with respect to the existing continuation.
     #[inline(always)]
-    fn close_continuation_marks(&self, last: &StackFrame) -> bool {
+    fn close_continuation_marks(&self, last: &StackFrame<A>) -> bool {
         // TODO: @Matt - continuation marks should actually do something here
         // What we'd like: This marks the stack frame going out of scope. Since it is going out of scope,
         // the stack frame should check if there are marks here, specifying that we should grab
@@ -3956,7 +4221,7 @@ impl<'a> VmCore<'a> {
     }
 
     #[inline(always)]
-    fn handle_pop_pure_value(&mut self, value: SteelVal) -> Option<Result<SteelVal>> {
+    fn handle_pop_pure_value(&mut self, value: SteelValGeneric<A>) -> Option<Result<SteelValGeneric<A>>> {
         // println!("calling pop pure value: {}", value);
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
@@ -4022,7 +4287,7 @@ impl<'a> VmCore<'a> {
     }
 
     #[inline(always)]
-    fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
+    fn handle_pop_pure(&mut self) -> Option<Result<SteelValGeneric<A>>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
         // println!("{} - {}", self.pop_count, self.thread.stack_frames.len());
@@ -4056,7 +4321,7 @@ impl<'a> VmCore<'a> {
             // TODO: Delay running the destructors until a safepoint?
             // for value in values {
             //     match value {
-            //         SteelVal::ListV(_) => {
+            //         SteelValGeneric::<A>::ListV(_) => {
             //             DROP_THREAD.send(value).unwrap();
             //         }
             //         _ => {}
@@ -4157,7 +4422,7 @@ impl<'a> VmCore<'a> {
         &mut self,
         index: usize,
         payload_size: usize,
-    ) -> Result<Option<SteelVal>> {
+    ) -> Result<Option<SteelValGeneric<A>>> {
         // TODO: Lazily fetch the function. Avoid cloning where relevant.
         // Boxed functions probably _should_ be rooted in the modules?
         let func = self.thread.global_env.repl_lookup_idx(index);
@@ -4380,12 +4645,12 @@ impl<'a> VmCore<'a> {
             // snag the arity from the eclosure instruction
             let arity = self.instructions[forward_index - 1].payload_size;
 
-            let constructed_lambda = ByteCodeLambda::new(
+            let constructed_lambda = ByteCodeLambda::<A>::new(
                 closure_id,
                 closure_body,
                 arity.to_usize(),
                 is_multi_arity,
-                CaptureVec::new(),
+                crate::values::functions::empty_captures_in(self.thread.alloc.clone()),
             );
 
             // Put the spans into the interner as well
@@ -4404,7 +4669,7 @@ impl<'a> VmCore<'a> {
                 constructed_lambda
             };
 
-            let constructed_lambda = Gc::new(constructed_lambda);
+            let constructed_lambda = Gc::new_in(constructed_lambda, self.thread.alloc.clone());
 
             self.thread
                 .function_interner
@@ -4414,7 +4679,7 @@ impl<'a> VmCore<'a> {
             constructed_lambda
         };
 
-        let value = SteelVal::Closure(constructed_lambda);
+        let value = SteelValGeneric::<A>::Closure(constructed_lambda);
 
         self.thread.stack.push(value);
 
@@ -4445,7 +4710,8 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
 
         // TODO preallocate size
-        let mut captures = CaptureVec::with_capacity(ndefs);
+        let mut captures =
+            crate::values::functions::captures_with_capacity_in(ndefs, self.thread.alloc.clone());
 
         // TODO clean this up a bit
         // hold the spot for where we need to jump aftwards
@@ -4585,12 +4851,12 @@ impl<'a> VmCore<'a> {
             // snag the arity from the eclosure instruction
             let arity = self.instructions[forward_jump_index].payload_size;
 
-            let mut constructed_lambda = ByteCodeLambda::new(
+            let mut constructed_lambda = ByteCodeLambda::<A>::new(
                 closure_id,
                 closure_body,
                 arity.to_usize(),
                 is_multi_arity,
-                CaptureVec::new(),
+                crate::values::functions::empty_captures_in(self.thread.alloc.clone()),
             );
 
             self.thread
@@ -4609,7 +4875,8 @@ impl<'a> VmCore<'a> {
             constructed_lambda
         };
 
-        let value = SteelVal::Closure(Gc::new(constructed_lambda));
+        let value =
+            SteelValGeneric::<A>::Closure(Gc::new_in(constructed_lambda, self.thread.alloc.clone()));
 
         self.thread.stack.push(value);
 
@@ -4657,7 +4924,7 @@ impl<'a> VmCore<'a> {
     // Set local value:
     // this thing needs to be spilled? Does this work properly?
     #[cfg(feature = "jit2")]
-    fn handle_set_local_value(&mut self, index: usize, value_to_set: SteelVal) -> SteelVal {
+    fn handle_set_local_value(&mut self, index: usize, value_to_set: SteelValGeneric<A>) -> SteelValGeneric<A> {
         let offset = self.get_offset();
         // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
 
@@ -4676,7 +4943,7 @@ impl<'a> VmCore<'a> {
     // Calls the given function in tail position.
     fn new_handle_tail_call_closure(
         &mut self,
-        closure: Gc<ByteCodeLambda>,
+        closure: crate::values::functions::ByteCodeLambdaGc<A>,
         payload_size: usize,
     ) -> Result<()> {
         self.cut_sequence();
@@ -4718,7 +4985,7 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn adjust_stack_for_multi_arity(
         &mut self,
-        closure: &Gc<ByteCodeLambda>,
+        closure: &crate::values::functions::ByteCodeLambdaGc<A>,
         payload_size: usize,
         new_arity: &mut usize,
     ) -> Result<()> {
@@ -4749,7 +5016,7 @@ impl<'a> VmCore<'a> {
                 .collect();
             // .split_off(self.thread.stack.len() - amount_to_remove);
 
-            let list = SteelVal::ListV(values);
+            let list = SteelValGeneric::<A>::ListV(values);
 
             self.thread.stack.push(list);
 
@@ -4797,7 +5064,7 @@ impl<'a> VmCore<'a> {
     }
 
     #[inline(always)]
-    fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
+    fn handle_tail_call(&mut self, stack_func: SteelValGeneric<A>, payload_size: usize) -> Result<()> {
         use crate::rvals::SteelValGeneric::*;
 
         match stack_func {
@@ -4822,15 +5089,22 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_boxed_func(
         &mut self,
-        func: &dyn Fn(&[SteelVal]) -> Result<SteelVal>,
+        func: &(dyn Fn(&[SteelVal]) -> Result<SteelVal> + Send + Sync + 'static),
         payload_size: usize,
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
 
         let result = self
             .thread
-            .enter_safepoint(|ctx| func(&ctx.stack[last_index..]))
+            .enter_safepoint(|ctx| match as_concrete_slice(&ctx.stack[last_index..]) {
+                Some(args) => func(args),
+                None => {
+                    stop!(Generic => "cannot call this native function under a custom allocator")
+                }
+            })
             .map_err(|x| x.set_span_if_none(self.current_span()))?;
+
+        let result = as_generic_value(result).unwrap();
 
         // TODO: Drain, and push onto another thread to drop?
         self.thread.stack.truncate(last_index);
@@ -4855,7 +5129,23 @@ impl<'a> VmCore<'a> {
             .drain(self.thread.stack.len() - payload_size..)
             .collect::<SmallVec<[_; 4]>>();
 
-        let result = func(self, &args).map(|x| {
+        let concrete_args: Option<SmallVec<[SteelVal; 4]>> =
+            args.iter().cloned().map(as_concrete_value).collect();
+
+        let concrete_args = match concrete_args {
+            Some(a) => a,
+            None => {
+                stop!(Generic => "cannot call this built-in function under a custom allocator")
+            }
+        };
+
+        let result = match as_concrete_vmcore(self) {
+            Some(concrete_self) => func(concrete_self, &concrete_args),
+            None => {
+                stop!(Generic => "cannot call this built-in function under a custom allocator")
+            }
+        }
+        .map(|x| {
             x.map_err(|x| {
                 // TODO: @Matt 4/24/2022 -> combine this into one function probably
                 if x.has_span() {
@@ -4868,7 +5158,7 @@ impl<'a> VmCore<'a> {
         });
 
         if let Some(result) = result {
-            self.thread.stack.push(result?);
+            self.thread.stack.push(as_generic_value(result?).unwrap());
         }
 
         Ok(())
@@ -4879,14 +5169,22 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_primitive_mut_func(
         &mut self,
-        f: fn(&mut [SteelVal]) -> Result<SteelVal>,
+        f: crate::rvals::MutFunctionSignature,
         payload_size: usize,
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
 
         // These kinds of functions aren't valid for a safepoint.
-        let result = f(&mut self.thread.stack[last_index..])
-            .map_err(|x| x.set_span_if_none(self.current_span()))?;
+        let result = match as_concrete_slice_mut(&mut self.thread.stack[last_index..]) {
+            Some(args) => {
+                f(args).map_err(|x| x.set_span_if_none(self.current_span()))?
+            }
+            None => {
+                stop!(Generic => "cannot call this native function under a custom allocator")
+            }
+        };
+
+        let result = as_generic_value(result).unwrap();
 
         self.thread.stack.truncate(last_index);
         self.thread.stack.push(result);
@@ -4899,10 +5197,19 @@ impl<'a> VmCore<'a> {
     // TODO: This should handle tail calls as well!
     fn call_custom_struct(&mut self, s: &UserDefinedStruct, payload_size: usize) -> Result<()> {
         if let Some(procedure) = s.maybe_proc() {
-            if let SteelVal::HeapAllocated(h) = procedure {
-                self.handle_global_function_call(h.get(), payload_size)
+            let procedure = if let SteelVal::HeapAllocated(h) = procedure {
+                h.get()
             } else {
-                self.handle_global_function_call(procedure.clone(), payload_size)
+                procedure.clone()
+            };
+
+            match as_concrete_vmcore(self) {
+                Some(concrete_self) => {
+                    concrete_self.handle_global_function_call(procedure, payload_size)
+                }
+                None => {
+                    stop!(Generic => "cannot call a struct as a procedure under a custom allocator")
+                }
             }
         } else {
             stop!(Generic => "Attempted to call struct as a function - no procedure found!");
@@ -4912,18 +5219,24 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn call_primitive_func(
         &mut self,
-        f: fn(&[SteelVal]) -> Result<SteelVal>,
+        f: crate::rvals::FunctionSignature,
         payload_size: usize,
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
 
-        let result = match self
-            .thread
-            .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
-        {
+        let result = match self.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
+            match as_concrete_slice(&ctx.stack[last_index..]) {
+                Some(args) => f(args),
+                None => {
+                    stop!(Generic => "cannot call this native function under a custom allocator")
+                }
+            }
+        }) {
             Ok(v) => v,
             Err(e) => return Err(e.set_span_if_none(self.current_span())),
         };
+
+        let result = as_generic_value(result).unwrap();
 
         // This is the old way... lets see if the below way improves the speed
         self.thread.stack.truncate(last_index);
@@ -4936,13 +5249,20 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_future_func(
         &mut self,
-        // f: Shared<Box<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>,
+        // f: Shared<Box<dyn Fn(&[SteelValGeneric<A>]) -> Result<FutureResult>>>,
         f: BoxedAsyncFunctionSignature,
         payload_size: usize,
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
 
-        let result = SteelVal::FutureV(Gc::new(f(&self.thread.stack[last_index..])?));
+        let concrete_args = match as_concrete_slice(&self.thread.stack[last_index..]) {
+            Some(args) => args,
+            None => {
+                stop!(Generic => "cannot call this async function under a custom allocator")
+            }
+        };
+
+        let result = SteelValGeneric::<A>::FutureV(Gc::new(f(concrete_args)?));
 
         self.thread.stack.truncate(last_index);
         self.thread.stack.push(result);
@@ -4961,7 +5281,14 @@ impl<'a> VmCore<'a> {
 
         // println!("Calling continuation...");
 
-        Continuation::set_state_from_continuation(self, continuation);
+        match as_concrete_vmcore(self) {
+            Some(concrete_self) => {
+                Continuation::set_state_from_continuation(concrete_self, continuation)
+            }
+            None => {
+                stop!(Generic => "continuations are not supported under a custom allocator")
+            }
+        }
 
         // match Gc::try_unwrap(continuation) {
         //     Ok(cont) => {
@@ -5015,7 +5342,7 @@ impl<'a> VmCore<'a> {
     // // #[inline(always)]
     pub(crate) fn handle_function_call_closure(
         &mut self,
-        closure: Gc<ByteCodeLambda>,
+        closure: crate::values::functions::ByteCodeLambdaGc<A>,
         payload_size: usize,
     ) -> Result<()> {
         self.cut_sequence();
@@ -5031,7 +5358,7 @@ impl<'a> VmCore<'a> {
 
         let instructions = closure.body_exp();
 
-        self.thread.stack_frames.push(StackFrame::new(
+        self.thread.stack_frames.push(StackFrame::<A>::new(
             self.sp,
             closure,
             self.ip + 1,
@@ -5053,7 +5380,7 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_function_call_closure_jit(
         &mut self,
-        closure: Gc<ByteCodeLambda>,
+        closure: crate::values::functions::ByteCodeLambdaGc<A>,
         payload_size: usize,
     ) -> Result<()> {
         self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
@@ -5068,13 +5395,13 @@ impl<'a> VmCore<'a> {
             // Do this _after_ the multi arity business
             // TODO: can these rcs be avoided
             self.thread.stack_frames.push(
-                StackFrame::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
+                StackFrame::<A>::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
             );
         }
 
         #[cfg(feature = "rooted-instructions")]
         {
-            let frame = StackFrame {
+            let frame = StackFrame::<A> {
                 sp: self.sp as _,
                 function: closure,
                 ip: self.ip as u32 + 1,
@@ -5094,7 +5421,7 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_function_call_closure_jit_no_arity(
         &mut self,
-        closure: Gc<ByteCodeLambda>,
+        closure: crate::values::functions::ByteCodeLambdaGc<A>,
     ) -> Result<()> {
         self.sp = self.thread.stack.len() - closure.arity();
 
@@ -5107,13 +5434,13 @@ impl<'a> VmCore<'a> {
             // Do this _after_ the multi arity business
             // TODO: can these rcs be avoided
             self.thread.stack_frames.push(
-                StackFrame::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
+                StackFrame::<A>::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
             );
         }
 
         #[cfg(feature = "rooted-instructions")]
         {
-            let frame = StackFrame {
+            let frame = StackFrame::<A> {
                 sp: self.sp as _,
                 function: closure,
                 ip: self.ip as u32 + 1,
@@ -5133,7 +5460,7 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_global_function_call(
         &mut self,
-        stack_func: SteelVal,
+        stack_func: SteelValGeneric<A>,
         payload_size: usize,
     ) -> Result<()> {
         use crate::rvals::SteelValGeneric::*;
@@ -5157,7 +5484,7 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_global_function_call_no_arity(
         &mut self,
-        stack_func: SteelVal,
+        stack_func: SteelValGeneric<A>,
         payload_size: usize,
     ) -> Result<()> {
         use crate::rvals::SteelValGeneric::*;
@@ -5180,9 +5507,9 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_global_function_call_no_stack(
         &mut self,
-        stack_func: SteelVal,
+        stack_func: SteelValGeneric<A>,
         payload_size: usize,
-    ) -> Result<Option<SteelVal>> {
+    ) -> Result<Option<SteelValGeneric<A>>> {
         use crate::rvals::SteelValGeneric::*;
 
         match stack_func {
@@ -5194,13 +5521,19 @@ impl<'a> VmCore<'a> {
                 let this = &mut *self;
                 let last_index = this.thread.stack.len() - payload_size;
 
-                let result = match this
-                    .thread
-                    .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
-                {
+                let result = match this.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
+                    match as_concrete_slice(&ctx.stack[last_index..]) {
+                        Some(args) => f(args),
+                        None => {
+                            stop!(Generic => "cannot call this native function under a custom allocator")
+                        }
+                    }
+                }) {
                     Ok(v) => v,
                     Err(e) => return Err(e.set_span_if_none(this.current_span())),
                 };
+
+                let result = as_generic_value(result).unwrap();
 
                 // This is the old way... lets see if the below way improves the speed
                 this.thread.stack.truncate(last_index);
@@ -5209,13 +5542,21 @@ impl<'a> VmCore<'a> {
             }
             BoxedFunction(f) => {
                 let this = &mut *self;
-                let func: &dyn Fn(&[SteelVal]) -> Result<SteelVal> = f.func();
+                let func: &(dyn Fn(&[SteelVal]) -> Result<SteelVal> + Send + Sync + 'static) =
+                    f.func();
                 let last_index = this.thread.stack.len() - payload_size;
 
                 let result = this
                     .thread
-                    .enter_safepoint(|ctx| func(&ctx.stack[last_index..]))
+                    .enter_safepoint(|ctx| match as_concrete_slice(&ctx.stack[last_index..]) {
+                        Some(args) => func(args),
+                        None => {
+                            stop!(Generic => "cannot call this native function under a custom allocator")
+                        }
+                    })
                     .map_err(|x| x.set_span_if_none(this.current_span()))?;
+
+                let result = as_generic_value(result).unwrap();
 
                 // TODO: Drain, and push onto another thread to drop?
                 this.thread.stack.truncate(last_index);
@@ -5227,8 +5568,16 @@ impl<'a> VmCore<'a> {
                 let last_index = this.thread.stack.len() - payload_size;
 
                 // These kinds of functions aren't valid for a safepoint.
-                let result = f(&mut this.thread.stack[last_index..])
-                    .map_err(|x| x.set_span_if_none(this.current_span()))?;
+                let result = match as_concrete_slice_mut(&mut this.thread.stack[last_index..]) {
+                    Some(args) => {
+                        f(args).map_err(|x| x.set_span_if_none(this.current_span()))?
+                    }
+                    None => {
+                        stop!(Generic => "cannot call this native function under a custom allocator")
+                    }
+                };
+
+                let result = as_generic_value(result).unwrap();
 
                 this.thread.stack.truncate(last_index);
                 this.ip += 1;
@@ -5238,7 +5587,15 @@ impl<'a> VmCore<'a> {
                 let this = &mut *self;
                 let last_index = this.thread.stack.len() - payload_size;
 
-                let result = SteelVal::FutureV(Gc::new(f(&this.thread.stack[last_index..])?));
+                let concrete_args = match as_concrete_slice(&this.thread.stack[last_index..]) {
+                    Some(args) => args,
+                    None => {
+                        stop!(Generic => "cannot call this async function under a custom allocator")
+                    }
+                };
+
+                let result =
+                    SteelValGeneric::<A>::FutureV(Gc::new(f(concrete_args)?));
 
                 this.thread.stack.truncate(last_index);
                 this.ip += 1;
@@ -5264,7 +5621,23 @@ impl<'a> VmCore<'a> {
                     .drain(this.thread.stack.len() - payload_size..)
                     .collect::<SmallVec<[_; 4]>>();
 
-                let result = f(this, &args).map(|x| {
+                let concrete_args: Option<SmallVec<[SteelVal; 4]>> =
+                    args.iter().cloned().map(as_concrete_value).collect();
+
+                let concrete_args = match concrete_args {
+                    Some(a) => a,
+                    None => {
+                        stop!(Generic => "cannot call this built-in function under a custom allocator")
+                    }
+                };
+
+                let result = match as_concrete_vmcore(this) {
+                    Some(concrete_this) => f(concrete_this, &concrete_args),
+                    None => {
+                        stop!(Generic => "cannot call this built-in function under a custom allocator")
+                    }
+                }
+                .map(|x| {
                     x.map_err(|x| {
                         if x.has_span() {
                             x
@@ -5277,7 +5650,7 @@ impl<'a> VmCore<'a> {
                 if let Some(result) = result {
                     // this.thread.stack.push(result?);
 
-                    Ok(Some(result?))
+                    Ok(Some(as_generic_value(result?).unwrap()))
                 } else {
                     Ok(None)
                 }
@@ -5289,10 +5662,21 @@ impl<'a> VmCore<'a> {
                 let this = &mut *self;
                 let s: &UserDefinedStruct = &s;
                 if let Some(procedure) = s.maybe_proc() {
-                    if let SteelVal::HeapAllocated(h) = procedure {
-                        this.handle_global_function_call_no_stack(h.get(), payload_size)
+                    let procedure = if let SteelVal::HeapAllocated(h) = procedure {
+                        h.get()
                     } else {
-                        this.handle_global_function_call_no_stack(procedure.clone(), payload_size)
+                        procedure.clone()
+                    };
+
+                    match as_concrete_vmcore(this) {
+                        Some(concrete_this) => {
+                            let result = concrete_this
+                                .handle_global_function_call_no_stack(procedure, payload_size)?;
+                            Ok(result.map(|v| as_generic_value(v).unwrap()))
+                        }
+                        None => {
+                            stop!(Generic => "cannot call a struct as a procedure under a custom allocator")
+                        }
                     }
                 } else {
                     stop!(Generic => "Attempted to call struct as a function - no procedure found!");
@@ -5306,7 +5690,7 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn handle_function_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
+    fn handle_function_call(&mut self, stack_func: SteelValGeneric<A>, payload_size: usize) -> Result<()> {
         use crate::rvals::SteelValGeneric::*;
 
         match stack_func {
@@ -5329,6 +5713,96 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn handle_start_def(&mut self) {
         self.ip += 1;
+    }
+}
+
+// `steel_function_to_rust_function`/`steel_function_to_arc_rust_function` spawn a native OS
+// thread (`make_thread`) to run the wrapped Steel closure on -- part of the
+// `spawn-native-thread` builtin family, which (like the other builtins needing direct
+// `&mut VmCore` access) stays `Global`-only for now (see ALLOCATOR_SPEC.md). They also rely
+// on `SteelVal::as_rooted`, itself Global-only (backed by a process-wide/thread-local root
+// table of concrete `SteelVal`s).
+impl<'a> VmCore<'a, crate::gc::Global> {
+    // Copy the thread of execution. This just blindly copies the thread, and closes
+    // the continuations found.
+    // TODO: Add this thread to the parent VM thread handler -> this is necessary
+    // for safepoints to work correctly
+    //
+    // `spawn-native-thread`/`ThreadHandle` are Global-only (see ALLOCATOR_SPEC.md).
+    #[cfg(feature = "sync")]
+    pub fn make_thread(&self) -> Arc<Mutex<SteelThread>> {
+        let mut thread = self.thread.clone();
+
+        let controller = ThreadStateController::default();
+        thread.synchronizer.state = controller.clone();
+        // This thread needs its own context
+        thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
+
+        thread.synchronizer.spawned_via_make_thread = true;
+
+        let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
+
+        thread.id = EngineId::new();
+
+        let forked_thread = Arc::new(Mutex::new(thread));
+
+        let value = ThreadHandle {
+            handle: Mutex::new(None),
+            thread: std::thread::current(),
+            thread_state_manager: controller,
+            forked_thread_handle: Some(Arc::downgrade(&forked_thread)),
+        }
+        .into_steelval()
+        .unwrap();
+
+        self.thread
+            .synchronizer
+            .threads
+            .lock()
+            .unwrap()
+            .push(ThreadContext {
+                ctx: weak_ctx,
+                handle: value.clone(),
+            });
+
+        for frame in &self.thread.stack_frames {
+            self.close_continuation_marks(frame);
+        }
+        self.close_continuation_marks(&self.thread.current_frame);
+
+        forked_thread
+    }
+
+    #[cfg(feature = "sync")]
+    pub fn steel_function_to_rust_function(
+        &self,
+        func: SteelVal,
+    ) -> Box<dyn Fn(&mut [SteelVal]) -> Result<SteelVal> + Send + Sync + 'static> {
+        let thread = self.make_thread();
+        let rooted = func.as_rooted();
+
+        Box::new(move |args: &mut [SteelVal]| {
+            let func = rooted.value();
+
+            let mut guard = thread.lock().unwrap();
+            guard.call_fn_from_mut_slice(func.clone(), args)
+        })
+    }
+
+    #[cfg(feature = "sync")]
+    pub(crate) fn steel_function_to_arc_rust_function(
+        &self,
+        func: SteelVal,
+    ) -> Arc<dyn Fn(&[SteelVal]) -> Result<SteelVal> + Send + Sync + 'static> {
+        let thread = self.make_thread();
+        let rooted = func.as_rooted();
+
+        Arc::new(move |args: &[SteelVal]| {
+            let func = rooted.value();
+            let mut guard = thread.lock().unwrap();
+            let mut args = args.to_vec();
+            guard.call_fn_from_mut_slice(func.clone(), &mut args)
+        })
     }
 }
 
@@ -7237,35 +7711,48 @@ of the VM context.
 
 // OpCode::READLOCAL0
 #[inline(always)]
-fn local_handler0(ctx: &mut VmCore<'_>) -> Result<()> {
+fn local_handler0<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
     // let offset = ctx.get_offset();
     // dbg!(&ctx.thread.stack.get(offset..));
     ctx.handle_local(0)
 }
 
 // OpCode::READLOCAL1
-fn local_handler1(ctx: &mut VmCore<'_>) -> Result<()> {
+fn local_handler1<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
     ctx.handle_local(1)
 }
 
 // OpCode::READLOCAL2
-fn local_handler2(ctx: &mut VmCore<'_>) -> Result<()> {
+fn local_handler2<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
     ctx.handle_local(2)
 }
 
 // OpCode::READLOCAL3
-fn local_handler3(ctx: &mut VmCore<'_>) -> Result<()> {
+fn local_handler3<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
     ctx.handle_local(3)
 }
 
 // OpCode::LETENDSCOPE
-fn let_end_scope_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+fn let_end_scope_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
     let beginning_scope = ctx.instructions[ctx.ip].payload_size.to_usize();
     let_end_scope_handler_with_payload(ctx, beginning_scope)
 }
 
 // OpCode::LETENDSCOPE
-fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usize) -> Result<()> {
+fn let_end_scope_handler_with_payload<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+    beginning_scope: usize,
+) -> Result<()> {
     // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
     let offset = ctx.get_offset();
     // let offset = ctx.sp;
@@ -7339,21 +7826,6 @@ macro_rules! handler_inline_primitive_payload {
     }};
 }
 
-macro_rules! handler_inline_primitive_payload_1 {
-    ($ctx:expr, $name:tt) => {{
-        let last_index = $ctx.thread.stack.len() - 1;
-
-        let result = match $name(&mut $ctx.thread.stack[last_index..]) {
-            Ok(value) => value,
-            Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
-        };
-
-        *$ctx.thread.stack.last_mut().unwrap() = result;
-
-        $ctx.ip += 2;
-    }};
-}
-
 macro_rules! handler_inline_primitive_payload_1_single {
     ($ctx:expr, $name:tt) => {{
         let last = $ctx.thread.stack.last_mut().unwrap();
@@ -7385,13 +7857,548 @@ macro_rules! handler_inline_primitive_payload_2 {
     }};
 }
 
-// OpCode::ADD
-fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, steel_cons, 2);
+// The hot-path hand-off from the opcode dispatch loop for cons/car/cdr, boxes, and
+// arithmetic. Unlike the rest of the ~2000-function standard library (left Global-only per
+// ALLOCATOR_SPEC.md, reached only through the `FuncV`/`BoxedFunction`/`MutFunc` dispatch's
+// `TypeId`-cast-or-error fallback), these opcodes are dispatched directly out of the VM's
+// inner loop for *every* compiled program, so they must genuinely work under a non-Global
+// `A` rather than erroring. Each mirrors the concrete primitive it replaces exactly; where
+// the concrete primitive would need to allocate exotic numeric-tower content (bignum/
+// rational promotion) that has no allocator-generic representation, it falls back to the
+// concrete implementation via the same `TypeId`-proven cast used elsewhere in this file.
+
+fn car_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    list: &SteelValGeneric<A>,
+) -> Result<SteelValGeneric<A>> {
+    match list {
+        SteelValGeneric::ListV(l) => l
+            .car()
+            .ok_or_else(throw!(Generic => "car resulted in an error - empty list")),
+        SteelValGeneric::Pair(p) => Ok(p.car()),
+        _ => stop!(TypeMismatch => "car expected a list or pair, found: {}", list),
+    }
+}
+
+fn cdr_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    arg: &mut SteelValGeneric<A>,
+) -> Result<SteelValGeneric<A>> {
+    match core::mem::replace(arg, SteelValGeneric::Void) {
+        SteelValGeneric::ListV(mut l) => {
+            if l.is_empty() {
+                stop!(Generic => "cdr expects a non empty list");
+            }
+
+            match l.rest_mut() {
+                Some(_) => Ok(SteelValGeneric::ListV(l)),
+                None => Ok(SteelValGeneric::ListV(l)),
+            }
+        }
+        SteelValGeneric::Pair(p) => Ok(p.cdr()),
+        arg => {
+            stop!(TypeMismatch => format!("cdr expects a list, found: {}", arg))
+        }
+    }
+}
+
+fn not_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    value: &SteelValGeneric<A>,
+) -> bool {
+    matches!(value, SteelValGeneric::BoolV(false))
+}
+
+fn cons_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    arg: &mut SteelValGeneric<A>,
+    arg2: &mut SteelValGeneric<A>,
+    alloc: &A,
+) -> Result<SteelValGeneric<A>> {
+    match (core::mem::replace(arg, SteelValGeneric::Void), arg2) {
+        (left, SteelValGeneric::ListV(right)) => {
+            right.cons_mut(left);
+            Ok(SteelValGeneric::ListV(right.clone()))
+        }
+        (left, right) => Ok(SteelValGeneric::<A>::Pair(Gc::new_in(
+            crate::values::lists::Pair::cons(left, right.clone()),
+            alloc.clone(),
+        ))),
+    }
+}
+
+fn unbox_mutable_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    match &args[0] {
+        SteelValGeneric::HeapAllocated(r) => Ok(r.get()),
+        other => stop!(TypeMismatch => "unbox expected a mutable box, found: {}", other),
+    }
+}
+
+fn set_box_mutable_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    let update = args[1].clone();
+    match &args[0] {
+        SteelValGeneric::HeapAllocated(r) => Ok(r.set_and_return(update)),
+        other => stop!(TypeMismatch => "set-box! expected a mutable box, found: {}", other),
+    }
+}
+
+fn list_ref_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    let index = match &args[1] {
+        SteelValGeneric::IntV(i) => *i,
+        other => stop!(TypeMismatch => "list-ref expects an integer, found: {}", other),
+    };
+
+    let list = match &args[0] {
+        SteelValGeneric::ListV(l) => l,
+        other => stop!(TypeMismatch => "list-ref expects a list, found: {}", other),
+    };
+
+    if index < 0 {
+        stop!(Generic => "list-ref expects a positive integer, found: {}", index);
+    }
+
+    list.get(index as usize).cloned().ok_or_else(throw!(Generic => format!(
+        "out of bounds index in list-ref - list length: {}, index: {}",
+        list.len(),
+        index
+    )))
+}
+
+fn number_equality_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    left: &mut SteelValGeneric<A>,
+    right: &mut SteelValGeneric<A>,
+) -> Result<SteelValGeneric<A>> {
+    let result = match (&*left, &*right) {
+        (SteelValGeneric::IntV(l), SteelValGeneric::IntV(r)) => *l == *r,
+        (SteelValGeneric::NumV(l), SteelValGeneric::NumV(r)) => l == r,
+        (SteelValGeneric::IntV(l), SteelValGeneric::NumV(r))
+        | (SteelValGeneric::NumV(r), SteelValGeneric::IntV(l)) => {
+            let converted = *r as isize;
+            if *r == converted as f64 {
+                *l == converted
+            } else {
+                false
+            }
+        }
+        _ => {
+            return match (as_concrete_value(left.clone()), as_concrete_value(right.clone())) {
+                (Some(l), Some(r)) => Ok(as_generic_value(number_equality(&l, &r)?).unwrap()),
+                _ => {
+                    stop!(Generic => "= on this numeric type is not supported under a custom allocator")
+                }
+            }
+        }
+    };
+    Ok(SteelValGeneric::BoolV(result))
+}
+
+fn is_number_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    value: &SteelValGeneric<A>,
+) -> bool {
+    matches!(
+        value,
+        SteelValGeneric::IntV(_)
+            | SteelValGeneric::BigNum(_)
+            | SteelValGeneric::Rational(_)
+            | SteelValGeneric::BigRational(_)
+            | SteelValGeneric::NumV(_)
+            | SteelValGeneric::Complex(_)
+    )
+}
+
+fn add_two_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    x: &SteelValGeneric<A>,
+    y: &SteelValGeneric<A>,
+) -> Result<SteelValGeneric<A>> {
+    match (x, y) {
+        (SteelValGeneric::IntV(l), SteelValGeneric::IntV(r)) => match l.checked_add(*r) {
+            Some(res) => Ok(SteelValGeneric::IntV(res)),
+            None => add_two_concrete_fallback(x, y),
+        },
+        (SteelValGeneric::NumV(l), SteelValGeneric::NumV(r)) => Ok(SteelValGeneric::NumV(l + r)),
+        (SteelValGeneric::NumV(l), SteelValGeneric::IntV(r))
+        | (SteelValGeneric::IntV(r), SteelValGeneric::NumV(l)) => {
+            Ok(SteelValGeneric::NumV(l + *r as f64))
+        }
+        _ => add_two_concrete_fallback(x, y),
+    }
+}
+
+fn add_two_concrete_fallback<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    x: &SteelValGeneric<A>,
+    y: &SteelValGeneric<A>,
+) -> Result<SteelValGeneric<A>> {
+    match (as_concrete_value(x.clone()), as_concrete_value(y.clone())) {
+        (Some(cx), Some(cy)) => Ok(as_generic_value(crate::primitives::numbers::add_two(&cx, &cy)?).unwrap()),
+        _ => {
+            stop!(Generic => "+ on this numeric type is not supported under a custom allocator")
+        }
+    }
+}
+
+fn negate_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    value: &SteelValGeneric<A>,
+) -> Result<SteelValGeneric<A>> {
+    match value {
+        SteelValGeneric::IntV(x) => match x.checked_neg() {
+            Some(res) => Ok(SteelValGeneric::IntV(res)),
+            None => negate_concrete_fallback(value),
+        },
+        SteelValGeneric::NumV(x) => Ok(SteelValGeneric::NumV(-x)),
+        _ => negate_concrete_fallback(value),
+    }
+}
+
+fn negate_concrete_fallback<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    value: &SteelValGeneric<A>,
+) -> Result<SteelValGeneric<A>> {
+    match as_concrete_value(value.clone()) {
+        Some(cv) => Ok(as_generic_value(crate::primitives::numbers::negate(&cv)?).unwrap()),
+        None => {
+            stop!(Generic => "- on this numeric type is not supported under a custom allocator")
+        }
+    }
+}
+
+fn ensure_args_are_numbers_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    op: &str,
+    args: &[SteelValGeneric<A>],
+) -> Result<()> {
+    for arg in args {
+        if !is_number_generic(arg) {
+            stop!(TypeMismatch => "{op} expects a number, found: {:?}", arg);
+        }
+    }
     Ok(())
 }
 
-fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+fn add_primitive_no_check_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    match args {
+        [] => Ok(SteelValGeneric::IntV(0)),
+        [x] => Ok(x.clone()),
+        [x, y] => add_two_generic(x, y),
+        [x, y, zs @ ..] => {
+            let mut res = add_two_generic(x, y)?;
+            for z in zs {
+                res = add_two_generic(&res, z)?;
+            }
+            Ok(res)
+        }
+    }
+}
+
+fn add_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    ensure_args_are_numbers_generic("+", args)?;
+    add_primitive_no_check_generic(args)
+}
+
+fn subtract_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    ensure_args_are_numbers_generic("-", args)?;
+    match args {
+        [] => stop!(ArityMismatch => "- requires at least one argument"),
+        [x] => negate_generic(x),
+        [x, ys @ ..] => {
+            let y = negate_generic(&add_primitive_no_check_generic(ys)?)?;
+            add_two_generic(x, &y)
+        }
+    }
+}
+
+fn lte_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelValGeneric::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x != core::cmp::Ordering::Greater)
+            .unwrap_or(false)
+    })))
+}
+
+fn lt_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelValGeneric::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x == core::cmp::Ordering::Less)
+            .unwrap_or(false)
+    })))
+}
+
+fn gt_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelValGeneric::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x == core::cmp::Ordering::Greater)
+            .unwrap_or(false)
+    })))
+}
+
+fn gte_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelValGeneric::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x != core::cmp::Ordering::Less)
+            .unwrap_or(false)
+    })))
+}
+
+fn equality_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    Ok(SteelValGeneric::BoolV(args.windows(2).all(|x| x[0] == x[1])))
+}
+
+fn multiply_two_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    x: &SteelValGeneric<A>,
+    y: &SteelValGeneric<A>,
+) -> Result<SteelValGeneric<A>> {
+    match (x, y) {
+        (SteelValGeneric::IntV(l), SteelValGeneric::IntV(r)) => match l.checked_mul(*r) {
+            Some(res) => Ok(SteelValGeneric::IntV(res)),
+            None => multiply_two_concrete_fallback(x, y),
+        },
+        (SteelValGeneric::NumV(l), SteelValGeneric::NumV(r)) => Ok(SteelValGeneric::NumV(l * r)),
+        (SteelValGeneric::NumV(l), SteelValGeneric::IntV(r))
+        | (SteelValGeneric::IntV(r), SteelValGeneric::NumV(l)) => {
+            Ok(SteelValGeneric::NumV(l * *r as f64))
+        }
+        _ => multiply_two_concrete_fallback(x, y),
+    }
+}
+
+fn multiply_two_concrete_fallback<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    x: &SteelValGeneric<A>,
+    y: &SteelValGeneric<A>,
+) -> Result<SteelValGeneric<A>> {
+    match (as_concrete_value(x.clone()), as_concrete_value(y.clone())) {
+        (Some(cx), Some(cy)) => {
+            Ok(as_generic_value(crate::primitives::numbers::multiply_two(&cx, &cy)?).unwrap())
+        }
+        _ => {
+            stop!(Generic => "* on this numeric type is not supported under a custom allocator")
+        }
+    }
+}
+
+fn multiply_primitive_no_check_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    match args {
+        [] => Ok(SteelValGeneric::IntV(1)),
+        [x] => Ok(x.clone()),
+        [x, y] => multiply_two_generic(x, y),
+        [x, y, zs @ ..] => {
+            let mut res = multiply_two_generic(x, y)?;
+            for z in zs {
+                res = multiply_two_generic(&res, z)?;
+            }
+            Ok(res)
+        }
+    }
+}
+
+fn multiply_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    ensure_args_are_numbers_generic("*", args)?;
+    multiply_primitive_no_check_generic(args)
+}
+
+// Division's exact (`Rational`-producing) path for pure-integer operands has no
+// allocation-free generic representation worth reimplementing here (see
+// `primitives::numbers::divide_primitive`'s reciprocal machinery) -- so only the common,
+// already-inexact case (dividing by/with at least one float) is handled directly; everything
+// else (pure integer division, 1 or 3+ argument forms, the exotic numeric tower) falls back
+// to the concrete implementation via the same `TypeId`-proven cast used throughout this file.
+fn divide_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> Result<SteelValGeneric<A>> {
+    if let [x, y] = args {
+        let as_f64 = |v: &SteelValGeneric<A>| match v {
+            SteelValGeneric::NumV(n) => Some(*n),
+            SteelValGeneric::IntV(n) => Some(*n as f64),
+            _ => None,
+        };
+
+        if let (Some(l), Some(r)) = (as_f64(x), as_f64(y)) {
+            if matches!(x, SteelValGeneric::NumV(_)) || matches!(y, SteelValGeneric::NumV(_)) {
+                return Ok(SteelValGeneric::NumV(l / r));
+            }
+        }
+    }
+
+    let concrete_args: Option<Vec<SteelVal>> =
+        args.iter().cloned().map(as_concrete_value).collect();
+
+    match concrete_args {
+        Some(concrete_args) => Ok(as_generic_value(crate::primitives::numbers::divide_primitive(
+            &concrete_args,
+        )?)
+        .unwrap()),
+        None => {
+            stop!(Generic => "/ on this numeric type is not supported under a custom allocator")
+        }
+    }
+}
+
+fn is_empty_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    list: &SteelValGeneric<A>,
+) -> bool {
+    list.list().map(|x| x.is_empty()).unwrap_or_default()
+}
+
+fn vec_ref_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    vec: &SteelValGeneric<A>,
+    idx: &SteelValGeneric<A>,
+) -> Result<SteelValGeneric<A>> {
+    if let SteelValGeneric::IntV(i) = idx {
+        if *i < 0 {
+            stop!(Generic => "vector-ref expects a positive integer, found: {:?}", i);
+        }
+
+        let idx_usize = *i as usize;
+
+        match vec {
+            SteelValGeneric::MutableVector(v) => {
+                let ptr = v.strong_ptr();
+                let guard = &ptr.read().value;
+
+                if idx_usize >= guard.len() {
+                    stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+                }
+
+                Ok(guard[idx_usize].clone())
+            }
+
+            SteelValGeneric::VectorV(v) => {
+                if idx_usize < v.len() {
+                    Ok(v[idx_usize].clone())
+                } else {
+                    let e = format!(
+                        "Index out of bounds - attempted to access index: {} with length: {}",
+                        idx_usize,
+                        v.len()
+                    );
+                    stop!(Generic => e);
+                }
+            }
+
+            _ => stop!(TypeMismatch => "vector-ref expected a vector, found: {}", vec),
+        }
+    } else {
+        stop!(TypeMismatch => "vector-ref expected an integer, found: {}", idx)
+    }
+}
+
+/// Converts a constant-pool value (always concrete `SteelVal`, since the constant pool is
+/// built once at compile time using the Global allocator -- see ALLOCATOR_SPEC.md) into the
+/// `SteelValGeneric<A>` used by a `SteelThread<A>`'s operand stack.
+///
+/// When `A == Global` (the common case), this must be the cheap identity cast, not a fresh
+/// reconstruction: the constant pool interns/deduplicates literals (e.g. symbols), and `eq?`
+/// on a `SteelVal` compares by pointer (`ptr_eq`) -- rebuilding a "new" `SteelString` for
+/// every `PUSHCONST` would silently break `eq?`/`eqv?` on quoted symbols/strings even when no
+/// custom allocator is in play. So the identity cast is tried first; only once `A` is proven
+/// non-Global do we fall through to genuine reconstruction. Scalars and content that's
+/// Global-only regardless of the outer `A` (numbers, chars, booleans, the exotic numeric
+/// tower, struct/port/function values) are copied directly; strings/symbols are genuinely
+/// re-allocated through `alloc`; quoted list literals recurse per-element. Anything else
+/// (quoted vectors/hashes and other compound literals) falls back to the same `TypeId`-proven
+/// cast used elsewhere in this file -- full allocator-aware constant-pool conversion for
+/// those is left to a follow-up pass.
+fn constant_to_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    val: &SteelVal,
+    alloc: &A,
+) -> Result<SteelValGeneric<A>> {
+    if let Some(v) = as_generic_value(val.clone()) {
+        return Ok(v);
+    }
+
+    match val {
+        SteelVal::Void => Ok(SteelValGeneric::Void),
+        SteelVal::BoolV(b) => Ok(SteelValGeneric::BoolV(*b)),
+        SteelVal::NumV(n) => Ok(SteelValGeneric::NumV(*n)),
+        SteelVal::IntV(n) => Ok(SteelValGeneric::IntV(*n)),
+        SteelVal::Rational(r) => Ok(SteelValGeneric::Rational(*r)),
+        SteelVal::CharV(c) => Ok(SteelValGeneric::CharV(*c)),
+        SteelVal::BigNum(b) => Ok(SteelValGeneric::BigNum(b.clone())),
+        SteelVal::BigRational(b) => Ok(SteelValGeneric::BigRational(b.clone())),
+        SteelVal::Complex(c) => Ok(SteelValGeneric::Complex(c.clone())),
+        SteelVal::ByteVector(b) => Ok(SteelValGeneric::ByteVector(b.clone())),
+        SteelVal::FuncV(f) => Ok(SteelValGeneric::FuncV(*f)),
+        SteelVal::MutFunc(f) => Ok(SteelValGeneric::MutFunc(*f)),
+        SteelVal::BuiltIn(f) => Ok(SteelValGeneric::BuiltIn(*f)),
+        SteelVal::BoxedFunction(f) => Ok(SteelValGeneric::BoxedFunction(f.clone())),
+        SteelVal::CustomStruct(s) => Ok(SteelValGeneric::CustomStruct(s.clone())),
+        SteelVal::PortV(p) => Ok(SteelValGeneric::PortV(p.clone())),
+        SteelVal::StringV(s) => Ok(SteelValGeneric::StringV(SteelString::new_in(s, alloc.clone()))),
+        SteelVal::SymbolV(s) => Ok(SteelValGeneric::SymbolV(SteelString::new_in(s, alloc.clone()))),
+        SteelVal::ListV(l) => {
+            let items = l
+                .iter()
+                .map(|item| constant_to_generic(item, alloc))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(SteelValGeneric::ListV(items.into()))
+        }
+        other => match as_generic_value(other.clone()) {
+            Some(v) => Ok(v),
+            None => {
+                stop!(Generic => "constant of this type is not supported under a custom allocator")
+            }
+        },
+    }
+}
+
+// OpCode::ADD
+fn cons_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
+    let last_index = ctx.thread.stack.len() - 2;
+    let alloc = ctx.thread.alloc.clone();
+
+    let result = {
+        let (left, rest) = ctx.thread.stack[last_index..].split_at_mut(1);
+        match cons_generic(&mut left[0], &mut rest[0], &alloc) {
+            Ok(value) => value,
+            Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+        }
+    };
+
+    ctx.thread.stack.truncate(last_index + 1);
+    *ctx.thread.stack.last_mut().unwrap() = result;
+    ctx.ip += 2;
+    Ok(())
+}
+
+fn new_box_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
     let last = ctx.thread.stack.pop().unwrap();
 
     let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
@@ -7404,7 +8411,7 @@ fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         &mut ctx.thread.synchronizer,
     );
 
-    let result = SteelVal::HeapAllocated(allocated_var);
+    let result = SteelValGeneric::HeapAllocated(allocated_var);
 
     ctx.thread.stack.push(result);
 
@@ -7413,46 +8420,65 @@ fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 }
 
 #[allow(unused)]
-fn unbox_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, steel_unbox_mutable, 1);
+fn unbox_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, unbox_mutable_generic, 1);
     Ok(())
 }
 
-fn setbox_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, steel_set_box_mutable, 2);
+fn setbox_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, set_box_mutable_generic, 2);
     Ok(())
 }
 
-fn car_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload_1_single!(ctx, car);
+fn car_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
+    handler_inline_primitive_payload_1_single!(ctx, car_generic);
     Ok(())
 }
 
-fn not_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload_1!(ctx, steel_not);
+fn not_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
+    let last = ctx.thread.stack.last_mut().unwrap();
+    *last = SteelValGeneric::BoolV(not_generic(last));
+    ctx.ip += 2;
     Ok(())
 }
 
-fn cdr_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload_1_single!(ctx, cdr);
+fn cdr_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
+    handler_inline_primitive_payload_1_single!(ctx, cdr_generic);
     Ok(())
 }
 
-fn number_equality_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload_2!(ctx, number_equality);
+fn number_equality_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
+    handler_inline_primitive_payload_2!(ctx, number_equality_generic);
     Ok(())
 }
 
-fn listref_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, steel_list_ref, 2);
+fn listref_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, list_ref_generic, 2);
     Ok(())
 }
 
-fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+fn list_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+    payload: usize,
+) -> Result<()> {
     // handler_inline_primitive_payload!(ctx, new_list, payload);
     let last_index = ctx.thread.stack.len() - payload;
     let remaining = ctx.thread.stack.split_off(last_index);
-    let list = SteelVal::ListV(remaining.into());
+    let list = SteelValGeneric::ListV(remaining.into());
     ctx.thread.stack.push(list);
 
     ctx.ip += 2;
@@ -7461,33 +8487,37 @@ fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
 }
 
 // OpCode::ADD
-fn add_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, add_primitive, payload);
+fn add_handler_payload<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+    payload: usize,
+) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, add_primitive_generic, payload);
     Ok(())
 }
 
-// // OpCode::SUB
-// #[inline(always)]
-// fn sub_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-//     handler_inline_primitive!(ctx, subtract_primitive);
-//     Ok(())
-// }
-
 // OpCode::SUB
 #[inline(always)]
-fn sub_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, subtract_primitive, payload);
+fn sub_handler_payload<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+    payload: usize,
+) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, subtract_primitive_generic, payload);
     Ok(())
 }
 
 // OpCode::LTE
-fn lte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, lte_primitive, payload);
+fn lte_handler_payload<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+    payload: usize,
+) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, lte_primitive_generic, payload);
     Ok(())
 }
 
 // OpCode::ALLOC
-fn alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
+fn alloc_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    _ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
     panic!("Deprecated now - this shouldn't be hit");
 
     /*
@@ -7520,7 +8550,9 @@ fn alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
 
 // OpCode::READALLOC
 #[inline(always)]
-fn read_alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
+fn read_alloc_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    _ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
     panic!("Deprecated - this shouldn't be hit")
 
     /*
@@ -7545,7 +8577,9 @@ fn read_alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
 
 // OpCode::SETALLOC
 #[inline(always)]
-fn set_alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
+fn set_alloc_handler<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    _ctx: &mut VmCore<'_, A>,
+) -> Result<()> {
     panic!("Deprecated - this shouldn't be hit")
 
     /*
@@ -7569,18 +8603,27 @@ fn set_alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
     */
 }
 
-pub(super) fn lt_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, lt_primitive, payload);
+pub(super) fn lt_handler_payload<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+    payload: usize,
+) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, lt_primitive_generic, payload);
     Ok(())
 }
 
-pub(super) fn gt_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, gt_primitive, payload);
+pub(super) fn gt_handler_payload<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+    payload: usize,
+) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, gt_primitive_generic, payload);
     Ok(())
 }
 
-pub(super) fn gte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, gte_primitive, payload);
+pub(super) fn gte_handler_payload<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+    payload: usize,
+) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, gte_primitive_generic, payload);
     Ok(())
 }
 
