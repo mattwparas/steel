@@ -149,42 +149,55 @@ match, which is a much bigger, separate change to the interpreter's memory footp
 this plan is scoped to make. Worth revisiting only as its own explicit decision, not as a
 side effect of the string design.
 
-### 3.5 Persistent collections: `allocator-api2` will require `imbl` — pending Phase 0 verification
+### 3.5 Persistent collections: `allocator-api2` will require `imbl` — Phase 0 verified, findings below
 
-Get the direction of dependency right here, since it's easy to state backwards: enabling
-`allocator-api2` does not *make* `imbl` capable of anything. `imbl`'s own internals are a
-fixed, independent fact about that crate's source code — true or false regardless of
-anything we do with our own Cargo features. That fixed (currently unverified) fact is
-what *gates* whether `allocator-api2` is allowed to depend on `imbl` — not the reverse.
+**Phase 0 is done.** Both crates' actual published source (v0.12.1 / v7.1.0, read directly
+from the local registry cache, not guessed) were inspected. The picture is more precise
+than the original speculation, and different in an important way.
 
 - **`im` / `im-rc`: excluded, unconditionally.** They hard-code `Rc`/`Arc` internally
-  with no allocator extension point of any kind — a settled fact about these crates,
-  true independent of our feature flags. Because of that fact, `allocator-api2` imposes a
-  requirement *not* to be using them: enabling `allocator-api2` together with the
+  with no allocator extension point of any kind. `allocator-api2` together with the
   default or plain-`sync` collection backend is a `compile_error!`. Neither crate is
   patched, touched, or removed — anyone who leaves `allocator-api2` off keeps using
   `im-rc` (default) or `im` (`sync`) exactly as today.
-- **`imbl` / `im-lists`: possibly sufficient, not yet confirmed.** These already take a
-  `PointerFamily`-shaped type parameter (`GcPointerType`, in this codebase) for their
-  *pointer* type — a real extension point `im`/`im-rc` simply don't have. Making
-  `GcPointerType<A>` wrap `Gc<T, A>` is straightforward. What's unverified is whether
-  that's *enough*: do these crates' internal chunk/node arrays (the flat storage inside
-  each tree node) actually allocate through that same pointer-family type, or do they
-  allocate via a hardcoded `Vec`/`Box` regardless of it? That's an open question about
-  `imbl`'s own code, not something our feature flag decides — it's exactly what the
-  Phase 0 spike below has to answer.
+- **`im-lists` (backs `ListV`/`Pair`): its chunk storage is *already* allocator-generic.**
+  `UnrolledCell`'s element storage is `AtomicSharedVector<T, A = Global>`
+  (`shared_vector/shared.rs:18`, `RefCountedVector<T, AtomicRefCount, A>`), and the
+  underlying `allocate_header_buffer::<T, A>` (`shared_vector/raw.rs`) is written directly
+  against `allocator_api2::alloc::Allocator` — this crate uses `allocator-api2`
+  internally already, for its own reasons, unrelated to Steel. The gap is that
+  `UnrolledCell`/`UnrolledList`/`GenericList`'s own generic parameter lists don't expose
+  that second type parameter to callers — it's just elided to the `Global` default. Real
+  work, but it's *plumbing an existing capability upward*, not writing new allocation
+  logic.
+- **`steel-imbl` (backs `VectorV`/`HashMapV`/`HashSetV`): its leaf/chunk storage needs no
+  patch at all.** The RRB-tree/HAMT leaves (`imbl_sized_chunks::{Chunk, SparseChunk,
+  InlineArray}`) are genuinely inline — `data: MaybeUninit<[A; N]>` embedded directly in
+  the node struct, no separate heap pointer, nothing to route through an allocator.
+- **Both crates share one real gap, and it's not the one the spec originally worried
+  about.** Both define a `PointerFamily` trait (`im-lists::shared::PointerFamily`,
+  `steel-imbl::shared_ptr::PointerFamily` — separate trait definitions, same shape) used
+  to construct the tree/cons-cell *node* itself. Its constructor is
+  `fn new<T>(value: T) -> Self::Pointer<T>` — no allocator parameter. A `GcPointerType<A>`
+  implementing this can't just receive the allocator instance as an argument at the call
+  site; there's no slot for it.
 
-So the plan is conditional, in the correct direction: **if** Phase 0 confirms `imbl`'s
-chunk allocation goes through the pointer-family type, `allocator-api2` will require the
-(pre-existing, independent) `imbl` feature to also be enabled — mirroring how it already
-requires `biased` for `Gc<T, A>` (§3.2). **If** Phase 0 finds it doesn't, `imbl`/`im-lists`
-need a small patch of their own first — a smaller lift than `im`/`im-rc`, which have no
-hook to extend at all, but a real, not-yet-done piece of work, not something enabling
-`allocator-api2` will conjure into existence on its own.
+**Decision:** patch the `PointerFamily` trait itself in both crates to add an allocator
+parameter (`fn new<T>(value: T, alloc: &Self::Alloc) -> Self::Pointer<T>`, or equivalent),
+and thread it through every call site — `rrb.rs`, `hamt.rs`, `btree.rs`, the
+`vector`/`hash`/`ord` modules in `steel-imbl`, and `unrolled.rs` in `im-lists`. Dozens of
+call sites across two crates, more work than "just parametrize an existing hook," but it
+keeps `A` a genuine per-instance value with no ambient/thread-local recovery mechanism
+anywhere — consistent with every other phase of this plan. The alternative (constraining
+`A` to something recoverable without a per-call argument, e.g. a `Default`-backed handle
+resolving to a leaked/thread-local instance internally) was considered and rejected: it
+reintroduces, for just these two collections, exactly the ambient-state pattern
+compile-time generics were chosen to avoid everywhere else.
 
-Worth noting: both crates are already non-upstream forks/vendored-ish for this project
-(`steel-imbl`, `im-lists`), so patching them, if Phase 0 says it's needed, is at least
-plausible — we're not asking a third party for a change we don't control.
+Both crates are already non-upstream forks/vendored-ish for this project (`steel-imbl` at
+`github.com/mattwparas/steel-imbl`, authored by the same person who maintains this repo;
+`im-lists` published directly by them too) — patching them is a fork-and-PR-later
+situation, not asking an unrelated third party for a change we don't control.
 
 ### 3.6 Explicitly out of scope for now (documented exceptions, not silently ignored)
 
@@ -281,8 +294,8 @@ Split by whether we can patch the source ourselves or have to work around it.
 | `triomphe::Arc<T>` | alternate `Shared<T>` under `sync+triomphe` | none | plausible fork target — simpler than `BiasedRc` (no merge/queue machinery), genuinely easier than it looks; unaffected unless `allocator-api2` is enabled, in which case `biased` is required instead (see above), not because `triomphe` is harder to patch, just less work to reuse what already exists |
 | `im-rc` (`Vector`/`HashMap`/`HashSet`) | default (non-`sync`) `VectorV`/`HashMapV`/`HashSetV` | none — hardcodes `Rc` internally, no extension point at all | fully unaffected when `allocator-api2` is off (remains the default, exactly as today); incompatible with `allocator-api2` specifically (§3.5) — enabling both is a `compile_error!`, not a deletion of the crate |
 | `im` (Arc-based twin of `im-rc`) | `sync` build of same variants | none, same as `im-rc` | same — unaffected under plain `sync`; incompatible only with `sync+allocator-api2` together |
-| `im-lists` (`GenericList`) | `ListV`/`Pair`-adjacent list backend | partially generic already — takes a pointer-family-like type parameter (`GcPointerType`) for the cons-cell pointer, so `Gc<T,A>` can already be threaded through *that* part | unverified whether its internal chunk/array storage (the flat arrays inside each list segment) allocate via the pointer family or via a hardcoded `Vec`/`Global` regardless — this is exactly the **Phase 0 spike** question |
-| `steel-imbl` (`Generic{Vector,HashMap,HashSet}`) | `VectorV`/`HashMapV`/`HashSetV` under the `imbl` feature | same partial genericity as `im-lists` (same `PointerFamily` mechanism, `values/mod.rs:60-104`) | same unverified chunk-allocation question, same Phase 0 gate |
+| `im-lists` (`GenericList`) | `ListV`/`Pair`-adjacent list backend | element storage (`AtomicSharedVector<T, A=Global>`) is *already* `allocator-api2`-generic internally; `PointerFamily::new<T>(value)` (for the cons-cell node itself) has no allocator-argument slot | **verified (Phase 0):** expose the existing `A` param up through `UnrolledCell`/`UnrolledList`/`GenericList` (plumbing, not new logic); patch `PointerFamily::new` to accept an allocator argument (real, multi-site work — decided over an ambient-recovery alternative, §3.5) |
+| `steel-imbl` (`Generic{Vector,HashMap,HashSet}`) | `VectorV`/`HashMapV`/`HashSetV` under the `imbl` feature | leaf/chunk storage (`imbl_sized_chunks::{Chunk,SparseChunk,InlineArray}`) is genuinely inline (`MaybeUninit<[A;N]>` in the node, no separate allocation) — nothing to patch there; same `PointerFamily::new<T>(value)` gap as `im-lists` (separate trait, same shape) | **verified (Phase 0):** no patch needed for chunk storage; same `PointerFamily::new` patch as `im-lists` needed for the node pointer itself |
 | `smallvec` | Three hot-path sites: `CaptureVec` under `inline-captures` (`functions.rs:101-108`); the builtin-call argument buffer, unconditional (`vm.rs:4852-4856`, `vm.rs:5261-5265`); `UserDefinedStruct.fields`, unconditional (`structs.rs:163`, pooled via `Recycle<T>`) | inline storage never allocates (fine as-is); heap-spill path has no allocator parameter in mainline `smallvec`, at any of the three sites | **resolved**: not patched, not silently accepted — the inline fast path is untouched at all three sites; only the spill case errors at runtime under `allocator-api2` (a capacity check ahead of the point `smallvec` would otherwise grow), mirroring how bignum/rational is handled. No patch to `smallvec`, no change at all when `allocator-api2` is off |
 | `shared_vector` (`AtomicSharedVector`) | `Env`'s `sync` bindings path (`SharedVectorWrapper`) | none found | unaffected under plain `sync`; incompatible specifically with `sync+allocator-api2` together (§3.6) until `Env` gets its own allocator-aware bindings for that combination |
 | `num-bigint` (`BigInt`/`BigUint`) | `SteelVal::BigNum` | none — digit storage is a plain `Vec<u32>` | **disabled, not patched, under `allocator-api2`** (§3.6): bignum promotion errors at runtime instead of silently allocating via `Global`. Fully unaffected when `allocator-api2` is off. Patchable in principle, revisit later |
@@ -299,11 +312,11 @@ Split by whether we can patch the source ourselves or have to work around it.
 Each phase is scoped to be its own reviewable commit (or small commit series), matching
 how the previous branch's work was structured.
 
-- **Phase 0 — spike (no lasting code, or a throwaway example):** build a minimal
-  `PointerFamily` impl parametrized by a counting/panicking test allocator, wrap a
-  `steel_imbl::GenericVector` and `im_lists::GenericList` in it, and assert zero
-  `Global` allocations for basic push/pop/cons. This determines whether §3.5 is
-  achievable as scoped or needs a fork. **Go/no-go gate for Phase 4.**
+- **Phase 0 — spike: done.** Read `im-lists` v0.12.1 and `steel-imbl` v7.1.0's actual
+  source. Findings and the resulting decision are in §3.5: `im-lists`' chunk storage is
+  already `allocator-api2`-generic (needs exposing, not building); `steel-imbl`'s chunks
+  are inline (no patch needed); both crates' `PointerFamily::new` needs a patch to accept
+  an allocator argument. Phase 4 is unblocked and scoped by this.
 - **Phase 1 — `Gc<T, A>` foundation:** redo the already-validated `BiasedRc<T, A>` /
   `Gc<T, A>` work (steel-rc + steel-core `gc.rs`), cfg-gated to `sync+biased`, allocator
   stored in the heap block. Lowest risk — this exact design was already proven out.
@@ -317,10 +330,13 @@ how the previous branch's work was structured.
   struct in the appendix table, alias `SteelVal = SteelValGeneric<Global>`, fix every
   call site the compiler flags. Numerically the biggest phase (275+ `Gc::new` sites,
   every file that matches on `SteelVal`).
-- **Phase 4 — persistent collections:** contingent on Phase 0. Gate `im`/`im-rc` out only
-  when `allocator-api2` is enabled (`compile_error!` on that combination; both crates stay
-  exactly as they are for every other build), and parametrize `GcPointerType`/`List`/
-  `Vector`/`HashMap`/`HashSet` by `A` for the `allocator-api2` build.
+- **Phase 4 — persistent collections:** gate `im`/`im-rc` out only when `allocator-api2`
+  is enabled (`compile_error!` on that combination; both crates stay exactly as they are
+  for every other build). Fork `im-lists`/`steel-imbl`: expose `im-lists`' existing `A`
+  parameter up through `UnrolledCell`/`UnrolledList`/`GenericList`, and patch both crates'
+  `PointerFamily::new` to accept an allocator argument (§3.5). Parametrize
+  `GcPointerType`/`List`/`Vector`/`HashMap`/`HashSet` by `A` on top of that for the
+  `allocator-api2` build.
 - **Phase 5 — `Engine<A>`/public API:** `Engine<A = Global>`, `Engine::new_in(alloc)`
   construction (§6.5), `RegisterFn`/`IntoSteelVal` bound propagation,
   update `examples/custom_allocator.rs` to exercise the full path (closures, pairs,
