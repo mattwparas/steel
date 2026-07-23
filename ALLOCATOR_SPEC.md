@@ -116,7 +116,7 @@ struct that embeds a `SteelVal` (`ByteCodeLambda`, `Env`, `UserDefinedStruct`,
 stays non-generic (because it only ever sees `SteelVal = SteelValGeneric<Global>`, if it's
 part of the non-generic-facing API) or itself becomes generic over `A`.
 
-### 3.4 `SteelString<A> = Gc<str, A>` — no new type, no hand-rolled buffer
+### 3.4 `SteelString<A>` — hand-rolled thin wrapper over `allocator_api2::vec::Vec<u8, A>`
 
 `std::String` can't take a custom allocator on stable Rust, and no stable-Rust,
 `allocator-api2`-based `String<A>` crate exists (checked: the one real candidate,
@@ -124,30 +124,43 @@ part of the non-generic-facing API) or itself becomes generic over `A`.
 unstable nightly `allocator_api`, is v0.0.3, and deliberately omits several std `String`
 methods — not viable without forcing nightly on the whole `allocator-api2` feature).
 
-Rather than hand-roll a wrapper over `allocator_api2::vec::Vec<u8, A>`, or take on that
-nightly dependency, replace `SteelString = Gc<String>` with `SteelString = Gc<str, A>`
-directly. `BiasedRc` already supports unsized DSTs for exactly this purpose —
-`RcBox<T: ?Sized, A>` is already declared `?Sized`, and `impl<T> BiasedRc<[T]>` /
-`impl From<&str> for BiasedRc<str>` / `impl From<String> for BiasedRc<str>` already exist
-in `crates/steel-rc/src/lib.rs`. Extending that existing unsized support with the same
-`<A>` parameter Phase 1 already adds is enough — no new type, no third-party dependency.
+**A previous draft of this section proposed `SteelString<A> = Gc<str, A>`, reusing
+`BiasedRc`'s unsized-DST support. That was wrong, and worth recording why:** `Gc<str, A>`
+is a *fat* pointer (address + length — 2 words, 16 bytes on 64-bit), not the thin 1-word
+handle every other `Gc`-wrapped `SteelVal` variant relies on. Verified empirically, not
+just reasoned about: an enum mirroring `SteelVal`'s shape (33 variants, thin 8-byte
+payloads) is 16 bytes; swapping a *single* variant's payload to a fat 16-byte pointer
+grows the *whole enum* to 24 bytes — every variant pays for it, not just `StringV`. That
+directly breaks the hard `size_of::<SteelVal>() <= 16` budget (§2). `Gc<str, A>` would
+have been a real improvement in allocation count (one contiguous block instead of two),
+but it isn't available within the budget this plan has to respect.
 
-This is also a strict improvement over today, not just a lateral move: `Gc<String>`
-today is *two* heap allocations per string — one for the `Gc`'s `RcBox`, and a second,
-separate one inside `std::String`'s own byte buffer. `Gc<str, A>` is one contiguous
-allocation (refcount + UTF-8 bytes together), the same trick `std::Rc<str>`/`Arc<str>`
-use. Strings stay immutable at the `SteelVal` level either way (matching today: mutation
-rebinds to a new `Gc`, it never mutates bytes in place), so this is a drop-in
-representation change, not a semantics change.
+The corrected design goes back to a thin handle: a small `SteelString<A>` struct wrapping
+`allocator_api2::vec::Vec<u8, A>` (itself `Sized`, so `Gc<SteelString<A>, A>` stays an
+8-byte thin pointer to a heap block, exactly like `Gc<String>` today), with UTF-8 validity
+maintained manually at construction boundaries (`str::from_utf8` checked at the edge,
+`from_utf8_unchecked` internally, same as `std::String` does). This is back to *two* heap
+allocations per string — one for the `Gc`'s `RcBox`, one for the `Vec<u8, A>`'s own
+buffer — matching `Gc<String>`'s allocation count today, not improving on it. New code,
+not a third-party dependency swap. Strings stay immutable at the `SteelVal` level either
+way (mutation rebinds to a new `Gc`, it never mutates bytes in place).
+
+**A genuine single-allocation *and* thin-handle design is possible, just bigger than this
+phase.** `triomphe::ThinArc<Header, T>`-style types get both properties by *not* using
+Rust's native unsized-DST machinery: the handle stays a thin pointer to a fixed-layout
+header (refcount, alloc, length as a plain `usize` field), with the trailing bytes read
+via a manual offset instead of Rust's fat-pointer metadata. That's real, novel unsafe
+engineering beyond what `BiasedRc<[T], A>`/`BiasedRc<str, A>` (Phase 1) already validated
+— worth keeping in mind as a future optimization, not something this phase takes on.
 
 **Explicitly set aside:** true stack/inline string storage (small strings embedded
 directly in `SteelVal`'s own bytes, no heap allocation at all) was considered and isn't
-part of this plan. `SteelVal`'s hard budget (`assert!(size_of::<SteelVal>() <= 16)`,
-§2) applies to the whole enum, sized to its largest variant — an inline buffer large
-enough to hold a useful number of characters would force every other variant to grow to
-match, which is a much bigger, separate change to the interpreter's memory footprint than
-this plan is scoped to make. Worth revisiting only as its own explicit decision, not as a
-side effect of the string design.
+part of this plan, for the same underlying reason as above: `SteelVal`'s hard budget
+applies to the whole enum, sized to its largest variant — an inline buffer large enough
+to hold a useful number of characters would force every other variant to grow to match,
+which is a much bigger, separate change to the interpreter's memory footprint than this
+plan is scoped to make. Worth revisiting only as its own explicit decision, not as a side
+effect of the string design.
 
 ### 3.5 Persistent collections: `allocator-api2` will require `imbl` — Phase 0 verified, findings below
 
@@ -282,7 +295,7 @@ Split by whether we can patch the source ourselves or have to work around it.
 |---|---|---|---|
 | `std::rc::Rc<T>` | `Shared<T>` in the default (non-`sync`) build | std, stable-Rust `allocator_api` is nightly-only | unaffected when `allocator-api2` is off; that feature requires `biased` to also be on (`compile_error!` otherwise), which is what actually supplies the allocator-generic `Shared<T>` (§2) — `Rc` itself isn't touched or replaced |
 | `std::sync::Arc<T>` | `Shared<T>` under `sync`, no `triomphe`/`biased` | same | same — unaffected unless `allocator-api2` is enabled, which requires `biased` instead |
-| `std::string::String` | `SteelString = Gc<String>` (`rvals.rs:2095`) | same | not replaced with a new type — `SteelString = Gc<str, A>` instead, reusing `BiasedRc`'s existing unsized-DST support from Phase 1 (§3.4). `std::String` itself is simply dropped from `SteelString`'s definition, not given an allocator hook |
+| `std::string::String` | `SteelString = Gc<String>` (`rvals.rs:2095`) | same | new `SteelString<A>` struct wrapping `allocator_api2::vec::Vec<u8, A>` (§3.4) — `Gc<str, A>` was considered and rejected (fat pointer, breaks the `SteelVal` size budget, verified empirically); `std::String` itself is simply dropped from `SteelString`'s definition, not given an allocator hook |
 | `std::boxed::Box<dyn Trait>` | `Custom`'s `Box<dyn CustomType>`; `FutureFunc`'s `Box<dyn Fn(...)>`; `BoxedDynFunction`; `Pin<Box<dyn Future<...>>>` for `FutureV`/`BoxedFutureResult` | same | `allocator_api2::boxed::Box<dyn Trait, A>` via the `unsize_box!` macro (already prototyped for the `Custom` path on the old branch); `Pin` needs a manual `Pin::new_unchecked` wrap since `allocator_api2::Box` has no built-in `Box<T> -> Pin<Box<T>>` conversion the way `std::boxed::Box` does |
 | `std::vec::Vec<T>` | operand stack (`SteelThread.stack`); `ByteVector`'s `Vec<u8>`; `MutableVector`'s `Vec<SteelVal>`; default (non-`inline-captures`) `CaptureVec` | same | `allocator_api2::vec::Vec<T, A>` — drop-in, already used for the VM's per-call scratch buffer on the old branch |
 | `std::collections::HashMap`/`HashSet` | ~77 internal call sites (symbol tables, module registries, compiler bookkeeping — mostly *not* `SteelVal`-adjacent) | same | `hashbrown::HashMap<K,V,S,A>`/`HashSet<K,S,A>` — hashbrown natively supports `allocator-api2` and is literally what `std::HashMap` is built on, so this is a clean swap. Most of the 77 sites are compiler/parser bookkeeping that never runs once a program is already compiled, so they can stay on `Global` without violating the goal (§1 only requires *runtime* allocation to route through `A`) — first pass: audit those 77 sites to find the few, if any, actually reachable from `call_function_by_name_with_args_from_mut_slice`'s hot path, and convert only those |
@@ -320,11 +333,10 @@ how the previous branch's work was structured.
 - **Phase 1 — `Gc<T, A>` foundation:** redo the already-validated `BiasedRc<T, A>` /
   `Gc<T, A>` work (steel-rc + steel-core `gc.rs`), cfg-gated to `sync+biased`, allocator
   stored in the heap block. Lowest risk — this exact design was already proven out.
-- **Phase 2 — `SteelString<A>`:** point `SteelString` at `Gc<str, A>` instead of
-  `Gc<String>`, extending `BiasedRc`'s existing unsized-DST (`BiasedRc<[T]>`/
-  `BiasedRc<str>`) support with the `<A>` parameter from Phase 1 — no new type, just
-  updating construction sites that currently build a `String` first. Easy to land and
-  test in isolation, no dependents yet.
+- **Phase 2 — `SteelString<A>`:** new struct wrapping `allocator_api2::vec::Vec<u8, A>`,
+  manually-maintained UTF-8 validity, `Gc<SteelString<A>, A>` staying an 8-byte thin
+  pointer (§3.4 — `Gc<str, A>`'s fat-pointer size was tried and empirically ruled out).
+  Easy to land and test in isolation, no dependents yet.
 - **Phase 3 — `SteelValGeneric<A>` + `Env<A>` + `ByteCodeLambda<A>` + operand stack:**
   the large mechanical phase — rename/genericize `SteelVal`, thread `A` through every
   struct in the appendix table, alias `SteelVal = SteelValGeneric<Global>`, fix every
