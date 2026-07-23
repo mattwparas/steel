@@ -1718,7 +1718,7 @@ pub enum TypeKind {
 #[repr(C, u8)]
 pub enum SteelValGeneric<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
     /// Represents a bytecode closure.
-    Closure(Gc<ByteCodeLambda>),
+    Closure(crate::values::functions::ByteCodeLambdaGc<A>),
     /// Represents a boolean value.
     BoolV(bool),
     /// Represents a number, currently only f64 numbers are supported.

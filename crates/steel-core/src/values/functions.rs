@@ -25,6 +25,7 @@ use crate::{
     rvals::{
         from_serializable_value, into_serializable_value, AsRefSteelVal, Custom, FunctionSignature,
         HeapSerializer, IntoSteelVal, MutFunctionSignature, SerializableSteelVal, SteelString,
+        SteelValGeneric,
     },
     steel_vm::{
         register_fn::SendSyncStatic,
@@ -101,14 +102,92 @@ impl LambdaMetadataTable {
 #[cfg(feature = "inline-captures")]
 const INLINE_CAPTURE_SIZE: usize = 3;
 
-#[cfg(not(feature = "inline-captures"))]
-pub type CaptureVec = Vec<SteelVal>;
+// `CaptureVec<A>` is cfg-split the same way `Gc<T>`/`Gc<T, A>` is (see gc.rs): only under
+// `sync+biased+allocator-api2` does a closure's captured variables actually get allocated
+// through `A` rather than always through `Global`. `inline-captures` (an opt-in,
+// non-default feature) keeps using plain `smallvec` regardless -- its inline storage never
+// allocates at all, and its heap-spill path has no allocator hook in mainline `smallvec`
+// (see ALLOCATOR_SPEC.md §3.6); that's an orthogonal, already-accepted limitation, not
+// something this phase changes.
+#[cfg(all(
+    not(feature = "inline-captures"),
+    not(all(
+        feature = "sync",
+        feature = "biased",
+        feature = "allocator-api2",
+        not(feature = "triomphe")
+    ))
+))]
+pub type CaptureVec<A = crate::gc::Global> = Vec<SteelValGeneric<A>>;
 
 #[cfg(feature = "inline-captures")]
-pub type CaptureVec = smallvec::SmallVec<[SteelVal; INLINE_CAPTURE_SIZE]>;
+pub type CaptureVec<A = crate::gc::Global> = smallvec::SmallVec<[SteelValGeneric<A>; INLINE_CAPTURE_SIZE]>;
 
-#[derive(Clone, Debug)]
-pub struct ByteCodeLambda {
+#[cfg(all(
+    not(feature = "inline-captures"),
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+pub type CaptureVec<A = crate::gc::Global> = allocator_api2::vec::Vec<SteelValGeneric<A>, A>;
+
+/// Take the captures out of a `CaptureVec<A>`, leaving an empty one behind. Plain
+/// `mem::take` needs `CaptureVec<A>: Default`, which the gated `allocator_api2::vec::Vec<T,
+/// A>` backing only has for `A: Default` (i.e. `Global`) -- a real custom allocator
+/// generally isn't `Default`. This builds the replacement from the same allocator instance
+/// the original buffer already held, so it works for any `A`.
+#[cfg(all(
+    not(feature = "inline-captures"),
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+pub(crate) fn take_captures<A: crate::gc::Allocator + Clone + 'static>(
+    captures: &mut CaptureVec<A>,
+) -> CaptureVec<A> {
+    let alloc = captures.allocator().clone();
+    core::mem::replace(captures, allocator_api2::vec::Vec::new_in(alloc))
+}
+
+#[cfg(not(all(
+    not(feature = "inline-captures"),
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+pub(crate) fn take_captures<A: crate::gc::Allocator + Clone + 'static>(
+    captures: &mut CaptureVec<A>,
+) -> CaptureVec<A> {
+    core::mem::take(captures)
+}
+
+// A closure's own heap block is squarely in scope for allocator-routing (unlike, say, a
+// persistent Vector/HashMap's internal node storage, deferred to a later phase per
+// ALLOCATOR_SPEC.md) -- creating a closure is one of the hottest, most frequent allocations
+// a running program makes. `Gc<T, A>` (the 2-parameter form) only exists at all under
+// `sync+biased+allocator-api2`, so this alias picks the right arity per cfg, the same way
+// `SteelString`/`Env` do.
+#[cfg(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+))]
+pub type ByteCodeLambdaGc<A> = Gc<ByteCodeLambda<A>, A>;
+
+#[cfg(not(all(
+    feature = "sync",
+    feature = "biased",
+    feature = "allocator-api2",
+    not(feature = "triomphe")
+)))]
+pub type ByteCodeLambdaGc<A> = Gc<ByteCodeLambda<A>>;
+
+#[derive(Clone)]
+pub struct ByteCodeLambda<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
     pub(crate) id: u32,
     /// body of the function with identifiers yet to be bound
     #[cfg(feature = "dynamic")]
@@ -126,7 +205,7 @@ pub struct ByteCodeLambda {
 
     // Store... some amount inline?
     // pub(crate) captures: Vec<SteelVal>,
-    pub(crate) captures: CaptureVec,
+    pub(crate) captures: CaptureVec<A>,
 
     // pub(crate) captures: Box<[SteelVal]>
     #[cfg(feature = "dynamic")]
@@ -147,16 +226,30 @@ pub struct ByteCodeLambda {
     pub(crate) header: Option<OpCode>,
 }
 
-impl PartialEq for ByteCodeLambda {
+// Not derived: a derived `Debug` would add an `A: Debug` bound to the whole impl even
+// though only `id`/`arity`/`is_multi_arity` are actually printed -- `Global` happens to be
+// `Debug`, but a real custom allocator (an arena, a ring buffer, ...) generally isn't, and
+// there's no reason to require it just to print a closure.
+impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for ByteCodeLambda<A> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ByteCodeLambda")
+            .field("id", &self.id)
+            .field("arity", &self.arity)
+            .field("is_multi_arity", &self.is_multi_arity)
+            .finish()
+    }
+}
+
+impl<A: crate::gc::Allocator + Clone + 'static> PartialEq for ByteCodeLambda<A> {
     fn eq(&self, other: &Self) -> bool {
         // self.body_exp == other.body_exp &&
         self.arity == other.arity && self.id == other.id
     }
 }
 
-impl Eq for ByteCodeLambda {}
+impl<A: crate::gc::Allocator + Clone + 'static> Eq for ByteCodeLambda<A> {}
 
-impl core::hash::Hash for ByteCodeLambda {
+impl<A: crate::gc::Allocator + Clone + 'static> core::hash::Hash for ByteCodeLambda<A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
         // self.body_exp.as_ptr().hash(state);
@@ -236,14 +329,14 @@ impl core::ops::Deref for RootedInstructions {
     }
 }
 
-impl ByteCodeLambda {
+impl<A: crate::gc::Allocator + Clone + 'static> ByteCodeLambda<A> {
     pub fn new(
         id: u32,
         body_exp: StandardShared<[DenseInstruction]>,
         arity: usize,
         is_multi_arity: bool,
-        captures: CaptureVec,
-    ) -> ByteCodeLambda {
+        captures: CaptureVec<A>,
+    ) -> ByteCodeLambda<A> {
         ByteCodeLambda {
             id,
 
@@ -275,7 +368,16 @@ impl ByteCodeLambda {
             header: None,
         }
     }
+}
 
+// Deserialization, and the two "no captures yet" bootstrap constructors below, always
+// produce concrete, `Global`-backed content (deserialized values, and empty capture
+// vectors respectively) -- matching the wider design where compile/load-time machinery
+// stays on `Global` and only a running program's own allocations route through `A` (see
+// ALLOCATOR_SPEC.md). `CaptureVec::default()` specifically requires this: an empty
+// `allocator_api2::vec::Vec<T, A>` needs an allocator instance to be constructed, which
+// only `Global` can provide "for free".
+impl ByteCodeLambda<crate::gc::Global> {
     pub(crate) fn from_serialized(
         heap: &mut HeapSerializer,
         mut value: SerializedLambda,
@@ -378,8 +480,10 @@ impl ByteCodeLambda {
             CaptureVec::default(),
         )
     }
+}
 
-    pub fn set_captures(&mut self, captures: CaptureVec) {
+impl<A: crate::gc::Allocator + Clone + 'static> ByteCodeLambda<A> {
+    pub fn set_captures(&mut self, captures: CaptureVec<A>) {
         self.captures = captures;
     }
 
@@ -456,7 +560,7 @@ impl ByteCodeLambda {
     //     &self.heap_allocated
     // }
 
-    pub fn captures(&self) -> &[SteelVal] {
+    pub fn captures(&self) -> &[SteelValGeneric<A>] {
         &self.captures
     }
 

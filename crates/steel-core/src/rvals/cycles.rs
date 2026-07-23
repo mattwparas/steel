@@ -640,7 +640,7 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
     }
 
     fn visit_bytevector(&mut self, _bytevector: SteelByteVector) -> Self::Output {}
-    fn visit_closure(&mut self, _closure: Gc<ByteCodeLambda>) -> Self::Output {}
+    fn visit_closure(&mut self, _closure: crate::values::functions::ByteCodeLambdaGc<A>) -> Self::Output {}
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
     fn visit_float(&mut self, _float: f64) -> Self::Output {}
     fn visit_int(&mut self, _int: isize) -> Self::Output {}
@@ -977,15 +977,10 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) {}
     fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) {}
 
-    fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) {
-        // `ByteCodeLambda`'s captures are always the concrete `SteelVal` (`Global`),
-        // regardless of this handler's own `A` -- generalizing closures/captures is
-        // its own separate phase (see ALLOCATOR_SPEC.md), not yet done. Pushed into
-        // this same handler's own queue via `push_concrete_into` (not a nested drop
-        // pass), preserving the iterative traversal for long capture/closure chains.
+    fn visit_closure(&mut self, closure: crate::values::functions::ByteCodeLambdaGc<A>) {
         if let Ok(mut inner) = closure.try_unwrap() {
-            for value in core::mem::take(&mut inner.captures) {
-                push_concrete_into(self, value);
+            for value in crate::values::functions::take_captures(&mut inner.captures) {
+                self.push_back(value);
             }
         }
     }
@@ -1106,14 +1101,14 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in core::mem::take(&mut inner.captures) {
+                        for value in crate::values::functions::take_captures(&mut inner.captures) {
                             push_concrete_into(self, value);
                         }
                     }
 
                     for mut frame in core::mem::take(&mut inner.stack_frames) {
                         if let Some(inner) = frame.function.get_mut() {
-                            for value in core::mem::take(&mut inner.captures) {
+                            for value in crate::values::functions::take_captures(&mut inner.captures) {
                                 push_concrete_into(self, value);
                             }
                         }
@@ -1126,7 +1121,7 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in core::mem::take(&mut inner.captures) {
+                        for value in crate::values::functions::take_captures(&mut inner.captures) {
                             push_concrete_into(self, value);
                         }
                     }
@@ -1301,12 +1296,14 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
 // TODO: Figure out a more elegant way to do this!
 
 #[cfg(feature = "experimental-drop-handler")]
-pub struct OwnedIterativeDropHandler {
+pub struct OwnedIterativeDropHandler<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
     drop_buffer: VecDeque<SteelValGeneric<A>>,
 }
 
 #[cfg(feature = "experimental-drop-handler")]
-impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
+impl<A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVisitor<A>
+    for OwnedIterativeDropHandler<A>
+{
     type Output = ();
 
     fn default_output(&mut self) -> Self::Output {
@@ -1348,9 +1345,9 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
     fn visit_bigrational(&mut self, _: Gc<BigRational>) {}
     fn visit_char(&mut self, _c: char) {}
     fn visit_void(&mut self) {}
-    fn visit_string(&mut self, _string: SteelString) {}
+    fn visit_string(&mut self, _string: SteelString<A>) {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) {}
-    fn visit_symbol(&mut self, _symbol: SteelString) {}
+    fn visit_symbol(&mut self, _symbol: SteelString<A>) {}
     fn visit_port(&mut self, _port: SteelPort) {}
     fn visit_future(&mut self, _future: Gc<FutureResult>) {}
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) {}
@@ -1360,15 +1357,10 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) {}
     fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) {}
 
-    fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) {
-        // `ByteCodeLambda`'s captures are always the concrete `SteelVal` (`Global`),
-        // regardless of this handler's own `A` -- generalizing closures/captures is
-        // its own separate phase (see ALLOCATOR_SPEC.md), not yet done. Pushed into
-        // this same handler's own queue via `push_concrete_into` (not a nested drop
-        // pass), preserving the iterative traversal for long capture/closure chains.
+    fn visit_closure(&mut self, closure: crate::values::functions::ByteCodeLambdaGc<A>) {
         if let Ok(mut inner) = closure.try_unwrap() {
-            for value in core::mem::take(&mut inner.captures) {
-                push_concrete_into(self, value);
+            for value in crate::values::functions::take_captures(&mut inner.captures) {
+                self.push_back(value);
             }
         }
     }
@@ -1478,14 +1470,14 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in core::mem::take(&mut inner.captures) {
+                        for value in crate::values::functions::take_captures(&mut inner.captures) {
                             self.push_back(value);
                         }
                     }
 
                     for mut frame in core::mem::take(&mut inner.stack_frames) {
                         if let Some(inner) = frame.function.get_mut() {
-                            for value in core::mem::take(&mut inner.captures) {
+                            for value in crate::values::functions::take_captures(&mut inner.captures) {
                                 self.push_back(value);
                             }
                         }
@@ -1498,7 +1490,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in core::mem::take(&mut inner.captures) {
+                        for value in crate::values::functions::take_captures(&mut inner.captures) {
                             self.push_back(value);
                         }
                     }
@@ -1680,7 +1672,7 @@ pub trait BreadthFirstSearchSteelValVisitor<A: crate::gc::Allocator + Clone + 's
         ret
     }
 
-    fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output;
+    fn visit_closure(&mut self, closure: crate::values::functions::ByteCodeLambdaGc<A>) -> Self::Output;
     fn visit_bool(&mut self, _: bool) -> Self::Output;
     fn visit_float(&mut self, _: f64) -> Self::Output;
     fn visit_int(&mut self, _: isize) -> Self::Output;
@@ -1776,7 +1768,7 @@ pub trait BreadthFirstSearchSteelValVisitor2<A: crate::gc::Allocator + Clone + '
         ret
     }
 
-    fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output;
+    fn visit_closure(&mut self, closure: crate::values::functions::ByteCodeLambdaGc<A>) -> Self::Output;
     fn visit_bool(&mut self, _: bool) -> Self::Output;
     fn visit_float(&mut self, _: f64) -> Self::Output;
     fn visit_int(&mut self, _: isize) -> Self::Output;
@@ -1874,7 +1866,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a, A: crate::gc::Allocator
     }
 
     fn visit_bytevector(&mut self, _: &'a SteelByteVector) -> Self::Output;
-    fn visit_closure(&mut self, _: &'a Gc<ByteCodeLambda>) -> Self::Output;
+    fn visit_closure(&mut self, _: &'a crate::values::functions::ByteCodeLambdaGc<A>) -> Self::Output;
     fn visit_bool(&mut self, _: bool) -> Self::Output;
     fn visit_float(&mut self, _: f64) -> Self::Output;
     fn visit_int(&mut self, _: isize) -> Self::Output;
@@ -2507,7 +2499,7 @@ impl<'a, A: crate::gc::Allocator + Clone + 'static> BreadthFirstSearchSteelValVi
         self.queue.push(value)
     }
 
-    fn visit_closure(&mut self, _closure: Gc<ByteCodeLambda>) -> Self::Output {}
+    fn visit_closure(&mut self, _closure: crate::values::functions::ByteCodeLambdaGc<A>) -> Self::Output {}
 
     // Leaf nodes, we don't need to do anything here
     fn visit_bytevector(&mut self, _bytevector: SteelByteVector) -> Self::Output {}
