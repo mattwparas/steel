@@ -501,7 +501,7 @@ mod hashmap_tests {
     #[cfg(all(feature = "sync", feature = "imbl"))]
     use steel_imbl::generic_vector as vector;
 
-    use crate::rvals::{SteelString, SteelVal::*};
+    use crate::rvals::{SteelString, SteelValGeneric::*};
 
     #[test]
     fn hm_construct_normal() {

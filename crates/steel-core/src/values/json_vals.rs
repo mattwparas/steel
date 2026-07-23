@@ -191,7 +191,7 @@ impl TryFrom<SteelVal> for Value {
 mod json_tests {
     use super::*;
 
-    use crate::rvals::SteelVal::*;
+    use crate::rvals::SteelValGeneric::*;
 
     #[cfg(not(feature = "sync"))]
     use im_rc::hashmap;

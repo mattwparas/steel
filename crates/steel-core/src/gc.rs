@@ -19,13 +19,11 @@ pub use unsafe_erased_pointers::is_reference_type;
 #[cfg(feature = "sync")]
 use parking_lot::RwLock;
 
-#[cfg(all(
-    feature = "sync",
-    feature = "biased",
-    feature = "allocator-api2",
-    not(feature = "triomphe")
-))]
-use allocator_api2::alloc::{Allocator, Global};
+// Always available (allocator-api2 is a normal, tiny, no_std-compatible dependency, not
+// gated behind a feature) so `SteelValGeneric<A>`'s declaration doesn't need to be
+// duplicated per feature combo -- see ALLOCATOR_SPEC.md. The `allocator-api2` *feature*
+// only gates the heavier work of actually threading a non-`Global` `A` through Gc/BiasedRc.
+pub use allocator_api2::alloc::{Allocator, Global};
 
 pub mod shared {
     use alloc::rc::Rc;

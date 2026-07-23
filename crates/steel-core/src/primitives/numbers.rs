@@ -2672,14 +2672,14 @@ fn add_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
 #[cfg(test)]
 mod num_op_tests {
     use super::*;
-    use crate::{gc::Gc, rvals::SteelVal::*};
+    use crate::{gc::Gc, rvals::SteelValGeneric::*};
     use core::str::FromStr;
 
     #[test]
     fn division_test() {
         assert_eq!(
             divide_primitive(&[IntV(10), IntV(2)]).unwrap().to_string(),
-            IntV(5).to_string()
+            SteelVal::IntV(5).to_string()
         );
     }
 
@@ -2697,7 +2697,7 @@ mod num_op_tests {
     fn division_on_single_integer_returns_reciprocal_rational() {
         assert_eq!(
             divide_primitive(&[IntV(10)]).unwrap().to_string(),
-            Rational(Rational32::new(1, 10)).to_string()
+            SteelVal::Rational(Rational32::new(1, 10)).to_string()
         );
     }
 
@@ -2707,7 +2707,7 @@ mod num_op_tests {
             divide_primitive(&[Rational32::new(2, 5).into_steelval().unwrap()])
                 .unwrap()
                 .to_string(),
-            Rational(Rational32::new(5, 2)).to_string()
+            SteelVal::Rational(Rational32::new(5, 2)).to_string()
         );
     }
 
@@ -2717,7 +2717,7 @@ mod num_op_tests {
             divide_primitive(&[Rational32::new(1, 5).into_steelval().unwrap()])
                 .unwrap()
                 .to_string(),
-            IntV(5).to_string()
+            SteelVal::IntV(5).to_string()
         );
     }
 
@@ -2732,7 +2732,7 @@ mod num_op_tests {
             )
             .unwrap()
             .to_string(),
-            BigRational(Gc::new(num_rational::BigRational::new(
+            SteelVal::BigRational(Gc::new(num_rational::BigRational::new(
                 BigInt::from(1),
                 BigInt::from_str("18446744073709551616").unwrap()
             )))
@@ -2752,7 +2752,7 @@ mod num_op_tests {
     fn multiplication_different_types() {
         let args = [IntV(10), NumV(2.0)];
         let got = multiply_primitive(&args).unwrap();
-        let expected = NumV(20.0);
+        let expected = SteelVal::NumV(20.0);
         assert_eq!(got.to_string(), expected.to_string());
     }
 
@@ -2762,7 +2762,7 @@ mod num_op_tests {
             multiply_primitive(&[IntV(16), NumV(2.0), Rational(Rational32::new(1, 4))])
                 .unwrap()
                 .to_string(),
-            NumV(8.0).to_string(),
+            SteelVal::NumV(8.0).to_string(),
         );
     }
 
@@ -2770,7 +2770,7 @@ mod num_op_tests {
     fn adding_exact_with_inexact_returns_inexact() {
         assert_eq!(
             add_primitive(&([IntV(10), NumV(2.0)])).unwrap().to_string(),
-            NumV(12.0).to_string()
+            SteelVal::NumV(12.0).to_string()
         );
         assert_eq!(
             add_primitive(
@@ -2784,7 +2784,7 @@ mod num_op_tests {
             )
             .unwrap()
             .to_string(),
-            NumV(18446744073709551616.0 * 2.0).to_string()
+            SteelVal::NumV(18446744073709551616.0 * 2.0).to_string()
         );
         assert_eq!(
             add_primitive(
@@ -2798,13 +2798,13 @@ mod num_op_tests {
             )
             .unwrap()
             .to_string(),
-            NumV(18446744073709551616.0 * 2.0).to_string()
+            SteelVal::NumV(18446744073709551616.0 * 2.0).to_string()
         );
         assert_eq!(
             add_primitive(&([Rational32::new(1, 2).into_steelval().unwrap(), NumV(0.5),]))
                 .unwrap()
                 .to_string(),
-            NumV(1.0).to_string()
+            SteelVal::NumV(1.0).to_string()
         );
     }
 
@@ -2812,7 +2812,7 @@ mod num_op_tests {
     fn subtraction_different_types() {
         let args = [IntV(10), NumV(2.0)];
         let got = subtract_primitive(&args).unwrap();
-        let expected = NumV(8.0);
+        let expected = SteelVal::NumV(8.0);
         assert_eq!(got.to_string(), expected.to_string());
     }
 

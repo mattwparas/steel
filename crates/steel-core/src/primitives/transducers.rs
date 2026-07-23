@@ -1,5 +1,5 @@
 use crate::gc::Gc;
-use crate::rvals::SteelVal::*;
+use crate::rvals::SteelValGeneric::*;
 use crate::rvals::{Result, SteelVal};
 use crate::steel_vm::{
     builtin::BuiltInModule,

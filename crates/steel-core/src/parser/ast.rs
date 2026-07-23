@@ -10,7 +10,7 @@ use thin_vec::ThinVec;
 
 use crate::{
     rerrs::SteelErr,
-    rvals::SteelVal::{self, *},
+    rvals::{SteelVal, SteelValGeneric::*},
 };
 
 pub use steel_parser::ast::{

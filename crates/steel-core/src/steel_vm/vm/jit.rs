@@ -4569,7 +4569,7 @@ fn call_function_tco(
     ctx: &mut VmCore<'_>,
     payload_size: usize,
 ) -> Result<bool> {
-    use SteelVal::*;
+    use crate::rvals::SteelValGeneric::*;
     match stack_func {
         FuncV(f) => {
             let last_index = ctx.thread.stack.len() - payload_size;

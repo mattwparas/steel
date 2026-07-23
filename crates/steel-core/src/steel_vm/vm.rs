@@ -3464,7 +3464,7 @@ impl<'a> VmCore<'a> {
                     let payload_size = next_inst.payload_size.to_usize();
                     // self.handle_tail_call(stack_func, next_inst.payload_size.to_usize());
 
-                    use SteelVal::*;
+                    use crate::rvals::SteelValGeneric::*;
 
                     match stack_func {
                         FuncV(f) => {
@@ -3522,7 +3522,7 @@ impl<'a> VmCore<'a> {
                     let payload_size = next_inst.payload_size.to_usize();
                     // self.handle_tail_call(stack_func, next_inst.payload_size.to_usize());
 
-                    use SteelVal::*;
+                    use crate::rvals::SteelValGeneric::*;
 
                     match stack_func {
                         FuncV(f) => {
@@ -4798,7 +4798,7 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
-        use SteelVal::*;
+        use crate::rvals::SteelValGeneric::*;
 
         match stack_func {
             FuncV(f) => self.call_primitive_func(f, payload_size),
@@ -5136,7 +5136,7 @@ impl<'a> VmCore<'a> {
         stack_func: SteelVal,
         payload_size: usize,
     ) -> Result<()> {
-        use SteelVal::*;
+        use crate::rvals::SteelValGeneric::*;
 
         match stack_func {
             Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size),
@@ -5160,7 +5160,7 @@ impl<'a> VmCore<'a> {
         stack_func: SteelVal,
         payload_size: usize,
     ) -> Result<()> {
-        use SteelVal::*;
+        use crate::rvals::SteelValGeneric::*;
 
         match stack_func {
             Closure(closure) => self.handle_function_call_closure_jit_no_arity(closure),
@@ -5183,7 +5183,7 @@ impl<'a> VmCore<'a> {
         stack_func: SteelVal,
         payload_size: usize,
     ) -> Result<Option<SteelVal>> {
-        use SteelVal::*;
+        use crate::rvals::SteelValGeneric::*;
 
         match stack_func {
             Closure(closure) => {
@@ -5307,7 +5307,7 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn handle_function_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
-        use SteelVal::*;
+        use crate::rvals::SteelValGeneric::*;
 
         match stack_func {
             FuncV(f) => self.call_primitive_func(f, payload_size),

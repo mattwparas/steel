@@ -7,36 +7,51 @@ use im_lists::{
 
 use crate::{
     gc::Gc,
-    rvals::{FromSteelVal, IntoSteelVal},
+    rvals::{FromSteelVal, IntoSteelVal, SteelValGeneric},
     SteelVal,
 };
 
 // TODO:
 // Builtin immutable pairs
-#[derive(Clone, Hash)]
-pub struct Pair {
-    pub(crate) car: SteelVal,
-    pub(crate) cdr: SteelVal,
+pub struct Pair<A: crate::gc::Allocator + Clone + 'static = crate::gc::Global> {
+    pub(crate) car: SteelValGeneric<A>,
+    pub(crate) cdr: SteelValGeneric<A>,
 }
 
-impl Pair {
-    pub fn cons(car: SteelVal, cdr: SteelVal) -> Self {
+impl<A: crate::gc::Allocator + Clone + 'static> Clone for Pair<A> {
+    fn clone(&self) -> Self {
+        Pair {
+            car: self.car.clone(),
+            cdr: self.cdr.clone(),
+        }
+    }
+}
+
+impl<A: crate::gc::Allocator + Clone + 'static> core::hash::Hash for Pair<A> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.car.hash(state);
+        self.cdr.hash(state);
+    }
+}
+
+impl<A: crate::gc::Allocator + Clone + 'static> Pair<A> {
+    pub fn cons(car: SteelValGeneric<A>, cdr: SteelValGeneric<A>) -> Self {
         Pair { car, cdr }
     }
 
-    pub fn car(&self) -> SteelVal {
+    pub fn car(&self) -> SteelValGeneric<A> {
         self.car.clone()
     }
 
-    pub fn cdr(&self) -> SteelVal {
+    pub fn cdr(&self) -> SteelValGeneric<A> {
         self.cdr.clone()
     }
 
-    pub fn car_ref(&self) -> &SteelVal {
+    pub fn car_ref(&self) -> &SteelValGeneric<A> {
         &self.car
     }
 
-    pub fn cdr_ref(&self) -> &SteelVal {
+    pub fn cdr_ref(&self) -> &SteelValGeneric<A> {
         &self.cdr
     }
 }
@@ -47,7 +62,7 @@ impl From<Pair> for SteelVal {
     }
 }
 
-impl core::fmt::Debug for Pair {
+impl<A: crate::gc::Allocator + Clone + 'static> core::fmt::Debug for Pair<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "({} . {})", &self.car, &self.cdr)
     }
@@ -114,127 +129,57 @@ mod list_drop_handler {
     use std::collections::VecDeque;
 
     use super::*;
+    use crate::rvals::SteelValGeneric;
 
     pub struct ListDropHandler;
 
-    use crate::rvals::cycles::{drop_impls::DROP_BUFFER, IterativeDropHandler};
+    use crate::rvals::cycles::IterativeDropHandler;
 
-    impl DropHandler<im_lists::list::GenericList<SteelVal, PointerType, 4, 2, Self>>
+    impl<A: crate::gc::Allocator + Clone + 'static> DropHandler<im_lists::list::GenericList<crate::rvals::SteelValGeneric<A>, PointerType, 4, 2, Self>>
         for ListDropHandler
     {
         #[inline(always)]
-        fn drop_handler(obj: &mut im_lists::list::GenericList<SteelVal, PointerType, 4, 2, Self>) {
+        fn drop_handler(obj: &mut im_lists::list::GenericList<crate::rvals::SteelValGeneric<A>, PointerType, 4, 2, Self>) {
             if obj.is_empty() {
                 return;
             }
 
             if obj.strong_count() == 1 {
-                if DROP_BUFFER
-                    .try_with(|drop_buffer| {
-                        if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                            let taken = core::mem::take(obj);
+                // `DROP_BUFFER` is a `thread_local!`, which can't be generic over `A` --
+                // its buffer-reuse fast path is only available for the concrete `Global`
+                // case (see cycles.rs's Drop impls, which use it directly). This generic
+                // path always allocates a fresh queue instead.
+                let mut drop_buffer = VecDeque::new();
 
-                            for value in taken.draining_iterator() {
-                                match &value {
-                                    SteelVal::BoolV(_)
-                                    | SteelVal::NumV(_)
-                                    | SteelVal::IntV(_)
-                                    | SteelVal::CharV(_)
-                                    | SteelVal::Void
-                                    | SteelVal::StringV(_)
-                                    | SteelVal::FuncV(_)
-                                    | SteelVal::SymbolV(_)
-                                    | SteelVal::FutureFunc(_)
-                                    | SteelVal::FutureV(_)
-                                    | SteelVal::BoxedFunction(_)
-                                    | SteelVal::MutFunc(_)
-                                    | SteelVal::BuiltIn(_)
-                                    | SteelVal::BigNum(_)
-                                    | SteelVal::MutableVector(_) => continue,
-                                    SteelVal::ListV(l) => {
-                                        // println!("Value: {}", l.strong_count());
-                                        if l.strong_count() == 1 {
-                                            drop_buffer.push_back(value);
-                                        }
-                                    }
-                                    _ => {
-                                        drop_buffer.push_back(value);
-                                    }
-                                }
-                            }
-
-                            // println!("{:?}", now.elapsed());
-
-                            IterativeDropHandler::bfs(&mut drop_buffer);
-                        } else {
-                            let mut drop_buffer = VecDeque::new();
-
-                            for value in core::mem::take(obj).draining_iterator() {
-                                match &value {
-                                    SteelVal::BoolV(_)
-                                    | SteelVal::NumV(_)
-                                    | SteelVal::IntV(_)
-                                    | SteelVal::CharV(_)
-                                    | SteelVal::Void
-                                    | SteelVal::StringV(_)
-                                    | SteelVal::FuncV(_)
-                                    | SteelVal::SymbolV(_)
-                                    | SteelVal::FutureFunc(_)
-                                    | SteelVal::FutureV(_)
-                                    | SteelVal::BoxedFunction(_)
-                                    | SteelVal::MutFunc(_)
-                                    | SteelVal::BuiltIn(_)
-                                    | SteelVal::BigNum(_)
-                                    | SteelVal::MutableVector(_) => continue,
-
-                                    SteelVal::ListV(l) => {
-                                        if l.strong_count() == 1 {
-                                            drop_buffer.push_back(value);
-                                        }
-                                    }
-
-                                    _ => {
-                                        drop_buffer.push_back(value);
-                                    }
-                                }
-                            }
-
-                            IterativeDropHandler::bfs(&mut drop_buffer);
-                        }
-                    })
-                    .is_err()
-                {
-                    let mut drop_buffer = VecDeque::new();
-                    for value in core::mem::take(obj).draining_iterator() {
-                        match &value {
-                            SteelVal::BoolV(_)
-                            | SteelVal::NumV(_)
-                            | SteelVal::IntV(_)
-                            | SteelVal::CharV(_)
-                            | SteelVal::Void
-                            | SteelVal::StringV(_)
-                            | SteelVal::FuncV(_)
-                            | SteelVal::SymbolV(_)
-                            | SteelVal::FutureFunc(_)
-                            | SteelVal::FutureV(_)
-                            | SteelVal::BoxedFunction(_)
-                            | SteelVal::MutFunc(_)
-                            | SteelVal::BuiltIn(_)
-                            | SteelVal::BigNum(_)
-                            | SteelVal::MutableVector(_) => continue,
-                            SteelVal::ListV(l) => {
-                                if l.strong_count() == 1 {
-                                    drop_buffer.push_back(value);
-                                }
-                            }
-                            _ => {
+                for value in core::mem::take(obj).draining_iterator() {
+                    match &value {
+                        SteelValGeneric::BoolV(_)
+                        | SteelValGeneric::NumV(_)
+                        | SteelValGeneric::IntV(_)
+                        | SteelValGeneric::CharV(_)
+                        | SteelValGeneric::Void
+                        | SteelValGeneric::StringV(_)
+                        | SteelValGeneric::FuncV(_)
+                        | SteelValGeneric::SymbolV(_)
+                        | SteelValGeneric::FutureFunc(_)
+                        | SteelValGeneric::FutureV(_)
+                        | SteelValGeneric::BoxedFunction(_)
+                        | SteelValGeneric::MutFunc(_)
+                        | SteelValGeneric::BuiltIn(_)
+                        | SteelValGeneric::BigNum(_)
+                        | SteelValGeneric::MutableVector(_) => continue,
+                        SteelValGeneric::ListV(l) => {
+                            if l.strong_count() == 1 {
                                 drop_buffer.push_back(value);
                             }
                         }
+                        _ => {
+                            drop_buffer.push_back(value);
+                        }
                     }
-
-                    IterativeDropHandler::bfs(&mut drop_buffer);
                 }
+
+                IterativeDropHandler::bfs(&mut drop_buffer);
             }
         }
     }

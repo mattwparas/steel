@@ -13,7 +13,7 @@ name = "steel"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-allocator-api2 = { version="0.3.1", features=["std", "alloc", "serde"], optional = true }
+allocator-api2 = { version="0.3.1", features=["std", "alloc", "serde"] }
 
 im-rc = { version = "15.1.0", features = ["serde"] }
 codespan-reporting = "0.11.1"
@@ -161,7 +161,11 @@ imbl = ["dep:steel-imbl"]
 custom-hash = []
 biased = ["dep:steel-rc"]
 
-allocator-api2 = ["dep:allocator-api2"]
+# `allocator-api2` itself is always a dependency now (tiny, no_std-compatible, needed
+# unconditionally so SteelValGeneric<A>'s declaration doesn't have to be duplicated across
+# a cfg gate -- see ALLOCATOR_SPEC.md). This feature just gates the heavier machinery that
+# actually threads a *non-Global* A through Gc/BiasedRc.
+allocator-api2 = []
 
 
 ffi-format = []

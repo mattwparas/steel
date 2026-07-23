@@ -159,7 +159,7 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     }
 
     fn visit(&mut self) -> Self::Output {
-        use SteelVal::*;
+        use crate::rvals::SteelValGeneric::*;
 
         while let Some(value) = self.pop_front() {
             if self.slots.is_empty() {
@@ -2217,13 +2217,13 @@ impl ParallelMarker {
 pub trait HeapAble: Clone + core::fmt::Debug + PartialEq + Eq {
     fn empty() -> Self;
 }
-impl HeapAble for SteelVal {
+impl<A: crate::gc::Allocator + Clone + 'static> HeapAble for crate::rvals::SteelValGeneric<A> {
     fn empty() -> Self {
-        SteelVal::Void
+        Self::Void
     }
 }
 
-impl HeapAble for Vec<SteelVal> {
+impl<A: crate::gc::Allocator + Clone + 'static> HeapAble for Vec<crate::rvals::SteelValGeneric<A>> {
     fn empty() -> Self {
         Self::new()
     }

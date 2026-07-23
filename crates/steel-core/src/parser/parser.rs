@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
-use crate::rvals::SteelVal::*;
+use crate::rvals::SteelValGeneric::*;
 
 pub use steel_parser::parser::{
     lower_entire_ast, lower_macro_and_require_definitions, lower_syntax_rules, FunctionId, ListId,

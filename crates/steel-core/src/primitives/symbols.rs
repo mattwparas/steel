@@ -134,7 +134,7 @@ fn symbol_to_string(args: &[SteelVal]) -> Result<SteelVal> {
 #[cfg(test)]
 mod symbol_tests {
     use super::*;
-    use crate::rvals::SteelVal::*;
+    use crate::rvals::SteelValGeneric::*;
 
     #[test]
     fn concat_symbols_normal() {
