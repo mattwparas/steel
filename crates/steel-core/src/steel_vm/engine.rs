@@ -45,7 +45,7 @@ use crate::{
     rerrs::{back_trace, back_trace_to_string},
     rvals::{
         AsRefMutSteelVal, AsRefSteelVal as _, FromSteelVal, IntoSteelVal, MaybeSendSyncStatic,
-        Result, SteelString, SteelVal,
+        Result, SteelString, SteelVal, SteelValGeneric,
     },
     steel_vm::{
         builtin::{generate_function, register_context_functions},
@@ -225,8 +225,15 @@ impl EngineId {
 /// Handle to a steel engine. This contains a main entrypoint thread, alongside
 /// the compiler and all of the state necessary to keep a VM instance alive and
 /// well.
-pub struct Engine {
-    pub(crate) virtual_machine: SteelThread,
+///
+/// Generic over the allocator `A` used by the underlying `SteelThread<A>` (see
+/// ALLOCATOR_SPEC.md). `Engine` (below) is the `A = Global` instantiation almost all of the
+/// codebase uses; the compiler, module registry, and dylib loader are only ever needed off
+/// the allocator-generic hot path (compiling/loading is not something a real-time thread
+/// should be doing), so they stay ordinary Global-only fields regardless of `A` -- see
+/// `Engine::new_engine_with_allocator`.
+pub struct Engine<A: crate::gc::Allocator + Clone + Send + Sync + 'static = crate::gc::Global> {
+    pub(crate) virtual_machine: SteelThread<A>,
     // TODO: Just put this, and all the other things,
     // inside the `SteelThread` - The compiler probably
     // still... needs to be shared, but thats fine.
@@ -236,14 +243,14 @@ pub struct Engine {
     pub(crate) id: EngineId,
 }
 
-impl Engine {
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Engine<A> {
     pub fn enter_safepoint<T, F: FnMut() -> T>(&mut self, mut thunk: F) -> T {
         let mut res = None;
 
         self.virtual_machine
-            .enter_safepoint(|_| -> Result<SteelVal> {
+            .enter_safepoint(|_| -> Result<SteelValGeneric<A>> {
                 res = Some((thunk)());
-                Ok(SteelVal::Void)
+                Ok(SteelValGeneric::Void)
             });
 
         res.unwrap()
@@ -259,7 +266,7 @@ impl Drop for Engine {
 }
 */
 
-impl Clone for Engine {
+impl Clone for Engine<crate::gc::Global> {
     fn clone(&self) -> Self {
         let mut virtual_machine = self.virtual_machine.clone();
 
@@ -305,7 +312,7 @@ impl Clone for Engine {
     }
 }
 
-impl Default for Engine {
+impl Default for Engine<crate::gc::Global> {
     fn default() -> Self {
         Self::new()
     }
@@ -434,7 +441,7 @@ impl<'a> LifetimeGuard<'a> {
     }
 }
 
-impl RegisterValue for Engine {
+impl RegisterValue for Engine<crate::gc::Global> {
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
         let idx = self.virtual_machine.compiler.write().register(name);
         self.virtual_machine.insert_binding(idx, value);
@@ -518,7 +525,7 @@ thread_local! {
     pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<Arc<FxHashMap<InternedString, SteelMacro>>> = RefCell::new(Arc::new(HashMap::default()));
 }
 
-impl Engine {
+impl Engine<crate::gc::Global> {
     pub fn engine_id(&self) -> EngineId {
         self.virtual_machine.id
     }
@@ -1314,55 +1321,6 @@ impl Engine {
         self.call_function_with_args(function, vec![argument])
     }
 
-    /// Internal API for calling a function directly
-    pub fn call_function_with_args(
-        &mut self,
-        function: SteelVal,
-        arguments: Vec<SteelVal>,
-    ) -> Result<SteelVal> {
-        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
-
-        self.virtual_machine
-            .call_function(constant_map, function, arguments)
-    }
-
-    pub fn call_function_with_args_from_mut_slice(
-        &mut self,
-        function: SteelVal,
-        arguments: &mut [SteelVal],
-    ) -> Result<SteelVal> {
-        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
-
-        self.virtual_machine
-            .call_function_from_mut_slice(constant_map, function, arguments)
-    }
-
-    /// Call a function by name directly within the target environment
-    pub fn call_function_by_name_with_args(
-        &mut self,
-        function: &str,
-        arguments: Vec<SteelVal>,
-    ) -> Result<SteelVal> {
-        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
-        self.extract_value(function).and_then(|function| {
-            self.virtual_machine
-                .call_function(constant_map, function, arguments)
-        })
-    }
-
-    pub fn call_function_by_name_with_args_from_mut_slice(
-        &mut self,
-        function: &str,
-        arguments: &mut [SteelVal],
-    ) -> Result<SteelVal> {
-        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
-
-        self.extract_value(function).and_then(|function| {
-            self.virtual_machine
-                .call_function_from_mut_slice(constant_map, function, arguments)
-        })
-    }
-
     /// Nothing fancy, just run it
     pub fn run<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
@@ -2015,10 +1973,6 @@ impl Engine {
         }
     }
 
-    pub fn run_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
-        self.virtual_machine.run_executable(executable)
-    }
-
     /// Directly emit the expanded ast
     pub fn emit_expanded_ast(
         &mut self,
@@ -2236,17 +2190,6 @@ impl Engine {
     /// vm.run("(define a 10)").unwrap();
     /// assert_eq!(vm.extract_value("a").unwrap(), SteelVal::IntV(10));
     /// ```
-    pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
-        let idx = self.virtual_machine.compiler.read().get_idx(name).ok_or_else(throw!(
-            Generic => format!("free identifier: {name} - identifier given cannot be found in the global environment")
-        ))?;
-
-        self.virtual_machine.extract_value(idx)
-            .ok_or_else(throw!(
-                Generic => format!("free identifier: {name} - identifier given cannot be found in the global environment")
-            ))
-    }
-
     /// Extracts a value with the given identifier `name` from the internal environment, and attempts to coerce it to the
     /// given type. This will return an error if the `name` is not currently bound in the `Engine`'s internal environment, or
     /// if the type passed in does not match the value (and thus the coercion using [`FromSteelVal`](crate::rvals::FromSteelVal) fails)
@@ -2367,6 +2310,98 @@ impl Engine {
                 Some(steel_string.as_str().to_string())
             }
         }
+    }
+
+    /// Creates a new `Engine<A>` sharing this engine's compiler, module registry, and dylib
+    /// loader (all Global-only, unaffected by `A` -- see ALLOCATOR_SPEC.md), but with a fresh
+    /// `SteelThread<A>` -- an empty runtime environment backed by `alloc`. Compile/load code
+    /// as usual on `self` (or share `self` across calls), then run the resulting `Executable`
+    /// on the new engine via `run_executable` to populate its environment using `alloc` for
+    /// every runtime allocation, and call into it afterward with `call_function_by_name_with_args`.
+    /// This is the intended way to hand a real-time thread (e.g. an audio callback) a
+    /// self-contained execution context that never touches the global allocator.
+    pub fn new_engine_with_allocator<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+        &self,
+        alloc: A,
+    ) -> Engine<A> {
+        let compiler = self.virtual_machine.compiler.clone();
+
+        Engine {
+            virtual_machine: SteelThread::new_in(compiler, alloc),
+            modules: self.modules.clone(),
+            #[cfg(feature = "dylibs")]
+            dylibs: self.dylibs.clone(),
+            id: EngineId::new(),
+        }
+    }
+}
+
+impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> Engine<A> {
+    pub fn run_executable(&mut self, executable: &Executable) -> Result<Vec<SteelValGeneric<A>>> {
+        self.virtual_machine.run_executable(executable)
+    }
+
+    /// Extracts a value with the given identifier `name` from the internal environment.
+    ///
+    /// The function will return an error if the `name` is not currently bound in the `Engine`'s internal environment.
+    pub fn extract_value(&self, name: &str) -> Result<SteelValGeneric<A>> {
+        let idx = self.virtual_machine.compiler.read().get_idx(name).ok_or_else(throw!(
+            Generic => format!("free identifier: {name} - identifier given cannot be found in the global environment")
+        ))?;
+
+        self.virtual_machine.extract_value(idx)
+            .ok_or_else(throw!(
+                Generic => format!("free identifier: {name} - identifier given cannot be found in the global environment")
+            ))
+    }
+
+    /// Internal API for calling a function directly
+    pub fn call_function_with_args(
+        &mut self,
+        function: SteelValGeneric<A>,
+        arguments: Vec<SteelValGeneric<A>>,
+    ) -> Result<SteelValGeneric<A>> {
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
+
+        self.virtual_machine
+            .call_function(constant_map, function, arguments)
+    }
+
+    pub fn call_function_with_args_from_mut_slice(
+        &mut self,
+        function: SteelValGeneric<A>,
+        arguments: &mut [SteelValGeneric<A>],
+    ) -> Result<SteelValGeneric<A>> {
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
+
+        self.virtual_machine
+            .call_function_from_mut_slice(constant_map, function, arguments)
+    }
+
+    /// Call a function by name directly within the target environment
+    pub fn call_function_by_name_with_args(
+        &mut self,
+        function: &str,
+        arguments: Vec<SteelValGeneric<A>>,
+    ) -> Result<SteelValGeneric<A>> {
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
+        self.extract_value(function).and_then(|function| {
+            self.virtual_machine
+                .call_function(constant_map, function, arguments)
+        })
+    }
+
+    pub fn call_function_by_name_with_args_from_mut_slice(
+        &mut self,
+        function: &str,
+        arguments: &mut [SteelValGeneric<A>],
+    ) -> Result<SteelValGeneric<A>> {
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
+
+        self.extract_value(function).and_then(|function| {
+            self.virtual_machine
+                .call_function_from_mut_slice(constant_map, function, arguments)
+        })
     }
 }
 
