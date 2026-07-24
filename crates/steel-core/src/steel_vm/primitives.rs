@@ -1381,7 +1381,10 @@ fn number_module() -> BuiltInModule {
     module
 }
 
-#[inline(always)]
+// Not `#[inline(always)]`: a plain `fn` pointer to an always-inlined function has no stable
+// address (each reference site can synthesize its own local out-of-line stub -- see
+// `hot_path_native_dispatch` in vm.rs, which needs pointer identity to recognize this
+// specific function regardless of where it's referenced from).
 pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(args.windows(2).all(|x| x[0] == x[1])))
 }
@@ -1398,7 +1401,7 @@ pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     })))
 }
 
-#[inline(always)]
+// See the comment on `equality_primitive` above re: not `#[inline(always)]`.
 pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {
         stop!(ArityMismatch => "expected at least one argument");
@@ -1411,7 +1414,7 @@ pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     })))
 }
 
-#[inline(always)]
+// See the comment on `equality_primitive` above re: not `#[inline(always)]`.
 pub fn lt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {
         stop!(ArityMismatch => "expected at least one argument");
@@ -1424,7 +1427,7 @@ pub fn lt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     })))
 }
 
-#[inline(always)]
+// See the comment on `equality_primitive` above re: not `#[inline(always)]`.
 pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {
         stop!(ArityMismatch => "expected at least one argument");
@@ -1598,7 +1601,7 @@ pub fn less_than(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (<= 2 6/2 3) ;; #t
 /// ```
 #[steel_derive::native(name = "<=", arity = "AtLeast(1)")]
-fn less_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
+pub(crate) fn less_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| {
         matches!(o, Some(Ordering::Less | Ordering::Equal))
     })
@@ -2228,7 +2231,7 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
 /// > (unbox b) ;; => 20
 /// ```
 #[steel_derive::context(name = "box", arity = "Exact(1)")]
-fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+pub(crate) fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() != 1 {
         return Some(Err(
             throw!(ArityMismatch => "box expects one argument, found: {}", args.len())(),

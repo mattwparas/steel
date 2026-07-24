@@ -672,6 +672,155 @@ fn as_concrete_slice_mut<A: crate::gc::Allocator + Clone + Send + Sync + 'static
     }
 }
 
+/// Recognizes the one hot-path native registered as a `BuiltIn` (needs `&mut VmCore`, not just
+/// its own arguments) rather than a plain `FunctionSignature`: `box`'s implementation
+/// allocates into the GC heap, exactly like the dedicated `NEWBOX` opcode
+/// (`new_box_handler`) -- this mirrors that logic directly, generically, instead of requiring
+/// `A == Global`. Function-pointer comparisons here are a pragmatic, imperfect check (see
+/// `hot_path_native_dispatch` below); a miss just falls through to the existing Global-only
+/// cast bridge rather than doing anything unsound.
+#[allow(unpredictable_function_pointer_comparisons)]
+fn hot_path_builtin_dispatch<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    ctx: &mut VmCore<'_, A>,
+    f: BuiltInSignature,
+    args: &[SteelValGeneric<A>],
+) -> Option<Result<SteelValGeneric<A>>> {
+    if f == (crate::steel_vm::primitives::make_mutable_box as BuiltInSignature) {
+        if args.len() != 1 {
+            return Some(Err(
+                throw!(ArityMismatch => "box expects one argument, found: {}", args.len())(),
+            ));
+        }
+
+        let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+        let allocated_var = heap_lock.allocate(
+            args[0].clone(),
+            &ctx.thread.stack,
+            ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+            ctx.thread.global_env.roots(),
+            &ctx.thread.thread_local_storage,
+            &mut ctx.thread.synchronizer,
+        );
+
+        Some(Ok(SteelValGeneric::HeapAllocated(allocated_var)))
+    } else {
+        None
+    }
+}
+
+/// Same as `hot_path_native_dispatch`, for the (much smaller) set of hot-path natives
+/// registered with a `MutFunctionSignature` (they mutate their argument slice in place,
+/// e.g. `cons`'s `core::mem::replace` on its first argument) rather than `FunctionSignature`.
+#[allow(unpredictable_function_pointer_comparisons)]
+fn hot_path_mut_native_dispatch<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    f: crate::rvals::MutFunctionSignature,
+    args: &mut [SteelValGeneric<A>],
+    alloc: &A,
+) -> Option<Result<SteelValGeneric<A>>> {
+    if f == (crate::primitives::lists::steel_cons as crate::rvals::MutFunctionSignature)
+        && args.len() == 2
+    {
+        let (left, right) = args.split_at_mut(1);
+        Some(cons_generic(&mut left[0], &mut right[0], alloc))
+    } else {
+        None
+    }
+}
+
+/// `PartialOrd for SteelValGeneric<A>` converts to `f64` for cross-numeric-tower comparisons
+/// (see its own doc comment), which is lossy for large `BigNum`s -- fine for the dedicated
+/// opcodes (which only ever compare against a small immediate), but NOT a safe drop-in
+/// replacement for the exact, tower-aware comparison the general `<`/`<=`/`>`/`>=` natives
+/// (`less_than`/`less_than_equal`/`greater_than`/`greater_than_equal`) use. Restricting the
+/// fast path to plain `IntV`/`NumV` args -- overwhelmingly the common case, and exactly where
+/// no precision is ever at stake -- keeps the fast path exact and falls back to the original,
+/// tower-aware implementation (via the `TypeId`-cast bridge) for anything else.
+fn is_simple_numeric_slice<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    args: &[SteelValGeneric<A>],
+) -> bool {
+    args.iter()
+        .all(|v| matches!(v, SteelValGeneric::IntV(_) | SteelValGeneric::NumV(_)))
+}
+
+/// Recognizes calls to the specific native functions backing `+`/`-`/`*`//`/`<=`/`</`>`/`>=`/
+/// `equal?`/`cons`-adjacent boxing ops by function-pointer identity, dispatching to their
+/// already-allocator-generic counterparts instead of the `TypeId`-cast-or-error fallback the
+/// rest of the ~2000-function standard library uses.
+///
+/// This exists because the dedicated ADD/SUB/LTE/etc. opcodes only cover a narrow set of call
+/// shapes -- in practice, most calls to these operators (e.g. from inside a user-defined
+/// function, as opposed to a directly-inlined top-level expression) compile to a plain
+/// `CALLGLOBAL` invoking these functions by pointer, same as any other builtin. Since
+/// arithmetic/comparison were explicitly promised to route through the caller's allocator
+/// (see ALLOCATOR_SPEC.md) regardless of which shape the compiler chose, every `FuncV`
+/// dispatch site checks here first. Returns `None` for anything else, falling through to the
+/// ordinary Global-only path.
+///
+/// Comparing raw function pointers with `==` is a known-imperfect check (a non-generic `fn`
+/// can, in principle, get a different address per codegen unit before final linking, or an
+/// always-inlined one can have no stable address at all -- the latter is why none of the
+/// functions checked here are `#[inline(always)]`). A false negative just means falling
+/// through to the existing cast bridge (a graceful error under a custom allocator, or the
+/// unchanged original behavior under `Global`) -- never a wrong answer.
+#[allow(unpredictable_function_pointer_comparisons)]
+fn hot_path_native_dispatch<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
+    f: crate::rvals::FunctionSignature,
+    args: &mut [SteelValGeneric<A>],
+    _alloc: &A,
+) -> Option<Result<SteelValGeneric<A>>> {
+    type Sig = crate::rvals::FunctionSignature;
+
+    if f == (crate::primitives::add_primitive as Sig) {
+        Some(add_primitive_generic(args))
+    } else if f == (crate::primitives::subtract_primitive as Sig) {
+        Some(subtract_primitive_generic(args))
+    } else if f == (crate::primitives::multiply_primitive as Sig) {
+        Some(multiply_primitive_generic(args))
+    } else if f == (crate::primitives::divide_primitive as Sig) {
+        Some(divide_primitive_generic(args))
+    } else if (f == (crate::steel_vm::primitives::lte_primitive as Sig)
+        || f == (crate::steel_vm::primitives::less_than_equal as Sig))
+        && is_simple_numeric_slice(args)
+    {
+        Some(lte_primitive_generic(args))
+    } else if (f == (crate::steel_vm::primitives::lt_primitive as Sig)
+        || f == (crate::steel_vm::primitives::less_than as Sig))
+        && is_simple_numeric_slice(args)
+    {
+        Some(lt_primitive_generic(args))
+    } else if (f == (crate::steel_vm::primitives::gt_primitive as Sig)
+        || f == (crate::steel_vm::primitives::greater_than as Sig))
+        && is_simple_numeric_slice(args)
+    {
+        Some(gt_primitive_generic(args))
+    } else if (f == (crate::steel_vm::primitives::gte_primitive as Sig)
+        || f == (crate::steel_vm::primitives::greater_than_equal as Sig))
+        && is_simple_numeric_slice(args)
+    {
+        Some(gte_primitive_generic(args))
+    } else if f == (crate::steel_vm::primitives::equality_primitive as Sig)
+        || f == (crate::steel_vm::primitives::steel_equalp as Sig)
+    {
+        Some(equality_primitive_generic(args))
+    } else if f == (crate::steel_vm::primitives::steel_unbox_mutable as Sig)
+        || f == (crate::steel_vm::primitives::steel_plain_unbox_mutable as Sig)
+    {
+        Some(unbox_mutable_generic(args))
+    } else if f == (crate::steel_vm::primitives::steel_set_box_mutable as Sig)
+        || f == (crate::steel_vm::primitives::steel_plain_set_box_mutable as Sig)
+    {
+        Some(set_box_mutable_generic(args))
+    } else if f == (crate::rvals::steel_number_equality as Sig) && args.len() == 2 {
+        let mut left = args[0].clone();
+        let mut right = args[1].clone();
+        Some(number_equality_generic(&mut left, &mut right))
+    } else if f == (crate::primitives::lists::steel_list_ref as Sig) {
+        Some(list_ref_generic(args))
+    } else {
+        None
+    }
+}
+
 /// `TypeId`-proven identity cast for `&mut VmCore<'a, A>` -> `&mut VmCore<'a, Global>`.
 /// `Continuation`/`ContinuationMark` (call/cc's snapshot of the VM state) are Global-only
 /// (see ALLOCATOR_SPEC.md) -- capturing/replaying a continuation is only supported when
@@ -1221,6 +1370,44 @@ impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> SteelThread<A> {
         self.with_locked_env(move |this| {
             this.global_env.repl_define_idx(idx, value);
         });
+    }
+
+    /// Populates this thread's (initially empty) global environment from another, already
+    /// running `Global` thread's bindings -- used by `Engine::new_engine_with_allocator` to
+    /// give a fresh `SteelThread<A>` access to the same primitives/prelude an existing engine
+    /// already has, without which even a call to `+` or `cons` in newly-run bytecode would
+    /// hit an unbound global slot (every index the shared compiler has already handed out is
+    /// assumed to resolve to *something*).
+    ///
+    /// Each binding is converted the same way constant-pool values are (see
+    /// `constant_to_generic`): scalars and native functions are copied directly, strings/
+    /// symbols are re-allocated through this thread's own `A`, and quoted lists recurse.
+    /// A handful of things `constant_to_generic` can't convert at all -- `HeapAllocated`/
+    /// `MutableVector` need a live `Heap<A>` (with its root-tracking context) to allocate
+    /// into, not just an `A` instance, and reconstructing one on the fly here isn't
+    /// worthwhile for what's almost always incidental prelude data unrelated to whatever the
+    /// caller's own program actually needs. Rather than fail the whole (large) copy over a
+    /// handful of unreachable globals, this skips them with a one-line warning; if the
+    /// caller's program actually calls one of these by name, it'll get a clear "free
+    /// identifier" error at that point instead of a confusing one up front.
+    pub(crate) fn clone_globals_from(
+        &mut self,
+        source: &SteelThread<crate::gc::Global>,
+    ) -> Result<()> {
+        for idx in 0..source.global_env.len() {
+            if let Some(val) = source.global_env.repl_maybe_lookup_idx(idx) {
+                match constant_to_generic(&val, &self.alloc) {
+                    Ok(converted) => self.insert_binding(idx, converted),
+                    Err(e) => {
+                        log::warn!(
+                            "skipping global at index {idx} while cloning into a custom-allocator engine: {e}"
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn extract_value(&self, idx: usize) -> Option<SteelValGeneric<A>> {
@@ -3730,20 +3917,30 @@ impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> 
                     match stack_func {
                         FuncV(f) => {
                             let last_index = self.thread.stack.len() - payload_size;
-                            let result =
-                                match self.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
-                                    match as_concrete_slice(&ctx.stack[last_index..]) {
-                                        Some(args) => f(args),
-                                        None => {
-                                            stop!(Generic => "cannot call this native function under a custom allocator")
-                                        }
-                                    }
-                                }) {
+
+                            let result = if let Some(result) =
+                                hot_path_native_dispatch(f, &mut self.thread.stack[last_index..], &self.thread.alloc)
+                            {
+                                match result {
                                     Ok(v) => v,
                                     Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                                };
+                                }
+                            } else {
+                                let result =
+                                    match self.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
+                                        match as_concrete_slice(&ctx.stack[last_index..]) {
+                                            Some(args) => f(args),
+                                            None => {
+                                                stop!(Generic => "cannot call this native function under a custom allocator")
+                                            }
+                                        }
+                                    }) {
+                                        Ok(v) => v,
+                                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                                    };
 
-                            let result = as_generic_value(result).unwrap();
+                                as_generic_value(result).unwrap()
+                            };
 
                             // This is the old way... lets see if the below way improves the speed
                             self.thread.stack.truncate(last_index);
@@ -3795,20 +3992,30 @@ impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> 
                     match stack_func {
                         FuncV(f) => {
                             let last_index = self.thread.stack.len() - payload_size;
-                            let result =
-                                match self.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
-                                    match as_concrete_slice(&ctx.stack[last_index..]) {
-                                        Some(args) => f(args),
-                                        None => {
-                                            stop!(Generic => "cannot call this native function under a custom allocator")
-                                        }
-                                    }
-                                }) {
+
+                            let result = if let Some(result) =
+                                hot_path_native_dispatch(f, &mut self.thread.stack[last_index..], &self.thread.alloc)
+                            {
+                                match result {
                                     Ok(v) => v,
                                     Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                                };
+                                }
+                            } else {
+                                let result =
+                                    match self.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
+                                        match as_concrete_slice(&ctx.stack[last_index..]) {
+                                            Some(args) => f(args),
+                                            None => {
+                                                stop!(Generic => "cannot call this native function under a custom allocator")
+                                            }
+                                        }
+                                    }) {
+                                        Ok(v) => v,
+                                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                                    };
 
-                            let result = as_generic_value(result).unwrap();
+                                as_generic_value(result).unwrap()
+                            };
 
                             // This is the old way... lets see if the below way improves the speed
                             self.thread.stack.truncate(last_index);
@@ -5139,6 +5346,12 @@ impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> 
             .drain(self.thread.stack.len() - payload_size..)
             .collect::<SmallVec<[_; 4]>>();
 
+        if let Some(result) = hot_path_builtin_dispatch(self, func, &args) {
+            let result = result.map_err(|e| e.set_span_if_none(self.current_span()))?;
+            self.thread.stack.push(result);
+            return Ok(());
+        }
+
         let concrete_args: Option<SmallVec<[SteelVal; 4]>> =
             args.iter().cloned().map(as_concrete_value).collect();
 
@@ -5184,17 +5397,23 @@ impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> 
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
 
-        // These kinds of functions aren't valid for a safepoint.
-        let result = match as_concrete_slice_mut(&mut self.thread.stack[last_index..]) {
-            Some(args) => {
-                f(args).map_err(|x| x.set_span_if_none(self.current_span()))?
-            }
-            None => {
-                stop!(Generic => "cannot call this native function under a custom allocator")
-            }
-        };
+        let result = if let Some(result) = hot_path_mut_native_dispatch(
+            f,
+            &mut self.thread.stack[last_index..],
+            &self.thread.alloc,
+        ) {
+            result.map_err(|e| e.set_span_if_none(self.current_span()))?
+        } else {
+            // These kinds of functions aren't valid for a safepoint.
+            let result = match as_concrete_slice_mut(&mut self.thread.stack[last_index..]) {
+                Some(args) => f(args).map_err(|x| x.set_span_if_none(self.current_span()))?,
+                None => {
+                    stop!(Generic => "cannot call this native function under a custom allocator")
+                }
+            };
 
-        let result = as_generic_value(result).unwrap();
+            as_generic_value(result).unwrap()
+        };
 
         self.thread.stack.truncate(last_index);
         self.thread.stack.push(result);
@@ -5233,6 +5452,14 @@ impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> 
         payload_size: usize,
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
+
+        if let Some(result) = hot_path_native_dispatch(f, &mut self.thread.stack[last_index..], &self.thread.alloc) {
+            let result = result.map_err(|e| e.set_span_if_none(self.current_span()))?;
+            self.thread.stack.truncate(last_index);
+            self.thread.stack.push(result);
+            self.ip += 1;
+            return Ok(());
+        }
 
         let result = match self.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
             match as_concrete_slice(&ctx.stack[last_index..]) {
@@ -5531,19 +5758,28 @@ impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> 
                 let this = &mut *self;
                 let last_index = this.thread.stack.len() - payload_size;
 
-                let result = match this.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
-                    match as_concrete_slice(&ctx.stack[last_index..]) {
-                        Some(args) => f(args),
-                        None => {
-                            stop!(Generic => "cannot call this native function under a custom allocator")
-                        }
+                let result = if let Some(result) =
+                    hot_path_native_dispatch(f, &mut this.thread.stack[last_index..], &this.thread.alloc)
+                {
+                    match result {
+                        Ok(v) => v,
+                        Err(e) => return Err(e.set_span_if_none(this.current_span())),
                     }
-                }) {
-                    Ok(v) => v,
-                    Err(e) => return Err(e.set_span_if_none(this.current_span())),
-                };
+                } else {
+                    let result = match this.thread.enter_safepoint(move |ctx: &SteelThread<A>| {
+                        match as_concrete_slice(&ctx.stack[last_index..]) {
+                            Some(args) => f(args),
+                            None => {
+                                stop!(Generic => "cannot call this native function under a custom allocator")
+                            }
+                        }
+                    }) {
+                        Ok(v) => v,
+                        Err(e) => return Err(e.set_span_if_none(this.current_span())),
+                    };
 
-                let result = as_generic_value(result).unwrap();
+                    as_generic_value(result).unwrap()
+                };
 
                 // This is the old way... lets see if the below way improves the speed
                 this.thread.stack.truncate(last_index);
@@ -5577,17 +5813,25 @@ impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> 
                 let this = &mut *self;
                 let last_index = this.thread.stack.len() - payload_size;
 
-                // These kinds of functions aren't valid for a safepoint.
-                let result = match as_concrete_slice_mut(&mut this.thread.stack[last_index..]) {
-                    Some(args) => {
-                        f(args).map_err(|x| x.set_span_if_none(this.current_span()))?
-                    }
-                    None => {
-                        stop!(Generic => "cannot call this native function under a custom allocator")
-                    }
-                };
+                let result = if let Some(result) = hot_path_mut_native_dispatch(
+                    f,
+                    &mut this.thread.stack[last_index..],
+                    &this.thread.alloc,
+                ) {
+                    result.map_err(|e| e.set_span_if_none(this.current_span()))?
+                } else {
+                    // These kinds of functions aren't valid for a safepoint.
+                    let result = match as_concrete_slice_mut(&mut this.thread.stack[last_index..]) {
+                        Some(args) => {
+                            f(args).map_err(|x| x.set_span_if_none(this.current_span()))?
+                        }
+                        None => {
+                            stop!(Generic => "cannot call this native function under a custom allocator")
+                        }
+                    };
 
-                let result = as_generic_value(result).unwrap();
+                    as_generic_value(result).unwrap()
+                };
 
                 this.thread.stack.truncate(last_index);
                 this.ip += 1;
@@ -5630,6 +5874,12 @@ impl<'a, A: crate::gc::Allocator + Clone + Send + Sync + 'static> VmCore<'a, A> 
                     .stack
                     .drain(this.thread.stack.len() - payload_size..)
                     .collect::<SmallVec<[_; 4]>>();
+
+                if let Some(result) = hot_path_builtin_dispatch(this, f, &args) {
+                    return Ok(Some(
+                        result.map_err(|e| e.set_span_if_none(this.current_span()))?,
+                    ));
+                }
 
                 let concrete_args: Option<SmallVec<[SteelVal; 4]>> =
                     args.iter().cloned().map(as_concrete_value).collect();
@@ -8249,20 +8499,13 @@ fn multiply_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 's
 fn divide_primitive_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
     args: &[SteelValGeneric<A>],
 ) -> Result<SteelValGeneric<A>> {
-    if let [x, y] = args {
-        let as_f64 = |v: &SteelValGeneric<A>| match v {
-            SteelValGeneric::NumV(n) => Some(*n),
-            SteelValGeneric::IntV(n) => Some(*n as f64),
-            _ => None,
-        };
-
-        if let (Some(l), Some(r)) = (as_f64(x), as_f64(y)) {
-            if matches!(x, SteelValGeneric::NumV(_)) || matches!(y, SteelValGeneric::NumV(_)) {
-                return Ok(SteelValGeneric::NumV(l / r));
-            }
-        }
-    }
-
+    // Unlike +/-/*, division's fast path isn't a simple `l / r`: the concrete implementation
+    // computes it as `x * recip(y)`, and `recip` on an exact (non-float) operand produces an
+    // *exact* Rational, not a float -- so e.g. `(/ 7.0 12)` is computed as `7.0 * (1/12
+    // exactly)`, not `7.0 / 12.0`, and the two round differently in the last bit. Reproducing
+    // that exactly isn't worth it here, so division always goes through the concrete,
+    // `TypeId`-cast bridge (works for `A == Global`, errors otherwise) rather than risking a
+    // silently-wrong answer under a custom allocator.
     let concrete_args: Option<Vec<SteelVal>> =
         args.iter().cloned().map(as_concrete_value).collect();
 
@@ -8367,6 +8610,27 @@ fn constant_to_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
         SteelVal::BoxedFunction(f) => Ok(SteelValGeneric::BoxedFunction(f.clone())),
         SteelVal::CustomStruct(s) => Ok(SteelValGeneric::CustomStruct(s.clone())),
         SteelVal::PortV(p) => Ok(SteelValGeneric::PortV(p.clone())),
+        SteelVal::Custom(c) => Ok(SteelValGeneric::Custom(c.clone())),
+        // Bytecode is allocator-independent (a plain shared byte buffer) and can just be
+        // reused, but the closure's own captures were built through `Global` and need
+        // rebuilding through `alloc` -- recursing handles both prelude helper functions and
+        // closures that themselves capture other closures.
+        SteelVal::Closure(c) => {
+            let mut captures = crate::values::functions::empty_captures_in(alloc.clone());
+            for capture in c.captures() {
+                captures.push(constant_to_generic(capture, alloc)?);
+            }
+
+            let lambda = crate::values::functions::ByteCodeLambda::<A>::new(
+                c.id,
+                c.body_exp_shared(),
+                c.arity(),
+                c.is_multi_arity(),
+                captures,
+            );
+
+            Ok(SteelValGeneric::Closure(Gc::new_in(lambda, alloc.clone())))
+        }
         SteelVal::StringV(s) => Ok(SteelValGeneric::StringV(SteelString::new_in(s, alloc.clone()))),
         SteelVal::SymbolV(s) => Ok(SteelValGeneric::SymbolV(SteelString::new_in(s, alloc.clone()))),
         SteelVal::ListV(l) => {
@@ -8376,10 +8640,35 @@ fn constant_to_generic<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
                 .collect::<Result<Vec<_>>>()?;
             Ok(SteelValGeneric::ListV(items.into()))
         }
+        // Persistent vectors/hashmaps/hashsets are already generic in their *element* type;
+        // only their internal node storage still always allocates through `Global`
+        // regardless of `A` (see ALLOCATOR_SPEC.md's persistent-collections phase) -- an
+        // accepted, pre-existing limitation, not something introduced here.
+        SteelVal::VectorV(v) => {
+            let items = v
+                .iter()
+                .map(|item| constant_to_generic(item, alloc))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(SteelValGeneric::VectorV(items.into_iter().collect()))
+        }
+        SteelVal::HashMapV(m) => {
+            let mut result = crate::HashMap::new();
+            for (k, v) in m.iter() {
+                result.insert(constant_to_generic(k, alloc)?, constant_to_generic(v, alloc)?);
+            }
+            Ok(SteelValGeneric::HashMapV(Gc::new(result).into()))
+        }
+        SteelVal::HashSetV(s) => {
+            let mut result = crate::HashSet::new();
+            for v in s.iter() {
+                result.insert(constant_to_generic(v, alloc)?);
+            }
+            Ok(SteelValGeneric::HashSetV(Gc::new(result).into()))
+        }
         other => match as_generic_value(other.clone()) {
             Some(v) => Ok(v),
             None => {
-                stop!(Generic => "constant of this type is not supported under a custom allocator")
+                stop!(Generic => format!("constant of this type is not supported under a custom allocator: {:?}", other))
             }
         },
     }

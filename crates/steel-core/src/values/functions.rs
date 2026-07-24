@@ -578,6 +578,15 @@ impl<A: crate::gc::Allocator + Clone + Send + Sync + 'static> ByteCodeLambda<A> 
         };
     }
 
+    /// Like `body_exp`, but returns the underlying shared handle directly rather than a
+    /// `RootedInstructions` view -- needed to rebuild a whole new `ByteCodeLambda<A>` (see
+    /// `constant_to_generic` in vm.rs), since bytecode is allocator-independent and can just
+    /// be shared, not re-allocated, when converting a closure to a different `A`.
+    #[cfg(not(feature = "rooted-instructions"))]
+    pub(crate) fn body_exp_shared(&self) -> StandardShared<[DenseInstruction]> {
+        StandardShared::clone(&self.body_exp)
+    }
+
     pub fn body_mut_exp(&mut self) -> StandardShared<[DenseInstruction]> {
         #[cfg(feature = "dynamic")]
         return StandardShared::clone(self.body_exp.get_mut());

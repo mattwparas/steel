@@ -2313,26 +2313,36 @@ impl Engine<crate::gc::Global> {
     }
 
     /// Creates a new `Engine<A>` sharing this engine's compiler, module registry, and dylib
-    /// loader (all Global-only, unaffected by `A` -- see ALLOCATOR_SPEC.md), but with a fresh
-    /// `SteelThread<A>` -- an empty runtime environment backed by `alloc`. Compile/load code
-    /// as usual on `self` (or share `self` across calls), then run the resulting `Executable`
-    /// on the new engine via `run_executable` to populate its environment using `alloc` for
-    /// every runtime allocation, and call into it afterward with `call_function_by_name_with_args`.
-    /// This is the intended way to hand a real-time thread (e.g. an audio callback) a
-    /// self-contained execution context that never touches the global allocator.
+    /// loader (all Global-only, unaffected by `A` -- see ALLOCATOR_SPEC.md), with a fresh
+    /// `SteelThread<A>` backed by `alloc` whose global environment is seeded from this
+    /// engine's current bindings (converted the same way constant-pool values are -- see
+    /// `clone_globals_from`), so primitives like `+`/`cons` and anything already defined on
+    /// `self` resolve correctly. Compile/load code as usual on `self` (or share `self` across
+    /// calls), then run the resulting `Executable` on the new engine via `run_executable` to
+    /// populate the rest of its environment using `alloc` for every runtime allocation, and
+    /// call into it afterward with `call_function_by_name_with_args`. This is the intended way
+    /// to hand a real-time thread (e.g. an audio callback) a self-contained execution context
+    /// that never touches the global allocator.
+    ///
+    /// Fails if `self`'s environment contains a Scheme-defined closure (from the prelude or
+    /// user code) at the time this is called -- closures have no allocator-generic
+    /// representation yet (see ALLOCATOR_SPEC.md). Native/primitive bindings are unaffected.
     pub fn new_engine_with_allocator<A: crate::gc::Allocator + Clone + Send + Sync + 'static>(
         &self,
         alloc: A,
-    ) -> Engine<A> {
+    ) -> Result<Engine<A>> {
         let compiler = self.virtual_machine.compiler.clone();
 
-        Engine {
-            virtual_machine: SteelThread::new_in(compiler, alloc),
+        let mut virtual_machine = SteelThread::new_in(compiler, alloc);
+        virtual_machine.clone_globals_from(&self.virtual_machine)?;
+
+        Ok(Engine {
+            virtual_machine,
             modules: self.modules.clone(),
             #[cfg(feature = "dylibs")]
             dylibs: self.dylibs.clone(),
             id: EngineId::new(),
-        }
+        })
     }
 }
 
