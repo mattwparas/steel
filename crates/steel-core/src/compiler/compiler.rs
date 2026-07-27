@@ -1342,7 +1342,7 @@ impl Compiler {
         // Do this, and then inline everything. Do it again
         // TODO: Configure the amount that we inline?
         semantic.inline_function_calls(None, self.modules())?;
-        semantic.refresh_variables();
+        semantic.refresh_variables_if_changed();
 
         let mut analysis = semantic.into_analysis();
         self.shadowed_variable_renamer
@@ -1354,7 +1354,7 @@ impl Compiler {
         // Do this again
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
         semantic.replace_anonymous_function_calls_with_plain_lets();
-        semantic.refresh_variables();
+        semantic.refresh_variables_if_changed();
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
@@ -1365,7 +1365,7 @@ impl Compiler {
             != Ok("false")
         {
             semantic.lift_closures();
-            semantic.refresh_variables();
+            semantic.refresh_variables_if_changed();
         }
 
         // TODO: Configure inlining function size

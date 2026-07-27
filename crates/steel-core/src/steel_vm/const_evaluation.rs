@@ -254,7 +254,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
 struct ConstantEvaluator<'a> {
     bindings: SharedEnv,
     set_idents: &'a FxHashSet<InternedString>,
-    expr_level_set_idents: &'a [InternedString],
+    expr_level_set_idents: &'a FxHashSet<InternedString>,
     changed: bool,
     opt_level: OptLevel,
     _memoization_table: &'a mut MemoizationTable,
@@ -278,7 +278,7 @@ impl<'a> ConstantEvaluator<'a> {
     fn new(
         bindings: Rc<RefCell<ConstantEnv>>,
         set_idents: &'a FxHashSet<InternedString>,
-        expr_level_set_idents: &'a [InternedString],
+        expr_level_set_idents: &'a FxHashSet<InternedString>,
         opt_level: OptLevel,
         memoization_table: &'a mut MemoizationTable,
         kernel: &'a mut Option<Kernel>,
@@ -1164,7 +1164,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 struct CollectSet<'a> {
     set_idents: &'a mut FxHashSet<InternedString>,
     scopes: quickscope::ScopeSet<InternedString, FxBuildHasher>,
-    pub expr_level_set_idents: smallvec::SmallVec<[InternedString; 32]>,
+    pub expr_level_set_idents: FxHashSet<InternedString>,
 }
 
 impl<'a> CollectSet<'a> {
@@ -1172,7 +1172,7 @@ impl<'a> CollectSet<'a> {
         Self {
             set_idents,
             scopes: quickscope::ScopeSet::default(),
-            expr_level_set_idents: smallvec::SmallVec::default(),
+            expr_level_set_idents: FxHashSet::default(),
         }
     }
 }
@@ -1238,7 +1238,7 @@ impl<'a> VisitorMut for CollectSet<'a> {
 
                 self.set_idents.insert(*identifier);
             } else {
-                self.expr_level_set_idents.push(*identifier);
+                self.expr_level_set_idents.insert(*identifier);
 
                 // println!("IN SCOPE: {}", identifier.resolve());
             }
