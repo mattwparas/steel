@@ -871,6 +871,7 @@ impl Compiler {
     fn generate_instructions_for_executable(
         &mut self,
         mut expanded_statements: Vec<ExprKind>,
+        analysis_is_current: bool,
     ) -> Result<Vec<Vec<Instruction>>> {
         let mut results = Vec::with_capacity(expanded_statements.len());
         // let mut instruction_buffer = Vec::new();
@@ -879,7 +880,12 @@ impl Compiler {
         let analysis = {
             let mut analysis = core::mem::take(&mut self.analysis);
 
-            analysis.fresh_from_exprs(&expanded_statements);
+            // Lowering leaves this fresh already - only the paths that bring their own ast,
+            // like reading one back off disk, have to build it here
+            if !analysis_is_current {
+                analysis.fresh_from_exprs(&expanded_statements);
+            }
+
             analysis.populate_captures_twice(&expanded_statements);
 
             // let mut analysis = Analysis::from_exprs(&expanded_statements);
@@ -1449,7 +1455,7 @@ impl Compiler {
         let contents = std::fs::read(path).unwrap();
         let expanded_statements = bincode::deserialize(&contents).unwrap();
 
-        let instructions = self.generate_instructions_for_executable(expanded_statements)?;
+        let instructions = self.generate_instructions_for_executable(expanded_statements, false)?;
 
         let mut raw_program = RawProgramWithSymbols::new(
             instructions,
@@ -1477,7 +1483,7 @@ impl Compiler {
 
         log::debug!(target: "expansion-phase", "Generating instructions");
 
-        let instructions = self.generate_instructions_for_executable(expanded_statements)?;
+        let instructions = self.generate_instructions_for_executable(expanded_statements, true)?;
 
         let mut raw_program = RawProgramWithSymbols::new(
             instructions,
