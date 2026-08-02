@@ -890,11 +890,11 @@ macro_rules! impl_register_fn_ffi {
                     }
 
                     let mut arg_iter = args.into_iter();
-                    let mut rarg1 = arg_iter.next().unwrap();
+                    let rarg1 = arg_iter.next().unwrap();
 
-                    let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&mut rarg1));
+                    let arg1 = ffi_try!(<SELF>::as_ref(&rarg1));
 
-                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_arg(core::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
+                    let res = func(arg1, $(ffi_try!(<$param>::from_ffi_arg(core::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
 
                     res.into_ffi_val()
                 };
