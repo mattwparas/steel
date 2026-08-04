@@ -75,9 +75,6 @@ cranelift = { version = "0.130", optional = true }
 cranelift-module = { version = "0.130", optional = true }
 cranelift-jit = { version = "0.130", optional = true }
 cranelift-native = { version = "0.130", optional = true }
-object = { version = "*" }
-target-lexicon = "*"
-rustix = { version = "1", features = ["thread"] }
 
 anyhow = { version = "1", optional = true }
 
@@ -119,7 +116,12 @@ icu_casemap = "2.0.0"
 thin-vec = { version = "0.2.14", features = ["serde"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# `perf` integration for the jit2 backend, behind STEEL_JIT_DUMP. Linux only,
+# and only pulled in with `jit2`.
 wasmtime-jit-debug = { version = "34", optional = true, features = ["perf_jitdump"] }
+object = { version = "0.36", optional = true, default-features = false, features = ["elf"] }
+target-lexicon = { version = "0.13", optional = true }
+rustix = { version = "1", optional = true, features = ["thread"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { version = "0.3.1", features = ["wasm_js"] }
@@ -172,7 +174,20 @@ biased = ["dep:steel-rc"]
 
 
 ffi-format = []
-jit2 = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit", "dep:cranelift-native", "dep:wasmtime-jit-debug"]
+jit2 = [
+    # The generated code reaches into BiasedRc directly - inline refcounting,
+    # get_mut_unchecked on the closure slot - so jit2 can't stand on its own.
+    "biased",
+    "dep:cranelift",
+    "dep:cranelift-module",
+    "dep:cranelift-jit",
+    "dep:cranelift-native",
+    # Linux-only perf integration; these are no-ops on other targets.
+    "dep:wasmtime-jit-debug",
+    "dep:object",
+    "dep:target-lexicon",
+    "dep:rustix",
+]
 
 [[bench]]
 name = "my_benchmark"

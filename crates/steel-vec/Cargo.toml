@@ -2,5 +2,8 @@
 name = "steel-vec"
 edition = "2021"
 version.workspace = true
+license = "MIT OR Apache-2.0"
+description = "Growable array with a stable layout the steel jit can address directly"
+repository = "https://github.com/mattwparas/steel"
 
 [dependencies]

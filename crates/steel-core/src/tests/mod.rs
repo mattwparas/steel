@@ -98,6 +98,7 @@ test_harness_success_sync! {
 
 test_harness_success! {
     abc_problem,
+    jit_branch_in_argument_list,
     apply,
     apply_more_complex,
     babbage_problem,
@@ -186,6 +187,7 @@ test_harness_success! {
 
 test_harness_success_module! {
     abc_problem,
+    jit_branch_in_argument_list,
     apply,
     apply_more_complex,
     babbage_problem,

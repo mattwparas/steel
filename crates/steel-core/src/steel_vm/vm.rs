@@ -2491,15 +2491,19 @@ impl<'a> VmCore<'a> {
                     // Is this right? Maybe we just need to check the is native part?
                     let maybe_result = (tramp)(self as _, fn_ptr);
 
+                    // Only describes this dispatch, so it has to be cleared on the way
+                    // out. Leaving it set on the early return below leaks a stale true
+                    // into the enclosing frame, which shifts the stack by one slot on a
+                    // re-entrant call.
+                    let was_native = core::mem::replace(&mut self.is_native, false);
+
                     if let Some(res) = self.result.take() {
                         return res;
                     }
 
-                    if self.is_native {
+                    if was_native {
                         self.thread.stack.push(maybe_result);
                     }
-
-                    self.is_native = false;
                 }
 
                 DenseInstruction {

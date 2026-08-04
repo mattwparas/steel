@@ -313,7 +313,9 @@ impl ByteCodeLambda {
             body_exp: proto.body_exp.clone(),
             captures,
             contract: proto.contract.clone(),
+            #[cfg(feature = "jit2")]
             super_instructions: proto.super_instructions,
+            #[cfg(feature = "jit2")]
             tier2: proto.tier2,
         }
     }

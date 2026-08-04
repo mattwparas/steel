@@ -26,6 +26,47 @@ fn should_trampoline(ctx: &mut VmCore) -> bool {
     ctx.thread.stack_frames.len() < 100
 }
 
+// Debug knobs for narrowing a jit miscompilation down to a single function.
+//
+// STEEL_JIT_LOG=1              logs every candidate as #<n> -> id <id>
+// STEEL_JIT_MAX=<n>            only compile the first n candidates
+// STEEL_JIT_ONLY=<id>[,<id>..] only compile these ids
+// STEEL_JIT_SKIP=<id>[,<id>..] compile everything but these ids
+//
+// Binary search on STEEL_JIT_MAX until it breaks, pull the id at that index out
+// of the log, then confirm with STEEL_JIT_SKIP.
+fn jit_should_compile(id: u32) -> bool {
+    fn id_list(var: &str) -> Option<Vec<u32>> {
+        std::env::var(var).ok().map(|x| {
+            x.split(',')
+                .filter_map(|x| x.trim().parse::<u32>().ok())
+                .collect()
+        })
+    }
+
+    if let Some(only) = id_list("STEEL_JIT_ONLY") {
+        if !only.contains(&id) {
+            return false;
+        }
+    }
+
+    if id_list("STEEL_JIT_SKIP").is_some_and(|skip| skip.contains(&id)) {
+        return false;
+    }
+
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    let n = COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+
+    if std::env::var("STEEL_JIT_LOG").is_ok() {
+        eprintln!("jit: candidate #{n} -> id {id}");
+    }
+
+    match std::env::var("STEEL_JIT_MAX").ok().and_then(|x| x.parse().ok()) {
+        Some(max) if n >= max => false,
+        _ => true,
+    }
+}
+
 pub(crate) fn jit_compile_lambda(
     ctx: &mut VmCore,
     mut func: ByteCodeLambda,
@@ -37,8 +78,29 @@ pub(crate) fn jit_compile_lambda(
         .iter()
         .any(|x| matches!(x.op_code, OpCode::PUREFUNC))
     {
-        println!("Skipping compiling because of pure funcs: {}", func.id);
         return func;
+    }
+
+    if !jit_should_compile(func.id) {
+        return func;
+    }
+
+    if std::env::var("STEEL_JIT_LOG_NAMES").is_ok() {
+        let name = maybe_index.and_then(|x| {
+            ctx.thread
+                .compiler
+                .read()
+                .symbol_map
+                .values()
+                .get(x)
+                .copied()
+        });
+        eprintln!(
+            "jit-name: id {} arity {} -> {:?}",
+            func.id,
+            func.arity,
+            name.map(|x| x.resolve().to_string())
+        );
     }
 
     if ctx.thread.compiler.read().kernel.is_none() {
@@ -49,6 +111,20 @@ pub(crate) fn jit_compile_lambda(
     if func.is_multi_arity {
         // println!("Skipping compiling because it is multi arity: {}", func.id);
         return func;
+    }
+
+    if std::env::var("STEEL_JIT_DUMP_BC").ok().as_deref() == Some(func.id.to_string().as_str()) {
+        eprintln!("=== bytecode for id {} (arity {}) ===", func.id, func.arity);
+        crate::core::instructions::pretty_print_dense_instructions(&func.body_exp);
+        let guard = ctx.thread.compiler.read();
+        let values = guard.symbol_map.values();
+        for (i, inst) in func.body_exp.iter().enumerate() {
+            if matches!(inst.op_code, OpCode::CALLGLOBAL | OpCode::CALLGLOBALTAIL
+                | OpCode::CALLGLOBALNOARITY | OpCode::CALLGLOBALTAILNOARITY | OpCode::PUSH) {
+                eprintln!("  {i}: {:?} -> {:?}", inst.op_code,
+                    values.get(inst.payload_size.to_usize()).map(|x| x.resolve().to_string()));
+            }
+        }
     }
 
     let name = func.id.to_string();

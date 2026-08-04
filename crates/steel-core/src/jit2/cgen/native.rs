@@ -5,6 +5,17 @@ use crate::values::{
 
 use super::*;
 
+// The abstract state both arms of a two way branch start from. See
+// snapshot_branch_state.
+pub(super) struct BranchState {
+    ip: usize,
+    shadow_stack: Vec<MaybeStackValue>,
+    let_var_stack: Vec<usize>,
+    value_to_local_map: HashMap<Value, usize>,
+    local_to_value_map: HashMap<usize, InferredType>,
+    properties: PropertyMap,
+}
+
 impl<'a> FunctionTranslator<'a> {
     fn shadow_last_cloned(&self) -> MaybeStackValue {
         self.shadow_stack.last().unwrap().clone()
@@ -822,6 +833,43 @@ impl<'a> FunctionTranslator<'a> {
         merge(self);
     }
 
+    // Both arms run from the same program state, so both have to be translated
+    // from the same abstract state. Emitting `then` mutates it in place, so roll
+    // it back before we emit the else arm - otherwise the else arm gets a stack /
+    // ip / property set that only the then arm ever reaches. Callers used to do
+    // this by hand, which is easy to forget.
+    //
+    // State after the merge is left as whatever the else arm produced, same as
+    // translate_if_else_value.
+    fn snapshot_branch_state(&self) -> BranchState {
+        BranchState {
+            ip: self.ip,
+            shadow_stack: self.shadow_stack.clone(),
+            let_var_stack: self.let_var_stack.clone(),
+            value_to_local_map: self.value_to_local_map.clone(),
+            local_to_value_map: self.local_to_value_map.clone(),
+            properties: self.properties.clone(),
+        }
+    }
+
+    fn restore_branch_state(&mut self, state: BranchState) {
+        let BranchState {
+            ip,
+            shadow_stack,
+            let_var_stack,
+            value_to_local_map,
+            local_to_value_map,
+            properties,
+        } = state;
+
+        self.ip = ip;
+        self.shadow_stack = shadow_stack;
+        self.let_var_stack = let_var_stack;
+        self.value_to_local_map = value_to_local_map;
+        self.local_to_value_map = local_to_value_map;
+        self.properties = properties;
+    }
+
     pub(super) fn converging_if_no_value(
         &mut self,
         test_condition: Value,
@@ -839,15 +887,15 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
 
-        let ip_before = self.ip;
+        let entry = self.snapshot_branch_state();
         then(self);
-        self.ip = ip_before;
 
         self.builder.ins().jump(merge_block, &[]);
 
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
 
+        self.restore_branch_state(entry);
         else_thunk(self);
         self.builder.ins().jump(merge_block, &[]);
         self.builder.switch_to_block(merge_block);
@@ -873,6 +921,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
 
+        let entry = self.snapshot_branch_state();
         then(self);
 
         self.builder.ins().jump(merge_block, &[]);
@@ -880,6 +929,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
 
+        self.restore_branch_state(entry);
         else_thunk(self);
         self.builder.ins().jump(merge_block, &[]);
         self.builder.switch_to_block(merge_block);
@@ -905,6 +955,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
 
+        let entry = self.snapshot_branch_state();
         let res = BlockArg::Value(then(self));
 
         self.builder.ins().jump(merge_block, &[res]);
@@ -912,6 +963,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
 
+        self.restore_branch_state(entry);
         let then_res = BlockArg::Value(else_thunk(self));
         self.builder.ins().jump(merge_block, &[then_res]);
         self.builder.switch_to_block(merge_block);
@@ -943,6 +995,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
 
+        let entry = self.snapshot_branch_state();
         let res = BlockArg::Value(then(self));
 
         self.builder.ins().jump(merge_block, &[res]);
@@ -950,6 +1003,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
 
+        self.restore_branch_state(entry);
         let then_res = BlockArg::Value(else_thunk(self));
         self.builder.ins().jump(merge_block, &[then_res]);
         self.builder.switch_to_block(merge_block);

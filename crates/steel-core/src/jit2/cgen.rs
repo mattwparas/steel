@@ -89,8 +89,11 @@ pub struct JIT {
 
     function_return_types: HashMap<u32, HashSet<InferredType>>,
 
+    // perf inject --jit support. None unless STEEL_JIT_DUMP asked for it -
+    // opening it eagerly drops a jit-<pid>.dump into the cwd of every process
+    // that builds a JIT.
     #[cfg(target_os = "linux")]
-    jitdump: wasmtime_jit_debug::perf_jitdump::JitDumpFile,
+    jitdump: Option<wasmtime_jit_debug::perf_jitdump::JitDumpFile>,
 }
 
 pub struct FunctionMap<'a> {
@@ -1236,23 +1239,7 @@ impl Default for JIT {
         let module = JITModule::new(builder);
 
         #[cfg(target_os = "linux")]
-        let jitdump = {
-            use object::elf;
-            use target_lexicon::Architecture;
-
-            let e_machine = match target_lexicon::HOST.architecture {
-                Architecture::X86_64 => elf::EM_X86_64 as u32,
-                Architecture::Aarch64(_) => elf::EM_AARCH64 as u32,
-                Architecture::Arm(_) => elf::EM_ARM as u32,
-                _ => unimplemented!(),
-            };
-
-            wasmtime_jit_debug::perf_jitdump::JitDumpFile::new(
-                format!("./jit-{}.dump", std::process::id()),
-                e_machine,
-            )
-            .unwrap()
-        };
+        let jitdump = open_jitdump();
 
         Self {
             builder_context: FunctionBuilderContext::new(),
@@ -1308,10 +1295,66 @@ unsafe fn compile_bytecode(
     Ok(code_fn)
 }
 
+// perf metadata for jitted code. Both of these write files named after the
+// pid and cost a syscall per compiled function, so they're opt in:
+//
+// STEEL_JIT_PERF_MAP - appends to /tmp/perf-<pid>.map, for perf report
+// STEEL_JIT_DUMP     - writes jit-<pid>.dump in the cwd, for perf inject --jit
+//
+// Read once, these are on the compile path.
+fn perf_map_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("STEEL_JIT_PERF_MAP").is_some())
+}
+
+#[cfg(target_os = "linux")]
+fn jitdump_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("STEEL_JIT_DUMP").is_some())
+}
+
+// None rather than a panic if we can't create the file - a read only working
+// directory is a normal way to run, and losing profiling output isn't worth
+// taking the process down for.
+#[cfg(target_os = "linux")]
+fn open_jitdump() -> Option<wasmtime_jit_debug::perf_jitdump::JitDumpFile> {
+    use object::elf;
+    use target_lexicon::Architecture;
+
+    if !jitdump_enabled() {
+        return None;
+    }
+
+    let e_machine = match target_lexicon::HOST.architecture {
+        Architecture::X86_64 => elf::EM_X86_64 as u32,
+        Architecture::Aarch64(_) => elf::EM_AARCH64 as u32,
+        Architecture::Arm(_) => elf::EM_ARM as u32,
+        other => {
+            log::warn!(target: "jit", "STEEL_JIT_DUMP is not supported on {other:?}");
+            return None;
+        }
+    };
+
+    let path = format!("./jit-{}.dump", std::process::id());
+
+    match wasmtime_jit_debug::perf_jitdump::JitDumpFile::new(&path, e_machine) {
+        Ok(file) => Some(file),
+        Err(e) => {
+            log::warn!(target: "jit", "unable to open {path} for STEEL_JIT_DUMP: {e}");
+            None
+        }
+    }
+}
+
 // Write an entry to `/tmp/perf-<pid>.map` so that perf can resolve function addresses
 // to names in flamegraphs with the format: `<start_hex> <size_hex> <name>`
 fn write_perf_map_entry(addr: *const u8, size: usize, name: &str) {
     use std::io::Write;
+
+    if !perf_map_enabled() {
+        return;
+    }
+
     let pid = std::process::id();
     let path = format!("/tmp/perf-{}.map", pid);
     if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -1535,20 +1578,19 @@ impl JIT {
         // Lets figure out... what we need here
         write_perf_map_entry(code, code_size, &inner_name);
 
-        if std::env::var("STEEL_JIT_DUMP").is_ok() {
-            #[cfg(target_os = "linux")]
-            {
-                // after finalize_definitions(), for each function:
-                let ptr = code;
-                let size = code_size;
-                let code_bytes = unsafe { std::slice::from_raw_parts(ptr, size) };
-                let timestamp = self.jitdump.get_time_stamp();
-                let pid = std::process::id();
-                let tid = rustix::thread::gettid().as_raw_nonzero().get() as u32;
+        #[cfg(target_os = "linux")]
+        if let Some(jitdump) = self.jitdump.as_mut() {
+            // after finalize_definitions(), for each function:
+            let code_bytes = unsafe { std::slice::from_raw_parts(code, code_size) };
+            let timestamp = jitdump.get_time_stamp();
+            let pid = std::process::id();
+            let tid = rustix::thread::gettid().as_raw_nonzero().get() as u32;
 
-                self.jitdump
-                    .dump_code_load_record(&inner_name, code_bytes, timestamp, pid, tid)
-                    .unwrap();
+            if let Err(e) = jitdump.dump_code_load_record(&inner_name, code_bytes, timestamp, pid, tid)
+            {
+                // Give up on the profiling output rather than going down mid compile
+                log::warn!(target: "jit", "failed to write a jitdump record: {e}; disabling");
+                self.jitdump = None;
             }
         }
 
@@ -5887,22 +5929,53 @@ impl FunctionTranslator<'_> {
         // Don't need to check deopt on predicates
     }
 
+    // Inline decrement of a steel_rc::weak::Weak. `ptr` is the ArcInner, the weak
+    // count sits at offset 8.
+    //
+    // Weak::drop also frees the allocation once the count hits zero, which we can't
+    // do from generated code - so if we're the one taking it to zero, put it back
+    // and let the real destructor run. The free list holds a strong ref (and so the
+    // implicit weak ref) while the slot is live, so this is cold.
+    fn inline_weak_decrement(&mut self, ptr: Value, drop_fn: &'static str, drop_arg: Value) {
+        let one = self.builder.ins().iconst(types::I64, 1);
+        let offset = self.builder.ins().iadd_imm(ptr, 8);
+
+        // atomic_rmw hands back what was in memory before the operation
+        let previous = self.builder.ins().atomic_rmw(
+            types::I64,
+            MemFlags::trusted(),
+            AtomicRmwOp::Sub,
+            offset,
+            one,
+        );
+
+        let hit_zero = self.builder.ins().icmp_imm(IntCC::Equal, previous, 1);
+
+        self.converging_if_no_value_else_cold(
+            hit_zero,
+            |ctx| {
+                let one = ctx.builder.ins().iconst(types::I64, 1);
+                let offset = ctx.builder.ins().iadd_imm(ptr, 8);
+                ctx.builder.ins().atomic_rmw(
+                    types::I64,
+                    MemFlags::trusted(),
+                    AtomicRmwOp::Add,
+                    offset,
+                    one,
+                );
+                ctx.call_function_args_no_context(drop_fn, &[drop_arg]);
+            },
+            |_| {},
+        );
+    }
+
     fn drop_weak_rc(&mut self, value: Value) {
-        let value = self.unbox_value_to_pointer(value);
+        // drop-one takes a whole SteelVal, so it gets the tagged value - not the
+        // unboxed pointer we do the arithmetic on.
+        let ptr = self.unbox_value_to_pointer(value);
 
         if USE_INLINE_DROP_HEAP_BOX {
-            let one = self.builder.ins().iconst(types::I64, 1);
-
-            let offset = self.builder.ins().iadd_imm(value, 8);
-
-            // Clone?
-            let old_value = self.builder.ins().atomic_rmw(
-                types::I64,
-                MemFlags::trusted(),
-                AtomicRmwOp::Sub,
-                offset,
-                one,
-            );
+            self.inline_weak_decrement(ptr, "drop-one", value);
         } else {
             self.call_function_args_no_context("drop-one", &[value]);
         }
@@ -6215,20 +6288,11 @@ impl FunctionTranslator<'_> {
         self.call_function_args_no_context("drop-one", &[value]);
     }
 
+    // value is a HeapRef<_>, i.e. the bare Weak pointer, which is what
+    // drop-box / drop-boxed-vec take by value.
     fn drop_heap_box(&mut self, value: Value) {
         if USE_INLINE_DROP_HEAP_BOX {
-            let one = self.builder.ins().iconst(types::I64, 1);
-
-            let offset = self.builder.ins().iadd_imm(value, 8);
-
-            // Clone?
-            let old_value = self.builder.ins().atomic_rmw(
-                types::I64,
-                MemFlags::trusted(),
-                AtomicRmwOp::Sub,
-                offset,
-                one,
-            );
+            self.inline_weak_decrement(value, "drop-box", value);
         } else {
             self.call_function_args_no_context("drop-box", &[value]);
         }
@@ -6236,18 +6300,7 @@ impl FunctionTranslator<'_> {
 
     fn drop_heap_box_vec(&mut self, value: Value) {
         if USE_INLINE_DROP_HEAP_BOX {
-            let one = self.builder.ins().iconst(types::I64, 1);
-
-            let offset = self.builder.ins().iadd_imm(value, 8);
-
-            // Clone?
-            let old_value = self.builder.ins().atomic_rmw(
-                types::I64,
-                MemFlags::trusted(),
-                AtomicRmwOp::Sub,
-                offset,
-                one,
-            );
+            self.inline_weak_decrement(value, "drop-boxed-vec", value);
         } else {
             self.call_function_args_no_context("drop-boxed-vec", &[value]);
         }
@@ -7463,6 +7516,23 @@ impl FunctionTranslator<'_> {
         self.ip += ip_inc;
     }
 
+    // Make the shadow stack uniform before a two way branch.
+    //
+    // Entries can be lazy references to a vm stack slot, and can be spilled (on
+    // the vm stack) or not (still in ssa). The two arms don't have to agree about
+    // what they do to either: a call or a scope end in one arm moves a slot out
+    // and leaves void behind, or spills the pending entries onto the vm stack.
+    // The merge only inherits one arm's bookkeeping, so the other path reads
+    // emptied slots or a vm stack of the wrong depth.
+    //
+    // Spilling here happens in the block that dominates both arms, so there is
+    // nothing left for them to disagree about.
+    fn spill_stack_for_branch(&mut self) {
+        for index in 0..self.shadow_stack.len() {
+            self.shadow_spill(index);
+        }
+    }
+
     fn shadow_spill(&mut self, index: usize) -> Option<()> {
         // assert!(!self.cloned_stack);
         let guard = self.shadow_stack.get_mut(index)?;
@@ -8356,6 +8426,8 @@ impl FunctionTranslator<'_> {
 
         let start = self.ip;
         let depth = self.depth;
+
+        self.spill_stack_for_branch();
 
         // if self.visited.insert(self.ip) {
         // }
@@ -9397,13 +9469,16 @@ impl FunctionTranslator<'_> {
             // Write to the vm stack
             self.write_to_vm_stack_starting_at(0, &args, true);
         } else if args.len() > self.arity as usize {
-            let at_capacity = self
-                .builder
-                .ins()
-                .icmp(IntCC::Equal, stack_capacity, new_length);
+            // Grows by more than one slot, so we have to check that the new length
+            // still fits - not that it lands exactly on the capacity. Same comparison
+            // push_to_many_vm_stack_let_var_new uses.
+            let needs_more_capacity =
+                self.builder
+                    .ins()
+                    .icmp(IntCC::UnsignedGreaterThan, new_length, stack_capacity);
 
             self.converging_if_no_else_no_value_then_cold(
-                at_capacity,
+                needs_more_capacity,
                 |ctx| {
                     let amt = args.len() - ctx.arity as usize;
                     let amt = ctx.builder.ins().iconst(types::I64, amt as i64);

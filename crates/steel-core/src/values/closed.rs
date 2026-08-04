@@ -2165,7 +2165,10 @@ impl HeapAble for Vec<SteelVal> {
     }
 }
 
+// The jit hands HeapRef straight to drop-box / drop-boxed-vec as a bare pointer,
+// so the single field layout needs to be guaranteed rather than assumed.
 #[derive(Clone, Debug)]
+#[repr(transparent)]
 pub struct HeapRef<T: HeapAble> {
     // TODO: Replace the inner value with a spin lock?
     // Shouldn't really be possible to have this be an issue

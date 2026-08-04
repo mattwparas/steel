@@ -30,9 +30,15 @@ impl<T> RawVec<T> {
     }
 
     fn with_capacity(capacity: usize) -> Self {
-        let new_cap = capacity;
-        let new_layout = Layout::array::<T>(capacity);
-        let new_layout = new_layout.expect("Allocation too large");
+        // Zero elements must not reach the allocator: alloc::alloc wants a layout
+        // with a non-zero size, and since Drop skips cap == 0 the block would never
+        // get freed either. Zero sized types don't allocate at all - new encodes
+        // that as usize::MAX capacity, which the rest of RawVec relies on.
+        if capacity == 0 || mem::size_of::<T>() == 0 {
+            return Self::new();
+        }
+
+        let new_layout = Layout::array::<T>(capacity).expect("Allocation too large");
 
         let new_ptr = unsafe { alloc::alloc(new_layout) };
 
@@ -42,13 +48,18 @@ impl<T> RawVec<T> {
             None => alloc::handle_alloc_error(new_layout),
         };
 
-        Self { ptr, cap: new_cap }
+        Self { ptr, cap: capacity }
     }
 
     fn reserve_exact(&mut self, len: usize, additional: usize) {
-        assert!(mem::size_of::<T>() != 0, "capacity overflow");
-
         let required = len.checked_add(additional).expect("capacity overflow");
+
+        // A zero sized type already has usize::MAX capacity, so required can't
+        // exceed it and there's nothing to allocate.
+        if mem::size_of::<T>() == 0 {
+            return;
+        }
+
         if required <= self.cap {
             return;
         }
@@ -129,24 +140,40 @@ pub struct Vec<T> {
 
 impl<T: Clone> Clone for Vec<T> {
     fn clone(&self) -> Self {
-        let len = self.len();
-        // TODO: Consider not cloning the capacity too?
-        // Just start with the length instead?
-        let mut new_vec = Vec::<T>::with_capacity(self.cap());
-        let mut data_raw = new_vec.ptr();
+        // Allocate for what we're about to write rather than mirroring the source's
+        // spare capacity - cloning an empty vector shouldn't allocate at all.
+        let mut new_vec = Vec::<T>::with_capacity(self.len());
+
         for x in self.iter() {
             unsafe {
-                ptr::write(data_raw, x.clone());
-                data_raw = data_raw.add(1);
+                // x.clone() runs before the write, so if it unwinds nothing has
+                // been written and len hasn't moved. Bumping len as each element
+                // lands means a panic part way through still drops what we cloned
+                // instead of leaking it.
+                ptr::write(new_vec.ptr().add(new_vec.len), x.clone());
+                new_vec.len += 1;
             }
         }
-        new_vec.len = len;
+
         new_vec
     }
 }
 
 impl<T> Vec<T> {
     fn ptr(&self) -> *mut T {
+        self.buf.ptr.as_ptr()
+    }
+
+    // These shadow the [T] methods reached through Deref, and have to: the slice
+    // ones only carry provenance over the initialized 0..len range, so anything
+    // that shrinks len and then reaches past it - drain, split_off, Drain::drop -
+    // ends up outside the pointer's range. Going through RawVec keeps provenance
+    // over the whole allocation, same as std's Vec::as_ptr.
+    pub fn as_ptr(&self) -> *const T {
+        self.buf.ptr.as_ptr()
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut T {
         self.buf.ptr.as_ptr()
     }
 
@@ -465,63 +492,84 @@ impl<'a, T> IntoIterator for &'a Vec<T> {
 struct RawValIter<T> {
     start: *const T,
     end: *const T,
+    // Remaining elements when T is zero sized. Every one of them lives at the same
+    // dangling address, so start and end carry no information - keep the count here
+    // instead of smuggling it into the pointer as an integer.
+    zst_remaining: usize,
 }
 
 impl<T> RawValIter<T> {
     unsafe fn new(slice: &[T]) -> Self {
+        let start = slice.as_ptr();
+
+        let (end, zst_remaining) = if mem::size_of::<T>() == 0 {
+            (start, slice.len())
+        } else {
+            // add(0) on the dangling pointer of an empty slice is fine
+            (unsafe { start.add(slice.len()) }, 0)
+        };
+
         RawValIter {
-            start: slice.as_ptr(),
-            end: if mem::size_of::<T>() == 0 {
-                ((slice.as_ptr() as usize) + slice.len()) as *const _
-            } else if slice.len() == 0 {
-                slice.as_ptr()
-            } else {
-                slice.as_ptr().add(slice.len())
-            },
+            start,
+            end,
+            zst_remaining,
         }
+    }
+
+    // Hand back one zero sized element, if any are left
+    fn next_zst(&mut self) -> Option<T> {
+        if self.zst_remaining == 0 {
+            return None;
+        }
+
+        self.zst_remaining -= 1;
+        Some(unsafe { ptr::read(NonNull::<T>::dangling().as_ptr()) })
     }
 }
 
 impl<T> Iterator for RawValIter<T> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
+        if mem::size_of::<T>() == 0 {
+            return self.next_zst();
+        }
+
         if self.start == self.end {
             None
         } else {
             unsafe {
-                if mem::size_of::<T>() == 0 {
-                    self.start = (self.start as usize + 1) as *const _;
-                    Some(ptr::read(NonNull::<T>::dangling().as_ptr()))
-                } else {
-                    let old_ptr = self.start;
-                    self.start = self.start.offset(1);
-                    Some(ptr::read(old_ptr))
-                }
+                let old_ptr = self.start;
+                self.start = self.start.offset(1);
+                Some(ptr::read(old_ptr))
             }
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         let elem_size = mem::size_of::<T>();
-        let len =
-            (self.end as usize - self.start as usize) / if elem_size == 0 { 1 } else { elem_size };
+
+        let len = if elem_size == 0 {
+            self.zst_remaining
+        } else {
+            (self.end as usize - self.start as usize) / elem_size
+        };
+
         (len, Some(len))
     }
 }
 
 impl<T> DoubleEndedIterator for RawValIter<T> {
     fn next_back(&mut self) -> Option<T> {
+        if mem::size_of::<T>() == 0 {
+            return self.next_zst();
+        }
+
         if self.start == self.end {
             None
         } else {
             unsafe {
-                if mem::size_of::<T>() == 0 {
-                    self.end = (self.end as usize - 1) as *const _;
-                    Some(ptr::read(NonNull::<T>::dangling().as_ptr()))
-                } else {
-                    self.end = self.end.offset(-1);
-                    Some(ptr::read(self.end))
-                }
+                self.end = self.end.offset(-1);
+                Some(ptr::read(self.end))
             }
         }
     }
