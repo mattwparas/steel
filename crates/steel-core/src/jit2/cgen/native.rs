@@ -5,8 +5,7 @@ use crate::values::{
 
 use super::*;
 
-// The abstract state both arms of a two way branch start from. See
-// snapshot_branch_state.
+// The abstract state both arms of a two way branch start from
 pub(super) struct BranchState {
     ip: usize,
     shadow_stack: Vec<MaybeStackValue>,
@@ -834,12 +833,11 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     // Both arms run from the same program state, so both have to be translated
-    // from the same abstract state. Emitting `then` mutates it in place, so roll
-    // it back before we emit the else arm - otherwise the else arm gets a stack /
-    // ip / property set that only the then arm ever reaches. Callers used to do
-    // this by hand, which is easy to forget.
+    // from the same one. Emitting then mutates it in place, so roll it back before
+    // the else arm - otherwise else gets a stack / ip / property set that only the
+    // then arm ever reaches.
     //
-    // State after the merge is left as whatever the else arm produced, same as
+    // State after the merge is left as whatever else produced, same as
     // translate_if_else_value.
     fn snapshot_branch_state(&self) -> BranchState {
         BranchState {
@@ -1653,13 +1651,11 @@ fn slow_path_struct_getter(
 // to the custom one.
 //
 // Struct refs should now be inlineable.
-// The jit's own acquire/release, matching `values::lock::SpinLock`.
+// The jit's own acquire/release, matching values::lock::SpinLock. Cranelift's
+// atomics are sequentially consistent, so this is stronger than the rust side's
+// Acquire/Release - they interoperate, generated code just pays a bit more.
 //
-// Cranelift's atomics are sequentially consistent, so this is stronger than the
-// rust side's Acquire/Release - the two interoperate, generated code is just
-// paying a little more than it needs to.
-//
-// `lock_ptr` is the base of the `SpinLock`, so the flag has to live at offset 0.
+// lock_ptr is the base of the SpinLock, so the flag has to live at offset 0.
 const _: () = {
     assert!(SpinLock::<SteelVal>::lock_offset() == 0);
 };

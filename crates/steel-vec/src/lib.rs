@@ -30,9 +30,9 @@ impl<T> RawVec<T> {
     }
 
     fn with_capacity(capacity: usize) -> Self {
-        // Zero elements must not reach the allocator: alloc::alloc wants a layout
-        // with a non-zero size, and since Drop skips cap == 0 the block would never
-        // get freed either. Zero sized types don't allocate at all - new encodes
+        // Zero elements must not reach the allocator - alloc::alloc wants a non
+        // zero sized layout, and since Drop skips cap == 0 the block would never
+        // get freed either. Zero sized types don't allocate at all; new encodes
         // that as usize::MAX capacity, which the rest of RawVec relies on.
         if capacity == 0 || mem::size_of::<T>() == 0 {
             return Self::new();
@@ -55,7 +55,7 @@ impl<T> RawVec<T> {
         let required = len.checked_add(additional).expect("capacity overflow");
 
         // A zero sized type already has usize::MAX capacity, so required can't
-        // exceed it and there's nothing to allocate.
+        // exceed it and there's nothing to allocate
         if mem::size_of::<T>() == 0 {
             return;
         }
@@ -140,8 +140,8 @@ pub struct Vec<T> {
 
 impl<T: Clone> Clone for Vec<T> {
     fn clone(&self) -> Self {
-        // Allocate for what we're about to write rather than mirroring the source's
-        // spare capacity - cloning an empty vector shouldn't allocate at all.
+        // Allocate for what we're about to write rather than mirroring the
+        // source's spare capacity - cloning an empty vector shouldn't allocate
         let mut new_vec = Vec::<T>::with_capacity(self.len());
 
         for x in self.iter() {
@@ -149,7 +149,6 @@ impl<T: Clone> Clone for Vec<T> {
                 // x.clone() runs before the write, so if it unwinds nothing has
                 // been written and len hasn't moved. Bumping len as each element
                 // lands means a panic part way through still drops what we cloned
-                // instead of leaking it.
                 ptr::write(new_vec.ptr().add(new_vec.len), x.clone());
                 new_vec.len += 1;
             }
@@ -164,11 +163,11 @@ impl<T> Vec<T> {
         self.buf.ptr.as_ptr()
     }
 
-    // These shadow the [T] methods reached through Deref, and have to: the slice
+    // These shadow the [T] methods reached through Deref, and have to. The slice
     // ones only carry provenance over the initialized 0..len range, so anything
     // that shrinks len and then reaches past it - drain, split_off, Drain::drop -
     // ends up outside the pointer's range. Going through RawVec keeps provenance
-    // over the whole allocation, same as std's Vec::as_ptr.
+    // over the whole allocation, same as std does.
     pub fn as_ptr(&self) -> *const T {
         self.buf.ptr.as_ptr()
     }
@@ -492,9 +491,9 @@ impl<'a, T> IntoIterator for &'a Vec<T> {
 struct RawValIter<T> {
     start: *const T,
     end: *const T,
-    // Remaining elements when T is zero sized. Every one of them lives at the same
-    // dangling address, so start and end carry no information - keep the count here
-    // instead of smuggling it into the pointer as an integer.
+    // Remaining elements when T is zero sized. They all live at the same dangling
+    // address, so start and end carry no information - keep the count here rather
+    // than smuggling it into the pointer as an integer.
     zst_remaining: usize,
 }
 

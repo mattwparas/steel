@@ -91,7 +91,7 @@ pub struct JIT {
 
     // perf inject --jit support. None unless STEEL_JIT_DUMP asked for it -
     // opening it eagerly drops a jit-<pid>.dump into the cwd of every process
-    // that builds a JIT.
+    // that builds a JIT
     #[cfg(target_os = "linux")]
     jitdump: Option<wasmtime_jit_debug::perf_jitdump::JitDumpFile>,
 }
@@ -1295,13 +1295,11 @@ unsafe fn compile_bytecode(
     Ok(code_fn)
 }
 
-// perf metadata for jitted code. Both of these write files named after the
-// pid and cost a syscall per compiled function, so they're opt in:
-//
-// STEEL_JIT_PERF_MAP - appends to /tmp/perf-<pid>.map, for perf report
-// STEEL_JIT_DUMP     - writes jit-<pid>.dump in the cwd, for perf inject --jit
-//
-// Read once, these are on the compile path.
+// perf metadata for jitted code, off unless asked for - both write a file named
+// after the pid and cost a syscall per compiled function. STEEL_JIT_PERF_MAP
+// appends to /tmp/perf-<pid>.map for perf report, STEEL_JIT_DUMP writes
+// jit-<pid>.dump in the cwd for perf inject --jit. Read once, these are on the
+// compile path.
 fn perf_map_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var_os("STEEL_JIT_PERF_MAP").is_some())
@@ -1313,9 +1311,8 @@ fn jitdump_enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var_os("STEEL_JIT_DUMP").is_some())
 }
 
-// None rather than a panic if we can't create the file - a read only working
-// directory is a normal way to run, and losing profiling output isn't worth
-// taking the process down for.
+// None rather than a panic if we can't make the file - a read only working
+// directory is a normal way to run.
 #[cfg(target_os = "linux")]
 fn open_jitdump() -> Option<wasmtime_jit_debug::perf_jitdump::JitDumpFile> {
     use object::elf;
@@ -5929,13 +5926,12 @@ impl FunctionTranslator<'_> {
         // Don't need to check deopt on predicates
     }
 
-    // Inline decrement of a steel_rc::weak::Weak. `ptr` is the ArcInner, the weak
+    // Inline decrement of a steel_rc::weak::Weak. ptr is the ArcInner, the weak
     // count sits at offset 8.
     //
-    // Weak::drop also frees the allocation once the count hits zero, which we can't
-    // do from generated code - so if we're the one taking it to zero, put it back
-    // and let the real destructor run. The free list holds a strong ref (and so the
-    // implicit weak ref) while the slot is live, so this is cold.
+    // Weak::drop also frees the allocation at zero, which we can't do from here, so
+    // if we're the one taking it to zero we put it back and let the real destructor
+    // run. The free list holds a strong ref while the slot is live, so thats cold.
     fn inline_weak_decrement(&mut self, ptr: Value, drop_fn: &'static str, drop_arg: Value) {
         let one = self.builder.ins().iconst(types::I64, 1);
         let offset = self.builder.ins().iadd_imm(ptr, 8);
@@ -7516,15 +7512,13 @@ impl FunctionTranslator<'_> {
 
     // Make the shadow stack uniform before a two way branch.
     //
-    // Entries can be lazy references to a vm stack slot, and can be spilled (on
-    // the vm stack) or not (still in ssa). The two arms don't have to agree about
-    // what they do to either: a call or a scope end in one arm moves a slot out
-    // and leaves void behind, or spills the pending entries onto the vm stack.
-    // The merge only inherits one arm's bookkeeping, so the other path reads
-    // emptied slots or a vm stack of the wrong depth.
-    //
-    // Spilling here happens in the block that dominates both arms, so there is
-    // nothing left for them to disagree about.
+    // Entries can be lazy references to a vm stack slot, and can be spilled or
+    // not. The two arms don't have to agree about either - a call or a scope end
+    // in one arm moves a slot out and leaves void behind, or spills the pending
+    // entries - and the merge only inherits one arm's bookkeeping, so the other
+    // path reads emptied slots or a stack of the wrong depth. Spilling here runs
+    // in the block that dominates both arms, so there is nothing left to disagree
+    // about.
     fn spill_stack_for_branch(&mut self) {
         for index in 0..self.shadow_stack.len() {
             self.shadow_spill(index);
@@ -8286,11 +8280,9 @@ impl FunctionTranslator<'_> {
 
     // Just... store as a i128, and hope for the best. Don't need to encode
     // it directly as anything really?
-    // Materialize a `RootedInstructions` as the i128 the jit passes around.
-    //
-    // Low half is the pointer, high half the length - the same order
-    // `iconcat(data_ptr, len)` produces when the jit builds one out of a closure,
-    // and the same order `RootedInstructions` declares its fields in.
+    // Build the i128 the jit passes a RootedInstructions around as. Low half is
+    // the pointer, high half the length - same order iconcat(data_ptr, len)
+    // produces elsewhere, and the same order the fields are declared in.
     fn rooted_instructions_const(&mut self, instructions: RootedInstructions) -> Value {
         let int = Type::int(64).unwrap();
         let ptr = self.builder.ins().iconst(int, instructions.ptr as i64);

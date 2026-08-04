@@ -2166,7 +2166,7 @@ impl HeapAble for Vec<SteelVal> {
 }
 
 // The jit hands HeapRef straight to drop-box / drop-boxed-vec as a bare pointer,
-// so the single field layout needs to be guaranteed rather than assumed.
+// so the single field layout has to be guaranteed rather than assumed
 #[derive(Clone, Debug)]
 #[repr(transparent)]
 pub struct HeapRef<T: HeapAble> {

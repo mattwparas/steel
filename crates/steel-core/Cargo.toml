@@ -65,8 +65,8 @@ termimad = { version = "0.31.1", optional = true }
 
 triomphe = { version = "0.1.14", optional = true }
 
-# Not optional: plenty of the runtime names `steel_rc` directly regardless of
-# which pointer type `biased` selects (InstructionPointer, the heap's weak refs).
+# Not optional - plenty of the runtime names steel_rc directly no matter which
+# pointer type biased picks (InstructionPointer, the heap's weak refs)
 steel-rc = { path = "../steel-rc", version = "0.8.2" }
 
 # FFI for dylibs
@@ -118,8 +118,8 @@ icu_casemap = "2.0.0"
 thin-vec = { version = "0.2.14", features = ["serde"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# `perf` integration for the jit2 backend, behind STEEL_JIT_DUMP. Linux only,
-# and only pulled in with `jit2`.
+# perf integration for the jit2 backend, behind STEEL_JIT_DUMP. Linux only, and
+# only pulled in with jit2
 wasmtime-jit-debug = { version = "34", optional = true, features = ["perf_jitdump"] }
 object = { version = "0.36", optional = true, default-features = false, features = ["elf"] }
 target-lexicon = { version = "0.13", optional = true }
@@ -172,24 +172,24 @@ triomphe = ["dep:triomphe"]
 op-code-profiling = []
 imbl = ["dep:steel-imbl"]
 custom-hash = []
-# Selects BiasedRc as the shared pointer behind Gc/Shared. The crate is always
-# linked; this only picks which representation gets used.
+# Picks BiasedRc as the shared pointer behind Gc/Shared. The crate is always
+# linked, this only chooses the representation
 biased = []
 
 
 ffi-format = []
 jit2 = [
-    # The generated code reaches into BiasedRc directly - inline refcounting,
-    # get_mut_unchecked on the closure slot - so jit2 can't stand on its own.
+    # Generated code reaches into BiasedRc directly - inline refcounting,
+    # get_mut_unchecked on the closure slot - so jit2 can't stand on its own
     "biased",
-    # The jit assembles `RootedInstructions` from a pointer and a length in
-    # generated code, which is only that shape under `rooted-instructions`.
+    # The jit assembles RootedInstructions from a pointer and a length in
+    # generated code, which is only that shape under rooted-instructions
     "rooted-instructions",
     "dep:cranelift",
     "dep:cranelift-module",
     "dep:cranelift-jit",
     "dep:cranelift-native",
-    # Linux-only perf integration; these are no-ops on other targets.
+    # Linux only perf integration, these do nothing on other targets
     "dep:wasmtime-jit-debug",
     "dep:object",
     "dep:target-lexicon",

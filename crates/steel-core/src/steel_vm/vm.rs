@@ -203,10 +203,10 @@ impl PartialEq for StackFrame {
     }
 }
 
-// The jit builds and tears apart `RootedInstructions` itself, so its layout has
-// to be something we can actually promise. `repr(C)` over an explicit pointer and
-// length gives that; a bare `*const [DenseInstruction]` would leave the order of
-// the two halves up to the compiler.
+// The jit builds and tears apart RootedInstructions itself, so the layout has to
+// be something we can promise. repr(C) over an explicit pointer and length gives
+// that; a bare *const [DenseInstruction] leaves the order of the halves up to the
+// compiler.
 #[cfg(feature = "rooted-instructions")]
 const _: () = {
     use core::mem::{offset_of, size_of};
@@ -215,8 +215,8 @@ const _: () = {
     assert!(offset_of!(RootedInstructions, ptr) == 0);
     assert!(offset_of!(RootedInstructions, len) == 8);
 
-    // The jit moves one of these around as a single i128, built with
-    // `iconcat(ptr, len)` - low half first. That only lines up with the field
+    // The jit moves one of these around as a single i128 built with
+    // iconcat(ptr, len) - low half first, which only lines up with the field
     // order above on a little endian target.
     assert!(cfg!(target_endian = "little"));
 };
@@ -2509,10 +2509,10 @@ impl<'a> VmCore<'a> {
                     // Is this right? Maybe we just need to check the is native part?
                     let maybe_result = (tramp)(self as _, fn_ptr);
 
-                    // Only describes this dispatch, so it has to be cleared on the way
-                    // out. Leaving it set on the early return below leaks a stale true
-                    // into the enclosing frame, which shifts the stack by one slot on a
-                    // re-entrant call.
+                    // Only describes this dispatch, so clear it on the way out.
+                    // Leaving it set on the early return below leaks a stale true
+                    // into the enclosing frame, which shifts the stack by one slot
+                    // on a re-entrant call.
                     let was_native = core::mem::replace(&mut self.is_native, false);
 
                     if let Some(res) = self.result.take() {
@@ -4237,8 +4237,8 @@ impl<'a> VmCore<'a> {
                 .insert(closure_id, spans);
 
             // The jit wants a Gc it can point self calls at before the real
-            // lambda exists, so hand it a placeholder and move the finished
-            // lambda into that same allocation afterwards.
+            // lambda exists, so hand it a placeholder and move the finished one
+            // into that same allocation afterwards
             #[cfg(feature = "jit2")]
             let constructed_lambda = {
                 let mut fake_lambda = ByteCodeLambda::default();

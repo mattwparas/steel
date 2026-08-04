@@ -1,9 +1,9 @@
 ;; https://github.com/mattwparas/steel/issues/680
 ;;
 ;; A branch part way through an argument list used to leave the jit's two arms
-;; disagreeing about what had been moved out of - or spilled onto - the vm
-;; stack, so the earlier arguments came back as #<void> or in the wrong order.
-;; Needs the call to be indirect, so the callee isn't known at compile time.
+;; disagreeing about what had been moved out of, or spilled onto, the vm stack,
+;; so the earlier arguments came back as #<void> or in the wrong order. The call
+;; has to be indirect, so the callee isn't known at compile time.
 
 (struct input (first second))
 (struct result (first second third fourth))
@@ -26,7 +26,7 @@
 (assert! (equal? (result-third built) 'second-argument))
 (assert! (equal? (result-fourth built) #t))
 
-;; Same shape without any structs - the callee just has to not be a closure.
+;; Same shape without any structs - the callee just has to not be a closure
 (define (ident x) x)
 
 (define (build a first-argument second-argument)

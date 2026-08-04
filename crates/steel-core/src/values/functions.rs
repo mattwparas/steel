@@ -216,19 +216,14 @@ pub struct SerializedLambdaPrototype {
 
 // The instruction slice a frame is currently executing.
 //
-// Two shapes, picked by `rooted-instructions`:
+// Under rooted-instructions this is a raw pointer and a length, and nothing keeps
+// the buffer alive - the caller has to. The fields are spelled out because the jit
+// builds one of these in generated code and stores it into VmCore and every
+// StackFrame; Rust doesn't say which order the halves of a *const [T] go in, so
+// repr(C) is what makes that well defined. jit2 needs this variant.
 //
-// * With it, a raw pointer and length. Nothing keeps the buffer alive - the
-//   caller is responsible for that - and the layout is spelled out because the
-//   jit builds and takes apart values of this type in generated code. It stores
-//   one into `VmCore::instructions` and into every `StackFrame`, and assembles
-//   one from a pointer and a length with `iconcat`. Rust does not specify how the
-//   two halves of a `*const [T]` are ordered, so `repr(C)` over explicit fields is
-//   what makes that codegen well defined rather than a guess that happens to hold.
-//   `jit2` requires this variant.
-//
-// * Without it, a counted `InstructionPointer`, which keeps the buffer alive on
-//   its own at the cost of refcount traffic on every frame push.
+// Otherwise its a counted InstructionPointer, which keeps the buffer alive on its
+// own but pays refcount traffic on every frame push.
 #[cfg(feature = "rooted-instructions")]
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
@@ -258,7 +253,7 @@ impl RootedInstructions {
         };
     }
 
-    // Note: this borrows - the buffer has to outlive the `RootedInstructions`.
+    // Borrows - the buffer has to outlive the RootedInstructions
     #[cfg(feature = "rooted-instructions")]
     pub(crate) fn from_slice(slice: &[DenseInstruction]) -> Self {
         Self {

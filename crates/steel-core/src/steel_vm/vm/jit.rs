@@ -27,14 +27,11 @@ fn should_trampoline(ctx: &mut VmCore) -> bool {
 }
 
 // Debug knobs for narrowing a jit miscompilation down to a single function.
+// STEEL_JIT_LOG logs every candidate, STEEL_JIT_MAX only compiles the first n of
+// them, and STEEL_JIT_ONLY / STEEL_JIT_SKIP take a comma separated list of ids.
 //
-// STEEL_JIT_LOG=1              logs every candidate as #<n> -> id <id>
-// STEEL_JIT_MAX=<n>            only compile the first n candidates
-// STEEL_JIT_ONLY=<id>[,<id>..] only compile these ids
-// STEEL_JIT_SKIP=<id>[,<id>..] compile everything but these ids
-//
-// Binary search on STEEL_JIT_MAX until it breaks, pull the id at that index out
-// of the log, then confirm with STEEL_JIT_SKIP.
+// Binary search on STEEL_JIT_MAX until it breaks, pull the id at that index out of
+// the log, then confirm with STEEL_JIT_SKIP.
 fn jit_should_compile(id: u32) -> bool {
     fn id_list(var: &str) -> Option<Vec<u32>> {
         std::env::var(var).ok().map(|x| {
