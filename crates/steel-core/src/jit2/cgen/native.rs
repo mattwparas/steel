@@ -1653,6 +1653,17 @@ fn slow_path_struct_getter(
 // to the custom one.
 //
 // Struct refs should now be inlineable.
+// The jit's own acquire/release, matching `values::lock::SpinLock`.
+//
+// Cranelift's atomics are sequentially consistent, so this is stronger than the
+// rust side's Acquire/Release - the two interoperate, generated code is just
+// paying a little more than it needs to.
+//
+// `lock_ptr` is the base of the `SpinLock`, so the flag has to live at offset 0.
+const _: () = {
+    assert!(SpinLock::<SteelVal>::lock_offset() == 0);
+};
+
 fn emit_spinlock_inline(builder: &mut FunctionBuilder, lock_ptr: Value) {
     let spin_entry = builder.create_block();
     let spin_wait = builder.create_block();
