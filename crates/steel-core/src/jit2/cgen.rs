@@ -342,7 +342,7 @@ fn debug_stack_frames(ctx: *mut VmCore) {
     if let Some(last) = last_frame {
         println!("sp: {}", last.sp);
         println!("ip: {}", last.ip);
-        println!("instruction addr: {:p}", last.instructions.inner);
+        println!("instruction addr: {:p}", last.instructions.ptr);
     } else {
         println!("No frame on stack")
     }
@@ -7057,8 +7057,7 @@ impl FunctionTranslator<'_> {
         let _ = steel_rc::BiasedRc::into_raw(func.body_exp.clone());
         */
 
-        let instr_fat_ptr = func.body_exp();
-        let instr_fat_ptr = self.create_i128(unsafe { std::mem::transmute(instr_fat_ptr) });
+        let instr_fat_ptr = self.rooted_instructions_const(func.body_exp());
 
         func.clone().into_raw();
 
@@ -7157,8 +7156,7 @@ impl FunctionTranslator<'_> {
         // them.
         self.spill_cloned_stack();
 
-        let instr_fat_ptr = func.body_exp();
-        let instr_fat_ptr = self.create_i128(unsafe { std::mem::transmute(instr_fat_ptr) });
+        let instr_fat_ptr = self.rooted_instructions_const(func.body_exp());
 
         let jit_func_addr = func.super_instructions.unwrap().0.as_ptr() as u64;
 
@@ -8288,6 +8286,19 @@ impl FunctionTranslator<'_> {
 
     // Just... store as a i128, and hope for the best. Don't need to encode
     // it directly as anything really?
+    // Materialize a `RootedInstructions` as the i128 the jit passes around.
+    //
+    // Low half is the pointer, high half the length - the same order
+    // `iconcat(data_ptr, len)` produces when the jit builds one out of a closure,
+    // and the same order `RootedInstructions` declares its fields in.
+    fn rooted_instructions_const(&mut self, instructions: RootedInstructions) -> Value {
+        let int = Type::int(64).unwrap();
+        let ptr = self.builder.ins().iconst(int, instructions.ptr as i64);
+        let len = self.builder.ins().iconst(int, instructions.len as i64);
+
+        self.builder.ins().iconcat(ptr, len)
+    }
+
     fn create_i128(&mut self, value: i128) -> Value {
         let [left, right] = split_big(value);
         let int = Type::int(64).unwrap();

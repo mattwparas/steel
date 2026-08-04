@@ -214,17 +214,34 @@ pub struct SerializedLambdaPrototype {
     pub constants: HashMap<usize, SerializableSteelVal>,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-#[repr(transparent)]
+// The instruction slice a frame is currently executing.
+//
+// Two shapes, picked by `rooted-instructions`:
+//
+// * With it, a raw pointer and length. Nothing keeps the buffer alive - the
+//   caller is responsible for that - and the layout is spelled out because the
+//   jit builds and takes apart values of this type in generated code. It stores
+//   one into `VmCore::instructions` and into every `StackFrame`, and assembles
+//   one from a pointer and a length with `iconcat`. Rust does not specify how the
+//   two halves of a `*const [T]` are ordered, so `repr(C)` over explicit fields is
+//   what makes that codegen well defined rather than a guess that happens to hold.
+//   `jit2` requires this variant.
+//
+// * Without it, a counted `InstructionPointer`, which keeps the buffer alive on
+//   its own at the cost of refcount traffic on every frame push.
+#[cfg(feature = "rooted-instructions")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub struct RootedInstructions {
-    #[cfg(feature = "rooted-instructions")]
-    pub(crate) inner: *const [DenseInstruction],
-    #[cfg(not(feature = "rooted-instructions"))]
-    pub(crate) inner: InstructionPointer<[DenseInstruction]>,
+    pub(crate) ptr: *const DenseInstruction,
+    pub(crate) len: usize,
 }
 
-#[cfg(feature = "rooted-instructions")]
-impl Copy for RootedInstructions {}
+#[cfg(not(feature = "rooted-instructions"))]
+#[derive(Clone, PartialEq, Eq)]
+pub struct RootedInstructions {
+    pub(crate) inner: InstructionPointer<[DenseInstruction]>,
+}
 
 // TODO: Come back to this
 unsafe impl Send for RootedInstructions {}
@@ -232,18 +249,28 @@ unsafe impl Sync for RootedInstructions {}
 
 impl RootedInstructions {
     pub fn new(instructions: InstructionPointer<[DenseInstruction]>) -> Self {
-        Self {
-            #[cfg(feature = "rooted-instructions")]
-            inner: InstructionPointer::as_ptr(&instructions),
-            #[cfg(not(feature = "rooted-instructions"))]
+        #[cfg(feature = "rooted-instructions")]
+        return Self::from_slice(&instructions);
+
+        #[cfg(not(feature = "rooted-instructions"))]
+        return Self {
             inner: instructions,
+        };
+    }
+
+    // Note: this borrows - the buffer has to outlive the `RootedInstructions`.
+    #[cfg(feature = "rooted-instructions")]
+    pub(crate) fn from_slice(slice: &[DenseInstruction]) -> Self {
+        Self {
+            ptr: slice.as_ptr(),
+            len: slice.len(),
         }
     }
 }
 
 impl core::fmt::Debug for RootedInstructions {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{:?}", self.inner)
+        write!(f, "{:?}", &**self)
     }
 }
 
@@ -252,12 +279,10 @@ impl core::ops::Deref for RootedInstructions {
 
     fn deref(&self) -> &Self::Target {
         #[cfg(feature = "rooted-instructions")]
-        unsafe {
-            &(*self.inner)
-        }
+        return unsafe { core::slice::from_raw_parts(self.ptr, self.len) };
 
         #[cfg(not(feature = "rooted-instructions"))]
-        &self.inner
+        return &self.inner;
     }
 }
 
@@ -434,20 +459,12 @@ impl ByteCodeLambda {
     // strongly - so there should be some kind of slot on the continuation
     // to hold on to a strong reference to each instruction set.
     pub(crate) fn body_exp(&self) -> RootedInstructions {
-        // #[cfg(feature = "dynamic")]
-        // return Shared::clone(&self.body_exp.borrow());
-
-        // #[cfg(not(feature = "dynamic"))]
-        // Shared::clone(&self.body_exp)
+        #[cfg(feature = "rooted-instructions")]
+        return RootedInstructions::from_slice(&self.body_exp);
 
         #[cfg(not(feature = "rooted-instructions"))]
         return RootedInstructions {
             inner: InstructionPointer::clone(&self.body_exp),
-        };
-
-        #[cfg(feature = "rooted-instructions")]
-        return RootedInstructions {
-            inner: InstructionPointer::as_ptr(&self.body_exp),
         };
     }
 

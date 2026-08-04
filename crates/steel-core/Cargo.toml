@@ -65,7 +65,9 @@ termimad = { version = "0.31.1", optional = true }
 
 triomphe = { version = "0.1.14", optional = true }
 
-steel-rc = { path = "../steel-rc", version = "0.8.2", optional = true }
+# Not optional: plenty of the runtime names `steel_rc` directly regardless of
+# which pointer type `biased` selects (InstructionPointer, the heap's weak refs).
+steel-rc = { path = "../steel-rc", version = "0.8.2" }
 
 # FFI for dylibs
 abi_stable = { version = "0.11.2", optional = true }
@@ -170,7 +172,9 @@ triomphe = ["dep:triomphe"]
 op-code-profiling = []
 imbl = ["dep:steel-imbl"]
 custom-hash = []
-biased = ["dep:steel-rc"]
+# Selects BiasedRc as the shared pointer behind Gc/Shared. The crate is always
+# linked; this only picks which representation gets used.
+biased = []
 
 
 ffi-format = []
@@ -178,6 +182,9 @@ jit2 = [
     # The generated code reaches into BiasedRc directly - inline refcounting,
     # get_mut_unchecked on the closure slot - so jit2 can't stand on its own.
     "biased",
+    # The jit assembles `RootedInstructions` from a pointer and a length in
+    # generated code, which is only that shape under `rooted-instructions`.
+    "rooted-instructions",
     "dep:cranelift",
     "dep:cranelift-module",
     "dep:cranelift-jit",

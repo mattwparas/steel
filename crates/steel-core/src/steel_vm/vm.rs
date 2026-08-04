@@ -203,6 +203,24 @@ impl PartialEq for StackFrame {
     }
 }
 
+// The jit builds and tears apart `RootedInstructions` itself, so its layout has
+// to be something we can actually promise. `repr(C)` over an explicit pointer and
+// length gives that; a bare `*const [DenseInstruction]` would leave the order of
+// the two halves up to the compiler.
+#[cfg(feature = "rooted-instructions")]
+const _: () = {
+    use core::mem::{offset_of, size_of};
+
+    assert!(size_of::<RootedInstructions>() == 16);
+    assert!(offset_of!(RootedInstructions, ptr) == 0);
+    assert!(offset_of!(RootedInstructions, len) == 8);
+
+    // The jit moves one of these around as a single i128, built with
+    // `iconcat(ptr, len)` - low half first. That only lines up with the field
+    // order above on a little endian target.
+    assert!(cfg!(target_endian = "little"));
+};
+
 #[test]
 fn check_sizes() {
     println!("stack frame: {:?}", core::mem::size_of::<StackFrame>());
@@ -4218,41 +4236,49 @@ impl<'a> VmCore<'a> {
                 .spans
                 .insert(closure_id, spans);
 
-            let mut fake_lambda = ByteCodeLambda::default();
-            fake_lambda.id = closure_id;
-            fake_lambda.body_exp = constructed_lambda.body_exp.clone();
-
-            let mut slot = Gc::new(fake_lambda);
-
-            // Maybe slot:
-            let maybe_bind = self.instructions.get(forward_index + 1).and_then(|x| {
-                if matches!(x.op_code, OpCode::BIND) {
-                    Some(x.payload_size.to_usize())
-                } else {
-                    None
-                }
-            });
-
+            // The jit wants a Gc it can point self calls at before the real
+            // lambda exists, so hand it a placeholder and move the finished
+            // lambda into that same allocation afterwards.
             #[cfg(feature = "jit2")]
-            let constructed_lambda =
-                if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
-                    jit::jit_compile_lambda(self, constructed_lambda, Some(&mut slot), maybe_bind)
-                } else {
-                    constructed_lambda
-                };
+            let constructed_lambda = {
+                let mut fake_lambda = ByteCodeLambda::default();
+                fake_lambda.id = closure_id;
+                fake_lambda.body_exp = constructed_lambda.body_exp.clone();
 
-            // Explicitly make the old slot available, such that we can fuss
-            // with the new one while jit compiling.
-            unsafe {
-                *steel_rc::BiasedRc::get_mut_unchecked(&mut slot.0) = constructed_lambda;
-            }
+                let mut slot = Gc::new(fake_lambda);
+
+                // Maybe slot:
+                let maybe_bind = self.instructions.get(forward_index + 1).and_then(|x| {
+                    if matches!(x.op_code, OpCode::BIND) {
+                        Some(x.payload_size.to_usize())
+                    } else {
+                        None
+                    }
+                });
+
+                let constructed_lambda =
+                    if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
+                        jit::jit_compile_lambda(self, constructed_lambda, Some(&mut slot), maybe_bind)
+                    } else {
+                        constructed_lambda
+                    };
+
+                unsafe {
+                    *steel_rc::BiasedRc::get_mut_unchecked(&mut slot.0) = constructed_lambda;
+                }
+
+                slot
+            };
+
+            #[cfg(not(feature = "jit2"))]
+            let constructed_lambda = Gc::new(constructed_lambda);
 
             self.thread
                 .function_interner
                 .pure_function_interner
-                .insert(closure_id, Gc::clone(&slot));
+                .insert(closure_id, Gc::clone(&constructed_lambda));
 
-            slot
+            constructed_lambda
         };
 
         let value = SteelVal::Closure(constructed_lambda);
@@ -7338,3 +7364,4 @@ pub(super) fn gte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Resul
 pub(crate) fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
     add_two_fallible(l, r)
 }
+
