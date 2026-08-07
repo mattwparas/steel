@@ -661,7 +661,16 @@ impl Engine {
     /// is to expose some kind of module artifact that we can then consume.
     pub fn register_module_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
         for name in resolver.names() {
-            self.register_value(&format!("%-builtin-module-{}", name), SteelVal::Void);
+            // If the resolver can hand us the module now, bind the real value so that
+            // `(require-builtin <name>)` can actually be _run_ by this engine, and not just
+            // compiled against. If it can't be resolved, we still reserve the binding with
+            // a void value so that the module can be referenced during compilation.
+            let value = resolver
+                .resolve(&name)
+                .and_then(|module| module.into_steelval().ok())
+                .unwrap_or(SteelVal::Void);
+
+            self.register_value(&format!("%-builtin-module-{}", name), value);
         }
 
         self.modules.with_resolver(resolver);
@@ -2820,4 +2829,76 @@ fn test_ctx_func_registration_multiple() {
     engine.run("(bar 10)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(bar 100)").unwrap();
+}
+
+#[cfg(test)]
+mod resolver_tests {
+    use super::*;
+
+    use std::collections::HashMap;
+
+    use crate::steel_vm::{
+        builtin::BuiltInModule,
+        engine::{Engine, ModuleResolver},
+        register_fn::RegisterFn,
+    };
+
+    #[derive(Clone)]
+    struct ModuleContainer(HashMap<String, BuiltInModule>);
+
+    impl ModuleResolver for ModuleContainer {
+        fn resolve(&self, name: &str) -> Option<BuiltInModule> {
+            self.0.get(name).cloned()
+        }
+
+        fn names(&self) -> Vec<String> {
+            self.0.keys().cloned().collect()
+        }
+    }
+
+    impl Default for ModuleContainer {
+        fn default() -> Self {
+            let foo_mod = foo_module();
+
+            Self(HashMap::from_iter([(foo_mod.name().to_string(), foo_mod)]))
+        }
+    }
+
+    fn bar() -> String {
+        String::from("baz")
+    }
+
+    fn foo_module() -> BuiltInModule {
+        let mut module = BuiltInModule::new("foo");
+        module.register_fn("bar", bar);
+        module
+    }
+
+    fn engine_with_resolver(resolver: impl ModuleResolver + 'static) -> Engine {
+        let mut engine = Engine::new();
+        engine.register_module_resolver(resolver);
+        engine
+    }
+
+    fn engine_with_modules(modules: impl Iterator<Item = BuiltInModule>) -> Engine {
+        let mut engine = Engine::new();
+        for module in modules {
+            engine.register_module(module);
+        }
+        engine
+    }
+
+    #[test]
+    fn with_resolver() {
+        let modules = ModuleContainer::default();
+        let mut engine = engine_with_resolver(modules);
+        assert!(engine.run("(require-builtin foo)").is_ok());
+    }
+
+    #[test]
+    fn with_modules() {
+        let modules = ModuleContainer::default();
+        let mut engine = engine_with_modules(modules.0.values().cloned());
+        assert!(engine.run("(require-builtin foo)").is_ok());
+    }
 }
