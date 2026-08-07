@@ -179,6 +179,13 @@ impl ModuleContainer {
         })
     }
 
+    pub(crate) fn deep_clone(&self) -> Self {
+        Self {
+            modules: Arc::new(RwLock::new(self.modules.read().clone())),
+            unresolved_modules: Arc::new(RwLock::new(self.unresolved_modules.read().clone())),
+        }
+    }
+
     pub fn inner(&self) -> RwLockReadGuard<'_, HashMap<Shared<str>, BuiltInModule>> {
         self.modules.read()
     }
@@ -527,7 +534,10 @@ impl Engine {
     pub(crate) fn deep_clone(&self) -> Self {
         let mut engine = self.clone();
 
-        let compiler_copy = engine.virtual_machine.compiler.read().clone();
+        engine.modules = self.modules.deep_clone();
+
+        let mut compiler_copy = engine.virtual_machine.compiler.read().clone();
+        compiler_copy.builtin_modules = engine.modules.clone();
         engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
 
         let constant_map = engine
@@ -551,7 +561,10 @@ impl Engine {
         let mut engine = self.clone();
         engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
 
+        engine.modules = self.modules.deep_clone();
+
         let mut compiler_copy = engine.virtual_machine.compiler.read().clone();
+        compiler_copy.builtin_modules = engine.modules.clone();
 
         engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
 
@@ -2900,5 +2913,39 @@ mod resolver_tests {
         let modules = ModuleContainer::default();
         let mut engine = engine_with_modules(modules.0.values().cloned());
         assert!(engine.run("(require-builtin foo)").is_ok());
+    }
+
+    #[test]
+    fn modules_are_not_shared_between_engines() {
+        let mut with_module = engine_with_modules(std::iter::once(foo_module()));
+        assert!(with_module.run("(require-builtin foo)").is_ok());
+
+        let mut without_module = Engine::new();
+        let err = without_module
+            .run("(require-builtin foo)")
+            .expect_err("foo leaked into an engine it was never registered with");
+
+        assert!(
+            err.to_string().contains("module not found"),
+            "expected foo to be unresolvable, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn resolvers_are_not_shared_between_engines() {
+        let mut with_resolver = engine_with_resolver(ModuleContainer::default());
+        assert!(with_resolver.run("(require-builtin foo)").is_ok());
+
+        let mut without_resolver = Engine::new();
+        let err = without_resolver
+            .run("(require-builtin foo)")
+            .expect_err("the resolver leaked into an engine it was never registered with");
+
+        assert!(
+            err.to_string().contains("module not found"),
+            "expected `foo` to be unresolvable, got: {}",
+            err
+        );
     }
 }
