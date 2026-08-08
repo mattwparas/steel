@@ -1053,23 +1053,23 @@ pub enum SerializedHeapRefVector {
 }
 
 pub struct HeapSerializer<'a> {
-    pub fake_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRef>,
-    pub fake_vector_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRefVector>,
+    pub fake_heap: &'a mut rustc_hash::FxHashMap<usize, SerializedHeapRef>,
+    pub fake_vector_heap: &'a mut rustc_hash::FxHashMap<usize, SerializedHeapRefVector>,
     // After the conversion, we go back through, and patch the values from the fake heap
     // in to each of the values listed here - otherwise, we'll miss cycles
-    pub values_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<SteelVal>>,
-    pub vectors_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<Vec<SteelVal>>>,
+    pub values_to_fill_in: &'a mut rustc_hash::FxHashMap<usize, HeapRef<SteelVal>>,
+    pub vectors_to_fill_in: &'a mut rustc_hash::FxHashMap<usize, HeapRef<Vec<SteelVal>>>,
 
     // Cache the functions that get built
-    pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
+    pub built_functions: &'a mut rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
 
     pub thread: &'a mut SteelThread,
 
-    pub function_mapping: std::collections::HashMap<u32, u32>,
+    pub function_mapping: rustc_hash::FxHashMap<u32, u32>,
 
-    pub global_mapping: std::collections::HashMap<usize, usize>,
+    pub global_mapping: rustc_hash::FxHashMap<usize, usize>,
 
-    pub struct_map: std::collections::HashMap<StructTypeDescriptor, StructTypeDescriptor>,
+    pub struct_map: rustc_hash::FxHashMap<StructTypeDescriptor, StructTypeDescriptor>,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -1323,15 +1323,14 @@ pub fn from_serializable_value(
 
 pub struct SerializationContext<'a> {
     pub builtin_modules: &'a ModuleContainer,
-    pub serialized_heap: &'a mut std::collections::HashMap<usize, SerializableSteelVal>,
-    pub serialized_heap_vectors:
-        &'a mut std::collections::HashMap<usize, Vec<SerializableSteelVal>>,
-    pub visited: &'a mut std::collections::HashSet<usize>,
+    pub serialized_heap: &'a mut rustc_hash::FxHashMap<usize, SerializableSteelVal>,
+    pub serialized_heap_vectors: &'a mut rustc_hash::FxHashMap<usize, Vec<SerializableSteelVal>>,
+    pub visited: &'a mut rustc_hash::FxHashSet<usize>,
     pub globals: &'a [SteelVal],
     pub symbol_map: &'a SymbolMap,
     pub constants: &'a ConstantMap,
-    pub reachable_globals: std::collections::HashSet<usize>,
-    pub reachable_structs: std::collections::HashSet<StructTypeDescriptor>,
+    pub reachable_globals: rustc_hash::FxHashSet<usize>,
+    pub reachable_structs: rustc_hash::FxHashSet<StructTypeDescriptor>,
     pub compiled_modules: &'a ModuleManager,
 }
 

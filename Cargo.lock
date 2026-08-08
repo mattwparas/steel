@@ -4011,6 +4011,7 @@ name = "steel-quickscope"
 version = "0.3.2"
 dependencies = [
  "indexmap 2.13.0",
+ "rustc-hash",
  "smallvec",
 ]
 

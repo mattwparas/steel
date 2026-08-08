@@ -1,7 +1,6 @@
 use core::ops::Deref;
-use std::collections::HashSet;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use steel_derive::function;
 
@@ -319,9 +318,9 @@ struct SerializedValue {
 
     vtable_entries: Vec<SendableVTableEntry>,
 
-    serialized_heap: HashMap<usize, SerializableSteelVal>,
+    serialized_heap: FxHashMap<usize, SerializableSteelVal>,
 
-    serialized_vec_heap: HashMap<usize, Vec<SerializableSteelVal>>,
+    serialized_vec_heap: FxHashMap<usize, Vec<SerializableSteelVal>>,
 }
 
 impl Custom for SerializedValue {}
@@ -342,20 +341,20 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         .collect();
 
     // Have these values point to the new place
-    let mut patcher = HashMap::new();
-    let mut vector_patcher = HashMap::new();
-    let mut built_functions = HashMap::new();
+    let mut patcher = FxHashMap::default();
+    let mut vector_patcher = FxHashMap::default();
+    let mut built_functions = FxHashMap::default();
 
     let mut serializer = HeapSerializer {
         fake_heap: &mut mapping,
         values_to_fill_in: &mut patcher,
         built_functions: &mut built_functions,
         thread: &mut ctx.thread,
-        function_mapping: HashMap::new(),
-        global_mapping: HashMap::new(),
+        function_mapping: FxHashMap::default(),
+        global_mapping: FxHashMap::default(),
         fake_vector_heap: &mut vector_mapping,
         vectors_to_fill_in: &mut vector_patcher,
-        struct_map: HashMap::new(),
+        struct_map: FxHashMap::default(),
     };
 
     // Map the struct type descriptors between the two
@@ -472,9 +471,9 @@ fn bytes_to_serialized(value: &SteelByteVector) -> Result<SteelVal> {
 fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let value = args[0].clone();
 
-    let mut initial_map = HashMap::new();
-    let mut initial_vector_map = HashMap::new();
-    let mut visited = HashSet::new();
+    let mut initial_map = FxHashMap::default();
+    let mut initial_vector_map = FxHashMap::default();
+    let mut visited = FxHashSet::default();
     let _sources = ctx.thread.compiler.read().sources.clone();
     let compiler_guard = ctx.thread.compiler.read();
     let builtin_modules = compiler_guard.builtin_modules.clone();
@@ -486,8 +485,8 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
         globals: ctx.thread.global_env.roots(),
         symbol_map: &compiler_guard.symbol_map,
         constants: &compiler_guard.constant_map,
-        reachable_globals: HashSet::new(),
-        reachable_structs: HashSet::new(),
+        reachable_globals: FxHashSet::default(),
+        reachable_structs: FxHashSet::default(),
         compiled_modules: &compiler_guard.module_manager,
     };
 

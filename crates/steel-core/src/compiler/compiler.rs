@@ -871,6 +871,7 @@ impl Compiler {
     fn generate_instructions_for_executable(
         &mut self,
         mut expanded_statements: Vec<ExprKind>,
+        analysis_is_current: bool,
     ) -> Result<Vec<Vec<Instruction>>> {
         let mut results = Vec::with_capacity(expanded_statements.len());
         // let mut instruction_buffer = Vec::new();
@@ -879,7 +880,12 @@ impl Compiler {
         let analysis = {
             let mut analysis = core::mem::take(&mut self.analysis);
 
-            analysis.fresh_from_exprs(&expanded_statements);
+            // Lowering leaves this fresh already - only the paths that bring their own ast,
+            // like reading one back off disk, have to build it here
+            if !analysis_is_current {
+                analysis.fresh_from_exprs(&expanded_statements);
+            }
+
             analysis.populate_captures_twice(&expanded_statements);
 
             // let mut analysis = Analysis::from_exprs(&expanded_statements);
@@ -1285,8 +1291,7 @@ impl Compiler {
         semantic.refresh_variables();
 
         // Replace mutation with boxes
-        semantic.populate_captures();
-        semantic.populate_captures();
+        semantic.populate_captures_twice();
 
         semantic.replace_mutable_captured_variables_with_boxes();
 
@@ -1343,7 +1348,7 @@ impl Compiler {
         // Do this, and then inline everything. Do it again
         // TODO: Configure the amount that we inline?
         semantic.inline_function_calls(None, self.modules())?;
-        semantic.refresh_variables();
+        semantic.refresh_variables_if_changed();
 
         let mut analysis = semantic.into_analysis();
         self.shadowed_variable_renamer
@@ -1355,7 +1360,7 @@ impl Compiler {
         // Do this again
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
         semantic.replace_anonymous_function_calls_with_plain_lets();
-        semantic.refresh_variables();
+        semantic.refresh_variables_if_changed();
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
@@ -1366,7 +1371,7 @@ impl Compiler {
             != Ok("false")
         {
             semantic.lift_closures();
-            semantic.refresh_variables();
+            semantic.refresh_variables_if_changed();
         }
 
         // TODO: Configure inlining function size
@@ -1450,7 +1455,7 @@ impl Compiler {
         let contents = std::fs::read(path).unwrap();
         let expanded_statements = bincode::deserialize(&contents).unwrap();
 
-        let instructions = self.generate_instructions_for_executable(expanded_statements)?;
+        let instructions = self.generate_instructions_for_executable(expanded_statements, false)?;
 
         let mut raw_program = RawProgramWithSymbols::new(
             instructions,
@@ -1478,7 +1483,7 @@ impl Compiler {
 
         log::debug!(target: "expansion-phase", "Generating instructions");
 
-        let instructions = self.generate_instructions_for_executable(expanded_statements)?;
+        let instructions = self.generate_instructions_for_executable(expanded_statements, true)?;
 
         let mut raw_program = RawProgramWithSymbols::new(
             instructions,
@@ -1558,11 +1563,9 @@ impl Compiler {
                 for _ in 0..3 {
                     expanded_statements = manager.run(expanded_statements)?;
 
-                    // if !manager.changed {
-                    //     break;
-                    // }
-
-                    // manager.changed = false;
+                    if !manager.changed {
+                        break;
+                    }
                 }
             }
             OptLevel::Two => {
