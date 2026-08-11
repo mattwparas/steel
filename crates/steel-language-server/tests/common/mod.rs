@@ -145,7 +145,6 @@ impl TestServer {
         &self.root
     }
 
-    /// Whatever the server answered `initialize` with.
     pub fn capabilities(&self) -> &ServerCapabilities {
         &self.capabilities
     }
@@ -154,7 +153,6 @@ impl TestServer {
         Url::from_file_path(&self.root).unwrap()
     }
 
-    /// Writes a fixture file into the workspace and returns its uri.
     pub fn write(&self, name: &str, contents: &str) -> Url {
         let path = self.root.join(name);
 
@@ -359,7 +357,6 @@ impl TestServer {
         .unwrap()
     }
 
-    /// The diagnostics most recently published for `uri`.
     pub fn diagnostics(&self, uri: &Url) -> Vec<Diagnostic> {
         self.published
             .lock()
@@ -418,13 +415,8 @@ impl TestServer {
             "notifications should not produce a response"
         );
 
-        self.drain_client_messages().await;
-    }
-
-    // hand control back to the executor so the drain task can catch up - without this the
-    // diagnostics for the notification we just sent are still sitting in the channel
-    async fn drain_client_messages(&self) {
-        for _ in 0..4 {
+        // Just try to make sure all the messages make it through
+        for _ in 0..10 {
             tokio::task::yield_now().await;
         }
     }

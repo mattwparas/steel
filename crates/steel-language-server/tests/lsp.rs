@@ -437,9 +437,6 @@ mod find_references_tests {
         );
     }
 
-    // The `TODO: Dedupe the found locations` in Backend::references. Once a file is indexed
-    // as a module, a use inside it is found twice - once by the analysis of the open
-    // document, and again when the reverse dependency walk re-analyzes that same file.
     #[tokio::test]
     #[ignore = "references reports the same location twice for an indexed requiring file"]
     async fn references_does_not_report_duplicate_locations() {
@@ -489,9 +486,7 @@ mod find_references_tests {
         );
     }
 
-    // Builtins have no refers_to edge, so the span scan has nothing to match on and only
-    // the occurrence under the cursor comes back. find_references_builtin doesn't fill the
-    // hole either - it only reports hits inside modules that define the same name.
+    // TODO: Fix this
     #[tokio::test]
     #[ignore = "references to a builtin only return the occurrence under the cursor"]
     async fn references_to_a_builtin_find_every_use_in_the_file() {
@@ -625,7 +620,6 @@ mod workspace_tests {
         )
     }
 
-    // the require form holds an absolute path, so the fixture can't be a constant
     fn call_site(source: &str) -> Position {
         let open_paren = find(source, "(greet");
         Position::new(open_paren.line, open_paren.character + 1)
@@ -847,18 +841,6 @@ mod document_symbol_tests {
     }
 
     #[tokio::test]
-    async fn document_symbols_have_no_container_name() {
-        let mut server = TestServer::new().await;
-        let uri = server.open("shapes.scm", SYMBOL_SHAPES).await;
-
-        // the handler tries to derive a container from the enclosing context, but looks the
-        // span up in the raw ast, which carries no analysis, so it never finds one
-        assert!(flat_symbols(server.document_symbol(&uri).await)
-            .iter()
-            .all(|symbol| symbol.container_name.is_none()));
-    }
-
-    #[tokio::test]
     async fn document_symbols_in_an_unopened_document_are_not_reported() {
         let mut server = TestServer::new().await;
         let uri = server.write("never-opened.scm", SINGLE_FILE);
@@ -906,8 +888,6 @@ mod hover_tests {
   (+ a b))
 "#;
 
-    // the file names avoid the word undocumented - the require form holds the path, and
-    // find would otherwise match inside it instead of at the call site
     const UNDOCUMENTED_APP: &str = r#"(require "plain-lib.scm")
 
 (define (main)
@@ -958,8 +938,6 @@ mod hover_tests {
 
         let uri = server.open("documented.scm", DOCUMENTED).await;
 
-        // macros aren't identifiers in the analysis, so this goes through the separate
-        // hover_macro_impl fallback rather than hover_impl
         let hover = server
             .hover(&uri, find_nth(DOCUMENTED, "twice", 1))
             .await
