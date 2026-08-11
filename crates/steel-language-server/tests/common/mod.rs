@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use dashmap::{DashMap, DashSet};
 use futures::StreamExt;
@@ -34,7 +34,6 @@ pub struct TestServer {
     capabilities: ServerCapabilities,
     published: Arc<Mutex<HashMap<Url, Vec<Diagnostic>>>>,
     next_id: AtomicI64,
-    _serial: MutexGuard<'static, ()>,
     _workspace: tempfile::TempDir,
     outside: tempfile::TempDir,
 }
@@ -46,8 +45,6 @@ impl TestServer {
 
     pub async fn with_encodings(encodings: &[PositionEncodingKind]) -> Self {
         isolate_lsp_home();
-
-        let serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
 
         let workspace = tempfile::tempdir().expect("unable to create a temp workspace");
 
@@ -104,7 +101,6 @@ impl TestServer {
             capabilities: ServerCapabilities::default(),
             published,
             next_id: AtomicI64::new(1),
-            _serial: serial,
             _workspace: workspace,
             outside: tempfile::tempdir().expect("unable to create the out of workspace directory"),
         };
