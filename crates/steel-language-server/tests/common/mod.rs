@@ -1,7 +1,5 @@
-#![allow(dead_code)]
-
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -14,8 +12,6 @@ use tower::{Service, ServiceExt};
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_lsp::LspService;
-
-static SERIAL: Mutex<()> = Mutex::new(());
 
 fn isolate_lsp_home() {
     static LSP_HOME: OnceLock<PathBuf> = OnceLock::new();
@@ -135,10 +131,6 @@ impl TestServer {
         self.notify("initialized", InitializedParams {}).await;
 
         result.capabilities
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
     }
 
     pub fn capabilities(&self) -> &ServerCapabilities {
@@ -446,10 +438,6 @@ fn defined_globals() -> DashSet<String> {
 
 pub fn position(line: u32, character: u32) -> Position {
     Position::new(line, character)
-}
-
-pub fn range(line: u32, start: u32, end: u32) -> Range {
-    Range::new(Position::new(line, start), Position::new(line, end))
 }
 
 pub fn find_nth(text: &str, needle: &str, n: usize) -> Position {
