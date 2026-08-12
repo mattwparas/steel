@@ -3,7 +3,7 @@ mod common;
 use common::*;
 use tower_lsp::lsp_types::*;
 
-const SINGLE_FILE: &str = r#"(define (add-one x)
+static SINGLE_FILE: &str = r#"(define (add-one x)
   (+ x 1))
 
 (define result (add-one 10))
@@ -12,13 +12,13 @@ const SINGLE_FILE: &str = r#"(define (add-one x)
   (+ result (add-one result)))
 "#;
 
-const LET_BINDINGS: &str = r#"(define (compute)
+static LET_BINDINGS: &str = r#"(define (compute)
   (let ([total 10]
         [other 20])
     (+ total other total)))
 "#;
 
-const LIB: &str = r#"(provide greet counter my-macro)
+static LIB: &str = r#"(provide greet counter my-macro)
 
 ;;@doc
 ;; Greets the given name.
@@ -32,7 +32,7 @@ const LIB: &str = r#"(provide greet counter my-macro)
     [(_ a) (+ a 1)]))
 "#;
 
-const PLAIN_REQUIRE: &str = r#"(require "lib.scm")
+static PLAIN_REQUIRE: &str = r#"(require "lib.scm")
 
 (define (main)
   (greet "world"))
@@ -40,7 +40,7 @@ const PLAIN_REQUIRE: &str = r#"(require "lib.scm")
 (define total counter)
 "#;
 
-const ONLY_IN_REQUIRE: &str = r#"(require (only-in "lib.scm" greet))
+static ONLY_IN_REQUIRE: &str = r#"(require (only-in "lib.scm" greet))
 
 (define (main)
   (greet "world"))
@@ -104,19 +104,19 @@ mod initialize_tests {
 mod goto_definition_tests {
     use super::*;
 
-    const PREFIX_IN_REQUIRE: &str = r#"(require (prefix-in lib. "lib.scm"))
+    static PREFIX_IN_REQUIRE: &str = r#"(require (prefix-in lib. "lib.scm"))
 
 (define (main)
   (lib.greet "world"))
 "#;
 
-    const IMPORTED_MACRO: &str = r#"(require "lib.scm")
+    static IMPORTED_MACRO: &str = r#"(require "lib.scm")
 
 (define (run)
   (my-macro 1))
 "#;
 
-    const LOCAL_MACRO: &str = r#"(define-syntax twice
+    static LOCAL_MACRO: &str = r#"(define-syntax twice
   (syntax-rules ()
     [(_ e) (begin e e)]))
 
@@ -268,7 +268,9 @@ mod goto_definition_tests {
     #[tokio::test]
     async fn definition_of_a_builtin_is_not_reported() {
         let mut server = TestServer::new().await;
-        let source = "(define (double xs)\n  (map (lambda (y) (* y 2)) xs))\n";
+        let source = r#"(define (double xs)
+  (map (lambda (y) (* y 2)) xs))
+"#;
         let uri = server.open("builtin.scm", source).await;
 
         assert_eq!(
@@ -298,7 +300,7 @@ mod goto_definition_tests {
 mod find_references_tests {
     use super::*;
 
-    const BUILTIN_USES: &str = r#"(define (run xs)
+    static BUILTIN_USES: &str = r#"(define (run xs)
   (map (lambda (y) (+ y 1)) xs))
 
 (define (run-again xs)
@@ -615,7 +617,11 @@ mod workspace_tests {
 
     fn require_by_path(uri: &Url) -> String {
         format!(
-            "(require {:?})\n\n(define (main)\n  (greet \"world\"))\n",
+            r#"(require {:?})
+
+(define (main)
+  (greet "world"))
+"#,
             uri.to_file_path().unwrap()
         )
     }
@@ -629,40 +635,40 @@ mod workspace_tests {
 mod require_graph_tests {
     use super::*;
 
-    const BASE: &str = r#"(provide base-fn)
+    static BASE: &str = r#"(provide base-fn)
 
 (define (base-fn x) x)
 "#;
 
-    const DIAMOND_LEFT: &str = r#"(require "base.scm")
+    static DIAMOND_LEFT: &str = r#"(require "base.scm")
 (provide left-call)
 
 (define (left-call) (base-fn 1))
 "#;
 
-    const DIAMOND_RIGHT: &str = r#"(require "base.scm")
+    static DIAMOND_RIGHT: &str = r#"(require "base.scm")
 (provide right-call)
 
 (define (right-call) (base-fn 2))
 "#;
 
-    const DIAMOND_TOP: &str = r#"(require "left.scm")
+    static DIAMOND_TOP: &str = r#"(require "left.scm")
 (require "right.scm")
 
 (define (main)
   (list (left-call) (right-call)))
 "#;
 
-    const DEEP: &str = r#"(provide deep-fn)
+    static DEEP: &str = r#"(provide deep-fn)
 
 (define (deep-fn x) (+ x 1))
 "#;
 
-    const MIDDLE: &str = r#"(require "deep.scm")
+    static MIDDLE: &str = r#"(require "deep.scm")
 (provide deep-fn)
 "#;
 
-    const TOP: &str = r#"(require "middle.scm")
+    static TOP: &str = r#"(require "middle.scm")
 
 (define (main)
   (deep-fn 1))
@@ -740,7 +746,7 @@ mod require_graph_tests {
 mod document_symbol_tests {
     use super::*;
 
-    const SYMBOL_SHAPES: &str = r#"(define top-value 1)
+    static SYMBOL_SHAPES: &str = r#"(define top-value 1)
 
 (define (outer x)
   (define nested-define 2)
@@ -852,7 +858,7 @@ mod document_symbol_tests {
 mod hover_tests {
     use super::*;
 
-    const DOCUMENTED: &str = r#";;@doc
+    static DOCUMENTED: &str = r#";;@doc
 ;; Increments its argument.
 (define (add-one x)
   (+ x 1))
@@ -867,7 +873,7 @@ mod hover_tests {
   (twice (add-one 1)))
 "#;
 
-    const MACRO_LIB: &str = r#"(provide shout)
+    static MACRO_LIB: &str = r#"(provide shout)
 
 ;;@doc
 ;; Appends an exclamation mark.
@@ -876,19 +882,19 @@ mod hover_tests {
     [(_ e) (string-append e "!")]))
 "#;
 
-    const MACRO_APP: &str = r#"(require "macro-lib.scm")
+    static MACRO_APP: &str = r#"(require "macro-lib.scm")
 
 (define (run)
   (shout "hi"))
 "#;
 
-    const UNDOCUMENTED_LIB: &str = r#"(provide undocumented)
+    static UNDOCUMENTED_LIB: &str = r#"(provide undocumented)
 
 (define (undocumented a b)
   (+ a b))
 "#;
 
-    const UNDOCUMENTED_APP: &str = r#"(require "plain-lib.scm")
+    static UNDOCUMENTED_APP: &str = r#"(require "plain-lib.scm")
 
 (define (main)
   (undocumented 1 2))
@@ -897,7 +903,9 @@ mod hover_tests {
     #[tokio::test]
     async fn hover_shows_builtin_documentation() {
         let mut server = TestServer::new().await;
-        let source = "(define (double xs)\n  (map (lambda (y) (* y 2)) xs))\n";
+        let source = r#"(define (double xs)
+  (map (lambda (y) (* y 2)) xs))
+"#;
         let uri = server.open("builtin.scm", source).await;
 
         let hover = server
@@ -1006,7 +1014,11 @@ mod hover_tests {
         // with no doc comment to show, the pretty printed definition stands in for it
         assert_eq!(
             hover_text(&hover),
-            "```scheme\n(define undocumented\n  (λ (a b)\n    ...))\n```"
+            r#"```scheme
+(define undocumented
+  (λ (a b)
+    ...))
+```"#
         );
     }
 
@@ -1032,13 +1044,13 @@ mod hover_tests {
 mod completion_tests {
     use super::*;
 
-    const COMPLETION_SOURCE: &str = r#"(define (outer alpha)
+    static COMPLETION_SOURCE: &str = r#"(define (outer alpha)
   (+ alpha 1))
 
 (define gamma 3)
 "#;
 
-    const COMPLETION_SCOPES: &str = r#"(define (outer alpha)
+    static COMPLETION_SCOPES: &str = r#"(define (outer alpha)
   (let ([local-binding 1])
     (+ alpha local-binding)))
 
@@ -1241,7 +1253,9 @@ mod rename_tests {
             None
         );
 
-        let source = "(define (double xs)\n  (map (lambda (y) (* y 2)) xs))\n";
+        let source = r#"(define (double xs)
+  (map (lambda (y) (* y 2)) xs))
+"#;
         let uri = server.open("builtin.scm", source).await;
 
         let error = server
@@ -1259,26 +1273,26 @@ mod diagnostics_tests {
 
     // one call per Arity variant we know how to report. Arity::AtMost has no test because
     // nothing declares it, so that arm is unreachable today
-    const BUILTIN_ARITIES: &str = r#"(define (run)
+    static BUILTIN_ARITIES: &str = r#"(define (run)
   (list (-)
         (log)
         (range 1 2 3)
         (car)))
 "#;
 
-    const ARITY_LIB: &str = r#"(provide greet)
+    static ARITY_LIB: &str = r#"(provide greet)
 
 (define (greet name)
   (string-append "hello " name))
 "#;
 
-    const ARITY_APP: &str = r#"(require "arity-lib.scm")
+    static ARITY_APP: &str = r#"(require "arity-lib.scm")
 
 (define (main)
   (greet "a" "b"))
 "#;
 
-    const CONTRACTED: &str = r#"(define/contract (add x y)
+    static CONTRACTED: &str = r#"(define/contract (add x y)
   (->/c int? int? int?)
   (+ x y))
 
@@ -1289,7 +1303,9 @@ mod diagnostics_tests {
     #[tokio::test]
     async fn diagnostics_report_free_identifiers_and_unused_arguments() {
         let mut server = TestServer::new().await;
-        let source = "(define (f x)\n  (undefined-function 10))\n";
+        let source = r#"(define (f x)
+  (undefined-function 10))
+"#;
         let uri = server.open("free.scm", source).await;
 
         let diagnostics = server.diagnostics(&uri);
@@ -1313,7 +1329,10 @@ mod diagnostics_tests {
     #[tokio::test]
     async fn diagnostics_report_arity_mismatches() {
         let mut server = TestServer::new().await;
-        let source = "(define (f x) x)\n(f 1 2 3)\n(car)\n";
+        let source = r#"(define (f x) x)
+(f 1 2 3)
+(car)
+"#;
         let uri = server.open("arity.scm", source).await;
 
         let messages: Vec<_> = server
@@ -1447,7 +1466,9 @@ mod diagnostics_tests {
     #[tokio::test]
     async fn diagnostics_report_parse_errors() {
         let mut server = TestServer::new().await;
-        let uri = server.open("broken.scm", "(define (f x)\n").await;
+        let source = r#"(define (f x)
+"#;
+        let uri = server.open("broken.scm", source).await;
 
         let diagnostics = server.diagnostics(&uri);
 
@@ -1471,14 +1492,18 @@ mod diagnostics_tests {
     #[tokio::test]
     async fn diagnostics_are_cleared_once_the_problem_is_fixed() {
         let mut server = TestServer::new().await;
-        let source = "(define (f x)\n  (undefined-function x))\n";
+        let source = r#"(define (f x)
+  (undefined-function x))
+"#;
+        let fixed = r#"(define (f x)
+  (+ x 1))
+"#;
+
         let uri = server.open("fixup.scm", source).await;
 
         assert!(!server.diagnostics(&uri).is_empty());
 
-        server
-            .did_change(uri.clone(), "(define (f x)\n  (+ x 1))\n")
-            .await;
+        server.did_change(uri.clone(), fixed).await;
 
         assert_eq!(server.diagnostics(&uri), vec![]);
     }
@@ -1488,7 +1513,7 @@ mod document_sync_tests {
     use super::*;
 
     // LIB with the definition pushed one line down
-    const LIB_EDITED: &str = r#"(provide greet counter my-macro)
+    static LIB_EDITED: &str = r#"(provide greet counter my-macro)
 
 ;;@doc
 ;; Greets the given name.
@@ -1506,7 +1531,14 @@ mod document_sync_tests {
     #[tokio::test]
     async fn edits_are_reflected_in_later_requests() {
         let mut server = TestServer::new().await;
-        let uri = server.open("change.scm", "(define (f x) x)\n(f 1)\n").await;
+        let original = r#"(define (f x) x)
+(f 1)
+"#;
+        let updated = r#"(define (renamed y) y)
+(renamed 1)
+"#;
+
+        let uri = server.open("change.scm", original).await;
 
         assert_eq!(
             flat_symbols(server.document_symbol(&uri).await)
@@ -1516,7 +1548,6 @@ mod document_sync_tests {
             vec!["f"]
         );
 
-        let updated = "(define (renamed y) y)\n(renamed 1)\n";
         server.did_change(uri.clone(), updated).await;
 
         assert_eq!(
@@ -1588,7 +1619,9 @@ mod offset_encoding_tests {
 
     // grüße and naïve-name take a different number of bytes, utf16 code units and
     // characters, which is what the conversions have to get right
-    const UNICODE: &str = "(define (grüße naïve-name)\n  (list naïve-name naïve-name))\n";
+    static UNICODE: &str = r#"(define (grüße naïve-name)
+  (list naïve-name naïve-name))
+"#;
 
     #[tokio::test]
     async fn positions_are_utf16_code_units_by_default() {

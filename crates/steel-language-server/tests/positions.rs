@@ -3,7 +3,10 @@ use steel::parser::span::Span;
 use steel_language_server::backend::{Config, OffsetEncoding};
 use tower_lsp::lsp_types::{Position, Range};
 
-const SOURCE: &str = "(define x 1)\n(display \"héllo 😀\")\n(+ x 1)\n";
+static SOURCE: &str = r#"(define x 1)
+(display "héllo 😀")
+(+ x 1)
+"#;
 
 const CLOSE_PAREN: u32 = 35;
 
