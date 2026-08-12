@@ -5,6 +5,7 @@
 (require-builtin steel/git)
 (require "steel/result")
 (require "parser.scm")
+(require "toml.scm")
 
 (provide maybe-git-clone
          in-directory
@@ -183,19 +184,14 @@
   (~> (maybe-git-clone library-name git-url *NATIVE_SOURCES_DIR*)
       (run-dylib-installation #:subdir subdir)))
 
-;; Attempt to get the toml - This should actually just expand to the function to parse it,
-;; otherwise return a function that can't do anything with it if the toml library
-;; isn't present.
-(define (try-parse-toml str)
-  ;; Include the dylib if relevant
-  (eval '(#%require-dylib "libsteel_toml" (only-in toml->value string->toml)))
-  (eval `(toml->value (string->toml ,str))))
-
 ;; TODO: Implement some proper error handling, assuming we can't discover
 ;; the reason for not finding the lib name
 (define (find-dylib-name path)
   (define contents (read-port-to-string (open-input-file path)))
-  (define toml-contents (try-parse-toml contents))
+  (define lib-name (toml-ref contents "lib" "name"))
+
+  (unless lib-name
+    (error "Unable to find the `name` key of the `[lib]` table in " path))
 
   (define current-os (current-os!))
 
@@ -208,4 +204,4 @@
       [(equal? current-os "windows") ".dll"]
       [else ".so"]))
 
-  (string-append "lib" (~> toml-contents (hash-ref "lib") (hash-ref "name")) *file-extension*))
+  (string-append "lib" lib-name *file-extension*))
