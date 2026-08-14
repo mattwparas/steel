@@ -233,8 +233,9 @@ Commands:
 
 (define (get-command-line-args)
   (define args (command-line))
+  (define interpreter (if (equal? (current-os!) "windows") "steel.exe" "steel"))
   ;; Running as a program, vs embedded elsewhere?
-  (if (ends-with? (car args) "steel")
+  (if (ends-with? (car args) interpreter)
       (drop args 2)
       (drop args 1)))
 
