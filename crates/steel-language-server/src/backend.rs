@@ -1206,8 +1206,7 @@ impl LanguageServer for Backend {
     }
 }
 
-/// Identifiers the compiler generates for itself, which should never be surfaced to the
-/// user - in completions, or anywhere else we hand back a name.
+// Identifiers the compiler generates for itself - we should never hand these back
 pub fn is_internal_identifier(resolved: &str) -> bool {
     resolved.starts_with("#")
         || resolved.starts_with("%")
@@ -1220,7 +1219,6 @@ pub fn is_internal_identifier(resolved: &str) -> bool {
         || resolved.ends_with("__doc__")
 }
 
-/// The globals of `engine` that are worth offering as completions.
 pub fn visible_globals(engine: &Engine) -> DashSet<String> {
     let globals = DashSet::new();
 
