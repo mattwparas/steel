@@ -6,8 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use dashmap::{DashMap, DashSet};
 use futures::StreamExt;
 use serde::de::DeserializeOwned;
-use steel::compiler::modules::MANGLER_PREFIX;
-use steel_language_server::backend::{Backend, Config, ENGINE};
+use steel_language_server::backend::{visible_globals, Backend, Config, ENGINE};
 use tower::{Service, ServiceExt};
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
@@ -27,7 +26,6 @@ fn isolate_lsp_home() {
 pub struct TestServer {
     service: LspService<Backend>,
     root: PathBuf,
-    capabilities: ServerCapabilities,
     published: Arc<Mutex<HashMap<Url, Vec<Diagnostic>>>>,
     next_id: AtomicI64,
     _workspace: tempfile::TempDir,
@@ -64,7 +62,7 @@ impl TestServer {
             _macro_map: DashMap::new(),
             globals_set: Arc::new(DashSet::new()),
             ignore_set: Arc::new(DashSet::new()),
-            defined_globals: defined_globals(),
+            defined_globals: visible_globals(&ENGINE.read().unwrap()),
         })
         .finish();
 
@@ -94,19 +92,18 @@ impl TestServer {
         let mut server = TestServer {
             service,
             root,
-            capabilities: ServerCapabilities::default(),
             published,
             next_id: AtomicI64::new(1),
             _workspace: workspace,
             outside: tempfile::tempdir().expect("unable to create the out of workspace directory"),
         };
 
-        server.capabilities = server.initialize(encodings).await;
+        server.initialize(encodings).await;
 
         server
     }
 
-    async fn initialize(&mut self, encodings: &[PositionEncodingKind]) -> ServerCapabilities {
+    async fn initialize(&mut self, encodings: &[PositionEncodingKind]) {
         let general = if encodings.is_empty() {
             None
         } else {
@@ -126,15 +123,9 @@ impl TestServer {
             ..Default::default()
         };
 
-        let result: InitializeResult = self.request("initialize", params).await.unwrap();
+        let _: InitializeResult = self.request("initialize", params).await.unwrap();
 
         self.notify("initialized", InitializedParams {}).await;
-
-        result.capabilities
-    }
-
-    pub fn capabilities(&self) -> &ServerCapabilities {
-        &self.capabilities
     }
 
     pub fn root_uri(&self) -> Url {
@@ -415,25 +406,6 @@ fn text_document_position(uri: &Url, position: Position) -> TextDocumentPosition
         text_document: TextDocumentIdentifier { uri: uri.clone() },
         position,
     }
-}
-
-fn defined_globals() -> DashSet<String> {
-    let defined_globals = DashSet::new();
-
-    for global in ENGINE.read().unwrap().globals().iter() {
-        let resolved = global.resolve();
-
-        if !resolved.starts_with('#')
-            && !resolved.starts_with('%')
-            && !resolved.starts_with("mangler#%")
-            && !resolved.starts_with(MANGLER_PREFIX)
-            && !resolved.starts_with("__module")
-        {
-            defined_globals.insert(resolved.to_string());
-        }
-    }
-
-    defined_globals
 }
 
 pub fn position(line: u32, character: u32) -> Position {

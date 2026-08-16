@@ -7,12 +7,11 @@ use std::{
 use dashmap::{DashMap, DashSet};
 
 use steel::{
-    compiler::modules::MANGLER_PREFIX,
     parser::{expander::SteelMacro, interner::InternedString},
     steel_vm::{engine::Engine, register_fn::RegisterFn},
 };
 use steel_language_server::backend::{
-    lsp_home, Backend, Config, ExternalModuleResolver, FileState, ENGINE,
+    lsp_home, visible_globals, Backend, Config, ExternalModuleResolver, FileState, ENGINE,
 };
 
 use tower_lsp::{lsp_types::Url, LspService, Server};
@@ -64,19 +63,7 @@ async fn main() {
         }
     };
 
-    let defined_globals = DashSet::new();
-
-    for global in ENGINE.read().unwrap().globals().iter() {
-        let resolved = global.resolve();
-        if !resolved.starts_with("#")
-            && !resolved.starts_with("%")
-            && !resolved.starts_with("mangler#%")
-            && !resolved.starts_with(MANGLER_PREFIX)
-            && !resolved.starts_with("__module")
-        {
-            defined_globals.insert(resolved.to_string());
-        }
-    }
+    let defined_globals = visible_globals(&ENGINE.read().unwrap());
 
     let vfs = DashMap::new();
 

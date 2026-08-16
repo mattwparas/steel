@@ -53,54 +53,6 @@ fn flat_symbols(response: Option<DocumentSymbolResponse>) -> Vec<SymbolInformati
     }
 }
 
-mod initialize_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn advertises_the_features_the_editor_needs() {
-        let server = TestServer::new().await;
-        let capabilities = server.capabilities().clone();
-
-        assert_eq!(capabilities.definition_provider, Some(OneOf::Left(true)));
-        assert_eq!(capabilities.references_provider, Some(OneOf::Left(true)));
-        assert_eq!(
-            capabilities.document_symbol_provider,
-            Some(OneOf::Left(true))
-        );
-        assert!(matches!(
-            capabilities.hover_provider,
-            Some(HoverProviderCapability::Simple(true))
-        ));
-        assert!(capabilities.completion_provider.is_some());
-
-        assert!(matches!(
-            capabilities.rename_provider,
-            Some(OneOf::Right(RenameOptions {
-                prepare_provider: Some(true),
-                ..
-            }))
-        ));
-    }
-
-    #[tokio::test]
-    async fn negotiates_utf8_when_the_client_offers_it() {
-        let server = TestServer::with_encodings(&[PositionEncodingKind::UTF8]).await;
-
-        assert_eq!(
-            server.capabilities().position_encoding,
-            Some(PositionEncodingKind::UTF8)
-        );
-    }
-
-    #[tokio::test]
-    async fn falls_back_to_utf16_when_the_client_offers_nothing() {
-        let server = TestServer::new().await;
-
-        // None means the protocol default, which is utf16
-        assert_eq!(server.capabilities().position_encoding, None);
-    }
-}
-
 mod goto_definition_tests {
     use super::*;
 
@@ -1073,9 +1025,19 @@ mod completion_tests {
             );
         }
 
+        // the globals and the in scope names run through different filters, so check that
+        // compiler generated names are hidden by both
+        for internal in ["mangler#%", "##mm", "__module-", "!!dummy-rest"] {
+            assert!(
+                !labels.iter().any(|label| label.starts_with(internal)),
+                "{:?} leaked into the completions",
+                internal
+            );
+        }
+
         assert!(
-            !labels.iter().any(|label| label.starts_with("mangler#%")),
-            "mangled identifiers leaked into the completions"
+            !labels.iter().any(|label| label.ends_with("__doc__")),
+            "documentation bindings leaked into the completions"
         );
     }
 

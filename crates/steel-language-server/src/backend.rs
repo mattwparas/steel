@@ -1206,6 +1206,35 @@ impl LanguageServer for Backend {
     }
 }
 
+/// Identifiers the compiler generates for itself, which should never be surfaced to the
+/// user - in completions, or anywhere else we hand back a name.
+pub fn is_internal_identifier(resolved: &str) -> bool {
+    resolved.starts_with("#")
+        || resolved.starts_with("%")
+        || resolved.starts_with(MANGLER_PREFIX)
+        || resolved.starts_with("mangler#%")
+        || resolved.starts_with("!!dummy-rest")
+        || resolved.starts_with(MODULE_PREFIX)
+        // TODO: This should just be prefixed with # as well, to make it
+        // so that it doesn't show up here at all
+        || resolved.ends_with("__doc__")
+}
+
+/// The globals of `engine` that are worth offering as completions.
+pub fn visible_globals(engine: &Engine) -> DashSet<String> {
+    let globals = DashSet::new();
+
+    for global in engine.globals().iter() {
+        let resolved = global.resolve();
+
+        if !is_internal_identifier(resolved) {
+            globals.insert(resolved.to_string());
+        }
+    }
+
+    globals
+}
+
 fn filter_interned_string_with_char(
     interned: &InternedString,
     filter_char: Option<char>,
@@ -1218,20 +1247,11 @@ fn filter_interned_string_with_char(
         }
     }
 
-    if !resolved.starts_with("#")
-        && !resolved.starts_with("%")
-        && !resolved.starts_with(MANGLER_PREFIX)
-        && !resolved.starts_with("mangler#%")
-        && !resolved.starts_with("!!dummy-rest")
-        && !resolved.starts_with(MODULE_PREFIX)
-        // TODO: This should just be prefixed with # as well, to make it
-        // so that it doesn't show up here at all
-        && !resolved.ends_with("__doc__")
-    {
-        Some(resolved.to_string())
-    } else {
-        None
+    if is_internal_identifier(resolved) {
+        return None;
     }
+
+    Some(resolved.to_string())
 }
 
 #[derive(Debug, Deserialize, Serialize)]
