@@ -131,13 +131,13 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
 
 #[derive(Clone, Debug)]
 pub struct NameMangler {
-    pub(crate) globals: FxHashSet<InternedString>,
+    pub(crate) globals: std::sync::Arc<FxHashSet<InternedString>>,
     prefix: CompactString,
     mangle_cache: FxHashMap<InternedString, InternedString>,
 }
 
 impl NameMangler {
-    pub fn new(globals: FxHashSet<InternedString>, prefix: CompactString) -> Self {
+    pub fn new(globals: std::sync::Arc<FxHashSet<InternedString>>, prefix: CompactString) -> Self {
         Self {
             globals,
             prefix,
@@ -156,7 +156,7 @@ pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
     let globals = collect_globals(exprs);
 
     let mut name_mangler = NameMangler {
-        globals,
+        globals: std::sync::Arc::new(globals),
         prefix,
         mangle_cache: FxHashMap::default(),
     };

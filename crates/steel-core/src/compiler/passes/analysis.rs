@@ -2901,14 +2901,49 @@ where
 }
 
 struct RemoveUnusedDefineImports<'a> {
-    analysis: &'a Analysis,
+    referenced: &'a FxHashSet<InternedString>,
     depth: usize,
 }
 
 impl<'a> RemoveUnusedDefineImports<'a> {
-    pub fn new(analysis: &'a Analysis) -> Self {
-        Self { analysis, depth: 0 }
+    pub fn new(referenced: &'a FxHashSet<InternedString>) -> Self {
+        Self {
+            referenced,
+            depth: 0,
+        }
     }
+
+    fn is_unused_import(&self, define: &Define) -> bool {
+        is_a_builtin_definition(define)
+            && define
+                .name
+                .atom_identifier()
+                .map(|name| !self.referenced.contains(name))
+                .unwrap_or_default()
+    }
+}
+
+#[derive(Default)]
+struct CollectReferencedIdentifiers {
+    identifiers: FxHashSet<InternedString>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for CollectReferencedIdentifiers {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let Some(ident) = a.ident() {
+            self.identifiers.insert(*ident);
+        }
+    }
+
+    fn visit_define(&mut self, define: &'a Define) {
+        self.visit(&define.body);
+    }
+
+    fn visit_quote(&mut self, _quote: &'a Quote) {}
+
+    fn visit_macro(&mut self, _m: &'a crate::parser::ast::Macro) {}
+
+    fn visit_syntax_rules(&mut self, _l: &'a crate::parser::ast::SyntaxRules) {}
 }
 
 // This should just be a function on the define, not a method - so that it can be moved
@@ -2973,16 +3008,11 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => {
-                if is_a_builtin_definition(d) {
-                    if let Some(analysis) = self.analysis.get(d.name.atom_syntax_object().unwrap())
-                    {
-                        if analysis.usage_count == 0 {
-                            *expr = ExprKind::Begin(Box::new(Begin::new(
-                                vec![],
-                                RawSyntaxObject::default(TokenType::Begin),
-                            )));
-                        }
-                    }
+                if self.is_unused_import(d) {
+                    *expr = ExprKind::Begin(Box::new(Begin::new(
+                        vec![],
+                        RawSyntaxObject::default(TokenType::Begin),
+                    )));
                 }
             }
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
@@ -3007,14 +3037,8 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
 
             for (idx, expr) in begin.exprs.iter().enumerate() {
                 if let ExprKind::Define(d) = expr {
-                    if is_a_builtin_definition(d) {
-                        if let Some(analysis) =
-                            self.analysis.get(d.name.atom_syntax_object().unwrap())
-                        {
-                            if analysis.usage_count == 0 {
-                                exprs_to_drop.push(idx);
-                            }
-                        }
+                    if self.is_unused_import(d) {
+                        exprs_to_drop.push(idx);
                     }
                 }
             }
@@ -7187,21 +7211,26 @@ impl<'a> SemanticAnalysis<'a> {
             unused.visit(expr);
         }
     }
+}
 
-    pub fn remove_unused_define_imports(&mut self) {
-        let mut unused = RemoveUnusedDefineImports::new(&self.analysis);
-        for expr in self.exprs.iter_mut() {
-            unused.visit(expr);
-        }
-
-        self.exprs.retain(|x| {
-            if let ExprKind::Begin(b) = x {
-                !b.exprs.is_empty()
-            } else {
-                true
-            }
-        });
+pub fn remove_unused_define_imports(exprs: &mut Vec<ExprKind>) {
+    let mut referenced = CollectReferencedIdentifiers::default();
+    for expr in exprs.iter() {
+        referenced.visit(expr);
     }
+
+    let mut unused = RemoveUnusedDefineImports::new(&referenced.identifiers);
+    for expr in exprs.iter_mut() {
+        unused.visit(expr);
+    }
+
+    exprs.retain(|x| {
+        if let ExprKind::Begin(b) = x {
+            !b.exprs.is_empty()
+        } else {
+            true
+        }
+    });
 }
 
 #[cfg(test)]

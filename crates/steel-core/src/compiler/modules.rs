@@ -1,8 +1,5 @@
 use crate::{
-    compiler::{
-        passes::{analysis::SemanticAnalysis, VisitorMutRefUnit},
-        program::PROVIDE,
-    },
+    compiler::{passes::VisitorMutRefUnit, program::PROVIDE},
     parser::{
         ast::{Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::{
@@ -436,11 +433,13 @@ impl ModuleManager {
                 continue;
             };
 
+            let other_module_prefix = module.prefix();
+            let other_module_ident: InternedString =
+                (CompactString::new(MODULE_PREFIX) + &other_module_prefix).into();
+
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
                 for provide in &provide_expr.list().unwrap().args[1..] {
-                    let other_module_prefix = module.prefix();
-
                     // TODO: Expand the contract out into something we expect
                     // Otherwise, this is going to blow up
                     match provide {
@@ -472,10 +471,7 @@ impl ModuleManager {
 
                                         let hash_get = expr_list![
                                             ExprKind::atom(*PROTO_HASH_GET),
-                                            ExprKind::atom(
-                                                CompactString::new(MODULE_PREFIX)
-                                                    + &other_module_prefix
-                                            ),
+                                            ExprKind::atom(other_module_ident),
                                             ExprKind::Quote(Box::new(Quote::new(
                                                 name.clone(),
                                                 SyntaxObject::default(TokenType::Quote)
@@ -542,9 +538,7 @@ impl ModuleManager {
 
                             let hash_get = expr_list![
                                 ExprKind::atom(*PROTO_HASH_GET),
-                                ExprKind::atom(
-                                    CompactString::new(MODULE_PREFIX) + &other_module_prefix
-                                ),
+                                ExprKind::atom(other_module_ident),
                                 ExprKind::Quote(Box::new(Quote::new(
                                     provide.clone(),
                                     SyntaxObject::default(TokenType::Quote)
@@ -742,52 +736,64 @@ impl ModuleManager {
 
         let prefix = module.prefix();
 
-        // Collect globals and also, anything that is imported
-        let mut globals = collect_globals(&module.ast);
+        let globals = if let Some(globals) = &module.in_scope_globals {
+            Arc::clone(globals)
+        } else {
+            // Collect globals and also, anything that is imported
+            let mut globals = collect_globals(&module.ast);
 
-        // Bring in what they provided first, but then if we can't find that, we'll have to
-        // find all of the remaining ones by fetching all of their dependencies, and then
-        // reborrowing
-        globals.extend(
-            module
+            // Bring in what they provided first, but then if we can't find that, we'll have to
+            // find all of the remaining ones by fetching all of their dependencies, and then
+            // reborrowing
+            globals.extend(
+                module
+                    .require_objects
+                    .iter()
+                    .flat_map(|x| x.as_identifiers()),
+            );
+
+            let modules_to_check = module
                 .require_objects
                 .iter()
-                .flat_map(|x| x.as_identifiers()),
-        );
-
-        let modules_to_check = module
-            .require_objects
-            .iter()
-            .filter_map(|x| {
-                if x.idents_to_import.is_empty() {
-                    Some(x.path.get_path().into_owned())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        // drop(module);
-
-        for importing_module in modules_to_check {
-            let other_module = compiled_modules
-                .compiled_modules
-                .get_mut(&importing_module)
-                .unwrap();
-
-            for provide_expr in &other_module.provides {
-                // TODO: Handle provide spec stuff!
-                for provide in &provide_expr.list().unwrap().args[1..] {
-                    if let Some(ident) = provide.atom_identifier() {
-                        globals.insert(*ident);
+                .filter_map(|x| {
+                    if x.idents_to_import.is_empty() {
+                        Some(x.path.get_path().into_owned())
+                    } else {
+                        None
                     }
+                })
+                .collect::<Vec<_>>();
 
-                    if let Some(list) = provide.list().and_then(|x| x.second_ident()) {
-                        globals.insert(*list);
+            for importing_module in modules_to_check {
+                let other_module = compiled_modules
+                    .compiled_modules
+                    .get_mut(&importing_module)
+                    .unwrap();
+
+                for provide_expr in &other_module.provides {
+                    // TODO: Handle provide spec stuff!
+                    for provide in &provide_expr.list().unwrap().args[1..] {
+                        if let Some(ident) = provide.atom_identifier() {
+                            globals.insert(*ident);
+                        }
+
+                        if let Some(list) = provide.list().and_then(|x| x.second_ident()) {
+                            globals.insert(*list);
+                        }
                     }
                 }
             }
-        }
+
+            let globals = Arc::new(globals);
+
+            compiled_modules
+                .compiled_modules
+                .get_mut(require_for_syntax)
+                .unwrap()
+                .in_scope_globals = Some(Arc::clone(&globals));
+
+            globals
+        };
 
         let module = compiled_modules
             .compiled_modules
@@ -967,6 +973,7 @@ pub struct CompiledModule {
     downstream_builtins: Vec<PathBuf>,
 
     pub(crate) compiled_ast: Option<ExprKind>,
+    in_scope_globals: Option<Arc<FxHashSet<InternedString>>>,
 }
 
 pub static MANGLER_PREFIX: &str = "##mm";
@@ -1076,6 +1083,7 @@ impl CompiledModule {
             downstream,
             downstream_builtins,
             compiled_ast: None,
+            in_scope_globals: None,
         }
     }
 
@@ -1168,6 +1176,8 @@ impl CompiledModule {
             let module = modules.get(path.as_ref()).unwrap();
 
             let other_module_prefix = module.prefix();
+            let other_module_ident: InternedString =
+                (CompactString::new(MODULE_PREFIX) + &other_module_prefix).into();
 
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
@@ -1205,10 +1215,7 @@ impl CompiledModule {
 
                                         let hash_get = expr_list![
                                             ExprKind::atom(*PROTO_HASH_GET),
-                                            ExprKind::atom(
-                                                CompactString::new(MODULE_PREFIX)
-                                                    + &other_module_prefix
-                                            ),
+                                            ExprKind::atom(other_module_ident),
                                             ExprKind::Quote(Box::new(Quote::new(
                                                 name.clone(),
                                                 SyntaxObject::default(TokenType::Quote)
@@ -1312,9 +1319,7 @@ impl CompiledModule {
                                 ExprKind::atom(prefix.clone() + provide_ident.resolve()),
                                 expr_list![
                                     ExprKind::atom(*PROTO_HASH_GET),
-                                    ExprKind::atom(
-                                        CompactString::new(MODULE_PREFIX) + &other_module_prefix
-                                    ),
+                                    ExprKind::atom(other_module_ident),
                                     ExprKind::Quote(Box::new(Quote::new(
                                         raw_provide.clone(),
                                         SyntaxObject::default(TokenType::Quote)
@@ -1340,7 +1345,7 @@ impl CompiledModule {
         // Mangle all of the variables that are either:
         // 1. Defined locally in this file
         // 2. Required by another file
-        let mut name_mangler = NameMangler::new(globals, prefix.clone());
+        let mut name_mangler = NameMangler::new(Arc::new(globals), prefix.clone());
 
         // Afterwards, walk through and unmangle any quoted values, since these
         // were intended to be used with non mangled values.
@@ -2633,8 +2638,7 @@ impl<'a> ModuleBuilder<'a> {
             // Remove the unused defines since this module
             // won't need to reference these later from any macros
             {
-                let mut sem = SemanticAnalysis::new(&mut module.ast);
-                sem.remove_unused_define_imports();
+                crate::compiler::passes::analysis::remove_unused_define_imports(&mut module.ast);
             }
 
             // TODO: Revisit with some caching later
