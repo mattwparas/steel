@@ -309,24 +309,157 @@ pub enum SemanticInformationType {
     Let(LetInformation),
 }
 
+/// A hash map that keeps its values in a side vector, so growing the table only
+/// shuffles indices around instead of the values themselves.
+#[derive(Debug, Clone)]
+pub struct IndexedMap<K, V> {
+    index: FxHashMap<K, u32>,
+    values: Vec<V>,
+}
+
+impl<K, V> Default for IndexedMap<K, V> {
+    fn default() -> Self {
+        Self {
+            index: FxHashMap::default(),
+            values: Vec::new(),
+        }
+    }
+}
+
+impl<K: Copy + Eq + core::hash::Hash, V> IndexedMap<K, V> {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            index: HashMap::with_capacity_and_hasher(capacity, FxBuildHasher::default()),
+            values: Vec::with_capacity(capacity),
+        }
+    }
+
+    #[inline]
+    pub fn insert(&mut self, key: K, value: V) {
+        match self.index.entry(key) {
+            hash_map::Entry::Occupied(slot) => {
+                self.values[*slot.get() as usize] = value;
+            }
+            hash_map::Entry::Vacant(slot) => {
+                slot.insert(self.values.len() as u32);
+                self.values.push(value);
+            }
+        }
+    }
+
+    #[inline]
+    pub fn insert_if_vacant(&mut self, key: K, value: impl FnOnce() -> V) {
+        if let hash_map::Entry::Vacant(slot) = self.index.entry(key) {
+            slot.insert(self.values.len() as u32);
+            self.values.push(value());
+        }
+    }
+
+    #[inline]
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.index.get(key).map(|i| &self.values[*i as usize])
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        match self.index.get(key) {
+            Some(i) => Some(&mut self.values[*i as usize]),
+            None => None,
+        }
+    }
+
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.index.contains_key(key)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.index
+            .iter()
+            .map(|(key, index)| (key, &self.values[*index as usize]))
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.values.iter()
+    }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+        self.values.iter_mut()
+    }
+
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.values.capacity()
+    }
+
+    pub fn clear(&mut self) {
+        self.index.clear();
+        self.values.clear();
+    }
+
+    pub fn shrink_to(&mut self, min_capacity: usize) {
+        self.index.shrink_to(min_capacity);
+        self.values.shrink_to(min_capacity);
+    }
+}
+
+impl<'a, K: Copy + Eq + core::hash::Hash, V> IntoIterator for &'a IndexedMap<K, V> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = IndexedMapIter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IndexedMapIter {
+            index: self.index.iter(),
+            values: &self.values,
+        }
+    }
+}
+
+pub struct IndexedMapIter<'a, K, V> {
+    index: hash_map::Iter<'a, K, u32>,
+    values: &'a [V],
+}
+
+impl<'a, K, V> Iterator for IndexedMapIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.index
+            .next()
+            .map(|(key, index)| (key, &self.values[*index as usize]))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.index.size_hint()
+    }
+}
+
+pub type IdentifierInfoMap = IndexedMap<SyntaxObjectId, SemanticInformation>;
+
 // Populate the metadata about individual
 #[derive(Default, Clone)]
 pub struct Analysis {
     // TODO: make these be specific IDs for semantic id, function id, and call info id
-    pub(crate) info: FxHashMap<SyntaxObjectId, SemanticInformation>,
-    pub(crate) function_info: FxHashMap<u32, FunctionInformation>,
-    pub(crate) call_info: FxHashMap<u32, CallSiteInformation>,
-    pub(crate) let_info: FxHashMap<u32, LetInformation>,
+    pub(crate) info: IdentifierInfoMap,
+    pub(crate) function_info: IndexedMap<u32, FunctionInformation>,
+    pub(crate) call_info: IndexedMap<u32, CallSiteInformation>,
+    pub(crate) let_info: IndexedMap<u32, LetInformation>,
     pub(crate) scope: ScopeMap<InternedString, ScopeInfo, FxBuildHasher>,
 }
 
 impl Analysis {
     pub fn pre_allocated() -> Self {
         Analysis {
-            info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
-            function_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
-            call_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
-            let_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            info: IdentifierInfoMap::with_capacity(3584),
+            function_info: IndexedMap::with_capacity(128),
+            call_info: IndexedMap::with_capacity(128),
+            let_info: IndexedMap::with_capacity(128),
             scope: ScopeMap::default(),
         }
     }
@@ -347,7 +480,7 @@ impl Analysis {
         self.scope.clear_all();
     }
 
-    pub fn identifier_info(&self) -> &FxHashMap<SyntaxObjectId, SemanticInformation> {
+    pub fn identifier_info(&self) -> &IdentifierInfoMap {
         &self.info
     }
 
@@ -381,10 +514,10 @@ impl Analysis {
         // let mut analysis = Analysis::default();
 
         let mut analysis = Analysis {
-            info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
-            function_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
-            call_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
-            let_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            info: IdentifierInfoMap::with_capacity(3584),
+            function_info: IndexedMap::with_capacity(128),
+            call_info: IndexedMap::with_capacity(128),
+            let_info: IndexedMap::with_capacity(128),
             scope: ScopeMap::default(),
         };
 
@@ -1403,14 +1536,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         //     self.info.get_mut(&id).unwrap().last_usage = true;
         // }
 
-        if let hash_map::Entry::Vacant(e) = self.info.let_info.entry(l.syntax_object_id) {
-            e.insert(LetInformation::new(
+        self.info.let_info.insert_if_vacant(l.syntax_object_id, || {
+            LetInformation::new(
                 // self.stack_offset,
                 rollback_offset,
                 self.function_context,
                 arguments,
-            ));
-        }
+            )
+        });
 
         if is_top_level {
             self.info.scope.pop_layer();
@@ -2252,7 +2385,7 @@ where
 
 struct FindCallSitesManyMut<'a, F> {
     analysis: &'a mut Analysis,
-    sets: HashSet<InternedString>,
+    sets: FxHashSet<InternedString>,
     func: F,
 }
 
@@ -2290,7 +2423,7 @@ where
 
 struct FindCallSitesMany<'a, F> {
     analysis: &'a Analysis,
-    map: HashMap<InternedString, F>,
+    map: FxHashMap<InternedString, F>,
     proto_hash: InternedString,
 }
 
@@ -2336,7 +2469,7 @@ where
 
 struct FindCallSitesManyDepth<'a, F> {
     analysis: &'a Analysis,
-    map: HashMap<InternedString, F>,
+    map: FxHashMap<InternedString, F>,
     depth: usize,
 }
 
@@ -2383,8 +2516,8 @@ where
 struct FunctionSizeEstimator {
     count: usize,
     // Set up the name mapping for the syntax object ids
-    names: HashMap<InternedString, SyntaxObjectId>,
-    map: HashMap<SyntaxObjectId, usize>,
+    names: FxHashMap<InternedString, SyntaxObjectId>,
+    map: FxHashMap<SyntaxObjectId, usize>,
 }
 
 impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
@@ -5322,7 +5455,7 @@ impl<'a> SemanticAnalysis<'a> {
     // Syntax object must be the id associated with a given require define statement
     pub fn resolve_required_identifiers(
         &self,
-        identifiers: HashSet<SyntaxObjectId>,
+        identifiers: FxHashSet<SyntaxObjectId>,
     ) -> Vec<(SyntaxObjectId, RequiredIdentifierInformation<'_>)> {
         let mut results = Vec::new();
 
@@ -5398,7 +5531,7 @@ impl<'a> SemanticAnalysis<'a> {
         // otherwise annontate them with the fact that they are multi arity. Then we're going
         // to walk through and update the call information with the arity, assuming
         // the arity matches appropriately.
-        let mut map: HashMap<InternedString, usize> = HashMap::new();
+        let mut map: FxHashMap<InternedString, usize> = FxHashMap::default();
 
         for expr in self.exprs.iter() {
             match expr {
@@ -5450,7 +5583,7 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
-        let sets = map.keys().copied().collect::<HashSet<_>>();
+        let sets = map.keys().copied().collect::<FxHashSet<_>>();
         let func = move |analysis: &mut Analysis, call_site: &mut List| {
             let call_site_id = call_site.syntax_object_id;
             if let Some(call) = analysis.call_info.get_mut(&call_site_id) {
@@ -5472,7 +5605,8 @@ impl<'a> SemanticAnalysis<'a> {
         let estimator = self.calculate_function_sizes();
         let threshold = 75;
 
-        let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
+        let mut funcs: FxHashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> =
+            FxHashMap::default();
 
         // Only inline forwards, as to not run in to any issues with visibility
         for expr in self.exprs.iter() {
@@ -5799,7 +5933,8 @@ impl<'a> SemanticAnalysis<'a> {
         let changed = Rc::new(Cell::new(false));
 
         // Only do this for functions in which the arity is exactly known
-        let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
+        let mut funcs: FxHashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> =
+            FxHashMap::default();
 
         // Only inline across the modules _if_ the number of expressions warrants it. Otherwise
         // this is a log of needless allocation. Consider caching this for the future.
@@ -5871,7 +6006,7 @@ impl<'a> SemanticAnalysis<'a> {
         &self,
         estimator: &FunctionSizeEstimator,
         threshold: usize,
-        funcs: &mut HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List) + 'static>>,
+        funcs: &mut FxHashMap<InternedString, Box<dyn Fn(&Analysis, &mut List) + 'static>>,
         d: &Box<Define>,
         changed: &Rc<Cell<bool>>,
     ) -> ControlFlow<()> {
@@ -6573,7 +6708,7 @@ impl<'a> SemanticAnalysis<'a> {
         estimator
     }
 
-    pub fn find_call_sites_and_modify_with_many<F>(&mut self, mapping: HashMap<InternedString, F>)
+    pub fn find_call_sites_and_modify_with_many<F>(&mut self, mapping: FxHashMap<InternedString, F>)
     where
         F: FnMut(&Analysis, &mut List),
     {
@@ -6590,7 +6725,7 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn find_call_sites_and_modify_with_many_depth<F>(
         &mut self,
-        mapping: HashMap<InternedString, F>,
+        mapping: FxHashMap<InternedString, F>,
         depth: usize,
     ) where
         F: FnMut(&Analysis, &mut List),
@@ -6610,7 +6745,7 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn find_call_sites_and_modify_with_many_mut<F>(
         &mut self,
-        sets: HashSet<InternedString>,
+        sets: FxHashSet<InternedString>,
         func: F,
     ) where
         F: FnMut(&mut Analysis, &mut List),

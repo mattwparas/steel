@@ -332,9 +332,11 @@ impl Kernel {
             }
         }
 
-        // if def_macro_expr_indices.is_empty() {
-        //     return Ok(());
-        // }
+        // Nothing in this environment defines a macro, so there is no environment
+        // to set up in the kernel and nothing for the expander to look up later.
+        if def_macro_expr_indices.is_empty() {
+            return Ok(());
+        }
 
         // Fill up the define macro expressions with the correct ones
         // Lets do some debug logging to make sure this even makes sense

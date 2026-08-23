@@ -182,26 +182,19 @@ impl<'a> ConstantEvaluatorManager<'a> {
 
         let mut results = Vec::with_capacity(input.len());
 
+        // Collect the set expressions, ignore them for the constant folding. The per
+        // expression sets fall out of the same walk that fills in the global one.
+        let mut expr_level_sets = Vec::with_capacity(input.len());
         let mut collector = CollectSet::new(&mut self.set_idents);
 
         for expr in &input {
             collector.visit(expr);
+            expr_level_sets.push(core::mem::take(&mut collector.expr_level_set_idents));
         }
 
-        // let mut collector = CollectSet::new(&mut self.set_idents);
+        drop(collector);
 
-        // Collect the set expressions, ignore them for the constant folding
-        for expr in input {
-            let mut collector = CollectSet::new(&mut self.set_idents);
-
-            collector.visit(&expr);
-
-            let expr_level_set_idents = core::mem::take(&mut collector.expr_level_set_idents);
-
-            // println!("Length of expr level sets!: {:?}", expr_level_set_idents);
-
-            drop(collector);
-
+        for (expr, expr_level_set_idents) in input.into_iter().zip(expr_level_sets) {
             let mut eval = ConstantEvaluator::new(
                 Rc::clone(&self.global_env),
                 &self.set_idents,
@@ -212,6 +205,13 @@ impl<'a> ConstantEvaluatorManager<'a> {
             );
             let mut output = eval.visit(expr)?;
             self.changed = self.changed || eval.changed;
+
+            // Another pass can only find something new if this one either rewrote the
+            // expression or bound a new constant at the top level for it to fold against.
+            if !eval.changed && !eval.root_constants_added {
+                results.push(output);
+                continue;
+            }
 
             eval.changed = false;
 
@@ -260,6 +260,8 @@ struct ConstantEvaluator<'a> {
     _memoization_table: &'a mut MemoizationTable,
     kernel: &'a mut Option<Kernel>,
     scope_contains_define: bool,
+    root: SharedEnv,
+    root_constants_added: bool,
 }
 
 // Converts the atom value into a `TokenType`.
@@ -284,6 +286,7 @@ impl<'a> ConstantEvaluator<'a> {
         kernel: &'a mut Option<Kernel>,
     ) -> Self {
         Self {
+            root: Rc::clone(&bindings),
             bindings,
             set_idents,
             expr_level_set_idents,
@@ -292,6 +295,7 @@ impl<'a> ConstantEvaluator<'a> {
             _memoization_table: memoization_table,
             kernel,
             scope_contains_define: false,
+            root_constants_added: false,
         }
     }
 
@@ -587,6 +591,9 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         define.body = self.visit(define.body)?;
 
         if let Some(c) = self.to_constant(&define.body) {
+            if Rc::ptr_eq(&self.bindings, &self.root) {
+                self.root_constants_added = true;
+            }
             self.bindings.borrow_mut().bind(identifier, c);
         } else {
             self.bindings.borrow_mut().bind_non_constant(identifier);
