@@ -5946,12 +5946,6 @@ impl<'a> SemanticAnalysis<'a> {
         let mut estimator = self.calculate_function_sizes();
         let threshold = size.unwrap_or(50);
 
-        for (_, module) in module_map {
-            if let Some(ast) = module.get_compiled_ast() {
-                estimator.visit(ast);
-            }
-        }
-
         let changed = Rc::new(Cell::new(false));
 
         // Only do this for functions in which the arity is exactly known
@@ -5961,6 +5955,12 @@ impl<'a> SemanticAnalysis<'a> {
         // Only inline across the modules _if_ the number of expressions warrants it. Otherwise
         // this is a log of needless allocation. Consider caching this for the future.
         if self.exprs.len() > 10 {
+            for (_, module) in module_map {
+                if let Some(ast) = module.get_compiled_ast() {
+                    estimator.visit(ast);
+                }
+            }
+
             for (_, module) in module_map {
                 if let Some(ast) = module.get_compiled_ast() {
                     match ast {
