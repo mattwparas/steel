@@ -1,7 +1,9 @@
 use core::ops::ControlFlow;
 use std::{
+    cell::Cell,
     collections::{hash_map, HashMap, HashSet},
     path::PathBuf,
+    rc::Rc,
 };
 
 use crate::{
@@ -390,9 +392,8 @@ impl Analysis {
         analysis
     }
 
-    pub fn populate_captures_twice(&mut self, exprs: &[ExprKind]) {
-        // Resolve all mutated and captured vars so that they're mutated after they've been captured
-        let mut mutated_and_captured_vars = self
+    fn propagate_mutated_and_captured(&mut self) -> bool {
+        let mutated_and_captured_vars = self
             .function_info
             .values()
             .flat_map(|x| x.captured_vars.iter().map(|x| &x.1))
@@ -401,87 +402,37 @@ impl Analysis {
             .map(|x| x.id)
             .collect::<FxHashSet<_>>();
 
-        for value in self.function_info.values_mut() {
-            for (_, x) in value.captured_vars.iter_mut() {
-                if mutated_and_captured_vars.contains(&x.id) {
-                    x.mutated = true;
-                    x.captured = true;
-                }
-            }
+        let mut changed = false;
 
-            for (_, x) in value.arguments.iter_mut() {
+        for value in self.function_info.values_mut() {
+            for (_, x) in value
+                .captured_vars
+                .iter_mut()
+                .chain(value.arguments.iter_mut())
+            {
                 if mutated_and_captured_vars.contains(&x.id) {
+                    changed = changed || !(x.mutated && x.captured);
                     x.mutated = true;
                     x.captured = true;
                 }
             }
         }
+
+        changed
+    }
+
+    pub fn populate_captures_twice(&mut self, exprs: &[ExprKind]) {
+        self.propagate_mutated_and_captured();
 
         self.run(exprs);
 
-        mutated_and_captured_vars.clear();
-
-        self.function_info
-            .values()
-            // .flat_map(|x| x.captured_vars.values())
-            .flat_map(|x| x.captured_vars.iter().map(|x| &x.1))
-            .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
-            .filter(|x| x.captured && x.mutated)
-            .map(|x| x.id)
-            .for_each(|x| {
-                mutated_and_captured_vars.insert(x);
-            });
-
-        for value in self.function_info.values_mut() {
-            // for x in value.captured_vars.values_mut() {
-            for (_, x) in value.captured_vars.iter_mut() {
-                if mutated_and_captured_vars.contains(&x.id) {
-                    x.mutated = true;
-                    x.captured = true;
-                }
-            }
-
-            // for x in value.arguments.values_mut() {
-            for (_, x) in value.arguments.iter_mut() {
-                if mutated_and_captured_vars.contains(&x.id) {
-                    x.mutated = true;
-                    x.captured = true;
-                }
-            }
-        }
+        self.propagate_mutated_and_captured();
 
         self.run(exprs);
     }
 
     pub fn populate_captures(&mut self, exprs: &[ExprKind]) {
-        // Resolve all mutated and captured vars so that they're mutated after they've been captured
-        let mutated_and_captured_vars = self
-            .function_info
-            .values()
-            // .flat_map(|x| x.captured_vars.values())
-            .flat_map(|x| x.captured_vars.iter().map(|x| &x.1))
-            .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
-            .filter(|x| x.captured && x.mutated)
-            .map(|x| x.id)
-            .collect::<FxHashSet<_>>();
-
-        for value in self.function_info.values_mut() {
-            // for x in value.captured_vars.values_mut() {
-            for (_, x) in value.captured_vars.iter_mut() {
-                if mutated_and_captured_vars.contains(&x.id) {
-                    x.mutated = true;
-                    x.captured = true;
-                }
-            }
-
-            // for x in value.arguments.values_mut() {
-            for (_, x) in value.arguments.iter_mut() {
-                if mutated_and_captured_vars.contains(&x.id) {
-                    x.mutated = true;
-                    x.captured = true;
-                }
-            }
-        }
+        self.propagate_mutated_and_captured();
 
         self.run(exprs);
     }
@@ -1193,23 +1144,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             };
 
             if call_site_kind == CallKind::TailCall {
-                let mut local_ids: SmallVec<[_; 6]> = SmallVec::new();
-
                 for arg in &l.args[1..] {
-                    if let ExprKind::Atom(a) = arg {
-                        local_ids.push(a.syn.syntax_object_id);
-                    }
-                }
+                    let ExprKind::Atom(a) = arg else { continue };
 
-                // Every time we hit a thing, lets just iterate the arguments, mark em.
-                for id in self
-                    .info
-                    .scope
-                    .iter()
-                    .filter_map(|x| x.1.last_used)
-                    .collect::<SmallVec<[_; 8]>>()
-                {
-                    if local_ids.contains(&id) {
+                    let Some(ident) = a.ident() else { continue };
+
+                    let id = a.syn.syntax_object_id;
+
+                    if self.info.scope.get(ident).and_then(|x| x.last_used) == Some(id) {
                         self.info.get_mut(&id).unwrap().last_usage = true;
                     }
                 }
@@ -1687,9 +1629,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         //     );
         // }
 
-        for (var, value) in self.captures.iter() {
-            if let Some((_, scope_info)) = captured_vars.iter_mut().find(|x| x.0 == *var) {
-                scope_info.captured_from_enclosing = value.captured_from_enclosing;
+        for i in 0..captured_vars.len() {
+            let var = captured_vars[i].0;
+
+            if captured_vars[..i].iter().any(|(name, _)| *name == var) {
+                continue;
+            }
+
+            if let Some(value) = self.captures.get(&var) {
+                captured_vars[i].1.captured_from_enclosing = value.captured_from_enclosing;
             }
         }
 
@@ -3311,6 +3259,7 @@ struct LowerRestArguments<'a> {
     analysis: &'a Analysis,
     bindings: ScopeMap<InternedString, ExprKind, FxBuildHasher>,
     used_bindings: ScopeSet<InternedString, FxBuildHasher>,
+    changed: bool,
 }
 
 impl<'a> LowerRestArguments<'a> {
@@ -3319,6 +3268,7 @@ impl<'a> LowerRestArguments<'a> {
             analysis,
             bindings: Default::default(),
             used_bindings: Default::default(),
+            changed: false,
         }
     }
 
@@ -3682,10 +3632,15 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                 self.bindings.pop_layer();
 
                 if lower_apply {
+                    self.changed = true;
+
                     if should_eliminate && original_bindings_length == 1 {
                         *expr = std::mem::take(&mut l.body_expr);
                     }
                 } else {
+                    self.changed |=
+                        !binding_indices_to_remove.is_empty() || !binding_expr_replace.is_empty();
+
                     // println!(
                     //     "{} - {}",
                     //     binding_indices_to_remove.len(),
@@ -4798,6 +4753,7 @@ impl<'a> VisitorMutRefUnit for FlattenModuleReferences<'a> {
 struct ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     analysis: &'a Analysis,
     identifiers_to_replace: &'a mut FxHashSet<InternedString>,
+    changed: bool,
 }
 
 impl<'a> ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
@@ -4808,6 +4764,7 @@ impl<'a> ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
         Self {
             analysis,
             identifiers_to_replace,
+            changed: false,
         }
     }
 }
@@ -4857,6 +4814,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                         *ident = builtin_to_reserved(builtin_name);
 
+                        self.changed = true;
+
                         // println!("top level - MUTATED IDENT TO BE: {} -> {}", original, ident);
                     }
                 }
@@ -4886,6 +4845,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                                     // *ident = ("#%prim.".to_string() + builtin_name).into();
                                     *ident = builtin_to_reserved(builtin_name);
+
+                                    self.changed = true;
 
                                     // println!("MUTATED IDENT TO BE: {} -> {}", original, ident);
 
@@ -5204,6 +5165,7 @@ pub struct SemanticAnalysis<'a> {
     // We want to reserve the right to add or remove expressions from the program as needed
     pub exprs: &'a mut Vec<ExprKind>,
     pub analysis: Analysis,
+    changed: bool,
 }
 
 #[derive(Debug)]
@@ -5224,12 +5186,28 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn from_analysis(exprs: &'a mut Vec<ExprKind>, analysis: Analysis) -> Self {
-        Self { exprs, analysis }
+        Self {
+            exprs,
+            analysis,
+            changed: false,
+        }
     }
 
     pub fn new(exprs: &'a mut Vec<ExprKind>) -> Self {
         let analysis = Analysis::from_exprs(exprs);
-        Self { exprs, analysis }
+        Self {
+            exprs,
+            analysis,
+            changed: false,
+        }
+    }
+
+    pub fn refresh_variables_if_changed(&mut self) -> &mut Self {
+        if core::mem::take(&mut self.changed) {
+            self.refresh_variables();
+        }
+
+        self
     }
 
     pub fn populate_captures(&mut self) {
@@ -5818,6 +5796,8 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
+        let changed = Rc::new(Cell::new(false));
+
         // Only do this for functions in which the arity is exactly known
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
 
@@ -5828,9 +5808,9 @@ impl<'a> SemanticAnalysis<'a> {
                 if let Some(ast) = module.get_compiled_ast() {
                     match ast {
                         ExprKind::Define(d) => {
-                            if let ControlFlow::Break(_) =
-                                self.inline_handle_define(&estimator, threshold, &mut funcs, &d)
-                            {
+                            if let ControlFlow::Break(_) = self.inline_handle_define(
+                                &estimator, threshold, &mut funcs, &d, &changed,
+                            ) {
                                 continue;
                             }
                         }
@@ -5838,9 +5818,9 @@ impl<'a> SemanticAnalysis<'a> {
                         ExprKind::Begin(b) => {
                             for expr in b.exprs.iter() {
                                 if let ExprKind::Define(d) = expr {
-                                    if let ControlFlow::Break(_) = self
-                                        .inline_handle_define(&estimator, threshold, &mut funcs, d)
-                                    {
+                                    if let ControlFlow::Break(_) = self.inline_handle_define(
+                                        &estimator, threshold, &mut funcs, d, &changed,
+                                    ) {
                                         continue;
                                     }
                                 }
@@ -5858,7 +5838,7 @@ impl<'a> SemanticAnalysis<'a> {
             match expr {
                 ExprKind::Define(d) => {
                     if let ControlFlow::Break(_) =
-                        self.inline_handle_define(&estimator, threshold, &mut funcs, d)
+                        self.inline_handle_define(&estimator, threshold, &mut funcs, d, &changed)
                     {
                         continue;
                     }
@@ -5867,9 +5847,9 @@ impl<'a> SemanticAnalysis<'a> {
                 ExprKind::Begin(b) => {
                     for expr in b.exprs.iter() {
                         if let ExprKind::Define(d) = expr {
-                            if let ControlFlow::Break(_) =
-                                self.inline_handle_define(&estimator, threshold, &mut funcs, d)
-                            {
+                            if let ControlFlow::Break(_) = self.inline_handle_define(
+                                &estimator, threshold, &mut funcs, d, &changed,
+                            ) {
                                 continue;
                             }
                         }
@@ -5882,6 +5862,8 @@ impl<'a> SemanticAnalysis<'a> {
 
         self.find_call_sites_and_modify_with_many(funcs);
 
+        self.changed |= changed.get();
+
         Ok(())
     }
 
@@ -5891,6 +5873,7 @@ impl<'a> SemanticAnalysis<'a> {
         threshold: usize,
         funcs: &mut HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List) + 'static>>,
         d: &Box<Define>,
+        changed: &Rc<Cell<bool>>,
     ) -> ControlFlow<()> {
         let name = if let Some(name) = d.name.atom_syntax_object() {
             name
@@ -5910,11 +5893,14 @@ impl<'a> SemanticAnalysis<'a> {
                     let l = l.clone();
 
                     if !l.rest {
+                        let changed = Rc::clone(changed);
+
                         funcs.insert(
                             *d.name.atom_identifier().unwrap(),
                             Box::new(move |_: &Analysis, lst: &mut List| {
                                 if lst.syntax_object_id > original_id {
                                     lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                    changed.set(true);
                                 }
                             }),
                         );
@@ -6032,6 +6018,8 @@ impl<'a> SemanticAnalysis<'a> {
             replacer.visit(expr);
         }
 
+        let exprs_changed = replacer.changed;
+
         let mut macro_replacer = ReplaceBuiltinUsagesInsideMacros {
             identifiers_to_replace: replacer.identifiers_to_replace,
             analysis: &self.analysis,
@@ -6074,6 +6062,8 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
+        macro_replacer.changed = false;
+
         for expr in self.exprs.iter_mut() {
             macro_replacer.visit(expr);
         }
@@ -6085,10 +6075,9 @@ impl<'a> SemanticAnalysis<'a> {
             now.elapsed()
         );
 
-        // if macro_replacer.changed || !macro_replacer.identifiers_to_replace.is_empty() {
-        // log::info!(target: "pipeline_time", "Skipping analysis...");
-        self.analysis.fresh_from_exprs(self.exprs);
-        // }
+        if exprs_changed || macro_replacer.changed {
+            self.analysis.fresh_from_exprs(self.exprs);
+        }
 
         self
     }
@@ -6202,6 +6191,8 @@ impl<'a> SemanticAnalysis<'a> {
 
         let found = collected.idents;
 
+        let mut removed = false;
+
         self.exprs.retain_mut(|expression| {
             match expression {
                 ExprKind::Define(define) => {
@@ -6225,6 +6216,7 @@ impl<'a> SemanticAnalysis<'a> {
 
                                             // println!("REMOVING: {}", name);
 
+                                            removed = true;
                                             return false;
                                         }
                                     }
@@ -6272,6 +6264,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                     // }
 
                                                     offset += 1;
+                                                    removed = true;
                                                     return false;
                                                 }
                                             }
@@ -6289,6 +6282,7 @@ impl<'a> SemanticAnalysis<'a> {
                                             && offset < total_length
                                         {
                                             offset += 1;
+                                            removed = true;
                                             return false;
                                         }
                                     }
@@ -6311,10 +6305,11 @@ impl<'a> SemanticAnalysis<'a> {
 
         // self.exprs.push(ExprKind::ident("void"));
 
-        log::debug!("Re-running the semantic analysis after removing unused globals");
+        if removed {
+            log::debug!("Re-running the semantic analysis after removing unused globals");
 
-        // Skip running the analysis here? Nothing will have changed?
-        self.analysis.fresh_from_exprs(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
+        }
 
         self
     }
@@ -6525,6 +6520,7 @@ impl<'a> SemanticAnalysis<'a> {
         if re_run_analysis {
             // log::debug!("Re-running the semantic analysis after modifications");
 
+            self.changed = true;
             self.analysis.fresh_from_exprs(self.exprs);
         }
 
@@ -6535,6 +6531,8 @@ impl<'a> SemanticAnalysis<'a> {
         for expr in self.exprs.iter_mut() {
             RefreshVars.visit(expr);
         }
+
+        self.changed = false;
 
         self.analysis.fresh_from_exprs(self.exprs);
 
@@ -6886,7 +6884,9 @@ impl<'a> SemanticAnalysis<'a> {
             lower.visit(expr);
         }
 
-        self.analysis.fresh_from_exprs(self.exprs);
+        if lower.changed {
+            self.analysis.fresh_from_exprs(self.exprs);
+        }
 
         self
     }
@@ -6898,9 +6898,14 @@ impl<'a> SemanticAnalysis<'a> {
             lifter.found_funcs.clear();
         }
 
+        if lifter.lifted_functions.is_empty() {
+            return self;
+        }
+
         lifter.lifted_functions.append(&mut self.exprs);
         *self.exprs = lifter.lifted_functions;
 
+        self.changed = true;
         self.analysis.fresh_from_exprs(self.exprs);
 
         self

@@ -31,7 +31,8 @@ use crate::{steel_vm::builtin::BuiltInModule, stop};
 use alloc::sync::Arc;
 use core::hash::Hash;
 use core::ops::Deref;
-use std::collections::{HashSet, VecDeque};
+use rustc_hash::FxHashSet;
+use std::collections::VecDeque;
 use std::{
     cell::{Ref, RefCell},
     rc::Rc,
@@ -902,7 +903,7 @@ impl VTable {
     #[cfg(feature = "sync")]
     pub(crate) fn sendable_entries_for(
         ctx: &mut SerializationContext,
-        reachable_structs: HashSet<StructTypeDescriptor>,
+        reachable_structs: FxHashSet<StructTypeDescriptor>,
     ) -> Result<Vec<SendableVTableEntry>> {
         STATIC_VTABLE
             .read()
@@ -936,7 +937,7 @@ impl VTable {
     #[cfg(not(feature = "sync"))]
     pub(crate) fn sendable_entries_for(
         ctx: &mut SerializationContext,
-        reachable_structs: HashSet<StructTypeDescriptor>,
+        reachable_structs: FxHashSet<StructTypeDescriptor>,
     ) -> Result<Vec<SendableVTableEntry>> {
         VTABLE.with(|x| {
             x.borrow()
