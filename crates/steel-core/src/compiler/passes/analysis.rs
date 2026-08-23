@@ -392,9 +392,6 @@ impl Analysis {
         analysis
     }
 
-    /// Resolve all mutated and captured vars so that they're mutated after they've been captured,
-    /// returning whether any flag was newly set. If nothing was propagated, the analysis has
-    /// reached a fixpoint with respect to these flags.
     fn propagate_mutated_and_captured(&mut self) -> bool {
         let mutated_and_captured_vars = self
             .function_info
@@ -1635,8 +1632,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         for i in 0..captured_vars.len() {
             let var = captured_vars[i].0;
 
-            // A name shows up once per enclosing layer, and the `find` that used to live here
-            // only ever updated the _first_ entry for a given name
             if captured_vars[..i].iter().any(|(name, _)| *name == var) {
                 continue;
             }
@@ -6067,9 +6062,6 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
-        // The macros above live in the macro environment, not in the exprs we run the analysis
-        // over, so touching them doesn't invalidate it. Reset so the flag only tells us about
-        // the expressions themselves.
         macro_replacer.changed = false;
 
         for expr in self.exprs.iter_mut() {

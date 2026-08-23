@@ -880,8 +880,6 @@ impl Compiler {
         let analysis = {
             let mut analysis = core::mem::take(&mut self.analysis);
 
-            // Lowering leaves this fresh already - only the paths that bring their own ast,
-            // like reading one back off disk, have to build it here
             if !analysis_is_current {
                 analysis.fresh_from_exprs(&expanded_statements);
             }
