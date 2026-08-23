@@ -309,8 +309,6 @@ pub enum SemanticInformationType {
     Let(LetInformation),
 }
 
-/// A hash map that keeps its values in a side vector, so growing the table only
-/// shuffles indices around instead of the values themselves.
 #[derive(Debug, Clone)]
 pub struct IndexedMap<K, V> {
     index: FxHashMap<K, u32>,
