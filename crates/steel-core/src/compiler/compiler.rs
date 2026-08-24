@@ -426,11 +426,11 @@ pub struct Compiler {
     memoization_table: MemoizationTable,
     mangled_identifiers: FxHashSet<InternedString>,
     // Try this out?
-    lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
+    lifted_kernel_environments: FxHashMap<String, KernelDefMacroSpec>,
     // Macros that... we need to compile against directly at the top level
     // This is really just a hack, but it solves cases for interactively
     // running at the top level using private macros.
-    lifted_macro_environments: HashMap<PathBuf, HashSet<InternedString>>,
+    lifted_macro_environments: FxHashMap<PathBuf, FxHashSet<InternedString>>,
 
     analysis: Analysis,
     shadowed_variable_renamer: RenameShadowedVariables,
@@ -621,8 +621,8 @@ impl Compiler {
             kernel: None,
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
-            lifted_kernel_environments: HashMap::new(),
-            lifted_macro_environments: HashMap::new(),
+            lifted_kernel_environments: FxHashMap::default(),
+            lifted_macro_environments: FxHashMap::default(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs,
@@ -651,8 +651,8 @@ impl Compiler {
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
-            lifted_kernel_environments: HashMap::new(),
-            lifted_macro_environments: HashMap::new(),
+            lifted_kernel_environments: FxHashMap::default(),
+            lifted_macro_environments: FxHashMap::default(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs,

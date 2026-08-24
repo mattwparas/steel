@@ -107,7 +107,7 @@ pub fn expand(
     map: &FxHashMap<InternedString, SteelMacro>,
     globals: GlobalMap,
 ) -> Result<ScopeSet<InternedString, FxBuildHasher>> {
-    let exclusions = HashSet::new();
+    let exclusions = FxHashSet::default();
     let mut expander = Expander {
         depth: 0,
         map,
@@ -125,7 +125,7 @@ pub fn expand(
 pub fn expand_with_source_id(
     expr: &mut ExprKind,
     map: &FxHashMap<InternedString, SteelMacro>,
-    exclusions: &HashSet<InternedString>,
+    exclusions: &FxHashSet<InternedString>,
     source_id: Option<SourceId>,
     globals: GlobalMap,
 ) -> Result<bool> {
@@ -181,7 +181,7 @@ impl<'a> crate::compiler::passes::VisitorMutUnitRef<'a> for ExpansionCandidates 
 
 pub struct Expander<'a> {
     map: &'a FxHashMap<InternedString, SteelMacro>,
-    exclusions: &'a HashSet<InternedString>,
+    exclusions: &'a FxHashSet<InternedString>,
     globals: GlobalMap<'a>,
     pub(crate) changed: bool,
     // We're going to actually check if the macro is in scope
@@ -243,7 +243,7 @@ impl<'a> ExpanderMany<'a> {
 impl<'a> Expander<'a> {
     pub fn new(
         map: &'a FxHashMap<InternedString, SteelMacro>,
-        exclusions: &'a HashSet<InternedString>,
+        exclusions: &'a FxHashSet<InternedString>,
         globals: GlobalMap<'a>,
     ) -> Self {
         Self {

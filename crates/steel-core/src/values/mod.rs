@@ -17,17 +17,37 @@ pub use closed::RootToken;
 pub use closed::RootedSteelVal;
 pub use port::SteelPortRepr;
 
+/// A `BuildHasher` with a fixed seed, so that hash iteration order is the same
+/// from one run of the compiler to the next.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DeterministicHasher;
+
+impl core::hash::BuildHasher for DeterministicHasher {
+    type Hasher = ahash::AHasher;
+
+    fn build_hasher(&self) -> Self::Hasher {
+        const SEEDED: ahash::RandomState = ahash::RandomState::with_seeds(
+            0x243f_6a88_85a3_08d3,
+            0x1319_8a2e_0370_7344,
+            0xa409_3822_299f_31d0,
+            0x082e_fa98_ec4e_6c89,
+        );
+
+        SEEDED.build_hasher()
+    }
+}
+
 pub use im_shims::{
     HashMap, HashMapConsumingIter, HashSet, HashSetConsumingIter, Vector, VectorConsumingIter,
 };
 
 #[cfg(not(feature = "sync"))]
 mod im_shims {
-    use std::hash::RandomState;
+    use super::DeterministicHasher;
 
     pub type Vector<T> = im_rc::Vector<T>;
-    pub type HashMap<K, V, S = RandomState> = im_rc::HashMap<K, V, S>;
-    pub type HashSet<K, S = RandomState> = im_rc::HashSet<K, S>;
+    pub type HashMap<K, V, S = DeterministicHasher> = im_rc::HashMap<K, V, S>;
+    pub type HashSet<K, S = DeterministicHasher> = im_rc::HashSet<K, S>;
 
     pub type VectorConsumingIter<T> = im_rc::vector::ConsumingIter<T>;
     pub type HashSetConsumingIter<T> = im_rc::hashset::ConsumingIter<T>;
@@ -36,11 +56,11 @@ mod im_shims {
 
 #[cfg(all(feature = "sync", not(feature = "imbl")))]
 mod im_shims {
-    use std::hash::RandomState;
+    use super::DeterministicHasher;
 
     pub type Vector<T> = im::Vector<T>;
-    pub type HashMap<K, V, S = RandomState> = im::HashMap<K, V, S>;
-    pub type HashSet<K, S = RandomState> = im::HashSet<K, S>;
+    pub type HashMap<K, V, S = DeterministicHasher> = im::HashMap<K, V, S>;
+    pub type HashSet<K, S = DeterministicHasher> = im::HashSet<K, S>;
 
     pub type VectorConsumingIter<T> = im::vector::ConsumingIter<T>;
     pub type HashSetConsumingIter<T> = im::hashset::ConsumingIter<T>;
@@ -50,7 +70,7 @@ mod im_shims {
 #[cfg(all(feature = "sync", feature = "imbl"))]
 mod im_shims {
 
-    use std::hash::RandomState;
+    use super::DeterministicHasher;
 
     use crate::gc::Gc;
     use steel_imbl::shared_ptr::PointerFamily;
@@ -104,8 +124,9 @@ mod im_shims {
     }
 
     pub type Vector<T> = steel_imbl::GenericVector<T, GcPointerType, CHUNK_SIZE>;
-    pub type HashMap<K, V, S = RandomState> = steel_imbl::GenericHashMap<K, V, S, GcPointerType>;
-    pub type HashSet<K, S = RandomState> = steel_imbl::GenericHashSet<K, S, GcPointerType>;
+    pub type HashMap<K, V, S = DeterministicHasher> =
+        steel_imbl::GenericHashMap<K, V, S, GcPointerType>;
+    pub type HashSet<K, S = DeterministicHasher> = steel_imbl::GenericHashSet<K, S, GcPointerType>;
 
     pub type VectorConsumingIter<T> =
         steel_imbl::vector::ConsumingIter<T, GcPointerType, CHUNK_SIZE>;

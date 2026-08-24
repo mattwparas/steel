@@ -357,8 +357,8 @@ impl ModuleManager {
         mut exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
         builtin_modules: ModuleContainer,
-        lifted_kernel_environments: &mut HashMap<String, KernelDefMacroSpec>,
-        lifted_macro_environments: &mut HashMap<PathBuf, HashSet<InternedString>>,
+        lifted_kernel_environments: &mut FxHashMap<String, KernelDefMacroSpec>,
+        lifted_macro_environments: &mut FxHashMap<PathBuf, FxHashSet<InternedString>>,
         search_dirs: &[PathBuf],
         global_map: &FxHashMap<InternedString, usize>,
     ) -> Result<Vec<ExprKind>> {
@@ -645,7 +645,7 @@ impl ModuleManager {
                 //
                 // TODO: Replicate this behavior over to builtin modules
 
-                let exclusions = HashSet::new();
+                let exclusions = FxHashSet::default();
 
                 // First expand the in scope macros
                 // These are macros
@@ -2538,7 +2538,7 @@ impl<'a> ModuleBuilder<'a> {
                 // First expand the in scope macros
                 // These are macros
 
-                let exclusions = HashSet::new();
+                let exclusions = FxHashSet::default();
 
                 let mut expander = Expander::new(&req_macro.in_scope_macros, &exclusions, globals);
                 expander.expand(expr)?;

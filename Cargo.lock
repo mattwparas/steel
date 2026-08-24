@@ -3827,6 +3827,7 @@ name = "steel-core"
 version = "0.8.3"
 dependencies = [
  "abi_stable",
+ "ahash",
  "anyhow",
  "arc-swap",
  "async-ffi",

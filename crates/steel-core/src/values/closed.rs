@@ -81,7 +81,7 @@ pub struct GlobalSlotRecycler {
     // If we reach the end of our iteration and this isn't
     // drained, whatever is left is now freeable, and we can make
     // this as free in the symbol map
-    slots: HashSet<usize>,
+    slots: rustc_hash::FxHashSet<usize>,
 
     queue: Vec<SteelVal>,
 }
