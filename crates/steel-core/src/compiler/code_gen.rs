@@ -208,7 +208,7 @@ impl<'a> CodeGenerator<'a> {
             .atom_syntax_object()
             .and_then(|a| self.analysis.get(a))?;
 
-        let offset = analysis.stack_offset?;
+        let offset = analysis.stack_offset.get()?;
 
         self.push(LabeledInstruction::builder(op).payload(offset as _));
 
@@ -250,7 +250,7 @@ impl<'a> CodeGenerator<'a> {
             .atom_syntax_object()
             .and_then(|a| self.analysis.get(a))?;
 
-        let offset = analysis.stack_offset?;
+        let offset = analysis.stack_offset.get()?;
 
         self.push(LabeledInstruction::builder(op).payload(offset as _));
 
@@ -485,7 +485,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             vars.sort_by_key(|x| x.1.id);
 
-            // vars.sort_by_key(|x| x.stack_offset);
+            // vars.sort_by_key(|x| x.stack_offset.get());
 
             // Here we're going to explicitly capture from either the enclosing scope
             // or the stack. For example:
@@ -515,21 +515,21 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     if var.mutated {
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYHEAPCAPTURECLOSURE)
-                                .payload(var.parent_heap_offset.unwrap() as _)
+                                .payload(var.parent_heap_offset.get().unwrap() as _)
                                 .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                         );
                     } else {
                         // In this case we're gonna patch in the variable from the current captured scope
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYCAPTURECLOSURE)
-                                .payload(var.capture_offset.unwrap() as _)
+                                .payload(var.capture_offset.get().unwrap() as _)
                                 .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                         );
                     }
                 } else if var.mutated {
                     self.push(
                         LabeledInstruction::builder(OpCode::FIRSTCOPYHEAPCAPTURECLOSURE)
-                            .payload(var.heap_offset.unwrap() as _)
+                            .payload(var.heap_offset.get().unwrap() as _)
                             .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                     );
                 } else {
@@ -537,7 +537,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     // directly from the stack
                     self.push(
                         LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
-                            .payload(var.stack_offset.ok_or_else(crate::throw!(Generic => format!("Error compiling this function - are you missing an expression after a local define?"); lambda_function.location.span))? as _)
+                            .payload(var.stack_offset.get().ok_or_else(crate::throw!(Generic => format!("Error compiling this function - are you missing an expression after a local define?"); lambda_function.location.span))? as _)
                             .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                     );
                 }
@@ -573,12 +573,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 .filter(|x| x.1.captured && x.1.mutated)
                 .collect::<Vec<_>>();
 
-            captured_mutable_arguments.sort_by_key(|x| x.1.stack_offset);
+            captured_mutable_arguments.sort_by_key(|x| x.1.stack_offset.get());
 
             for (key, var) in captured_mutable_arguments {
                 self.push(
                     LabeledInstruction::builder(OpCode::ALLOC)
-                        .payload(var.stack_offset.unwrap() as _)
+                        .payload(var.stack_offset.get().unwrap() as _)
                         .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                 );
             }
@@ -681,9 +681,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // println!("{:#?}", analysis);
 
             let payload = match op_code {
-                OpCode::READCAPTURED => analysis.read_capture_offset.unwrap(),
-                OpCode::READALLOC => analysis.read_heap_offset.unwrap(),
-                _ => analysis.stack_offset.unwrap_or_default(),
+                OpCode::READCAPTURED => analysis.read_capture_offset.get().unwrap(),
+                OpCode::READALLOC => analysis.read_heap_offset.get().unwrap(),
+                _ => analysis.stack_offset.get().unwrap_or_default(),
             };
 
             self.push(
@@ -821,8 +821,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             let payload = match op_code {
                 // OpCode::SETCAPTURED => analysis.read_capture_offset.unwrap(),
-                OpCode::SETALLOC => analysis.read_heap_offset.unwrap(),
-                _ => analysis.stack_offset.unwrap_or_default(),
+                OpCode::SETALLOC => analysis.read_heap_offset.get().unwrap(),
+                _ => analysis.stack_offset.get().unwrap_or_default(),
             };
 
             self.push(
@@ -898,7 +898,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .filter(|x| x.captured && x.mutated)
             .collect::<SmallVec<[_; 8]>>();
 
-        heap_allocated_arguments.sort_by_key(|x| x.stack_offset);
+        heap_allocated_arguments.sort_by_key(|x| x.stack_offset.get());
 
         for var in heap_allocated_arguments {
             println!("Found a var that is both mutated and captured");
@@ -906,7 +906,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             println!("{}", info.arguments.iter().find(|x| &x.1 == var).unwrap().0);
 
             self.push(
-                LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap() as _),
+                LabeledInstruction::builder(OpCode::ALLOC)
+                    .payload(var.stack_offset.get().unwrap() as _),
             );
         }
 

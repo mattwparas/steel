@@ -448,7 +448,7 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                             }
                             None => {}
                         }
-                    } else if let Some(refers_to_id) = info.refers_to {
+                    } else if let Some(refers_to_id) = info.refers_to.get() {
                         if let Some(arity) = self.known_functions.get(&refers_to_id) {
                             if l.args.len() != arity + 1 {
                                 let span = l.first().unwrap().atom_syntax_object().unwrap().span;

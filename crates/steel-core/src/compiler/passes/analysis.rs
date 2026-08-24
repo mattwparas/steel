@@ -64,30 +64,153 @@ pub enum IdentifierStatus {
     HeapAllocated,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OptionalIndex(u32);
+
+impl OptionalIndex {
+    pub const NONE: Self = Self(u32::MAX);
+
+    #[inline]
+    pub fn some(value: u32) -> Self {
+        debug_assert!(value != u32::MAX);
+        Self(value)
+    }
+
+    #[inline]
+    pub fn get(self) -> Option<u32> {
+        if self.0 == u32::MAX {
+            None
+        } else {
+            Some(self.0)
+        }
+    }
+
+    #[inline]
+    pub fn is_some(self) -> bool {
+        self.0 != u32::MAX
+    }
+}
+
+impl Default for OptionalIndex {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+impl From<Option<u32>> for OptionalIndex {
+    fn from(value: Option<u32>) -> Self {
+        value
+            .map(OptionalIndex::some)
+            .unwrap_or(OptionalIndex::NONE)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OptionalOffset(u16);
+
+impl OptionalOffset {
+    pub const NONE: Self = Self(u16::MAX);
+
+    #[inline]
+    pub fn some(value: u16) -> Self {
+        debug_assert!(value != u16::MAX);
+        Self(value)
+    }
+
+    #[inline]
+    pub fn get(self) -> Option<u16> {
+        if self.0 == u16::MAX {
+            None
+        } else {
+            Some(self.0)
+        }
+    }
+
+    #[inline]
+    pub fn is_some(self) -> bool {
+        self.0 != u16::MAX
+    }
+}
+
+impl Default for OptionalOffset {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+impl From<Option<u16>> for OptionalOffset {
+    fn from(value: Option<u16>) -> Self {
+        value
+            .map(OptionalOffset::some)
+            .unwrap_or(OptionalOffset::NONE)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OptionalSyntaxObjectId(u32);
+
+impl OptionalSyntaxObjectId {
+    pub const NONE: Self = Self(u32::MAX);
+
+    #[inline]
+    pub fn some(id: SyntaxObjectId) -> Self {
+        debug_assert!(id.0 != u32::MAX);
+        Self(id.0)
+    }
+
+    #[inline]
+    pub fn get(self) -> Option<SyntaxObjectId> {
+        if self.0 == u32::MAX {
+            None
+        } else {
+            Some(SyntaxObjectId(self.0))
+        }
+    }
+
+    #[inline]
+    pub fn is_some(self) -> bool {
+        self.0 != u32::MAX
+    }
+}
+
+impl Default for OptionalSyntaxObjectId {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+impl From<Option<SyntaxObjectId>> for OptionalSyntaxObjectId {
+    fn from(value: Option<SyntaxObjectId>) -> Self {
+        value
+            .map(OptionalSyntaxObjectId::some)
+            .unwrap_or(OptionalSyntaxObjectId::NONE)
+    }
+}
+
 // TODO: Make these not just plain public variables
 #[derive(Debug, Clone)]
 pub struct SemanticInformation {
     pub kind: IdentifierStatus,
     pub set_bang: bool,
     pub depth: u32,
-    pub shadows: Option<SyntaxObjectId>,
+    pub shadows: OptionalSyntaxObjectId,
     pub usage_count: u32,
     pub span: Span,
     // Referring to a local var definition
-    pub refers_to: Option<SyntaxObjectId>,
+    pub refers_to: OptionalSyntaxObjectId,
     // If this is a top level define, what does this alias to?
-    pub aliases_to: Option<SyntaxObjectId>,
+    pub aliases_to: OptionalSyntaxObjectId,
     pub builtin: bool,
     pub last_usage: bool,
-    pub stack_offset: Option<u32>,
+    pub stack_offset: OptionalIndex,
     pub escapes: bool,
     // TODO: Move a bunch of these individual things into their own structs
     // something like Option<CaptureInformation>
-    pub capture_index: Option<u32>,
-    pub read_capture_offset: Option<u32>,
+    pub capture_index: OptionalIndex,
+    pub read_capture_offset: OptionalIndex,
     pub captured_from_enclosing: bool,
-    pub heap_offset: Option<u32>,
-    pub read_heap_offset: Option<u32>,
+    pub heap_offset: OptionalIndex,
+    pub read_heap_offset: OptionalIndex,
     pub is_shadowed: bool,
     pub is_required_identifier: bool,
 }
@@ -103,20 +226,20 @@ impl SemanticInformation {
             kind,
             set_bang: false,
             depth,
-            shadows: None,
+            shadows: OptionalSyntaxObjectId::NONE,
             usage_count: 0,
             span,
-            refers_to: None,
-            aliases_to: None,
+            refers_to: OptionalSyntaxObjectId::NONE,
+            aliases_to: OptionalSyntaxObjectId::NONE,
             builtin: false,
             last_usage: false,
-            stack_offset: None,
+            stack_offset: OptionalIndex::NONE,
             escapes: false,
-            capture_index: None,
-            read_capture_offset: None,
+            capture_index: OptionalIndex::NONE,
+            read_capture_offset: OptionalIndex::NONE,
             captured_from_enclosing: false,
-            heap_offset: None,
-            read_heap_offset: None,
+            heap_offset: OptionalIndex::NONE,
+            read_heap_offset: OptionalIndex::NONE,
             is_shadowed: false,
             is_required_identifier: false,
         }
@@ -124,7 +247,7 @@ impl SemanticInformation {
 
     #[inline(always)]
     pub fn shadows(mut self, id: SyntaxObjectId) -> Self {
-        self.shadows = Some(id);
+        self.shadows = OptionalSyntaxObjectId::some(id);
         self
     }
 
@@ -136,13 +259,13 @@ impl SemanticInformation {
 
     #[inline(always)]
     pub fn refers_to(mut self, id: SyntaxObjectId) -> Self {
-        self.refers_to = Some(id);
+        self.refers_to = OptionalSyntaxObjectId::some(id);
         self
     }
 
     #[inline(always)]
     pub fn aliases_to(mut self, id: SyntaxObjectId) -> Self {
-        self.aliases_to = Some(id);
+        self.aliases_to = OptionalSyntaxObjectId::some(id);
         self
     }
 
@@ -158,7 +281,7 @@ impl SemanticInformation {
 
     #[inline(always)]
     pub fn with_offset(mut self, offset: usize) -> Self {
-        self.stack_offset = Some(offset as _);
+        self.stack_offset = OptionalIndex::some(offset as _);
         self
     }
 
@@ -169,25 +292,25 @@ impl SemanticInformation {
 
     #[inline(always)]
     pub fn with_capture_index(mut self, offset: usize) -> Self {
-        self.capture_index = Some(offset as _);
+        self.capture_index = OptionalIndex::some(offset as _);
         self
     }
 
     #[inline(always)]
     pub fn with_read_capture_offset(mut self, offset: usize) -> Self {
-        self.read_capture_offset = Some(offset as _);
+        self.read_capture_offset = OptionalIndex::some(offset as _);
         self
     }
 
     #[inline(always)]
     pub fn with_heap_offset(mut self, offset: usize) -> Self {
-        self.heap_offset = Some(offset as _);
+        self.heap_offset = OptionalIndex::some(offset as _);
         self
     }
 
     #[inline(always)]
     pub fn with_read_heap_offset(mut self, offset: usize) -> Self {
-        self.read_heap_offset = Some(offset as _);
+        self.read_heap_offset = OptionalIndex::some(offset as _);
         self
     }
 
@@ -576,9 +699,9 @@ impl Analysis {
         while let Some(next) = self
             .info
             .get(&id)
-            .and_then(|x| x.aliases_to)
+            .and_then(|x| x.aliases_to.get())
             .and_then(|x| self.info.get(&x))
-            .and_then(|x| x.refers_to)
+            .and_then(|x| x.refers_to.get())
         {
             id = next;
         }
@@ -587,7 +710,7 @@ impl Analysis {
     }
 
     pub fn resolve_reference(&self, mut id: SyntaxObjectId) -> SyntaxObjectId {
-        while let Some(next) = self.info.get(&id).and_then(|x| x.refers_to) {
+        while let Some(next) = self.info.get(&id).and_then(|x| x.refers_to.get()) {
             id = next;
         }
 
@@ -762,28 +885,28 @@ pub struct ScopeInfo {
     /// if a specific scope actually _uses_ the variable
     pub captured: bool,
     /// How many times has this variable been referenced
-    pub usage_count: usize,
+    pub usage_count: u32,
     /// Last touched by this ID
-    pub last_used: Option<SyntaxObjectId>,
+    pub last_used: OptionalSyntaxObjectId,
     /// Represents the position on the stack that this variable
     /// should live at during the execution of the program
-    pub stack_offset: Option<u16>,
+    pub stack_offset: OptionalOffset,
     /// Does this variable escape its scope? As in, does the value outlive the scope
     /// that it was defined in
     pub escapes: bool,
     /// If this is a captured var, the capture index
-    pub capture_offset: Option<u16>,
+    pub capture_offset: OptionalOffset,
     /// Was this var captured from the stack or from an enclosing function
     pub captured_from_enclosing: bool,
     /// Was this var mutated?
     pub mutated: bool,
     /// Heap offset
-    pub heap_offset: Option<u16>,
-    pub read_capture_offset: Option<u16>,
-    pub read_heap_offset: Option<u16>,
-    pub parent_heap_offset: Option<u16>,
-    pub local_heap_offset: Option<u16>,
-    pub depth: Option<u16>,
+    pub heap_offset: OptionalOffset,
+    pub read_capture_offset: OptionalOffset,
+    pub read_heap_offset: OptionalOffset,
+    pub parent_heap_offset: OptionalOffset,
+    pub local_heap_offset: OptionalOffset,
+    pub depth: OptionalOffset,
 }
 
 impl ScopeInfo {
@@ -792,18 +915,18 @@ impl ScopeInfo {
             id,
             captured: false,
             usage_count: 0,
-            last_used: None,
-            stack_offset: None,
+            last_used: OptionalSyntaxObjectId::NONE,
+            stack_offset: OptionalOffset::NONE,
             escapes: false,
-            capture_offset: None,
+            capture_offset: OptionalOffset::NONE,
             captured_from_enclosing: false,
             mutated: false,
-            heap_offset: None,
-            read_capture_offset: None,
-            read_heap_offset: None,
-            parent_heap_offset: None,
-            local_heap_offset: None,
-            depth: None,
+            heap_offset: OptionalOffset::NONE,
+            read_capture_offset: OptionalOffset::NONE,
+            read_heap_offset: OptionalOffset::NONE,
+            parent_heap_offset: OptionalOffset::NONE,
+            local_heap_offset: OptionalOffset::NONE,
+            depth: OptionalOffset::NONE,
         }
     }
 
@@ -812,18 +935,18 @@ impl ScopeInfo {
             id,
             captured: false,
             usage_count: 0,
-            last_used: None,
-            stack_offset: None,
+            last_used: OptionalSyntaxObjectId::NONE,
+            stack_offset: OptionalOffset::NONE,
             escapes: false,
-            capture_offset: None,
+            capture_offset: OptionalOffset::NONE,
             captured_from_enclosing: false,
             mutated: false,
-            heap_offset: None,
-            read_capture_offset: None,
-            read_heap_offset: None,
-            parent_heap_offset: None,
-            local_heap_offset: None,
-            depth: Some(1),
+            heap_offset: OptionalOffset::NONE,
+            read_capture_offset: OptionalOffset::NONE,
+            read_heap_offset: OptionalOffset::NONE,
+            parent_heap_offset: OptionalOffset::NONE,
+            local_heap_offset: OptionalOffset::NONE,
+            depth: OptionalOffset::some(1),
         }
     }
 
@@ -832,18 +955,18 @@ impl ScopeInfo {
             id,
             captured: false,
             usage_count: 0,
-            last_used: None,
-            stack_offset: Some(offset as _),
+            last_used: OptionalSyntaxObjectId::NONE,
+            stack_offset: OptionalOffset::some(offset as _),
             escapes: false,
-            capture_offset: None,
+            capture_offset: OptionalOffset::NONE,
             captured_from_enclosing: false,
             mutated: false,
-            heap_offset: None,
-            read_capture_offset: None,
-            read_heap_offset: None,
-            parent_heap_offset: None,
-            local_heap_offset: None,
-            depth: Some(depth),
+            heap_offset: OptionalOffset::NONE,
+            read_capture_offset: OptionalOffset::NONE,
+            read_heap_offset: OptionalOffset::NONE,
+            parent_heap_offset: OptionalOffset::NONE,
+            local_heap_offset: OptionalOffset::NONE,
+            depth: OptionalOffset::some(depth),
         }
     }
 
@@ -857,18 +980,18 @@ impl ScopeInfo {
             id,
             captured: true,
             usage_count: 0,
-            last_used: None,
-            stack_offset: Some(stack_offset as _),
+            last_used: OptionalSyntaxObjectId::NONE,
+            stack_offset: OptionalOffset::some(stack_offset as _),
             escapes: false,
-            capture_offset: None,
+            capture_offset: OptionalOffset::NONE,
             captured_from_enclosing: false,
             mutated: true,
-            heap_offset: Some(heap_offset as _),
-            read_capture_offset: None,
-            read_heap_offset: Some(heap_offset as _),
-            parent_heap_offset: None,
-            local_heap_offset: None,
-            depth: Some(depth),
+            heap_offset: OptionalOffset::some(heap_offset as _),
+            read_capture_offset: OptionalOffset::NONE,
+            read_heap_offset: OptionalOffset::some(heap_offset as _),
+            parent_heap_offset: OptionalOffset::NONE,
+            local_heap_offset: OptionalOffset::NONE,
+            depth: OptionalOffset::some(depth),
         }
     }
 }
@@ -1286,7 +1409,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     let id = a.syn.syntax_object_id;
 
-                    if self.info.scope.get(ident).and_then(|x| x.last_used) == Some(id) {
+                    if self.info.scope.get(ident).and_then(|x| x.last_used.get()) == Some(id) {
                         self.info.get_mut(&id).unwrap().last_usage = true;
                     }
                 }
@@ -1304,7 +1427,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // to identify if this refers to the correct definition
                     if call_site_kind == CallKind::TailCall
                         && self.defining_context.is_some()
-                        && func_info.refers_to == self.defining_context
+                        && func_info.refers_to.get() == self.defining_context
                     {
                         call_site_kind = CallKind::SelfTailCall(self.defining_context_depth);
                     }
@@ -1527,8 +1650,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             let scoped_info = self.info.scope.remove(name).unwrap();
 
-            if let Some(id) = &scoped_info.last_used {
-                self.info.get_mut(id).unwrap().last_usage = true;
+            if let Some(id) = scoped_info.last_used.get() {
+                self.info.get_mut(&id).unwrap().last_usage = true;
             }
 
             if record_arguments {
@@ -1536,7 +1659,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
         }
 
-        // for id in arguments.values().filter_map(|x| x.last_used) {
+        // for id in arguments.values().filter_map(|x| x.last_used.get()) {
         //     self.info.get_mut(&id).unwrap().last_usage = true;
         // }
 
@@ -1608,8 +1731,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         // notion that this is a fresh variable
                         // if let Some(analysis) = self.captures.contains_key_at_top(key) {
                         if self.captures.depth_of(key).unwrap() > 1 {
-                            value.capture_offset = Some(index as _);
-                            value.read_capture_offset = Some(index as _);
+                            value.capture_offset = OptionalOffset::some(index as _);
+                            value.read_capture_offset = OptionalOffset::some(index as _);
                             let mut value = value.clone();
                             value.captured_from_enclosing = false;
 
@@ -1620,15 +1743,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                         value.capture_offset = captured_var.read_capture_offset;
 
-                        value.read_capture_offset = Some(index as _);
+                        value.read_capture_offset = OptionalOffset::some(index as _);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
 
                         self.captures.define(key.clone(), value)
                     } else {
-                        value.capture_offset = Some(index as _);
-                        value.read_capture_offset = Some(index as _);
+                        value.capture_offset = OptionalOffset::some(index as _);
+                        value.read_capture_offset = OptionalOffset::some(index as _);
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
 
@@ -1645,17 +1768,17 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // captured_and_mutated.sort_by_key(|x| x.1.id);
 
                 for (index, (key, value)) in vars.iter_mut().filter(|x| x.1.mutated).enumerate() {
-                    // value.heap_offset = Some(index);
+                    // value.heap_offset = OptionalOffset::some(index);
 
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
                     if self.captures.contains_key(key) {
                         if self.captures.depth_of(key).unwrap() > 1 {
                             value.heap_offset = value.stack_offset;
-                            value.read_heap_offset = Some(index as _);
+                            value.read_heap_offset = OptionalOffset::some(index as _);
 
                             value.parent_heap_offset = value.stack_offset;
-                            value.local_heap_offset = Some(index as _);
+                            value.local_heap_offset = OptionalOffset::some(index as _);
 
                             let mut value = value.clone();
                             value.captured_from_enclosing = false;
@@ -1667,17 +1790,24 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                         // TODO: If theres weird bugs here, match behavior of the captures from above
                         // i.e. heap offset just patches in the read offset from the parent
-                        value.heap_offset = self.captures.get(key).and_then(|x| x.read_heap_offset);
+                        value.heap_offset = self
+                            .captures
+                            .get(key)
+                            .and_then(|x| x.read_heap_offset.get())
+                            .into();
 
                         // value.read_heap_offset =
-                        //     self.captures.get(key).and_then(|x| x.read_heap_offset);
+                        //     self.captures.get(key).and_then(|x| x.read_heap_offset.get());
 
-                        value.read_heap_offset = Some(index as _);
+                        value.read_heap_offset = OptionalOffset::some(index as _);
 
-                        value.parent_heap_offset =
-                            self.captures.get(key).and_then(|x| x.local_heap_offset);
+                        value.parent_heap_offset = self
+                            .captures
+                            .get(key)
+                            .and_then(|x| x.local_heap_offset.get())
+                            .into();
 
-                        value.local_heap_offset = Some(index as _);
+                        value.local_heap_offset = OptionalOffset::some(index as _);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
@@ -1685,10 +1815,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         self.captures.define(key.clone(), value);
                     } else {
                         value.heap_offset = value.stack_offset;
-                        value.read_heap_offset = Some(index as _);
+                        value.read_heap_offset = OptionalOffset::some(index as _);
 
                         value.parent_heap_offset = value.stack_offset;
-                        value.local_heap_offset = Some(index as _);
+                        value.local_heap_offset = OptionalOffset::some(index as _);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
@@ -1798,7 +1928,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // the last usage of the variables there. That way, all exit points of the function
         // actually get marked
 
-        for id in arguments.iter().filter_map(|x| x.1.last_used) {
+        for id in arguments.iter().filter_map(|x| x.1.last_used.get()) {
             self.info.get_mut(&id).unwrap().last_usage = true;
         }
 
@@ -1868,7 +1998,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .atom_syntax_object()
             .and_then(|x| self.info.get(x))
         {
-            if info.refers_to == self.defining_context {
+            if info.refers_to.get() == self.defining_context {
                 self.defining_context = None;
             }
         }
@@ -1922,7 +2052,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             // Check if its a global var - otherwise, we want to check if its a free
             // identifier
-            if let Some(depth) = root_info.as_ref().and_then(|x| x.depth) {
+            if let Some(depth) = root_info.as_ref().and_then(|x| x.depth.get()) {
                 if depth == 1 {
                     // Mark the parent as used
                     let global_var = root_info.unwrap();
@@ -1961,7 +2091,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     mut_ref.usage_count += 1;
 
                     // Mark this as last touched by this identifier
-                    mut_ref.last_used = Some(current_id);
+                    mut_ref.last_used = OptionalSyntaxObjectId::some(current_id);
 
                     let mut_ref_id = mut_ref.id;
                     let mut_ref_heap_offset = mut_ref.heap_offset;
@@ -1981,14 +2111,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                             .with_usage_count(1)
                             .refers_to(mut_ref_id);
 
-                    if let Some(stack_offset) = mut_ref_stack_offset {
+                    if let Some(stack_offset) = mut_ref_stack_offset.get() {
                         semantic_info = semantic_info.with_offset(stack_offset as _);
                     }
 
                     if mut_ref_captured && mut_ref_mutated {
                         semantic_info.kind = IdentifierStatus::HeapAllocated;
-                        semantic_info.heap_offset = mut_ref_heap_offset.map(|x| x as _);
-                        semantic_info.read_heap_offset = mut_ref_read_heap_offset.map(|x| x as _);
+                        semantic_info.heap_offset =
+                            mut_ref_heap_offset.get().map(|x| x as u32).into();
+                        semantic_info.read_heap_offset =
+                            mut_ref_read_heap_offset.get().map(|x| x as u32).into();
                     }
 
                     self.info.insert(&a.syn, semantic_info);
@@ -2013,7 +2145,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             //     mut_ref.usage_count += 1;
 
             //     // Mark this as last touched by this identifier
-            //     mut_ref.last_used = Some(current_id);
+            //     mut_ref.last_used = OptionalSyntaxObjectId::some(current_id);
 
             //     let mut_ref_id = mut_ref.id;
             //     let mut_ref_heap_offset = mut_ref.heap_offset;
@@ -2033,14 +2165,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             //             .with_usage_count(1)
             //             .refers_to(mut_ref_id);
 
-            //     if let Some(stack_offset) = mut_ref_stack_offset {
+            //     if let Some(stack_offset) = mut_ref_stack_offset.get() {
             //         semantic_info = semantic_info.with_offset(stack_offset as _);
             //     }
 
             //     if mut_ref_captured && mut_ref_mutated {
             //         semantic_info.kind = IdentifierStatus::HeapAllocated;
-            //         semantic_info.heap_offset = mut_ref_heap_offset.map(|x| x as _);
-            //         semantic_info.read_heap_offset = mut_ref_read_heap_offset.map(|x| x as _);
+            //         semantic_info.heap_offset = mut_ref_heap_offset.get().map(|x| x as u32).into();
+            //         semantic_info.read_heap_offset = mut_ref_read_heap_offset.get().map(|x| x as u32).into();
             //     }
 
             //     self.info.insert(&a.syn, semantic_info);
@@ -2058,7 +2190,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 captured.usage_count += 1;
 
                 // TODO: Make sure we want to mark this identifier as last used
-                captured.last_used = Some(current_id);
+                captured.last_used = OptionalSyntaxObjectId::some(current_id);
 
                 let mut identifier_status = if captured.mutated {
                     IdentifierStatus::HeapAllocated
@@ -2074,7 +2206,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // We also want to mark the current var thats actually in scope as last used as well
                 if let Some(in_scope) = self.info.scope.get_mut(ident) {
-                    in_scope.last_used = Some(current_id);
+                    in_scope.last_used = OptionalSyntaxObjectId::some(current_id);
                     in_scope.captured = true;
                 }
 
@@ -2100,17 +2232,17 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // If we're getting captured and mutated, then we should be fine to do these checks
                 // exclusively
-                if let Some(capture_offset) = captured.read_capture_offset {
+                if let Some(capture_offset) = captured.read_capture_offset.get() {
                     semantic_info = semantic_info.with_read_capture_offset(capture_offset as _);
-                    semantic_info =
-                        semantic_info.with_capture_index(captured.capture_offset.unwrap() as _);
+                    semantic_info = semantic_info
+                        .with_capture_index(captured.capture_offset.get().unwrap() as _);
                 }
 
-                if let Some(heap_offset) = captured.read_heap_offset {
+                if let Some(heap_offset) = captured.read_heap_offset.get() {
                     semantic_info = semantic_info.with_read_heap_offset(heap_offset as _);
                 }
 
-                if let Some(heap_offset) = captured.heap_offset {
+                if let Some(heap_offset) = captured.heap_offset.get() {
                     semantic_info = semantic_info.with_heap_offset(heap_offset as _);
                 }
 
@@ -2129,7 +2261,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 is_captured.usage_count += 1;
 
                 // TODO: Make sure we want to mark this identifier as last used
-                is_captured.last_used = Some(current_id);
+                is_captured.last_used = OptionalSyntaxObjectId::some(current_id);
 
                 // drop(is_captured);
 
@@ -2156,7 +2288,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         .with_usage_count(1)
                         .refers_to(is_captured_id);
 
-                if let Some(stack_offset) = is_captured_stack_offset {
+                if let Some(stack_offset) = is_captured_stack_offset.get() {
                     semantic_info = semantic_info.with_offset(stack_offset as _);
                 }
 
@@ -2333,7 +2465,7 @@ impl<'a, F> FindCallSiteById<'a, F> {
             .first()
             .and_then(|x| x.atom_syntax_object())
             .and_then(|x| self.analysis.get(x))
-            .and_then(|x| x.refers_to)
+            .and_then(|x| x.refers_to.get())
         {
             refers_to == self.id
         } else {
@@ -2382,7 +2514,7 @@ where
     F: FnMut(&Analysis, &mut crate::parser::ast::Atom) -> bool,
 {
     fn visit_atom(&mut self, a: &mut Atom) {
-        if let Some(refers_to) = self.analysis.get(&a.syn).and_then(|x| x.refers_to) {
+        if let Some(refers_to) = self.analysis.get(&a.syn).and_then(|x| x.refers_to.get()) {
             if refers_to == self.id {
                 self.modified |= (self.func)(self.analysis, a)
             }
@@ -3467,7 +3599,7 @@ impl<'a> LowerRestArguments<'a> {
 
             if self.bindings.contains_key(ty) {
                 let analysis = self.analysis.get(ident)?;
-                let refers_to = analysis.refers_to;
+                let refers_to = analysis.refers_to.get();
 
                 let original_ident = refers_to.and_then(|x| self.analysis.info.get(&x))?;
                 if original_ident.usage_count == 1 {
@@ -4963,7 +5095,7 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
             // println!("{:#?}", info);
             // }
 
-            if info.builtin && !info.is_shadowed && info.shadows.is_none() {
+            if info.builtin && !info.is_shadowed && !info.shadows.is_some() {
                 // todo!()
 
                 // println!("FOUND UNSHADOWED USAGE OF BUILTIN: {}", a);
@@ -4988,13 +5120,13 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
                 // println!("Visiting: {}", a);
                 // println!("{:#?}", info);
 
-                if let Some(refers_to) = info.refers_to {
+                if let Some(refers_to) = info.refers_to.get() {
                     if let Some(info) = self.analysis.info.get(&refers_to) {
                         // println!("Visiting: {}", a);
                         // println!("{:#?}", info);
                         // println!("Self id: {}", refers_to);
 
-                        if info.builtin && !info.is_shadowed && info.shadows.is_none() {
+                        if info.builtin && !info.is_shadowed && !info.shadows.is_some() {
                             // todo!()
 
                             // println!("FOUND UNSHADOWED USAGE OF BUILTIN: {}", a);
@@ -5045,7 +5177,7 @@ impl<'a> ExprContainsIds<'a> {
 
 impl<'a> VisitorMutControlFlow for ExprContainsIds<'a> {
     fn visit_atom(&mut self, a: &Atom) -> core::ops::ControlFlow<()> {
-        if let Some(refers_to) = self.analysis.get(&a.syn).and_then(|x| x.refers_to) {
+        if let Some(refers_to) = self.analysis.get(&a.syn).and_then(|x| x.refers_to.get()) {
             if self.ids.contains(&refers_to) {
                 return core::ops::ControlFlow::Break(());
             }

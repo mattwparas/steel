@@ -436,7 +436,7 @@ impl LanguageServer for Backend {
             let (_syntax_object_id, information) =
                 analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
 
-            let refers_to = information.refers_to?;
+            let refers_to = information.refers_to.get()?;
 
             let maybe_definition = analysis.get_identifier(refers_to)?;
 
@@ -739,7 +739,7 @@ impl LanguageServer for Backend {
             }
 
             // Either refers to something, or is the existing definition
-            let refers_to = information.refers_to.unwrap_or_else(|| {
+            let refers_to = information.refers_to.get().unwrap_or_else(|| {
                 eprintln!("Unable to find a refers to for this identifier");
                 *syntax_object_id
             });
@@ -747,7 +747,7 @@ impl LanguageServer for Backend {
             {
                 let mut spans = Vec::new();
                 for (_, info) in analysis.analysis.identifier_info() {
-                    if let Some(found_refers_to) = info.refers_to {
+                    if let Some(found_refers_to) = info.refers_to.get() {
                         if found_refers_to == refers_to {
                             spans.push(info.span);
                         }
@@ -1307,7 +1307,7 @@ impl Backend {
                     eprintln!("Analysis time: {:?}", now.elapsed());
 
                     for (_, info) in analysis.identifier_info() {
-                        if let Some(refers_to) = info.refers_to {
+                        if let Some(refers_to) = info.refers_to.get() {
                             if refers_to == id {
                                 spans.push(info.span);
                             }
@@ -1407,7 +1407,7 @@ impl Backend {
             analysis.run_with_scope(ast, false);
 
             for (_, info) in analysis.identifier_info() {
-                if let Some(refers_to) = info.refers_to {
+                if let Some(refers_to) = info.refers_to.get() {
                     if refers_to == id {
                         spans.push(info.span);
                     }
@@ -1650,7 +1650,7 @@ impl Backend {
         //
         // The ability to then just check what the original identifier was can help us resolve
         // the binding, by just checking against the interned string stored in the proto hash get.
-        if information.builtin && information.refers_to.is_none() {
+        if information.builtin && !information.refers_to.is_some() {
             analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
 
             let name = syntax_object_id_to_interned_string.get(syntax_object_id)?;
@@ -1669,7 +1669,7 @@ impl Backend {
 
         // If we can't figure out what this refers to, it probably refers
         // to some standard library function
-        if information.refers_to.is_none() {
+        if !information.refers_to.is_some() {
             // Resolve what we've found?
             analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
 
@@ -1691,7 +1691,7 @@ impl Backend {
         }
 
         // Refers to something - keep that around as well
-        let refers_to = information.refers_to?;
+        let refers_to = information.refers_to.get()?;
 
         // See if we can find this as well.
         syntax_object_id_to_interned_string.insert(refers_to, None);
