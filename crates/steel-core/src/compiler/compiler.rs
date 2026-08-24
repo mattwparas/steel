@@ -12,7 +12,9 @@ use crate::{
     core::{instructions::u24, labels::Expr},
     gc::Shared,
     parser::{
-        expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change, GlobalMap},
+        expand_visitor::{
+            expand_kernel_in_env, expand_kernel_in_env_with_change, ExpansionCandidates, GlobalMap,
+        },
         interner::InternedString,
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions, SourcesCollector},
@@ -955,17 +957,27 @@ impl Compiler {
             )?;
             lower_entire_ast(expr)?;
 
+            let mut expansion_candidates = ExpansionCandidates::collect(expr);
+
             for (module, shadowed_vars) in &self.lifted_macro_environments {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                    if !expansion_candidates.calls_any(macro_env) {
+                        continue;
+                    }
+
                     let source_id = self.sources.get_source_id(module).unwrap();
 
-                    crate::parser::expand_visitor::expand_with_source_id(
+                    let changed = crate::parser::expand_visitor::expand_with_source_id(
                         expr,
                         macro_env,
                         &shadowed_vars,
                         Some(source_id),
                         GlobalMap::Map(self.symbol_map.map()),
-                    )?
+                    )?;
+
+                    if changed {
+                        expansion_candidates = ExpansionCandidates::collect(expr);
+                    }
                 }
             }
 
@@ -1146,19 +1158,29 @@ impl Compiler {
             )?;
             lower_entire_ast(expr)?;
 
+            let mut expansion_candidates = ExpansionCandidates::collect(expr);
+
             for (module, shadowed_vars) in &self.lifted_macro_environments {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                    if !expansion_candidates.calls_any(macro_env) {
+                        continue;
+                    }
+
                     // If this was recently shadowed, then we don't want it any more.
 
                     let source_id = self.sources.get_source_id(module).unwrap();
 
-                    crate::parser::expand_visitor::expand_with_source_id(
+                    let changed = crate::parser::expand_visitor::expand_with_source_id(
                         expr,
                         macro_env,
                         &shadowed_vars,
                         Some(source_id),
                         GlobalMap::Map(self.symbol_map.map()),
                     )?;
+
+                    if changed {
+                        expansion_candidates = ExpansionCandidates::collect(expr);
+                    }
                 }
             }
 

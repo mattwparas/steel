@@ -128,7 +128,7 @@ pub fn expand_with_source_id(
     exclusions: &HashSet<InternedString>,
     source_id: Option<SourceId>,
     globals: GlobalMap,
-) -> Result<()> {
+) -> Result<bool> {
     let mut expander = Expander {
         depth: 0,
         map,
@@ -139,7 +139,44 @@ pub fn expand_with_source_id(
         globals,
     };
 
-    expander.visit(expr)
+    expander.visit(expr)?;
+
+    Ok(expander.changed)
+}
+
+#[derive(Default)]
+pub struct ExpansionCandidates {
+    heads: FxHashSet<InternedString>,
+}
+
+impl ExpansionCandidates {
+    pub fn collect(expr: &ExprKind) -> Self {
+        use crate::compiler::passes::VisitorMutUnitRef;
+
+        let mut candidates = ExpansionCandidates::default();
+        candidates.visit(expr);
+        candidates
+    }
+
+    pub fn calls_any(&self, map: &FxHashMap<InternedString, SteelMacro>) -> bool {
+        if map.len() <= self.heads.len() {
+            map.keys().any(|name| self.heads.contains(name))
+        } else {
+            self.heads.iter().any(|name| map.contains_key(name))
+        }
+    }
+}
+
+impl<'a> crate::compiler::passes::VisitorMutUnitRef<'a> for ExpansionCandidates {
+    fn visit_list(&mut self, l: &'a List) {
+        if let Some(head) = l.first_ident() {
+            self.heads.insert(*head);
+        }
+
+        for expr in &l.args {
+            self.visit(expr);
+        }
+    }
 }
 
 pub struct Expander<'a> {
