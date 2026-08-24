@@ -1147,8 +1147,14 @@ pub fn expand_kernel_in_env_with_allowed(
     allowed: &FxHashSet<InternedString>,
     globals: GlobalMap,
 ) -> Result<(ExprKind, bool)> {
+    let environment_has_macros = kernel
+        .as_ref()
+        .map(|x| x.has_syntax_object_macros(Some(env)))
+        .unwrap_or_default();
+
     let mut expander = KernelExpander {
         map: kernel,
+        environment_has_macros,
         changed: false,
         builtin_modules,
         environment: Some(env),
@@ -1173,8 +1179,14 @@ pub fn expand_kernel_in_env_with_change(
     env: &str,
     globals: GlobalMap,
 ) -> Result<bool> {
+    let environment_has_macros = kernel
+        .as_ref()
+        .map(|x| x.has_syntax_object_macros(Some(env)))
+        .unwrap_or_default();
+
     let mut expander = KernelExpander {
         map: kernel,
+        environment_has_macros,
         changed: false,
         builtin_modules,
         environment: Some(env),
@@ -1202,8 +1214,14 @@ pub fn expand_kernel_in_env(
     env: &str,
     globals: GlobalMap,
 ) -> Result<()> {
+    let environment_has_macros = kernel
+        .as_ref()
+        .map(|x| x.has_syntax_object_macros(Some(env)))
+        .unwrap_or_default();
+
     let mut expander = KernelExpander {
         map: kernel,
+        environment_has_macros,
         changed: false,
         builtin_modules,
         environment: Some(env),
@@ -1223,8 +1241,14 @@ pub fn expand_kernel(
     builtin_modules: ModuleContainer,
     globals: GlobalMap,
 ) -> Result<ExprKind> {
+    let environment_has_macros = kernel
+        .as_ref()
+        .map(|x| x.has_syntax_object_macros(None))
+        .unwrap_or_default();
+
     let mut expander = KernelExpander {
         map: kernel,
+        environment_has_macros,
         changed: false,
         builtin_modules,
         environment: None,
@@ -1241,6 +1265,7 @@ pub fn expand_kernel(
 
 pub struct KernelExpander<'a> {
     map: Option<&'a mut Kernel>,
+    environment_has_macros: bool,
     pub(crate) changed: bool,
     builtin_modules: ModuleContainer,
     environment: Option<&'a str>,
@@ -1257,8 +1282,14 @@ impl<'a> KernelExpander<'a> {
         builtin_modules: ModuleContainer,
         globals: GlobalMap<'a>,
     ) -> Self {
+        let environment_has_macros = map
+            .as_ref()
+            .map(|x| x.has_syntax_object_macros(None))
+            .unwrap_or_default();
+
         Self {
             map,
+            environment_has_macros,
             changed: false,
             builtin_modules,
             environment: None,
@@ -1948,7 +1979,8 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                             }
                         }
 
-                        if let Some(map) = &mut self.map {
+                        if let Some(map) = self.map.as_mut().filter(|_| self.environment_has_macros)
+                        {
                             if map.contains_syntax_object_macro(
                                 &s,
                                 self.environment.as_ref().map(|x| x.as_ref()),

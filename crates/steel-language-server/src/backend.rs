@@ -1016,7 +1016,12 @@ impl LanguageServer for Backend {
                         );
                     }
                     steel::compiler::passes::analysis::SemanticInformationType::Let(info) => {
-                        completions.extend(info.arguments.keys().filter_map(filter_interned_string))
+                        completions.extend(
+                            info.arguments
+                                .iter()
+                                .map(|x| &x.0)
+                                .filter_map(filter_interned_string),
+                        )
                     }
                     _ => {}
                 }

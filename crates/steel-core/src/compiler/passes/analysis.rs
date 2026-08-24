@@ -284,14 +284,14 @@ impl CallSiteInformation {
 pub struct LetInformation {
     pub stack_offset: usize,
     pub function_context: Option<u32>,
-    pub arguments: FxHashMap<InternedString, ScopeInfo>,
+    pub arguments: SmallVec<[(InternedString, ScopeInfo); 4]>,
 }
 
 impl LetInformation {
     pub fn new(
         stack_offset: usize,
         function_context: Option<u32>,
-        arguments: FxHashMap<InternedString, ScopeInfo>,
+        arguments: SmallVec<[(InternedString, ScopeInfo); 4]>,
     ) -> Self {
         Self {
             stack_offset,
@@ -528,7 +528,11 @@ impl Analysis {
             .function_info
             .values()
             .flat_map(|x| x.captured_vars.iter().map(|x| &x.1))
-            .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
+            .chain(
+                self.let_info
+                    .values()
+                    .flat_map(|x| x.arguments.iter().map(|x| &x.1)),
+            )
             .filter(|x| x.captured && x.mutated)
             .map(|x| x.id)
             .collect::<FxHashSet<_>>();
@@ -1449,7 +1453,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
 
             let heap_alloc = if let Some(info) = self.info.let_info.get(&l.syntax_object_id) {
-                if let Some(info) = info.arguments.get(name) {
+                if let Some((_, info)) = info.arguments.iter().find(|(x, _)| x == name) {
                     info.mutated && info.captured
                 } else {
                     false
@@ -1511,9 +1515,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         self.visit(&l.body_expr);
 
-        // This is a little silly but I'm not sure why I can't call the default method on the FxHashMap directly
-        let mut arguments =
-            FxHashMap::with_capacity_and_hasher(l.bindings.len(), FxBuildHasher::default());
+        let record_arguments = !self.info.let_info.contains_key(&l.syntax_object_id);
+
+        let mut arguments = SmallVec::<[(InternedString, ScopeInfo); 4]>::new();
 
         for arg in l.local_bindings() {
             let name = arg.atom_identifier().unwrap();
@@ -1527,21 +1531,26 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 self.info.get_mut(id).unwrap().last_usage = true;
             }
 
-            arguments.insert(*name, scoped_info);
+            if record_arguments {
+                arguments.push((*name, scoped_info));
+            }
         }
 
         // for id in arguments.values().filter_map(|x| x.last_used) {
         //     self.info.get_mut(&id).unwrap().last_usage = true;
         // }
 
-        self.info.let_info.insert_if_vacant(l.syntax_object_id, || {
-            LetInformation::new(
-                // self.stack_offset,
-                rollback_offset,
-                self.function_context,
-                arguments,
-            )
-        });
+        if record_arguments {
+            self.info.let_info.insert(
+                l.syntax_object_id,
+                LetInformation::new(
+                    // self.stack_offset,
+                    rollback_offset,
+                    self.function_context,
+                    arguments,
+                ),
+            );
+        }
 
         if is_top_level {
             self.info.scope.pop_layer();
@@ -1726,7 +1735,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Set the single used to this scope to be a new set
         // self.vars_used = im_rc::HashSet::new();
 
-        self.vars_used = SmallVec::new();
+        self.vars_used.clear();
 
         self.contains_lambda_func = false;
 
@@ -4632,7 +4641,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             // Which arguments do we need to wrap up
             for (var, _) in &l.bindings {
                 if let Some(ident) = var.atom_identifier() {
-                    if let Some((_, arg)) = let_info.arguments.iter().find(|x| *x.0 == *ident) {
+                    if let Some((_, arg)) = let_info.arguments.iter().find(|x| x.0 == *ident) {
                         if arg.captured && arg.mutated {
                             mutable_variables.push(var.clone());
                         }

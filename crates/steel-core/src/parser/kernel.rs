@@ -579,6 +579,26 @@ impl Kernel {
             .cloned()
     }
 
+    pub fn has_syntax_object_macros(&self, environment: Option<&str>) -> bool {
+        let transformers = self.transformers.set.read().unwrap();
+
+        let default = transformers
+            .get("default")
+            .map(|x| !x.is_empty())
+            .unwrap_or_default();
+
+        match environment {
+            Some(environment) => {
+                default
+                    || transformers
+                        .get(environment)
+                        .map(|x| !x.is_empty())
+                        .unwrap_or_default()
+            }
+            None => default,
+        }
+    }
+
     pub fn contains_syntax_object_macro(
         &self,
         ident: &InternedString,

@@ -614,8 +614,14 @@ impl<K: Eq + Hash, V, S: BuildHasher> ScopeMap<K, V, S> {
     #[inline]
     pub fn clear_all(&mut self) {
         self.map.clear();
-        self.layers.clear();
-        self.layers.push(Default::default());
+
+        while let Some(mut layer) = self.layers.pop() {
+            layer.clear();
+            self.reused_layers.push(layer);
+        }
+
+        self.layers
+            .push(self.reused_layers.pop().unwrap_or_default());
         self.empty_key_count = 0;
     }
 

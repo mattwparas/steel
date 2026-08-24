@@ -893,7 +893,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         let mut heap_allocated_arguments = info
             .arguments
-            .values()
+            .iter()
+            .map(|x| &x.1)
             .filter(|x| x.captured && x.mutated)
             .collect::<SmallVec<[_; 8]>>();
 
@@ -902,7 +903,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         for var in heap_allocated_arguments {
             println!("Found a var that is both mutated and captured");
             println!("{:#?}", var);
-            println!("{}", info.arguments.iter().find(|x| x.1 == var).unwrap().0);
+            println!("{}", info.arguments.iter().find(|x| &x.1 == var).unwrap().0);
 
             self.push(
                 LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap() as _),
