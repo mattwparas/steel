@@ -23,12 +23,7 @@ use crate::{
     rerrs::ErrorKind,
     SteelErr,
 };
-use std::{
-    cell::RefCell,
-    collections::HashSet,
-    convert::TryFrom,
-    rc::{Rc, Weak},
-};
+use std::{collections::HashSet, convert::TryFrom};
 
 use crate::values::HashMap;
 use rustc_hash::{FxBuildHasher, FxHashSet};
@@ -38,7 +33,81 @@ use thin_vec::ThinVec;
 
 use super::cache::MemoizationTable;
 
-type SharedEnv = Rc<RefCell<ConstantEnv>>;
+type EnvId = usize;
+
+const ROOT_ENV: EnvId = 0;
+
+struct EnvArena {
+    envs: Vec<ConstantEnv>,
+}
+
+impl EnvArena {
+    fn new(bindings: HashMap<InternedString, SteelVal, FxBuildHasher>) -> Self {
+        Self {
+            envs: vec![ConstantEnv::root(bindings)],
+        }
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.envs.truncate(len);
+    }
+
+    fn push(&mut self, env: ConstantEnv) -> EnvId {
+        self.envs.push(env);
+        self.envs.len() - 1
+    }
+
+    fn env(&self, id: EnvId) -> &ConstantEnv {
+        &self.envs[id]
+    }
+
+    fn env_mut(&mut self, id: EnvId) -> &mut ConstantEnv {
+        &mut self.envs[id]
+    }
+
+    fn get(&mut self, mut id: EnvId, ident: &InternedString) -> Option<SteelVal> {
+        loop {
+            let env = &mut self.envs[id];
+
+            if env.non_constant_bound.get(ident).is_some() {
+                return None;
+            }
+
+            if let Some(value) = env.bindings.get(ident).cloned() {
+                env.used_bindings.insert(*ident);
+                return Some(value);
+            }
+
+            id = env.parent?;
+        }
+    }
+
+    fn get_constant_list(&self, mut id: EnvId, ident: &InternedString) -> Option<SteelVal> {
+        loop {
+            let env = &self.envs[id];
+
+            if let Some(value) = env.constant_lists.get(ident) {
+                return Some(value.clone());
+            }
+
+            id = env.parent?;
+        }
+    }
+
+    fn unbind(&mut self, mut id: EnvId, ident: &InternedString) -> Option<()> {
+        loop {
+            let env = &mut self.envs[id];
+
+            if env.bindings.get(ident).is_some() {
+                env.bindings.remove(ident);
+                env.used_bindings.insert(*ident);
+                return Some(());
+            }
+
+            id = env.parent?;
+        }
+    }
+}
 
 struct ConstantEnv {
     bindings: HashMap<InternedString, SteelVal, FxBuildHasher>,
@@ -49,7 +118,7 @@ struct ConstantEnv {
     // but we could in theory eliminate the values for the
     constant_lists: HashMap<InternedString, SteelVal>,
 
-    parent: Option<Weak<RefCell<ConstantEnv>>>,
+    parent: Option<EnvId>,
 }
 
 impl ConstantEnv {
@@ -63,7 +132,7 @@ impl ConstantEnv {
         }
     }
 
-    fn new_subexpression(parent: Weak<RefCell<ConstantEnv>>) -> Self {
+    fn new_subexpression(parent: EnvId) -> Self {
         Self {
             bindings: HashMap::default(),
             used_bindings: HashSet::default(),
@@ -84,74 +153,12 @@ impl ConstantEnv {
     fn bind_const_list(&mut self, ident: &InternedString, expr: SteelVal) {
         self.constant_lists.insert(*ident, expr);
     }
-
-    fn get(&mut self, ident: &InternedString) -> Option<SteelVal> {
-        if self.non_constant_bound.get(ident).is_some() {
-            return None;
-        }
-
-        let value = self.bindings.get(ident);
-        if value.is_none() {
-            self.parent
-                .as_ref()?
-                .upgrade()
-                .expect("Constant environment freed early")
-                .borrow_mut()
-                .get(ident)
-        } else {
-            self.used_bindings.insert(*ident);
-            value.cloned()
-        }
-    }
-
-    fn get_constant_list(&self, ident: &InternedString) -> Option<SteelVal> {
-        let value = self.constant_lists.get(ident);
-        if value.is_none() {
-            self.parent
-                .as_ref()?
-                .upgrade()
-                .expect("Constant environment freed early")
-                .borrow()
-                .get_constant_list(ident)
-        } else {
-            value.cloned()
-        }
-    }
-
-    fn _set(&mut self, ident: &InternedString, value: SteelVal) -> Option<SteelVal> {
-        let output = self.bindings.get(ident);
-        if output.is_none() {
-            self.parent
-                .as_ref()?
-                .upgrade()
-                .expect("Constant environment freed early")
-                .borrow_mut()
-                ._set(ident, value)
-        } else {
-            self.bindings.insert(*ident, value)
-        }
-    }
-
-    fn unbind(&mut self, ident: &InternedString) -> Option<()> {
-        if self.bindings.get(ident).is_some() {
-            self.bindings.remove(ident);
-            self.used_bindings.insert(*ident);
-        } else {
-            self.parent
-                .as_ref()?
-                .upgrade()
-                .expect("Constant environment freed early")
-                .borrow_mut()
-                .unbind(ident);
-        }
-        Some(())
-    }
 }
 
 // Holds the global env that will eventually get passed down
 // Holds the arena for all environments to eventually be dropped together
 pub struct ConstantEvaluatorManager<'a> {
-    global_env: SharedEnv,
+    envs: EnvArena,
     set_idents: FxHashSet<InternedString>,
     pub(crate) changed: bool,
     opt_level: OptLevel,
@@ -167,7 +174,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
         kernel: &'a mut Option<Kernel>,
     ) -> Self {
         Self {
-            global_env: Rc::new(RefCell::new(ConstantEnv::root(constant_bindings))),
+            envs: EnvArena::new(constant_bindings),
             set_idents: HashSet::default(),
             changed: false,
             opt_level,
@@ -194,7 +201,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
 
         for (expr, expr_level_set_idents) in input.into_iter().zip(expr_level_sets) {
             let mut eval = ConstantEvaluator::new(
-                Rc::clone(&self.global_env),
+                &mut self.envs,
                 &self.set_idents,
                 &expr_level_set_idents,
                 self.opt_level,
@@ -221,6 +228,8 @@ impl<'a> ConstantEvaluatorManager<'a> {
                 self.changed = true;
                 eval.changed = false;
             }
+
+            self.envs.truncate(1);
 
             results.push(output)
         }
@@ -249,7 +258,8 @@ impl<'a> ConstantEvaluatorManager<'a> {
 }
 
 struct ConstantEvaluator<'a> {
-    bindings: SharedEnv,
+    envs: &'a mut EnvArena,
+    current: EnvId,
     set_idents: &'a FxHashSet<InternedString>,
     expr_level_set_idents: &'a FxHashSet<InternedString>,
     changed: bool,
@@ -257,7 +267,6 @@ struct ConstantEvaluator<'a> {
     _memoization_table: &'a mut MemoizationTable,
     kernel: &'a mut Option<Kernel>,
     scope_contains_define: bool,
-    root: SharedEnv,
     root_constants_added: bool,
 }
 
@@ -275,7 +284,7 @@ fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
 
 impl<'a> ConstantEvaluator<'a> {
     fn new(
-        bindings: Rc<RefCell<ConstantEnv>>,
+        envs: &'a mut EnvArena,
         set_idents: &'a FxHashSet<InternedString>,
         expr_level_set_idents: &'a FxHashSet<InternedString>,
         opt_level: OptLevel,
@@ -283,8 +292,8 @@ impl<'a> ConstantEvaluator<'a> {
         kernel: &'a mut Option<Kernel>,
     ) -> Self {
         Self {
-            root: Rc::clone(&bindings),
-            bindings,
+            envs,
+            current: ROOT_ENV,
             set_idents,
             expr_level_set_idents,
             changed: false,
@@ -296,7 +305,7 @@ impl<'a> ConstantEvaluator<'a> {
         }
     }
 
-    fn to_constant(&self, expr: &ExprKind) -> Option<SteelVal> {
+    fn to_constant(&mut self, expr: &ExprKind) -> Option<SteelVal> {
         match expr {
             ExprKind::Atom(Atom { syn, .. }) => self.eval_atom(syn),
             ExprKind::Quote(q) => {
@@ -307,7 +316,7 @@ impl<'a> ConstantEvaluator<'a> {
         }
     }
 
-    fn is_truthy_constant(&self, expr: &ExprKind) -> bool {
+    fn is_truthy_constant(&mut self, expr: &ExprKind) -> bool {
         match expr {
             ExprKind::Atom(Atom { syn, .. }) => match &syn.ty {
                 TokenType::BooleanLiteral(f) => return *f,
@@ -315,13 +324,12 @@ impl<'a> ConstantEvaluator<'a> {
                     // If we found a set identifier, skip it
                     if self.set_idents.get(&s).is_some() || self.expr_level_set_idents.contains(&s)
                     {
-                        self.bindings.borrow_mut().unbind(&s);
+                        self.envs.unbind(self.current, &s);
 
                         return false;
                     };
-                    self.bindings
-                        .borrow_mut()
-                        .get(&s)
+                    self.envs
+                        .get(self.current, &s)
                         .map(|x| x.is_truthy())
                         .unwrap_or_default()
                 }
@@ -339,7 +347,7 @@ impl<'a> ConstantEvaluator<'a> {
         }
     }
 
-    fn is_constant(&self, expr: &ExprKind) -> bool {
+    fn is_constant(&mut self, expr: &ExprKind) -> bool {
         match expr {
             ExprKind::Atom(Atom { syn, .. }) => match &syn.ty {
                 TokenType::BooleanLiteral(_) => return true,
@@ -347,13 +355,12 @@ impl<'a> ConstantEvaluator<'a> {
                     // If we found a set identifier, skip it
                     if self.set_idents.get(&s).is_some() || self.expr_level_set_idents.contains(&s)
                     {
-                        self.bindings.borrow_mut().unbind(&s);
+                        self.envs.unbind(self.current, &s);
 
                         return false;
                     };
-                    self.bindings
-                        .borrow_mut()
-                        .get(&s)
+                    self.envs
+                        .get(self.current, &s)
                         .map(|x| x.is_truthy())
                         .unwrap_or_default()
                 }
@@ -371,17 +378,17 @@ impl<'a> ConstantEvaluator<'a> {
         }
     }
 
-    fn eval_atom(&self, t: &SyntaxObject) -> Option<SteelVal> {
+    fn eval_atom(&mut self, t: &SyntaxObject) -> Option<SteelVal> {
         match &t.ty {
             TokenType::BooleanLiteral(b) => Some((*b).into()),
             TokenType::Identifier(s) => {
                 // If we found a set identifier, skip it
                 if self.set_idents.get(s).is_some() || self.expr_level_set_idents.contains(s) {
-                    self.bindings.borrow_mut().unbind(s);
+                    self.envs.unbind(self.current, s);
 
                     return None;
                 };
-                self.bindings.borrow_mut().get(s)
+                self.envs.get(self.current, s)
             }
             // todo!() figure out if it is ok to expand scope of eval_atom.
             TokenType::Number(n) => n.resolve().into_steelval().ok(),
@@ -391,13 +398,13 @@ impl<'a> ConstantEvaluator<'a> {
         }
     }
 
-    fn all_to_constant(&self, exprs: &[ExprKind]) -> Option<smallvec::SmallVec<[SteelVal; 8]>> {
+    fn all_to_constant(&mut self, exprs: &[ExprKind]) -> Option<smallvec::SmallVec<[SteelVal; 8]>> {
         exprs.iter().map(|x| self.to_constant(x)).collect()
     }
 
-    fn is_constant_list(&self, expr: Option<&ExprKind>) -> Option<SteelVal> {
+    fn is_constant_list(&mut self, expr: Option<&ExprKind>) -> Option<SteelVal> {
         if let Some(arg) = expr.and_then(|x| x.atom_identifier()) {
-            return self.bindings.borrow().get_constant_list(arg);
+            return self.envs.get_constant_list(self.current, arg);
         }
 
         None
@@ -530,12 +537,14 @@ impl<'a> ConstantEvaluator<'a> {
         self.visit(&mut define.body)?;
 
         if let Some(c) = self.to_constant(&define.body) {
-            if Rc::ptr_eq(&self.bindings, &self.root) {
+            if self.current == ROOT_ENV {
                 self.root_constants_added = true;
             }
-            self.bindings.borrow_mut().bind(&identifier, c);
+            self.envs.env_mut(self.current).bind(&identifier, c);
         } else {
-            self.bindings.borrow_mut().bind_non_constant(&identifier);
+            self.envs
+                .env_mut(self.current)
+                .bind_non_constant(&identifier);
         }
 
         Ok(None)
@@ -545,8 +554,8 @@ impl<'a> ConstantEvaluator<'a> {
         &mut self,
         lambda_function: &mut Box<crate::parser::ast::LambdaFunction>,
     ) -> Result<Option<ExprKind>> {
-        let parent = Rc::clone(&self.bindings);
-        let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&parent));
+        let parent = self.current;
+        let mut new_env = ConstantEnv::new_subexpression(parent);
 
         for arg in &lambda_function.args {
             let identifier = arg.atom_identifier_or_else(
@@ -558,12 +567,12 @@ impl<'a> ConstantEvaluator<'a> {
         let prev = self.scope_contains_define;
         self.scope_contains_define = false;
 
-        self.bindings = Rc::new(RefCell::new(new_env));
+        self.current = self.envs.push(new_env);
 
         self.visit(&mut lambda_function.body)?;
 
         self.scope_contains_define = prev;
-        self.bindings = parent;
+        self.current = parent;
 
         Ok(None)
     }
@@ -595,15 +604,14 @@ impl<'a> ConstantEvaluator<'a> {
 
         // If we found a set identifier, skip it
         if self.set_idents.get(s).is_some() || self.expr_level_set_idents.contains(s) {
-            self.bindings.borrow_mut().unbind(s);
+            self.envs.unbind(self.current, s);
 
             return;
         }
 
         let replacement = self
-            .bindings
-            .borrow_mut()
-            .get(s)
+            .envs
+            .get(self.current, s)
             .and_then(|x| steelval_to_atom(&x));
 
         if let Some(new_token) = replacement {
@@ -724,7 +732,7 @@ impl<'a> ConstantEvaluator<'a> {
             stop!(ArityMismatch => m; lambda.location.span);
         }
 
-        let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&self.bindings));
+        let mut new_env = ConstantEnv::new_subexpression(self.current);
 
         if lambda.rest {
             if let Some((l_last, l_start)) = lambda.args.split_last() {
@@ -778,8 +786,8 @@ impl<'a> ConstantEvaluator<'a> {
             }
         }
 
-        let parent = Rc::clone(&self.bindings);
-        self.bindings = Rc::new(RefCell::new(new_env));
+        let parent = self.current;
+        self.current = self.envs.push(new_env);
 
         self.visit(&mut lambda.body)?;
 
@@ -796,7 +804,12 @@ impl<'a> ConstantEvaluator<'a> {
 
             // If the argument/variable is used internally, keep it
             // Also, if the argument is _not_ a constant
-            if self.bindings.borrow().used_bindings.contains(identifier) {
+            if self
+                .envs
+                .env(self.current)
+                .used_bindings
+                .contains(identifier)
+            {
                 used_arguments += 1;
             } else if self.to_constant(arg).is_none() {
                 non_constant_arguments += 1;
@@ -808,7 +821,7 @@ impl<'a> ConstantEvaluator<'a> {
         // arguments is found to be empty.
         if used_arguments == 0 && non_constant_arguments == 0 && !self.scope_contains_define {
             // Unwind the recursion before we bail out
-            self.bindings = parent;
+            self.current = parent;
 
             self.changed = true;
             return Ok(Some(core::mem::take(&mut lambda.body)));
@@ -825,7 +838,7 @@ impl<'a> ConstantEvaluator<'a> {
                 .collect();
 
             self.changed = true;
-            self.bindings = parent;
+            self.current = parent;
 
             let mut remaining: Vec<ExprKind> = remaining_indices
                 .into_iter()
@@ -853,7 +866,7 @@ impl<'a> ConstantEvaluator<'a> {
         }
 
         // Unwind the 'recursion'
-        self.bindings = parent;
+        self.current = parent;
 
         Ok(None)
     }
@@ -863,7 +876,7 @@ impl<'a> ConstantEvaluator<'a> {
             throw!(BadSyntax => "set expects an identifier"; s.location.span),
         )?;
 
-        self.bindings.borrow_mut().unbind(&identifier);
+        self.envs.unbind(self.current, &identifier);
 
         self.visit(&mut s.expr)?;
 
@@ -872,7 +885,7 @@ impl<'a> ConstantEvaluator<'a> {
 
     // TODO come back to this
     fn visit_let(&mut self, l: &mut Box<crate::parser::ast::Let>) -> Result<Option<ExprKind>> {
-        let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&self.bindings));
+        let mut new_env = ConstantEnv::new_subexpression(self.current);
 
         for (_, arg) in l.bindings.iter_mut() {
             self.visit(arg)?;
@@ -903,8 +916,8 @@ impl<'a> ConstantEvaluator<'a> {
             }
         }
 
-        let parent = Rc::clone(&self.bindings);
-        self.bindings = Rc::new(RefCell::new(new_env));
+        let parent = self.current;
+        self.current = self.envs.push(new_env);
 
         self.visit(&mut l.body_expr)?;
 
@@ -922,7 +935,12 @@ impl<'a> ConstantEvaluator<'a> {
 
             // If the argument/variable is used internally, keep it
             // Also, if the argument is _not_ a constant
-            if self.bindings.borrow().used_bindings.contains(identifier) {
+            if self
+                .envs
+                .env(self.current)
+                .used_bindings
+                .contains(identifier)
+            {
                 used_arguments += 1;
                 retain.push(true);
             } else if self.to_constant(arg).is_none() {
@@ -938,13 +956,13 @@ impl<'a> ConstantEvaluator<'a> {
         // arguments is found to be empty.
         if used_arguments == 0 && non_constant_arguments == 0 && !self.scope_contains_define {
             // Unwind the recursion before we bail out
-            self.bindings = parent;
+            self.current = parent;
 
             self.changed = true;
             return Ok(Some(core::mem::take(&mut l.body_expr)));
         }
 
-        self.bindings = parent;
+        self.current = parent;
 
         // TODO: @Matt
         // The issue here is that the bindings with transformed
