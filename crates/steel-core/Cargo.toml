@@ -2,7 +2,7 @@
 name = "steel-core"
 version.workspace = true
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mattwparas/steel"
 description = "Core compiler and VM implementation for steel"

@@ -815,7 +815,7 @@ fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
 
         Ok(last)
     } else if let Some((first, rest)) = args.split_first_mut() {
-        let initial = if let SteelVal::ListV(ref mut l) = first {
+        let initial = if let SteelVal::ListV(l) = first {
             l
         } else {
             stop!(TypeMismatch => "append expects a list, found: {}", &args[0]);

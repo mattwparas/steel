@@ -465,7 +465,7 @@ impl ExprKind {
         if let ExprKind::Atom(Atom {
             syn:
                 SyntaxObject {
-                    ty: TokenType::Identifier(ref mut s),
+                    ty: TokenType::Identifier(s),
                     ..
                 },
         }) = self

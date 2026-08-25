@@ -1,5 +1,4 @@
 use core::cell::RefCell;
-use std::collections::HashSet;
 
 #[cfg(feature = "sync")]
 use std::{sync::Arc, thread::JoinHandle};

@@ -228,7 +228,7 @@ impl FromSteelVal for Box<str> {
 // HashMap
 impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
     fn into_steelval(mut self) -> Result<SteelVal> {
-        let mut hm = ImmutableHashMap::new();
+        let mut hm = ImmutableHashMap::default();
         for (key, val) in self.drain() {
             hm.insert(key.into_steelval()?, val.into_steelval()?);
         }
@@ -294,7 +294,7 @@ impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
 // HashSet
 impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {
     fn into_steelval(mut self) -> Result<SteelVal> {
-        let mut hs = ImmutableHashSet::new();
+        let mut hs = ImmutableHashSet::default();
         for value in self.drain() {
             hs.insert(value.into_steelval()?);
         }

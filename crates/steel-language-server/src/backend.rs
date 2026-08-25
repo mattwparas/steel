@@ -1161,7 +1161,7 @@ impl LanguageServer for Backend {
             let identifier_info = semantic.analysis.identifier_info();
             let identifiers = identifier_info
                 .iter()
-                .filter(|(&id, _)| semantic.analysis.resolve_reference(id) == syntax_object_id)
+                .filter(|&(&id, _)| semantic.analysis.resolve_reference(id) == syntax_object_id)
                 .filter(|(_, info)| info.kind == semantic_information.kind)
                 .map(|(_, information)| (information.span.start, information.span.end))
                 .filter_map(|(start, end)| {

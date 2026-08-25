@@ -1,6 +1,6 @@
 [package]
 name = "steel-language-server"
-edition = "2021"
+edition = "2024"
 version.workspace = true
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mattwparas/steel"

@@ -31,13 +31,7 @@ use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span}
 
 use thin_vec::{thin_vec, ThinVec};
 
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    io::Read,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{borrow::Cow, collections::HashMap, io::Read, path::PathBuf, sync::Arc};
 
 use crate::parser::expander::SteelMacro;
 use crate::stop;
@@ -270,7 +264,7 @@ impl ModuleManager {
             file_metadata,
             visited: FxHashSet::default(),
             custom_builtins: HashMap::new(),
-            rollback_metadata: crate::HashMap::new(),
+            rollback_metadata: crate::HashMap::default(),
             module_resolvers: Vec::new(),
             prelude_string: Cow::Borrowed(PRELUDE_STRING),
         }

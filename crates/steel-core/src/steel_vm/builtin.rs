@@ -164,13 +164,13 @@ pub static VOID_MODULE: Lazy<InternedString> =
 
 // Global function table
 thread_local! {
-    pub static FUNCTION_TABLE: RefCell<HashMap<BuiltInFunctionType, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
+    pub static FUNCTION_TABLE: RefCell<HashMap<BuiltInFunctionType, FunctionSignatureMetadata>> = RefCell::new(HashMap::default());
 }
 
 #[cfg(feature = "sync")]
 pub static STATIC_FUNCTION_TABLE: Lazy<
     RwLock<HashMap<BuiltInFunctionType, FunctionSignatureMetadata>>,
-> = Lazy::new(|| RwLock::new(HashMap::new()));
+> = Lazy::new(|| RwLock::new(HashMap::default()));
 
 pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatureMetadata> {
     #[cfg(feature = "sync")]
@@ -949,7 +949,7 @@ pub struct InternalDocumentation {
 impl InternalDocumentation {
     pub fn new() -> Self {
         Self {
-            definitions: HashMap::new(),
+            definitions: HashMap::default(),
         }
     }
 

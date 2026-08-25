@@ -90,7 +90,7 @@ pub fn hash_code(arg: &SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "hash", arity = "AtLeast(0)")]
 pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hm = HashMap::new();
+    let mut hm = HashMap::default();
 
     let mut arg_iter = args.iter().cloned();
 
@@ -110,7 +110,7 @@ pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hm = HashMap::new();
+    let mut hm = HashMap::default();
 
     let mut arg_iter = args.iter().cloned();
 
@@ -145,7 +145,7 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[function(name = "hash-remove")]
 pub fn hash_remove(map: &mut SteelVal, key: SteelVal) -> Result<SteelVal> {
-    if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
+    if let SteelVal::HashMapV(SteelHashMap(m)) = map {
         match Gc::get_mut(m) {
             Some(m) => {
                 m.remove(&key);
@@ -186,7 +186,7 @@ pub fn hash_insert(
 ) -> Result<SteelVal> {
     let key = core::mem::take(key);
     let value = core::mem::take(value);
-    if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
+    if let SteelVal::HashMapV(SteelHashMap(m)) = map {
         match Gc::get_mut(m) {
             Some(m) => {
                 m.insert(key, value);
@@ -396,14 +396,14 @@ pub fn values_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Ste
 /// ```
 #[steel_derive::function(name = "hash-clear")]
 pub fn clear(hashmap: &mut SteelVal) -> Result<SteelVal> {
-    if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = hashmap {
+    if let SteelVal::HashMapV(SteelHashMap(m)) = hashmap {
         match Gc::get_mut(m) {
             Some(m) => {
                 // m.insert(key, value);
                 m.clear();
                 Ok(core::mem::replace(hashmap, SteelVal::Void))
             }
-            None => Ok(SteelVal::HashMapV(Gc::new(HashMap::new()).into())),
+            None => Ok(SteelVal::HashMapV(Gc::new(HashMap::default()).into())),
         }
     } else {
         stop!(TypeMismatch => "hash-clear expected a hashmap, found: {:?}", hashmap);
@@ -440,38 +440,37 @@ pub fn hm_empty(hm: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
 #[steel_derive::function(name = "hash-union")]
 pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelVal> {
     match (&mut hml, &mut hmr) {
-        (
-            SteelVal::HashMapV(SteelHashMap(ref mut l)),
-            SteelVal::HashMapV(SteelHashMap(ref mut r)),
-        ) => match (Gc::get_mut(l), Gc::get_mut(r)) {
-            (None, None) => {
-                let hml = l.unwrap();
-                let hmr = r.unwrap();
-                Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr)).into()))
+        (SteelVal::HashMapV(SteelHashMap(l)), SteelVal::HashMapV(SteelHashMap(r))) => {
+            match (Gc::get_mut(l), Gc::get_mut(r)) {
+                (None, None) => {
+                    let hml = l.unwrap();
+                    let hmr = r.unwrap();
+                    Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr)).into()))
+                }
+                (None, Some(r_map)) => {
+                    let right_side_value = core::mem::take(r_map);
+
+                    *r_map = l.unwrap().union(right_side_value);
+
+                    Ok(core::mem::replace(hmr, SteelVal::Void))
+                }
+                (Some(l_map), None) => {
+                    let left_side_value = core::mem::take(l_map);
+
+                    *l_map = left_side_value.union(r.unwrap());
+
+                    Ok(core::mem::replace(hml, SteelVal::Void))
+                }
+                (Some(l_map), Some(r_map)) => {
+                    let left_side_value = core::mem::take(l_map);
+                    let right_side_value = core::mem::take(r_map);
+
+                    *l_map = left_side_value.union(right_side_value);
+
+                    Ok(core::mem::replace(hml, SteelVal::Void))
+                }
             }
-            (None, Some(r_map)) => {
-                let right_side_value = core::mem::take(r_map);
-
-                *r_map = l.unwrap().union(right_side_value);
-
-                Ok(core::mem::replace(hmr, SteelVal::Void))
-            }
-            (Some(l_map), None) => {
-                let left_side_value = core::mem::take(l_map);
-
-                *l_map = left_side_value.union(r.unwrap());
-
-                Ok(core::mem::replace(hml, SteelVal::Void))
-            }
-            (Some(l_map), Some(r_map)) => {
-                let left_side_value = core::mem::take(l_map);
-                let right_side_value = core::mem::take(r_map);
-
-                *l_map = left_side_value.union(right_side_value);
-
-                Ok(core::mem::replace(hml, SteelVal::Void))
-            }
-        },
+        }
 
         _ => {
             stop!(TypeMismatch => "hash-union expects two hash maps, found: {:?} and {:?}", hml, hmr)
@@ -682,7 +681,7 @@ mod hashmap_tests {
         let mut res_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = res.unwrap() {
             v.iter()
                 .map(|x| {
-                    if let SteelVal::StringV(ref s) = x {
+                    if let SteelVal::StringV(s) = x {
                         s.clone()
                     } else {
                         panic!("test failed")
@@ -696,7 +695,7 @@ mod hashmap_tests {
         let mut expected_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = expected {
             v.iter()
                 .map(|x| {
-                    if let SteelVal::StringV(ref s) = x {
+                    if let SteelVal::StringV(s) = x {
                         s.clone()
                     } else {
                         panic!("test failed")
@@ -736,7 +735,7 @@ mod hashmap_tests {
         let mut res_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = res.unwrap() {
             v.iter()
                 .map(|x| {
-                    if let SteelVal::StringV(ref s) = x {
+                    if let SteelVal::StringV(s) = x {
                         s.clone()
                     } else {
                         panic!("test failed")
@@ -750,7 +749,7 @@ mod hashmap_tests {
         let mut expected_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = expected {
             v.iter()
                 .map(|x| {
-                    if let SteelVal::StringV(ref s) = x {
+                    if let SteelVal::StringV(s) = x {
                         s.clone()
                     } else {
                         panic!("test failed")

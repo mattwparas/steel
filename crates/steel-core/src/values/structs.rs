@@ -1128,15 +1128,7 @@ pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
 pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
     let mut map = rustc_hash::FxHashMap::default();
 
-    #[cfg(feature = "imbl")]
-    let result_options = Gc::new(steel_imbl::generic_hashmap! {
-        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
-
-    #[cfg(not(feature = "imbl"))]
-    let result_options = Gc::new(im::hashmap! {
-        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
+    let result_options = Gc::new(transparent_options());
 
     map.insert("Ok".into(), result_options.clone());
     map.insert("Err".into(), result_options.clone());
@@ -1150,6 +1142,15 @@ pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
         entries: Vec::new(),
     })
 });
+
+fn transparent_options() -> crate::values::HashMap<SteelVal, SteelVal> {
+    let mut map = crate::values::HashMap::default();
+    map.insert(
+        SteelVal::SymbolV("#:transparent".into()),
+        SteelVal::BoolV(true),
+    );
+    map
+}
 
 #[cfg(feature = "sync")]
 pub static STATIC_TRANSPARENT_KEY: Lazy<SteelVal> =
@@ -1184,20 +1185,7 @@ thread_local! {
 
         let mut map = rustc_hash::FxHashMap::default();
 
-        #[cfg(all(feature = "sync", not(feature = "imbl")))]
-        let result_options = Gc::new(im::hashmap! {
-            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-        });
-
-        #[cfg(all(feature = "sync", feature = "imbl"))]
-        let result_options = Gc::new(steel_imbl::generic_hashmap! {
-            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-        });
-
-        #[cfg(not(feature = "sync"))]
-        let result_options = Gc::new(im_rc::hashmap! {
-            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-        });
+        let result_options = Gc::new(transparent_options());
 
         map.insert("Ok".into(), result_options.clone());
         map.insert("Err".into(), result_options.clone());
@@ -1212,23 +1200,9 @@ thread_local! {
         }))
     };
 
-    pub static DEFAULT_PROPERTIES: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(HashMap::new());
+    pub static DEFAULT_PROPERTIES: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(HashMap::default());
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
-    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
-            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
-
-
-    #[cfg(all(feature = "sync", feature = "imbl"))]
-    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(steel_imbl::generic_hashmap! {
-            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
-
-    #[cfg(not(feature = "sync"))]
-    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
-            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
+    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(transparent_options());
 
     pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None, None);
     pub static ERR_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*ERR_RESULT_LABEL, None, None);
@@ -1250,20 +1224,7 @@ thread_local! {
         )))
     };
 
-    #[cfg(not(feature = "sync"))]
-    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
-        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
-
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
-    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
-        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
-
-    #[cfg(all(feature = "sync", feature = "imbl"))]
-    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(steel_imbl::generic_hashmap! {
-        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
+    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(transparent_options());
 
     pub static SOME_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(

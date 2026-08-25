@@ -33,7 +33,7 @@ pub fn hashset_module() -> BuiltInModule {
 /// ```
 #[steel_derive::native(name = "hashset", arity = "AtLeast(0)")]
 pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hs = HashSet::new();
+    let mut hs = HashSet::default();
 
     for key in args {
         hs.insert(key.clone());
@@ -203,7 +203,7 @@ pub fn hashset_clear(hashset: &mut SteelVal) -> Result<SteelVal> {
                 m.clear();
                 Ok(core::mem::replace(hashset, SteelVal::Void))
             }
-            None => Ok(SteelVal::HashSetV(Gc::new(HashSet::new()).into())),
+            None => Ok(SteelVal::HashSetV(Gc::new(HashSet::default()).into())),
         }
     } else {
         stop!(TypeMismatch => format!("hashset-clear takes a hashset, found: {}", hashset))
@@ -295,7 +295,7 @@ mod hashset_tests {
     #[test]
     fn hs_insert_from_empty() {
         let mut args = [
-            SteelVal::HashSetV(Gc::new(HashSet::new()).into()),
+            SteelVal::HashSetV(Gc::new(HashSet::default()).into()),
             SteelVal::StringV("foo".into()),
         ];
         let res = steel_hs_insert(&mut args);
@@ -377,7 +377,7 @@ mod hashset_tests {
         let mut res_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = res.unwrap() {
             v.iter()
                 .map(|x| {
-                    if let SteelVal::StringV(ref s) = x {
+                    if let SteelVal::StringV(s) = x {
                         s.clone()
                     } else {
                         panic!("test failed")
@@ -391,7 +391,7 @@ mod hashset_tests {
         let mut expected_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = expected {
             v.iter()
                 .map(|x| {
-                    if let SteelVal::StringV(ref s) = x {
+                    if let SteelVal::StringV(s) = x {
                         s.clone()
                     } else {
                         panic!("test failed")

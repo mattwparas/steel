@@ -1633,7 +1633,7 @@ struct ASTLowerPass {
 impl ASTLowerPass {
     fn lower(&mut self, expr: &mut ExprKind) -> Result<()> {
         match expr {
-            ExprKind::List(ref mut value) => {
+            ExprKind::List(value) => {
                 if value.is_quote() {
                     // println!("Found quote: {:?}", value);
                     self.quote_depth += 1;

@@ -6,7 +6,7 @@ keywords = ["scoping", "variable", "hashmap", "hashset", "scope"]
 repository = "https://github.com/mattwparas/steel"
 license = "MIT"
 version = "0.3.3"
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "quickscope"

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use quickscope::ScopeSet;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use smallvec::SmallVec;
