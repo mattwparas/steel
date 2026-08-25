@@ -1659,7 +1659,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
         }
 
-        // for id in arguments.values().filter_map(|x| x.last_used.get()) {
+        // for id in arguments.values().filter_map(|x| x.last_used) {
         //     self.info.get_mut(&id).unwrap().last_usage = true;
         // }
 
@@ -1768,7 +1768,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // captured_and_mutated.sort_by_key(|x| x.1.id);
 
                 for (index, (key, value)) in vars.iter_mut().filter(|x| x.1.mutated).enumerate() {
-                    // value.heap_offset = OptionalOffset::some(index);
+                    // value.heap_offset = Some(index);
 
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
@@ -1797,7 +1797,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                             .into();
 
                         // value.read_heap_offset =
-                        //     self.captures.get(key).and_then(|x| x.read_heap_offset.get());
+                        //     self.captures.get(key).and_then(|x| x.read_heap_offset);
 
                         value.read_heap_offset = OptionalOffset::some(index as _);
 
@@ -2145,7 +2145,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             //     mut_ref.usage_count += 1;
 
             //     // Mark this as last touched by this identifier
-            //     mut_ref.last_used = OptionalSyntaxObjectId::some(current_id);
+            //     mut_ref.last_used = Some(current_id);
 
             //     let mut_ref_id = mut_ref.id;
             //     let mut_ref_heap_offset = mut_ref.heap_offset;
@@ -2165,14 +2165,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             //             .with_usage_count(1)
             //             .refers_to(mut_ref_id);
 
-            //     if let Some(stack_offset) = mut_ref_stack_offset.get() {
+            //     if let Some(stack_offset) = mut_ref_stack_offset {
             //         semantic_info = semantic_info.with_offset(stack_offset as _);
             //     }
 
             //     if mut_ref_captured && mut_ref_mutated {
             //         semantic_info.kind = IdentifierStatus::HeapAllocated;
-            //         semantic_info.heap_offset = mut_ref_heap_offset.get().map(|x| x as u32).into();
-            //         semantic_info.read_heap_offset = mut_ref_read_heap_offset.get().map(|x| x as u32).into();
+            //         semantic_info.heap_offset = mut_ref_heap_offset.map(|x| x as _);
+            //         semantic_info.read_heap_offset = mut_ref_read_heap_offset.map(|x| x as _);
             //     }
 
             //     self.info.insert(&a.syn, semantic_info);

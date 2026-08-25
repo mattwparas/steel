@@ -485,7 +485,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             vars.sort_by_key(|x| x.1.id);
 
-            // vars.sort_by_key(|x| x.stack_offset.get());
+            // vars.sort_by_key(|x| x.stack_offset);
 
             // Here we're going to explicitly capture from either the enclosing scope
             // or the stack. For example:

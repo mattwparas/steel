@@ -758,6 +758,8 @@ impl ModuleManager {
                 })
                 .collect::<Vec<_>>();
 
+            // drop(module);
+
             for importing_module in modules_to_check {
                 let other_module = compiled_modules
                     .compiled_modules

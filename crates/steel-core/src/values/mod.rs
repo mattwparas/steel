@@ -17,8 +17,6 @@ pub use closed::RootToken;
 pub use closed::RootedSteelVal;
 pub use port::SteelPortRepr;
 
-/// A `BuildHasher` with a fixed seed, so that hash iteration order is the same
-/// from one run of the compiler to the next.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DeterministicHasher;
 
