@@ -1075,7 +1075,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     let controller = ThreadStateController::default();
     thread.synchronizer.state = controller.clone();
     // This thread needs its own context
-    thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
+    thread.synchronizer.ctx = Arc::new(std::sync::atomic::AtomicPtr::new(core::ptr::null_mut()));
 
     thread.id = EngineId::new();
 

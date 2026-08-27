@@ -67,6 +67,8 @@ use std::collections::HashMap;
 use std::io::Read as _;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::Ordering as AtomicOrdering;
 use std::sync::Mutex;
 use steel_parser::ast::Atom;
 
@@ -457,7 +459,7 @@ impl ThreadStateController {
 
 #[derive(Clone)]
 pub(crate) struct ThreadContext {
-    pub(crate) ctx: std::sync::Weak<AtomicCell<Option<*mut SteelThread>>>,
+    pub(crate) ctx: std::sync::Weak<AtomicPtr<SteelThread>>,
     pub(crate) handle: SteelVal,
 }
 
@@ -473,7 +475,7 @@ pub struct Synchronizer {
 
     // If we're at a safe point, then this will include a _live_ pointer
     // to the context. Once we exit the safe point, we're done.
-    pub(crate) ctx: Arc<AtomicCell<Option<*mut SteelThread>>>,
+    pub(crate) ctx: Arc<AtomicPtr<SteelThread>>,
 
     spawned_via_make_thread: bool,
 }
@@ -490,7 +492,7 @@ impl Synchronizer {
                 paused: Arc::new(AtomicBool::new(false)),
                 state: Arc::new(AtomicCell::new(ThreadState::Running)),
             },
-            ctx: Arc::new(AtomicCell::new(None)),
+            ctx: Arc::new(AtomicPtr::new(core::ptr::null_mut())),
             spawned_via_make_thread: false,
         }
     }
@@ -514,7 +516,9 @@ impl Synchronizer {
 
                 // TODO: Have to use a condvar
                 while now.elapsed().as_millis() < timeout_ms {
-                    if let Some(ctx) = ctx.load() {
+                    if let Some(ctx) =
+                        std::ptr::NonNull::new(ctx.load(AtomicOrdering::SeqCst)).map(|x| x.as_ptr())
+                    {
                         unsafe {
                             let live_ctx = &mut (*ctx);
                             (func)(live_ctx)
@@ -563,7 +567,9 @@ impl Synchronizer {
                         break 'inner;
                     }
 
-                    if let Some(ctx) = ctx.load() {
+                    if let Some(ctx) =
+                        std::ptr::NonNull::new(ctx.load(AtomicOrdering::SeqCst)).map(|x| x.as_ptr())
+                    {
                         unsafe {
                             let live_ctx = &mut (*ctx);
                             (func)(live_ctx)
@@ -608,7 +614,9 @@ impl Synchronizer {
                     }
 
                     // TODO: Have to use a condvar
-                    if let Some(ctx) = ctx.load() {
+                    if let Some(ctx) =
+                        std::ptr::NonNull::new(ctx.load(AtomicOrdering::SeqCst)).map(|x| x.as_ptr())
+                    {
                         log::debug!("Sweeping other threads");
 
                         unsafe {
@@ -829,7 +837,7 @@ impl SteelThread {
 
         if cfg!(feature = "sync") && self.safepoints_enabled {
             let ptr = self as _;
-            self.synchronizer.ctx.store(Some(ptr));
+            self.synchronizer.ctx.store(ptr, AtomicOrdering::SeqCst);
         }
 
         let res = finish(self);
@@ -853,7 +861,9 @@ impl SteelThread {
                 }
             }
 
-            self.synchronizer.ctx.store(None);
+            self.synchronizer
+                .ctx
+                .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
         }
 
         res
@@ -869,7 +879,7 @@ impl SteelThread {
 
         if cfg!(feature = "sync") && self.safepoints_enabled {
             let ptr = self as _;
-            self.synchronizer.ctx.store(Some(ptr));
+            self.synchronizer.ctx.store(ptr, AtomicOrdering::SeqCst);
         }
 
         let res = finish(self);
@@ -893,7 +903,9 @@ impl SteelThread {
                 }
             }
 
-            self.synchronizer.ctx.store(None);
+            self.synchronizer
+                .ctx
+                .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
         }
 
         res
@@ -1633,7 +1645,7 @@ impl<'a> VmCore<'a> {
         let controller = ThreadStateController::default();
         thread.synchronizer.state = controller.clone();
         // This thread needs its own context
-        thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
+        thread.synchronizer.ctx = Arc::new(AtomicPtr::new(core::ptr::null_mut()));
 
         thread.synchronizer.spawned_via_make_thread = true;
 
@@ -1706,9 +1718,15 @@ impl<'a> VmCore<'a> {
                     // TODO:
                     // Insert the code to do the stack things here
                     let ptr = self.thread as _;
-                    self.thread.synchronizer.ctx.store(Some(ptr));
+                    self.thread
+                        .synchronizer
+                        .ctx
+                        .store(ptr, AtomicOrdering::SeqCst);
                     self.park_thread_while_paused();
-                    self.thread.synchronizer.ctx.store(None);
+                    self.thread
+                        .synchronizer
+                        .ctx
+                        .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
                 }
                 ThreadState::Running => {}
             }

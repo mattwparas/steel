@@ -5291,7 +5291,9 @@ impl FunctionTranslator<'_> {
                         let payload = self.unbox_value(test);
                         let test_condition = self.builder.ins().ireduce(types::I8, payload);
                         let comparison =
-                            self.builder.ins().icmp_imm_s(IntCC::Equal, test_condition, 0);
+                            self.builder
+                                .ins()
+                                .icmp_imm_s(IntCC::Equal, test_condition, 0);
 
                         // let  = self.builder.ins().uextend(types::I64, comparison);
                         // let boolean =
@@ -5308,7 +5310,9 @@ impl FunctionTranslator<'_> {
 
                         let test_condition = self.builder.ins().ireduce(types::I8, payload);
                         let comparison =
-                            self.builder.ins().icmp_imm_s(IntCC::Equal, test_condition, 0);
+                            self.builder
+                                .ins()
+                                .icmp_imm_s(IntCC::Equal, test_condition, 0);
 
                         let comparison = self.builder.ins().band(comparison, is_bool);
                         // let res = self.builder.ins().uextend(types::I64, comparison);
@@ -6178,10 +6182,10 @@ impl FunctionTranslator<'_> {
             let yes_drop = self.builder.create_block();
             let merge_block = self.builder.create_block();
 
-            let should_continue = self
-                .builder
-                .ins()
-                .icmp_imm_s(IntCC::SignedGreaterThan, sub_one, 0);
+            let should_continue =
+                self.builder
+                    .ins()
+                    .icmp_imm_s(IntCC::SignedGreaterThan, sub_one, 0);
 
             self.builder
                 .ins()
@@ -6261,10 +6265,10 @@ impl FunctionTranslator<'_> {
 
             // Then we need to check if its greater than 0:
 
-            let should_continue = self
-                .builder
-                .ins()
-                .icmp_imm_s(IntCC::SignedGreaterThan, sub_one, 0);
+            let should_continue =
+                self.builder
+                    .ins()
+                    .icmp_imm_s(IntCC::SignedGreaterThan, sub_one, 0);
 
             // Merge block because we need to jump back and continue
             self.builder
@@ -6324,20 +6328,24 @@ impl FunctionTranslator<'_> {
     }
 
     fn inline_pair_car_unboxed(&mut self, value: Value) -> Value {
-        let car =
-            self.builder
-                .ins()
-                .load(types::I128, MemFlagsData::trusted().with_readonly(), value, 16);
+        let car = self.builder.ins().load(
+            types::I128,
+            MemFlagsData::trusted().with_readonly(),
+            value,
+            16,
+        );
 
         car
     }
 
     fn inline_pair_car(&mut self, value: Value) -> Value {
         let value = self.unbox_value_to_pointer(value);
-        let car =
-            self.builder
-                .ins()
-                .load(types::I128, MemFlagsData::trusted().with_readonly(), value, 16);
+        let car = self.builder.ins().load(
+            types::I128,
+            MemFlagsData::trusted().with_readonly(),
+            value,
+            16,
+        );
 
         car
     }
@@ -6375,10 +6383,10 @@ impl FunctionTranslator<'_> {
         let slot_ptr = self.builder.ins().iadd(shared_vector_ptr, offset);
         let slot_ptr = self.builder.ins().iadd_imm_s(slot_ptr, header_size as i64);
 
-        let local_value = self
-            .builder
-            .ins()
-            .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
+        let local_value =
+            self.builder
+                .ins()
+                .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
         local_value
     }
@@ -8376,7 +8384,10 @@ impl FunctionTranslator<'_> {
 
     fn encode_float(&mut self, float: f64) -> Value {
         let res = self.builder.ins().f64const(float);
-        let as_int = self.builder.ins().bitcast(types::I64, MemFlagsData::new(), res);
+        let as_int = self
+            .builder
+            .ins()
+            .bitcast(types::I64, MemFlagsData::new(), res);
         self.encode_value(discriminant(&SteelVal::NumV(float)) as i64, as_int)
     }
 
@@ -9135,10 +9146,10 @@ impl FunctionTranslator<'_> {
 
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
-        let local_value = self
-            .builder
-            .ins()
-            .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
+        let local_value =
+            self.builder
+                .ins()
+                .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
         self.drop_tagged_value(local_value);
 
@@ -10523,10 +10534,12 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 // Fast path increment the counter
                 // TODO: Panic here if u32 == max?
-                let local_count =
-                    ctx.builder
-                        .ins()
-                        .load(Type::int(32).unwrap(), MemFlagsData::trusted(), value, 8);
+                let local_count = ctx.builder.ins().load(
+                    Type::int(32).unwrap(),
+                    MemFlagsData::trusted(),
+                    value,
+                    8,
+                );
 
                 let add_one = ctx.builder.ins().iadd_imm_s(local_count, 1);
 
@@ -11056,9 +11069,12 @@ impl FunctionTranslator<'_> {
         let size: i32 = std::mem::size_of::<SteelVal>() as i32;
 
         for (index, value) in values.iter().enumerate() {
-            self.builder
-                .ins()
-                .store(MemFlagsData::trusted(), *value, slot_ptr, index as i32 * size);
+            self.builder.ins().store(
+                MemFlagsData::trusted(),
+                *value,
+                slot_ptr,
+                index as i32 * size,
+            );
         }
     }
 

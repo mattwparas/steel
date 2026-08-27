@@ -463,10 +463,10 @@ impl<'a> FunctionTranslator<'a> {
                     let value = self.unbox_value_to_pointer(value);
 
                     // Its not a pair if its an empty list
-                    let length = self
-                        .builder
-                        .ins()
-                        .load(types::I32, MemFlagsData::new(), value, 16);
+                    let length =
+                        self.builder
+                            .ins()
+                            .load(types::I32, MemFlagsData::new(), value, 16);
 
                     let not_empty =
                         BlockArg::Value(self.builder.ins().icmp_imm_s(IntCC::NotEqual, length, 0));
