@@ -3456,10 +3456,14 @@ fn handle_global_tail_call_deopt_with_args(
     args: &mut [SteelVal],
 ) -> Result<SteelVal> {
     match stack_func {
-        SteelVal::FuncV(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
-        SteelVal::BoxedFunction(func) => {
-            func.func()(args).map_err(|x| x.set_span_if_none(ctx.current_span()))
-        }
+        SteelVal::FuncV(func) => ctx
+            .thread
+            .enter_safepoint_once(|_| func(args))
+            .map_err(|x| x.set_span_if_none(ctx.current_span())),
+        SteelVal::BoxedFunction(func) => ctx
+            .thread
+            .enter_safepoint_once(|_| func.func()(args))
+            .map_err(|x| x.set_span_if_none(ctx.current_span())),
         SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
 
         SteelVal::Closure(closure) => {
@@ -3529,12 +3533,14 @@ fn handle_global_tail_call_deopt_spilled(
     arity: usize,
 ) -> Result<SteelVal> {
     match stack_func {
-        SteelVal::FuncV(func) => func(&ctx.thread.stack[ctx.thread.stack.len() - arity..])
+        SteelVal::FuncV(func) => ctx
+            .thread
+            .enter_safepoint(move |t| func(&t.stack[t.stack.len() - arity..]))
             .map_err(|x| x.set_span_if_none(ctx.current_span())),
-        SteelVal::BoxedFunction(func) => {
-            func.func()(&ctx.thread.stack[ctx.thread.stack.len() - arity..])
-                .map_err(|x| x.set_span_if_none(ctx.current_span()))
-        }
+        SteelVal::BoxedFunction(func) => ctx
+            .thread
+            .enter_safepoint(move |t| func.func()(&t.stack[t.stack.len() - arity..]))
+            .map_err(|x| x.set_span_if_none(ctx.current_span())),
         SteelVal::MutFunc(func) => {
             let len = ctx.thread.stack.len();
             func(&mut ctx.thread.stack[len - arity..])
@@ -3582,14 +3588,14 @@ fn handle_global_function_call_with_args(
 ) -> Result<SteelVal> {
     let fallback = ctx.ip;
     match stack_func {
-        // TODO: @Matt - add safepoint handling for every spot where relevant
         SteelVal::FuncV(func) => ctx
             .thread
             .enter_safepoint_once(|_| func(args))
             .map_err(|x| x.set_span_if_none(ctx.current_span())),
-        SteelVal::BoxedFunction(func) => {
-            func.func()(args).map_err(|x| x.set_span_if_none(ctx.current_span()))
-        }
+        SteelVal::BoxedFunction(func) => ctx
+            .thread
+            .enter_safepoint_once(|_| func.func()(args))
+            .map_err(|x| x.set_span_if_none(ctx.current_span())),
         SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
         SteelVal::Closure(closure) => {
             let arity = args.len();
@@ -4926,11 +4932,15 @@ macro_rules! make_call_global_function_deopt_no_arity {
                     match stack_func {
                         SteelVal::FuncV(func) => {
                             let args = [$($typ),*];
-                            func(&args).map_err(|x| x.set_span_if_none(ctx.current_span()))
+                            ctx.thread
+                                .enter_safepoint_once(|_| func(&args))
+                                .map_err(|x| x.set_span_if_none(ctx.current_span()))
                         },
                         SteelVal::BoxedFunction(func) => {
                             let args = [$($typ),*];
-                            func.func()(&args).map_err(|x| x.set_span_if_none(ctx.current_span()))
+                            ctx.thread
+                                .enter_safepoint_once(|_| func.func()(&args))
+                                .map_err(|x| x.set_span_if_none(ctx.current_span()))
                         }
                         SteelVal::MutFunc(func) => {
                             let mut args = [$($typ),*];
@@ -5295,13 +5305,14 @@ fn call_global_function_deopt_no_arity_spilled(
         arity: usize,
     ) -> Result<SteelVal> {
         match stack_func {
-            // TODO: Enter safepoint?
-            SteelVal::FuncV(func) => func(&ctx.thread.stack[ctx.thread.stack.len() - arity..])
+            SteelVal::FuncV(func) => ctx
+                .thread
+                .enter_safepoint(move |t| func(&t.stack[t.stack.len() - arity..]))
                 .map_err(|x| x.set_span_if_none(ctx.current_span())),
-            SteelVal::BoxedFunction(func) => {
-                func.func()(&ctx.thread.stack[ctx.thread.stack.len() - arity..])
-                    .map_err(|x| x.set_span_if_none(ctx.current_span()))
-            }
+            SteelVal::BoxedFunction(func) => ctx
+                .thread
+                .enter_safepoint(move |t| func.func()(&t.stack[t.stack.len() - arity..]))
+                .map_err(|x| x.set_span_if_none(ctx.current_span())),
             SteelVal::MutFunc(func) => {
                 let len = ctx.thread.stack.len();
                 func(&mut ctx.thread.stack[len - arity..])
@@ -5412,13 +5423,14 @@ fn call_global_function_deopt_spilled(
         arity: usize,
     ) -> Result<SteelVal> {
         match stack_func {
-            // TODO: Enter safepoint?
-            SteelVal::FuncV(func) => func(&ctx.thread.stack[ctx.thread.stack.len() - arity..])
+            SteelVal::FuncV(func) => ctx
+                .thread
+                .enter_safepoint(move |t| func(&t.stack[t.stack.len() - arity..]))
                 .map_err(|x| x.set_span_if_none(ctx.current_span())),
-            SteelVal::BoxedFunction(func) => {
-                func.func()(&ctx.thread.stack[ctx.thread.stack.len() - arity..])
-                    .map_err(|x| x.set_span_if_none(ctx.current_span()))
-            }
+            SteelVal::BoxedFunction(func) => ctx
+                .thread
+                .enter_safepoint(move |t| func.func()(&t.stack[t.stack.len() - arity..]))
+                .map_err(|x| x.set_span_if_none(ctx.current_span())),
             SteelVal::MutFunc(func) => {
                 let len = ctx.thread.stack.len();
                 func(&mut ctx.thread.stack[len - arity..])
