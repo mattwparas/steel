@@ -5,7 +5,7 @@ mod native;
 
 use core::{mem::offset_of, ptr::NonNull};
 use cranelift::{
-    codegen::ir::{ArgumentPurpose, AtomicRmwOp, BlockArg, FuncRef, GlobalValue, Type},
+    codegen::ir::{ArgumentPurpose, AtomicRmwOp, BlockArg, FuncRef, Type},
     frontend::Switch,
     prelude::{isa::CallConv, *},
 };
@@ -1402,7 +1402,8 @@ impl JIT {
     // Use this to get the trampoline, and then our new entrypoint from
     // the rust VM is a trampoline into the tail call world.
     pub fn compile_trampoline(&mut self) -> *const u8 {
-        let ptr_ty = self.module.target_config().pointer_type();
+        let frontend_config = self.module.target_config();
+        let ptr_ty = frontend_config.pointer_type();
 
         // Outer signature: C ABI, takes (vm_ctx, target)
         let mut outer_sig = self.module.make_signature();
@@ -1443,7 +1444,7 @@ impl JIT {
         builder.ins().return_(&[result]);
 
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(frontend_config);
 
         self.module.define_function(func_id, &mut self.ctx).unwrap();
         self.module.clear_context(&mut self.ctx);
@@ -1636,7 +1637,10 @@ impl JIT {
             .iter()
             .any(|x| matches!(x.op_code, OpCode::TCOJMP | OpCode::SELFTAILCALLNOARITY));
 
-        let vm_context = builder.create_global_value(GlobalValueData::VMContext);
+        // vmctx is the first signature param, so it arrives as the entry block's
+        // first block param. cranelift 0.135 dropped the global_value instruction
+        // that used to materialize it.
+        let vm_context = builder.block_params(entry_block)[0];
 
         let fake_entry_block = if contains_tail_call {
             let fake_entry = builder.create_block();
@@ -1720,7 +1724,8 @@ impl JIT {
         trans.builder.seal_all_blocks();
 
         // Tell the builder we're done with this function.
-        trans.builder.finalize();
+        let frontend_config = trans.module.target_config();
+        trans.builder.finalize(frontend_config);
 
         /*
         if !trans.potentially_could_deopt {
@@ -2262,7 +2267,7 @@ struct FunctionTranslator<'a> {
     // to register its tail as an extra predecessor of the right merge block.
     if_merge_blocks: Vec<Block>,
 
-    vm_context: GlobalValue,
+    vm_context: Value,
     // vm_context: StackSlot,
     // generators: LazyInstructionGenerators,
     slot: Option<&'a Gc<ByteCodeLambda>>,
@@ -2585,11 +2590,11 @@ impl FunctionTranslator<'_> {
                                         .ireduce(Type::int(8).unwrap(), shift_right);
 
                                     let is_false =
-                                        self.builder.ins().icmp_imm(IntCC::Equal, small, 0);
+                                        self.builder.ins().icmp_imm_s(IntCC::Equal, small, 0);
 
                                     // Is bool and is false:
                                     let overall = self.builder.ins().band(is_bool, is_false);
-                                    let is_truthy = self.builder.ins().bxor_imm(overall, 1);
+                                    let is_truthy = self.builder.ins().bxor_imm_u(overall, 1);
 
                                     self.drop_tagged_value(test);
 
@@ -3985,7 +3990,7 @@ impl FunctionTranslator<'_> {
                                 }
                                 Either::Int(i) => {
                                     // Lets encode the property here then?
-                                    ctx.builder.ins().icmp_imm(IntCC::SignedLessThan, lhs, i)
+                                    ctx.builder.ins().icmp_imm_s(IntCC::SignedLessThan, lhs, i)
                                 }
                             };
 
@@ -4079,7 +4084,7 @@ impl FunctionTranslator<'_> {
                     let is_int =
                         self.builder
                             .ins()
-                            .icmp_imm(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
+                            .icmp_imm_s(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
 
                     let result = self.converging_if(
                         is_int,
@@ -4154,7 +4159,7 @@ impl FunctionTranslator<'_> {
                     let is_int =
                         self.builder
                             .ins()
-                            .icmp_imm(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
+                            .icmp_imm_s(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
 
                     let result = self.converging_if(
                         is_int,
@@ -4164,7 +4169,7 @@ impl FunctionTranslator<'_> {
                             let lhs = local_value;
                             // let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
 
-                            let res = ctx.builder.ins().icmp_imm(
+                            let res = ctx.builder.ins().icmp_imm_s(
                                 IntCC::SignedLessThanOrEqual,
                                 lhs,
                                 rhs_int as i64,
@@ -4566,7 +4571,7 @@ impl FunctionTranslator<'_> {
                             let register_payload = ctx.unbox_value_to_pointer(value);
                             ctx.builder
                                 .ins()
-                                .icmp_imm(IntCC::Equal, register_payload, int as i64)
+                                .icmp_imm_s(IntCC::Equal, register_payload, int as i64)
                         },
                         |ctx| {
                             // Handle the else case here as well
@@ -4684,7 +4689,7 @@ impl FunctionTranslator<'_> {
                             let test =
                                 self.builder
                                     .ins()
-                                    .icmp_imm(IntCC::Equal, lvalue, as_ptr as i64);
+                                    .icmp_imm_s(IntCC::Equal, lvalue, as_ptr as i64);
 
                             let fast_path = self.builder.ins().band(is_symbol, test);
 
@@ -5036,7 +5041,7 @@ impl FunctionTranslator<'_> {
 
                                     // let is_list = self.is_type(value, SteelVal::LIST_TAG);
 
-                                    let is_list = self.builder.ins().icmp_imm(
+                                    let is_list = self.builder.ins().icmp_imm_s(
                                         IntCC::Equal,
                                         tag,
                                         SteelVal::LIST_TAG as i64,
@@ -5049,7 +5054,7 @@ impl FunctionTranslator<'_> {
                                         Properties::NonEmptyListOrPair,
                                         |ctx| (ctx.unchecked_car_unboxed(value), InferredType::Any),
                                         |ctx| {
-                                            let is_pair = ctx.builder.ins().icmp_imm(
+                                            let is_pair = ctx.builder.ins().icmp_imm_s(
                                                 IntCC::Equal,
                                                 tag,
                                                 SteelVal::PAIR_TAG as i64,
@@ -5088,7 +5093,7 @@ impl FunctionTranslator<'_> {
 
                                     let typ = self.int;
 
-                                    let is_list = self.builder.ins().icmp_imm(
+                                    let is_list = self.builder.ins().icmp_imm_s(
                                         IntCC::Equal,
                                         tag,
                                         SteelVal::LIST_TAG as i64,
@@ -5273,9 +5278,9 @@ impl FunctionTranslator<'_> {
                         let test = last_ref.unwrap().value;
                         // let test = self.builder.ins().uextend(types::I64, test);
                         self.shadow_stack_pop();
-                        // let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
+                        // let value = self.builder.ins().icmp_imm_s(IntCC::Equal, test, 0);
 
-                        let value = self.builder.ins().bxor_imm(test, 1);
+                        let value = self.builder.ins().bxor_imm_u(test, 1);
 
                         self.push(value, InferredType::UnboxedBool);
                         self.ip += 2;
@@ -5286,7 +5291,7 @@ impl FunctionTranslator<'_> {
                         let payload = self.unbox_value(test);
                         let test_condition = self.builder.ins().ireduce(types::I8, payload);
                         let comparison =
-                            self.builder.ins().icmp_imm(IntCC::Equal, test_condition, 0);
+                            self.builder.ins().icmp_imm_s(IntCC::Equal, test_condition, 0);
 
                         // let  = self.builder.ins().uextend(types::I64, comparison);
                         // let boolean =
@@ -5303,7 +5308,7 @@ impl FunctionTranslator<'_> {
 
                         let test_condition = self.builder.ins().ireduce(types::I8, payload);
                         let comparison =
-                            self.builder.ins().icmp_imm(IntCC::Equal, test_condition, 0);
+                            self.builder.ins().icmp_imm_s(IntCC::Equal, test_condition, 0);
 
                         let comparison = self.builder.ins().band(comparison, is_bool);
                         // let res = self.builder.ins().uextend(types::I64, comparison);
@@ -5516,7 +5521,7 @@ impl FunctionTranslator<'_> {
         let is_int = self
             .builder
             .ins()
-            .icmp_imm(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
+            .icmp_imm_s(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
 
         let sp = |ctx: &mut Self| {
             let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
@@ -5540,7 +5545,7 @@ impl FunctionTranslator<'_> {
                         let lhs = local_value;
 
                         // Negate it and do an immediate add
-                        let subbed = ctx.builder.ins().iadd_imm(lhs, -(constant_value as i64));
+                        let subbed = ctx.builder.ins().iadd_imm_s(lhs, -(constant_value as i64));
                         ctx.encode_value(SteelVal::INT_TAG as _, subbed)
                     } else {
                         // let lhs = ctx.unbox_value_to_pointer(local_value);
@@ -5709,7 +5714,7 @@ impl FunctionTranslator<'_> {
                 // the id of the instruction.
                 let super_instruction = ctx.builder.ins().load(
                     types::I64,
-                    MemFlags::trusted().with_readonly(),
+                    MemFlagsData::trusted().with_readonly(),
                     closure,
                     // Offset for the RC payload
                     16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
@@ -5718,14 +5723,14 @@ impl FunctionTranslator<'_> {
                 let super_instruction_exists =
                     ctx.builder
                         .ins()
-                        .icmp_imm(IntCC::NotEqual, super_instruction, 0);
+                        .icmp_imm_s(IntCC::NotEqual, super_instruction, 0);
 
                 let should_continue = ctx
                     .builder
                     .ins()
                     .band(should_trampoline, super_instruction_exists);
 
-                let should_yield = ctx.builder.ins().bxor_imm(should_continue, 1);
+                let should_yield = ctx.builder.ins().bxor_imm_u(should_continue, 1);
                 let fallback_ip = ctx.ip - 1;
                 // let fallback_ip = ctx.ip;
                 ctx.update_ip_native_if_yield(vm_ctx, should_yield, fallback_ip + 1);
@@ -5742,19 +5747,19 @@ impl FunctionTranslator<'_> {
 
                         let rcbox_ptr = ctx.builder.ins().load(
                             types::I64,
-                            MemFlags::trusted().with_readonly(),
+                            MemFlagsData::trusted().with_readonly(),
                             closure,
                             body_exp_offset,
                         );
 
                         let len = ctx.builder.ins().load(
                             types::I64,
-                            MemFlags::trusted().with_readonly(),
+                            MemFlagsData::trusted().with_readonly(),
                             closure,
                             body_exp_offset + 8,
                         );
 
-                        let data_ptr = ctx.builder.ins().iadd_imm(rcbox_ptr, 16);
+                        let data_ptr = ctx.builder.ins().iadd_imm_s(rcbox_ptr, 16);
 
                         let instr_fat_ptr = ctx.builder.ins().iconcat(data_ptr, len);
 
@@ -5781,7 +5786,7 @@ impl FunctionTranslator<'_> {
 
                         let is_still_native = ctx.builder.ins().load(
                             types::I8,
-                            MemFlags::trusted(),
+                            MemFlagsData::trusted(),
                             vm_ctx,
                             offset_of!(VmCore, is_native) as i32,
                         );
@@ -5881,9 +5886,9 @@ impl FunctionTranslator<'_> {
         let length = self
             .builder
             .ins()
-            .load(types::I32, MemFlags::new(), pointer_value, 16);
+            .load(types::I32, MemFlagsData::new(), pointer_value, 16);
 
-        let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, length, 0);
+        let is_empty = self.builder.ins().icmp_imm_s(IntCC::Equal, length, 0);
 
         self.builder
             .ins()
@@ -5950,27 +5955,27 @@ impl FunctionTranslator<'_> {
     // run. The free list holds a strong ref while the slot is live, so thats cold.
     fn inline_weak_decrement(&mut self, ptr: Value, drop_fn: &'static str, drop_arg: Value) {
         let one = self.builder.ins().iconst(types::I64, 1);
-        let offset = self.builder.ins().iadd_imm(ptr, 8);
+        let offset = self.builder.ins().iadd_imm_s(ptr, 8);
 
         // atomic_rmw hands back what was in memory before the operation
         let previous = self.builder.ins().atomic_rmw(
             types::I64,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             AtomicRmwOp::Sub,
             offset,
             one,
         );
 
-        let hit_zero = self.builder.ins().icmp_imm(IntCC::Equal, previous, 1);
+        let hit_zero = self.builder.ins().icmp_imm_s(IntCC::Equal, previous, 1);
 
         self.converging_if_no_value_else_cold(
             hit_zero,
             |ctx| {
                 let one = ctx.builder.ins().iconst(types::I64, 1);
-                let offset = ctx.builder.ins().iadd_imm(ptr, 8);
+                let offset = ctx.builder.ins().iadd_imm_s(ptr, 8);
                 ctx.builder.ins().atomic_rmw(
                     types::I64,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     AtomicRmwOp::Add,
                     offset,
                     one,
@@ -6001,7 +6006,7 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(types::I64, SteelVal::UNBOXED_MASK as i64);
         let shifted = self.builder.ins().ushr(mask, tag);
-        let is_unboxed = self.builder.ins().band_imm(shifted, 1);
+        let is_unboxed = self.builder.ins().band_imm_u(shifted, 1);
 
         self.converging_if_no_value(
             is_unboxed,
@@ -6016,7 +6021,7 @@ impl FunctionTranslator<'_> {
                     .ins()
                     .iconst(types::I64, SteelVal::SPECIAL_RC_MASK as i64);
                 let special_rc_shifted = ctx.builder.ins().ushr(special_rc_mask, tag);
-                let is_special_rc = ctx.builder.ins().band_imm(special_rc_shifted, 1);
+                let is_special_rc = ctx.builder.ins().band_imm_u(special_rc_shifted, 1);
 
                 ctx.converging_if_no_value(
                     is_special_rc,
@@ -6029,7 +6034,7 @@ impl FunctionTranslator<'_> {
                             .ins()
                             .iconst(types::I64, SteelVal::WEAK_RC_MASK as i64);
                         let weak_rc_shifted = ctx.builder.ins().ushr(weak_rc_mask, tag);
-                        let is_weak_rc = ctx.builder.ins().band_imm(weak_rc_shifted, 1);
+                        let is_weak_rc = ctx.builder.ins().band_imm_u(weak_rc_shifted, 1);
 
                         ctx.converging_if_no_value(
                             is_weak_rc,
@@ -6054,7 +6059,7 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(types::I64, SteelVal::UNBOXED_MASK as i64);
         let shifted = self.builder.ins().ushr(mask, tag);
-        let is_unboxed = self.builder.ins().band_imm(shifted, 1);
+        let is_unboxed = self.builder.ins().band_imm_u(shifted, 1);
 
         let unboxed_block = self.builder.create_block();
         let needs_drop = self.builder.create_block();
@@ -6077,7 +6082,7 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(types::I64, SteelVal::STANDARD_RC_MASK as i64);
         let std_shifted = self.builder.ins().ushr(std_mask, tag);
-        let is_standard_rc = self.builder.ins().band_imm(std_shifted, 1);
+        let is_standard_rc = self.builder.ins().band_imm_u(std_shifted, 1);
 
         let standard_rc_block = self.builder.create_block();
         let special_rc_block = self.builder.create_block();
@@ -6113,7 +6118,7 @@ impl FunctionTranslator<'_> {
         let thread_id = self.get_thread_id();
         let obj_thread_id = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted().with_readonly(),
+            MemFlagsData::trusted().with_readonly(),
             value,
             0,
         );
@@ -6162,13 +6167,13 @@ impl FunctionTranslator<'_> {
             let local_count =
                 self.builder
                     .ins()
-                    .load(Type::int(32).unwrap(), MemFlags::trusted(), value, 8);
+                    .load(Type::int(32).unwrap(), MemFlagsData::trusted(), value, 8);
 
-            let sub_one = self.builder.ins().iadd_imm(local_count, -1);
+            let sub_one = self.builder.ins().iadd_imm_s(local_count, -1);
 
             self.builder
                 .ins()
-                .store(MemFlags::trusted(), sub_one, value, 8);
+                .store(MemFlagsData::trusted(), sub_one, value, 8);
 
             let yes_drop = self.builder.create_block();
             let merge_block = self.builder.create_block();
@@ -6176,7 +6181,7 @@ impl FunctionTranslator<'_> {
             let should_continue = self
                 .builder
                 .ins()
-                .icmp_imm(IntCC::SignedGreaterThan, sub_one, 0);
+                .icmp_imm_s(IntCC::SignedGreaterThan, sub_one, 0);
 
             self.builder
                 .ins()
@@ -6236,15 +6241,15 @@ impl FunctionTranslator<'_> {
             let local_count =
                 self.builder
                     .ins()
-                    .load(Type::int(32).unwrap(), MemFlags::trusted(), value, 8);
+                    .load(Type::int(32).unwrap(), MemFlagsData::trusted(), value, 8);
 
             // let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
 
-            let sub_one = self.builder.ins().iadd_imm(local_count, -1);
+            let sub_one = self.builder.ins().iadd_imm_s(local_count, -1);
 
             self.builder
                 .ins()
-                .store(MemFlags::trusted(), sub_one, value, 8);
+                .store(MemFlagsData::trusted(), sub_one, value, 8);
 
             let yes_drop = self.builder.create_block();
             let merge_block = self.builder.create_block();
@@ -6252,14 +6257,14 @@ impl FunctionTranslator<'_> {
             // let updated_count =
             //     self.builder
             //         .ins()
-            //         .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+            //         .load(Type::int(32).unwrap(), MemFlagsData::new(), value, 8);
 
             // Then we need to check if its greater than 0:
 
             let should_continue = self
                 .builder
                 .ins()
-                .icmp_imm(IntCC::SignedGreaterThan, sub_one, 0);
+                .icmp_imm_s(IntCC::SignedGreaterThan, sub_one, 0);
 
             // Merge block because we need to jump back and continue
             self.builder
@@ -6322,7 +6327,7 @@ impl FunctionTranslator<'_> {
         let car =
             self.builder
                 .ins()
-                .load(types::I128, MemFlags::trusted().with_readonly(), value, 16);
+                .load(types::I128, MemFlagsData::trusted().with_readonly(), value, 16);
 
         car
     }
@@ -6332,7 +6337,7 @@ impl FunctionTranslator<'_> {
         let car =
             self.builder
                 .ins()
-                .load(types::I128, MemFlags::trusted().with_readonly(), value, 16);
+                .load(types::I128, MemFlagsData::trusted().with_readonly(), value, 16);
 
         car
     }
@@ -6342,13 +6347,13 @@ impl FunctionTranslator<'_> {
         let index = self
             .builder
             .ins()
-            .load(types::I32, MemFlags::trusted(), value, 16);
+            .load(types::I32, MemFlagsData::trusted(), value, 16);
 
         // Thats the index:
         let shared_vector_ptr =
             self.builder
                 .ins()
-                .load(types::I64, MemFlags::trusted(), value, 16 + 8 as i32);
+                .load(types::I64, MemFlagsData::trusted(), value, 16 + 8 as i32);
 
         let index = self.builder.ins().uextend(types::I64, index);
 
@@ -6364,16 +6369,16 @@ impl FunctionTranslator<'_> {
         // location, then we'll need to find the offset of everything directly.
         //
         // The header size is
-        let real_slot = self.builder.ins().iadd_imm(index, -1);
+        let real_slot = self.builder.ins().iadd_imm_s(index, -1);
 
-        let offset = self.builder.ins().imul_imm(real_slot, size);
+        let offset = self.builder.ins().imul_imm_s(real_slot, size);
         let slot_ptr = self.builder.ins().iadd(shared_vector_ptr, offset);
-        let slot_ptr = self.builder.ins().iadd_imm(slot_ptr, header_size as i64);
+        let slot_ptr = self.builder.ins().iadd_imm_s(slot_ptr, header_size as i64);
 
         let local_value = self
             .builder
             .ins()
-            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+            .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
         local_value
     }
@@ -6392,17 +6397,17 @@ impl FunctionTranslator<'_> {
         let index = self
             .builder
             .ins()
-            .load(types::I32, MemFlags::trusted(), value, 16);
+            .load(types::I32, MemFlagsData::trusted(), value, 16);
 
         // Thats the index:
         let shared_vector_ptr =
             self.builder
                 .ins()
-                .load(types::I64, MemFlags::trusted(), value, 16 + 8 as i32);
+                .load(types::I64, MemFlagsData::trusted(), value, 16 + 8 as i32);
 
         let index = self.builder.ins().uextend(types::I64, index);
 
-        let is_valid = self.builder.ins().icmp_imm(IntCC::NotEqual, index, 0);
+        let is_valid = self.builder.ins().icmp_imm_s(IntCC::NotEqual, index, 0);
 
         let typ = self.int;
 
@@ -6421,16 +6426,16 @@ impl FunctionTranslator<'_> {
                 // location, then we'll need to find the offset of everything directly.
                 //
                 // The header size is
-                let real_slot = ctx.builder.ins().iadd_imm(index, -1);
+                let real_slot = ctx.builder.ins().iadd_imm_s(index, -1);
 
-                let offset = ctx.builder.ins().imul_imm(real_slot, size);
+                let offset = ctx.builder.ins().imul_imm_s(real_slot, size);
                 let slot_ptr = ctx.builder.ins().iadd(shared_vector_ptr, offset);
-                let slot_ptr = ctx.builder.ins().iadd_imm(slot_ptr, header_size as i64);
+                let slot_ptr = ctx.builder.ins().iadd_imm_s(slot_ptr, header_size as i64);
 
                 let local_value =
                     ctx.builder
                         .ins()
-                        .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+                        .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
                 local_value
             },
@@ -6449,7 +6454,7 @@ impl FunctionTranslator<'_> {
         let tag = self.get_tag(value);
         self.builder
             .ins()
-            .icmp_imm(IntCC::Equal, tag, check_tag as i64)
+            .icmp_imm_s(IntCC::Equal, tag, check_tag as i64)
     }
 
     /*
@@ -6901,7 +6906,7 @@ impl FunctionTranslator<'_> {
 
         let index = self.get_sp(vm_ctx);
 
-        let index = self.builder.ins().iadd_imm(index, arity);
+        let index = self.builder.ins().iadd_imm_s(index, arity);
 
         self.truncate_stack(vm_ctx, index, None);
     }
@@ -6922,7 +6927,7 @@ impl FunctionTranslator<'_> {
 
         let index = self.get_sp(vm_ctx);
 
-        let index = self.builder.ins().iadd_imm(index, arity);
+        let index = self.builder.ins().iadd_imm_s(index, arity);
 
         self.truncate_stack(vm_ctx, index, None);
     }
@@ -7187,7 +7192,7 @@ impl FunctionTranslator<'_> {
         let offset = self.update_last_stackframe(vm_ctx, lookup_index);
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             instr_fat_ptr,
             vm_ctx,
             offset_of!(VmCore, instructions) as i32,
@@ -7209,7 +7214,7 @@ impl FunctionTranslator<'_> {
         let zero = self.builder.ins().iconst(types::I64, 0);
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             zero,
             vm_ctx,
             offset_of!(VmCore, ip) as i32,
@@ -7258,7 +7263,7 @@ impl FunctionTranslator<'_> {
         // pointer; a stale None just misses the JIT optimization opportunity).
         let super_instruction = self.builder.ins().load(
             types::I64,
-            MemFlags::trusted().with_readonly(),
+            MemFlagsData::trusted().with_readonly(),
             closure,
             // Offset for the RC payload
             16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
@@ -7267,7 +7272,7 @@ impl FunctionTranslator<'_> {
         let super_instruction_exists =
             self.builder
                 .ins()
-                .icmp_imm(IntCC::NotEqual, super_instruction, 0);
+                .icmp_imm_s(IntCC::NotEqual, super_instruction, 0);
 
         // I think I just need to drop the values, not spill them, since they're
         // going to get truncated anyway
@@ -7284,19 +7289,19 @@ impl FunctionTranslator<'_> {
                 // length are immutable after the lambda is constructed.
                 let rcbox_ptr = ctx.builder.ins().load(
                     types::I64,
-                    MemFlags::trusted().with_readonly(),
+                    MemFlagsData::trusted().with_readonly(),
                     closure,
                     body_exp_offset,
                 );
 
                 let len = ctx.builder.ins().load(
                     types::I64,
-                    MemFlags::trusted().with_readonly(),
+                    MemFlagsData::trusted().with_readonly(),
                     closure,
                     body_exp_offset + 8,
                 );
 
-                let data_ptr = ctx.builder.ins().iadd_imm(rcbox_ptr, 16);
+                let data_ptr = ctx.builder.ins().iadd_imm_s(rcbox_ptr, 16);
 
                 let instr_fat_ptr = ctx.builder.ins().iconcat(data_ptr, len);
 
@@ -7309,7 +7314,7 @@ impl FunctionTranslator<'_> {
                 let offset = ctx.update_last_stackframe(vm_ctx, closure);
 
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     instr_fat_ptr,
                     vm_ctx,
                     offset_of!(VmCore, instructions) as i32,
@@ -7331,7 +7336,7 @@ impl FunctionTranslator<'_> {
                 let zero = ctx.builder.ins().iconst(types::I64, 0);
 
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     zero,
                     vm_ctx,
                     offset_of!(VmCore, ip) as i32,
@@ -7456,7 +7461,7 @@ impl FunctionTranslator<'_> {
             let ctx = self.get_ctx();
             let thread_id = self.builder.ins().load(
                 Type::int(64).unwrap(),
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
                 ctx,
                 offset_of!(VmCore, thread_id) as i32,
             );
@@ -7471,7 +7476,7 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
         let is_native = self.builder.ins().load(
             Type::int(8).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             ctx,
             offset_of!(VmCore, is_native) as i32,
         );
@@ -8365,13 +8370,13 @@ impl FunctionTranslator<'_> {
         let as_int = self
             .builder
             .ins()
-            .bitcast(types::I64, MemFlags::new(), value);
+            .bitcast(types::I64, MemFlagsData::new(), value);
         self.encode_value(SteelVal::FLOAT_TAG as _, as_int)
     }
 
     fn encode_float(&mut self, float: f64) -> Value {
         let res = self.builder.ins().f64const(float);
-        let as_int = self.builder.ins().bitcast(types::I64, MemFlags::new(), res);
+        let as_int = self.builder.ins().bitcast(types::I64, MemFlagsData::new(), res);
         self.encode_value(discriminant(&SteelVal::NumV(float)) as i64, as_int)
     }
 
@@ -8423,7 +8428,7 @@ impl FunctionTranslator<'_> {
         let (_, high) = self.builder.ins().isplit(value);
         self.builder
             .ins()
-            .bitcast(types::F64, MemFlags::new(), high)
+            .bitcast(types::F64, MemFlagsData::new(), high)
     }
 
     fn get_tag(&mut self, value: Value) -> Value {
@@ -8810,14 +8815,14 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
         );
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
-        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         let mut results = HashMap::new();
@@ -8825,7 +8830,7 @@ impl FunctionTranslator<'_> {
         for (index, kind) in values {
             let res = self.builder.ins().load(
                 types::I128,
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
                 frame_base,
                 (index * std::mem::size_of::<SteelVal>()) as i32,
             );
@@ -8834,7 +8839,7 @@ impl FunctionTranslator<'_> {
                 let value = self.encode_void();
 
                 self.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     value,
                     frame_base,
                     (index * std::mem::size_of::<SteelVal>()) as i32,
@@ -8870,14 +8875,14 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
         );
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
-        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         let mut results = HashMap::new();
@@ -8885,7 +8890,7 @@ impl FunctionTranslator<'_> {
         for (index, kind) in values {
             let res = self.builder.ins().load(
                 types::I128,
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
                 frame_base,
                 (index * std::mem::size_of::<SteelVal>()) as i32,
             );
@@ -8922,19 +8927,19 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
         );
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
-        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         let res = self.builder.ins().load(
             types::I128,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             frame_base,
             (index * std::mem::size_of::<SteelVal>()) as i32,
         );
@@ -8953,26 +8958,26 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
         );
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
-        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         let tag = self.builder.ins().load(
             types::I8,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             frame_base,
             (index * std::mem::size_of::<SteelVal>()) as i32,
         );
 
         let value = self.builder.ins().load(
             types::I64,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             frame_base,
             (index * std::mem::size_of::<SteelVal>() + 8) as i32,
         );
@@ -8988,19 +8993,19 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
         );
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
-        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         self.builder.ins().load(
             types::I64,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             frame_base,
             (index * std::mem::size_of::<SteelVal>()) as i32 + 8,
         )
@@ -9021,21 +9026,21 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
 
         let size: i64 = std::mem::size_of::<SteelVal>() as _;
-        let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
-        let offset = self.builder.ins().imul_imm(local_offset, size);
+        let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
+        let offset = self.builder.ins().imul_imm_s(local_offset, size);
 
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
         let local_value = self
             .builder
             .ins()
-            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+            .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
         local_value
     }
@@ -9054,37 +9059,37 @@ impl FunctionTranslator<'_> {
 
         // let buf_ptr = self.builder.ins().load(
         //     Type::int(64).unwrap(),
-        //     MemFlags::trusted(),
+        //     MemFlagsData::trusted(),
         //     thread_pointer,
         //     (stack_offset + ptr_offset) as i32,
         // );
 
         // let size: i64 = std::mem::size_of::<SteelVal>() as _;
-        // let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
-        // let offset = self.builder.ins().imul_imm(local_offset, size);
+        // let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
+        // let offset = self.builder.ins().imul_imm_s(local_offset, size);
 
         // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
         // let local_value = self
         //     .builder
         //     .ins()
-        //     .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+        //     .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
         );
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
-        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         let local_value = self.builder.ins().load(
             types::I128,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             frame_base,
             (index * std::mem::size_of::<SteelVal>()) as i32,
         );
@@ -9092,7 +9097,7 @@ impl FunctionTranslator<'_> {
         let value = self.encode_void();
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             value,
             frame_base,
             (index * std::mem::size_of::<SteelVal>()) as i32,
@@ -9119,27 +9124,27 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
 
         let size: i64 = std::mem::size_of::<SteelVal>() as _;
-        let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
-        let offset = self.builder.ins().imul_imm(local_offset, size);
+        let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
+        let offset = self.builder.ins().imul_imm_s(local_offset, size);
 
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
         let local_value = self
             .builder
             .ins()
-            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+            .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
         self.drop_tagged_value(local_value);
 
         self.builder
             .ins()
-            .store(MemFlags::trusted(), value, slot_ptr, 0);
+            .store(MemFlagsData::trusted(), value, slot_ptr, 0);
     }
 
     fn write_to_vm_stack_starting_at_lifted(
@@ -9156,12 +9161,12 @@ impl FunctionTranslator<'_> {
 
         let mut index = index;
 
-        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         for value in values {
-            // let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
-            // let offset = self.builder.ins().imul_imm(local_offset, size);
+            // let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
+            // let offset = self.builder.ins().imul_imm_s(local_offset, size);
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
             if should_drop {
@@ -9174,7 +9179,7 @@ impl FunctionTranslator<'_> {
                     ) => {
                         let local_value = self.builder.ins().load(
                             types::I128,
-                            MemFlags::trusted(),
+                            MemFlagsData::trusted(),
                             frame_base,
                             (index * std::mem::size_of::<SteelVal>()) as i32,
                         );
@@ -9187,7 +9192,7 @@ impl FunctionTranslator<'_> {
                     _ => {
                         let local_value = self.builder.ins().load(
                             types::I128,
-                            MemFlags::trusted(),
+                            MemFlagsData::trusted(),
                             frame_base,
                             (index * std::mem::size_of::<SteelVal>()) as i32,
                         );
@@ -9198,7 +9203,7 @@ impl FunctionTranslator<'_> {
             }
 
             self.builder.ins().store(
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
                 *value,
                 frame_base,
                 (index * std::mem::size_of::<SteelVal>()) as i32,
@@ -9222,12 +9227,12 @@ impl FunctionTranslator<'_> {
         }
 
         let mut index = index;
-        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         for _ in 0..amt {
-            // let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
-            // let offset = self.builder.ins().imul_imm(local_offset, size);
+            // let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
+            // let offset = self.builder.ins().imul_imm_s(local_offset, size);
 
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
@@ -9240,7 +9245,7 @@ impl FunctionTranslator<'_> {
                 ) => {
                     let local_value = self.builder.ins().load(
                         types::I128,
-                        MemFlags::trusted(),
+                        MemFlagsData::trusted(),
                         frame_base,
                         (index * std::mem::size_of::<SteelVal>()) as i32,
                     );
@@ -9253,7 +9258,7 @@ impl FunctionTranslator<'_> {
                 _ => {
                     let local_value = self.builder.ins().load(
                         types::I128,
-                        MemFlags::trusted(),
+                        MemFlagsData::trusted(),
                         frame_base,
                         (index * std::mem::size_of::<SteelVal>()) as i32,
                     );
@@ -9282,7 +9287,7 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
@@ -9290,12 +9295,12 @@ impl FunctionTranslator<'_> {
         // let size: i64 = std::mem::size_of::<SteelVal>() as _;
 
         let mut index = index;
-        let sp_bytes = self.builder.ins().ishl_imm(sp, 4);
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         for value in values {
-            // let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
-            // let offset = self.builder.ins().imul_imm(local_offset, size);
+            // let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
+            // let offset = self.builder.ins().imul_imm_s(local_offset, size);
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
             if should_drop {
@@ -9308,7 +9313,7 @@ impl FunctionTranslator<'_> {
                     ) => {
                         let local_value = self.builder.ins().load(
                             types::I128,
-                            MemFlags::trusted(),
+                            MemFlagsData::trusted(),
                             frame_base,
                             (index * std::mem::size_of::<SteelVal>()) as i32,
                         );
@@ -9321,7 +9326,7 @@ impl FunctionTranslator<'_> {
                     _ => {
                         let local_value = self.builder.ins().load(
                             types::I128,
-                            MemFlags::trusted(),
+                            MemFlagsData::trusted(),
                             frame_base,
                             (index * std::mem::size_of::<SteelVal>()) as i32,
                         );
@@ -9332,7 +9337,7 @@ impl FunctionTranslator<'_> {
             }
 
             self.builder.ins().store(
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
                 *value,
                 frame_base,
                 (index * std::mem::size_of::<SteelVal>()) as i32,
@@ -9358,7 +9363,7 @@ impl FunctionTranslator<'_> {
 
         let stack_frame_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_frame_offset + len_offset) as i32,
         );
@@ -9366,7 +9371,7 @@ impl FunctionTranslator<'_> {
         let res = self
             .builder
             .ins()
-            .icmp_imm(IntCC::UnsignedLessThan, stack_frame_length, 100);
+            .icmp_imm_s(IntCC::UnsignedLessThan, stack_frame_length, 100);
 
         // self.should_trampoline = Some(res);
 
@@ -9384,7 +9389,7 @@ impl FunctionTranslator<'_> {
         let vm_ctx = self.get_ctx();
         let should_trampoline = self.check_should_trampoline(vm_ctx);
 
-        let should_yield = self.builder.ins().bxor_imm(should_trampoline, 1);
+        let should_yield = self.builder.ins().bxor_imm_u(should_trampoline, 1);
 
         self.update_ip_native_if_yield(vm_ctx, should_yield, fallback_ip + 1);
 
@@ -9434,7 +9439,7 @@ impl FunctionTranslator<'_> {
                 // Check if native still:
                 let is_still_native = ctx.builder.ins().load(
                     types::I8,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     vm_ctx,
                     offset_of!(VmCore, is_native) as i32,
                 );
@@ -9463,12 +9468,12 @@ impl FunctionTranslator<'_> {
         let vm_ctx = self.get_ctx();
         let offset = self.builder.ins().load(
             types::I64,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             vm_ctx,
             offset_of!(VmCore, sp) as i32,
         );
 
-        let rollback_index = self.builder.ins().iadd_imm(offset, amt as i64);
+        let rollback_index = self.builder.ins().iadd_imm_s(offset, amt as i64);
 
         // We can guarantee that there is an additional amt capacity
         // since we've truncated the stack back by that much.
@@ -9489,7 +9494,7 @@ impl FunctionTranslator<'_> {
         // We're going to check the capacity before we do anything
         let stack_capacity = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + capacity_offset) as i32,
         );
@@ -9497,11 +9502,11 @@ impl FunctionTranslator<'_> {
         // This is the spot:
         // The new length will be this, so we just have to check the capacity of this
         // if we're going to re alloc
-        let new_length = self.builder.ins().iadd_imm(index, args.len() as i64);
+        let new_length = self.builder.ins().iadd_imm_s(index, args.len() as i64);
 
         // Store the _new_ arity
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             new_length,
             thread_pointer,
             (stack_offset + len_offset) as i32,
@@ -9541,7 +9546,7 @@ impl FunctionTranslator<'_> {
 
                     let buf_ptr = ctx.builder.ins().load(
                         Type::int(64).unwrap(),
-                        MemFlags::trusted(),
+                        MemFlagsData::trusted(),
                         thread_pointer,
                         (stack_offset + ptr_offset) as i32,
                     );
@@ -9580,7 +9585,7 @@ impl FunctionTranslator<'_> {
 
             let buf_ptr = self.builder.ins().load(
                 Type::int(64).unwrap(),
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
                 thread_pointer,
                 (stack_offset + ptr_offset) as i32,
             );
@@ -9604,7 +9609,7 @@ impl FunctionTranslator<'_> {
         // Current stack length:
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
@@ -9613,7 +9618,7 @@ impl FunctionTranslator<'_> {
         // let new_length = self.builder.ins().iconst(types::, N)
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             index,
             thread_pointer,
             (stack_offset + len_offset) as i32,
@@ -9623,7 +9628,7 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
@@ -9663,15 +9668,15 @@ impl FunctionTranslator<'_> {
         //     let byte_offset = self
         //         .builder
         //         .ins()
-        //         .imul_imm(slot_index, size_of::<SteelVal>() as i64);
+        //         .imul_imm_s(slot_index, size_of::<SteelVal>() as i64);
         //     let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
         //     let val = self
         //         .builder
         //         .ins()
-        //         .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+        //         .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
         //     self.drop_tagged_value(val);
 
-        //     let i_next = BlockArg::Value(self.builder.ins().iadd_imm(i, 1));
+        //     let i_next = BlockArg::Value(self.builder.ins().iadd_imm_s(i, 1));
         //     self.builder.ins().jump(loop_header, &[i_next]);
 
         //     self.builder.seal_block(loop_header);
@@ -9711,16 +9716,16 @@ impl FunctionTranslator<'_> {
             let byte_offset = self
                 .builder
                 .ins()
-                .imul_imm(slot_index, size_of::<SteelVal>() as i64);
+                .imul_imm_s(slot_index, size_of::<SteelVal>() as i64);
             let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
             let val = self
                 .builder
                 .ins()
-                .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+                .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
             self.drop_tagged_value(val);
 
-            let i_next = BlockArg::Value(self.builder.ins().iadd_imm(i, 1));
+            let i_next = BlockArg::Value(self.builder.ins().iadd_imm_s(i, 1));
             self.builder.ins().jump(loop_header, &[i_next]);
 
             self.builder.seal_block(loop_header);
@@ -9744,7 +9749,7 @@ impl FunctionTranslator<'_> {
         // Current stack length:
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
@@ -9752,10 +9757,10 @@ impl FunctionTranslator<'_> {
         // let difference = self.builder.ins().isub(stack_length, index);
         // let new_length = self.builder.ins().iconst(types::, N)
 
-        let new_length = self.builder.ins().iadd_imm(index, 1);
+        let new_length = self.builder.ins().iadd_imm_s(index, 1);
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             // index,
             new_length,
             thread_pointer,
@@ -9766,7 +9771,7 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
@@ -9805,15 +9810,15 @@ impl FunctionTranslator<'_> {
         //     let byte_offset = self
         //         .builder
         //         .ins()
-        //         .imul_imm(slot_index, size_of::<SteelVal>() as i64);
+        //         .imul_imm_s(slot_index, size_of::<SteelVal>() as i64);
         //     let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
         //     let val = self
         //         .builder
         //         .ins()
-        //         .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+        //         .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
         //     self.drop_tagged_value(val);
 
-        //     let i_next = BlockArg::Value(self.builder.ins().iadd_imm(i, 1));
+        //     let i_next = BlockArg::Value(self.builder.ins().iadd_imm_s(i, 1));
         //     self.builder.ins().jump(loop_header, &[i_next]);
 
         //     self.builder.seal_block(loop_header);
@@ -9825,11 +9830,11 @@ impl FunctionTranslator<'_> {
         // let last_byte_offset = self
         //     .builder
         //     .ins()
-        //     .imul_imm(index, size_of::<SteelVal>() as i64);
+        //     .imul_imm_s(index, size_of::<SteelVal>() as i64);
         // let last_slot_ptr = self.builder.ins().iadd(buf_ptr, last_byte_offset);
         // self.builder
         //     .ins()
-        //     .store(MemFlags::trusted(), new_last, last_slot_ptr, 0);
+        //     .store(MemFlagsData::trusted(), new_last, last_slot_ptr, 0);
 
         let count = self.builder.ins().isub(stack_length, index);
 
@@ -9861,15 +9866,15 @@ impl FunctionTranslator<'_> {
             let byte_offset = self
                 .builder
                 .ins()
-                .imul_imm(slot_index, size_of::<SteelVal>() as i64);
+                .imul_imm_s(slot_index, size_of::<SteelVal>() as i64);
             let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
             let val = self
                 .builder
                 .ins()
-                .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+                .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
             self.drop_tagged_value(val);
 
-            let i_next = BlockArg::Value(self.builder.ins().iadd_imm(i, 1));
+            let i_next = BlockArg::Value(self.builder.ins().iadd_imm_s(i, 1));
             self.builder.ins().jump(loop_header, &[i_next]);
 
             self.builder.seal_block(loop_header);
@@ -9881,11 +9886,11 @@ impl FunctionTranslator<'_> {
         let last_byte_offset = self
             .builder
             .ins()
-            .imul_imm(index, size_of::<SteelVal>() as i64);
+            .imul_imm_s(index, size_of::<SteelVal>() as i64);
         let last_slot_ptr = self.builder.ins().iadd(buf_ptr, last_byte_offset);
         self.builder
             .ins()
-            .store(MemFlags::trusted(), new_last, last_slot_ptr, 0);
+            .store(MemFlagsData::trusted(), new_last, last_slot_ptr, 0);
     }
 
     fn invalidate_buf_ptr(&mut self) {
@@ -9906,7 +9911,7 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
@@ -9924,7 +9929,7 @@ impl FunctionTranslator<'_> {
         // Env pointer
         let env_pointer = self.builder.ins().load(
             types::I64,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             offset_of!(SteelThread, global_env) as i32,
         );
@@ -9940,7 +9945,7 @@ impl FunctionTranslator<'_> {
         let vector_length =
             self.builder
                 .ins()
-                .load(types::I32, MemFlags::trusted(), env_pointer, 4);
+                .load(types::I32, MemFlagsData::trusted(), env_pointer, 4);
 
         // if the index > the length, return void
         let test = self
@@ -9955,12 +9960,12 @@ impl FunctionTranslator<'_> {
                 // Make sure this is 16
                 // let size = std::mem::size_of::<SteelVal>();
                 let index = ctx.builder.ins().uextend(types::I64, index);
-                let shift_left = ctx.builder.ins().ishl_imm(index, 4);
-                let index = ctx.builder.ins().iadd_imm(shift_left, header_size as i64);
+                let shift_left = ctx.builder.ins().ishl_imm_u(index, 4);
+                let index = ctx.builder.ins().iadd_imm_s(shift_left, header_size as i64);
                 let value = ctx.builder.ins().iadd(env_pointer, index);
                 ctx.builder
                     .ins()
-                    .load(types::I128, MemFlags::trusted(), value, 0)
+                    .load(types::I128, MemFlagsData::trusted(), value, 0)
             },
             types::I128,
         )
@@ -9982,15 +9987,15 @@ impl FunctionTranslator<'_> {
         // will decrease the length.
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
 
-        let new_length = self.builder.ins().iadd_imm(stack_length, -1);
+        let new_length = self.builder.ins().iadd_imm_s(stack_length, -1);
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             new_length,
             thread_pointer,
             (stack_offset + len_offset) as i32,
@@ -10000,19 +10005,19 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
 
         let size: i64 = std::mem::size_of::<SteelVal>() as _;
-        let offset = self.builder.ins().imul_imm(new_length, size);
+        let offset = self.builder.ins().imul_imm_s(new_length, size);
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
         let res = self
             .builder
             .ins()
-            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+            .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
         // self.call_function_no_return("#%debug-stack-after");
 
@@ -10025,7 +10030,7 @@ impl FunctionTranslator<'_> {
         let sub_one = self.pop_count_sub_one(vm_ctx);
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             sub_one,
             vm_ctx,
             offset_of!(VmCore, pop_count) as i32,
@@ -10059,7 +10064,7 @@ impl FunctionTranslator<'_> {
                 let attachment_exists =
                     ctx.builder
                         .ins()
-                        .icmp_imm(IntCC::NotEqual, popped_frame.attachments, 0);
+                        .icmp_imm_s(IntCC::NotEqual, popped_frame.attachments, 0);
 
                 ctx.converging_if_no_else_no_value_else_cold(
                     attachment_exists,
@@ -10091,14 +10096,14 @@ impl FunctionTranslator<'_> {
 
                         let ip = ctx.builder.ins().uextend(types::I64, popped_frame.ip);
                         ctx.builder.ins().store(
-                            MemFlags::trusted(),
+                            MemFlagsData::trusted(),
                             ip,
                             vm_ctx,
                             offset_of!(VmCore, ip) as i32,
                         );
 
                         ctx.builder.ins().store(
-                            MemFlags::trusted(),
+                            MemFlagsData::trusted(),
                             popped_frame.instructions,
                             vm_ctx,
                             offset_of!(VmCore, instructions) as i32,
@@ -10115,7 +10120,7 @@ impl FunctionTranslator<'_> {
                         ctx.drop_biased_rc_unboxed_closure(popped_frame.function);
 
                         ctx.builder.ins().store(
-                            MemFlags::trusted(),
+                            MemFlagsData::trusted(),
                             sp,
                             vm_ctx,
                             offset_of!(VmCore, sp) as i32,
@@ -10137,7 +10142,7 @@ impl FunctionTranslator<'_> {
 
     // Whether we should continue running:
     fn pop_count_should_continue(&mut self, pop_count: Value) -> Value {
-        self.builder.ins().icmp_imm(IntCC::NotEqual, pop_count, 0)
+        self.builder.ins().icmp_imm_s(IntCC::NotEqual, pop_count, 0)
     }
 
     fn update_last_stackframe(&mut self, vm_ctx: Value, function: Value) -> Value {
@@ -10149,31 +10154,31 @@ impl FunctionTranslator<'_> {
 
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
 
         // Last thing
-        let new_length = self.builder.ins().iadd_imm(stack_length, -1);
+        let new_length = self.builder.ins().iadd_imm_s(stack_length, -1);
 
         let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
 
         let size: i64 = std::mem::size_of::<StackFrame>() as _;
-        let offset = self.builder.ins().imul_imm(new_length, size);
+        let offset = self.builder.ins().imul_imm_s(new_length, size);
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
         // Load the stack frame. We're going to use this later.
         let value = self.builder.ins().load(
             types::I32,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             slot_ptr,
             offset_of!(StackFrame, sp) as i32,
         );
@@ -10181,7 +10186,7 @@ impl FunctionTranslator<'_> {
         //
         let old_function = self.builder.ins().load(
             types::I64,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             slot_ptr,
             offset_of!(StackFrame, function) as i32,
         );
@@ -10189,7 +10194,7 @@ impl FunctionTranslator<'_> {
         self.drop_biased_rc_unboxed_closure(old_function);
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             function,
             slot_ptr,
             offset_of!(StackFrame, function) as i32,
@@ -10212,37 +10217,37 @@ impl FunctionTranslator<'_> {
 
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
 
-        let condition = self.builder.ins().icmp_imm(IntCC::Equal, stack_length, 0);
+        let condition = self.builder.ins().icmp_imm_s(IntCC::Equal, stack_length, 0);
 
         self.converging_if(
             condition,
             |ctx| ctx.builder.ins().iconst(types::I64, 0),
             |ctx| {
                 // Last thing
-                let new_length = ctx.builder.ins().iadd_imm(stack_length, -1);
+                let new_length = ctx.builder.ins().iadd_imm_s(stack_length, -1);
 
                 let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
 
                 let buf_ptr = ctx.builder.ins().load(
                     Type::int(64).unwrap(),
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     thread_pointer,
                     (stack_offset + ptr_offset) as i32,
                 );
 
                 let size: i64 = std::mem::size_of::<StackFrame>() as _;
-                let offset = ctx.builder.ins().imul_imm(new_length, size);
+                let offset = ctx.builder.ins().imul_imm_s(new_length, size);
                 let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
 
                 // Load the stack frame. We're going to use this later.
                 let value = ctx.builder.ins().load(
                     types::I32,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     slot_ptr,
                     offset_of!(StackFrame, sp) as i32,
                 );
@@ -10255,14 +10260,14 @@ impl FunctionTranslator<'_> {
 
     fn pop_count_sub_one(&mut self, vm_ctx: Value) -> Value {
         let current_pop_count = self.get_pop_count(vm_ctx);
-        let sub_one = self.builder.ins().iadd_imm(current_pop_count, -1);
+        let sub_one = self.builder.ins().iadd_imm_s(current_pop_count, -1);
         self.pop_count_minus_one = Some(sub_one);
         sub_one
     }
 
     fn pop_count_add_one(&mut self, vm_ctx: Value) -> Value {
         let current_pop_count = self.get_pop_count(vm_ctx);
-        let plus_one = self.builder.ins().iadd_imm(current_pop_count, 1);
+        let plus_one = self.builder.ins().iadd_imm_s(current_pop_count, 1);
         self.pop_count_plus_one = Some(plus_one);
         plus_one
     }
@@ -10273,7 +10278,7 @@ impl FunctionTranslator<'_> {
         } else {
             let old_pop_count = self.builder.ins().load(
                 types::I64,
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
                 vm_ctx,
                 offset_of!(VmCore, pop_count) as i32,
             );
@@ -10289,7 +10294,7 @@ impl FunctionTranslator<'_> {
         } else {
             let tp = self.builder.ins().load(
                 Type::int(64).unwrap(),
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
                 vm_ctx,
                 offset_of!(VmCore, thread) as i32,
             );
@@ -10308,7 +10313,7 @@ impl FunctionTranslator<'_> {
         } else {
             let sp = self.builder.ins().load(
                 Type::int(64).unwrap(),
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
                 vm_ctx,
                 offset_of!(VmCore, sp) as i32,
             );
@@ -10328,15 +10333,15 @@ impl FunctionTranslator<'_> {
 
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
 
-        let new_length = self.builder.ins().iadd_imm(stack_length, -1);
+        let new_length = self.builder.ins().iadd_imm_s(stack_length, -1);
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             new_length,
             thread_pointer,
             (stack_offset + len_offset) as i32,
@@ -10346,13 +10351,13 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
 
         let size: i64 = std::mem::size_of::<StackFrame>() as _;
-        let offset = self.builder.ins().imul_imm(new_length, size);
+        let offset = self.builder.ins().imul_imm_s(new_length, size);
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
         let sp_offset = (buf_ptr, new_length);
@@ -10362,31 +10367,31 @@ impl FunctionTranslator<'_> {
             StackFrameRepr {
                 sp: self.builder.ins().load(
                     types::I32,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     slot_ptr,
                     offset_of!(StackFrame, sp) as i32,
                 ),
                 ip: self.builder.ins().load(
                     types::I32,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     slot_ptr,
                     offset_of!(StackFrame, ip) as i32,
                 ),
                 instructions: self.builder.ins().load(
                     types::I128,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     slot_ptr,
                     offset_of!(StackFrame, instructions) as i32,
                 ),
                 function: self.builder.ins().load(
                     types::I64,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     slot_ptr,
                     offset_of!(StackFrame, function) as i32,
                 ),
                 attachments: self.builder.ins().load(
                     types::I64,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     slot_ptr,
                     offset_of!(StackFrame, attachments) as i32,
                 ),
@@ -10408,7 +10413,7 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 let zero = ctx.builder.ins().iconst(types::I8, 0);
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     zero,
                     vm_ctx,
                     offset_of!(VmCore, is_native) as i32,
@@ -10417,7 +10422,7 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 let ip = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     ip,
                     vm_ctx,
                     offset_of!(VmCore, ip) as i32,
@@ -10436,7 +10441,7 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(types::I64, SteelVal::UNBOXED_MASK as i64);
         let shifted = self.builder.ins().ushr(mask, tag);
-        let is_unboxed = self.builder.ins().band_imm(shifted, 1);
+        let is_unboxed = self.builder.ins().band_imm_u(shifted, 1);
 
         let unboxed_block = self.builder.create_block();
         let needs_drop = self.builder.create_block();
@@ -10459,7 +10464,7 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(types::I64, SteelVal::STANDARD_RC_MASK as i64);
         let std_shifted = self.builder.ins().ushr(std_mask, tag);
-        let is_standard_rc = self.builder.ins().band_imm(std_shifted, 1);
+        let is_standard_rc = self.builder.ins().band_imm_u(std_shifted, 1);
 
         let standard_rc_block = self.builder.create_block();
         let special_rc_block = self.builder.create_block();
@@ -10521,13 +10526,13 @@ impl FunctionTranslator<'_> {
                 let local_count =
                     ctx.builder
                         .ins()
-                        .load(Type::int(32).unwrap(), MemFlags::trusted(), value, 8);
+                        .load(Type::int(32).unwrap(), MemFlagsData::trusted(), value, 8);
 
-                let add_one = ctx.builder.ins().iadd_imm(local_count, 1);
+                let add_one = ctx.builder.ins().iadd_imm_s(local_count, 1);
 
                 ctx.builder
                     .ins()
-                    .store(MemFlags::trusted(), add_one, value, 8);
+                    .store(MemFlagsData::trusted(), add_one, value, 8);
             },
             |ctx| {
                 // TODO: @Matt - we can inline this as well!
@@ -10547,7 +10552,7 @@ impl FunctionTranslator<'_> {
 
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
@@ -10556,28 +10561,28 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
 
         let size: i64 = std::mem::size_of::<StackFrame>() as _;
 
-        let last = self.builder.ins().iadd_imm(stack_length, -1);
+        let last = self.builder.ins().iadd_imm_s(stack_length, -1);
 
-        let offset = self.builder.ins().imul_imm(last, size);
+        let offset = self.builder.ins().imul_imm_s(last, size);
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
         let function = self.builder.ins().load(
             types::I64,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             slot_ptr,
             offset_of!(StackFrame, function) as i32,
         );
 
         let capture_pointer = self.builder.ins().load(
             types::I64,
-            MemFlags::trusted().with_readonly(),
+            MemFlagsData::trusted().with_readonly(),
             function,
             // Adjust by 16 for the object header from the function
             offset_of!(ByteCodeLambda, captures) as i32 + 16,
@@ -10586,7 +10591,7 @@ impl FunctionTranslator<'_> {
         // Just load an offset from there:
         let value = self.builder.ins().load(
             types::I128,
-            MemFlags::trusted().with_readonly(),
+            MemFlagsData::trusted().with_readonly(),
             capture_pointer,
             index as i32 * std::mem::size_of::<SteelVal>() as i32,
         );
@@ -10632,7 +10637,7 @@ impl FunctionTranslator<'_> {
 
         let stack_capacity = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_frame_offset + capacity_offset) as i32,
         );
@@ -10641,7 +10646,7 @@ impl FunctionTranslator<'_> {
 
         let stack_frame_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_frame_offset + len_offset) as i32,
         );
@@ -10651,7 +10656,7 @@ impl FunctionTranslator<'_> {
         let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
@@ -10673,7 +10678,7 @@ impl FunctionTranslator<'_> {
 
                 let buf_ptr = ctx.builder.ins().load(
                     Type::int(64).unwrap(),
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     thread_pointer,
                     (stack_frame_offset + ptr_offset) as i32,
                 );
@@ -10681,9 +10686,9 @@ impl FunctionTranslator<'_> {
                 // Okay so here, now we're going to move things around
                 // such that we can snag values from things
                 let size: i64 = std::mem::size_of::<StackFrame>() as _;
-                let offset = ctx.builder.ins().imul_imm(stack_frame_length, size);
+                let offset = ctx.builder.ins().imul_imm_s(stack_frame_length, size);
 
-                // let offset = ctx.builder.ins().ishl_imm(stack_frame_length, 6);
+                // let offset = ctx.builder.ins().ishl_imm_u(stack_frame_length, 6);
 
                 let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
 
@@ -10691,18 +10696,18 @@ impl FunctionTranslator<'_> {
 
                 let arity = -arity;
 
-                let new_sp = ctx.builder.ins().iadd_imm(stack_length, arity as i64);
+                let new_sp = ctx.builder.ins().iadd_imm_s(stack_length, arity as i64);
 
                 ctx.builder
                     .ins()
-                    .store(MemFlags::trusted(), new_sp, vm_ctx, sp_offset as i32);
+                    .store(MemFlagsData::trusted(), new_sp, vm_ctx, sp_offset as i32);
 
                 // Reduce it before going in the stack frame
                 let new_sp = ctx.builder.ins().ireduce(types::I32, new_sp);
 
                 // Stack pointer:
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     new_sp,
                     slot_ptr,
                     offset_of!(StackFrame, sp) as i32,
@@ -10716,7 +10721,7 @@ impl FunctionTranslator<'_> {
                     .iconst(types::I32, (fallback_ip + 1) as i64);
 
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     ip_plus_one,
                     slot_ptr,
                     offset_of!(StackFrame, ip) as i32,
@@ -10726,7 +10731,7 @@ impl FunctionTranslator<'_> {
 
                 let current_instructions = ctx.builder.ins().load(
                     types::I128,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     vm_ctx,
                     offset_of!(VmCore, instructions) as i32,
                 );
@@ -10739,7 +10744,7 @@ impl FunctionTranslator<'_> {
                 // Okay, now load the instructions from the function:
                 // let instructions = ctx.builder.ins().load(
                 //     types::I128,
-                //     MemFlags::trusted(),
+                //     MemFlagsData::trusted(),
                 //     function,
                 //     offset_of!(ByteCodeLambda, body_exp) as i32,
                 // );
@@ -10747,7 +10752,7 @@ impl FunctionTranslator<'_> {
                 let instructions = instr_fat_ptr;
 
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     current_instructions,
                     slot_ptr,
                     offset_of!(StackFrame, instructions) as i32,
@@ -10755,7 +10760,7 @@ impl FunctionTranslator<'_> {
 
                 // Store the instructions back to the VM pointer
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     instructions,
                     vm_ctx,
                     offset_of!(VmCore, instructions) as i32,
@@ -10763,7 +10768,7 @@ impl FunctionTranslator<'_> {
 
                 // Store the function itself
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     function,
                     slot_ptr,
                     offset_of!(StackFrame, function) as i32,
@@ -10773,7 +10778,7 @@ impl FunctionTranslator<'_> {
 
                 // Null for the attachments
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     null_pointer,
                     slot_ptr,
                     offset_of!(StackFrame, attachments) as i32,
@@ -10782,7 +10787,7 @@ impl FunctionTranslator<'_> {
                 let new_pop_count = ctx.pop_count_add_one(vm_ctx);
 
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     new_pop_count,
                     vm_ctx,
                     offset_of!(VmCore, pop_count) as i32,
@@ -10791,17 +10796,17 @@ impl FunctionTranslator<'_> {
                 // Set ip to 0
                 let zero = ctx.builder.ins().iconst(types::I64, 0);
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     zero,
                     vm_ctx,
                     offset_of!(VmCore, ip) as i32,
                 );
 
                 // Add one to the length:
-                let new_length = ctx.builder.ins().iadd_imm(stack_frame_length, 1);
+                let new_length = ctx.builder.ins().iadd_imm_s(stack_frame_length, 1);
 
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     new_length,
                     thread_pointer,
                     (stack_frame_offset + len_offset) as i32,
@@ -10831,14 +10836,14 @@ impl FunctionTranslator<'_> {
         // This is the actual stack, steel_vec::Vec<SteelVal>
         let stack_capacity = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + capacity_offset) as i32,
         );
 
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
@@ -10865,24 +10870,24 @@ impl FunctionTranslator<'_> {
 
                 let buf_ptr = ctx.builder.ins().load(
                     Type::int(64).unwrap(),
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     thread_pointer,
                     (stack_offset + ptr_offset) as i32,
                 );
 
                 let size: i64 = std::mem::size_of::<SteelVal>() as _;
-                let offset = ctx.builder.ins().imul_imm(stack_length, size);
+                let offset = ctx.builder.ins().imul_imm_s(stack_length, size);
                 let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
 
                 ctx.builder
                     .ins()
-                    .store(MemFlags::trusted(), value, slot_ptr, 0);
+                    .store(MemFlagsData::trusted(), value, slot_ptr, 0);
 
                 // Add one to the length:
-                let new_length = ctx.builder.ins().iadd_imm(stack_length, 1);
+                let new_length = ctx.builder.ins().iadd_imm_s(stack_length, 1);
 
                 ctx.builder.ins().store(
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     new_length,
                     thread_pointer,
                     (stack_offset + len_offset) as i32,
@@ -10910,15 +10915,15 @@ impl FunctionTranslator<'_> {
 
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
 
-        let new_length = self.builder.ins().iadd_imm(stack_length, -n);
+        let new_length = self.builder.ins().iadd_imm_s(stack_length, -n);
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             new_length,
             thread_pointer,
             (stack_offset + len_offset) as i32,
@@ -10944,23 +10949,23 @@ impl FunctionTranslator<'_> {
         // This is the actual stack, steel_vec::Vec<SteelVal>
         let stack_capacity = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + capacity_offset) as i32,
         );
 
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
 
         // Update the new length:
-        let new_length = self.builder.ins().iadd_imm(stack_length, arity as i64);
+        let new_length = self.builder.ins().iadd_imm_s(stack_length, arity as i64);
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             new_length,
             thread_pointer,
             (stack_offset + len_offset) as i32,
@@ -10986,19 +10991,19 @@ impl FunctionTranslator<'_> {
 
                 let buf_ptr = ctx.builder.ins().load(
                     Type::int(64).unwrap(),
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     thread_pointer,
                     (stack_offset + ptr_offset) as i32,
                 );
 
-                let offset = ctx.builder.ins().ishl_imm(stack_length, 4);
+                let offset = ctx.builder.ins().ishl_imm_u(stack_length, 4);
                 let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
 
                 let size: i32 = std::mem::size_of::<SteelVal>() as i32;
 
                 for (index, value) in values.iter().enumerate() {
                     ctx.builder.ins().store(
-                        MemFlags::trusted(),
+                        MemFlagsData::trusted(),
                         *value,
                         slot_ptr,
                         index as i32 * size,
@@ -11020,16 +11025,16 @@ impl FunctionTranslator<'_> {
 
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + len_offset) as i32,
         );
 
         // Update the new length:
-        let new_length = self.builder.ins().iadd_imm(stack_length, arity as i64);
+        let new_length = self.builder.ins().iadd_imm_s(stack_length, arity as i64);
 
         self.builder.ins().store(
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             new_length,
             thread_pointer,
             (stack_offset + len_offset) as i32,
@@ -11040,12 +11045,12 @@ impl FunctionTranslator<'_> {
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
 
-        let offset = self.builder.ins().ishl_imm(stack_length, 4);
+        let offset = self.builder.ins().ishl_imm_u(stack_length, 4);
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
         let size: i32 = std::mem::size_of::<SteelVal>() as i32;
@@ -11053,7 +11058,7 @@ impl FunctionTranslator<'_> {
         for (index, value) in values.iter().enumerate() {
             self.builder
                 .ins()
-                .store(MemFlags::trusted(), *value, slot_ptr, index as i32 * size);
+                .store(MemFlagsData::trusted(), *value, slot_ptr, index as i32 * size);
         }
     }
 
@@ -11156,9 +11161,7 @@ impl FunctionTranslator<'_> {
 
     /// Fetches a pointer to the VM context
     fn get_ctx(&mut self) -> Value {
-        let ptr_type = self.module.target_config().pointer_type();
-        self.builder.ins().global_value(ptr_type, self.vm_context)
-        // self.builder.ins().get_pinned_reg(ptr_type)
+        self.vm_context
     }
 
     /// Call a function by name, with the first argument implicitly as the VM context.

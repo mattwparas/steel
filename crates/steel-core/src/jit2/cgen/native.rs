@@ -271,7 +271,7 @@ impl<'a> FunctionTranslator<'a> {
 
                 // Just compare the two values directly since we're looking
                 // at the pointers.
-                let res = self.builder.ins().icmp_imm(IntCC::Equal, lvalue, as_ptr);
+                let res = self.builder.ins().icmp_imm_s(IntCC::Equal, lvalue, as_ptr);
 
                 let res = self.builder.ins().band(is_symbol, res);
 
@@ -466,10 +466,10 @@ impl<'a> FunctionTranslator<'a> {
                     let length = self
                         .builder
                         .ins()
-                        .load(types::I32, MemFlags::new(), value, 16);
+                        .load(types::I32, MemFlagsData::new(), value, 16);
 
                     let not_empty =
-                        BlockArg::Value(self.builder.ins().icmp_imm(IntCC::NotEqual, length, 0));
+                        BlockArg::Value(self.builder.ins().icmp_imm_s(IntCC::NotEqual, length, 0));
 
                     self.builder.ins().jump(merge_block, &[not_empty]);
                 }
@@ -1342,19 +1342,19 @@ impl<'a> FunctionTranslator<'a> {
                 let strong_count =
                     ctx.builder
                         .ins()
-                        .atomic_load(types::I64, MemFlags::trusted(), ptr);
+                        .atomic_load(types::I64, MemFlagsData::trusted(), ptr);
 
-                let is_one = ctx.builder.ins().icmp_imm(IntCC::Equal, strong_count, 1);
+                let is_one = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong_count, 1);
                 const OFFSET: i64 = 16;
 
                 let data = ctx.converging_if(
                     is_one,
                     |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm(ptr, OFFSET);
+                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, OFFSET);
 
                         let data = ctx.builder.ins().load(
                             types::I128,
-                            MemFlags::trusted(),
+                            MemFlagsData::trusted(),
                             lock_pointer,
                             SpinLock::<SteelVal>::data_offset() as i32,
                         );
@@ -1364,12 +1364,12 @@ impl<'a> FunctionTranslator<'a> {
                         data
                     },
                     |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm(ptr, OFFSET);
+                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, OFFSET);
 
                         let data = ctx.with_spinlock(lock_pointer, |ctx| {
                             let data = ctx.builder.ins().load(
                                 types::I128,
-                                MemFlags::trusted(),
+                                MemFlagsData::trusted(),
                                 lock_pointer,
                                 SpinLock::<SteelVal>::data_offset() as i32,
                             );
@@ -1556,7 +1556,7 @@ fn inline_struct_getter(
 
     let descriptor_on_stack = ctx.builder.ins().load(
         types::I64,
-        MemFlags::trusted(),
+        MemFlagsData::trusted(),
         struct_ref_ptr,
         offset_of!(UserDefinedStruct, type_descriptor) as i32,
     );
@@ -1564,7 +1564,7 @@ fn inline_struct_getter(
     let struct_matches =
         ctx.builder
             .ins()
-            .icmp_imm(IntCC::Equal, descriptor_on_stack, descriptor as i64);
+            .icmp_imm_s(IntCC::Equal, descriptor_on_stack, descriptor as i64);
 
     let last = ctx.shadow_stack.pop().unwrap();
 
@@ -1594,7 +1594,7 @@ fn fast_path_struct_matches(
     // shared-vector offsets.
     let vector_ptr = ctx.builder.ins().load(
         types::I64,
-        MemFlags::trusted(),
+        MemFlagsData::trusted(),
         struct_ref_ptr,
         (offset_of!(UserDefinedStruct, fields) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
     );
@@ -1603,12 +1603,12 @@ fn fast_path_struct_matches(
 
     let offset = (i as i64 * size);
 
-    let slot_ptr = ctx.builder.ins().iadd_imm(vector_ptr, offset);
+    let slot_ptr = ctx.builder.ins().iadd_imm_s(vector_ptr, offset);
 
     let local_value = ctx
         .builder
         .ins()
-        .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+        .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
     // Clone whatever comes out of this
     ctx.clone_value(local_value);
@@ -1673,7 +1673,7 @@ fn emit_spinlock_inline(builder: &mut FunctionBuilder, lock_ptr: Value) {
     let one = builder.ins().iconst(types::I32, 1);
     let old = builder
         .ins()
-        .atomic_cas(MemFlags::trusted(), lock_ptr, zero, one);
+        .atomic_cas(MemFlagsData::trusted(), lock_ptr, zero, one);
     let cas_ok = builder.ins().icmp(IntCC::Equal, old, zero);
     builder.ins().brif(cas_ok, acquired, &[], spin_wait, &[]);
 
@@ -1681,7 +1681,7 @@ fn emit_spinlock_inline(builder: &mut FunctionBuilder, lock_ptr: Value) {
     builder.switch_to_block(spin_wait);
     let val = builder
         .ins()
-        .atomic_load(types::I32, MemFlags::trusted(), lock_ptr);
+        .atomic_load(types::I32, MemFlagsData::trusted(), lock_ptr);
     let is_free = builder.ins().icmp(IntCC::Equal, val, zero);
     builder.ins().brif(is_free, spin_entry, &[], spin_wait, &[]);
 
@@ -1696,7 +1696,7 @@ fn emit_spinlock_unlock_inline(builder: &mut FunctionBuilder, lock_ptr: Value) {
     let zero = builder.ins().iconst(types::I32, 0);
     builder
         .ins()
-        .atomic_store(MemFlags::trusted(), zero, lock_ptr);
+        .atomic_store(MemFlagsData::trusted(), zero, lock_ptr);
 }
 
 struct ForkedState {
@@ -1714,7 +1714,7 @@ struct ForkedState {
     if_bound: Option<usize>,
     if_stack: Vec<usize>,
     if_merge_blocks: Vec<Block>,
-    vm_context: GlobalValue,
+    vm_context: Value,
     function_context: Option<usize>,
     potentially_could_deopt: bool,
     tier: JitTier,
