@@ -45,22 +45,16 @@ impl<T> SpinLock<T> {
         self.lock()
     }
 
-    /// Read the payload without taking the lock.
-    ///
-    /// # Safety
-    ///
-    /// The caller has to know nothing else can be touching the payload for as
-    /// long as the returned reference lives - no other thread holding the lock,
-    /// and no gc pass reaching the same slot. Nothing here checks that.
+    // Reads the payload without taking the lock, so the caller has to know
+    // nothing else can touch it - no other thread holding this, no gc pass
+    // reaching the same slot
     pub unsafe fn get_value(&self) -> &T {
         unsafe { &*self.data.get() }
     }
 
-    /// Take the lock, spinning until it is free.
-    ///
-    /// Not reentrant. Taking it twice on one thread spins forever with nothing to
-    /// say so, which is worth remembering if a guard is still alive across a call
-    /// that might reach the same lock.
+    // Not reentrant - taking this twice on one thread spins forever with nothing
+    // to say so, which matters if a guard is still alive across a call that might
+    // reach the same lock
     pub fn lock(&self) -> SpinGuard<'_, T> {
         let mut spins: u32 = 0;
 

@@ -98,7 +98,16 @@ test_harness_success_sync! {
 
 test_harness_success! {
     abc_problem,
+    jit_arithmetic_errors,
     jit_branch_in_argument_list,
+    jit_captures,
+    jit_control_flow,
+    jit_higher_order,
+    jit_indirect_calls,
+    jit_mutation,
+    jit_structs,
+    jit_tail_calls,
+    jit_varargs,
     apply,
     apply_more_complex,
     babbage_problem,
@@ -187,7 +196,16 @@ test_harness_success! {
 
 test_harness_success_module! {
     abc_problem,
+    jit_arithmetic_errors,
     jit_branch_in_argument_list,
+    jit_captures,
+    jit_control_flow,
+    jit_higher_order,
+    jit_indirect_calls,
+    jit_mutation,
+    jit_structs,
+    jit_tail_calls,
+    jit_varargs,
     apply,
     apply_more_complex,
     babbage_problem,

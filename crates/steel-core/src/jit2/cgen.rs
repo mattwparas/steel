@@ -87,6 +87,11 @@ pub struct JIT {
 
     names: HashMap<u32, String>,
 
+    // Names that made it all the way through define_function. `compile` declares a
+    // name before it translates, so a failed compile leaves the declaration behind
+    // with no body - handing that back to get_finalized_function panics.
+    defined: HashSet<String>,
+
     function_return_types: HashMap<u32, HashSet<InferredType>>,
 
     // perf inject --jit support. None unless STEEL_JIT_DUMP asked for it -
@@ -605,9 +610,9 @@ impl Default for JIT {
             abi! { num_equal_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
         );
 
-        map.add_func2(
+        map.add_func(
             "num-equal-int",
-            abi! { num_equal_int as fn(SteelVal, SteelVal) -> SteelVal },
+            abi! { num_equal_int as fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal },
         );
 
         map.add_func(
@@ -1247,6 +1252,7 @@ impl Default for JIT {
             module,
             function_map,
             names: Default::default(),
+            defined: Default::default(),
             function_return_types: Default::default(),
             #[cfg(target_os = "linux")]
             jitdump,
@@ -1492,12 +1498,14 @@ impl JIT {
 
         // self.ctx.set_disasm(true);
 
-        if let Some(data) = self.module.get_name(&inner_name) {
-            match data {
-                cranelift_module::FuncOrDataId::Func(func_id) => {
-                    return Ok(self.module.get_finalized_function(func_id));
+        if self.defined.contains(&inner_name) {
+            if let Some(data) = self.module.get_name(&inner_name) {
+                match data {
+                    cranelift_module::FuncOrDataId::Func(func_id) => {
+                        return Ok(self.module.get_finalized_function(func_id));
+                    }
+                    cranelift_module::FuncOrDataId::Data(_) => panic!(),
                 }
-                cranelift_module::FuncOrDataId::Data(_) => panic!(),
             }
         }
 
@@ -1553,6 +1561,8 @@ impl JIT {
                 e.to_string()
             })?;
 
+        self.defined.insert(inner_name.clone());
+
         // let asm = self.ctx.compiled_code().map(|x| x.vcode.as_ref()).flatten();
         // if let Some(asm) = asm {
         //     println!("{}", asm);
@@ -1583,7 +1593,8 @@ impl JIT {
             let pid = std::process::id();
             let tid = rustix::thread::gettid().as_raw_nonzero().get() as u32;
 
-            if let Err(e) = jitdump.dump_code_load_record(&inner_name, code_bytes, timestamp, pid, tid)
+            if let Err(e) =
+                jitdump.dump_code_load_record(&inner_name, code_bytes, timestamp, pid, tid)
             {
                 // Give up on the profiling output rather than going down mid compile
                 log::warn!(target: "jit", "failed to write a jitdump record: {e}; disabling");
@@ -4591,7 +4602,12 @@ impl FunctionTranslator<'_> {
                         && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
                             == Some(InferredType::Int) =>
                 {
-                    self.func_ret_val_named("num-equal-int", payload, 2, InferredType::Bool);
+                    self.func_ret_val_named_with_context(
+                        "num-equal-int",
+                        payload,
+                        2,
+                        InferredType::Bool,
+                    );
                 }
 
                 // OpCode::GTE if payload == 2 => {
@@ -7490,6 +7506,26 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(then_block);
     }
 
+    // Same as func_ret_val_named, but the helper takes the vm context so it can
+    // report an error rather than panicking
+    fn func_ret_val_named_with_context(
+        &mut self,
+        function_name: &str,
+        payload: usize,
+        ip_inc: usize,
+        inferred_type: InferredType,
+    ) {
+        let args = self.split_off(payload);
+        let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
+
+        let result = self.call_function_returns_value_args(function_name, &args);
+
+        self.check_deopt();
+
+        self.push(result, inferred_type);
+        self.ip += ip_inc;
+    }
+
     fn func_ret_val_named(
         &mut self,
         function_name: &str,
@@ -7504,6 +7540,8 @@ impl FunctionTranslator<'_> {
         let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
 
         let result = self.call_function_returns_value_args_no_context(function_name, &args);
+
+        self.check_deopt();
 
         // Check the inferred type, if we know of it
         self.push(result, inferred_type);
@@ -8134,6 +8172,10 @@ impl FunctionTranslator<'_> {
         let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
 
         let result = self.call_function_returns_value_args(function_name, &args);
+
+        // Any of these can raise - if one did, bail out here rather than carrying
+        // on and popping the frame that holds the handler out from under it
+        self.check_deopt();
 
         // Check the inferred type, if we know of it
         self.push(result, inferred_type);

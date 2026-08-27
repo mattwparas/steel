@@ -766,6 +766,7 @@ impl SteelThread {
 
             #[cfg(feature = "jit2")]
             jit: Arc::new(Mutex::new(crate::jit2::cgen::JIT::default())),
+
             module_context: Vec::new(),
 
             #[cfg(feature = "jit2")]
@@ -4256,12 +4257,13 @@ impl<'a> VmCore<'a> {
                     }
                 });
 
-                let constructed_lambda =
-                    if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
-                        jit::jit_compile_lambda(self, constructed_lambda, Some(&mut slot), maybe_bind)
-                    } else {
-                        constructed_lambda
-                    };
+                let constructed_lambda = if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str())
+                    != Ok("false")
+                {
+                    jit::jit_compile_lambda(self, constructed_lambda, Some(&mut slot), maybe_bind)
+                } else {
+                    constructed_lambda
+                };
 
                 unsafe {
                     *steel_rc::BiasedRc::get_mut_unchecked(&mut slot.0) = constructed_lambda;
@@ -7364,4 +7366,3 @@ pub(super) fn gte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Resul
 pub(crate) fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
     add_two_fallible(l, r)
 }
-

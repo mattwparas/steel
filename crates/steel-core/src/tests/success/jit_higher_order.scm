@@ -1,0 +1,16 @@
+;; Chains of indirect calls - map, fold, transducers, sorting.
+(define nums (range 0 50))
+(define (compose2 f g) (lambda (x) (f (g x))))
+(define inc-then-double (compose2 (lambda (x) (* 2 x)) (lambda (x) (+ 1 x))))
+(define (apply-n f n x) (if (= n 0) x (apply-n f (- n 1) (f x))))
+
+(assert! (equal? (length (filter even? nums)) 25))
+(assert! (equal? (foldl + 0 nums) 1225))
+(assert! (equal? (map (lambda (x) (* x x)) (range 0 10)) '(0 1 4 9 16 25 36 49 64 81)))
+(assert! (equal? (transduce nums (mapping (lambda (x) (* 2 x))) (into-list))
+                 (map (lambda (x) (* 2 x)) nums)))
+(assert! (equal? (transduce nums (filtering odd?) (into-list)) (filter odd? nums)))
+(assert! (equal? (transduce nums (taking 5) (into-list)) '(0 1 2 3 4)))
+(assert! (equal? (map inc-then-double (range 0 5)) '(2 4 6 8 10)))
+(assert! (equal? (apply-n (lambda (x) (+ x 3)) 100 0) 300))
+(assert! (equal? (sort (list 5 3 9 1 7) <) '(1 3 5 7 9)))

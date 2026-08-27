@@ -1,0 +1,17 @@
+;; Rest arguments, apply, and picking the callee at runtime.
+(define (rest0 . args) args)
+(define (rest1 a . args) (cons a args))
+(define (rest2 a b . args) (list a b args))
+(define (dispatch n) (if (= n 0) rest0 (if (= n 1) rest1 rest2)))
+
+(assert! (equal? (list (rest0) (rest0 1) (rest0 1 2 3)) '(() (1) (1 2 3))))
+(assert! (equal? (list (rest1 1) (rest1 1 2 3)) '((1) (1 2 3))))
+(assert! (equal? (rest2 1 2 3 4 5) '(1 2 (3 4 5))))
+(assert! (equal? (apply rest0 '(1 2 3)) '(1 2 3)))
+(assert! (equal? (apply rest1 1 '(2 3)) '(1 2 3)))
+(assert! (equal? (apply + 1 2 '(3 4 5)) 15))
+(assert! (equal? (apply (lambda (a b c) (list c b a)) '(1 2 3)) '(3 2 1)))
+(assert! (equal? ((dispatch 0) 'a 'b) '(a b)))
+(assert! (equal? ((dispatch 1) 'a 'b) '(a b)))
+(assert! (equal? ((dispatch 2) 'a 'b 'c) '(a b (c))))
+(assert! (equal? (with-handler (lambda (e) 'arity) (rest2 1)) 'arity))

@@ -58,7 +58,10 @@ fn jit_should_compile(id: u32) -> bool {
         eprintln!("jit: candidate #{n} -> id {id}");
     }
 
-    match std::env::var("STEEL_JIT_MAX").ok().and_then(|x| x.parse().ok()) {
+    match std::env::var("STEEL_JIT_MAX")
+        .ok()
+        .and_then(|x| x.parse().ok())
+    {
         Some(max) if n >= max => false,
         _ => true,
     }
@@ -116,10 +119,21 @@ pub(crate) fn jit_compile_lambda(
         let guard = ctx.thread.compiler.read();
         let values = guard.symbol_map.values();
         for (i, inst) in func.body_exp.iter().enumerate() {
-            if matches!(inst.op_code, OpCode::CALLGLOBAL | OpCode::CALLGLOBALTAIL
-                | OpCode::CALLGLOBALNOARITY | OpCode::CALLGLOBALTAILNOARITY | OpCode::PUSH) {
-                eprintln!("  {i}: {:?} -> {:?}", inst.op_code,
-                    values.get(inst.payload_size.to_usize()).map(|x| x.resolve().to_string()));
+            if matches!(
+                inst.op_code,
+                OpCode::CALLGLOBAL
+                    | OpCode::CALLGLOBALTAIL
+                    | OpCode::CALLGLOBALNOARITY
+                    | OpCode::CALLGLOBALTAILNOARITY
+                    | OpCode::PUSH
+            ) {
+                eprintln!(
+                    "  {i}: {:?} -> {:?}",
+                    inst.op_code,
+                    values
+                        .get(inst.payload_size.to_usize())
+                        .map(|x| x.resolve().to_string())
+                );
             }
         }
     }
@@ -152,17 +166,24 @@ pub(crate) fn jit_compile_lambda(
             .copied()
     });
 
-    // let mut inner = func.unwrap();
-    let fn_pointer = ctx.thread.jit.lock().unwrap().compile_bytecode(
-        name,
-        func.arity,
-        &func.body_exp,
-        &ctx.thread.global_env.roots(),
-        &ctx.thread.constant_map,
-        maybe_index,
-        self_slot.map(|x| &*x),
-        fn_ptr_name,
-    );
+    // The jit is shared by every engine in the process, so a panic anywhere in
+    // cranelift would otherwise poison it for everyone. Take the lock back rather
+    // than turning one failed compile into a process wide outage.
+    let fn_pointer = ctx
+        .thread
+        .jit
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .compile_bytecode(
+            name,
+            func.arity,
+            &func.body_exp,
+            &ctx.thread.global_env.roots(),
+            &ctx.thread.constant_map,
+            maybe_index,
+            self_slot.map(|x| &*x),
+            fn_ptr_name,
+        );
 
     let fn_pointer = if let Ok(fn_pointer) = fn_pointer {
         fn_pointer
@@ -206,16 +227,21 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     let name = func.id.to_string();
 
                     // let mut inner = func.unwrap();
-                    let compiled = ctx.thread.jit.lock().unwrap().compile_bytecode(
-                        name,
-                        func.arity,
-                        &func.body_exp,
-                        &ctx.thread.global_env.roots(),
-                        &ctx.thread.constant_map,
-                        None,
-                        None,
-                        None,
-                    );
+                    let compiled = ctx
+                        .thread
+                        .jit
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .compile_bytecode(
+                            name,
+                            func.arity,
+                            &func.body_exp,
+                            &ctx.thread.global_env.roots(),
+                            &ctx.thread.constant_map,
+                            None,
+                            None,
+                            None,
+                        );
                     let fn_pointer = match compiled {
                         Ok(p) => p,
                         Err(_) => continue,
@@ -272,16 +298,21 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
         let name = func.id.to_string();
 
         // let mut inner = func.unwrap();
-        let compiled = ctx.thread.jit.lock().unwrap().compile_bytecode(
-            name,
-            func.arity,
-            &func.body_exp,
-            &ctx.thread.global_env.roots(),
-            &ctx.thread.constant_map,
-            function_name,
-            None,
-            None,
-        );
+        let compiled = ctx
+            .thread
+            .jit
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .compile_bytecode(
+                name,
+                func.arity,
+                &func.body_exp,
+                &ctx.thread.global_env.roots(),
+                &ctx.thread.constant_map,
+                function_name,
+                None,
+                None,
+            );
         let fn_pointer = match compiled {
             Ok(p) => p,
             Err(_) => return Some(Ok(function.clone())),
@@ -2461,10 +2492,13 @@ fn num_equal_value(ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> SteelVa
 
     // unsafe { &mut *ctx }.ip += 2;
 
-    if let Ok(b) = number_equality(&left, &right) {
-        b
-    } else {
-        unreachable!()
+    match number_equality(&left, &right) {
+        Ok(b) => b,
+        Err(e) => {
+            guard.is_native = false;
+            guard.result = Some(Err(e));
+            SteelVal::Void
+        }
     }
 }
 
@@ -2477,24 +2511,40 @@ fn num_equal_value_bool(ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> bo
 
     // unsafe { &mut *ctx }.ip += 2;
 
-    if let Ok(SteelVal::BoolV(b)) = number_equality(&left, &right) {
-        b
-    } else {
-        unreachable!()
+    match number_equality(&left, &right) {
+        Ok(SteelVal::BoolV(b)) => b,
+        // Same as extern_c_lte_register - comparing a number against something
+        // that isn't one is a runtime error, not an unreachable state
+        Ok(other) => {
+            guard.is_native = false;
+            guard.result = Some(Err(SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!("=: expected a boolean result, found: {}", other),
+            )));
+            false
+        }
+        Err(e) => {
+            guard.is_native = false;
+            guard.result = Some(Err(e));
+            false
+        }
     }
 }
 
 #[cross_platform_fn]
-fn num_equal_int(left: SteelVal, right: SteelVal) -> SteelVal {
-    // println!("GETTING TO NUM EQUAL VALUE: {} - {}", left, right,);
-    // unsafe { &mut *ctx }.ip += 2;
-
+fn num_equal_int(ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> SteelVal {
+    // The jit only picks this when it has inferred an integer on the right, but
+    // the left is still whatever the program handed us
     assert!(matches!(right, SteelVal::IntV(_) | SteelVal::BigNum(_)));
 
-    if let Ok(b) = number_equality(&left, &right) {
-        b
-    } else {
-        unreachable!()
+    match number_equality(&left, &right) {
+        Ok(b) => b,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.is_native = false;
+            guard.result = Some(Err(e));
+            SteelVal::Void
+        }
     }
 }
 
@@ -2536,16 +2586,22 @@ fn equal_binop_register_bool(ctx: *mut VmCore, i: usize, right: SteelVal) -> boo
 }
 
 #[cross_platform_fn]
-fn num_equal_value_unboxed(_ctx: *mut VmCore, left: i128, right: i128) -> bool {
-    // println!("Calling num equal value");
-
+fn num_equal_value_unboxed(ctx: *mut VmCore, left: i128, right: i128) -> bool {
     unsafe {
-        if let Ok(SteelVal::BoolV(b)) =
-            number_equality(&core::mem::transmute(left), &core::mem::transmute(right))
-        {
-            b
-        } else {
-            unreachable!()
+        match number_equality(&core::mem::transmute(left), &core::mem::transmute(right)) {
+            Ok(SteelVal::BoolV(b)) => b,
+            res => {
+                let guard = &mut *ctx;
+                guard.is_native = false;
+                guard.result = Some(match res {
+                    Err(e) => Err(e),
+                    Ok(other) => Err(SteelErr::new(
+                        ErrorKind::TypeMismatch,
+                        format!("=: expected a boolean result, found: {}", other),
+                    )),
+                });
+                false
+            }
         }
     }
 }
@@ -2553,8 +2609,19 @@ fn num_equal_value_unboxed(_ctx: *mut VmCore, left: i128, right: i128) -> bool {
 macro_rules! extern_binop {
     ($name:tt, $func:tt) => {
         #[cross_platform_fn]
-        fn $name(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
-            $func(&[a, b]).unwrap()
+        fn $name(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
+            match $func(&[a, b]) {
+                Ok(v) => v,
+                // Hand the error back the way extern_c_div_one does - unwrapping
+                // here takes the whole process down on something the runtime
+                // would otherwise raise, like a divide by zero
+                Err(e) => {
+                    let guard = unsafe { &mut *ctx };
+                    guard.is_native = false;
+                    guard.result = Some(Err(e));
+                    SteelVal::Void
+                }
+            }
         }
     };
 }
