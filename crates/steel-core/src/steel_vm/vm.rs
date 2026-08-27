@@ -765,7 +765,7 @@ impl SteelThread {
             safepoints_enabled: true,
 
             #[cfg(feature = "jit2")]
-            jit: Arc::new(Mutex::new(crate::jit2::cgen::JIT::default())),
+            jit: Arc::new(Mutex::new(jit)),
 
             module_context: Vec::new(),
 
