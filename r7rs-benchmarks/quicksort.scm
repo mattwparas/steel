@@ -97,7 +97,7 @@
 ;;; http://srfi.schemers.org/srfi-27/mail-archive/msg00000.html
 ;;; http://www.math.purdue.edu/~lucier/random/random.scm
 
-;;; A uniform [0,1] random number generator; is
+;;; A uniform [0,1] random number generator ; is
 ;;; Pierre L'Ecuyer's generator from his paper
 ;;; "Good parameters and implementations for combined multiple
 ;;; recursive random number generators"
@@ -196,4 +196,4 @@
 
 (provide run-benchmark)
 
-(with-input-from-file "r7rs-benchmarks/small-inputs/quicksort.input" run-benchmark)
+(with-input-from-file (bench-input "quicksort") run-benchmark)

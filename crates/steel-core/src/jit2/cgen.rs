@@ -1157,6 +1157,34 @@ impl Default for JIT {
             InferredType::Bool,
         );
 
+        map.add_func_hint(
+            "lt-three",
+            abi! { extern_c_lt_three
+            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
+            InferredType::Bool,
+        );
+
+        map.add_func_hint(
+            "lte-three",
+            abi! { extern_c_lte_three
+            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
+            InferredType::Bool,
+        );
+
+        map.add_func_hint(
+            "gt-three",
+            abi! { extern_c_gt_three
+            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
+            InferredType::Bool,
+        );
+
+        map.add_func_hint(
+            "gte-three",
+            abi! { extern_c_gte_three
+            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
+            InferredType::Bool,
+        );
+
         map.add_func_hint("gt-binop", extern_c_gt_two as VmBinOp, InferredType::Bool);
         map.add_func_hint("gte-binop", extern_c_gte_two as VmBinOp, InferredType::Bool);
         map.add_func_hint(
@@ -1956,6 +1984,32 @@ struct PropertyMap {
 }
 
 impl PropertyMap {
+    // Keep only what both branches agree on. Anything else is unknown at the
+    // merge, and assuming otherwise means emitting the wrong drop glue for a
+    // slot the other branch already moved out.
+    pub fn meet(&mut self, other: &PropertyMap) {
+        self.props.retain(|key, props| match other.props.get(key) {
+            Some(other_props) => {
+                props.retain(|p| other_props.contains(p));
+                !props.is_empty()
+            }
+            None => false,
+        });
+
+        self.cached_lookups
+            .registers
+            .retain(|key, value| other.cached_lookups.registers.get(key) == Some(value));
+
+        self.cached_lookups.stack_length_capacity = self
+            .cached_lookups
+            .stack_length_capacity
+            .min(other.cached_lookups.stack_length_capacity);
+
+        if self.cached_lookups.stack_buf_pointer != other.cached_lookups.stack_buf_pointer {
+            self.cached_lookups.stack_buf_pointer = None;
+        }
+    }
+
     pub fn remove(&mut self, value: &ValueOrRegister) {
         self.props.remove(value);
     }
@@ -2096,7 +2150,7 @@ impl PropertyMap {
 
 // TODO: Figure out a good way to align inferred type but also
 // additional properties.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Properties {
     // If we can call car on this list successfully, downstream of this
     // then we're both going to be listed as a proper list type,
@@ -2337,9 +2391,13 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::SUB, 3) => "sub-three",
         (OpCode::SUB, 1) => "sub-negate",
         (OpCode::LT, 2) => "lt-binop",
+        (OpCode::LT, 3) => "lt-three",
         (OpCode::LTE, 2) => "lte-binop",
+        (OpCode::LTE, 3) => "lte-three",
         (OpCode::GT, 2) => "gt-binop",
+        (OpCode::GT, 3) => "gt-three",
         (OpCode::GTE, 2) => "gte-binop",
+        (OpCode::GTE, 3) => "gte-three",
         (OpCode::MUL, 2) => "mult-two",
         (OpCode::MUL, 3) => "mult-three",
         (OpCode::DIV, 2) => "div-two",
@@ -2661,7 +2719,7 @@ impl FunctionTranslator<'_> {
                                 let v = self.call_function(arity, name, false);
                                 self.push(v, InferredType::Any);
                             } else {
-                                todo!("Implement spilled function call");
+                                todo!("Implement spilled function call (arity {})", arity);
                             }
                         }
                     }
@@ -2705,7 +2763,7 @@ impl FunctionTranslator<'_> {
                                             ctx.call_function_with_func(arity, name, true, value);
                                         ctx.push(v, InferredType::Any);
                                     } else {
-                                        todo!("Implement spilled function call bail out case");
+                                        todo!("Implement spilled function call bail out case (arity {})", arity);
                                     }
                                 },
                             );
@@ -2741,7 +2799,7 @@ impl FunctionTranslator<'_> {
                                             ctx.call_function_with_func(arity, name, true, value);
                                         ctx.push(v, InferredType::Any);
                                     } else {
-                                        todo!("Implement spilled function call bail out case");
+                                        todo!("Implement spilled function call bail out case (arity {})", arity);
                                     }
                                 },
                             );
@@ -2779,7 +2837,7 @@ impl FunctionTranslator<'_> {
                                             ctx.call_function_with_func(arity, name, true, value);
                                         ctx.push(v, InferredType::Any);
                                     } else {
-                                        todo!("Implement spilled function call bail out case");
+                                        todo!("Implement spilled function call bail out case (arity {})", arity);
                                     }
                                 },
                             );
@@ -2794,7 +2852,7 @@ impl FunctionTranslator<'_> {
                                 let v = self.call_function(arity, name, true);
                                 self.push(v, InferredType::Any);
                             } else {
-                                todo!("Implement spilled function call");
+                                todo!("Implement spilled function call (arity {})", arity);
                             }
 
                             self.ip = self.instructions.len() + 1;
@@ -5709,7 +5767,9 @@ impl FunctionTranslator<'_> {
                 } else {
                     ctx.push_to_many_vm_stack_let_var_new(&args_off_the_stack);
 
-                    ctx.properties.cached_lookups.stack_length_capacity += args_off_the_stack.len();
+                    // The checked push reserves exactly what it needs, so there
+                    // is no headroom left over:
+                    ctx.properties.cached_lookups.stack_length_capacity = 0;
                 }
 
                 let should_trampoline = ctx.check_should_trampoline(vm_ctx);
@@ -5824,7 +5884,7 @@ impl FunctionTranslator<'_> {
 
                     v
                 } else {
-                    todo!("Implement spilled function call");
+                    todo!("Implement spilled function call (arity {})", arity);
                 }
             },
             typ,
@@ -7371,7 +7431,7 @@ impl FunctionTranslator<'_> {
                     );
                     ctx.push(v, InferredType::Any);
                 } else {
-                    todo!("Implement spilled function call bail out case");
+                    todo!("Implement spilled function call bail out case (arity {})", arity);
                 }
             },
         );
@@ -8768,6 +8828,9 @@ impl FunctionTranslator<'_> {
                 // We've now seen all the predecessors of the merge block.
                 self.builder.seal_block(merge_block);
 
+                // Only what both arms agree on survives the merge
+                self.properties.meet(&properties);
+
                 self.if_bound = last_bound;
 
                 assert_eq!(self.ip, else_offset.unwrap());
@@ -9424,8 +9487,9 @@ impl FunctionTranslator<'_> {
         } else {
             self.push_to_many_vm_stack_let_var_new(&args);
 
-            // Record the fact that we've adjusted for this many args:
-            self.properties.cached_lookups.stack_length_capacity += args.len();
+            // The checked push reserves exactly what it needs, so there is no
+            // headroom left over:
+            self.properties.cached_lookups.stack_length_capacity = 0;
         }
 
         self.converging_if(

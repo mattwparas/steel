@@ -1,3 +1,5 @@
+(require "common.scm")
+
 ;;; SIMPLEX -- Simplex algorithm.
 ; #lang r7rs
 ; (import (scheme base)
@@ -235,30 +237,16 @@
            1
            1))
 
-(assert! (equal? (list (vector 4 1 3 2) (vector 0 5 7 6)) (test 740.0)))
+(define (run-benchmark)
+  (let* ([count (read)]
+         [input1 (read)]
+         [output (read)]
+         [s2 (number->string count)]
+         [s1 ""]
+         [name "simplex"])
+    (run-r7rs-benchmark (string-append name ":" s2)
+                        count
+                        (lambda () (test (hide count input1)))
+                        (lambda (result) (equal? result output)))))
 
-(let loop ([i 0])
-  ; (when (< i 1000000)
-  (when (< i 1000)
-    (begin
-      ; (displayln i)
-      (assert! (equal? (list (vector 4 1 3 2) (vector 0 5 7 6)) (test 740.0)))
-
-      (loop (+ i 1)))))
-
-; 1000000
-; 740.0
-; (#(4 1 3 2) #(0 5 7 6))
-
-; (define (run-benchmark)
-;   (let* ((count (read))
-;          (input1 (read))
-;          (output (read))
-;          (s2 (number->string count))
-;          (s1 "")
-;          (name "simplex"))
-;     (run-r7rs-benchmark
-;      (string-append name ":" s2)
-;      count
-;      (lambda () (test (hide count input1)))
-;      (lambda (result) (equal? result output)))))
+(with-input-from-file (bench-input "simplex") run-benchmark)

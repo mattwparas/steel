@@ -89,4 +89,4 @@
                         (lambda () (pies (hide count input1) (hide count input2) (hide count input3)))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/pi.input" run-benchmark)
+(with-input-from-file (bench-input "pi") run-benchmark)

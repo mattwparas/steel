@@ -56,7 +56,7 @@
 ;                         (lambda () (test (hide count input1)))
 ;                         (lambda (result) (= result output)))))
 
-; (with-input-from-file "r7rs-benchmarks/inputs/mbrotz.input" run-benchmark)
+; (with-input-from-file (bench-input "mbrotz") run-benchmark)
 
 (define (run-benchmark)
   (let* ([count 10]

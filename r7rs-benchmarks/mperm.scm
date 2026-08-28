@@ -8,9 +8,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; 940720 / lth Added some more benchmarks for the thesis paper.
-;; 970215 / wdc Increased problem size from 8 to 9; improved tenperm9-benchmark.
+;; 970215 / wdc Increased problem size from 8 to 9 ; improved tenperm9-benchmark.
 ;; 970531 / wdc Cleaned up for public release.
-;; 000820 / wdc Added the MpermNKL benchmark; revised for new run-benchmark.
+;; 000820 / wdc Added the MpermNKL benchmark ; revised for new run-benchmark.
 ;; 071127 / wdc Simplified and ported for R6RS.
 
 (require "common.scm")
@@ -78,7 +78,7 @@
 ;;
 ;;   if n>1 then
 ;;     begin
-;;        repeat   P_{n-1},F_n   n-1 times;
+;;        repeat   P_{n-1},F_n   n-1 times ;
 ;;        P_{n-1}
 ;;     end
 ;;
@@ -102,9 +102,9 @@
 ;; Given a list of lists of numbers, returns the sum of the sums
 ;; of those lists.
 ;;
-;; for (; x != NULL; x = x->rest)
-;;     for (y = x->first; y != NULL; y = y->rest)
-;;         sum = sum + y->first;
+;; for (; x != NULL ; x = x->rest)
+;;     for (y = x->first ; y != NULL ; y = y->rest)
+;;         sum = sum + y->first ;
 
 (define (sumlists x)
   (do ((x x (cdr x)) (sum 0 (do ((y (car x) (cdr y)) (sum sum (+ sum (car y)))) ((null? y) sum))))
@@ -181,4 +181,4 @@
                         (hide input1 input3)
                         (hide input1 input4))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/mperm.input" run-benchmark)
+(with-input-from-file (bench-input "mperm") run-benchmark)

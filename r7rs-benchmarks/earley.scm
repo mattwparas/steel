@@ -42,7 +42,7 @@
 ;;    )
 ;;   (lambda (str)
 ;;     (map (lambda (char)
-;;            (list char;; user-info = the character itself
+;;            (list char ;; user-info = the character itself
 ;;                  (case char
 ;;                    ((#\x) 'x)
 ;;                    ((#\y) 'y)
@@ -663,7 +663,7 @@
                         (lambda () (test (hide count (vector->list (make-vector input1 'a)))))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/earley.input" run-benchmark)
+(with-input-from-file (bench-input "earley") run-benchmark)
 
 ;; Looking for this:
 ; 15943229

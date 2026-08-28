@@ -52,4 +52,4 @@
                         (lambda () (go (hide count input)))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/small-inputs/wc.input" run-benchmark)
+(with-input-from-file (bench-input "wc") run-benchmark)

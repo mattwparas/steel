@@ -52,4 +52,4 @@
                         (lambda () (mas (hide count input1) (hide count input2) (hide count input3)))
                         (lambda (result) (equal? (length result) output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/ntakl.input" run-benchmark)
+(with-input-from-file (bench-input "ntakl") run-benchmark)

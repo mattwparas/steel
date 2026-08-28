@@ -5069,7 +5069,7 @@
         (helix3* rU* 19 20) ;<-.
         (wc-Dumas rA 12 19) ;  | Distance
         ;;;;  | Constraint
-        ;; Helix 1;;  | 4.0 Angstroms
+        ;; Helix 1 ;;  | 4.0 Angstroms
         (helix3* rC 3 19) ;  |
         (wc-Dumas rG 13 3) ;  |
         (helix3* rC 2 3) ;  |
@@ -5077,7 +5077,7 @@
         (helix3* rC 1 2) ;  |
         (wc-Dumas rG* 15 1) ;  |
         ;;;;  |
-        ;; L2 LOOP;;  |
+        ;; L2 LOOP ;;  |
         (P-O3* rUs 16 15) ;  |
         (P-O3* rCs 17 16) ;  |
         (P-O3* rAs 18 17) ;<-'
@@ -5193,7 +5193,7 @@
 ;                           (and (number? result)
 ;                                (let ([x (/ result output)]) (and (> x 0.999999) (< x 1.000001))))))))
 
-; (with-input-from-file "r7rs-benchmarks/inputs/nucleic.input" run-benchmark)
+; (with-input-from-file (bench-input "nucleic") run-benchmark)
 
 (define (run-benchmark)
   (let* ([count 1]

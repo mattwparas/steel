@@ -44,4 +44,4 @@
                         (lambda () (read-from-file-benchmark (hide count input1)))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/read1.input" run-benchmark)
+(with-input-from-file (bench-input "read1") run-benchmark)

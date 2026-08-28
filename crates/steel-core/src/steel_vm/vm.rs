@@ -7350,7 +7350,7 @@ fn lte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
 
 // OpCode::ALLOC
 fn alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
-    panic!("Deprecated now - this shouldn't be hit");
+    panic!("OpCode::ALLOC has no implementation: a captured and mutated variable was not boxed");
 }
 
 // OpCode::READALLOC

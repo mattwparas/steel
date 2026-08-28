@@ -68,4 +68,4 @@
                         (lambda () (go (hide count count) (hide count input1)))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/small-inputs/array1.input" run-benchmark)
+(with-input-from-file (bench-input "array1") run-benchmark)

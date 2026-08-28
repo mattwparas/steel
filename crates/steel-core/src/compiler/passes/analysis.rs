@@ -1349,7 +1349,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         let is_top_level = self.info.scope.depth() == 1;
 
-        if is_top_level {
+        // Inlining doesn't freshen parameter names, so a let can end up nested
+        // inside another binding the same name. Without its own layer, the inner
+        // one's cleanup would remove the outer one's binding.
+        let shadows_enclosing = l
+            .local_bindings()
+            .filter_map(|x| x.atom_identifier())
+            .any(|name| self.info.scope.contains_key_at_top(name));
+
+        if is_top_level || shadows_enclosing {
             self.info.scope.push_layer();
         }
 
@@ -1449,7 +1457,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             // dbg!(self.scope.keys().map(|x| x.resolve()).collect::<Vec<_>>());
 
-            let scoped_info = self.info.scope.remove(name).unwrap();
+            let scoped_info = self.info.scope.remove(name).expect("missing let binding");
 
             if let Some(id) = &scoped_info.last_used {
                 self.info.get_mut(id).unwrap().last_usage = true;
@@ -1471,7 +1479,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             ));
         }
 
-        if is_top_level {
+        if is_top_level || shadows_enclosing {
             self.info.scope.pop_layer();
         }
 
@@ -3773,7 +3781,6 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                 for expr in b.exprs.iter_mut() {
                                     if let Some(found_escape_checker) = &mut found_escape_checker {
                                         if found_escape_checker.check(expr) {
-                                            println!("1. Function escapes, returning...");
                                             return;
                                         }
                                     }
@@ -3814,7 +3821,6 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
             for mut escape_checker in found_escape_checkers {
                 if escape_checker.check_let(l) {
-                    println!("4. Function escapes, returning...");
                     return;
                 }
             }
@@ -3852,7 +3858,6 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                             for (index, expr) in b.exprs.iter_mut().enumerate() {
                                 if let Some(found_escape_checker) = &mut found_escape_checker {
                                     if found_escape_checker.check(expr) {
-                                        println!("2. Function escapes, returning...");
                                         return;
                                     }
                                 }
@@ -3882,9 +3887,6 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
                                                     // First, check the function:
                                                     if escape_checker.check(expression) {
-                                                        println!(
-                                                            "3. Function escapes, returning..."
-                                                        );
                                                         return;
                                                     }
 
@@ -4199,7 +4201,6 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                             if il.first_ident().copied() == Some(*UNBOX) {
                                 if il.second_ident().copied() == Some(self.unbox_var) {
                                     self.escapes = true;
-                                    println!("Escapes = true: {}", l);
                                     return;
                                 }
                             }
@@ -4232,7 +4233,6 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
     fn visit_atom(&mut self, a: &'a Atom) {
         if let Some(identifier) = a.ident() {
             if *identifier == self.unbox_var {
-                println!("Escapes = true: {}", a);
                 self.escapes = true;
             }
         }
@@ -5952,11 +5952,6 @@ impl<'a> SemanticAnalysis<'a> {
                                 lst.args[0] = ExprKind::LambdaFunction(l.clone());
                             }
                         }),
-                    );
-                } else {
-                    println!(
-                        "Skipping inlining: {} with cost: {} > {}",
-                        d.name, count, threshold
                     );
                 }
             }

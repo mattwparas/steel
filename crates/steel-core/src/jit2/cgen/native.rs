@@ -955,6 +955,7 @@ impl<'a> FunctionTranslator<'a> {
 
         let entry = self.snapshot_branch_state();
         let res = BlockArg::Value(then(self));
+        let then_properties = self.properties.clone();
 
         self.builder.ins().jump(merge_block, &[res]);
 
@@ -965,6 +966,9 @@ impl<'a> FunctionTranslator<'a> {
         let then_res = BlockArg::Value(else_thunk(self));
         self.builder.ins().jump(merge_block, &[then_res]);
         self.builder.switch_to_block(merge_block);
+
+        // Only what both arms agree on survives the merge
+        self.properties.meet(&then_properties);
 
         let result = self.builder.block_params(merge_block)[0];
 
@@ -995,6 +999,7 @@ impl<'a> FunctionTranslator<'a> {
 
         let entry = self.snapshot_branch_state();
         let res = BlockArg::Value(then(self));
+        let then_properties = self.properties.clone();
 
         self.builder.ins().jump(merge_block, &[res]);
 
@@ -1005,6 +1010,9 @@ impl<'a> FunctionTranslator<'a> {
         let then_res = BlockArg::Value(else_thunk(self));
         self.builder.ins().jump(merge_block, &[then_res]);
         self.builder.switch_to_block(merge_block);
+
+        // Only what both arms agree on survives the merge
+        self.properties.meet(&then_properties);
 
         let result = self.builder.block_params(merge_block)[0];
 

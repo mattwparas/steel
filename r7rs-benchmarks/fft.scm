@@ -69,7 +69,7 @@
 ;                         (lambda () (run (hide count (make-vector input1 input2))))
 ;                         (lambda (result) (equal? result output)))))
 
-; (with-input-from-file "r7rs-benchmarks/inputs/fft.input" run-benchmark)
+; (with-input-from-file (bench-input "fft") run-benchmark)
 
 (define (run-benchmark)
   (let* ([count 10]

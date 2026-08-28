@@ -131,7 +131,7 @@
 ;                         (lambda () (nb (hide count input1)))
 ;                         (lambda (result) (= result output)))))
 
-; (with-input-from-file "r7rs-benchmarks/inputs/paraffins.input" run-benchmark)
+; (with-input-from-file (bench-input "paraffins") run-benchmark)
 
 (define (run-benchmark)
   (let* ([count 1]

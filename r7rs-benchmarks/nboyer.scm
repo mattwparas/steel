@@ -539,7 +539,7 @@
 ;                           (test-boyer alist term (hide count input)))
 ; (lambda (rewrites) (and (number? rewrites) (= rewrites output))))))
 
-; (with-input-from-file "r7rs-benchmarks/inputs/nboyer.input" run-benchmark)
+; (with-input-from-file (bench-input "nboyer") run-benchmark)
 
 (define (run-benchmark)
   (let* ([count 1]

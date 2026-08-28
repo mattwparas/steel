@@ -21,7 +21,7 @@
                         (lambda () (run (hide count input1)))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/sumfp.input" run-benchmark)
+(with-input-from-file (bench-input "sumfp") run-benchmark)
 
 (provide run)
 

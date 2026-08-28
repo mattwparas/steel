@@ -1437,6 +1437,28 @@ impl Compiler {
             }
         }
 
+        // Inlining and closure lifting can make a variable captured and mutated
+        // that wasn't before, and code_gen emits ALLOC for those. Box again.
+        {
+            let mut analysis = semantic.into_analysis();
+            analysis.fresh_from_exprs(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
+
+            let mut reboxed = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+            reboxed.populate_captures_twice();
+            reboxed.replace_mutable_captured_variables_with_boxes();
+
+            let mut analysis = reboxed.into_analysis();
+
+            // Boxing introduces an inner binding with the same name
+            self.shadowed_variable_renamer
+                .rename_shadowed_variables(&mut expanded_statements, false);
+
+            analysis.fresh_from_exprs(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
+            semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+        }
+
         // Process the fixed values in the compiler
 
         #[cfg(feature = "jit2")]

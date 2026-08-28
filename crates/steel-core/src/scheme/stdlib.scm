@@ -361,6 +361,28 @@
        e1 ...)]
     [(cond
        [e1
+        =>
+        e2 ...])
+     (let ([res e1])
+       (if res
+           ((begin
+              e2 ...)
+            res)
+           void))]
+    ;; A clause with no body returns the value of its test (R7RS 4.2.1).
+    [(cond
+       [e1])
+     e1]
+    [(cond
+       [e1]
+       c1 ...)
+     (let ([res e1])
+       (if res
+           res
+           (cond
+             c1 ...)))]
+    [(cond
+       [e1
         e2 ...])
      (when e1
        e2 ...)]

@@ -440,4 +440,4 @@
                         (lambda () (length (run (hide count input1))))
                         (lambda (result) (= result output)))))
 
-(with-input-from-file "r7rs-benchmarks/small-inputs/graphs.input" run-benchmark)
+(with-input-from-file (bench-input "graphs") run-benchmark)

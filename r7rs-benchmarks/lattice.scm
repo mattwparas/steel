@@ -287,6 +287,6 @@
 
 ; (displayln level3)
 
-(with-input-from-file "r7rs-benchmarks/inputs/lattice.input" run-benchmark)
+(with-input-from-file (bench-input "lattice") run-benchmark)
 
 ; (inspect maps-rest)

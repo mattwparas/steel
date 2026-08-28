@@ -47,4 +47,4 @@
                         (lambda () (run (hide count input1)))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/sum.input" run-benchmark)
+(with-input-from-file (bench-input "sum") run-benchmark)

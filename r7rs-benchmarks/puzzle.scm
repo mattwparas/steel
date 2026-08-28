@@ -139,4 +139,4 @@
 
 (for-each (lambda (i) (vector-set! *p* i (make-vector (+ *size* 1)))) (my-iota (+ typemax 1)))
 
-(with-input-from-file "r7rs-benchmarks/inputs/puzzle.input" run-benchmark)
+(with-input-from-file (bench-input "puzzle") run-benchmark)

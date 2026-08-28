@@ -1,3 +1,5 @@
+(require "common.scm")
+
 ;;; TRIANGL -- Board game benchmark.
 
 ; (import (scheme base) (scheme read) (scheme write) (scheme time))
@@ -75,33 +77,19 @@
   (car *answer*))
 
 ; 50
-; 22
-; 1
-; (22 34 31 15 7 1 20 17 25 6 5 13 32)
 
-; (displayln (test 22 1))
+(define (run-benchmark)
+  (let* ([count (read)]
+         [input1 (read)]
+         [input2 (read)]
+         [output (read)]
+         [s3 (number->string count)]
+         [s2 (number->string input2)]
+         [s1 (number->string input1)]
+         [name "triangl"])
+    (run-r7rs-benchmark (string-append name ":" s1 ":" s2 ":" s3)
+                        count
+                        (lambda () (test (hide count input1) (hide count input2)))
+                        (lambda (result) (equal? result output)))))
 
-(let loop ([i 0])
-  ; (when (< i 50)
-  (when (< i 1)
-    (begin
-      ; (displayln i)
-      ; (assert! (equal? (list (vector 4 1 3 2) (vector 0 5 7 6)) (test 740.0)))
-      (displayln (test 22 1))
-
-      (loop (+ i 1)))))
-
-; (define (run-benchmark)
-;   (let* ((count (read))
-;          (input1 (read))
-;          (input2 (read))
-;          (output (read))
-;          (s3 (number->string count))
-;          (s2 (number->string input2))
-;          (s1 (number->string input1))
-;          (name "triangl"))
-;     (run-r7rs-benchmark
-;      (string-append name ":" s1 ":" s2 ":" s3)
-;      count
-;      (lambda () (test (hide count input1) (hide count input2)))
-;      (lambda (result) (equal? result output)))))
+(with-input-from-file (bench-input "triangl") run-benchmark)

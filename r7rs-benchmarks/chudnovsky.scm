@@ -1,5 +1,5 @@
 ;;; Compute digits of PI using a straightforward implementation of
-;;; the Chudnovsky brothers algorithm; see
+;;; the Chudnovsky brothers algorithm ; see
 ;;; http://www.craig-wood.com/nick/articles/pi-chudnovsky/
 
 (require "common.scm")
@@ -59,4 +59,4 @@
                         (lambda (result) (equal? result output)))))
 
 ;; TODO: quotient only supports integers?
-(with-input-from-file "r7rs-benchmarks/inputs/chudnovsky.input" run-benchmark)
+(with-input-from-file (bench-input "chudnovsky") run-benchmark)

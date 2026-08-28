@@ -168,4 +168,4 @@
                         (lambda () (run (hide count input1) (hide count input2)))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/ray.input" run-benchmark)
+(with-input-from-file (bench-input "ray") run-benchmark)

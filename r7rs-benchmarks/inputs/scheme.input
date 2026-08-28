@@ -1,0 +1,41 @@
+100000
+
+(let ()
+
+  (define (sort-list obj pred)
+
+    (define (loop l)
+      (if (and (pair? l) (pair? (cdr l)))
+          (split l '() '())
+          l))
+
+    (define (split l one two)
+      (if (pair? l)
+          (split (cdr l) two (cons (car l) one))
+          (merge (loop one) (loop two))))
+
+    (define (merge one two)
+      (cond ((null? one) two)
+            ((pred (car two) (car one))
+             (cons (car two)
+                   (merge (cdr two) one)))
+            (else
+             (cons (car one)
+                   (merge (cdr one) two)))))
+
+    (loop obj))
+
+  (sort-list '("one" "two" "three" "four" "five" "six"
+               "seven" "eight" "nine" "ten" "eleven" "twelve"
+               "thirteen" "fourteen" "fifteen" "sixteen"
+               "seventeen" "eighteen" "nineteen" "twenty"
+               "twentyone" "twentytwo" "twentythree" "twentyfour"
+               "twentyfive" "twentysix" "twentyseven" "twentyeight"
+               "twentynine" "thirty")
+             string<?))
+
+("eight" "eighteen" "eleven" "fifteen" "five" "four" "fourteen"
+ "nine" "nineteen" "one" "seven" "seventeen" "six" "sixteen"
+ "ten" "thirteen" "thirty" "three" "twelve" "twenty" "twentyeight"
+ "twentyfive" "twentyfour" "twentynine" "twentyone" "twentyseven"
+ "twentysix" "twentythree" "twentytwo" "two")

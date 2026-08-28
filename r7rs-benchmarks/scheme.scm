@@ -1,3 +1,5 @@
+(require "common.scm")
+
 ;;; SCHEME -- A Scheme interpreter evaluating a sort, written by Marc Feeley.
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1219,4 +1221,16 @@
                                    "two")))
         (loop (+ i 1))))))
 
-(time! (run))
+(define (run-benchmark)
+  (let* ([count (read)]
+         [input1 (read)]
+         [output (read)]
+         [s2 (number->string count)]
+         [s1 ""]
+         [name "scheme"])
+    (run-r7rs-benchmark (string-append name ":" s2)
+                        count
+                        (lambda () (scheme-eval (hide count input1)))
+                        (lambda (result) (equal? result output)))))
+
+(with-input-from-file (bench-input "scheme") run-benchmark)

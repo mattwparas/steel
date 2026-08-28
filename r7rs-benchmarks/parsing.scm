@@ -31,6 +31,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (require "common.scm")
+(require "mutable-strings.scm")
 
 (define (parsing-benchmark . rest)
   (let* ([n (if (null? rest)
@@ -1007,3 +1008,5 @@
                         1
                         (lambda () (parsing-benchmark (hide count count) (hide count input1)))
                         (lambda (result) (equal? result output)))))
+
+(with-input-from-file (bench-input "parsing") run-benchmark)

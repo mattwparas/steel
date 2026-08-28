@@ -720,6 +720,16 @@ pub(crate) unsafe fn cdr_no_check_two(arg: &mut SteelVal) {
             l.rest_mut();
         }
 
+        // `cons` with a non-list cdr builds a Pair rather than a ListV, so this
+        // has to handle it the same way unchecked_car and cdr_no_check do.
+        SteelVal::Pair(_) => {
+            let SteelVal::Pair(p) = core::mem::replace(arg, SteelVal::Void) else {
+                unsafe { unreachable_unchecked() }
+            };
+
+            *arg = p.cdr();
+        }
+
         _ => unsafe {
             unreachable_unchecked();
         },

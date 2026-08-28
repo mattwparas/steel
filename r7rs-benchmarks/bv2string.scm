@@ -127,7 +127,7 @@
 ;                           (length failed-tests))
 ;                         (lambda (result) (equal? result output)))))
 
-; (with-input-from-file "r7rs-benchmarks/inputs/bv2string.input" run-benchmark)
+; (with-input-from-file (bench-input "bv2string") run-benchmark)
 
 (define (run-benchmark)
   (let* ([count 10]

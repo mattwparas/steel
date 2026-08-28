@@ -35,4 +35,4 @@
      (lambda () (ack (hide count input1) (hide count input2)))
      (lambda (result) (= result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/ack.input" run-benchmark)
+(with-input-from-file (bench-input "ack") run-benchmark)

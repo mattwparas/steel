@@ -504,21 +504,19 @@ fn r7rs_test_suite() {
     run(args).unwrap()
 }
 
-#[test]
-fn r7rs_benchmark_test_suite_two() {
-    let benches = &[
-        "r7rs-benchmarks/bv2string.scm",
-        "r7rs-benchmarks/mbrotz.scm",
-        "r7rs-benchmarks/sumfp.scm",
-        "r7rs-benchmarks/chudnovsky.scm",
-        "r7rs-benchmarks/nucleic.scm",
-        "r7rs-benchmarks/paraffins.scm",
-    ];
-
+#[cfg(test)]
+/// Runs a group of R7RS benchmarks against the reduced ("small") inputs.
+///
+/// The full-size inputs, the Guile comparison and the benchmarks that are not
+/// listed here are driven by `r7rs-benchmarks/run.sh`; see
+/// `r7rs-benchmarks/README.md`. The few benchmarks that pass under
+/// `STEEL_JIT=false` but not with the JIT are deliberately absent -- they are
+/// tracked in `r7rs-benchmarks/FINDINGS.md`.
+fn run_r7rs_benchmarks(benches: &[&str]) {
     for bench in benches {
         let args = SteelCliArgs {
             action: None,
-            default_file: Some(PathBuf::from(bench)),
+            default_file: Some(PathBuf::from(format!("r7rs-benchmarks/{bench}.scm"))),
             arguments: vec![],
         };
 
@@ -528,50 +526,75 @@ fn r7rs_benchmark_test_suite_two() {
 
 #[test]
 fn r7rs_benchmark_test_suite_one() {
-    let benches = &[
-        "r7rs-benchmarks/scheme.scm",
-        "r7rs-benchmarks/simplex.scm",
-        "r7rs-benchmarks/array1.scm",
-        "r7rs-benchmarks/triangl.scm",
-        "r7rs-benchmarks/nboyer.scm",
-        "r7rs-benchmarks/fft.scm",
-    ];
+    run_r7rs_benchmarks(&[
+        "ack",
+        "cat",
+        "ctak",
+        "divrec",
+        "fibc",
+        "mazefun",
+        "nboyer",
+        "paraffins",
+        "primes",
+        "read1",
+        "string",
+        "tail",
+        "wc",
+    ]);
+}
 
-    for bench in benches {
-        let args = SteelCliArgs {
-            action: None,
-            default_file: Some(PathBuf::from(bench)),
-            arguments: vec![],
-        };
-
-        run(args).unwrap();
-    }
+#[test]
+fn r7rs_benchmark_test_suite_two() {
+    run_r7rs_benchmarks(&[
+        "array1",
+        "chudnovsky",
+        "deriv",
+        "equal",
+        "fibfp",
+        "mbrot",
+        "nqueens",
+        "parsing",
+        "puzzle",
+        "sboyer",
+        "sum",
+        "tak",
+    ]);
 }
 
 #[test]
 fn r7rs_benchmark_test_suite_three() {
-    let benches = &[
-        "r7rs-benchmarks/cat.scm",
-        "r7rs-benchmarks/deriv.scm",
-        "r7rs-benchmarks/graphs.scm",
-        "r7rs-benchmarks/pi.scm",
-        "r7rs-benchmarks/pnpoly.scm",
-        "r7rs-benchmarks/quicksort.scm",
-        "r7rs-benchmarks/read1.scm",
-        "r7rs-benchmarks/string.scm",
-        "r7rs-benchmarks/tail.scm",
-        "r7rs-benchmarks/wc.scm",
-    ];
+    run_r7rs_benchmarks(&[
+        "browse",
+        "conform",
+        "destruc",
+        "fft",
+        "graphs",
+        "mbrotz",
+        "ntakl",
+        "pi",
+        "quicksort",
+        "scheme",
+        "sum1",
+        "takl",
+    ]);
+}
 
-    for bench in benches {
-        let args = SteelCliArgs {
-            action: None,
-            default_file: Some(PathBuf::from(bench)),
-            arguments: vec![],
-        };
-
-        run(args).unwrap();
-    }
+#[test]
+fn r7rs_benchmark_test_suite_four() {
+    run_r7rs_benchmarks(&[
+        "bv2string",
+        "cpstak",
+        "diviter",
+        "fib",
+        "lattice",
+        "mperm",
+        "nucleic",
+        "pnpoly",
+        "ray",
+        "simplex",
+        "sumfp",
+        "triangl",
+    ]);
 }
 
 #[test]

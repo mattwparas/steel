@@ -9,7 +9,20 @@
 (require-builtin steel/time)
 
 (provide run-r7rs-benchmark
-         hide)
+         hide
+         bench-input)
+
+;;; Selects the input file for a benchmark based on R7RS_BENCH_SIZE.
+;;;
+;;;   R7RS_BENCH_SIZE=small (the default) uses small-inputs/<name>.input,
+;;;   falling back to inputs/<name>.input when no reduced input exists.
+;;;   R7RS_BENCH_SIZE=full always uses inputs/<name>.input.
+
+(define (bench-input name)
+  (define size (with-handler (lambda (_) "small") (env-var "R7RS_BENCH_SIZE")))
+  (define small (string-append "r7rs-benchmarks/small-inputs/" name ".input"))
+  (define full (string-append "r7rs-benchmarks/inputs/" name ".input"))
+  (if (and (equal? size "small") (path-exists? small)) small full))
 
 ; (define values list)
 ; (define (call-with-values producer consumer)
@@ -84,6 +97,13 @@
         [else
          (display "ERROR: returned incorrect result: ")
          (write result)
+         (newline)
+         (display "+!CSVLINE!+")
+         (display (this-scheme-implementation-name))
+         (display ",")
+         (display name)
+         (display ",")
+         (display "INCORRECT")
          (newline)
          (flush-output-port (current-output-port))
          0]))))

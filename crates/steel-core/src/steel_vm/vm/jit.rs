@@ -3025,6 +3025,26 @@ fn extern_c_lt_two(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
 }
 
 #[cross_platform_fn]
+fn extern_c_lte_three(_ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
+    SteelVal::BoolV(a <= b && b <= c)
+}
+
+#[cross_platform_fn]
+fn extern_c_lt_three(_ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
+    SteelVal::BoolV(a < b && b < c)
+}
+
+#[cross_platform_fn]
+fn extern_c_gt_three(_ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
+    SteelVal::BoolV(a > b && b > c)
+}
+
+#[cross_platform_fn]
+fn extern_c_gte_three(_ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
+    SteelVal::BoolV(a >= b && b >= c)
+}
+
+#[cross_platform_fn]
 fn extern_c_lte_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
     assert!(matches!(b, SteelVal::IntV(_)));
     SteelVal::BoolV(a <= b)
@@ -4848,7 +4868,13 @@ make_call_function_tail_deopt!(
     (call_function_tail_deopt_5, a, b, c, d, e),
     (call_function_tail_deopt_6, a, b, c, d, e, f),
     (call_function_tail_deopt_7, a, b, c, d, e, f, g),
-    (call_function_tail_deopt_8, a, b, c, d, e, f, g, h)
+    (call_function_tail_deopt_8, a, b, c, d, e, f, g, h),
+    (call_function_tail_deopt_9, a, b, c, d, e, f, g, h, i),
+    (call_function_tail_deopt_10, a, b, c, d, e, f, g, h, i, j),
+    (call_function_tail_deopt_11, a, b, c, d, e, f, g, h, i, j, k),
+    (call_function_tail_deopt_12, a, b, c, d, e, f, g, h, i, j, k, l),
+    (call_function_tail_deopt_13, a, b, c, d, e, f, g, h, i, j, k, l, m),
+    (call_function_tail_deopt_14, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
 );
 
 macro_rules! make_call_global_function_deopt_no_arity {

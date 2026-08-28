@@ -80,4 +80,4 @@
                         (lambda () (nqueens (hide count input1)))
                         (lambda (result) (= result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/nqueens.input" run-benchmark)
+(with-input-from-file (bench-input "nqueens") run-benchmark)

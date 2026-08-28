@@ -7,3 +7,6 @@ docs/book
 .direnv/
 .steel/
 .helix/
+
+# R7RS benchmark run output (machine-specific timings)
+r7rs-benchmarks/results/

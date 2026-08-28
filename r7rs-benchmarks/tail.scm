@@ -37,4 +37,4 @@
                         (lambda () (go (hide count input1) (hide count input2)))
                         (lambda (result) #t))))
 
-(with-input-from-file "r7rs-benchmarks/small-inputs/tail.input" run-benchmark)
+(with-input-from-file (bench-input "tail") run-benchmark)
