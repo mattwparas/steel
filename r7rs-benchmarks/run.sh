@@ -13,6 +13,7 @@ BENCH_DIR="${STEEL_ROOT}/r7rs-benchmarks"
 UPSTREAM="${UPSTREAM:-${HOME}/code/r7rs-benchmarks}"
 STEEL_BIN="${STEEL_BIN:-${STEEL_ROOT}/target/release/steel}"
 GUILE_BIN="${GUILE_BIN:-guile}"
+GUILD_BIN="${GUILD_BIN:-guild}"
 
 SIZES="small"
 CONFIGS="nojit,jit"
@@ -169,6 +170,11 @@ guile_program() {
         "$src" \
         "${UPSTREAM}/src/common.scm" \
         "${UPSTREAM}/src/common-postlude.scm" > "$out"
+
+    # Upstream's bench script compiles with -O3 first; without it guile
+    # interprets and is several times slower. Not timed, same as upstream.
+    "$GUILD_BIN" compile -O3 "$out" >/dev/null 2>&1
+
     printf '%s' "$out"
 }
 
@@ -187,7 +193,7 @@ run_guile() {
     fi
     local log="${LOGDIR}/guile-${size}-${bench}-${run}.log"
     local t0; t0="$(date +%s%N)"
-    ( cd "$STEEL_ROOT" && timeout -k 5 "$TIMEOUT" "$GUILE_BIN" --no-auto-compile "$prog" < "$input" ) \
+    ( cd "$STEEL_ROOT" && timeout -k 5 "$TIMEOUT" "$GUILE_BIN" "$prog" < "$input" ) \
         > "$log" 2>&1
     local rc=$?
     local w; w="$(wall "$t0")"

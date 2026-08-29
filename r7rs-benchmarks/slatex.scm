@@ -1443,8 +1443,9 @@
         ((eq? *op-sys* 'dos) "\\")
         (else (slatex.error 'slatex.*directory-mark* 'cant-determine))))
 
+;; Relative to the working directory, which for these ports is the repo root.
 (define slatex.*file-hider*
-  (cond ((eq? *op-sys* 'unix) "outputs/")
+  (cond ((eq? *op-sys* 'unix) "r7rs-benchmarks/outputs/")
         ((eq? *op-sys* 'dos) "x")
         (else ".")))
 

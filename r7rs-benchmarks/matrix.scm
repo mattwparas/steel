@@ -1,5 +1,4 @@
 (require "common.scm")
-(require "mutable-lists.scm")
 
 ;;; MATRIX -- Obtained from Andrew Wright.
 
@@ -47,9 +46,6 @@
 
 ;; Chez-Scheme compatibility stuff:
 
-(define (chez-box x) (cons x '()))
-(define (chez-unbox x) (car x))
-(define (chez-set-box! x y) (set-car! x y))
 
 ;; Test that a matrix with entries in {+1, -1} is maximal among the matricies
 ;; obtainable by
@@ -535,35 +531,36 @@
 ;; Given a bound, find a prime greater than the bound.
 (define find-prime
   (lambda (bound)
-    (let* ((primes
-            (list 2))
-           (last
-            (chez-box primes))
-           (is-next-prime?
-            (lambda (trial)
-              (let _-*-
-                  ((primes
-                    primes))
-                (or (null? primes)
-                    (let ((p
-                           (car primes)))
-                      (or (< trial (* p p))
-                          (and (not (zero? (mod trial p)))
-                               (_-*- (cdr primes))))))))))
-      (if (> 2 bound)
-          2
-          (let _-*-
-              ((trial
-                3))
-            (if (is-next-prime? trial)
-                (let ((entry
-                       (list trial)))
-                  (set-cdr! (chez-unbox last) entry)
-                  (chez-set-box! last entry)
-                  (if (> trial bound)
-                      trial
-                      (_-*- (+ trial 2))))
-                (_-*- (+ trial 2))))))))
+    (if (> 2 bound)
+        2
+        (let ((primes (make-vector 64 0)) (count 1))
+          (vector-set! primes 0 2)
+          (letrec ((is-next-prime?
+                    (lambda (trial)
+                      (let _-*- ((i 0))
+                        (or (>= i count)
+                            (let ((p (vector-ref primes i)))
+                              (or (< trial (* p p))
+                                  (and (not (zero? (mod trial p)))
+                                       (_-*- (+ i 1)))))))))
+                   (add-prime!
+                    (lambda (p)
+                      (if (= count (vector-length primes))
+                          (let ((bigger (make-vector (* 2 (vector-length primes)) 0)))
+                            (let _-*- ((i 0))
+                              (if (< i count)
+                                  (begin
+                                    (vector-set! bigger i (vector-ref primes i))
+                                    (_-*- (+ i 1)))))
+                            (set! primes bigger)))
+                      (vector-set! primes count p)
+                      (set! count (+ count 1)))))
+            (let _-*- ((trial 3))
+              (if (is-next-prime? trial)
+                  (begin
+                    (add-prime! trial)
+                    (if (> trial bound) trial (_-*- (+ trial 2))))
+                  (_-*- (+ trial 2)))))))))
 
 ;; Given the size of a square matrix consisting only of +1's and -1's,
 ;; return an upper bound on the determinant.

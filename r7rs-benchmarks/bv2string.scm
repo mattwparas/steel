@@ -130,10 +130,10 @@
 ; (with-input-from-file (bench-input "bv2string") run-benchmark)
 
 (define (run-benchmark)
-  (let* ([count 10]
-         [input1 1000]
-         [input2 1000]
-         [output 0]
+  (let* ([count (read)]
+         [input1 (read)]
+         [input2 (read)]
+         [output (read)]
          [s3 (number->string count)]
          [s2 (number->string input2)]
          [s1 (number->string input1)]
@@ -145,4 +145,4 @@
                           (length failed-tests))
                         (lambda (result) (equal? result output)))))
 
-(run-benchmark)
+(with-input-from-file (bench-input "bv2string") run-benchmark)

@@ -4,6 +4,7 @@ browse
 bv2string
 cat
 chudnovsky
+compiler
 conform
 cpstak
 ctak
@@ -21,6 +22,7 @@ fibfp
 gcbench
 graphs
 lattice
+matrix
 maze
 mazefun
 mbrot
@@ -43,6 +45,7 @@ read1
 sboyer
 scheme
 simplex
+slatex
 string
 sum
 sum1

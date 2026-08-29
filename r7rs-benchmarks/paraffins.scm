@@ -134,9 +134,9 @@
 ; (with-input-from-file (bench-input "paraffins") run-benchmark)
 
 (define (run-benchmark)
-  (let* ([count 1]
-         [input1 23]
-         [output 5731580]
+  (let* ([count (read)]
+         [input1 (read)]
+         [output (read)]
          [s2 (number->string count)]
          [s1 (number->string input1)]
          [name "paraffins"])
@@ -145,4 +145,4 @@
                         (lambda () (nb (hide count input1)))
                         (lambda (result) (= result output)))))
 
-(run-benchmark)
+(with-input-from-file (bench-input "paraffins") run-benchmark)

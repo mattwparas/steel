@@ -67,6 +67,7 @@ fn jit_should_compile(id: u32) -> bool {
     }
 }
 
+
 pub(crate) fn jit_compile_lambda(
     ctx: &mut VmCore,
     mut func: ByteCodeLambda,
@@ -3432,11 +3433,8 @@ fn callglobal_tail_handler_deopt_spilled(
     let ctx = unsafe { &mut *ctx };
     let func = ctx.thread.global_env.repl_lookup_idx(index);
 
-    // These are the callees `handle_global_tail_call_deopt_spilled` sets a frame
-    // up for and reports `Void` for; the rest hand back a real return value.
-    // Unlike the non-tail handler this one never runs the trampoline itself, so
-    // a jitted callee is no exception - treating one as if it had returned Void
-    // pops the frame and throws the tail call away.
+    // These callees get a frame set up and report Void; the rest return a
+    // value. This handler never trampolines, so a jitted callee is no exception.
     let sets_up_frame = matches!(
         &func,
         SteelVal::Closure(_)
@@ -5334,9 +5332,8 @@ fn call_global_function_deopt_no_arity_spilled(
         arity: usize,
     ) -> Result<SteelVal> {
         match stack_func {
-            // These three return a value rather than setting up a frame, so
-            // nothing else is going to consume the arguments the caller spilled
-            // - drop them here the way list-handler-spilled does.
+            // These return a value rather than taking a frame, so nothing else
+            // consumes the spilled args - drop them, as list-handler-spilled does.
             SteelVal::FuncV(func) => {
                 let res = ctx
                     .thread
@@ -5465,9 +5462,8 @@ fn call_global_function_deopt_spilled(
         arity: usize,
     ) -> Result<SteelVal> {
         match stack_func {
-            // These three return a value rather than setting up a frame, so
-            // nothing else is going to consume the arguments the caller spilled
-            // - drop them here the way list-handler-spilled does.
+            // These return a value rather than taking a frame, so nothing else
+            // consumes the spilled args - drop them, as list-handler-spilled does.
             SteelVal::FuncV(func) => {
                 let res = ctx
                     .thread

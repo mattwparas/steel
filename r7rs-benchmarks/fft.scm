@@ -72,10 +72,10 @@
 ; (with-input-from-file (bench-input "fft") run-benchmark)
 
 (define (run-benchmark)
-  (let* ([count 10]
-         [input1 65536]
-         [input2 0.0]
-         [output 0.0]
+  (let* ([count (read)]
+         [input1 (read)]
+         [input2 (read)]
+         [output (read)]
          [s2 (number->string count)]
          [s1 (number->string input1)]
          [name "fft"])
@@ -84,4 +84,4 @@
                         (lambda () (run (hide count (make-vector input1 input2))))
                         (lambda (result) (equal? result output)))))
 
-(run-benchmark)
+(with-input-from-file (bench-input "fft") run-benchmark)

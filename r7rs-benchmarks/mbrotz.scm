@@ -59,9 +59,9 @@
 ; (with-input-from-file (bench-input "mbrotz") run-benchmark)
 
 (define (run-benchmark)
-  (let* ([count 10]
-         [input1 75]
-         [output 5]
+  (let* ([count (read)]
+         [input1 (read)]
+         [output (read)]
          [s2 (number->string count)]
          [s1 (number->string input1)]
          [name "mbrotZ"])
@@ -70,4 +70,4 @@
                         (lambda () (test (hide count input1)))
                         (lambda (result) (= result output)))))
 
-(run-benchmark)
+(with-input-from-file (bench-input "mbrotz") run-benchmark)

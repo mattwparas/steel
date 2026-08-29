@@ -3883,10 +3883,11 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                         unbox_var: original_func_name,
                                                         escapes: false,
                                                         func_name: Some(*function_name),
+                                                        inside_lambda: false,
                                                     };
 
                                                     // First, check the function:
-                                                    if escape_checker.check(expression) {
+                                                    if escape_checker.check_function(expression) {
                                                         return;
                                                     }
 
@@ -4129,6 +4130,8 @@ struct CheckIdentifierOnlyOccursInUnboxCallPosition {
     unbox_var: InternedString,
     func_name: Option<InternedString>,
     escapes: bool,
+    // Set while visiting a nested lambda - a call from inside one escapes.
+    inside_lambda: bool,
 }
 
 impl CheckIdentifierOnlyOccursInUnboxCallPosition {
@@ -4137,6 +4140,7 @@ impl CheckIdentifierOnlyOccursInUnboxCallPosition {
             unbox_var,
             func_name: None,
             escapes: false,
+            inside_lambda: false,
         }
     }
 
@@ -4145,12 +4149,27 @@ impl CheckIdentifierOnlyOccursInUnboxCallPosition {
             unbox_var,
             func_name: Some(func_name),
             escapes: false,
+            inside_lambda: false,
         }
     }
 
     fn check(&mut self, expr: &ExprKind) -> bool {
         self.escapes = false;
+        self.inside_lambda = false;
         self.visit(expr);
+        let res = self.escapes;
+        self.escapes = false;
+        res
+    }
+
+    // The lifted function is itself a lambda, so check one level in.
+    fn check_function(&mut self, expr: &ExprKind) -> bool {
+        self.escapes = false;
+        self.inside_lambda = false;
+        match expr {
+            ExprKind::LambdaFunction(l) => self.visit(&l.body),
+            other => self.visit(other),
+        }
         let res = self.escapes;
         self.escapes = false;
         res
@@ -4158,6 +4177,7 @@ impl CheckIdentifierOnlyOccursInUnboxCallPosition {
 
     fn check_let(&mut self, expr: &Let) -> bool {
         self.escapes = false;
+        self.inside_lambda = false;
         self.visit_let(expr);
         let res = self.escapes;
         self.escapes = false;
@@ -4184,6 +4204,11 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                 if let Some(ExprKind::List(il)) = l.first() {
                     if il.first_ident().copied() == Some(*UNBOX) {
                         if il.second_ident().copied() == Some(self.unbox_var) {
+                            if self.inside_lambda {
+                                self.escapes = true;
+                                return;
+                            }
+
                             if let Some(rest) = l.args.get(1..) {
                                 for expr in rest {
                                     self.visit(expr);
@@ -4236,6 +4261,13 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                 self.escapes = true;
             }
         }
+    }
+
+    fn visit_lambda_function(&mut self, lambda_function: &'a LambdaFunction) {
+        let previous = self.inside_lambda;
+        self.inside_lambda = true;
+        self.visit(&lambda_function.body);
+        self.inside_lambda = previous;
     }
 }
 

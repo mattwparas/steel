@@ -5196,9 +5196,9 @@
 ; (with-input-from-file (bench-input "nucleic") run-benchmark)
 
 (define (run-benchmark)
-  (let* ([count 1]
-         [input1 '()]
-         [output 33.797594890762724]
+  (let* ([count (read)]
+         [input1 (read)]
+         [output (read)]
          [s2 (number->string count)]
          [s1 input1]
          [name "nucleic"])
@@ -5209,4 +5209,4 @@
                           (and (number? result)
                                (let ([x (/ result output)]) (and (> x 0.999999) (< x 1.000001))))))))
 
-(run-benchmark)
+(with-input-from-file (bench-input "nucleic") run-benchmark)

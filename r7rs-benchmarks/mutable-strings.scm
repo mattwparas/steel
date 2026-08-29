@@ -89,8 +89,13 @@
 (define (string->number s . rest)
   (#%prim.apply #%prim.string->number (#%prim.cons (mstring->string s) rest)))
 
+;; Benchmarks mutate the result, so hand back the mutable representation.
+(define (%list->mlist xs)
+  (if (#%prim.null? xs) '() (mpair (#%prim.car xs) (%list->mlist (#%prim.cdr xs)))))
+
 (define (string->list s . rest)
-  (#%prim.apply #%prim.string->list (#%prim.cons (mstring->string s) rest)))
+  (%list->mlist
+   (#%prim.apply #%prim.string->list (#%prim.cons (mstring->string s) rest))))
 
 (define (list->string chars)
   (#%prim.apply #%prim.string-append (%map %char->string chars)))

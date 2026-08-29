@@ -1705,6 +1705,11 @@ impl JIT {
             deopt_return_block: None,
             properties: Default::default(),
             visited: HashSet::default(),
+            join_targets: bytecode
+                .iter()
+                .filter(|x| matches!(x.op_code, OpCode::JMP | OpCode::POPJMP | OpCode::IF))
+                .map(|x| x.payload_size.to_usize())
+                .collect(),
             depth: 0,
             if_stack: Vec::new(),
             if_bound: None,
@@ -1753,6 +1758,7 @@ impl JIT {
 
         // Tell the builder we're done with this function.
         let frontend_config = trans.module.target_config();
+        let deopts = trans.deopt_return_block.is_some();
         trans.builder.finalize(frontend_config);
 
         /*
@@ -1762,6 +1768,11 @@ impl JIT {
 
         println!("Stats: {:#?}", trans.compilation_stats);
         */
+
+        // exit_types only sees the POPPURE returns; a deopt returns void.
+        if deopts {
+            exit_types.insert(InferredType::Void);
+        }
 
         self.function_return_types.insert(id, exit_types);
 
@@ -1984,9 +1995,7 @@ struct PropertyMap {
 }
 
 impl PropertyMap {
-    // Keep only what both branches agree on. Anything else is unknown at the
-    // merge, and assuming otherwise means emitting the wrong drop glue for a
-    // slot the other branch already moved out.
+    // Keep only what both branches agree on; anything else is unknown here.
     pub fn meet(&mut self, other: &PropertyMap) {
         self.props.retain(|key, props| match other.props.get(key) {
             Some(other_props) => {
@@ -2276,6 +2285,8 @@ struct FunctionTranslator<'a> {
     // together into a dynamic sequence.
     instructions: &'a [DenseInstruction],
     ip: usize,
+    // Instructions some branch jumps to.
+    join_targets: HashSet<usize>,
     _globals: &'a [SteelVal],
 
     // Local values - whenever things are locally read, we can start using them
@@ -3249,6 +3260,10 @@ impl FunctionTranslator<'_> {
                         return false;
                     }
                 }
+                OpCode::CALLGLOBALNOARITY if self.func_is_join_target(self.ip + 1) => {
+                    self.push_global_callee(payload);
+                }
+
                 OpCode::CALLGLOBALNOARITY => {
                     // First - find the index that we have to lookup.
                     let function_index = payload;
@@ -3383,6 +3398,10 @@ impl FunctionTranslator<'_> {
 
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
+                }
+
+                OpCode::CALLPRIMITIVE if self.func_is_join_target(self.ip + 1) => {
+                    self.push_global_callee(payload);
                 }
 
                 OpCode::CALLPRIMITIVE => {
@@ -3529,8 +3548,12 @@ impl FunctionTranslator<'_> {
                 }
 
                 OpCode::CALLGLOBAL => {
-                    self.potentially_could_deopt = true;
-                    self.call_global_impl(payload);
+                    if self.func_is_join_target(self.ip + 1) {
+                        self.push_global_callee(payload);
+                    } else {
+                        self.potentially_could_deopt = true;
+                        self.call_global_impl(payload);
+                    }
                 }
 
                 // Pattern is
@@ -6685,6 +6708,23 @@ impl FunctionTranslator<'_> {
             }
             _ => panic!(),
         }
+    }
+
+    // Both arms share a FUNC that is a branch target, so it can't be fused
+    // into the CALLGLOBAL - push the callee and let the FUNC apply it.
+    fn func_is_join_target(&self, index: usize) -> bool {
+        self.join_targets.contains(&index)
+            && matches!(
+                self.instructions.get(index).map(|x| x.op_code),
+                Some(OpCode::FUNC | OpCode::FUNCNOARITY)
+            )
+    }
+
+    fn push_global_callee(&mut self, payload: usize) {
+        let result = self.inline_lookup_global(payload);
+        self.clone_value(result);
+        self.push(result, InferredType::Any);
+        self.ip += 1;
     }
 
     fn call_global_impl(&mut self, payload: usize) {
