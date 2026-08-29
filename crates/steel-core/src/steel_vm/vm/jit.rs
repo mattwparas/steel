@@ -3431,28 +3431,26 @@ fn callglobal_tail_handler_deopt_spilled(
 ) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     let func = ctx.thread.global_env.repl_lookup_idx(index);
-    let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
+
+    // These are the callees `handle_global_tail_call_deopt_spilled` sets a frame
+    // up for and reports `Void` for; the rest hand back a real return value.
+    // Unlike the non-tail handler this one never runs the trampoline itself, so
+    // a jitted callee is no exception - treating one as if it had returned Void
+    // pops the frame and throws the tail call away.
+    let sets_up_frame = matches!(
+        &func,
         SteelVal::Closure(_)
-        | SteelVal::ContinuationFunction(_)
-        | SteelVal::BuiltIn(_)
-        | SteelVal::CustomStruct(_) => true,
-        _ => false,
-    };
+            | SteelVal::ContinuationFunction(_)
+            | SteelVal::BuiltIn(_)
+            | SteelVal::CustomStruct(_)
+    );
 
-    if should_yield {
-        ctx.ip = fallback_ip;
-        ctx.is_native = false;
-    } else {
-        ctx.ip = fallback_ip;
-        // ctx.ip += 1;
-    }
-
+    ctx.ip = fallback_ip;
     ctx.is_native = false;
 
     match handle_global_tail_call_deopt_spilled(ctx, func, arity) {
         Ok(v) => {
-            if !should_yield {
+            if !sets_up_frame {
                 extern_handle_pop(ctx, v);
                 ctx.is_native = false;
                 return SteelVal::Void;

@@ -3345,7 +3345,9 @@ impl FunctionTranslator<'_> {
                             };
 
                         self.push(result, inferred_type);
-                    } else if USE_INLINE_CALL_GLOBAL {
+                    } else if USE_INLINE_CALL_GLOBAL
+                        && CallFunctionDefinitions::arity_to_name(arity).is_some()
+                    {
                         // Local name here is important
                         let name = CallFunctionDefinitions::arity_to_name(arity);
 
@@ -5905,8 +5907,6 @@ impl FunctionTranslator<'_> {
 
             self.push(v, InferredType::Any);
         } else {
-            // @matt: 1/3/26
-            // TODO: There is a bug with this function!
             let name = "call-global-tail-spilled";
 
             // TODO: We need to spill the local variables here!

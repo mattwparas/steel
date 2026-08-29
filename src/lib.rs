@@ -507,11 +507,8 @@ fn r7rs_test_suite() {
 #[cfg(test)]
 /// Runs a group of R7RS benchmarks against the reduced ("small") inputs.
 ///
-/// The full-size inputs, the Guile comparison and the benchmarks that are not
-/// listed here are driven by `r7rs-benchmarks/run.sh`; see
-/// `r7rs-benchmarks/README.md`. The few benchmarks that pass under
-/// `STEEL_JIT=false` but not with the JIT are deliberately absent -- they are
-/// tracked in `r7rs-benchmarks/FINDINGS.md`.
+/// The full-size inputs and the Guile comparison are driven by
+/// `r7rs-benchmarks/run.sh`; see `r7rs-benchmarks/README.md`.
 fn run_r7rs_benchmarks(benches: &[&str]) {
     for bench in benches {
         let args = SteelCliArgs {
@@ -531,43 +528,7 @@ fn r7rs_benchmark_test_suite_one() {
         "cat",
         "ctak",
         "divrec",
-        "fibc",
-        "mazefun",
-        "nboyer",
-        "paraffins",
-        "primes",
-        "read1",
-        "string",
-        "tail",
-        "wc",
-    ]);
-}
-
-#[test]
-fn r7rs_benchmark_test_suite_two() {
-    run_r7rs_benchmarks(&[
-        "array1",
-        "chudnovsky",
-        "deriv",
-        "equal",
-        "fibfp",
-        "mbrot",
-        "nqueens",
-        "parsing",
-        "puzzle",
-        "sboyer",
-        "sum",
-        "tak",
-    ]);
-}
-
-#[test]
-fn r7rs_benchmark_test_suite_three() {
-    run_r7rs_benchmarks(&[
-        "browse",
-        "conform",
-        "destruc",
-        "fft",
+        "fib",
         "graphs",
         "mbrotz",
         "ntakl",
@@ -580,12 +541,13 @@ fn r7rs_benchmark_test_suite_three() {
 }
 
 #[test]
-fn r7rs_benchmark_test_suite_four() {
+fn r7rs_benchmark_test_suite_two() {
     run_r7rs_benchmarks(&[
-        "bv2string",
-        "cpstak",
-        "diviter",
-        "fib",
+        "array1",
+        "chudnovsky",
+        "deriv",
+        "earley",
+        "fibc",
         "lattice",
         "mperm",
         "nucleic",
@@ -594,6 +556,43 @@ fn r7rs_benchmark_test_suite_four() {
         "simplex",
         "sumfp",
         "triangl",
+    ]);
+}
+
+#[test]
+fn r7rs_benchmark_test_suite_three() {
+    run_r7rs_benchmarks(&[
+        "browse",
+        "conform",
+        "destruc",
+        "equal",
+        "fibfp",
+        "mazefun",
+        "nboyer",
+        "paraffins",
+        "primes",
+        "read1",
+        "string",
+        "tail",
+        "wc",
+    ]);
+}
+
+#[test]
+fn r7rs_benchmark_test_suite_four() {
+    run_r7rs_benchmarks(&[
+        "bv2string",
+        "cpstak",
+        "diviter",
+        "fft",
+        "gcbench",
+        "mbrot",
+        "nqueens",
+        "parsing",
+        "puzzle",
+        "sboyer",
+        "sum",
+        "tak",
     ]);
 }
 
