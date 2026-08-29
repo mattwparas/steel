@@ -528,29 +528,11 @@ fn r7rs_benchmark_test_suite_one() {
         "cat",
         "ctak",
         "divrec",
-        "fib",
-        "graphs",
-        "mbrotz",
-        "ntakl",
-        "pi",
-        "quicksort",
-        "scheme",
-        "sum1",
-        "takl",
-    ]);
-}
-
-#[test]
-fn r7rs_benchmark_test_suite_two() {
-    run_r7rs_benchmarks(&[
-        "array1",
-        "chudnovsky",
-        "deriv",
-        "earley",
-        "fibc",
-        "lattice",
-        "mperm",
-        "nucleic",
+        "fft",
+        "gcbench",
+        "mazefun",
+        "nboyer",
+        "paraffins",
         "pnpoly",
         "ray",
         "simplex",
@@ -560,16 +542,17 @@ fn r7rs_benchmark_test_suite_two() {
 }
 
 #[test]
-fn r7rs_benchmark_test_suite_three() {
+fn r7rs_benchmark_test_suite_two() {
     run_r7rs_benchmarks(&[
-        "browse",
-        "conform",
-        "destruc",
-        "equal",
-        "fibfp",
-        "mazefun",
-        "nboyer",
-        "paraffins",
+        "array1",
+        "chudnovsky",
+        "deriv",
+        "dynamic",
+        "fib",
+        "graphs",
+        "mbrot",
+        "nqueens",
+        "parsing",
         "primes",
         "read1",
         "string",
@@ -579,20 +562,40 @@ fn r7rs_benchmark_test_suite_three() {
 }
 
 #[test]
+fn r7rs_benchmark_test_suite_three() {
+    run_r7rs_benchmarks(&[
+        "browse",
+        "conform",
+        "destruc",
+        "earley",
+        "fibc",
+        "lattice",
+        "mbrotz",
+        "ntakl",
+        "peval",
+        "puzzle",
+        "sboyer",
+        "sum",
+        "tak",
+    ]);
+}
+
+#[test]
 fn r7rs_benchmark_test_suite_four() {
     run_r7rs_benchmarks(&[
         "bv2string",
         "cpstak",
         "diviter",
-        "fft",
-        "gcbench",
-        "mbrot",
-        "nqueens",
-        "parsing",
-        "puzzle",
-        "sboyer",
-        "sum",
-        "tak",
+        "equal",
+        "fibfp",
+        "maze",
+        "mperm",
+        "nucleic",
+        "pi",
+        "quicksort",
+        "scheme",
+        "sum1",
+        "takl",
     ]);
 }
 

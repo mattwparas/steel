@@ -6721,7 +6721,19 @@ impl FunctionTranslator<'_> {
 
             let v = self.call_global_function_spilled(arity, name, function_index, false);
 
-            self.push(v, InferredType::Any)
+            // Only reached when the callee returned a value rather than setting
+            // up a frame - the handler dropped the spilled arguments, so drop
+            // them from the model too.
+            self.check_deopt();
+            self.shadow_stack.truncate(self.shadow_stack.len() - arity);
+            self.properties.cached_lookups.stack_length_capacity = self
+                .properties
+                .cached_lookups
+                .stack_length_capacity
+                .saturating_add(arity);
+
+            self.push(v, InferredType::Any);
+            return;
         }
 
         // Then, we're gonna check the result and see if we should deopt

@@ -11,6 +11,7 @@ deriv
 destruc
 diviter
 divrec
+dynamic
 earley
 equal
 fft
@@ -20,6 +21,7 @@ fibfp
 gcbench
 graphs
 lattice
+maze
 mazefun
 mbrot
 mbrotz
@@ -30,6 +32,7 @@ ntakl
 nucleic
 paraffins
 parsing
+peval
 pi
 pnpoly
 primes

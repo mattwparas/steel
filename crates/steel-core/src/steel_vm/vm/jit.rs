@@ -5293,6 +5293,11 @@ make_call_self_function_deopt_no_arity!(
     (call_self_function_deopt_8_no_arity, a, b, c, d, e, f, g, h)
 );
 
+fn drop_spilled_args(ctx: &mut VmCore, arity: usize) {
+    let len = ctx.thread.stack.len();
+    let _ = ctx.thread.stack.truncate(len - arity);
+}
+
 #[cross_platform_fn]
 fn call_global_function_deopt_no_arity_spilled(
     ctx: *mut VmCore,
@@ -5329,18 +5334,31 @@ fn call_global_function_deopt_no_arity_spilled(
         arity: usize,
     ) -> Result<SteelVal> {
         match stack_func {
-            SteelVal::FuncV(func) => ctx
-                .thread
-                .enter_safepoint(move |t| func(&t.stack[t.stack.len() - arity..]))
-                .map_err(|x| x.set_span_if_none(ctx.current_span())),
-            SteelVal::BoxedFunction(func) => ctx
-                .thread
-                .enter_safepoint(move |t| func.func()(&t.stack[t.stack.len() - arity..]))
-                .map_err(|x| x.set_span_if_none(ctx.current_span())),
+            // These three return a value rather than setting up a frame, so
+            // nothing else is going to consume the arguments the caller spilled
+            // - drop them here the way list-handler-spilled does.
+            SteelVal::FuncV(func) => {
+                let res = ctx
+                    .thread
+                    .enter_safepoint(move |t| func(&t.stack[t.stack.len() - arity..]))
+                    .map_err(|x| x.set_span_if_none(ctx.current_span()));
+                drop_spilled_args(ctx, arity);
+                res
+            }
+            SteelVal::BoxedFunction(func) => {
+                let res = ctx
+                    .thread
+                    .enter_safepoint(move |t| func.func()(&t.stack[t.stack.len() - arity..]))
+                    .map_err(|x| x.set_span_if_none(ctx.current_span()));
+                drop_spilled_args(ctx, arity);
+                res
+            }
             SteelVal::MutFunc(func) => {
                 let len = ctx.thread.stack.len();
-                func(&mut ctx.thread.stack[len - arity..])
-                    .map_err(|x| x.set_span_if_none(ctx.current_span()))
+                let res = func(&mut ctx.thread.stack[len - arity..])
+                    .map_err(|x| x.set_span_if_none(ctx.current_span()));
+                drop_spilled_args(ctx, arity);
+                res
             }
             SteelVal::Closure(closure) => {
                 // TODO: Consider reserving the amount?
@@ -5352,7 +5370,7 @@ fn call_global_function_deopt_no_arity_spilled(
 
                         // Install the function, so that way we can just trampoline
                         // without needing to spill the stack
-                        ctx.handle_function_call_closure_jit_no_arity(closure)
+                        ctx.handle_function_call_closure_jit(closure, arity)
                             .unwrap();
 
                         let tramp = ctx.thread.trampoline;
@@ -5371,11 +5389,11 @@ fn call_global_function_deopt_no_arity_spilled(
                         }
                     } else {
                         // We're going to de-opt in this case - unless we intend to do some fun inlining business
-                        ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                        ctx.handle_function_call_closure_jit(closure, arity)?;
                         Ok(SteelVal::Void)
                     }
                 } else {
-                    ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                    ctx.handle_function_call_closure_jit(closure, arity)?;
                     Ok(SteelVal::Void)
                 }
             }
@@ -5447,18 +5465,31 @@ fn call_global_function_deopt_spilled(
         arity: usize,
     ) -> Result<SteelVal> {
         match stack_func {
-            SteelVal::FuncV(func) => ctx
-                .thread
-                .enter_safepoint(move |t| func(&t.stack[t.stack.len() - arity..]))
-                .map_err(|x| x.set_span_if_none(ctx.current_span())),
-            SteelVal::BoxedFunction(func) => ctx
-                .thread
-                .enter_safepoint(move |t| func.func()(&t.stack[t.stack.len() - arity..]))
-                .map_err(|x| x.set_span_if_none(ctx.current_span())),
+            // These three return a value rather than setting up a frame, so
+            // nothing else is going to consume the arguments the caller spilled
+            // - drop them here the way list-handler-spilled does.
+            SteelVal::FuncV(func) => {
+                let res = ctx
+                    .thread
+                    .enter_safepoint(move |t| func(&t.stack[t.stack.len() - arity..]))
+                    .map_err(|x| x.set_span_if_none(ctx.current_span()));
+                drop_spilled_args(ctx, arity);
+                res
+            }
+            SteelVal::BoxedFunction(func) => {
+                let res = ctx
+                    .thread
+                    .enter_safepoint(move |t| func.func()(&t.stack[t.stack.len() - arity..]))
+                    .map_err(|x| x.set_span_if_none(ctx.current_span()));
+                drop_spilled_args(ctx, arity);
+                res
+            }
             SteelVal::MutFunc(func) => {
                 let len = ctx.thread.stack.len();
-                func(&mut ctx.thread.stack[len - arity..])
-                    .map_err(|x| x.set_span_if_none(ctx.current_span()))
+                let res = func(&mut ctx.thread.stack[len - arity..])
+                    .map_err(|x| x.set_span_if_none(ctx.current_span()));
+                drop_spilled_args(ctx, arity);
+                res
             }
             SteelVal::Closure(closure) => {
                 // TODO: Consider reserving the amount?
@@ -5489,11 +5520,11 @@ fn call_global_function_deopt_spilled(
                         }
                     } else {
                         // We're going to de-opt in this case - unless we intend to do some fun inlining business
-                        ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                        ctx.handle_function_call_closure_jit(closure, arity)?;
                         Ok(SteelVal::Void)
                     }
                 } else {
-                    ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                    ctx.handle_function_call_closure_jit(closure, arity)?;
                     Ok(SteelVal::Void)
                 }
             }
