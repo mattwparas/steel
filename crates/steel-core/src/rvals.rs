@@ -2334,6 +2334,7 @@ impl SteelVal {
             (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
             (ByteVector(l), ByteVector(r)) => Gc::ptr_eq(&l.vec, &r.vec),
             (Pair(l), Pair(r)) => Gc::ptr_eq(l, r),
+            (CustomStruct(l), CustomStruct(r)) => Gc::ptr_eq(l, r),
             (_, _) => {
                 // dbg!(pointers);
                 false
