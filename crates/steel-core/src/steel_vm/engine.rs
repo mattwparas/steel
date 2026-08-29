@@ -2207,15 +2207,56 @@ impl Engine {
     /// ```
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
-    /// use steel::steel_vm::register_fn::RegisterFn;
-    /// fn foo() -> usize {
-    ///    10
+    /// # use steel::steel_vm::register_fn::RegisterFn;
+    /// # use steel::rvals::FromSteelVal;
+    /// # use steel::rvals::IntoSteelVal;
+    /// # use steel::rvals::Result;
+    /// # use steel::rvals::SteelVal;
+    ///
+    /// #[derive(Clone, Debug)]
+    /// struct ExternalStruct {
+    ///     value: isize,
+    /// }
+    ///
+    /// impl ExternalStruct {
+    ///     pub fn new(value: isize) -> Self {
+    ///         Self {
+    ///             value,
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// impl FromSteelVal for ExternalStruct {
+    ///     fn from_steelval(val: &SteelVal) -> Result<Self> {
+    ///         let value: isize = match val {
+    ///             SteelVal::IntV(v) => *v,
+    ///             _ => unimplemented!()
+    ///         };
+    ///         Ok(Self{
+    ///            value,
+    ///         })
+    ///     }
+    /// }
+    ///
+    /// impl IntoSteelVal for ExternalStruct {
+    ///     fn into_steelval(self) -> Result<SteelVal> {
+    ///         Ok(SteelVal::IntV(self.value))
+    ///     }
     /// }
     ///
     /// let mut vm = Engine::new();
-    /// vm.register_fn("foo", foo);
     ///
-    /// vm.run(r#"(foo)"#).unwrap(); // Returns vec![10]
+    /// // Register the type with the VM.
+    /// vm.register_type::<ExternalStruct>("ExternalStruct?");
+    ///
+    /// // Register a constructor as a function with the same name as the struct.
+    /// vm.register_fn("ExternalStruct", ExternalStruct::new);
+    ///
+    /// let _ = vm
+    ///     .compile_and_run_raw_program(r#"(define new-external-struct (ExternalStruct 42))"#).unwrap(); // Returns vec![10]
+    ///
+    /// let extracted = vm.extract::<ExternalStruct>("new-external-struct").unwrap();
+    /// assert_eq!(extracted.value, 42);
     /// ```
     pub fn register_type<T: FromSteelVal + IntoSteelVal>(
         &mut self,
