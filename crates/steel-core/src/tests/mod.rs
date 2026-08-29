@@ -273,6 +273,7 @@ test_harness_success_module! {
 
 test_harness_failure! {
     capped_depth_defmacro,
+    constant_fold_rest,
     function_used_before_definition,
     global_env,
     identifier_used_before_definition,
