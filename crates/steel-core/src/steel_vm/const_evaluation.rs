@@ -815,6 +815,17 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             if l.rest {
                 if let Some((l_last, l_start)) = l.args.split_last() {
+                    if args.len() < l_start.len() {
+                        stop!(ArityMismatch =>
+                            format!(
+                                "function expected at least {} arguments, found {}",
+                                l_start.len(),
+                                args.len()
+                            );
+                            l.location.span
+                        );
+                    }
+
                     let non_list_bindings = &args[0..l_start.len()];
                     // let list_binding = &args[l_start.len()..];
 
