@@ -21,6 +21,7 @@ SYSTEMS="steel"
 BENCHES=""
 REPEAT=1
 TIMEOUT=300
+JOBS=1
 OUTDIR="${BENCH_DIR}/results"
 TAG=""
 
@@ -34,6 +35,12 @@ Usage: run.sh [options]
   --benches a,b,c               benchmarks to run (default: contents of enabled.txt)
   --all                         run every .scm in r7rs-benchmarks/ (ignores enabled.txt)
   --repeat  N                   runs per benchmark (default: 1)
+  --jobs    N                   benchmarks to run at once (default: 1).
+                                Each benchmark's own runs stay serial and
+                                adjacent, so its ratio columns still compare
+                                like with like; absolute times inflate under
+                                contention, so cross-benchmark comparison of
+                                raw seconds gets noisier.
   --timeout SEC                 per-run timeout (default: 300)
   --out     DIR                 output directory (default: r7rs-benchmarks/results)
   --tag     NAME                label for this run's CSV file
@@ -48,6 +55,7 @@ while [[ $# -gt 0 ]]; do
         --benches) BENCHES="$2"; shift 2 ;;
         --all)     BENCHES="ALL"; shift ;;
         --repeat)  REPEAT="$2"; shift 2 ;;
+        --jobs)    JOBS="$2"; shift 2 ;;
         --timeout) TIMEOUT="$2"; shift 2 ;;
         --out)     OUTDIR="$2"; shift 2 ;;
         --tag)     TAG="$2"; shift 2 ;;
@@ -79,6 +87,8 @@ mkdir -p "$TMPDIR_RUN"
 
 CSV="${OUTDIR}/results${TAG:+-$TAG}.csv"
 echo "system,config,size,benchmark,run,status,reported_secs,wall_secs,note" > "$CSV"
+PARTS="${TMPDIR_RUN}/parts"
+mkdir -p "$PARTS"
 LOGDIR="${OUTDIR}/logs"
 mkdir -p "$LOGDIR"
 
@@ -122,7 +132,7 @@ parse_output() {
 
 record() {
     printf '%s,%s,%s,%s,%s,%s,%s,%s,"%s"\n' \
-        "$1" "$2" "$3" "$4" "$5" "$R_STATUS" "$R_SECS" "$6" "$R_NOTE" >> "$CSV"
+        "$1" "$2" "$3" "$4" "$5" "$R_STATUS" "$R_SECS" "$6" "$R_NOTE" >> "${PART_CSV:-$CSV}"
     printf '  %-8s %-6s %-6s %-12s run %s: %-16s %s\n' \
         "$1" "$2" "$3" "$4" "$5" "$R_STATUS" "${R_SECS:-}"
 }
@@ -224,23 +234,51 @@ IFS=',' read -ra SIZE_LIST  <<< "${SIZES%,}"
 IFS=',' read -ra CFG_LIST   <<< "${CONFIGS%,}"
 IFS=',' read -ra SYS_LIST   <<< "${SYSTEMS%,}"
 
+# One benchmark, every system and repeat, serially. Keeping a benchmark's runs
+# together is what lets its ratio columns survive being run alongside others.
+run_bench() {
+    local bench="$1" size="$2"
+    PART_CSV="${PARTS}/${size}-${bench}.csv"
+    : > "$PART_CSV"
+
+    for sys in "${SYS_LIST[@]}"; do
+        case "$sys" in
+            steel)
+                for cfg in "${CFG_LIST[@]}"; do
+                    for ((r=1; r<=REPEAT; r++)); do
+                        run_steel "$bench" "$cfg" "$size" "$r"
+                        # A repeat of a timeout just spends the timeout again
+                        [[ "$R_STATUS" == "timeout" ]] && break
+                    done
+                done ;;
+            guile)
+                for ((r=1; r<=REPEAT; r++)); do
+                    run_guile "$bench" "$size" "$r"
+                    [[ "$R_STATUS" == "timeout" ]] && break
+                done ;;
+            *) echo "unknown system: $sys" >&2 ;;
+        esac
+    done
+}
+
 for size in "${SIZE_LIST[@]}"; do
     for bench in "${BENCH_LIST[@]}"; do
         [[ -z "$bench" ]] && continue
-        echo "== ${bench} (${size}) =="
-        for sys in "${SYS_LIST[@]}"; do
-            case "$sys" in
-                steel)
-                    for cfg in "${CFG_LIST[@]}"; do
-                        for ((r=1; r<=REPEAT; r++)); do run_steel "$bench" "$cfg" "$size" "$r"; done
-                    done ;;
-                guile)
-                    for ((r=1; r<=REPEAT; r++)); do run_guile "$bench" "$size" "$r"; done ;;
-                *) echo "unknown system: $sys" >&2 ;;
-            esac
-        done
+
+        if (( JOBS <= 1 )); then
+            echo "== ${bench} (${size}) =="
+            run_bench "$bench" "$size"
+            continue
+        fi
+
+        while (( $(jobs -rp | wc -l) >= JOBS )); do wait -n; done
+        echo "== ${bench} (${size}) started =="
+        run_bench "$bench" "$size" &
     done
+    wait
 done
+
+cat "${PARTS}"/*.csv >> "$CSV" 2>/dev/null || true
 
 echo
 echo "Wrote $CSV"
