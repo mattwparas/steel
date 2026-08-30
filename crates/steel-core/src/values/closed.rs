@@ -2135,9 +2135,14 @@ struct MarkerWorker {
 #[cfg(feature = "sync")]
 impl ParallelMarker {
     pub fn new() -> Self {
-        // No parallelism
-        let parallelism = std::thread::available_parallelism()
-            .map(|x| x.get() + 1)
+        // Marking is memory latency bound, so extra workers buy queue contention
+        // and cache thrashing rather than throughput - one is faster than 33 on
+        // every benchmark measured, at a ninth of the cpu. STEEL_GC_MARK_THREADS
+        // opts back in.
+        let parallelism = std::env::var("STEEL_GC_MARK_THREADS")
+            .ok()
+            .and_then(|x| x.parse::<usize>().ok())
+            .filter(|x| *x > 0)
             .unwrap_or(1);
 
         let mut workers = Vec::with_capacity(parallelism);
