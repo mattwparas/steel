@@ -1927,8 +1927,12 @@ fn slow_path_struct_getter(
 // Acquire/Release - they interoperate, generated code just pays a bit more.
 //
 // lock_ptr is the base of the SpinLock, so the flag has to live at offset 0.
+//
+// unbox_value_checked_register reaches the payload with SpinLock<SteelVal>'s
+// data offset, which only lands right while HeapAllocated keeps value first.
 const _: () = {
     assert!(SpinLock::<SteelVal>::lock_offset() == 0);
+    assert!(core::mem::offset_of!(HeapAllocated<SteelVal>, value) == 0);
 };
 
 fn emit_spinlock_inline(builder: &mut FunctionBuilder, lock_ptr: Value) {
