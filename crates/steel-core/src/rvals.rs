@@ -26,7 +26,7 @@ use crate::{
         },
     },
     values::{
-        closed::{HeapRef, MarkAndSweepContext},
+        closed::{HeapRef, HeapVec, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::{LazyStream, SerializableStream},
         lists::Pair,
@@ -1049,7 +1049,7 @@ pub enum SerializedHeapRef {
 #[derive(Debug)]
 pub enum SerializedHeapRefVector {
     Serialized(Option<Vec<SerializableSteelVal>>),
-    Closed(HeapRef<Vec<SteelVal>>),
+    Closed(HeapRef<HeapVec>),
 }
 
 pub struct HeapSerializer<'a> {
@@ -1058,7 +1058,7 @@ pub struct HeapSerializer<'a> {
     // After the conversion, we go back through, and patch the values from the fake heap
     // in to each of the values listed here - otherwise, we'll miss cycles
     pub values_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<SteelVal>>,
-    pub vectors_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<Vec<SteelVal>>>,
+    pub vectors_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<HeapVec>>,
 
     // Cache the functions that get built
     pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
@@ -1275,7 +1275,7 @@ pub fn from_serializable_value(
                     SerializedHeapRefVector::Serialized(value) => {
                         let value = std::mem::take(value);
                         if let Some(value) = value {
-                            let mut converted = Vec::with_capacity(value.len());
+                            let mut converted = HeapVec::with_capacity(value.len());
 
                             for v in value {
                                 converted.push(from_serializable_value(ctx, v)?);
@@ -1300,7 +1300,7 @@ pub fn from_serializable_value(
                                         .thread
                                         .heap
                                         .lock()
-                                        .allocate_vec_without_collection(Vec::new());
+                                        .allocate_vec_without_collection(HeapVec::new());
 
                                     ctx.vectors_to_fill_in.insert(v, allocation.clone());
 
@@ -1699,7 +1699,7 @@ pub enum SteelVal {
     // Built in functions
     BuiltIn(BuiltInSignature),
     // Mutable vector
-    MutableVector(HeapRef<Vec<SteelVal>>),
+    MutableVector(HeapRef<HeapVec>),
     // This should delegate to the underlying iterator - can allow for faster raw iteration if possible
     // Should allow for polling just a raw "next" on underlying elements
     BoxedIterator(GcMut<OpaqueIterator>),
@@ -1792,7 +1792,7 @@ pub(crate) enum SteelValPointer {
     ContinuationFunction(*const RwLock<ContinuationMark>),
     ListV(crate::values::lists::CellPointer<SteelVal>),
     Pair(*const crate::values::lists::Pair),
-    MutableVector(HeapRef<Vec<SteelVal>>),
+    MutableVector(HeapRef<HeapVec>),
     SyntaxObject(*const Syntax),
     BoxedIterator(*const RwLock<OpaqueIterator>),
     Boxed(*const RwLock<SteelVal>),

@@ -39,7 +39,7 @@ use crate::rvals::{
     FunctionSignature, PrimitiveAsRef, PrimitiveAsRefMut, SteelHashMap, SteelHashSet, SteelVal,
     SteelVector,
 };
-use crate::values::closed::HeapRef;
+use crate::values::closed::{HeapRef, HeapVec};
 use crate::values::lists::List;
 use crate::values::port::SteelPort;
 use crate::values::structs::UserDefinedStruct;
@@ -715,7 +715,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelHashSet {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a HeapRef<Vec<SteelVal>> {
+impl<'a> PrimitiveAsRef<'a> for &'a HeapRef<HeapVec> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::MutableVector(p) = val {

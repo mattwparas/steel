@@ -155,6 +155,13 @@ impl<T: ?Sized> Drop for Arc<T> {
     }
 }
 
+impl<T> Weak<T> {
+    // The jit addresses heap values by raw offset instead of upgrading
+    pub const fn data_offset() -> usize {
+        core::mem::offset_of!(ArcInner<T>, data)
+    }
+}
+
 impl<T: ?Sized> Weak<T> {
     #[inline]
     fn inner(&self) -> &ArcInner<T> {

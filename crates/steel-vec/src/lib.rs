@@ -82,6 +82,34 @@ impl<T> RawVec<T> {
         self.cap = new_cap;
     }
 
+    fn shrink_to_fit(&mut self, len: usize) {
+        // A zero sized type has no allocation to hand back
+        if mem::size_of::<T>() == 0 || self.cap == 0 || len == self.cap {
+            return;
+        }
+
+        let old_layout = Layout::array::<T>(self.cap).unwrap();
+
+        // Drop skips cap == 0, so release the block rather than realloc to zero
+        if len == 0 {
+            unsafe { alloc::dealloc(self.ptr.as_ptr() as *mut u8, old_layout) };
+            self.ptr = NonNull::dangling();
+            self.cap = 0;
+            return;
+        }
+
+        let new_layout = Layout::array::<T>(len).expect("Allocation too large");
+        let new_ptr = unsafe {
+            alloc::realloc(self.ptr.as_ptr() as *mut u8, old_layout, new_layout.size())
+        };
+
+        self.ptr = match NonNull::new(new_ptr as *mut T) {
+            Some(p) => p,
+            None => alloc::handle_alloc_error(new_layout),
+        };
+        self.cap = len;
+    }
+
     fn grow(&mut self) {
         // since we set the capacity to usize::MAX when T has size 0,
         // getting to here necessarily means the Vec is overfull.
@@ -190,6 +218,14 @@ impl<T> Vec<T> {
 
     pub fn cap(&self) -> usize {
         self.buf.cap
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.buf.cap
+    }
+
+    pub fn shrink_to_fit(&mut self) {
+        self.buf.shrink_to_fit(self.len);
     }
 
     pub fn new() -> Self {
@@ -630,5 +666,68 @@ impl<T> FromIterator<T> for Vec<T> {
 impl<T> Default for Vec<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shrink_to_fit_releases_spare_capacity() {
+        let mut v = Vec::<u64>::with_capacity(64);
+        for i in 0..8 {
+            v.push(i);
+        }
+        assert_eq!(v.capacity(), 64);
+
+        v.shrink_to_fit();
+
+        assert_eq!(v.capacity(), 8);
+        assert_eq!(v.len(), 8);
+        assert_eq!(v.iter().copied().collect::<std::vec::Vec<_>>(), (0..8).collect::<std::vec::Vec<_>>());
+    }
+
+    #[test]
+    fn shrink_to_fit_empty_deallocates() {
+        let mut v = Vec::<u64>::with_capacity(32);
+        v.push(1);
+        v.pop();
+
+        v.shrink_to_fit();
+
+        assert_eq!(v.capacity(), 0);
+        assert_eq!(v.len(), 0);
+
+        v.push(7);
+        assert_eq!(v.pop(), Some(7));
+    }
+
+    #[test]
+    fn shrink_to_fit_is_a_noop_when_already_exact() {
+        let mut v = Vec::<u64>::new();
+        v.push(1);
+        let cap = v.capacity();
+        v.shrink_to_fit();
+        assert_eq!(v.capacity(), cap.min(1).max(v.len()));
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn shrink_to_fit_then_grow_keeps_contents() {
+        let mut v = Vec::<std::string::String>::with_capacity(16);
+        v.push("a".into());
+        v.push("b".into());
+        v.shrink_to_fit();
+        assert_eq!(v.capacity(), 2);
+
+        for i in 0..10 {
+            v.push(std::format!("{i}"));
+        }
+
+        assert_eq!(v.len(), 12);
+        assert_eq!(v[0], "a");
+        assert_eq!(v[1], "b");
+        assert_eq!(v[11], "9");
     }
 }

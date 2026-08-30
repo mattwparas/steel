@@ -1,9 +1,29 @@
 use crate::values::{
+    closed::{HeapAllocated, HeapVec},
     lock::SpinLock,
     structs::{StructConstructorRefSpec, StructFunctionType, UserDefinedStruct},
 };
 
 use super::*;
+
+// Byte offset from the pointer a HeapRef holds to the steel_vec::Vec itself
+const fn heap_vec_offset() -> i32 {
+    (steel_rc::weak::Weak::<SpinLock<HeapAllocated<HeapVec>>>::data_offset()
+        + SpinLock::<HeapAllocated<HeapVec>>::data_offset()
+        + core::mem::offset_of!(HeapAllocated<HeapVec>, value)) as i32
+}
+
+const fn heap_vec_len_offset() -> i32 {
+    heap_vec_offset() + HeapVec::len_offset() as i32
+}
+
+const fn heap_vec_buf_offset() -> i32 {
+    heap_vec_offset() + HeapVec::buf_offset() as i32
+}
+
+const fn heap_vec_cap_offset() -> i32 {
+    heap_vec_offset() + HeapVec::capacity_offset() as i32
+}
 
 // The abstract state both arms of a two way branch start from
 pub(super) struct BranchState {
@@ -100,17 +120,37 @@ impl<'a> FunctionTranslator<'a> {
         match args {
             &[MutRegister(v) | Register(v), MutRegister(i) | Register(i), MutRegister(a) | Register(a)] =>
             {
-                let vector = self.register_index(v);
-                let index = self.register_index(i);
-                let value = self.register_index(a);
-
                 // Pop them off
                 self.shadow_stack.pop();
                 self.shadow_stack.pop();
                 self.shadow_stack.pop();
 
-                let res = self
-                    .call_function_returns_value_args("vector-set-reg-3", &[vector, index, value]);
+                let vector_value = self.read_from_vm_stack(v);
+                let index_value = self.read_from_vm_stack(i);
+                let new_value = self.read_from_vm_stack(a);
+
+                let fallback = move |ctx: &mut Self| {
+                    let vector = ctx.register_index(v);
+                    let index = ctx.register_index(i);
+                    let value = ctx.register_index(a);
+
+                    ctx.call_function_returns_value_args(
+                        "vector-set-reg-3",
+                        &[vector, index, value],
+                    )
+                };
+
+                let res = if INLINE_MUTABLE_VECTOR_OPS {
+                    self.inline_mut_vector_set(
+                        vector_value,
+                        index_value,
+                        new_value,
+                        false,
+                        fallback,
+                    )
+                } else {
+                    fallback(self)
+                };
 
                 self.push(res, InferredType::Any);
 
@@ -164,7 +204,17 @@ impl<'a> FunctionTranslator<'a> {
                     .map(|x| x.0)
                     .collect::<Vec<_>>();
 
-                let res = self.call_function_returns_value_args("vector-set-args", &args);
+                let (vector, index, value) = (args[0], args[1], args[2]);
+
+                let fallback = move |ctx: &mut Self| {
+                    ctx.call_function_returns_value_args("vector-set-args", &args)
+                };
+
+                let res = if INLINE_MUTABLE_VECTOR_OPS {
+                    self.inline_mut_vector_set(vector, index, value, true, fallback)
+                } else {
+                    fallback(self)
+                };
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
@@ -179,7 +229,17 @@ impl<'a> FunctionTranslator<'a> {
                     .map(|x| x.0)
                     .collect::<Vec<_>>();
 
-                let res = self.call_function_returns_value_args("vector-set-args", &args);
+                let (vector, index, value) = (args[0], args[1], args[2]);
+
+                let fallback = move |ctx: &mut Self| {
+                    ctx.call_function_returns_value_args("vector-set-args", &args)
+                };
+
+                let res = if INLINE_MUTABLE_VECTOR_OPS {
+                    self.inline_mut_vector_set(vector, index, value, true, fallback)
+                } else {
+                    fallback(self)
+                };
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
@@ -1423,6 +1483,209 @@ impl<'a> FunctionTranslator<'a> {
         emit_spinlock_unlock_inline(&mut self.builder, lock_pointer);
 
         res
+    }
+
+    fn heap_vec_len(&mut self, ptr: Value) -> Value {
+        self.builder
+            .ins()
+            .load(types::I64, MemFlagsData::trusted(), ptr, heap_vec_len_offset())
+    }
+
+    fn heap_vec_cap(&mut self, ptr: Value) -> Value {
+        self.builder
+            .ins()
+            .load(types::I64, MemFlagsData::trusted(), ptr, heap_vec_cap_offset())
+    }
+
+    fn heap_vec_element_address(&mut self, ptr: Value, index: Value) -> Value {
+        let buf = self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            ptr,
+            heap_vec_buf_offset(),
+        );
+
+        debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
+        let byte_offset = self.builder.ins().ishl_imm_u(index, 4);
+        self.builder.ins().iadd(buf, byte_offset)
+    }
+
+    // Hands back the old value. The caller bounds checks, and drops outside
+    // whatever lock it holds
+    fn heap_vec_replace(&mut self, ptr: Value, index: Value, value: Value, owned: bool) -> Value {
+        let slot = self.heap_vec_element_address(ptr, index);
+        let old = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlagsData::trusted(), slot, 0);
+        if !owned {
+            self.clone_value(value);
+        }
+        self.builder
+            .ins()
+            .store(MemFlagsData::trusted(), value, slot, 0);
+        old
+    }
+
+    fn heap_vec_lock_pointer(&mut self, ptr: Value) -> Value {
+        let offset = (steel_rc::weak::Weak::<SpinLock<HeapAllocated<HeapVec>>>::data_offset()
+            + SpinLock::<HeapAllocated<HeapVec>>::lock_offset()) as i64;
+        self.builder.ins().iadd_imm_s(ptr, offset)
+    }
+
+    // Nothing else can reach the value at a strong count of one
+    fn with_heap_vec_lock(
+        &mut self,
+        ptr: Value,
+        body: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let strong = self
+            .builder
+            .ins()
+            .atomic_load(types::I64, MemFlagsData::trusted(), ptr);
+        let is_one = self.builder.ins().icmp_imm_s(IntCC::Equal, strong, 1);
+
+        self.converging_if(
+            is_one,
+            |ctx| body(ctx),
+            |ctx| {
+                let lock = ctx.heap_vec_lock_pointer(ptr);
+                ctx.with_spinlock(lock, |ctx| body(ctx))
+            },
+            types::I128,
+        )
+    }
+
+    // vector-set! with no call: check the tags, bounds check, then store.
+    // Register args are borrows so the value is cloned; spilled args are ours,
+    // so it moves in and the vector and index get dropped here
+    pub(super) fn inline_mut_vector_set(
+        &mut self,
+        vector: Value,
+        index: Value,
+        value: Value,
+        owned: bool,
+        fallback: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let is_vec = self.is_type(vector, SteelVal::HEAP_REF_VECTOR_TAG);
+        let is_int = self.is_type(index, SteelVal::INT_TAG);
+        let both = self.builder.ins().band(is_vec, is_int);
+
+        self.converging_if_else_cold(
+            both,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(vector);
+                let idx = ctx.unbox_value_to_pointer(index);
+                let len = ctx.heap_vec_len(ptr);
+
+                // Unsigned, so a negative index fails the same comparison
+                let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
+
+                ctx.converging_if_else_cold(
+                    in_bounds,
+                    |ctx| {
+                        let old = ctx.with_heap_vec_lock(ptr, |ctx| {
+                            ctx.heap_vec_replace(ptr, idx, value, owned)
+                        });
+
+                        // Outside the lock - a destructor runs arbitrary code
+                        ctx.drop_tagged_value(old);
+
+                        if owned {
+                            ctx.drop_tagged_value(vector);
+                            ctx.drop_tagged_value(index);
+                        }
+
+                        ctx.encode_void()
+                    },
+                    |ctx| fallback(ctx),
+                    types::I128,
+                )
+            },
+            |ctx| fallback(ctx),
+            types::I128,
+        )
+    }
+
+    // vector-push! with no call while the buffer has room. Growing reallocates
+    // and a shared vector needs the lock, so both take the fallback
+    pub(super) fn inline_mut_vector_push(
+        &mut self,
+        vector: Value,
+        value: Value,
+        fallback: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let is_vec = self.is_type(vector, SteelVal::HEAP_REF_VECTOR_TAG);
+
+        self.converging_if_else_cold(
+            is_vec,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(vector);
+
+                // At a strong count of one, len and cap can't move under us
+                let strong =
+                    ctx.builder
+                        .ins()
+                        .atomic_load(types::I64, MemFlagsData::trusted(), ptr);
+                let exclusive = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong, 1);
+
+                let len = ctx.heap_vec_len(ptr);
+                let cap = ctx.heap_vec_cap(ptr);
+                let has_room = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, len, cap);
+
+                let can_inline = ctx.builder.ins().band(exclusive, has_room);
+
+                ctx.converging_if_else_cold(
+                    can_inline,
+                    |ctx| {
+                        let slot = ctx.heap_vec_element_address(ptr, len);
+                        ctx.builder
+                            .ins()
+                            .store(MemFlagsData::trusted(), value, slot, 0);
+
+                        let new_len = ctx.builder.ins().iadd_imm_s(len, 1);
+                        ctx.builder.ins().store(
+                            MemFlagsData::trusted(),
+                            new_len,
+                            ptr,
+                            heap_vec_len_offset(),
+                        );
+
+                        ctx.drop_tagged_value(vector);
+                        ctx.encode_void()
+                    },
+                    |ctx| fallback(ctx),
+                    types::I128,
+                )
+            },
+            |ctx| fallback(ctx),
+            types::I128,
+        )
+    }
+
+    pub(super) fn vector_push(&mut self) {
+        let args = self
+            .split_off(2)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        let (vector, value) = (args[0], args[1]);
+
+        let fallback = move |ctx: &mut Self| {
+            ctx.call_function_returns_value_args("vector-push-args", &[vector, value])
+        };
+
+        let res = if INLINE_MUTABLE_VECTOR_OPS {
+            self.inline_mut_vector_push(vector, value, fallback)
+        } else {
+            fallback(self)
+        };
+
+        self.push(res, InferredType::Any);
+
+        self.ip += 1;
+        self.check_deopt();
     }
 
     pub(super) fn inline_struct_call_no_drop(

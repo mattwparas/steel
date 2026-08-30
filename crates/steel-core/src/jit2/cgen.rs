@@ -25,7 +25,7 @@ use crate::{
         lists::{steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse},
         ports::{eof_objectp_jit, steel_eof_objectp},
         strings::steel_char_equals,
-        vectors::steel_mut_vec_set,
+        vectors::{mut_vec_push, steel_mut_vec_set},
     },
     rvals::{FunctionSignature, SteelString},
     steel_vm::{
@@ -58,6 +58,8 @@ const USE_INLINE_CALL_GLOBAL: bool = true;
 const INLINE_READ_CAPTURED: bool = true;
 
 const USE_INLINE_DROP_HEAP_BOX: bool = true;
+
+const INLINE_MUTABLE_VECTOR_OPS: bool = true;
 
 // const USE_INPLACE_WRITES: bool = true;
 
@@ -410,6 +412,12 @@ impl Default for JIT {
 
         flag_builder.set("opt_level", "speed").unwrap();
 
+        // On in release too, so a miscompile gets caught rather than emitted.
+        // Costs real time on compile heavy programs, hence the opt out
+        if std::env::var("STEEL_JIT_VERIFIER").as_deref() == Ok("false") {
+            flag_builder.set("enable_verifier", "false").unwrap();
+        }
+
         flag_builder.set("preserve_frame_pointers", "true").unwrap();
 
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
@@ -655,7 +663,7 @@ impl Default for JIT {
 
         map.add_func2(
             "drop-boxed-vec",
-            abi! { drop_boxed_vec as fn(crate::values::closed::HeapRef<Vec<SteelVal>>) },
+            abi! { drop_boxed_vec as fn(crate::values::closed::HeapRef<crate::values::closed::HeapVec>) },
         );
 
         map.add_func2("log-let-var", abi! { log_counter as fn() });
@@ -933,6 +941,17 @@ impl Default for JIT {
                 as fn(
                     ctx: *mut VmCore,
                     SteelVal,
+                    SteelVal,
+                    SteelVal,
+                ) -> SteelVal
+            },
+        );
+
+        map.add_func(
+            "vector-push-args",
+            abi! { vector_push_handler_stack
+                as fn(
+                    ctx: *mut VmCore,
                     SteelVal,
                     SteelVal,
                 ) -> SteelVal
@@ -3444,6 +3463,12 @@ impl FunctionTranslator<'_> {
 
                                 f if f == steel_mut_vec_set as FunctionSignature && arity == 3 => {
                                     self.vector_set()
+                                }
+
+                                f if f == mut_vec_push as FunctionSignature
+                                    && arity == 2 =>
+                                {
+                                    self.vector_push()
                                 }
 
                                 f if f == steel_eq as FunctionSignature && arity == 2 => self.eq(),

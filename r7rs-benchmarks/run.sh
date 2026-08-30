@@ -145,8 +145,9 @@ run_steel() {
     [[ "$cfg" == "nojit" ]] && jit=false
     local log="${LOGDIR}/steel-${cfg}-${size}-${bench}-${run}.log"
     local t0; t0="$(date +%s%N)"
+    # The jit verifier is on by default; timing runs don't want to pay for it
     ( cd "$STEEL_ROOT" && \
-      STEEL_JIT="$jit" R7RS_BENCH_SIZE="$size" \
+      STEEL_JIT="$jit" STEEL_JIT_VERIFIER=false R7RS_BENCH_SIZE="$size" \
       timeout -k 5 "$TIMEOUT" "$STEEL_BIN" "r7rs-benchmarks/${bench}.scm" ) \
         > "$log" 2>&1
     local rc=$?

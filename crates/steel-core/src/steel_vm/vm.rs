@@ -33,6 +33,7 @@ use crate::rvals::{as_underlying_type, AsRefSteelValFromRef};
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive, steel_not};
+use crate::values::closed::HeapVec;
 use crate::values::closed::Heap;
 use crate::values::closed::MarkAndSweepContext;
 use crate::values::functions::CaptureVec;
@@ -1751,7 +1752,7 @@ impl<'a> VmCore<'a> {
 
     // TODO: Accept a slice instead, or an iterator with a known size.
     // That way we can take advantage of a pre allocation.
-    pub fn make_mutable_vector(&mut self, values: Vec<SteelVal>) -> SteelVal {
+    pub fn make_mutable_vector(&mut self, values: HeapVec) -> SteelVal {
         let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
         let allocated_var = heap_lock.allocate_vector(
             values,

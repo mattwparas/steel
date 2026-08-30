@@ -669,7 +669,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}
 
     // TODO: Figure out the mutable vector first
-    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output {
         self.found_mutable = true;
 
         if !self.add(
@@ -1084,7 +1084,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     // TODO: When this gets replaced with heap storage, then we can do this more
     // effectively!
-    fn visit_mutable_vector(&mut self, _vector: HeapRef<Vec<SteelVal>>) {}
+    fn visit_mutable_vector(&mut self, _vector: HeapRef<HeapVec>) {}
 
     // TODO: Once the root is added back to this, bring it back
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) {
@@ -1439,7 +1439,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     // TODO: When this gets replaced with heap storage, then we can do this more
     // effectively!
-    fn visit_mutable_vector(&mut self, _vector: HeapRef<Vec<SteelVal>>) {}
+    fn visit_mutable_vector(&mut self, _vector: HeapRef<HeapVec>) {}
 
     // TODO: Once the root is added back to this, bring it back
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) {
@@ -1617,7 +1617,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output;
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output;
     fn visit_mutable_function(&mut self, function: MutFunctionSignature) -> Self::Output;
-    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output;
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output;
     fn visit_builtin_function(&mut self, function: BuiltInSignature) -> Self::Output;
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output;
@@ -1713,7 +1713,7 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
     fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output;
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output;
     fn visit_mutable_function(&mut self, function: MutFunctionSignature) -> Self::Output;
-    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output;
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output;
     fn visit_builtin_function(&mut self, function: BuiltInSignature) -> Self::Output;
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output;
@@ -1810,7 +1810,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_continuation(&mut self, continuation: &'a Continuation) -> Self::Output;
     fn visit_list(&mut self, list: &'a List<SteelVal>) -> Self::Output;
     fn visit_mutable_function(&mut self, function: &'a MutFunctionSignature) -> Self::Output;
-    fn visit_mutable_vector(&mut self, vector: &'a HeapRef<Vec<SteelVal>>) -> Self::Output;
+    fn visit_mutable_vector(&mut self, vector: &'a HeapRef<HeapVec>) -> Self::Output;
     fn visit_builtin_function(&mut self, function: &'a BuiltInSignature) -> Self::Output;
     fn visit_boxed_iterator(&mut self, iterator: &'a GcMut<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: &'a Gc<Syntax>) -> Self::Output;
@@ -1874,7 +1874,7 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
     fn visit_stream(&mut self, stream: &'a LazyStream) -> Self::Output;
     fn visit_continuation(&mut self, continuation: &'a RwLock<ContinuationMark>) -> Self::Output;
     fn visit_list(&mut self, list: crate::values::lists::CellPointer<SteelVal>) -> Self::Output;
-    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output;
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output;
     fn visit_boxed_iterator(&mut self, iterator: &'a RwLock<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: &'a Syntax) -> Self::Output;
     fn visit_boxed_value(&mut self, boxed_value: &'a RwLock<SteelVal>) -> Self::Output;
@@ -2543,7 +2543,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
         }
     }
 
-    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output {
         vector.borrow(|x| {
             for value in x.iter() {
                 self.push_back(value.clone());

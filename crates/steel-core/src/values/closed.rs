@@ -377,7 +377,7 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
 
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}
 
-    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
             stats: MarkAndSweepStats::default(),
@@ -1170,7 +1170,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
                 if guard.reachable {
                     guard.reachable = false;
-                    // Reset the values as well?
+                    guard.value.release();
                     amount_dropped += 1;
                 }
             }
@@ -1409,6 +1409,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
                 if guard.reachable {
                     guard.reachable = false;
+                    guard.value.release();
                     amount_dropped += 1;
                 }
             }
@@ -1468,8 +1469,8 @@ impl<T: HeapAble + 'static> FreeList<T> {
     }
 }
 
-impl FreeList<Vec<SteelVal>> {
-    fn allocate_vec(&mut self, value: impl Iterator<Item = SteelVal>) -> HeapRef<Vec<SteelVal>> {
+impl FreeList<HeapVec> {
+    fn allocate_vec(&mut self, value: impl Iterator<Item = SteelVal>) -> HeapRef<HeapVec> {
         // Drain, moving values around...
         // is that expensive?
         let guard = &mut self.elements[self.cursor];
@@ -1480,18 +1481,15 @@ impl FreeList<Vec<SteelVal>> {
         // Check that this fits:
         heap_guard.value.clear();
 
+        // len is zero after the clear, so this covers the whole iterator.
+        // Handing the buffer back is the collector's job, in HeapAble::release
         if let (_, Some(size)) = value.size_hint() {
-            let capacity = heap_guard.value.capacity();
-            heap_guard
-                .value
-                .reserve_exact(size.saturating_sub(capacity));
+            heap_guard.value.reserve_exact(size);
         }
 
         for v in value {
             heap_guard.value.push(v);
         }
-
-        heap_guard.value.shrink_to_fit();
 
         heap_guard.reachable = true;
         let weak_ptr = steel_rc::weak::Arc::downgrade(guard);
@@ -1593,7 +1591,7 @@ pub struct Heap {
 
     skip_minor_collection: bool,
     memory_free_list: FreeList<SteelVal>,
-    vector_free_list: FreeList<Vec<SteelVal>>,
+    vector_free_list: FreeList<HeapVec>,
 }
 
 #[cfg(feature = "sync")]
@@ -1652,10 +1650,7 @@ impl Heap {
         self.memory_free_list.allocate(value)
     }
 
-    pub fn allocate_vec_without_collection(
-        &mut self,
-        value: Vec<SteelVal>,
-    ) -> HeapRef<Vec<SteelVal>> {
+    pub fn allocate_vec_without_collection(&mut self, value: HeapVec) -> HeapRef<HeapVec> {
         self.vector_free_list.allocate(value)
     }
 
@@ -1747,13 +1742,13 @@ impl Heap {
 
     pub fn allocate_vector<'a>(
         &mut self,
-        values: Vec<SteelVal>,
+        values: HeapVec,
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
-    ) -> HeapRef<Vec<SteelVal>> {
+    ) -> HeapRef<HeapVec> {
         // todo!();
 
         self.vector_collection(
@@ -1855,7 +1850,7 @@ impl Heap {
         globals: &'a [SteelVal],
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
-    ) -> HeapRef<Vec<SteelVal>> {
+    ) -> HeapRef<HeapVec> {
         if self.vector_free_list.percent_full() > 0.50 && self.vector_free_list.should_run_weak {
             run_explicit_merge();
             self.vector_free_list.weak_collection();
@@ -2152,6 +2147,9 @@ impl ParallelMarker {
 
 pub trait HeapAble: Clone + core::fmt::Debug + PartialEq + Eq {
     fn empty() -> Self;
+
+    // Called when a collection frees the slot, so the buffer isn't held on it
+    fn release(&mut self) {}
 }
 impl HeapAble for SteelVal {
     fn empty() -> Self {
@@ -2159,9 +2157,18 @@ impl HeapAble for SteelVal {
     }
 }
 
-impl HeapAble for Vec<SteelVal> {
+// Backing store for SteelVal::MutableVector. steel_vec is repr(C) with const
+// offset accessors, which is what lets the jit address elements inline
+pub type HeapVec = steel_vec::Vec<SteelVal>;
+
+impl HeapAble for HeapVec {
     fn empty() -> Self {
         Self::new()
+    }
+
+    fn release(&mut self) {
+        self.clear();
+        self.shrink_to_fit();
     }
 }
 
@@ -2328,7 +2335,7 @@ impl<'a> MarkAndSweepContext<'a> {
     // Visit the heap vector, mark it as visited!
     pub(crate) fn mark_heap_vector(
         &mut self,
-        heap_vector: &steel_rc::weak::Arc<SpinLock<HeapAllocated<Vec<SteelVal>>>>,
+        heap_vector: &steel_rc::weak::Arc<SpinLock<HeapAllocated<HeapVec>>>,
     ) {
         if heap_vector.lock().is_reachable() {
             return;
@@ -2396,7 +2403,7 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
     // Visit the heap vector, mark it as visited!
     pub(crate) fn mark_heap_vector(
         &mut self,
-        heap_vector: &steel_rc::weak::Arc<SpinLock<HeapAllocated<Vec<SteelVal>>>>,
+        heap_vector: &steel_rc::weak::Arc<SpinLock<HeapAllocated<HeapVec>>>,
     ) {
         if heap_vector.lock().is_reachable() {
             return;
@@ -2574,7 +2581,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
 
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}
 
-    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output {
         self.mark_heap_vector(&vector.strong_ptr())
     }
 
@@ -2817,7 +2824,7 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         }
     }
 
-    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output {
         self.mark_heap_vector(&vector.strong_ptr())
     }
 

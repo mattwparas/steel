@@ -1,3 +1,4 @@
+use crate::values::closed::HeapVec;
 // use im_lists::list::List;
 use crate::values::{lists::List, HashSet};
 // use itertools::Itertools;
@@ -136,7 +137,7 @@ impl<'global, 'a> VmCore<'a> {
         vm_ctx: Rc<RefCell<&'global mut Self>>,
         cur_inst_span: &'global Span,
         // The nursery here is for iterating over a vec since its wrapped inside the refcell
-        nursery: &'global mut Option<Vec<SteelVal>>,
+        nursery: &'global mut Option<HeapVec>,
     ) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + 'global>> {
         match value {
             SteelVal::VectorV(v) => Ok(Box::new(v.iter().cloned().map(Ok))),

@@ -11,7 +11,7 @@ use crate::{
     primitives::{
         lists::{cdr_no_check, cdr_no_check_two, cons, list_ref, steel_list_contains, steel_memq},
         numbers::add_two,
-        vectors::{mut_vec_set, steel_mut_vec_set},
+        vectors::{mut_vec_push, mut_vec_set, steel_mut_vec_set},
     },
     rvals::Result,
     steel_vm::primitives::{gt_primitive, gte_primitive, listp, lt_primitive},
@@ -490,7 +490,7 @@ fn drop_box(arg: crate::values::closed::HeapRef<SteelVal>) {
 }
 
 #[cross_platform_fn]
-fn drop_boxed_vec(arg: crate::values::closed::HeapRef<Vec<SteelVal>>) {
+fn drop_boxed_vec(arg: crate::values::closed::HeapRef<crate::values::closed::HeapVec>) {
     drop(arg);
 }
 
@@ -1313,6 +1313,20 @@ fn vector_set_handler_stack(
     value: SteelVal,
 ) -> SteelVal {
     match steel_mut_vec_set(&[vec_reg, index, value]) {
+        Ok(v) => v,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[cross_platform_fn]
+fn vector_push_handler_stack(ctx: *mut VmCore, vec_reg: SteelVal, value: SteelVal) -> SteelVal {
+    match mut_vec_push(&[vec_reg, value]) {
         Ok(v) => v,
         Err(e) => {
             let guard = unsafe { &mut *ctx };

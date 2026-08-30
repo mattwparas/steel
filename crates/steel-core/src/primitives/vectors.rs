@@ -5,7 +5,7 @@ use crate::rvals::SteelVector;
 use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::vm::VmCore;
-use crate::values::closed::HeapRef;
+use crate::values::closed::{HeapRef, HeapVec};
 use crate::values::lists::Pair;
 use crate::values::Vector;
 use crate::{stop, throw};
@@ -103,7 +103,7 @@ fn immutable_vector_to_list(
 /// ```
 #[steel_derive::function(name = "vector->string")]
 fn vector_to_string(
-    vector: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>,
+    vector: Either<&SteelVector, &HeapRef<HeapVec>>,
     rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
     match vector {
@@ -192,7 +192,7 @@ fn vector_copy(
                 let (start, end) = bounds_mut(rest, "vector-copy", 3, &vector)?;
 
                 // Have to allocate another thing
-                let copy: Vec<_> = vector
+                let copy: HeapVec = vector
                     .iter()
                     .skip(start)
                     .take(end - start)
@@ -250,7 +250,7 @@ fn vector_append(
     ) -> Result<SteelVal> {
         // TODO: Preallocate the length by iterating over first
         // and extracting the values?
-        let mut vector = Vec::new();
+        let mut vector = HeapVec::new();
 
         for arg in args {
             match arg {
@@ -627,7 +627,7 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 /// > A ;; => '#()
 /// ```
 #[steel_derive::function(name = "mutable-vector->clear")]
-fn mutable_vector_clear(vec: &HeapRef<Vec<SteelVal>>) {
+fn mutable_vector_clear(vec: &HeapRef<HeapVec>) {
     // Snag the interior value
     vec.strong_ptr().write().value.clear()
 }
@@ -644,7 +644,7 @@ fn mutable_vector_clear(vec: &HeapRef<Vec<SteelVal>>) {
 /// > (mutable-vector->string A) ;; => "Hello"
 /// ```
 #[steel_derive::function(name = "mutable-vector->string")]
-fn mutable_vector_to_string(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
+fn mutable_vector_to_string(vec: &HeapRef<HeapVec>) -> Result<SteelVal> {
     let guard = vec.strong_ptr();
     let mut buf = String::new();
 
@@ -672,7 +672,7 @@ fn mutable_vector_to_string(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
 /// > A ;; => '#(1 2)
 /// ```
 #[steel_derive::function(name = "mutable-vector-pop!")]
-fn mutable_vector_pop(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
+fn mutable_vector_pop(vec: &HeapRef<HeapVec>) -> Result<SteelVal> {
     let last = vec.strong_ptr().write().value.pop();
 
     last.into_steelval()
@@ -690,7 +690,7 @@ fn mutable_vector_pop(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
 /// ```
 #[steel_derive::context(name = "mutable-vector", arity = "AtLeast(0)")]
 pub fn mut_vec_construct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    Some(Ok(ctx.make_mutable_vector(args.to_vec())))
+    Some(Ok(ctx.make_mutable_vector(args.iter().cloned().collect())))
 }
 
 /// Constructs a new mutable vector from the provided arguments.
@@ -705,7 +705,7 @@ pub fn mut_vec_construct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<S
 /// ```
 #[steel_derive::context(name = "vector", arity = "AtLeast(0)")]
 pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    Some(Ok(ctx.make_mutable_vector(args.to_vec())))
+    Some(Ok(ctx.make_mutable_vector(args.iter().cloned().collect())))
 }
 
 /// Creates a mutable vector of a given size, optionally initialized with a specified value.
@@ -762,9 +762,9 @@ pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVa
 /// ```
 #[steel_derive::function(name = "vector-copy!")]
 pub fn mut_vector_copy(
-    dest: &HeapRef<Vec<SteelVal>>,
+    dest: &HeapRef<HeapVec>,
     dest_start: usize,
-    src: Either<&HeapRef<Vec<SteelVal>>, &SteelVector>,
+    src: Either<&HeapRef<HeapVec>, &SteelVector>,
     rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
     match src {
@@ -861,7 +861,7 @@ pub fn mut_vector_copy(
 /// ```
 #[steel_derive::function(name = "vector-fill!")]
 pub fn vector_fill(
-    vec: &HeapRef<Vec<SteelVal>>,
+    vec: &HeapRef<HeapVec>,
     element: SteelVal,
     rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
@@ -895,7 +895,7 @@ pub fn vector_fill(
 /// ```
 #[steel_derive::function(name = "mutable-vector->list")]
 pub fn mut_vec_to_list(
-    vec: &HeapRef<Vec<SteelVal>>,
+    vec: &HeapRef<HeapVec>,
     rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
@@ -920,7 +920,7 @@ pub fn mut_vec_to_list(
 /// > (mut-vec-len A) ;; => 5
 /// ```
 #[steel_derive::function(name = "mut-vec-len")]
-pub fn mut_vec_length(vec: &HeapRef<Vec<SteelVal>>) -> SteelVal {
+pub fn mut_vec_length(vec: &HeapRef<HeapVec>) -> SteelVal {
     SteelVal::IntV(vec.inner.upgrade().unwrap().lock().value.len() as isize)
 }
 
@@ -939,7 +939,7 @@ pub fn mut_vec_length(vec: &HeapRef<Vec<SteelVal>>) -> SteelVal {
 /// > A ;; => '#(1 42 3)
 /// ```
 #[steel_derive::function(name = "vector-set!")]
-pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> Result<SteelVal> {
+pub fn mut_vec_set(vec: &HeapRef<HeapVec>, i: usize, value: SteelVal) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
     let guard = &mut ptr.write().value;
 
@@ -969,7 +969,7 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
 /// > A ;; => '#(2 1 3)
 /// ```
 #[steel_derive::function(name = "vector-swap!")]
-pub fn mut_vec_swap(vec: &HeapRef<Vec<SteelVal>>, i: usize, j: usize) -> Result<SteelVal> {
+pub fn mut_vec_swap(vec: &HeapRef<HeapVec>, i: usize, j: usize) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
 
     let guard = &mut ptr.write().value;
@@ -1023,7 +1023,7 @@ pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVa
 /// > (vector-length V) ;; => 4
 /// ```
 #[steel_derive::function(name = "vector-length")]
-pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal {
+pub fn vec_length(v: Either<&SteelVector, &HeapRef<HeapVec>>) -> SteelVal {
     match v {
         Either::Left(v) => SteelVal::IntV(v.len() as _),
         Either::Right(v) => SteelVal::IntV(v.borrow(|x| x.len() as _)),
