@@ -459,7 +459,9 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
 const GC_THRESHOLD: usize = 256 * 1000;
 // Occupancy after a collection that means the heap has to get bigger
 const HEAP_GROW_OCCUPANCY: f64 = 0.5;
-const GC_GROW_FACTOR: usize = 2;
+// How much bigger the heap gets each time it grows. A full mark happens once
+// per growth, so this is the log base for how many marks a run costs
+const GC_GROW_FACTOR: usize = 4;
 const RESET_LIMIT: usize = 9;
 
 // TODO: Do these roots needs to be truly global?
@@ -1053,9 +1055,11 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     }
 
     fn grow_by(&mut self, amount: usize) {
-        // let now = crate::time::Instant::now();
-        // Can probably make this a lot bigger
-        let current = self.elements.len().max(amount);
+        let current = self
+            .elements
+            .len()
+            .saturating_mul(GC_GROW_FACTOR - 1)
+            .max(amount);
 
         self.cursor = self.elements.len();
 
@@ -1316,9 +1320,11 @@ impl<T: HeapAble + 'static> FreeList<T> {
     }
 
     fn grow(&mut self) {
-        // let now = crate::time::Instant::now();
-        // Can probably make this a lot bigger
-        let current = self.elements.len().max(Self::EXTEND_CHUNK);
+        let current = self
+            .elements
+            .len()
+            .saturating_mul(GC_GROW_FACTOR - 1)
+            .max(Self::EXTEND_CHUNK);
 
         self.cursor = self.elements.len();
 
