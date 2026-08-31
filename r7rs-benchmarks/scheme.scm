@@ -33,7 +33,7 @@
 (define eq? equal?)
 
 ; (define vector-set! mutable-vector-set!)
-(define vector-ref mut-vector-ref)
+; (define vector-ref mut-vector-ref)
 (define vector mutable-vector)
 (define (make-vector n)
   (apply mutable-vector (map (lambda (x) 0) (range 0 n))))

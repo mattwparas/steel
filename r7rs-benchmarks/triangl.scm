@@ -28,7 +28,7 @@
 
 ; (define list->vector list->mutable-vector)
 (define vector->list mutable-vector->list)
-(define vector-ref mut-vector-ref)
+; (define vector-ref mut-vector-ref)
 ; (define vector-set! mutable-vector-set!)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

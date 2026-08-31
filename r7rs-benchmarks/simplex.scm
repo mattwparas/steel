@@ -14,7 +14,7 @@
 
 ; (require "steel/mutable-vectors")
 
-(define vector-ref mut-vector-ref)
+; (define vector-ref mut-vector-ref)
 ; (define vector-set! mutable-vector-set!)
 ; (define vector-length mut-vec-len)
 ; (define (make-vector n)
