@@ -1720,6 +1720,11 @@ pub enum SteelVal {
     Complex(Gc<SteelComplex>),
     // Byte vectors
     ByteVector(SteelByteVector),
+    // A flat, immutable vector. Unlike VectorV this is a contiguous
+    // steel_vec::Vec rather than an rrb tree, so indexing is a load and the jit
+    // can address elements directly. Being immutable it cannot form a cycle, so
+    // it is reference counted rather than registered with the collector.
+    FlatVector(Gc<steel_vec::Vec<SteelVal>>),
 }
 
 impl Clone for SteelVal {
@@ -1765,6 +1770,7 @@ impl Clone for SteelVal {
             SteelVal::BigRational(gc) => SteelVal::BigRational(gc.clone()),
             Complex(gc) => SteelVal::Complex(gc.clone()),
             ByteVector(steel_byte_vector) => SteelVal::ByteVector(steel_byte_vector.clone()),
+            FlatVector(gc) => SteelVal::FlatVector(Gc::clone(gc)),
         }
     }
 }
@@ -2231,6 +2237,7 @@ impl SteelVal {
             (BoolV(l), BoolV(r)) => l == r,
             (CharV(l), CharV(r)) => l == r,
             (VectorV(l), VectorV(r)) => Gc::ptr_eq(&l.0, &r.0),
+            (FlatVector(l), FlatVector(r)) => Gc::ptr_eq(l, r),
             (Void, Void) => true,
             (StringV(l), StringV(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
@@ -2310,9 +2317,28 @@ fn slow_path_eq_lists(
     */
 }
 
+// The vector representations all compare equal to one another, so they have to hash
+// alike - a shared tag stands in for their differing discriminants.
+const VECTOR_HASH_TAG: u8 = 0xFE;
+
+fn hash_vector_elements<'a, H: Hasher>(
+    len: usize,
+    values: impl Iterator<Item = &'a SteelVal>,
+    state: &mut H,
+) {
+    len.hash(state);
+    for value in values {
+        value.hash(state);
+    }
+}
+
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        core::mem::discriminant(self).hash(state);
+        match self {
+            VectorV(_) | FlatVector(_) | MutableVector(_) => VECTOR_HASH_TAG.hash(state),
+            _ => core::mem::discriminant(self).hash(state),
+        }
+
         match self {
             Closure(b) => b.hash(state),
             BoolV(b) => b.hash(state),
@@ -2320,7 +2346,8 @@ impl Hash for SteelVal {
             IntV(i) => i.hash(state),
             Rational(f) => f.hash(state),
             CharV(c) => c.hash(state),
-            VectorV(v) => v.hash(state),
+            VectorV(v) => hash_vector_elements(v.len(), v.iter(), state),
+            FlatVector(v) => hash_vector_elements(v.len(), v.iter(), state),
             Void => {}
             StringV(s) => s.hash(state),
             FuncV(s) => s.hash(state),
@@ -2347,7 +2374,7 @@ impl Hash for SteelVal {
             Pair(p) => (**p).hash(state),
             MutFunc(fun) => fun.hash(state),
             BuiltIn(fun) => fun.hash(state),
-            MutableVector(vec) => vec.get().hash(state),
+            MutableVector(vec) => vec.borrow(|vec| hash_vector_elements(vec.len(), vec.iter(), state)),
             BoxedIterator(iter) => Gc::as_ptr(iter).hash(state),
             SyntaxObject(s) => s.raw.hash(state),
             Boxed(val) => val.read().hash(state),
@@ -2651,6 +2678,7 @@ impl SteelVal {
     pub const BIG_RATIONAL_TAG: u8 = 34;
     pub const COMPLEX_TAG: u8 = 35;
     pub const BYTEVECTOR_TAG: u8 = 36;
+    pub const FLAT_VECTOR_TAG: u8 = 37;
 
     pub const SPECIAL_RC_TAGS: [u8; 25] = [
         SteelVal::CLOSURE_TAG,

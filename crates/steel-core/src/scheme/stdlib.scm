@@ -1169,6 +1169,7 @@
 (define (vector->list v . remaining)
   (cond
     [(immutable-vector? v) (apply immutable-vector->list (cons v remaining))]
+    [(flat-vector? v) (apply flat-vector->list (cons v remaining))]
     [(mutable-vector? v) (apply mutable-vector->list (cons v remaining))]
     [else (error "vector->list expects a vector, found: " v)]))
 

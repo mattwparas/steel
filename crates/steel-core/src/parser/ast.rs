@@ -251,6 +251,11 @@ impl TryFrom<&SteelVal> for ExprKind {
                         lst.iter().map(|x| inner_try_from(x, depth + 1)).collect();
                     Ok(ExprKind::List(List::new(items?)))
                 }
+                FlatVector(lst) => {
+                    let items: core::result::Result<ThinVec<ExprKind>, &'static str> =
+                        lst.iter().map(|x| inner_try_from(x, depth + 1)).collect();
+                    Ok(ExprKind::List(List::new(items?)))
+                }
                 Void => Err("Can't convert from Void to expression!"),
                 StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     StringLiteral(x.as_str().into()),

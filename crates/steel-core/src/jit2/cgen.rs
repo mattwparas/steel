@@ -25,7 +25,7 @@ use crate::{
         lists::{steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse},
         ports::{eof_objectp_jit, steel_eof_objectp},
         strings::steel_char_equals,
-        vectors::{mut_vec_push, steel_mut_vec_set},
+        vectors::{flat_vector_construct, mut_vec_push, steel_mut_vec_set},
     },
     rvals::{FunctionSignature, SteelString},
     steel_vm::{
@@ -60,6 +60,7 @@ const INLINE_READ_CAPTURED: bool = true;
 const USE_INLINE_DROP_HEAP_BOX: bool = true;
 
 const INLINE_MUTABLE_VECTOR_OPS: bool = true;
+const INLINE_FLAT_VECTOR_REF: bool = true;
 
 // const USE_INPLACE_WRITES: bool = true;
 
@@ -756,6 +757,7 @@ impl Default for JIT {
         );
 
         CallStructConstructorsDefinitions::register(&mut map);
+        CallFlatVectorConstructorsDefinitions::register(&mut map);
 
         CallSelfNoArityFunctionDefinitions::register(&mut map);
 
@@ -3471,6 +3473,13 @@ impl FunctionTranslator<'_> {
                                     self.vector_push()
                                 }
 
+                                f if f == flat_vector_construct as FunctionSignature
+                                    && CallFlatVectorConstructorsDefinitions::arity_to_name(arity)
+                                        .is_some() =>
+                                {
+                                    self.flat_vector_construct(arity)
+                                }
+
                                 f if f == steel_eq as FunctionSignature && arity == 2 => self.eq(),
 
                                 f if f == steel_pair as FunctionSignature && arity == 1 => {
@@ -5459,6 +5468,8 @@ impl FunctionTranslator<'_> {
                         &[MaybeStackValue::MutRegister(v) | MaybeStackValue::Register(v), MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i)] =>
                         {
                             let vector = self.register_index(v);
+                            let vector_value = self.read_from_vm_stack(v);
+                            let index_value = self.read_from_vm_stack(i);
 
                             let res = match self.properties.get(&ValueOrRegister::Register(i)) {
                                 Some(Properties::PositiveInteger) => {
@@ -5467,10 +5478,22 @@ impl FunctionTranslator<'_> {
 
                                     let index = self.read_from_vm_stack_unboxed(i);
 
-                                    self.call_function_returns_value_args(
-                                        "vector-ref-reg-2-unboxed-index",
-                                        &[vector, index],
-                                    )
+                                    let fallback = move |ctx: &mut Self| {
+                                        ctx.call_function_returns_value_args(
+                                            "vector-ref-reg-2-unboxed-index",
+                                            &[vector, index],
+                                        )
+                                    };
+
+                                    if INLINE_FLAT_VECTOR_REF {
+                                        self.inline_flat_vector_ref(
+                                            vector_value,
+                                            index_value,
+                                            fallback,
+                                        )
+                                    } else {
+                                        fallback(self)
+                                    }
                                 }
 
                                 _ => {
@@ -5486,26 +5509,48 @@ impl FunctionTranslator<'_> {
                                     self.shadow_stack_pop();
                                     self.shadow_stack_pop();
 
-                                    self.call_function_returns_value_args(
-                                        "vector-ref-reg-2",
-                                        &[vector, index],
-                                    )
+                                    let fallback = move |ctx: &mut Self| {
+                                        ctx.call_function_returns_value_args(
+                                            "vector-ref-reg-2",
+                                            &[vector, index],
+                                        )
+                                    };
+
+                                    if INLINE_FLAT_VECTOR_REF {
+                                        self.inline_flat_vector_ref(
+                                            vector_value,
+                                            index_value,
+                                            fallback,
+                                        )
+                                    } else {
+                                        fallback(self)
+                                    }
                                 }
                             };
 
                             self.push(res, InferredType::Any);
                             self.ip += 2;
                         }
-                        &[MaybeStackValue::MutRegister(v) | MaybeStackValue::Register(v), MaybeStackValue::Value(_)] =>
+                        &[MaybeStackValue::MutRegister(v) | MaybeStackValue::Register(v), MaybeStackValue::Value(_) | MaybeStackValue::Constant(_)] =>
                         {
                             let index = self.shadow_pop();
+                            let vector_value = self.read_from_vm_stack(v);
                             let vector = self.register_index_small(v);
                             self.shadow_stack_pop();
 
-                            let res = self.call_function_returns_value_args(
-                                "vector-ref-reg-1",
-                                &[vector, index.0],
-                            );
+                            let index_value = index.0;
+                            let fallback = move |ctx: &mut Self| {
+                                ctx.call_function_returns_value_args(
+                                    "vector-ref-reg-1",
+                                    &[vector, index_value],
+                                )
+                            };
+
+                            let res = if INLINE_FLAT_VECTOR_REF {
+                                self.inline_flat_vector_ref(vector_value, index_value, fallback)
+                            } else {
+                                fallback(self)
+                            };
 
                             self.push(res, InferredType::Any);
                             self.ip += 2;

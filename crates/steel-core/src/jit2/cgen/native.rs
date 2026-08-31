@@ -13,6 +13,20 @@ const fn heap_vec_offset() -> i32 {
         + core::mem::offset_of!(HeapAllocated<HeapVec>, value)) as i32
 }
 
+// A FlatVector carries the BiasedRc box pointer, and the steel_vec::Vec sits in
+// its data. Contiguous, so an element is a load and an index
+const fn flat_vec_offset() -> i32 {
+    steel_rc::BiasedRc::<steel_vec::Vec<SteelVal>>::data_offset() as i32
+}
+
+const fn flat_vec_len_offset() -> i32 {
+    flat_vec_offset() + steel_vec::Vec::<SteelVal>::len_offset() as i32
+}
+
+const fn flat_vec_buf_offset() -> i32 {
+    flat_vec_offset() + steel_vec::Vec::<SteelVal>::buf_offset() as i32
+}
+
 const fn heap_vec_len_offset() -> i32 {
     heap_vec_offset() + HeapVec::len_offset() as i32
 }
@@ -1657,6 +1671,67 @@ impl<'a> FunctionTranslator<'a> {
 
     // vector-push! with no call while the buffer has room. Growing reallocates
     // and a shared vector needs the lock, so both take the fallback
+    // vector-ref on a flat vector with no call: check the tags, bounds check, then
+    // load. The element is cloned because the vector keeps its own copy
+    pub(super) fn inline_flat_vector_ref(
+        &mut self,
+        vector: Value,
+        index: Value,
+        fallback: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let is_flat = self.is_type(vector, SteelVal::FLAT_VECTOR_TAG);
+        let is_int = self.is_type(index, SteelVal::INT_TAG);
+        let both = self.builder.ins().band(is_flat, is_int);
+
+        self.converging_if_else_cold(
+            both,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(vector);
+                let idx = ctx.unbox_value_to_pointer(index);
+
+                let len = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlagsData::trusted(),
+                    ptr,
+                    flat_vec_len_offset(),
+                );
+
+                // Unsigned, so a negative index fails the same comparison
+                let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
+
+                ctx.converging_if_else_cold(
+                    in_bounds,
+                    |ctx| {
+                        let buf = ctx.builder.ins().load(
+                            types::I64,
+                            MemFlagsData::trusted(),
+                            ptr,
+                            flat_vec_buf_offset(),
+                        );
+
+                        debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
+                        let byte_offset = ctx.builder.ins().ishl_imm_u(idx, 4);
+                        let slot = ctx.builder.ins().iadd(buf, byte_offset);
+
+                        let value = ctx.builder.ins().load(
+                            types::I128,
+                            MemFlagsData::trusted(),
+                            slot,
+                            0,
+                        );
+
+                        ctx.clone_value(value);
+                        value
+                    },
+                    |ctx| fallback(ctx),
+                    types::I128,
+                )
+            },
+            |ctx| fallback(ctx),
+            types::I128,
+        )
+    }
+
     pub(super) fn inline_mut_vector_push(
         &mut self,
         vector: Value,
@@ -1734,6 +1809,24 @@ impl<'a> FunctionTranslator<'a> {
 
         self.ip += 1;
         self.check_deopt();
+    }
+
+    // The constructor just moves the arguments into a fresh allocation, so it
+    // cannot deopt and does not need the thread context.
+    pub(super) fn flat_vector_construct(&mut self, arity: usize) {
+        let name = CallFlatVectorConstructorsDefinitions::arity_to_name(arity).unwrap();
+
+        let args = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        let res = self.call_function_returns_value_args_no_context(name, &args);
+
+        self.push(res, InferredType::Any);
+
+        self.ip += 1;
     }
 
     pub(super) fn inline_struct_call_no_drop(

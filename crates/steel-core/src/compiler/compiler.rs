@@ -1252,6 +1252,10 @@ impl Compiler {
 
         let mut analysis = semantic.into_analysis();
 
+        if crate::compiler::passes::flat_vector::enabled() {
+            crate::compiler::passes::flat_vector::run(&mut expanded_statements, &analysis);
+        }
+
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
         self.shadowed_variable_renamer

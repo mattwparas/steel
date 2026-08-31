@@ -187,6 +187,13 @@ fn vector_copy(
 
         match vector {
             Some(SteelVal::VectorV(v)) => immutable_vector_copy(v, rest),
+            Some(SteelVal::FlatVector(v)) => {
+                let (start, end) = bounds_mut(rest, "vector-copy", 3, v)?;
+
+                Ok(SteelVal::FlatVector(Gc::new(
+                    v.iter().skip(start).take(end - start).cloned().collect(),
+                )))
+            }
             Some(SteelVal::MutableVector(vector)) => {
                 let vector = vector.get();
                 let (start, end) = bounds_mut(rest, "vector-copy", 3, &vector)?;
@@ -259,6 +266,9 @@ fn vector_append(
                 }
                 SteelVal::MutableVector(v) => {
                     vector.extend(v.get().iter().cloned());
+                }
+                SteelVal::FlatVector(v) => {
+                    vector.extend(v.iter().cloned());
                 }
                 _ => {
                     stop!(TypeMismatch => "vector-append expects only vectors, found: {}", arg)
@@ -996,6 +1006,41 @@ pub fn mut_vec_swap(vec: &HeapRef<HeapVec>, i: usize, j: usize) -> Result<SteelV
 /// > (define V (immutable-vector 1 2 3)) ;;
 /// > V ;; => '#(1 2 3)
 /// ```
+/// Constructs a flat, immutable vector. Indexing is a load rather than a tree
+/// walk, and it is reference counted rather than tracked by the collector.
+#[steel_derive::native(name = "flat-vector", arity = "AtLeast(0)")]
+pub fn flat_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
+    Ok(SteelVal::FlatVector(Gc::new(
+        args.iter().cloned().collect::<steel_vec::Vec<SteelVal>>(),
+    )))
+}
+
+/// Returns true if the value is a flat vector.
+#[steel_derive::function(name = "flat-vector?", constant = true)]
+pub fn flat_vectorp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::FlatVector(_))
+}
+
+/// Converts a flat vector into a list, optionally over a sub range.
+/// Converts a flat vector into a list, optionally over a sub range.
+#[steel_derive::native(name = "flat-vector->list", arity = "AtLeast(1)")]
+pub fn flat_vector_to_list(args: &[SteelVal]) -> Result<SteelVal> {
+    use crate::rvals::FromSteelVal;
+
+    let mut args_iter = args.iter();
+
+    let Some(SteelVal::FlatVector(vector)) = args_iter.next() else {
+        stop!(TypeMismatch => "flat-vector->list expects a flat vector, found: {:?}", args.first());
+    };
+
+    let rest = RestArgsIter(args_iter.map(|x| <isize>::from_steelval(x)));
+    let (start, end) = bounds_mut(rest, "flat-vector->list", 3, vector)?;
+
+    Ok(SteelVal::ListV(
+        vector.iter().skip(start).take(end - start).cloned().collect(),
+    ))
+}
+
 #[steel_derive::native(name = "immutable-vector", arity = "AtLeast(0)")]
 pub fn immutable_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::VectorV(
@@ -1022,11 +1067,15 @@ pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVa
 /// > (define V (immutable-vector 1 2 3 4)) ;;
 /// > (vector-length V) ;; => 4
 /// ```
-#[steel_derive::function(name = "vector-length")]
-pub fn vec_length(v: Either<&SteelVector, &HeapRef<HeapVec>>) -> SteelVal {
-    match v {
-        Either::Left(v) => SteelVal::IntV(v.len() as _),
-        Either::Right(v) => SteelVal::IntV(v.borrow(|x| x.len() as _)),
+#[steel_derive::native(name = "vector-length", arity = "Exact(1)")]
+pub fn vec_length(args: &[SteelVal]) -> Result<SteelVal> {
+    match &args[0] {
+        SteelVal::VectorV(v) => Ok(SteelVal::IntV(v.len() as _)),
+        SteelVal::FlatVector(v) => Ok(SteelVal::IntV(v.len() as _)),
+        SteelVal::MutableVector(v) => Ok(SteelVal::IntV(v.borrow(|x| x.len() as _))),
+        other => {
+            stop!(TypeMismatch => "vector-length expected a vector, found: {:?}", other)
+        }
     }
 }
 
@@ -1242,6 +1291,19 @@ pub fn vec_ref(vec: &mut SteelVal, idx: &SteelVal) -> Result<SteelVal> {
             }
 
             SteelVal::VectorV(v) => {
+                if idx_usize < v.len() {
+                    Ok(v[idx_usize].clone())
+                } else {
+                    let e = format!(
+                        "Index out of bounds - attempted to access index: {} with length: {}",
+                        idx_usize,
+                        v.len()
+                    );
+                    stop!(Generic => e);
+                }
+            }
+
+            SteelVal::FlatVector(v) => {
                 if idx_usize < v.len() {
                     Ok(v[idx_usize].clone())
                 } else {

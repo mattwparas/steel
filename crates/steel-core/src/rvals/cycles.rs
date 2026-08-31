@@ -237,6 +237,19 @@ impl CycleDetector {
                 }
                 write!(f, ")")
             }
+            FlatVector(lst) => {
+                let mut iter = lst.iter();
+                write!(f, "#(")?;
+
+                if let Some(last) = iter.next_back() {
+                    for item in iter {
+                        self.format_with_cycles(item, f, FormatType::Normal)?;
+                        write!(f, " ")?;
+                    }
+                    self.format_with_cycles(last, f, FormatType::Normal)?;
+                }
+                write!(f, ")")
+            }
             // TODO: Somehow getting an already borrowed error here on 208
             Custom(x) => match format_type {
                 FormatType::Normal => write!(
@@ -1135,6 +1148,17 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 Complex(x) => self.visit_complex(x),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
+                // Take the elements when we hold the only reference, the way the
+                // immutable vector case does - cloning here pays a refcount round
+                // trip per element on the way to dropping them
+                FlatVector(mut v) => {
+                    if let Some(inner) = v.get_mut() {
+                        for value in core::mem::take(inner) {
+                            self.push_back(value);
+                        }
+                    }
+                    self.default_output()
+                }
                 Void => self.visit_void(),
                 StringV(s) => self.visit_string(s),
                 FuncV(f) => self.visit_function_pointer(f),
@@ -1491,6 +1515,17 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
                 Complex(x) => self.visit_complex(x),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
+                // Take the elements when we hold the only reference, the way the
+                // immutable vector case does - cloning here pays a refcount round
+                // trip per element on the way to dropping them
+                FlatVector(mut v) => {
+                    if let Some(inner) = v.get_mut() {
+                        for value in core::mem::take(inner) {
+                            self.push_back(value);
+                        }
+                    }
+                    self.default_output()
+                }
                 Void => self.visit_void(),
                 StringV(s) => self.visit_string(s),
                 FuncV(f) => self.visit_function_pointer(f),
@@ -1556,6 +1591,14 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 Complex(x) => self.visit_complex(x),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
+                // A flat vector is a plain reference counted value with no cycle to
+                // detect, so just walk what it holds
+                FlatVector(v) => {
+                    for value in v.iter() {
+                        self.push_back(value.clone());
+                    }
+                    self.default_output()
+                }
                 Void => self.visit_void(),
                 StringV(s) => self.visit_string(s),
                 FuncV(f) => self.visit_function_pointer(f),
@@ -1652,6 +1695,14 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
                 Complex(x) => self.visit_complex(x),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
+                // A flat vector is a plain reference counted value with no cycle to
+                // detect, so just walk what it holds
+                FlatVector(v) => {
+                    for value in v.iter() {
+                        self.push_back(value);
+                    }
+                    self.default_output()
+                }
                 Void => self.visit_void(),
                 StringV(s) => self.visit_string(s),
                 FuncV(f) => self.visit_function_pointer(f),
@@ -1748,6 +1799,14 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
                 Complex(_) => unimplemented!(),
                 CharV(c) => self.visit_char(*c),
                 VectorV(v) => self.visit_immutable_vector(v),
+                // A flat vector is a plain reference counted value with no cycle to
+                // detect, so just walk what it holds
+                FlatVector(v) => {
+                    for value in v.iter() {
+                        self.push_back(value);
+                    }
+                    self.default_output()
+                }
                 Void => self.visit_void(),
                 StringV(s) => self.visit_string(s),
                 FuncV(f) => self.visit_function_pointer(*f),
@@ -2063,6 +2122,21 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
+                // Flat vectors cannot be cyclic, so equality is a straight walk
+                (FlatVector(l), FlatVector(r)) => {
+                    if l.len() != r.len() {
+                        return false;
+                    }
+
+                    if Gc::ptr_eq(&l, &r) {
+                        continue;
+                    }
+
+                    for (a, b) in l.iter().zip(r.iter()) {
+                        self.left.push_back(a.clone());
+                        self.right.push_back(b.clone());
+                    }
+                }
 
                 (VectorV(l), MutableVector(r)) => {
                     if l.len() != r.borrow(|x| x.len()) {
@@ -2081,6 +2155,55 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     self.left.visit_mutable_vector(l);
                     self.right.visit_immutable_vector(r);
+
+                    continue;
+                }
+
+                (FlatVector(l), VectorV(r)) => {
+                    if l.len() != r.len() {
+                        return false;
+                    }
+
+                    for value in l.iter() {
+                        self.left.push_back(value.clone());
+                    }
+                    self.right.visit_immutable_vector(r);
+
+                    continue;
+                }
+                (VectorV(l), FlatVector(r)) => {
+                    if l.len() != r.len() {
+                        return false;
+                    }
+
+                    self.left.visit_immutable_vector(l);
+                    for value in r.iter() {
+                        self.right.push_back(value.clone());
+                    }
+
+                    continue;
+                }
+                (FlatVector(l), MutableVector(r)) => {
+                    if l.len() != r.borrow(|x| x.len()) {
+                        return false;
+                    }
+
+                    for value in l.iter() {
+                        self.left.push_back(value.clone());
+                    }
+                    self.right.visit_mutable_vector(r);
+
+                    continue;
+                }
+                (MutableVector(l), FlatVector(r)) => {
+                    if l.borrow(|x| x.len()) != r.len() {
+                        return false;
+                    }
+
+                    self.left.visit_mutable_vector(l);
+                    for value in r.iter() {
+                        self.right.push_back(value.clone());
+                    }
 
                     continue;
                 }

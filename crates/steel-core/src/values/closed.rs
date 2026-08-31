@@ -179,6 +179,14 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 Complex(x) => self.visit_complex(x),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
+                // A flat vector is a plain reference counted value with no cycle to
+                // detect, so just walk what it holds
+                FlatVector(v) => {
+                    for value in v.iter() {
+                        self.push_back(value.clone());
+                    }
+                    self.default_output()
+                }
                 Void => self.visit_void(),
                 StringV(s) => self.visit_string(s),
                 FuncV(f) => self.visit_function_pointer(f),

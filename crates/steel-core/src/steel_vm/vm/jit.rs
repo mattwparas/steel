@@ -1186,6 +1186,18 @@ fn vector_ref_handler_register_two(ctx: *mut VmCore, vec_reg: usize, index: usiz
                         stop!(Generic => e);
                     }
                 }
+                SteelVal::FlatVector(v) => {
+                    if idx_usize < v.len() {
+                        Ok(v[idx_usize].clone())
+                    } else {
+                        let e = format!(
+                            "Index out of bounds - attempted to access index: {} with length: {}",
+                            idx_usize,
+                            v.len()
+                        );
+                        stop!(Generic => e);
+                    }
+                }
 
                 _ => stop!(TypeMismatch => format!(
                     "vector-ref expected a vector and a number, found: {:?} and {:?}",
@@ -1245,6 +1257,18 @@ fn vector_ref_handler_register_two_unboxed(ctx: *mut VmCore, vec_reg: usize, i: 
             }
 
             SteelVal::VectorV(v) => {
+                if idx_usize < v.len() {
+                    Ok(v[idx_usize].clone())
+                } else {
+                    let e = format!(
+                        "Index out of bounds - attempted to access index: {} with length: {}",
+                        idx_usize,
+                        v.len()
+                    );
+                    stop!(Generic => e);
+                }
+            }
+            SteelVal::FlatVector(v) => {
                 if idx_usize < v.len() {
                     Ok(v[idx_usize].clone())
                 } else {
@@ -4524,6 +4548,69 @@ make_struct_constructors!(
     (call_struct_constructor_6, a, b, c, d, e, f),
     (call_struct_constructor_7, a, b, c, d, e, f, g),
     (call_struct_constructor_8, a, b, c, d, e, f, g, h)
+);
+
+macro_rules! make_flat_vector_constructors {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallFlatVectorConstructorsDefinitions;
+
+        impl CallFlatVectorConstructorsDefinitions {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
+                $(
+                    #[cfg(target_os = "windows")]
+                    map.add_func2(
+                        stringify!($name),
+                        $name as extern "sysv64-unwind" fn($($typ: SteelVal),*) -> SteelVal
+                    );
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func2(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn($($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+            #[cross_platform_fn]
+            fn $name($($typ: SteelVal),*) -> SteelVal {
+                let mut vec = steel_vec::Vec::with_capacity([$(&$typ),*].len());
+                $(vec.push($typ);)*
+                SteelVal::FlatVector(Gc::new(vec))
+            }
+        )*
+    };
+}
+
+make_flat_vector_constructors!(
+    (call_flat_vector_constructor_1, a),
+    (call_flat_vector_constructor_2, a, b),
+    (call_flat_vector_constructor_3, a, b, c),
+    (call_flat_vector_constructor_4, a, b, c, d),
+    (call_flat_vector_constructor_5, a, b, c, d, e),
+    (call_flat_vector_constructor_6, a, b, c, d, e, f),
+    (call_flat_vector_constructor_7, a, b, c, d, e, f, g),
+    (call_flat_vector_constructor_8, a, b, c, d, e, f, g, h)
 );
 
 macro_rules! make_primitive_mut_function_deopt {

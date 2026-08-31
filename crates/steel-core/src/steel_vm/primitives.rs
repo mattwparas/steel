@@ -38,7 +38,9 @@ use crate::{
         time::time_module,
         transducers::transducer_module,
         vectors::{
-            immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
+            flat_vector_construct, immutable_vectors_module,
+            FLAT_VECTORP_DEFINITION, FLAT_VECTOR_CONSTRUCT_DEFINITION,
+            FLAT_VECTOR_TO_LIST_DEFINITION, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
             LIST_VEC_NULL_DEFINITION, MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION,
             MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_STRING_DEFINITION,
             MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
@@ -945,6 +947,9 @@ fn vector_module() -> BuiltInModule {
         .register_native_fn_definition(MUT_VEC_PUSH_DEFINITION)
         .register_native_fn_definition(MUT_VEC_LENGTH_DEFINITION)
         .register_native_fn_definition(VEC_LENGTH_DEFINITION)
+        .register_native_fn_definition(FLAT_VECTOR_CONSTRUCT_DEFINITION)
+        .register_native_fn_definition(FLAT_VECTORP_DEFINITION)
+        .register_native_fn_definition(FLAT_VECTOR_TO_LIST_DEFINITION)
         .register_native_fn_definition(MUT_VEC_APPEND_DEFINITION)
         .register_native_fn_definition(MUT_VEC_GET_DEFINITION)
         .register_native_fn_definition(MUT_VEC_SET_DEFINITION)
@@ -1041,7 +1046,10 @@ pub fn listp(value: &SteelVal) -> bool {
 /// ```
 #[steel_derive::function(name = "vector?", constant = true)]
 pub fn vectorp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::VectorV(_) | SteelVal::MutableVector(_))
+    matches!(
+        value,
+        SteelVal::VectorV(_) | SteelVal::MutableVector(_) | SteelVal::FlatVector(_)
+    )
 }
 
 /// Returns true if the value is a symbol.
