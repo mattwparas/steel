@@ -4066,6 +4066,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                     replacer.visit(expr);
                     callsite_modifier.visit(expr);
                 }
+
             }
         }
 
@@ -4178,7 +4179,23 @@ impl CheckIdentifierOnlyOccursInUnboxCallPosition {
     fn check_let(&mut self, expr: &Let) -> bool {
         self.escapes = false;
         self.inside_lambda = false;
-        self.visit_let(expr);
+
+        for (var, bound) in &expr.bindings {
+            // The function being lifted is itself a lambda, so its own body is
+            // checked one level in - only a lambda nested deeper than it can keep
+            // a reference alive past the frame.
+            if self.func_name.is_some() && var.atom_identifier().copied() == self.func_name {
+                if let ExprKind::LambdaFunction(f) = bound {
+                    self.visit(&f.body);
+                    continue;
+                }
+            }
+
+            self.visit(bound);
+        }
+
+        self.visit(&expr.body_expr);
+
         let res = self.escapes;
         self.escapes = false;
         res

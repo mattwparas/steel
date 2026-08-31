@@ -1,6 +1,6 @@
 use compact_str::CompactString;
 use quickscope::{ScopeMap, ScopeSet};
-use rustc_hash::{FxBuildHasher, FxHashMap};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 use crate::parser::{
     ast::{Atom, ExprKind},
@@ -18,6 +18,10 @@ pub struct RenameShadowedVariables {
     shadows: ScopeMap<InternedString, InternedString, FxBuildHasher>,
     str_modifiers: FxHashMap<usize, CompactString>,
     rename_all: bool,
+    // Every name handed out so far. Scope local uniqueness is not enough: two top
+    // level functions each holding a `loop` produce the same mangled name, and the
+    // passes that rewrite by name cannot then tell the two scopes apart.
+    issued: FxHashSet<InternedString>,
 }
 
 impl Default for RenameShadowedVariables {
@@ -35,6 +39,7 @@ impl RenameShadowedVariables {
             modified: false,
             str_modifiers: FxHashMap::default(),
             rename_all: false,
+            issued: FxHashSet::default(),
         }
     }
 
@@ -92,13 +97,14 @@ impl RenameShadowedVariables {
 
         let mut candidate: InternedString = base.clone().into();
         let mut counter: u32 = 0;
-        while self.scope.contains(&candidate) {
+        while self.scope.contains(&candidate) || self.issued.contains(&candidate) {
             let mut next = base.clone();
             next.push('_');
             next.push_str(&counter.to_string());
             candidate = next.into();
             counter += 1;
         }
+        self.issued.insert(candidate);
         candidate
     }
 }
