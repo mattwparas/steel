@@ -1108,6 +1108,14 @@ impl<T: ?Sized> BiasedRc<T> {
 
     #[must_use]
     #[inline]
+    // The jit addresses fields by raw offset from the box pointer the value carries
+    pub const fn data_offset() -> usize
+    where
+        T: Sized,
+    {
+        core::mem::offset_of!(RcBox<T>, data)
+    }
+
     pub fn as_ptr(this: &Self) -> *const T {
         let ptr = this.ptr.as_ptr();
 
@@ -2008,3 +2016,4 @@ fn make_mut_test() {
 //     let word = BiasedRc::new(10);
 //     drop(word);
 // }
+

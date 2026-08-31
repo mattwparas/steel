@@ -26,6 +26,50 @@ const fn heap_vec_cap_offset() -> i32 {
 }
 
 // The abstract state both arms of a two way branch start from
+// converging_if merges only `properties`, so the arms have to agree on the rest
+// or the mismatch is silent. STEEL_JIT_BRANCH_CHECK=1 reports one.
+fn branch_check_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("STEEL_JIT_BRANCH_CHECK").is_ok())
+}
+
+fn branch_state_fingerprint(ctx: &FunctionTranslator<'_>) -> Option<(usize, String, usize)> {
+    if !branch_check_enabled() {
+        return None;
+    }
+
+    Some((
+        ctx.ip,
+        format!("{:?}", ctx.shadow_stack),
+        ctx.let_var_stack.len(),
+    ))
+}
+
+fn report_branch_divergence(
+    then_state: Option<(usize, String, usize)>,
+    else_state: Option<(usize, String, usize)>,
+) {
+    let (Some(then_state), Some(else_state)) = (then_state, else_state) else {
+        return;
+    };
+
+    if then_state == else_state {
+        return;
+    }
+
+    eprintln!("BRANCH-DIVERGENCE");
+    if then_state.0 != else_state.0 {
+        eprintln!("  ip:    then={} else={}", then_state.0, else_state.0);
+    }
+    if then_state.2 != else_state.2 {
+        eprintln!("  lets:  then={} else={}", then_state.2, else_state.2);
+    }
+    if then_state.1 != else_state.1 {
+        eprintln!("  stack: then={}", then_state.1);
+        eprintln!("         else={}", else_state.1);
+    }
+}
+
 pub(super) struct BranchState {
     ip: usize,
     shadow_stack: Vec<MaybeStackValue>,
@@ -1016,6 +1060,7 @@ impl<'a> FunctionTranslator<'a> {
         let entry = self.snapshot_branch_state();
         let res = BlockArg::Value(then(self));
         let then_properties = self.properties.clone();
+        let then_state = branch_state_fingerprint(self);
 
         self.builder.ins().jump(merge_block, &[res]);
 
@@ -1024,6 +1069,7 @@ impl<'a> FunctionTranslator<'a> {
 
         self.restore_branch_state(entry);
         let then_res = BlockArg::Value(else_thunk(self));
+        report_branch_divergence(then_state, branch_state_fingerprint(self));
         self.builder.ins().jump(merge_block, &[then_res]);
         self.builder.switch_to_block(merge_block);
 
@@ -1060,6 +1106,7 @@ impl<'a> FunctionTranslator<'a> {
         let entry = self.snapshot_branch_state();
         let res = BlockArg::Value(then(self));
         let then_properties = self.properties.clone();
+        let then_state = branch_state_fingerprint(self);
 
         self.builder.ins().jump(merge_block, &[res]);
 
@@ -1068,6 +1115,7 @@ impl<'a> FunctionTranslator<'a> {
 
         self.restore_branch_state(entry);
         let then_res = BlockArg::Value(else_thunk(self));
+        report_branch_divergence(then_state, branch_state_fingerprint(self));
         self.builder.ins().jump(merge_block, &[then_res]);
         self.builder.switch_to_block(merge_block);
 
@@ -1784,6 +1832,18 @@ impl<'a> FunctionTranslator<'a> {
                 let is_struct = self.is_type(struct_ref, SteelVal::STRUCT_TAG);
                 let typ = self.int;
 
+                // Take the operand out of its register up front so both arms start
+                // from the same stack - the slow arm would otherwise do it in its
+                // call's split_off and the fast arm not at all
+                if let Some(MaybeStackValue::MutRegister(p)) = self.shadow_stack.last().copied() {
+                    let (value, inferred_type) = self.mut_register_to_value(p);
+                    *self.shadow_stack.last_mut().unwrap() = MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type,
+                        spilled: false,
+                    });
+                }
+
                 let old_ip = self.ip;
                 let stack = self.shadow_stack.clone();
 
@@ -1829,7 +1889,8 @@ fn inline_struct_getter(
         types::I64,
         MemFlagsData::trusted(),
         struct_ref_ptr,
-        offset_of!(UserDefinedStruct, type_descriptor) as i32,
+        (steel_rc::BiasedRc::<UserDefinedStruct>::data_offset()
+            + offset_of!(UserDefinedStruct, type_descriptor)) as i32,
     );
 
     let struct_matches =
@@ -1839,13 +1900,14 @@ fn inline_struct_getter(
 
     let last = ctx.shadow_stack.pop().unwrap();
 
+
     let res = ctx.converging_if(
         struct_matches,
         |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx),
         |ctx| {
-            // Undo the above branch:
-            ctx.ip -= 1;
-            // Re push the value back on
+            // call_global_function takes self.ip as the deopt fallback and then
+            // advances one, so this has to enter on the call itself - the same
+            // as the outer slow path does
             ctx.shadow_stack.push(last);
             slow_path_struct_getter(arity, function_index, ctx)
         },
@@ -1867,7 +1929,9 @@ fn fast_path_struct_matches(
         types::I64,
         MemFlagsData::trusted(),
         struct_ref_ptr,
-        (offset_of!(UserDefinedStruct, fields) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
+        (steel_rc::BiasedRc::<UserDefinedStruct>::data_offset()
+            + offset_of!(UserDefinedStruct, fields)
+            + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
     );
 
     let size: i64 = std::mem::size_of::<SteelVal>() as _;
@@ -1899,7 +1963,9 @@ fn slow_path_struct_getter(
     let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
 
     if let Some(name) = name {
-        let result = ctx.call_global_function(arity, name, function_index, false);
+        // A pure error path, so the interpreter never resumes from it - no need
+        // to materialise the operand stack, which lets the fast arm skip it too
+        let result = ctx.call_global_function_no_spill(arity, name, function_index);
         ctx.check_deopt();
 
         // Assuming this worked, we'll want to push this result on to the stack.

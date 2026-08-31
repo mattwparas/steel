@@ -7555,6 +7555,31 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    // call_global_function without materialising the operand stack
+    fn call_global_function_no_spill(
+        &mut self,
+        arity: usize,
+        name: &str,
+        function_index: usize,
+    ) -> Value {
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
+        let lookup_index = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), function_index as i64);
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        self.ip += 1;
+        let mut arg_values = vec![ctx, lookup_index, fallback_ip];
+        let args_off_the_stack = self.split_off(arity);
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        self.builder.inst_results(call)[0]
+    }
+
     fn call_global_function_spilled(
         &mut self,
         arity: usize,
