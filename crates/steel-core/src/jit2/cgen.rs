@@ -5850,22 +5850,13 @@ impl FunctionTranslator<'_> {
                 ctx.spill_stack();
 
                 let arity = args_off_the_stack.len();
+                // Always take the check here too - see the note in the non-tail
+                // call path above.
+                ctx.push_to_many_vm_stack_let_var_new(&args_off_the_stack);
 
-                if ctx.properties.cached_lookups.stack_length_capacity > args_off_the_stack.len() {
-                    ctx.push_to_many_vm_stack_let_var_new_unchecked(&args_off_the_stack);
-
-                    ctx.properties.cached_lookups.stack_length_capacity = ctx
-                        .properties
-                        .cached_lookups
-                        .stack_length_capacity
-                        .saturating_sub(args_off_the_stack.len());
-                } else {
-                    ctx.push_to_many_vm_stack_let_var_new(&args_off_the_stack);
-
-                    // The checked push reserves exactly what it needs, so there
-                    // is no headroom left over:
-                    ctx.properties.cached_lookups.stack_length_capacity = 0;
-                }
+                // The checked push reserves exactly what it needs, so there
+                // is no headroom left over:
+                ctx.properties.cached_lookups.stack_length_capacity = 0;
 
                 let should_trampoline = ctx.check_should_trampoline(vm_ctx);
 
@@ -9622,22 +9613,15 @@ impl FunctionTranslator<'_> {
         //     self.push_to_vm_stack_let_var_new(*arg);
         // }
 
-        if self.properties.cached_lookups.stack_length_capacity > args.len() {
-            self.push_to_many_vm_stack_let_var_new_unchecked(&args);
+        // stack_length_capacity is a compile time model of a runtime quantity and it
+        // can run ahead of the truth. The unchecked push then writes past the end of
+        // the stack buffer and corrupts the allocator, so always take the check - it
+        // costs nothing measurable.
+        self.push_to_many_vm_stack_let_var_new(&args);
 
-            // Record the fact that we've adjusted for this many args:
-            self.properties.cached_lookups.stack_length_capacity = self
-                .properties
-                .cached_lookups
-                .stack_length_capacity
-                .saturating_sub(args.len());
-        } else {
-            self.push_to_many_vm_stack_let_var_new(&args);
-
-            // The checked push reserves exactly what it needs, so there is no
-            // headroom left over:
-            self.properties.cached_lookups.stack_length_capacity = 0;
-        }
+        // The checked push reserves exactly what it needs, so there is no
+        // headroom left over:
+        self.properties.cached_lookups.stack_length_capacity = 0;
 
         self.converging_if(
             should_trampoline,
