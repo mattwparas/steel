@@ -3588,6 +3588,13 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => {
+                // A binding value is its own expression and can hold the very shape
+                // this pass is looking for. Visit those in the enclosing scope, before
+                // this let's own bindings come into view.
+                for (_, value) in l.bindings.iter_mut() {
+                    self.visit(value);
+                }
+
                 let original_bindings_length = l.bindings.len();
 
                 // Remove the bindings
@@ -5894,6 +5901,19 @@ impl<'a> SemanticAnalysis<'a> {
         size: Option<usize>,
         module_map: &crate::HashMap<PathBuf, CompiledModule>,
     ) -> Result<(), SteelErr> {
+        // A whole program is handed over as one begin, while something typed at the
+        // repl is a bare expression or two - counting through the begin tells those
+        // apart.
+        fn top_level_expression_count(exprs: &[ExprKind]) -> usize {
+            exprs
+                .iter()
+                .map(|expr| match expr {
+                    ExprKind::Begin(b) => top_level_expression_count(&b.exprs),
+                    _ => 1,
+                })
+                .sum()
+        }
+
         let mut estimator = self.calculate_function_sizes();
         let threshold = size.unwrap_or(50);
 
@@ -5906,9 +5926,11 @@ impl<'a> SemanticAnalysis<'a> {
         // Only do this for functions in which the arity is exactly known
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
 
-        // Only inline across the modules _if_ the number of expressions warrants it. Otherwise
-        // this is a log of needless allocation. Consider caching this for the future.
-        if self.exprs.len() > 10 {
+        // Only inline across the modules _if_ the number of expressions warrants it.
+        // Otherwise this is a lot of needless allocation. A unit usually arrives as a
+        // single begin, so the count has to come from inside it - going by the number
+        // of top level expressions alone means this never runs for a whole program.
+        if top_level_expression_count(self.exprs) > 10 {
             for (_, module) in module_map {
                 if let Some(ast) = module.get_compiled_ast() {
                     match ast {
