@@ -2565,6 +2565,24 @@ where
     }
 }
 
+// Every identifier that appears as the target of a set!, by name. The per-node
+// analysis is keyed by syntax object id, and ids are regenerated as passes run, so
+// a lookup there can miss and report a mutated binding as never assigned. A name
+// is stable across that churn.
+struct CollectSetTargets<'a> {
+    targets: &'a mut FxHashSet<InternedString>,
+}
+
+impl<'a, 'b> VisitorMutUnitRef<'a> for CollectSetTargets<'b> {
+    fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
+        if let Some(name) = s.variable.atom_identifier() {
+            self.targets.insert(*name);
+        }
+
+        self.visit(&s.expr);
+    }
+}
+
 struct RefreshVars;
 
 impl VisitorMutRefUnit for RefreshVars {
@@ -5923,6 +5941,17 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
+        let mut assigned: FxHashSet<InternedString> = FxHashSet::default();
+        {
+            let mut collector = CollectSetTargets {
+                targets: &mut assigned,
+            };
+
+            for expr in self.exprs.iter() {
+                collector.visit(expr);
+            }
+        }
+
         // Only do this for functions in which the arity is exactly known
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
 
@@ -5936,7 +5965,7 @@ impl<'a> SemanticAnalysis<'a> {
                     match ast {
                         ExprKind::Define(d) => {
                             if let ControlFlow::Break(_) =
-                                self.inline_handle_define(&estimator, threshold, &mut funcs, &d)
+                                self.inline_handle_define(&estimator, threshold, &mut funcs, &d, &assigned)
                             {
                                 continue;
                             }
@@ -5946,7 +5975,7 @@ impl<'a> SemanticAnalysis<'a> {
                             for expr in b.exprs.iter() {
                                 if let ExprKind::Define(d) = expr {
                                     if let ControlFlow::Break(_) = self
-                                        .inline_handle_define(&estimator, threshold, &mut funcs, d)
+                                        .inline_handle_define(&estimator, threshold, &mut funcs, d, &assigned)
                                     {
                                         continue;
                                     }
@@ -5965,7 +5994,7 @@ impl<'a> SemanticAnalysis<'a> {
             match expr {
                 ExprKind::Define(d) => {
                     if let ControlFlow::Break(_) =
-                        self.inline_handle_define(&estimator, threshold, &mut funcs, d)
+                        self.inline_handle_define(&estimator, threshold, &mut funcs, d, &assigned)
                     {
                         continue;
                     }
@@ -5975,7 +6004,7 @@ impl<'a> SemanticAnalysis<'a> {
                     for expr in b.exprs.iter() {
                         if let ExprKind::Define(d) = expr {
                             if let ControlFlow::Break(_) =
-                                self.inline_handle_define(&estimator, threshold, &mut funcs, d)
+                                self.inline_handle_define(&estimator, threshold, &mut funcs, d, &assigned)
                             {
                                 continue;
                             }
@@ -5998,6 +6027,7 @@ impl<'a> SemanticAnalysis<'a> {
         threshold: usize,
         funcs: &mut HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List) + 'static>>,
         d: &Box<Define>,
+        assigned: &FxHashSet<InternedString>,
     ) -> ControlFlow<()> {
         let name = if let Some(name) = d.name.atom_syntax_object() {
             name
@@ -6008,6 +6038,17 @@ impl<'a> SemanticAnalysis<'a> {
             if analysis.set_bang {
                 return ControlFlow::Break(());
             }
+        }
+
+        // Inlining the body of a function that is reassigned later would freeze the
+        // definition it happens to have here, and call sites would keep reaching the
+        // old one. A placeholder that is set! to its real implementation further down
+        // is the usual shape.
+        if d.name
+            .atom_identifier()
+            .is_some_and(|name| assigned.contains(name))
+        {
+            return ControlFlow::Break(());
         }
 
         if let ExprKind::LambdaFunction(l) = &d.body {

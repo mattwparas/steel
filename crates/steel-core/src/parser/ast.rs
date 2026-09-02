@@ -8,6 +8,8 @@ use crate::{
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 use thin_vec::ThinVec;
 
+use crate::parser::span::Span;
+
 use crate::{
     rerrs::SteelErr,
     rvals::SteelVal::{self, *},
@@ -84,10 +86,16 @@ impl TryFromSteelValVisitorForExprKind {
             BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 RealLiteral::Int(IntLiteral::Big(Box::new(x.unwrap()))).into(),
             )))),
+            // A vector has to come back as a vector literal - as a list it would be a
+            // different type, and a constant folded from one changes meaning.
             VectorV(lst) => {
                 let items: core::result::Result<ThinVec<ExprKind>, _> =
                     lst.iter().map(|x| self.visit(x)).collect();
-                Ok(ExprKind::List(List::new(items?)))
+                Ok(ExprKind::Vector(Vector {
+                    args: items?,
+                    bytes: false,
+                    span: Span::default(),
+                }))
             }
             Void => stop!(Generic => "Can't convert from Void to expression!"),
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
@@ -246,15 +254,24 @@ impl TryFrom<&SteelVal> for ExprKind {
                 Complex(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     complex_to_literal(x)?.into(),
                 )))),
+                // Same as above: a vector value is a vector literal, not a list.
                 VectorV(lst) => {
                     let items: core::result::Result<ThinVec<ExprKind>, &'static str> =
                         lst.iter().map(|x| inner_try_from(x, depth + 1)).collect();
-                    Ok(ExprKind::List(List::new(items?)))
+                    Ok(ExprKind::Vector(Vector {
+                        args: items?,
+                        bytes: false,
+                        span: Span::default(),
+                    }))
                 }
                 FlatVector(lst) => {
                     let items: core::result::Result<ThinVec<ExprKind>, &'static str> =
                         lst.iter().map(|x| inner_try_from(x, depth + 1)).collect();
-                    Ok(ExprKind::List(List::new(items?)))
+                    Ok(ExprKind::Vector(Vector {
+                        args: items?,
+                        bytes: false,
+                        span: Span::default(),
+                    }))
                 }
                 Void => Err("Can't convert from Void to expression!"),
                 StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
