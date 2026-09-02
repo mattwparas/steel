@@ -30,12 +30,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rustc_hash::{FxHashMap, FxHashSet};
 // use smallvec::SmallVec;
-use steel_parser::{
-    ast::{AstTools, PROTO_HASH_GET},
-    expr_list,
-    parser::SourceId,
-    span::Span,
-};
+use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
 use thin_vec::{thin_vec, ThinVec};
 

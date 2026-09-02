@@ -1007,6 +1007,58 @@ fn run_explicit_merge() {
 }
 
 #[cfg(feature = "sync")]
+#[test]
+fn parallel_mark_counts_each_slot_exactly_once() {
+    use std::sync::{Arc, Barrier};
+
+    let num_slots = 4000;
+    let num_threads = 8;
+
+    // NOTE: this branch stores reachability as an atomic flag behind a SpinLock
+    // rather than master's StandardShared/MutContainer pair, so the slots are
+    // built and read through that representation instead.
+    let slots: Arc<Vec<HeapElement<SteelVal>>> = Arc::new(
+        (0..num_slots)
+            .map(|_| {
+                steel_rc::weak::Arc::new(SpinLock::new(HeapAllocated::new(SteelVal::Void)))
+            })
+            .collect(),
+    );
+
+    let barrier = Arc::new(Barrier::new(num_threads));
+
+    let handles: Vec<_> = (0..num_threads)
+        .map(|_| {
+            let slots = Arc::clone(&slots);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                let queue = crossbeam_queue::SegQueue::new();
+                let mut local_queue = Vec::new();
+                let mut ctx = MarkAndSweepContextRefQueue {
+                    local_queue: &mut local_queue,
+                    queue: &queue,
+                    stats: MarkAndSweepStats::default(),
+                };
+
+                barrier.wait();
+                for slot in slots.iter() {
+                    ctx.mark_heap_reference(slot);
+                }
+
+                ctx.stats.memory_reached_count
+            })
+        })
+        .collect();
+
+    let total: usize = handles.into_iter().map(|h| h.join().unwrap()).sum();
+
+    assert_eq!(total, num_slots);
+    for slot in slots.iter() {
+        assert!(slot.lock().is_reachable());
+    }
+}
+
+#[cfg(feature = "sync")]
 impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     // TODO: Calculate the overhead!
     // How big is this?
@@ -1782,11 +1834,17 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.memory_free_list.alloc_count =
-                    self.memory_free_list.elements.len() - stats.memory_reached_count;
+                self.memory_free_list.alloc_count = self
+                    .memory_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.memory_reached_count);
 
-                self.vector_free_list.alloc_count =
-                    self.vector_free_list.elements.len() - stats.vector_reached_count;
+                self.vector_free_list.alloc_count = self
+                    .vector_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.vector_reached_count);
 
                 self.memory_free_list.resize_after_collection();
 
@@ -1936,11 +1994,17 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.vector_free_list.alloc_count =
-                    self.vector_free_list.elements.len() - stats.vector_reached_count;
+                self.vector_free_list.alloc_count = self
+                    .vector_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.vector_reached_count);
 
-                self.memory_free_list.alloc_count =
-                    self.memory_free_list.elements.len() - stats.memory_reached_count;
+                self.memory_free_list.alloc_count = self
+                    .memory_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.memory_reached_count);
 
                 self.vector_free_list.resize_after_collection();
 

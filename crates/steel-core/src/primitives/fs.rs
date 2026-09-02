@@ -42,6 +42,19 @@ impl Custom for glob::MatchOptions {}
 impl Custom for glob::PatternError {}
 impl Custom for glob::Paths {}
 
+/// Returns an iterator over the paths matching the given glob pattern. An
+/// optional second argument supplies match options. Use `glob-iter-next!` to
+/// advance the resulting iterator.
+///
+/// (glob pattern [options]) -> glob-iterator?
+///
+/// * pattern : string?
+/// * options : match-options? - optional matching options
+///
+/// ```scheme
+/// > (define paths (glob "src/*.rs"))
+/// > (glob-iter-next! paths) ;; => the first matching path
+/// ```
 #[steel_derive::function(name = "glob")]
 pub fn glob(pattern: SteelString, mut rest: RestArgsIter<'_, &SteelVal>) -> Result<SteelVal> {
     use crate::rvals::FromSteelVal;
@@ -60,6 +73,12 @@ pub fn glob(pattern: SteelString, mut rest: RestArgsIter<'_, &SteelVal>) -> Resu
         .into_steelval()
 }
 
+/// Advances a glob iterator created by `glob`, returning the next matching
+/// path, or `#false` once the iterator has been exhausted.
+///
+/// (glob-iter-next! paths) -> (or path? #false)
+///
+/// * paths : glob-iterator?
 #[steel_derive::function(name = "glob-iter-next!")]
 pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
     let mut paths = glob::Paths::as_mut_ref(paths)?;
@@ -70,6 +89,11 @@ pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Converts a path into its string representation.
+///
+/// (path->string path) -> string?
+///
+/// * path : path?
 #[steel_derive::function(name = "path->string")]
 pub fn path_to_string(path: &SteelVal) -> Result<SteelVal> {
     <PathBuf as rvals::AsRefSteelVal>::as_ref(path)?
@@ -86,6 +110,7 @@ pub fn fs_module() -> BuiltInModule {
     module
         .register_native_fn_definition(DELETE_DIRECTORY_DEFINITION)
         .register_native_fn_definition(CREATE_DIRECTORY_DEFINITION)
+        .register_native_fn_definition(RENAME_FILE_OR_DIRECTORY_DEFINITION)
         .register_native_fn_definition(COPY_DIRECTORY_RECURSIVELY_DEFINITION)
         .register_native_fn_definition(IS_DIR_DEFINITION)
         .register_native_fn_definition(IS_FILE_DEFINITION)
@@ -365,6 +390,29 @@ pub fn delete_directory(directory: &SteelString) -> Result<SteelVal> {
 #[steel_derive::function(name = "create-directory!")]
 pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
     std::fs::create_dir_all(directory.as_str())?;
+
+    Ok(SteelVal::Void)
+}
+
+/// Renames a file or directory, replacing any data at the destination.
+///
+/// (rename-file-or-directory! source destination) -> void?
+///
+/// * source : (string?) - The file or directory to rename.
+/// * destination : (string?) - The destination to which to move the file or directory.
+///
+/// # Examples
+/// ```scheme
+/// > (rename-file-or-directory! "logs/today.json" "logs/tomorrow.json") ;;
+/// > (rename-file-or-directory! "logs" "backup") ;;
+/// ```
+///
+#[steel_derive::function(name = "rename-file-or-directory!")]
+pub fn rename_file_or_directory(
+    source: &SteelString,
+    destination: &SteelString,
+) -> Result<SteelVal> {
+    std::fs::rename(source.as_str(), destination.as_str())?;
 
     Ok(SteelVal::Void)
 }

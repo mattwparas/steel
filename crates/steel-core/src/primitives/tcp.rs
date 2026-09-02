@@ -191,12 +191,24 @@ pub fn tcp_accept_addr(value: &SteelVal) -> Result<SteelVal> {
     ))))
 }
 
+/// Puts the given TCP listener into non-blocking mode. Once set, `tcp-accept`
+/// will return immediately rather than waiting when no connection is pending.
+///
+/// (tcp-listener-set-non-blocking! listener) -> void?
+///
+/// * listener : tcp-listener?
 #[function(name = "tcp-listener-set-non-blocking!")]
 pub fn tcp_listener_set_non_blocking(value: &SteelVal) -> Result<SteelVal> {
     TcpListener::as_ref(value)?.set_nonblocking(true)?;
     Ok(SteelVal::Void)
 }
 
+/// Puts the given TCP stream into non-blocking mode. Once set, reads and writes
+/// on the stream return immediately rather than waiting when they would block.
+///
+/// (tcp-stream-set-non-blocking! stream) -> void?
+///
+/// * stream : tcp-stream?
 #[function(name = "tcp-stream-set-non-blocking!")]
 pub fn tcp_stream_set_non_blocking(value: &SteelVal) -> Result<SteelVal> {
     TcpStream::as_ref(value)?.set_nonblocking(true)?;

@@ -54,12 +54,56 @@ Append multiple byte vectors into a new bytevector.
 
 (bytes-append #u8(0) #u8(1) #u8() #u8(2)) ;; => #u8(#x00 #x01 #x02)
 ```
+### **bytes-clear!**
+Removes all bytes from the given bytevector, leaving it empty.
+
+(bytes-clear! vector)
+
+* vector : bytes?
+
+#### Examples
+```scheme
+(define my-bytes (bytes 0 1 2 3))
+(bytes-clear! my-bytes)
+my-bytes ;; => #u8()
+```
+### **bytes-copy**
+Creates a copy of a bytevector.
+
+(bytevector-copy vector [start end]) -> bytes?
+
+* vector : bytes?
+* start: int? = 0
+* end: int? = (bytes-length vector)
+
+#### Examples
+
+```scheme
+(define vec (bytes 1 2 3 4 5))
+
+(bytes-copy vec) ;; => (bytes 1 2 3 4 5)
+(bytes-copy vec 1 3) ;; => (bytes 2 3)
+```
 ### **bytes-length**
 Returns the length of the given byte vector
 
 #### Examples
 ```scheme
 (bytes-length (bytes 1 2 3 4 5)) ;; => 5
+```
+### **bytes-push!**
+Appends a byte to the end of the given bytevector, growing it in place.
+
+(bytes-push! vector byte)
+
+* vector : bytes?
+* byte : byte?
+
+#### Examples
+```scheme
+(define my-bytes (bytes 0 1 2))
+(bytes-push! my-bytes 3)
+my-bytes ;; =>  #u8(#x00 #x01 #x02 #x03)
 ```
 ### **bytes-ref**
 Fetches the byte at the given index within the bytevector.
@@ -113,23 +157,18 @@ integer range from 0 - 255 (inclusive)
 ```scheme
 (bytevector 65 112 112 108 101)
 ```
+### **bytevector-append**
+Alias of `bytes-append`.
 ### **bytevector-copy**
-Creates a copy of a bytevector.
-
-(bytevector-copy vector [start end]) -> bytes?
-
-* vector : bytes?
-* start: int? = 0
-* end: int? = (bytes-length vector)
-
-#### Examples
-
-```scheme
-(define vec (bytes 1 2 3 4 5))
-
-(bytevector-copy vec) ;; => (bytes 1 2 3 4 5)
-(bytevector-copy vec 1 3) ;; => (bytes 2 3)
-```
+Alias of `bytes-copy`.
+### **bytevector-length**
+Alias of `bytes-length`.
+### **bytevector-u8-ref**
+Alias of `bytes-ref`.
+### **bytevector-u8-set!**
+Alias of `bytes-set!`.
+### **bytevector?**
+Alias of `bytes?`.
 ### **list->bytes**
 Converts the list of bytes to the equivalent bytevector representation.
 The list must contain _only_ values which satisfy the `byte?` predicate,
@@ -151,7 +190,7 @@ Creates a bytevector given a length and a default value.
 ```scheme
 (make-bytes 6 42) ;; => (bytes 42 42 42 42 42)
 ```
+### **make-bytevector**
+Alias of `make-bytes`.
 ### **utf8->string**
 Alias of `bytes->string/utf8`.
-### **bytes-clear!**
-### **bytes-push!**

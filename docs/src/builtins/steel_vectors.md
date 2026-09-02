@@ -278,6 +278,20 @@ Returns the length of the given vector.
 > (define V (immutable-vector 1 2 3 4)) ;;
 > (vector-length V) ;; => 4
 ```
+### **vector-push!**
+Appends a value to the back of a mutable vector, growing it in place.
+
+(vector-push! vec value) -> void?
+
+* vec : vector? - The mutable vector to push onto.
+* value : any? - The value to append.
+
+#### Examples
+```scheme
+> (define V (mutable-vector 1 2 3)) ;;
+> (vector-push! V 4) ;;
+> V ;; => '#(1 2 3 4)
+```
 ### **vector-ref**
 Retrieves the value at a specified index in an immutable or mutable vector.
 
@@ -323,4 +337,3 @@ Swaps the value of the specified indices in a mutable vector.
 > (vector-swap! A 0 1) ;;
 > A ;; => '#(2 1 3)
 ```
-### **vector-push!**

@@ -70,6 +70,13 @@ Creates a TCP listener bound to `127.0.0.1:80`:
 ```scheme
 (tcp-listen "127.0.0.1:80")
 ```
+### **tcp-listener-set-non-blocking!**
+Puts the given TCP listener into non-blocking mode. Once set, `tcp-accept`
+will return immediately rather than waiting when no connection is pending.
+
+(tcp-listener-set-non-blocking! listener) -> void?
+
+* listener : tcp-listener?
 ### **tcp-shutdown!**
 Shuts down both halves of this tcp connection.
 
@@ -101,6 +108,13 @@ Get the reader half of this tcp stream as a port.
 (define my-port (tcp-connect "127.0.0.1:8080"))
 (tcp-stream-reader my-port) ;; => port?
 ```
+### **tcp-stream-set-non-blocking!**
+Puts the given TCP stream into non-blocking mode. Once set, reads and writes
+on the stream return immediately rather than waiting when they would block.
+
+(tcp-stream-set-non-blocking! stream) -> void?
+
+* stream : tcp-stream?
 ### **tcp-stream-writer**
 Get the writer half of this tcp stream as a port.
 
@@ -108,5 +122,3 @@ Get the writer half of this tcp stream as a port.
 (define my-port (tcp-connect "127.0.0.1:8080"))
 (tcp-stream-writer my-port) ;; => port?
 ```
-### **tcp-listener-set-non-blocking!**
-### **tcp-stream-set-non-blocking!**

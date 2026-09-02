@@ -1,7 +1,7 @@
 use crate::compiler::compiler::Compiler;
 use crate::compiler::modules::fully_qualified_to_relative;
 use crate::compiler::passes::VisitorMutRefUnit;
-use crate::core::instructions::{pretty_print_dense_instructions, u24};
+use crate::core::instructions::u24;
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
@@ -4278,6 +4278,7 @@ impl<'a> VmCore<'a> {
 
                 let constructed_lambda = if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str())
                     != Ok("false")
+                    && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
                 {
                     jit::jit_compile_lambda(self, constructed_lambda, Some(&mut slot), maybe_bind)
                 } else {
@@ -5779,6 +5780,10 @@ fn get_module_relative_context(
     let Some(last) = last else {
         return Some(Ok(SteelVal::BoolV(false)));
     };
+
+    if cfg!(target_family = "wasm") {
+        return Some(Ok(SteelVal::BoolV(false)));
+    }
 
     let dirs = &ctx.thread.compiler.read().search_dirs;
 

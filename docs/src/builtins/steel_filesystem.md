@@ -109,6 +109,27 @@ Get the length of the file in bytes
 Get the last modified time from the file metadata
 ### **fs-metadata?**
 Checks if this value is a #<Metadata>
+### **glob**
+Returns an iterator over the paths matching the given glob pattern. An
+optional second argument supplies match options. Use `glob-iter-next!` to
+advance the resulting iterator.
+
+(glob pattern [options]) -> glob-iterator?
+
+* pattern : string?
+* options : match-options? - optional matching options
+
+```scheme
+> (define paths (glob "src/*.rs"))
+> (glob-iter-next! paths) ;; => the first matching path
+```
+### **glob-iter-next!**
+Advances a glob iterator created by `glob`, returning the next matching
+path, or `#false` once the iterator has been exhausted.
+
+(glob-iter-next! paths) -> (or path? #false)
+
+* paths : glob-iterator?
 ### **is-dir?**
 Checks if a path is a directory.
 
@@ -157,6 +178,12 @@ Gets the extension from a path.
 > (path->extension "logs") ;; => void
 > (path->extension "logs/today.json") ;; => ".json"
 ```
+### **path->string**
+Converts a path into its string representation.
+
+(path->string path) -> string?
+
+* path : path?
 ### **path-exists?**
 Checks if a path exists.
 
@@ -273,6 +300,16 @@ Checks whether the given value is a #<ReadDir>
 (read-dir-iter? my-iter) ;; => #true
 (read-dir-iter "not an iter") ;; => #false
 ```
-### **glob**
-### **glob-iter-next!**
-### **path->string**
+### **rename-file-or-directory!**
+Renames a file or directory, replacing any data at the destination.
+
+(rename-file-or-directory! source destination) -> void?
+
+* source : (string?) - The file or directory to rename.
+* destination : (string?) - The destination to which to move the file or directory.
+
+#### Examples
+```scheme
+> (rename-file-or-directory! "logs/today.json" "logs/tomorrow.json") ;;
+> (rename-file-or-directory! "logs" "backup") ;;
+```

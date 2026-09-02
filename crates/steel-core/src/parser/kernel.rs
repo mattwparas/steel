@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, RwLock},
 };
 
@@ -90,7 +90,7 @@ struct Transformers {
 #[derive(Clone)]
 pub struct Kernel {
     transformers: Transformers,
-    constants: HashSet<InternedString>,
+    constants: FxHashSet<InternedString>,
     pub(crate) engine: Box<Engine>,
 }
 
@@ -187,7 +187,7 @@ impl Kernel {
 
         Kernel {
             transformers,
-            constants: HashSet::new(),
+            constants: FxHashSet::default(),
             engine: Box::new(engine),
         }
     }

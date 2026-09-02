@@ -179,6 +179,13 @@ impl ModuleContainer {
         })
     }
 
+    pub(crate) fn deep_clone(&self) -> Self {
+        Self {
+            modules: Arc::new(RwLock::new(self.modules.read().clone())),
+            unresolved_modules: Arc::new(RwLock::new(self.unresolved_modules.read().clone())),
+        }
+    }
+
     pub fn inner(&self) -> RwLockReadGuard<'_, HashMap<Shared<str>, BuiltInModule>> {
         self.modules.read()
     }
@@ -527,7 +534,10 @@ impl Engine {
     pub(crate) fn deep_clone(&self) -> Self {
         let mut engine = self.clone();
 
-        let compiler_copy = engine.virtual_machine.compiler.read().clone();
+        engine.modules = self.modules.deep_clone();
+
+        let mut compiler_copy = engine.virtual_machine.compiler.read().clone();
+        compiler_copy.builtin_modules = engine.modules.clone();
         engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
 
         let constant_map = engine
@@ -551,7 +561,10 @@ impl Engine {
         let mut engine = self.clone();
         engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
 
+        engine.modules = self.modules.deep_clone();
+
         let mut compiler_copy = engine.virtual_machine.compiler.read().clone();
+        compiler_copy.builtin_modules = engine.modules.clone();
 
         engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
 
@@ -661,7 +674,16 @@ impl Engine {
     /// is to expose some kind of module artifact that we can then consume.
     pub fn register_module_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
         for name in resolver.names() {
-            self.register_value(&format!("%-builtin-module-{}", name), SteelVal::Void);
+            // If the resolver can hand us the module now, bind the real value so that
+            // `(require-builtin <name>)` can actually be _run_ by this engine, and not just
+            // compiled against. If it can't be resolved, we still reserve the binding with
+            // a void value so that the module can be referenced during compilation.
+            let value = resolver
+                .resolve(&name)
+                .and_then(|module| module.into_steelval().ok())
+                .unwrap_or(SteelVal::Void);
+
+            self.register_value(&format!("%-builtin-module-{}", name), value);
         }
 
         self.modules.with_resolver(resolver);
@@ -2206,15 +2228,56 @@ impl Engine {
     /// ```
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
-    /// use steel::steel_vm::register_fn::RegisterFn;
-    /// fn foo() -> usize {
-    ///    10
+    /// # use steel::steel_vm::register_fn::RegisterFn;
+    /// # use steel::rvals::FromSteelVal;
+    /// # use steel::rvals::IntoSteelVal;
+    /// # use steel::rvals::Result;
+    /// # use steel::rvals::SteelVal;
+    ///
+    /// #[derive(Clone, Debug)]
+    /// struct ExternalStruct {
+    ///     value: isize,
+    /// }
+    ///
+    /// impl ExternalStruct {
+    ///     pub fn new(value: isize) -> Self {
+    ///         Self {
+    ///             value,
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// impl FromSteelVal for ExternalStruct {
+    ///     fn from_steelval(val: &SteelVal) -> Result<Self> {
+    ///         let value: isize = match val {
+    ///             SteelVal::IntV(v) => *v,
+    ///             _ => unimplemented!()
+    ///         };
+    ///         Ok(Self{
+    ///            value,
+    ///         })
+    ///     }
+    /// }
+    ///
+    /// impl IntoSteelVal for ExternalStruct {
+    ///     fn into_steelval(self) -> Result<SteelVal> {
+    ///         Ok(SteelVal::IntV(self.value))
+    ///     }
     /// }
     ///
     /// let mut vm = Engine::new();
-    /// vm.register_fn("foo", foo);
     ///
-    /// vm.run(r#"(foo)"#).unwrap(); // Returns vec![10]
+    /// // Register the type with the VM.
+    /// vm.register_type::<ExternalStruct>("ExternalStruct?");
+    ///
+    /// // Register a constructor as a function with the same name as the struct.
+    /// vm.register_fn("ExternalStruct", ExternalStruct::new);
+    ///
+    /// let _ = vm
+    ///     .compile_and_run_raw_program(r#"(define new-external-struct (ExternalStruct 42))"#).unwrap(); // Returns vec![10]
+    ///
+    /// let extracted = vm.extract::<ExternalStruct>("new-external-struct").unwrap();
+    /// assert_eq!(extracted.value, 42);
     /// ```
     pub fn register_type<T: FromSteelVal + IntoSteelVal>(
         &mut self,
@@ -2841,4 +2904,110 @@ fn test_ctx_func_registration_multiple() {
     engine.run("(bar 10)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(bar 100)").unwrap();
+}
+
+#[cfg(test)]
+mod resolver_tests {
+    use super::*;
+
+    use std::collections::HashMap;
+
+    use crate::steel_vm::{
+        builtin::BuiltInModule,
+        engine::{Engine, ModuleResolver},
+        register_fn::RegisterFn,
+    };
+
+    #[derive(Clone)]
+    struct ModuleContainer(HashMap<String, BuiltInModule>);
+
+    impl ModuleResolver for ModuleContainer {
+        fn resolve(&self, name: &str) -> Option<BuiltInModule> {
+            self.0.get(name).cloned()
+        }
+
+        fn names(&self) -> Vec<String> {
+            self.0.keys().cloned().collect()
+        }
+    }
+
+    impl Default for ModuleContainer {
+        fn default() -> Self {
+            let foo_mod = foo_module();
+
+            Self(HashMap::from_iter([(foo_mod.name().to_string(), foo_mod)]))
+        }
+    }
+
+    fn bar() -> String {
+        String::from("baz")
+    }
+
+    fn foo_module() -> BuiltInModule {
+        let mut module = BuiltInModule::new("foo");
+        module.register_fn("bar", bar);
+        module
+    }
+
+    fn engine_with_resolver(resolver: impl ModuleResolver + 'static) -> Engine {
+        let mut engine = Engine::new();
+        engine.register_module_resolver(resolver);
+        engine
+    }
+
+    fn engine_with_modules(modules: impl Iterator<Item = BuiltInModule>) -> Engine {
+        let mut engine = Engine::new();
+        for module in modules {
+            engine.register_module(module);
+        }
+        engine
+    }
+
+    #[test]
+    fn with_resolver() {
+        let modules = ModuleContainer::default();
+        let mut engine = engine_with_resolver(modules);
+        assert!(engine.run("(require-builtin foo)").is_ok());
+    }
+
+    #[test]
+    fn with_modules() {
+        let modules = ModuleContainer::default();
+        let mut engine = engine_with_modules(modules.0.values().cloned());
+        assert!(engine.run("(require-builtin foo)").is_ok());
+    }
+
+    #[test]
+    fn modules_are_not_shared_between_engines() {
+        let mut with_module = engine_with_modules(std::iter::once(foo_module()));
+        assert!(with_module.run("(require-builtin foo)").is_ok());
+
+        let mut without_module = Engine::new();
+        let err = without_module
+            .run("(require-builtin foo)")
+            .expect_err("foo leaked into an engine it was never registered with");
+
+        assert!(
+            err.to_string().contains("module not found"),
+            "expected foo to be unresolvable, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn resolvers_are_not_shared_between_engines() {
+        let mut with_resolver = engine_with_resolver(ModuleContainer::default());
+        assert!(with_resolver.run("(require-builtin foo)").is_ok());
+
+        let mut without_resolver = Engine::new();
+        let err = without_resolver
+            .run("(require-builtin foo)")
+            .expect_err("the resolver leaked into an engine it was never registered with");
+
+        assert!(
+            err.to_string().contains("module not found"),
+            "expected `foo` to be unresolvable, got: {}",
+            err
+        );
+    }
 }

@@ -56,3 +56,21 @@
     (assert-equal! "one" (read-line))
     (assert! (eof-object? (read-char)))
     (assert! (eof-object? (read-byte)))))
+
+(let ([input-port (open-input-string "one two")]
+      [buf (make-bytes 7)])
+  (assert-equal! (read-bytes-into-buf buf 3 input-port) 3)
+  (assert-equal! buf (string->bytes "one\0\0\0\0"))
+  (assert-equal! (peek-char input-port) #\space)
+  (assert-equal! (read-bytes-into-buf buf 7 input-port) 4)
+  (assert-equal! buf (string->bytes " two\0\0\0"))
+  (assert! (eof-object? (peek-char input-port))))
+
+(let ([input-port (open-input-string "one two")]
+      [buf (make-bytes 7)])
+  (assert-equal! (read-bytes! buf input-port 2 5) 3)
+  (assert-equal! buf (string->utf8 "\0\0one\0\0"))
+  (assert-equal! (peek-char input-port) #\space)
+  (assert-equal! (read-bytes! buf input-port) 4)
+  (assert-equal! buf (string->utf8 " twoe\0\0"))
+  (assert! (eof-object? (peek-char input-port))))

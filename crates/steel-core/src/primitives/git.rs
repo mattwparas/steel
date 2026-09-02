@@ -1,14 +1,43 @@
 // Set up module to use for gix integration
 // This will be used to bootstrap the existing implementation.
 
-use crate::steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn};
+use crate::steel_vm::{
+    builtin::{BuiltInModule, MarkdownDoc},
+    register_fn::RegisterFn,
+};
+
+const GIT_CLONE_DOC: MarkdownDoc = MarkdownDoc::from_str(
+    "Clones a git repository from `repo-url` into the local directory `dst`. If an
+optional reference name is provided, that branch, tag, or commit is checked out
+once the clone has completed.
+
+(git-clone repo-url dst [ref-name]) -> void?
+
+* repo-url : string?
+* dst : string? - the local directory to clone into
+* ref-name : string? - an optional branch, tag, or commit to check out",
+);
+
+const GIT_PULL_DOC: MarkdownDoc = MarkdownDoc::from_str(
+    "Pulls changes into the git repository located at `path`, fetching from the
+given remote and merging the changes into the current branch. The remote name
+defaults to `origin` and the branch defaults to the repository's current branch.
+
+(git-pull path [remote-name] [remote-branch]) -> void?
+
+* path : string? - the path to a local git repository
+* remote-name : string? - an optional remote name, defaults to `origin`
+* remote-branch : string? - an optional remote branch name",
+);
 
 pub fn git_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/git".to_string());
 
     module
         .register_fn("git-clone", libgit::git_clone)
-        .register_fn("git-pull", libgit::git_pull);
+        .register_fn("git-pull", libgit::git_pull)
+        .register_doc("git-clone", GIT_CLONE_DOC)
+        .register_doc("git-pull", GIT_PULL_DOC);
 
     module
 }

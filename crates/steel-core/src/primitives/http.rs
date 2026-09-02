@@ -42,6 +42,12 @@ pub struct SteelResponse {
 
 impl Custom for SteelResponse {}
 
+/// Returns the HTTP method (for example `"GET"` or `"POST"`) of a parsed
+/// HTTP request.
+///
+/// (http-request-method request) -> string?
+///
+/// * request : http-request?
 #[steel_derive::function(name = "http-request-method")]
 pub fn method(value: &SteelVal) -> Result<SteelVal> {
     SteelRequest::as_ref(value)
@@ -49,6 +55,11 @@ pub fn method(value: &SteelVal) -> Result<SteelVal> {
         .map(SteelVal::StringV)
 }
 
+/// Returns the request path of a parsed HTTP request.
+///
+/// (http-request-path request) -> string?
+///
+/// * request : http-request?
 #[steel_derive::function(name = "http-request-path")]
 pub fn path(value: &SteelVal) -> Result<SteelVal> {
     SteelRequest::as_ref(value)
@@ -56,6 +67,11 @@ pub fn path(value: &SteelVal) -> Result<SteelVal> {
         .map(SteelVal::StringV)
 }
 
+/// Returns the HTTP version of a parsed HTTP request.
+///
+/// (http-request-version request) -> string?
+///
+/// * request : http-request?
 #[steel_derive::function(name = "http-request-version")]
 pub fn version(value: &SteelVal) -> Result<SteelVal> {
     SteelRequest::as_ref(value)
@@ -96,6 +112,12 @@ fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
     }
 }
 
+/// Returns the byte offset into the original buffer at which the body of a
+/// parsed HTTP request begins.
+///
+/// (http-request-body-offset request) -> int?
+///
+/// * request : http-request?
 #[steel_derive::function(name = "http-request-body-offset")]
 pub fn body_offset(value: &SteelVal) -> Result<SteelVal> {
     SteelRequest::as_ref(value)
@@ -103,6 +125,12 @@ pub fn body_offset(value: &SteelVal) -> Result<SteelVal> {
         .map(SteelVal::IntV)
 }
 
+/// Returns the headers of a parsed HTTP request as a hashmap mapping header
+/// names (strings) to their values (byte vectors).
+///
+/// (http-request-headers request) -> hash?
+///
+/// * request : http-request?
 #[steel_derive::function(name = "http-request-headers")]
 pub fn headers(value: &SteelVal) -> Result<SteelVal> {
     let req = SteelRequest::as_ref(value)?;
@@ -120,6 +148,12 @@ pub fn headers(value: &SteelVal) -> Result<SteelVal> {
     ))))
 }
 
+/// Returns the headers of a parsed HTTP response as a hashmap mapping header
+/// names (strings) to their values (byte vectors).
+///
+/// (http-response-headers response) -> hash?
+///
+/// * response : http-response?
 #[steel_derive::function(name = "http-response-headers")]
 pub fn resp_headers(value: &SteelVal) -> Result<SteelVal> {
     let resp = SteelResponse::as_ref(value)?;
@@ -202,11 +236,25 @@ fn parse_response(buf: &[u8]) -> Result<SteelVal> {
     }
 }
 
+/// Parses an HTTP request out of the given byte vector. Returns a request
+/// object on success, or `#false` if the buffer does not yet contain a
+/// complete request.
+///
+/// (http-parse-request buf) -> (or http-request? #false)
+///
+/// * buf : bytes?
 #[steel_derive::function(name = "http-parse-request")]
 pub fn parse_http_request(vector: &SteelByteVector) -> Result<SteelVal> {
     parse_request(&vector.vec.read())
 }
 
+/// Parses an HTTP response out of the given byte vector. Returns a response
+/// object on success, or `#false` if the buffer does not yet contain a
+/// complete response.
+///
+/// (http-parse-response buf) -> (or http-response? #false)
+///
+/// * buf : bytes?
 #[steel_derive::function(name = "http-parse-response")]
 pub fn parse_http_response(vector: &SteelByteVector) -> Result<SteelVal> {
     parse_response(&vector.vec.read())

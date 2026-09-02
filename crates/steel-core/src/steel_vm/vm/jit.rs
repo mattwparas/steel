@@ -6664,7 +6664,9 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
                     captures.push(value);
                 }
                 (l, _) => {
-                    pretty_print_dense_instructions(&ctx.instructions);
+                    crate::core::instructions::pretty_print_dense_instructions(
+                        &ctx.instructions,
+                    );
                     panic!(
                         "Something went wrong in closure construction!, found: {:?} @ {}",
                         l, ctx.ip,
@@ -6772,7 +6774,9 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
 
         #[cfg(feature = "jit2")]
         let mut constructed_lambda =
-            if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
+            if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false")
+                && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
+            {
                 jit::jit_compile_lambda(ctx, constructed_lambda, None, None)
             } else {
                 constructed_lambda

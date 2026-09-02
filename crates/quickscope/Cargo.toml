@@ -5,7 +5,7 @@ categories = ["algorithms", "data-structures"]
 keywords = ["scoping", "variable", "hashmap", "hashset", "scope"]
 repository = "https://github.com/mattwparas/steel"
 license = "MIT"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 
 [lib]
@@ -14,3 +14,4 @@ name = "quickscope"
 [dependencies]
 smallvec = "1.6.1"
 indexmap = "2.12.0"
+rustc-hash = "2.1.1"
