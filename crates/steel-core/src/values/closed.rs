@@ -1014,9 +1014,8 @@ fn parallel_mark_counts_each_slot_exactly_once() {
     let num_slots = 4000;
     let num_threads = 8;
 
-    // NOTE: this branch stores reachability as an atomic flag behind a SpinLock
-    // rather than master's StandardShared/MutContainer pair, so the slots are
-    // built and read through that representation instead.
+    // Reachability is an atomic flag behind a SpinLock, so the slots are built
+    // and read through that rather than through a lock guard
     let slots: Arc<Vec<HeapElement<SteelVal>>> = Arc::new(
         (0..num_slots)
             .map(|_| {

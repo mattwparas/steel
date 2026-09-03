@@ -2389,9 +2389,9 @@ where
 #[derive(Default)]
 struct FunctionSizeEstimator {
     count: usize,
-    // Calls to #%prim.* in the body. A function that is mostly primitive calls is
-    // cheap to inline relative to its expression count, and inlining it hands the
-    // JIT a lot it can specialize, so this is tracked as a separate axis.
+    // Calls to #%prim.* in the body, which the density filter judges against the
+    // expression count. Tracked separately because size alone says nothing about
+    // whether a body is worth inlining
     prims: usize,
     // Set up the name mapping for the syntax object ids
     names: HashMap<InternedString, SyntaxObjectId>,
@@ -2399,20 +2399,11 @@ struct FunctionSizeEstimator {
     prim_map: HashMap<SyntaxObjectId, usize>,
 }
 
-// How much a single primitive call discounts a function's measured size. 0 keeps
-// the historical behaviour of judging on expression count alone.
-static INLINE_PRIM_WEIGHT: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
-    std::env::var("STEEL_INLINE_PRIM_WEIGHT")
-        .ok()
-        .and_then(|x| x.parse().ok())
-        .unwrap_or(0)
-});
-
 // The share of a body, in percent, that must be primitive calls before it is
 // worth inlining. 0 disables the filter and judges on size alone.
 //
-// 5 measured as a 0.912x geomean over the r7rs suite against no filter, and cuts
-// compile time with it - the AST for dynamic halves, since what it removes is
+// 5 measured as a 4-9% geomean win over the r7rs suite against no filter, and
+// cuts compile time with it - the AST for dynamic halves, since what it drops is
 // inlining that was not paying for itself. Useful values sit in roughly 5..15;
 // above that the filter starts rejecting the case-lambda bodies that
 // LowerRestArguments specializes, and wc/cat fall back to the slow path.
@@ -2426,33 +2417,27 @@ static INLINE_PRIM_DENSITY: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy
 });
 
 impl FunctionSizeEstimator {
-    // The size the inliner judges against: the raw expression count, discounted by
-    // the primitive calls the body performs. None disqualifies the body outright,
-    // so callers skip it exactly as they would a missing entry.
+    // The size the inliner judges against. None disqualifies the body outright, so
+    // callers skip it exactly as they would a missing entry
     fn inline_size(&self, id: SyntaxObjectId) -> Option<usize> {
         let count = *self.map.get(&id)?;
 
         // Already pessimized to death by a return expression - leave it alone
-        // rather than letting the density filter speak for it.
+        // rather than letting the density filter speak for it
         if count == usize::MAX {
             return Some(count);
         }
 
-        let prims = self.prim_map.get(&id).copied().unwrap_or(0);
+        // Inline only bodies that are meaningfully made of primitive calls
+        if *INLINE_PRIM_DENSITY > 0 {
+            let prims = self.prim_map.get(&id).copied().unwrap_or(0);
 
-        // Inline only bodies that are meaningfully made of primitive calls. Unlike
-        // a size discount, this can only ever inline less.
-        if *INLINE_PRIM_DENSITY > 0
-            && prims.saturating_mul(100) < count.saturating_mul(*INLINE_PRIM_DENSITY)
-        {
-            return None;
+            if prims.saturating_mul(100) < count.saturating_mul(*INLINE_PRIM_DENSITY) {
+                return None;
+            }
         }
 
-        if *INLINE_PRIM_WEIGHT == 0 {
-            return Some(count);
-        }
-
-        Some(count.saturating_sub(prims.saturating_mul(*INLINE_PRIM_WEIGHT)))
+        Some(count)
     }
 }
 
@@ -6119,10 +6104,10 @@ impl<'a> SemanticAnalysis<'a> {
                     let original_id = l.syntax_object_id;
                     let l = l.clone();
 
-                    // NOTE: master disabled inlining multi-arity (rest-argument)
-                    // functions in c075f584 pending debugging. This branch fixed the
-                    // underlying bugs, and inlining these is what lets
-                    // LowerRestArguments specialize case-lambdas such as read-char.
+                    // Rest-argument functions are inlined too. That is what lets
+                    // LowerRestArguments specialize a case-lambda such as
+                    // read-char at its call site, and it was disabled in c075f584
+                    // while the bugs behind it were still outstanding
                     let changed = Rc::clone(changed);
 
                     funcs.insert(

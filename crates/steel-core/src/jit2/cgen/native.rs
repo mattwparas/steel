@@ -1662,12 +1662,10 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     // vector-set! with no call: check the tags, bounds check, then store.
-    //
-    // Ownership is tracked per argument because the argument shapes mix the two:
-    // a register argument is a borrow, so it is neither moved from nor dropped
-    // here, while a spilled argument is ours - it moves into the vector, or gets
-    // dropped once the store is done. `(vector-set! v i (vector-ref x i))` is the
-    // mixed case that motivates this: v and i are registers, the value is not.
+    // Ownership is per argument because the shapes mix the two - a register
+    // argument is a borrow, while a spilled one is ours to move in or drop.
+    // (vector-set! v i (vector-ref x i)) is the mixed case: v and i are
+    // registers, the value is not
     pub(super) fn inline_mut_vector_set(
         &mut self,
         vector: Value,
@@ -1682,52 +1680,45 @@ impl<'a> FunctionTranslator<'a> {
         let is_int = self.is_type(index, SteelVal::INT_TAG);
         let both = self.builder.ins().band(is_vec, is_int);
 
-        self.converging_if_else_cold(
-            both,
-            |ctx| {
-                let ptr = ctx.unbox_value_to_pointer(vector);
-                let idx = ctx.unbox_value_to_pointer(index);
-                let len = ctx.heap_vec_len(ptr);
+        let body = |ctx: &mut Self| {
+            let ptr = ctx.unbox_value_to_pointer(vector);
+            let idx = ctx.unbox_value_to_pointer(index);
+            let len = ctx.heap_vec_len(ptr);
 
-                // Unsigned, so a negative index fails the same comparison
-                let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
+            // Unsigned, so a negative index fails the same comparison
+            let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
 
-                ctx.converging_if_else_cold(
-                    in_bounds,
-                    |ctx| {
-                        let old = ctx.with_heap_vec_lock(ptr, |ctx| {
-                            ctx.heap_vec_replace(ptr, idx, value, value_owned)
-                        });
+            ctx.converging_if_else_cold(
+                in_bounds,
+                |ctx| {
+                    let old = ctx.with_heap_vec_lock(ptr, |ctx| {
+                        ctx.heap_vec_replace(ptr, idx, value, value_owned)
+                    });
 
-                        // Outside the lock - a destructor runs arbitrary code
-                        ctx.drop_tagged_value(old);
+                    // Outside the lock - a destructor runs arbitrary code
+                    ctx.drop_tagged_value(old);
 
-                        if vector_owned {
-                            ctx.drop_tagged_value(vector);
-                        }
+                    if vector_owned {
+                        ctx.drop_tagged_value(vector);
+                    }
 
-                        if index_owned {
-                            ctx.drop_tagged_value(index);
-                        }
+                    if index_owned {
+                        ctx.drop_tagged_value(index);
+                    }
 
-                        ctx.encode_void()
-                    },
-                    |ctx| fallback(ctx),
-                    types::I128,
-                )
-            },
-            |ctx| fallback(ctx),
-            types::I128,
-        )
+                    ctx.encode_void()
+                },
+                |ctx| fallback(ctx),
+                types::I128,
+            )
+        };
+
+        self.converging_if_else_cold(both, body, |ctx| fallback(ctx), types::I128)
     }
 
-    // vector-push! with no call while the buffer has room. Growing reallocates
-    // and a shared vector needs the lock, so both take the fallback
-    // vector-ref on a flat vector with no call: check the tags, bounds check, then
-    // load. The element is cloned because the vector keeps its own copy
-    // vector-ref with no call, for either representation. Flat vectors are checked
-    // first since their read is the cheaper one, and a mutable vector falls through
-    // to its own inline rather than straight to the handler.
+    // vector-ref with no call, for either representation - flat is checked first
+    // since its read is the cheaper one, and a mutable vector falls through to its
+    // own inline rather than straight to the handler
     pub(super) fn inline_vector_ref(
         &mut self,
         vector: Value,
@@ -1739,10 +1730,9 @@ impl<'a> FunctionTranslator<'a> {
         })
     }
 
-    // vector-ref on a mutable vector with no call. The store side already inlines,
-    // and reads take the same shape: check the tags, bounds check, then load under
-    // the lock. Cloning keeps the vector's own copy alive; a clone only bumps a
-    // refcount, so unlike a drop it is safe to do while holding the lock.
+    // vector-ref on a mutable vector with no call: check the tags, bounds check,
+    // then load under the lock. A clone only bumps a refcount, so unlike a drop it
+    // is safe to run while the lock is held
     pub(super) fn inline_mut_vector_ref(
         &mut self,
         vector: Value,
@@ -1789,6 +1779,8 @@ impl<'a> FunctionTranslator<'a> {
         )
     }
 
+    // vector-ref on a flat vector with no call: check the tags, bounds check, then
+    // load. The element is cloned because the vector keeps its own copy
     pub(super) fn inline_flat_vector_ref(
         &mut self,
         vector: Value,
@@ -1848,6 +1840,8 @@ impl<'a> FunctionTranslator<'a> {
         )
     }
 
+    // vector-push! with no call while the buffer has room. Growing reallocates
+    // and a shared vector needs the lock, so both take the fallback
     pub(super) fn inline_mut_vector_push(
         &mut self,
         vector: Value,
@@ -2401,3 +2395,4 @@ impl<'a> FunctionTranslator<'a> {
         self.compilation_stats = state.compilation_stats;
     }
 }
+

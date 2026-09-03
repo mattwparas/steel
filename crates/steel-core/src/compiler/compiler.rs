@@ -1422,12 +1422,10 @@ impl Compiler {
 
         if let Ok(inline_more) = std::env::var("STEEL_INLINE_MORE") {
             // A comma separated list of size thresholds selects the rounds, so the
-            // schedule can be tuned without a rebuild.
-            //
-            // "1" selects the default schedule. A single round at 25 was measured to
-            // keep ~95% of the [200, 50] speedup on dynamic (6.89s vs 6.57s, against
-            // 8.56s with this pass off) for half the compile time (25.6s vs 50.8s
-            // wall) - the larger bodies mostly buy Cranelift more code to chew on.
+            // schedule can be tuned without a rebuild. "1" takes the default: one
+            // round at 25, which kept most of the [200, 50] win on dynamic for half
+            // the compile time, since the larger bodies mostly buy Cranelift more
+            // code to chew on
             let sizes: Vec<usize> = if inline_more == "1" {
                 vec![25]
             } else {

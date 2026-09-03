@@ -730,18 +730,6 @@ pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
     Some(Ok(ctx.make_mutable_vector(args.iter().cloned().collect())))
 }
 
-/// Creates a mutable vector of a given size, optionally initialized with a specified value.
-///
-/// (make-vector size [value]) -> vector?
-///
-/// * size : integer? - The number of elements in the vector (must be non-negative).
-/// * value : any? - The value to fill the vector with (defaults to `0` if omitted).
-///
-/// # Examples
-/// ```scheme
-/// > (make-vector 3) ;; => '#(0 0 0)
-/// > (make-vector 3 42) ;; => '#(42 42 42)
-/// ```
 // A vector of `n` copies of `value`.
 //
 // Immediates own nothing, so filling with them is a bitwise copy the compiler
@@ -764,6 +752,18 @@ fn filled_heap_vec(value: SteelVal, n: usize) -> crate::values::closed::HeapVec 
     }
 }
 
+/// Creates a mutable vector of a given size, optionally initialized with a specified value.
+///
+/// (make-vector size [value]) -> vector?
+///
+/// * size : integer? - The number of elements in the vector (must be non-negative).
+/// * value : any? - The value to fill the vector with (defaults to `0` if omitted).
+///
+/// # Examples
+/// ```scheme
+/// > (make-vector 3) ;; => '#(0 0 0)
+/// > (make-vector 3 42) ;; => '#(42 42 42)
+/// ```
 #[steel_derive::context(name = "make-vector", arity = "AtLeast(1)")]
 pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn make_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
