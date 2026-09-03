@@ -204,6 +204,8 @@ impl<'a> FunctionTranslator<'a> {
                         index_value,
                         new_value,
                         false,
+                        false,
+                        false,
                         fallback,
                     )
                 } else {
@@ -217,18 +219,39 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             &[MutRegister(v) | Register(v), MutRegister(i) | Register(i), Value(_)] => {
-                let vector = self.register_index(v);
-                let index = self.register_index(i);
                 let value = self.shadow_pop();
 
                 // Pop them off
                 self.shadow_stack.pop();
                 self.shadow_stack.pop();
 
-                let res = self.call_function_returns_value_args(
-                    "vector-set-reg-2",
-                    &[vector, index, value.0],
-                );
+                let vector_value = self.read_from_vm_stack(v);
+                let index_value = self.read_from_vm_stack(i);
+                let new_value = value.0;
+
+                let fallback = move |ctx: &mut Self| {
+                    let vector = ctx.register_index(v);
+                    let index = ctx.register_index(i);
+
+                    ctx.call_function_returns_value_args(
+                        "vector-set-reg-2",
+                        &[vector, index, new_value],
+                    )
+                };
+
+                let res = if INLINE_MUTABLE_VECTOR_OPS {
+                    self.inline_mut_vector_set(
+                        vector_value,
+                        index_value,
+                        new_value,
+                        false,
+                        false,
+                        true,
+                        fallback,
+                    )
+                } else {
+                    fallback(self)
+                };
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
@@ -237,13 +260,33 @@ impl<'a> FunctionTranslator<'a> {
             &[MutRegister(v) | Register(v), Value(_), Value(_)] => {
                 let value = self.shadow_pop();
                 let index = self.shadow_pop();
-                let vector = self.register_index(v);
                 self.shadow_stack.pop();
 
-                let res = self.call_function_returns_value_args(
-                    "vector-set-reg-1",
-                    &[vector, index.0, value.0],
-                );
+                let vector_value = self.read_from_vm_stack(v);
+                let (index_value, new_value) = (index.0, value.0);
+
+                let fallback = move |ctx: &mut Self| {
+                    let vector = ctx.register_index(v);
+
+                    ctx.call_function_returns_value_args(
+                        "vector-set-reg-1",
+                        &[vector, index_value, new_value],
+                    )
+                };
+
+                let res = if INLINE_MUTABLE_VECTOR_OPS {
+                    self.inline_mut_vector_set(
+                        vector_value,
+                        index_value,
+                        new_value,
+                        false,
+                        true,
+                        true,
+                        fallback,
+                    )
+                } else {
+                    fallback(self)
+                };
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
@@ -269,7 +312,7 @@ impl<'a> FunctionTranslator<'a> {
                 };
 
                 let res = if INLINE_MUTABLE_VECTOR_OPS {
-                    self.inline_mut_vector_set(vector, index, value, true, fallback)
+                    self.inline_mut_vector_set(vector, index, value, true, true, true, fallback)
                 } else {
                     fallback(self)
                 };
@@ -294,7 +337,7 @@ impl<'a> FunctionTranslator<'a> {
                 };
 
                 let res = if INLINE_MUTABLE_VECTOR_OPS {
-                    self.inline_mut_vector_set(vector, index, value, true, fallback)
+                    self.inline_mut_vector_set(vector, index, value, true, true, true, fallback)
                 } else {
                     fallback(self)
                 };
@@ -1619,14 +1662,20 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     // vector-set! with no call: check the tags, bounds check, then store.
-    // Register args are borrows so the value is cloned; spilled args are ours,
-    // so it moves in and the vector and index get dropped here
+    //
+    // Ownership is tracked per argument because the argument shapes mix the two:
+    // a register argument is a borrow, so it is neither moved from nor dropped
+    // here, while a spilled argument is ours - it moves into the vector, or gets
+    // dropped once the store is done. `(vector-set! v i (vector-ref x i))` is the
+    // mixed case that motivates this: v and i are registers, the value is not.
     pub(super) fn inline_mut_vector_set(
         &mut self,
         vector: Value,
         index: Value,
         value: Value,
-        owned: bool,
+        vector_owned: bool,
+        index_owned: bool,
+        value_owned: bool,
         fallback: impl Fn(&mut Self) -> Value,
     ) -> Value {
         let is_vec = self.is_type(vector, SteelVal::HEAP_REF_VECTOR_TAG);
@@ -1647,14 +1696,17 @@ impl<'a> FunctionTranslator<'a> {
                     in_bounds,
                     |ctx| {
                         let old = ctx.with_heap_vec_lock(ptr, |ctx| {
-                            ctx.heap_vec_replace(ptr, idx, value, owned)
+                            ctx.heap_vec_replace(ptr, idx, value, value_owned)
                         });
 
                         // Outside the lock - a destructor runs arbitrary code
                         ctx.drop_tagged_value(old);
 
-                        if owned {
+                        if vector_owned {
                             ctx.drop_tagged_value(vector);
+                        }
+
+                        if index_owned {
                             ctx.drop_tagged_value(index);
                         }
 
@@ -1673,6 +1725,70 @@ impl<'a> FunctionTranslator<'a> {
     // and a shared vector needs the lock, so both take the fallback
     // vector-ref on a flat vector with no call: check the tags, bounds check, then
     // load. The element is cloned because the vector keeps its own copy
+    // vector-ref with no call, for either representation. Flat vectors are checked
+    // first since their read is the cheaper one, and a mutable vector falls through
+    // to its own inline rather than straight to the handler.
+    pub(super) fn inline_vector_ref(
+        &mut self,
+        vector: Value,
+        index: Value,
+        fallback: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        self.inline_flat_vector_ref(vector, index, |ctx| {
+            ctx.inline_mut_vector_ref(vector, index, &fallback)
+        })
+    }
+
+    // vector-ref on a mutable vector with no call. The store side already inlines,
+    // and reads take the same shape: check the tags, bounds check, then load under
+    // the lock. Cloning keeps the vector's own copy alive; a clone only bumps a
+    // refcount, so unlike a drop it is safe to do while holding the lock.
+    pub(super) fn inline_mut_vector_ref(
+        &mut self,
+        vector: Value,
+        index: Value,
+        fallback: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let is_vec = self.is_type(vector, SteelVal::HEAP_REF_VECTOR_TAG);
+        let is_int = self.is_type(index, SteelVal::INT_TAG);
+        let both = self.builder.ins().band(is_vec, is_int);
+
+        self.converging_if_else_cold(
+            both,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(vector);
+                let idx = ctx.unbox_value_to_pointer(index);
+                let len = ctx.heap_vec_len(ptr);
+
+                // Unsigned, so a negative index fails the same comparison
+                let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
+
+                ctx.converging_if_else_cold(
+                    in_bounds,
+                    |ctx| {
+                        ctx.with_heap_vec_lock(ptr, |ctx| {
+                            let slot = ctx.heap_vec_element_address(ptr, idx);
+
+                            let value = ctx.builder.ins().load(
+                                types::I128,
+                                MemFlagsData::trusted(),
+                                slot,
+                                0,
+                            );
+
+                            ctx.clone_value(value);
+                            value
+                        })
+                    },
+                    |ctx| fallback(ctx),
+                    types::I128,
+                )
+            },
+            |ctx| fallback(ctx),
+            types::I128,
+        )
+    }
+
     pub(super) fn inline_flat_vector_ref(
         &mut self,
         vector: Value,

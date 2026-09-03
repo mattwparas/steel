@@ -250,6 +250,70 @@ impl<T> Vec<T> {
         }
     }
 
+    /// Builds a vector of `n` bitwise duplicates of `elem`.
+    ///
+    /// `Clone` on a large enum is a jump table, so cloning per slot keeps a
+    /// branch in the fill loop and stops it being widened. When duplicating the
+    /// representation is all a clone would do, this writes the bits straight
+    /// through instead and the compiler can turn it into wide stores.
+    ///
+    /// # Safety
+    ///
+    /// Duplicating `elem`'s representation `n` times must be sound: the value
+    /// must own no resource, so that neither `Clone` nor `Drop` has any work to
+    /// do for it. `elem` is forgotten rather than dropped.
+    pub unsafe fn from_elem_bitwise(elem: T, n: usize) -> Self {
+        let mut vec = Self::with_capacity(n);
+
+        if n > 0 {
+            let ptr = vec.ptr();
+
+            // Safety: with_capacity reserved n slots, and the caller promises a
+            // bitwise duplicate of elem is a valid, unowned T.
+            unsafe {
+                for i in 0..n {
+                    ptr::copy_nonoverlapping(&elem as *const T, ptr.add(i), 1);
+                }
+            }
+
+            vec.len = n;
+        }
+
+        core::mem::forget(elem);
+
+        vec
+    }
+
+    /// Builds a vector of `n` copies of `elem`.
+    ///
+    /// Going through `iter::repeat(x).take(n).collect()` costs an iterator
+    /// dispatch and a capacity check per element, which dominates the cost of
+    /// building a large vector. This reserves once and fills straight through.
+    pub fn from_elem(elem: T, n: usize) -> Self
+    where
+        T: Clone,
+    {
+        let mut vec = Self::with_capacity(n);
+
+        if n > 0 {
+            let ptr = vec.ptr();
+
+            // Safety: with_capacity reserved room for n elements, and len is only
+            // advanced past the slots actually written. A panic in T::clone leaks
+            // the values written so far rather than dropping uninitialized memory.
+            unsafe {
+                for i in 0..n - 1 {
+                    ptr::write(ptr.add(i), elem.clone());
+                }
+                ptr::write(ptr.add(n - 1), elem);
+            }
+
+            vec.len = n;
+        }
+
+        vec
+    }
+
     pub fn split_off(&mut self, at: usize) -> Self
     where
         T: Clone,

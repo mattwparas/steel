@@ -742,18 +742,38 @@ pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
 /// > (make-vector 3) ;; => '#(0 0 0)
 /// > (make-vector 3 42) ;; => '#(42 42 42)
 /// ```
+// A vector of `n` copies of `value`.
+//
+// Immediates own nothing, so filling with them is a bitwise copy the compiler
+// can widen. Everything else is heap backed and needs a refcount bump per slot,
+// which is what Clone is for.
+fn filled_heap_vec(value: SteelVal, n: usize) -> crate::values::closed::HeapVec {
+    use crate::values::closed::HeapVec;
+
+    match value {
+        SteelVal::IntV(_)
+        | SteelVal::NumV(_)
+        | SteelVal::BoolV(_)
+        | SteelVal::CharV(_)
+        | SteelVal::Void => {
+            // Safety: none of these variants owns a resource, so duplicating the
+            // representation is exactly what cloning would have done.
+            unsafe { HeapVec::from_elem_bitwise(value, n) }
+        }
+        _ => HeapVec::from_elem(value, n),
+    }
+}
+
 #[steel_derive::context(name = "make-vector", arity = "AtLeast(1)")]
 pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn make_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         match &args {
-            &[SteelVal::IntV(i)] if *i >= 0 => Ok(ctx
-                .make_mutable_vector_iter(core::iter::repeat(SteelVal::IntV(0)).take(*i as usize))),
-            &[SteelVal::IntV(i), initial_value] if *i >= 0 => {
-                // Ok(ctx.make_mutable_vector(vec![initial_value.clone(); *i as usize]))
-                Ok(ctx.make_mutable_vector_iter(
-                    core::iter::repeat(initial_value.clone()).take(*i as usize),
-                ))
+            &[SteelVal::IntV(i)] if *i >= 0 => {
+                Ok(ctx.make_mutable_vector(filled_heap_vec(SteelVal::IntV(0), *i as usize)))
             }
+            &[SteelVal::IntV(i), initial_value] if *i >= 0 => Ok(
+                ctx.make_mutable_vector(filled_heap_vec(initial_value.clone(), *i as usize)),
+            ),
             _ => {
                 stop!(TypeMismatch => "make-vector expects a positive integer, and optionally a value to initialize the vector with, found: {:?}", args)
             }
@@ -916,10 +936,7 @@ pub fn vector_fill(
 /// > (mutable-vector->list A 1 4) ;; => '(2 3 4)
 /// ```
 #[steel_derive::function(name = "mutable-vector->list")]
-pub fn mut_vec_to_list(
-    vec: &HeapRef<HeapVec>,
-    rest: RestArgsIter<'_, isize>,
-) -> Result<SteelVal> {
+pub fn mut_vec_to_list(vec: &HeapRef<HeapVec>, rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
     let guard = &ptr.lock().value;
 
@@ -1049,7 +1066,12 @@ pub fn flat_vector_to_list(args: &[SteelVal]) -> Result<SteelVal> {
     let (start, end) = bounds_mut(rest, "flat-vector->list", 3, vector)?;
 
     Ok(SteelVal::ListV(
-        vector.iter().skip(start).take(end - start).cloned().collect(),
+        vector
+            .iter()
+            .skip(start)
+            .take(end - start)
+            .cloned()
+            .collect(),
     ))
 }
 

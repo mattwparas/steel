@@ -5486,7 +5486,7 @@ impl FunctionTranslator<'_> {
                                     };
 
                                     if INLINE_FLAT_VECTOR_REF {
-                                        self.inline_flat_vector_ref(
+                                        self.inline_vector_ref(
                                             vector_value,
                                             index_value,
                                             fallback,
@@ -5517,7 +5517,7 @@ impl FunctionTranslator<'_> {
                                     };
 
                                     if INLINE_FLAT_VECTOR_REF {
-                                        self.inline_flat_vector_ref(
+                                        self.inline_vector_ref(
                                             vector_value,
                                             index_value,
                                             fallback,
@@ -5547,7 +5547,7 @@ impl FunctionTranslator<'_> {
                             };
 
                             let res = if INLINE_FLAT_VECTOR_REF {
-                                self.inline_flat_vector_ref(vector_value, index_value, fallback)
+                                self.inline_vector_ref(vector_value, index_value, fallback)
                             } else {
                                 fallback(self)
                             };
