@@ -2178,7 +2178,7 @@ dependencies = [
 
 [[package]]
 name = "im-lists"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "allocator-api2",
  "generic_singleton",
