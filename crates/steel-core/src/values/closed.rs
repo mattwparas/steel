@@ -490,6 +490,22 @@ fn gc_work_ratio() -> usize {
     *RATIO
 }
 
+// How much a weak collection has to reclaim, as a fraction of the list it walks,
+// to be worth repeating. The scan is O(heap) and its yield decays as the easy
+// slots go, so a nearly full list will otherwise rescan on every allocation and
+// the walk swamps everything else. Backing off on yield rather than on occupancy
+// stops that; a full collection re-arms it.
+fn weak_yield_ratio() -> usize {
+    static R: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
+        std::env::var("STEEL_GC_WEAK_YIELD")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(32)
+    });
+
+    *R
+}
+
 // A ceiling on that headroom. Slots are not free - each one is a live allocation
 // - so the heap cannot simply be sized to the graph it traces. Without this the
 // rule reaches for gigabytes on a large graph and ends up slower than it started.
@@ -1892,7 +1908,16 @@ impl Heap {
             // let now = crate::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "SteelVal gc invocation");
-            self.memory_free_list.weak_collection();
+
+            if self.memory_free_list.should_run_weak || force {
+                let reclaimed = self.memory_free_list.weak_collection();
+
+                if reclaimed.saturating_mul(weak_yield_ratio())
+                    < self.memory_free_list.elements.len()
+                {
+                    self.memory_free_list.should_run_weak = false;
+                }
+            }
 
             log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
             // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
@@ -1926,6 +1951,11 @@ impl Heap {
                     .saturating_sub(stats.vector_reached_count);
 
                 self.memory_free_list.resize_after_collection(stats.object_count);
+
+                // A full collection changes what is reachable, so the cheap scan
+                // is worth trying again
+                self.memory_free_list.should_run_weak = true;
+                self.vector_free_list.should_run_weak = true;
 
                 // synchronizer.resume_threads();
 
@@ -1978,9 +2008,11 @@ impl Heap {
 
         if self.vector_free_list.percent_full() > 0.50 && self.vector_free_list.should_run_weak {
             log::debug!(target: "gc", "Running weak collection because the vector free list is 50% full");
-            self.vector_free_list.weak_collection();
+            let reclaimed = self.vector_free_list.weak_collection();
 
-            if self.vector_free_list.percent_full() > 0.30 {
+            if reclaimed.saturating_mul(weak_yield_ratio())
+                < self.vector_free_list.elements.len()
+            {
                 self.vector_free_list.should_run_weak = false;
             }
         }
@@ -2042,9 +2074,11 @@ impl Heap {
     ) -> HeapRef<HeapVec> {
         if self.vector_free_list.percent_full() > 0.50 && self.vector_free_list.should_run_weak {
             run_explicit_merge();
-            self.vector_free_list.weak_collection();
+            let reclaimed = self.vector_free_list.weak_collection();
 
-            if self.vector_free_list.percent_full() > 0.30 {
+            if reclaimed.saturating_mul(weak_yield_ratio())
+                < self.vector_free_list.elements.len()
+            {
                 self.vector_free_list.should_run_weak = false;
             }
         }
