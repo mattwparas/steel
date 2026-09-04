@@ -3768,10 +3768,20 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
     }
 }
 
+type BoxedCallSiteModifier<'a> =
+    MutateCallSitesNonGlobal<'a, Box<dyn FnMut(&Analysis, &mut ExprKind)>>;
+
 struct LiftClosuresToGlobalScope<'a> {
     analysis: &'a Analysis,
     lifted_functions: Vec<ExprKind>,
     found_funcs: Vec<InternedString>,
+    // Rewriting a lifted function's call sites happens per let, but lifting
+    // moves code between lets - a function lifted out of a nested let can hold
+    // a call to one lifted out of an enclosing let, and that call site is no
+    // longer anywhere the enclosing let's replacer will visit. Holding on to
+    // every replacer lets the traversal make a final pass over everything it
+    // lifted, whatever order the lets were processed in.
+    pending_replacers: Vec<(ReplaceUnboxExpressions, BoxedCallSiteModifier<'a>)>,
 }
 
 impl<'a> LiftClosuresToGlobalScope<'a> {
@@ -3780,6 +3790,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
             analysis,
             lifted_functions: Vec::new(),
             found_funcs: Vec::new(),
+            pending_replacers: Vec::new(),
         }
     }
 
@@ -3799,6 +3810,41 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
             let mut found_escape_checkers = Vec::new();
 
+            // The bindings in this let are one letrec group - they are bound to
+            // placeholders and then assigned, so they can see one another. They
+            // get lifted together, so gather the whole group up front: calls
+            // between members must not read as escapes, which is what kept
+            // mutually recursive functions from ever lifting.
+            let group: Vec<InternedString> = if let ExprKind::Begin(b) = &l.body_expr {
+                b.exprs
+                    .iter()
+                    .filter_map(|expr| match expr {
+                        ExprKind::List(sl) if sl.first_ident().copied() == Some(*SETBOX) => {
+                            sl.third_ident().copied()
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            let group_boxes: Vec<InternedString> = if let ExprKind::Begin(b) = &l.body_expr {
+                b.exprs
+                    .iter()
+                    .filter_map(|expr| match expr {
+                        ExprKind::List(sl) if sl.first_ident().copied() == Some(*SETBOX) => {
+                            sl.second_ident().copied()
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+
+
             for (variable, expression) in l.bindings.iter_mut() {
                 if let ExprKind::LambdaFunction(_) = expression {
                     if let ExprKind::LambdaFunction(r) = expression {
@@ -3806,6 +3852,18 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                         let info = self.analysis.get(var).unwrap();
 
                         let function_info = self.analysis.get_function_info(r).unwrap();
+
+                        if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                            let nm = variable.atom_identifier().unwrap().resolve().to_string();
+                            if nm.contains("state") || nm.contains("scanner") {
+                                eprintln!(
+                                    "LIFT: {} captured={} usage_count={}",
+                                    nm,
+                                    function_info.captured_vars().len(),
+                                    info.usage_count
+                                );
+                            }
+                        }
 
                         // This is a lambda function. the temporary binding is only used once.
                         if !function_info.captured_vars().is_empty() && info.usage_count == 1 {
@@ -3825,6 +3883,9 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                 for expr in b.exprs.iter_mut() {
                                     if let Some(found_escape_checker) = &mut found_escape_checker {
                                         if found_escape_checker.check(expr) {
+                                            if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                                                eprintln!("LIFT BAIL: escape in body expr");
+                                            }
                                             return;
                                         }
                                     }
@@ -3842,7 +3903,11 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
                                                     if original_func_name == *name {
                                                         found_escape_checker = Some(
-                                                            CheckIdentifierOnlyOccursInUnboxCallPosition::new_with_func(original_func_name, *function_name)
+                                                            CheckIdentifierOnlyOccursInUnboxCallPosition::new_with_group(
+                                                                original_func_name,
+                                                                group.clone(),
+                                                                group_boxes.clone(),
+                                                            ),
                                                         );
 
                                                         original_func_names
@@ -3865,6 +3930,9 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
             for mut escape_checker in found_escape_checkers {
                 if escape_checker.check_let(l) {
+                    if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                        eprintln!("LIFT BAIL: check_let escape");
+                    }
                     return;
                 }
             }
@@ -3926,7 +3994,8 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                     let mut escape_checker = CheckIdentifierOnlyOccursInUnboxCallPosition {
                                                         unbox_var: original_func_name,
                                                         escapes: false,
-                                                        func_name: Some(*function_name),
+                                                        group: group.clone(),
+                                                        group_boxes: group_boxes.clone(),
                                                         inside_lambda: false,
                                                     };
 
@@ -4005,10 +4074,9 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
                                                     let func_names = self.found_funcs.clone();
                                                     let captured_values = captured_vars_set.clone();
-                                                    let find_call_sites =
-                                                        MutateCallSitesNonGlobal::new(
-                                                            name,
-                                                            &self.analysis,
+                                                    let modifier: Box<
+                                                        dyn FnMut(&Analysis, &mut ExprKind),
+                                                    > = Box::new(
                                                             move |_: &Analysis, expr: &mut ExprKind| {
                                                                 if let ExprKind::List(l) = expr {
                                                                     for i in &captured_values {
@@ -4031,6 +4099,13 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                             },
                                                         );
 
+                                                    let find_call_sites =
+                                                        MutateCallSitesNonGlobal::new(
+                                                            name,
+                                                            &self.analysis,
+                                                            modifier,
+                                                        );
+
                                                     // find_call_sites.visit(expression);
                                                     calculated_replacer = Some(replacer);
                                                     index_to_remove = Some(index);
@@ -4047,15 +4122,10 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                 let mut replacer = calculated_replacer.unwrap();
                                 let mut callsite_modifier = callsite_modifier.unwrap();
 
-                                for expr in b.exprs.iter_mut() {
-                                    replacer.visit(expr);
-                                    callsite_modifier.visit(expr);
-                                }
-
-                                for (_, expr) in &mut ol.bindings {
-                                    replacer.visit(expr);
-                                    callsite_modifier.visit(expr);
-                                }
+                                // Rewriting happens once, globally, after the
+                                // whole traversal - appending the captured
+                                // arguments is not idempotent.
+                                let _ = (&mut replacer, &mut callsite_modifier);
 
                                 // for (_, expr) in &mut l.bindings {
                                 //     replacer.visit(expr);
@@ -4092,29 +4162,19 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                     l.bindings.remove(inner);
                 }
 
-                for (replacer, callsite_modifier) in &mut replacers {
-                    for (_, expr) in &mut l.bindings {
-                        replacer.visit(expr);
-                        callsite_modifier.visit(expr);
-                    }
-                }
-            }
-        }
-
-        if changed {
-            for (mut replacer, mut callsite_modifier) in replacers {
-                // When does the call site modification happen?
-                // It should be pretty clear that we need to _not_ introduce
-                // new things to the callsite?
-                for expr in &mut local_functions {
-                    replacer.visit(expr);
-                    callsite_modifier.visit(expr);
-                }
 
             }
         }
 
+        // The lifted functions are deliberately not rewritten here. Appending the
+        // captured arguments is not idempotent, so they are rewritten exactly
+        // once, in the single pass over everything lifted - which also reaches
+        // the ones lifted out of other lets.
         self.lifted_functions.append(&mut local_functions);
+
+        // Held for the final pass over everything lifted anywhere - see
+        // `pending_replacers`.
+        self.pending_replacers.append(&mut replacers);
     }
 }
 
@@ -4173,7 +4233,15 @@ impl VisitorMutRefUnit for ReplaceUnboxExpressions {
 
 struct CheckIdentifierOnlyOccursInUnboxCallPosition {
     unbox_var: InternedString,
-    func_name: Option<InternedString>,
+    // Every function being lifted out of the same binding group. A call between
+    // members is not an escape: they all become globals together, so the call
+    // becomes a direct one and there is no box left to outlive the frame. Only a
+    // lambda from outside the group can keep a reference alive.
+    group: Vec<InternedString>,
+    // The placeholders the group is assigned into. Once the whole group is
+    // lifted, a call through one of these is a direct call to a global, so it
+    // is safe at any depth. Using one as a value is still an escape.
+    group_boxes: Vec<InternedString>,
     escapes: bool,
     // Set while visiting a nested lambda - a call from inside one escapes.
     inside_lambda: bool,
@@ -4183,16 +4251,22 @@ impl CheckIdentifierOnlyOccursInUnboxCallPosition {
     fn new(unbox_var: InternedString) -> Self {
         Self {
             unbox_var,
-            func_name: None,
+            group: Vec::new(),
+            group_boxes: Vec::new(),
             escapes: false,
             inside_lambda: false,
         }
     }
 
-    fn new_with_func(unbox_var: InternedString, func_name: InternedString) -> Self {
+    fn new_with_group(
+        unbox_var: InternedString,
+        group: Vec<InternedString>,
+        group_boxes: Vec<InternedString>,
+    ) -> Self {
         Self {
             unbox_var,
-            func_name: Some(func_name),
+            group,
+            group_boxes,
             escapes: false,
             inside_lambda: false,
         }
@@ -4225,10 +4299,15 @@ impl CheckIdentifierOnlyOccursInUnboxCallPosition {
         self.inside_lambda = false;
 
         for (var, bound) in &expr.bindings {
-            // The function being lifted is itself a lambda, so its own body is
+            // Each function being lifted is itself a lambda, so its body is
             // checked one level in - only a lambda nested deeper than it can keep
-            // a reference alive past the frame.
-            if self.func_name.is_some() && var.atom_identifier().copied() == self.func_name {
+            // a reference alive past the frame. Every member of the group gets
+            // that treatment, which is what lets mutually recursive functions
+            // lift: a sibling calling this one is not an escape.
+            if var
+                .atom_identifier()
+                .is_some_and(|name| self.group.contains(name))
+            {
                 if let ExprKind::LambdaFunction(f) = bound {
                     self.visit(&f.body);
                     continue;
@@ -4261,11 +4340,40 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                 // We've hit something like (unbox <foo>)
                 // but we need to make sure that this only happens in the call
                 // position, meaning if we hit the identifier in any other way,
+                // A bare (unbox x) reached here is the value itself, not a call
+                // through it - it is being returned, bound or stored, so the
+                // reference outlives what we can rewrite.
+                if l.first_ident().copied() == Some(*UNBOX)
+                    && l.second_ident().copied() == Some(self.unbox_var)
+                {
+                    if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                        eprintln!("ESCAPE(as-value): {}", self.unbox_var.resolve());
+                    }
+                    self.escapes = true;
+                    return;
+                }
+
                 // then we've escaped.
                 if let Some(ExprKind::List(il)) = l.first() {
                     if il.first_ident().copied() == Some(*UNBOX) {
                         if il.second_ident().copied() == Some(self.unbox_var) {
-                            if self.inside_lambda {
+                            // A sibling calling this one is fine: the whole
+                            // group becomes globals together, so the call turns
+                            // into a direct one. That only applies to a genuine
+                            // mutually recursive group - for a lone function,
+                            // a call from a deeper lambda can still outlive the
+                            // frame, which is what this check exists for.
+                            let mutually_recursive = self.group_boxes.len() > 1
+                                && self.group_boxes.contains(&self.unbox_var);
+
+                            if self.inside_lambda && !mutually_recursive {
+                                if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                                    eprintln!(
+                                        "ESCAPE(call-in-lambda): {} group={}",
+                                        self.unbox_var.resolve(),
+                                        self.group.len()
+                                    );
+                                }
                                 self.escapes = true;
                                 return;
                             }
@@ -4286,6 +4394,12 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                         if let ExprKind::List(il) = arg {
                             if il.first_ident().copied() == Some(*UNBOX) {
                                 if il.second_ident().copied() == Some(self.unbox_var) {
+                                    if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                                        eprintln!(
+                                            "ESCAPE(as-argument): {}",
+                                            self.unbox_var.resolve()
+                                        );
+                                    }
                                     self.escapes = true;
                                     return;
                                 }
@@ -4294,14 +4408,14 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                     }
                 }
 
-                if let Some(function_name) = self.func_name {
-                    if l.first_ident().copied() == Some(*SETBOX) {
-                        if l.third_ident().copied() == Some(function_name)
-                            && l.second_ident().copied() == Some(self.unbox_var)
-                        {
-                            return;
-                        }
-                    }
+                // The assignment that fills in a group member's placeholder is
+                // its definition, not a use of it
+                if l.first_ident().copied() == Some(*SETBOX)
+                    && l.second_ident().copied() == Some(self.unbox_var)
+                    && l.third_ident()
+                        .is_some_and(|name| self.group.contains(name))
+                {
+                    return;
                 }
 
                 self.visit_list(l);
@@ -7114,6 +7228,33 @@ impl<'a> SemanticAnalysis<'a> {
 
         if lifter.lifted_functions.is_empty() {
             return self;
+        }
+
+        // Call sites were rewritten per let as each one was lifted, but a
+        // function lifted out of a nested let can hold a call to one lifted out
+        // of an enclosing let - that call site was not reachable from the
+        // enclosing let by the time it moved. Everything lifted now sits in one
+        // list, so replay every replacer over all of it.
+        {
+            let LiftClosuresToGlobalScope {
+                lifted_functions,
+                pending_replacers,
+                ..
+            } = &mut lifter;
+
+            let exprs = &mut *self.exprs;
+
+            for (replacer, callsite_modifier) in pending_replacers.iter_mut() {
+                for expr in lifted_functions.iter_mut() {
+                    replacer.visit(expr);
+                    callsite_modifier.visit(expr);
+                }
+
+                for expr in exprs.iter_mut() {
+                    replacer.visit(expr);
+                    callsite_modifier.visit(expr);
+                }
+            }
         }
 
         lifter.lifted_functions.append(&mut self.exprs);
