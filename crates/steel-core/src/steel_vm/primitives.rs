@@ -81,6 +81,8 @@ use crate::{
     },
 };
 
+use crate::gc::Gc;
+use crate::values::structs::StructTypeDescriptor;
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
 };
@@ -532,7 +534,15 @@ pub fn bootstrap_globals(engine: &mut Engine) {
 
     engine.register_value("#%error", ControlOperations::error());
 
-    engine.register_value("#%box", SteelVal::BuiltIn(make_mutable_box));
+    engine.register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
+        .register_value(
+            "#%make-mutable-struct",
+            SteelVal::BuiltIn(make_mutable_struct),
+        );
+    engine.register_value(
+        "#%make-mutable-struct",
+        SteelVal::BuiltIn(make_mutable_struct),
+    );
 
     engine.register_fn("#%void", || SteelVal::Void);
 
@@ -2218,6 +2228,47 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
     Some(Ok(SteelVal::Void))
 }
 
+/// Builds a mutable struct, boxing every field.
+///
+/// The struct macro used to emit one `#%box` per field, so an N field struct
+/// paid N VM dispatches, N safepoint entries and N heap lock acquisitions.
+/// Doing the whole struct here pays those once.
+#[steel_derive::context(name = "#%make-mutable-struct", arity = "AtLeast(1)")]
+fn make_mutable_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn make_mutable_struct_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let Some((descriptor, fields)) = args.split_first() else {
+            stop!(ArityMismatch => "#%make-mutable-struct expects a struct type descriptor");
+        };
+
+        let descriptor = StructTypeDescriptor::from_steelval(descriptor)?;
+
+        let mut boxed = steel_vec::Vec::with_capacity(fields.len());
+
+        let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+
+        // The fields go in as roots, so a collection part way through the batch
+        // cannot reclaim the boxes already made or anything only they reach.
+        heap_lock.allocate_many(
+            fields,
+            &ctx.thread.stack,
+            ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+            ctx.thread.global_env.roots(),
+            &ctx.thread.thread_local_storage,
+            &mut ctx.thread.synchronizer,
+            &mut boxed,
+        );
+
+        drop(heap_lock);
+
+
+        Ok(SteelVal::CustomStruct(Gc::new(
+            UserDefinedStruct::from_boxed_fields(descriptor, boxed),
+        )))
+    }
+
+    Some(make_mutable_struct_impl(ctx, args))
+}
+
 /// Creates a mutable box holding the given value. The box is tracked by the
 /// garbage collector, so values stored in it (including ones that form cycles)
 /// are reclaimed safely. Use `unbox` to read the value and `set-box!` to update
@@ -2532,6 +2583,10 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(MAKE_WEAK_BOX_DEFINITION)
         .register_native_fn_definition(WEAK_BOX_VALUE_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
+        .register_value(
+            "#%make-mutable-struct",
+            SteelVal::BuiltIn(make_mutable_struct),
+        )
         .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
         .register_native_fn_definition(MAKE_MUTABLE_BOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_MUTABLE_DEFINITION)

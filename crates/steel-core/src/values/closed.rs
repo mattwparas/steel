@@ -1752,7 +1752,7 @@ impl Heap {
         force_full: bool,
     ) {
         self.value_collection(
-            &SteelVal::Void,
+            core::iter::empty(),
             roots,
             live_functions,
             globals,
@@ -1785,7 +1785,7 @@ impl Heap {
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<SteelVal> {
         self.value_collection(
-            &value,
+            core::iter::once(value.clone()),
             roots,
             live_functions,
             globals,
@@ -1796,10 +1796,46 @@ impl Heap {
         self.memory_free_list.allocate(value)
     }
 
+    /// Allocates a box per value, checking for a collection once for the whole
+    /// batch rather than once per value.
+    ///
+    /// Handing the values in is what keeps this sound: none of them is reachable
+    /// from a root set while the batch is in flight - the caller has usually just
+    /// taken them off the value stack - so a collection triggered part way
+    /// through would otherwise reclaim the ones already boxed, along with
+    /// anything only they referred to.
+    pub fn allocate_many<'a>(
+        &mut self,
+        values: &[SteelVal],
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+        out: &mut steel_vec::Vec<SteelVal>,
+    ) {
+        self.value_collection(
+            values.iter().cloned(),
+            roots,
+            live_functions,
+            globals,
+            tls,
+            synchronizer,
+            false,
+        );
+
+        for value in values {
+            let allocated = self.memory_free_list.allocate(value.clone());
+            out.push(SteelVal::HeapAllocated(allocated));
+        }
+    }
+
     #[inline(always)]
     fn value_collection<'a>(
         &mut self,
-        value: &SteelVal,
+        // The values about to be allocated. They are not reachable from any root
+        // set yet, so a collection here has to be told about them explicitly.
+        pending: impl Iterator<Item = SteelVal>,
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
@@ -1824,8 +1860,8 @@ impl Heap {
 
                 // Just reset the counter
                 let stats = self.mark_and_sweep_new(
-                    Some(value.clone()),
-                    core::iter::empty(),
+                    None,
+                    pending,
                     roots,
                     live_functions,
                     globals,

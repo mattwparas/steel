@@ -254,6 +254,18 @@ impl UserDefinedStruct {
         }
     }
 
+    // Fields arrive already boxed from #%make-mutable-struct, which allocates
+    // them all under a single heap lock.
+    pub fn from_boxed_fields(
+        type_descriptor: StructTypeDescriptor,
+        fields: steel_vec::Vec<SteelVal>,
+    ) -> Self {
+        Self {
+            fields,
+            type_descriptor,
+        }
+    }
+
     pub fn new_iter(
         type_descriptor: StructTypeDescriptor,
         args: impl Iterator<Item = SteelVal>,

@@ -297,18 +297,20 @@
            (#%start-will-executor)
            void)
        ,(if mutable?
+            ;; One call boxes every field under a single heap lock, rather than
+            ;; a #%box call per field each paying its own safepoint and lock
             (if maybe-finalizer
                 `(define ,struct-name
                    (lambda ,fields
                      ;; TODO: Put the right thing on here
                      (#%register-struct-finalizer
-                      (,constructor-proto-gensym ,@(map (lambda (x) `(#%box ,x)) fields)
-                                                 ,maybe-finalizer))))
+                      (#%make-mutable-struct ,struct-prop-name-gensym ,@fields)
+                      ,maybe-finalizer)))
 
                 `(define ,struct-name
                    (lambda ,fields
                      ;; TODO: Put the right thing on here
-                     (,constructor-proto-gensym ,@(map (lambda (x) `(#%box ,x)) fields)))))
+                     (#%make-mutable-struct ,struct-prop-name-gensym ,@fields))))
 
             (if maybe-finalizer
                 `(define ,struct-name
