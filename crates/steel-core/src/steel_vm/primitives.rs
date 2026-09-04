@@ -12,6 +12,7 @@ use super::{
         MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
     },
 };
+use crate::values::structs::StructRef;
 use crate::{
     compiler::modules::steel_home,
     gc::{shared::ShareableMut, GcMut},
@@ -1911,7 +1912,7 @@ fn arity(value: SteelVal) -> UnRecoverableResult {
             if let Some(SteelVal::CustomStruct(s)) = c.get_contract_information() {
                 let guard = s;
                 if guard.name().resolve() == "FunctionContract" {
-                    if let SteelVal::ListV(l) = &guard.fields[0] {
+                    if let SteelVal::ListV(l) = &guard.fields()[0] {
                         Ok(SteelVal::IntV(l.len() as isize)).into()
                     } else {
                         steelerr!(TypeMismatch => "Unable to find the arity for the given function")
@@ -2242,7 +2243,7 @@ fn make_mutable_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Ste
 
         let descriptor = StructTypeDescriptor::from_steelval(descriptor)?;
 
-        let mut boxed = steel_vec::Vec::with_capacity(fields.len());
+        let mut boxed = Vec::with_capacity(fields.len());
 
         let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
 
@@ -2261,8 +2262,9 @@ fn make_mutable_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Ste
         drop(heap_lock);
 
 
-        Ok(SteelVal::CustomStruct(Gc::new(
-            UserDefinedStruct::from_boxed_fields(descriptor, boxed),
+        Ok(SteelVal::CustomStruct(StructRef::from_parts(
+            descriptor,
+            boxed.into_iter(),
         )))
     }
 
@@ -2389,10 +2391,10 @@ pub fn black_box(a: &[SteelVal]) -> Result<SteelVal> {
 }
 
 #[steel_derive::function(name = "struct->list")]
-pub fn struct_to_list(value: &UserDefinedStruct) -> Result<SteelVal> {
+pub fn struct_to_list(value: &StructRef) -> Result<SteelVal> {
     if value.is_transparent() {
         // Ok(SteelVal::ListV((*value.fields).clone().into()))
-        Ok(SteelVal::ListV((*value.fields).iter().cloned().collect()))
+        Ok(SteelVal::ListV(value.fields().iter().cloned().collect()))
     } else {
         Ok(SteelVal::BoolV(false))
     }
@@ -2499,7 +2501,7 @@ fn meta_module() -> BuiltInModule {
         .register_value("futures-join-all", MetaOperations::join_futures())
         .register_fn(
             "#%struct-property-ref",
-            |value: &UserDefinedStruct, key: SteelVal| UserDefinedStruct::get(value, &key),
+            |value: &StructRef, key: SteelVal| StructRef::get(value, &key),
         )
         .register_native_fn_definition(STRUCT_TO_LIST_DEFINITION)
         .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))

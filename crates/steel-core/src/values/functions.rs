@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use crate::values::structs::StructRef;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -140,10 +141,10 @@ pub struct ByteCodeLambda {
 
     // This is a little suspicious, but it should give us the necessary information to attach a struct of metadata
     #[cfg(feature = "sync")]
-    contract: SharedMut<Option<Gc<UserDefinedStruct>>>,
+    contract: SharedMut<Option<StructRef>>,
 
     #[cfg(not(feature = "sync"))]
-    contract: MutContainer<Option<Gc<UserDefinedStruct>>>,
+    contract: MutContainer<Option<StructRef>>,
 
     #[cfg(feature = "jit2")]
     pub(crate) super_instructions: Option<JitFnPointer>,
@@ -524,7 +525,7 @@ impl ByteCodeLambda {
     //     self.cant_be_compiled.get()
     // }
 
-    pub fn attach_contract_information(&self, steel_struct: Gc<UserDefinedStruct>) {
+    pub fn attach_contract_information(&self, steel_struct: StructRef) {
         #[cfg(feature = "sync")]
         {
             let mut guard = self.contract.write();

@@ -34,7 +34,7 @@ use crate::{
         serde::call_deserializer_by_name,
         structs::{
             create_struct_spec, fetch_from_type_map, SerializableUserDefinedStruct,
-            StructConstructorRefSpec, StructTypeDescriptor, UserDefinedStruct,
+            StructConstructorRefSpec, StructRef, StructTypeDescriptor, UserDefinedStruct,
         },
         transducers::{Reducer, Transducer},
         HashMapConsumingIter, HashSetConsumingIter, SteelPortRepr, VectorConsumingIter,
@@ -624,7 +624,7 @@ pub(crate) trait AsRefSteelValFromRef: Sized {
     fn as_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryReadonlyView<Self>>;
 }
 
-impl AsRefSteelVal for UserDefinedStruct {
+impl AsRefSteelVal for StructRef {
     type Nursery = ();
 
     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
@@ -1142,7 +1142,7 @@ pub fn from_serializable_value(
         )))),
         SerializableSteelVal::SymbolV(s) => Ok(SteelVal::SymbolV(s.into())),
         SerializableSteelVal::CustomStruct(s) => {
-            Ok(SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
+            Ok(SteelVal::CustomStruct(StructRef::new(UserDefinedStruct {
                 fields: {
                     let fields = s
                         .fields
@@ -1434,17 +1434,17 @@ pub fn into_serializable_value(
         SteelVal::CustomStruct(s) => {
             // Mark that we visited this, and that it will need to be
             // present on the other side.
-            ctx.reachable_structs.insert(s.type_descriptor);
+            ctx.reachable_structs.insert(s.descriptor());
 
             Ok(SerializableSteelVal::CustomStruct(
                 SerializableUserDefinedStruct {
                     fields: s
-                        .fields
+                        .fields()
                         .iter()
                         .cloned()
                         .map(|x| into_serializable_value(x, ctx))
                         .collect::<Result<Vec<_>>>()?,
-                    type_descriptor: s.type_descriptor,
+                    type_descriptor: s.descriptor(),
                 },
             ))
         }
@@ -1669,7 +1669,7 @@ pub enum SteelVal {
     // Embedded HashSet
     HashSetV(SteelHashSet),
     /// Represents a scheme-only struct
-    CustomStruct(Gc<UserDefinedStruct>),
+    CustomStruct(StructRef),
     /// Represents a port object
     PortV(SteelPort),
     /// Generic iterator wrapper
@@ -1790,7 +1790,7 @@ pub(crate) enum SteelValPointer {
     Custom(*const RwLock<Box<dyn CustomType>>),
     HashMapV(*const HashMap<SteelVal, SteelVal>),
     HashSetV(*const HashSet<SteelVal>),
-    CustomStruct(*const UserDefinedStruct),
+    CustomStruct(*const u8),
     IterV(*const Transducer),
     ReducerV(*const Reducer),
     StreamV(*const LazyStream),
@@ -2265,7 +2265,7 @@ impl SteelVal {
             (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
             (ByteVector(l), ByteVector(r)) => Gc::ptr_eq(&l.vec, &r.vec),
             (Pair(l), Pair(r)) => Gc::ptr_eq(l, r),
-            (CustomStruct(l), CustomStruct(r)) => Gc::ptr_eq(l, r),
+            (CustomStruct(l), CustomStruct(r)) => l.ptr_eq(r),
             (_, _) => {
                 // dbg!(pointers);
                 false
@@ -3181,3 +3181,4 @@ mod or_else_tests {
         }
     }
 }
+

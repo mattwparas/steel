@@ -1,5 +1,6 @@
 #![allow(improper_ctypes_definitions, unused)]
 
+use crate::values::structs::StructRef;
 use core::{hint::unreachable_unchecked, mem::ManuallyDrop, sync::atomic::AtomicUsize};
 
 use steel_derive::cross_platform_fn;
@@ -545,7 +546,7 @@ fn drop_value_post_fast_decrement(arg: SteelVal) {
         }
 
         CustomStruct(gc) => {
-            gc.0.fast_decrement_post_ref_count_dec();
+            gc.fast_decrement_post_ref_count_dec();
         }
 
         PortV(gc) => {
@@ -719,7 +720,7 @@ fn increment_ref_count_slow(arg: SteelVal) {
         }
 
         CustomStruct(gc) => {
-            gc.0.raw_slow_increment();
+            gc.raw_slow_increment();
         }
 
         PortV(gc) => {
@@ -842,7 +843,7 @@ fn drop_value_slow_decrement(arg: SteelVal) {
         }
 
         CustomStruct(gc) => {
-            gc.0.raw_slow_decrement();
+            gc.raw_slow_decrement();
         }
 
         PortV(gc) => {
@@ -4530,8 +4531,10 @@ macro_rules! make_struct_constructors {
                 type_descriptor: StructTypeDescriptor,
                 $($typ: SteelVal),*
             ) -> SteelVal {
-                let new_struct = UserDefinedStruct::new_iter(type_descriptor, [$($typ),*].into_iter());
-                SteelVal::CustomStruct(Gc::new(new_struct))
+                SteelVal::CustomStruct(StructRef::from_parts(
+                    type_descriptor,
+                    [$($typ),*].into_iter(),
+                ))
             }
 
         )*

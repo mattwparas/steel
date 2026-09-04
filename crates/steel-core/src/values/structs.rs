@@ -176,6 +176,250 @@ pub struct UserDefinedStruct {
     pub(crate) fields: steel_vec::Vec<SteelVal>,
 }
 
+/// Tears a struct's fields down without recursing.
+///
+/// A struct can hold arbitrarily deep values, so dropping the fields in place
+/// would recurse as far as the data is deep. This moves them into the shared
+/// work list instead, the same thing `Drop for UserDefinedStruct` used to do.
+pub struct StructDropHandler;
+
+impl steel_rc::PackedDropHandler<SteelVal> for StructDropHandler {
+    unsafe fn drop_elements(elements: *mut SteelVal, len: usize) {
+        if len == 0 {
+            return;
+        }
+
+        let taken = (0..len).map(|i| unsafe { core::ptr::read(elements.add(i)) });
+
+        if crate::rvals::cycles::drop_fields_iteratively(taken).is_err() {
+            // The work list was unavailable; fall back to dropping in place
+            for i in 0..len {
+                unsafe { core::ptr::drop_in_place(elements.add(i)) };
+            }
+        }
+    }
+}
+
+pub type StructStorage = steel_rc::PackedRc<StructTypeDescriptor, SteelVal, StructDropHandler>;
+
+/// A handle to a struct value.
+///
+/// One allocation holding the type descriptor, the field count and the fields
+/// inline, addressed by a thin pointer - so it still fits where `SteelVal`
+/// requires a pointer sized payload, and reading a field is a single load
+/// rather than a hop through a separate buffer.
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct StructRef(StructStorage);
+
+impl StructRef {
+    #[inline]
+    pub fn from_parts(
+        descriptor: StructTypeDescriptor,
+        fields: impl ExactSizeIterator<Item = SteelVal>,
+    ) -> Self {
+        Self(StructStorage::new(descriptor, fields))
+    }
+
+    #[inline]
+    pub fn new(value: UserDefinedStruct) -> Self {
+        let descriptor = value.descriptor();
+        let fields: Vec<SteelVal> = value.fields().to_vec();
+
+        Self::from_parts(descriptor, fields.into_iter())
+    }
+
+    /// A mutable view of the fields, when this is the only reference.
+    #[inline]
+    pub fn get_mut(&mut self) -> Option<&mut [SteelVal]> {
+        self.0.get_mut()
+    }
+
+    /// Moves the fields out if nothing else holds this struct.
+    #[inline]
+    pub fn take_fields_if_unique(&mut self) -> Option<Vec<SteelVal>> {
+        let fields = self.0.get_mut()?;
+
+        Some(
+            fields
+                .iter_mut()
+                .map(|slot| core::mem::replace(slot, SteelVal::Void))
+                .collect(),
+        )
+    }
+
+    /// A separate allocation with the same descriptor and fields.
+    #[inline]
+    pub fn deep_clone(&self) -> Self {
+        Self(self.0.deep_clone())
+    }
+
+    #[inline]
+    pub fn as_ptr(&self) -> *const u8 {
+        self.0.as_raw() as *const u8
+    }
+
+    /// The fields behind a raw pointer previously taken from [`Self::as_ptr`].
+    ///
+    /// # Safety
+    ///
+    /// The struct must still be live.
+    #[inline]
+    pub unsafe fn fields_from_ptr<'a>(ptr: *const u8) -> &'a [SteelVal] {
+        unsafe { StructStorage::slice_from_raw(ptr as *const _) }
+    }
+
+    #[inline]
+    pub fn strong_count(&self) -> usize {
+        self.0.meta().biased_count() as usize
+    }
+
+    #[inline]
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
+    }
+
+    #[inline]
+    pub fn fast_decrement_post_ref_count_dec(&mut self) {
+        self.0.fast_decrement_post_ref_count_dec()
+    }
+
+    #[inline]
+    pub fn raw_slow_increment(&mut self) {
+        self.0.raw_slow_increment()
+    }
+
+    #[inline]
+    pub fn raw_slow_decrement(&mut self) {
+        self.0.raw_slow_decrement()
+    }
+
+    #[inline]
+    pub fn fields(&self) -> &[SteelVal] {
+        self.0.as_slice()
+    }
+
+    #[inline]
+    pub fn descriptor(&self) -> StructTypeDescriptor {
+        *self.0.header()
+    }
+
+    #[inline]
+    pub fn name(&self) -> InternedString {
+        self.descriptor().name()
+    }
+
+    #[inline]
+    pub fn is_transparent(&self) -> bool {
+        self.get(&TRANSPARENT_KEY.with(|x| x.clone()))
+            .and_then(|x| x.as_bool())
+            .unwrap_or_default()
+    }
+
+    #[inline]
+    pub fn get_index(&self, index: usize) -> Option<&SteelVal> {
+        self.fields().get(index)
+    }
+
+    #[inline]
+    pub fn get_mut_index(&self, index: usize) -> Option<SteelVal> {
+        self.fields()
+            .get(index)
+            .cloned()
+            .map(|x| steel_unbox_mutable(&[x]).unwrap())
+    }
+
+    #[inline]
+    pub fn set_index(&self, index: usize, value: SteelVal) {
+        if let Some(SteelVal::HeapAllocated(s)) = self.fields().get(index) {
+            s.set_and_return(value);
+        }
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub(crate) fn get(&self, val: &SteelVal) -> Option<SteelVal> {
+        VTABLE.with(|x| {
+            x.borrow().entries[self.descriptor().0]
+                .properties
+                .get(val)
+                .cloned()
+        })
+    }
+
+    #[cfg(feature = "sync")]
+    pub(crate) fn get(&self, val: &SteelVal) -> Option<SteelVal> {
+        STATIC_VTABLE.read().entries[self.descriptor().0]
+            .properties
+            .get(val)
+            .cloned()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub(crate) fn maybe_proc(&self) -> Option<&SteelVal> {
+        VTABLE
+            .with(|x| x.borrow().entries[self.descriptor().0].proc)
+            .map(|s| &self.fields()[s])
+    }
+
+    #[cfg(feature = "sync")]
+    pub(crate) fn maybe_proc(&self) -> Option<&SteelVal> {
+        STATIC_VTABLE.read().entries[self.descriptor().0]
+            .proc
+            .map(|s| &self.fields()[s])
+    }
+
+    #[inline]
+    pub(crate) fn is_ok(&self) -> bool {
+        self.descriptor() == *STATIC_OK_DESCRIPTOR
+    }
+
+    #[inline]
+    pub(crate) fn is_err(&self) -> bool {
+        self.descriptor() == *STATIC_ERR_DESCRIPTOR
+    }
+}
+
+impl core::fmt::Debug for StructRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "({}", self.name())?;
+        for value in self.fields() {
+            write!(f, " {:?}", value)?;
+        }
+        write!(f, ")")
+    }
+}
+
+impl core::fmt::Display for StructRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "({}", self.name())?;
+        for value in self.fields() {
+            write!(f, " {}", value)?;
+        }
+        write!(f, ")")
+    }
+}
+
+impl PartialEq for StructRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.descriptor() == other.descriptor() && self.fields() == other.fields()
+    }
+}
+
+impl Eq for StructRef {}
+
+impl Hash for StructRef {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.descriptor().hash(state);
+        self.fields().hash(state);
+    }
+}
+
+impl core::fmt::Pointer for StructRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Pointer::fmt(&self.as_ptr(), f)
+    }
+}
+
 impl UserDefinedStruct {
     pub fn name(&self) -> InternedString {
         self.type_descriptor.name()
@@ -185,6 +429,33 @@ impl UserDefinedStruct {
         self.get(&TRANSPARENT_KEY.with(|x| x.clone()))
             .and_then(|x| x.as_bool())
             .unwrap_or_default()
+    }
+
+    /// The struct's fields.
+    ///
+    /// Everything outside this type goes through here rather than touching the
+    /// storage, so the representation can change underneath it.
+    #[inline]
+    pub fn fields(&self) -> &[SteelVal] {
+        &self.fields
+    }
+
+    /// The fields, mutably. Only valid where the caller holds the struct uniquely.
+    #[inline]
+    pub fn fields_mut(&mut self) -> &mut [SteelVal] {
+        &mut self.fields
+    }
+
+    /// Takes the fields out, leaving the struct empty. Used by the iterative
+    /// drop path, which moves them into a work list rather than dropping in place.
+    #[inline]
+    pub fn take_fields(&mut self) -> impl Iterator<Item = SteelVal> + '_ {
+        self.fields.drain(..)
+    }
+
+    #[inline]
+    pub fn descriptor(&self) -> StructTypeDescriptor {
+        self.type_descriptor
     }
 
     pub fn get_index(&self, index: usize) -> Option<&SteelVal> {
@@ -380,10 +651,10 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
 
-            let new_struct =
-                UserDefinedStruct::new_with_options(Properties::BuiltIn, descriptor, args);
-
-            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
+            Ok(SteelVal::CustomStruct(StructRef::from_parts(
+                descriptor,
+                args.iter().cloned(),
+            )))
         }
     }
 
@@ -399,10 +670,10 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
 
-            let new_struct =
-                UserDefinedStruct::new_with_options(Properties::BuiltIn, descriptor, args);
-
-            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
+            Ok(SteelVal::CustomStruct(StructRef::from_parts(
+                descriptor,
+                args.iter().cloned(),
+            )))
         };
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
@@ -430,7 +701,7 @@ impl UserDefinedStruct {
 
             let new_struct = UserDefinedStruct::new(type_descriptor, args);
 
-            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
+            Ok(SteelVal::CustomStruct(StructRef::new(new_struct)))
         };
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
@@ -451,7 +722,7 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
             Ok(SteelVal::BoolV(match &args[0] {
-                SteelVal::CustomStruct(my_struct) if my_struct.type_descriptor == descriptor => {
+                SteelVal::CustomStruct(my_struct) if my_struct.descriptor() == descriptor => {
                     true
                 }
                 _ => false,
@@ -476,7 +747,7 @@ impl UserDefinedStruct {
 
             match (steel_struct, idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
-                    if s.type_descriptor != descriptor {
+                    if s.descriptor() != descriptor {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", descriptor.name(), &s, &steel_struct));
                     }
 
@@ -484,7 +755,7 @@ impl UserDefinedStruct {
                         stop!(Generic => "struct-ref expected a non negative index");
                     }
 
-                    s.fields.get(*idx as usize).cloned().ok_or_else(
+                    s.fields().get(*idx as usize).cloned().ok_or_else(
                         throw!(Generic => "struct-ref: {} - index out of bounds: {}", s.name(), idx),
                     )
                 }
@@ -517,11 +788,11 @@ impl UserDefinedStruct {
 
             match &steel_struct {
                 SteelVal::CustomStruct(s) => {
-                    if s.type_descriptor != descriptor {
+                    if s.descriptor() != descriptor {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", descriptor.name(), &s, &steel_struct));
                     }
 
-                    s.fields
+                    s.fields()
                         .get(index)
                         .cloned()
                         .ok_or_else(throw!(Generic => "struct-ref: {} - index out of bounds: {}", s.name(), index))
@@ -552,7 +823,7 @@ pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
     if let Some((SteelVal::CustomStruct(s), fields)) = args.split_first_mut() {
         let mut fields = fields.iter_mut();
 
-        let struct_fields = s.type_descriptor.fields();
+        let struct_fields = s.descriptor().fields();
 
         let struct_fields_list = struct_fields
             .list()
@@ -562,25 +833,29 @@ pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
         // we'll have to use some heap allocations
         let mut fields_to_update = smallvec::SmallVec::<[(usize, &mut SteelVal); 5]>::new();
 
-        match Gc::get_mut(s) {
+        match s.get_mut() {
             Some(s) => {
                 populate_fields_offsets(fields, struct_fields_list, &mut fields_to_update)?;
 
                 for (idx, value) in fields_to_update {
-                    core::mem::swap(&mut s.fields[idx], value);
+                    core::mem::swap(&mut s[idx], value);
                 }
 
                 Ok(core::mem::replace(&mut args[0], SteelVal::Void))
             }
 
             None => {
-                let mut s = s.unwrap();
+                let mut copy = s.deep_clone();
                 populate_fields_offsets(fields, struct_fields_list, &mut fields_to_update)?;
-                for (idx, value) in fields_to_update {
-                    core::mem::swap(&mut s.fields[idx], value);
+
+                // Freshly allocated, so nothing else can be holding it
+                if let Some(slots) = copy.get_mut() {
+                    for (idx, value) in fields_to_update {
+                        core::mem::swap(&mut slots[idx], value);
+                    }
                 }
 
-                Ok(SteelVal::CustomStruct(Gc::new(s)))
+                Ok(SteelVal::CustomStruct(copy))
             }
         }
     } else {
@@ -659,7 +934,7 @@ pub fn make_struct_singleton(name: &str) -> (SteelVal, StructTypeDescriptor) {
 
     let instance = UserDefinedStruct::new(descriptor, &[]);
 
-    (SteelVal::CustomStruct(Gc::new(instance)), descriptor)
+    (SteelVal::CustomStruct(StructRef::new(instance)), descriptor)
 }
 
 // TODO: Insider this in the VTable entry so that
@@ -1670,9 +1945,9 @@ impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for core::result::Result<T, 
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::CustomStruct(s) = val {
             if s.is_ok() {
-                Ok(Ok(T::from_steelval(s.fields.first().unwrap())?))
+                Ok(Ok(T::from_steelval(s.fields().first().unwrap())?))
             } else if s.is_err() {
-                Ok(Err(E::from_steelval(s.fields.first().unwrap())?))
+                Ok(Err(E::from_steelval(s.fields().first().unwrap())?))
             } else {
                 stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {val:?}"))
             }

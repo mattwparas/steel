@@ -308,34 +308,31 @@ pub enum DecrementAction {
     Deallocate,
 }
 
-impl<T: ?Sized> RcBox<T> {
-    // TODO: Lift this to the Obj struct that eventually gets made
-    pub fn increment(&self) {
-        // let owner_tid = self.rcword.thread_id.load(Ordering::Relaxed);
-        let owner_tid = self.rcword.thread_id.get();
-        let my_tid = ThreadId::current_thread();
 
-        if owner_tid == Some(my_tid) {
-            self.fast_increment();
-        } else {
-            self.slow_increment();
-        }
+// The biased reference counting protocol lives on the word itself, so any
+// allocation that begins with one - RcBox, or a packed header - shares a
+// single implementation rather than keeping its own copy in step.
+impl RcWord {
+    /// The thread local portion of the count. A cheap, non destructive hint -
+    /// unlike `has_unique_ref`, which consumes the shared count when it wins.
+    pub fn biased_count(&self) -> u32 {
+        self.biased_counter.get()
     }
 
     pub fn fast_increment(&self) {
-        let counter = self.rcword.biased_counter.get();
+        let counter = self.biased_counter.get();
 
         if counter == u32::MAX {
             panic!("reference counter overflow");
         }
-        self.rcword.biased_counter.set(counter + 1);
+        self.biased_counter.set(counter + 1);
     }
 
     pub fn slow_increment(&self) {
         // loop {
         //     // TODO: Do some reading on the memory implications here
         //     // Do we have to read the whole thing together?
-        //     let old = self.rcword.shared.load(Ordering::Relaxed);
+        //     let old = self.shared.load(Ordering::Relaxed);
         //     let mut new = old;
         //     new.update_counter(|x| x + 1);
 
@@ -359,17 +356,16 @@ impl<T: ?Sized> RcBox<T> {
         //         Some(value.0)
         //     });
 
-        let mut old = self.rcword.shared.load(Ordering::Relaxed);
+        let mut old = self.shared.load(Ordering::Relaxed);
 
         loop {
             // TODO: Do some reading on the memory implications here
             // Do we have to read the whole thing together?
-            // let old = self.rcword.shared.load(Ordering::Relaxed);
+            // let old = self.shared.load(Ordering::Relaxed);
             let mut new = old;
             new.update_counter(|x| x + 1);
 
             match self
-                .rcword
                 .shared
                 .compare_exchange(old, new, Ordering::AcqRel, Ordering::Relaxed)
             {
@@ -381,30 +377,27 @@ impl<T: ?Sized> RcBox<T> {
         }
     }
 
-    pub fn decrement(&self) -> DecrementAction {
-        // let owner_tid = self.rcword.thread_id.load(Ordering::Relaxed);
-        let owner_tid = self.rcword.thread_id.get();
+    pub fn increment(&self) {
+        // let owner_tid = self.thread_id.load(Ordering::Relaxed);
+        let owner_tid = self.thread_id.get();
         let my_tid = ThreadId::current_thread();
 
         if owner_tid == Some(my_tid) {
-            self.fast_decrement()
+            self.fast_increment();
         } else {
-            self.slow_decrement()
+            self.slow_increment();
         }
     }
 
-    // TODO: @Matt
-    // Call this in the fast path for drop after the drop action is called.
     pub fn fast_decrement_drop_impl(&self) -> DecrementAction {
         let mut new;
 
-        let mut old = self.rcword.shared.load(Ordering::Relaxed);
+        let mut old = self.shared.load(Ordering::Relaxed);
 
         loop {
             new = old;
             new.set_merged(true);
             match self
-                .rcword
                 .shared
                 .compare_exchange(old, new, Ordering::AcqRel, Ordering::Relaxed)
             {
@@ -420,14 +413,14 @@ impl<T: ?Sized> RcBox<T> {
         if new.get_counter() == 0 {
             DecrementAction::Deallocate
         } else {
-            self.rcword.thread_id.set(None);
+            self.thread_id.set(None);
             DecrementAction::DoNothing
         }
     }
 
     pub fn fast_decrement(&self) -> DecrementAction {
-        self.rcword.biased_counter.update(|x| x - 1);
-        if self.rcword.biased_counter.get() > 0 {
+        self.biased_counter.update(|x| x - 1);
+        if self.biased_counter.get() > 0 {
             return DecrementAction::DoNothing;
         }
 
@@ -438,7 +431,7 @@ impl<T: ?Sized> RcBox<T> {
         // let mut old;
         // let mut new;
         // loop {
-        //     old = self.rcword.shared.load(Ordering::Relaxed);
+        //     old = self.shared.load(Ordering::Relaxed);
         //     new = old;
 
         //     new.update_counter(|x| x - 1);
@@ -457,7 +450,7 @@ impl<T: ?Sized> RcBox<T> {
         //     }
         // }
 
-        let mut old = self.rcword.shared.load(Ordering::Relaxed);
+        let mut old = self.shared.load(Ordering::Relaxed);
         let mut new;
         loop {
             new = old;
@@ -468,7 +461,6 @@ impl<T: ?Sized> RcBox<T> {
             }
 
             match self
-                .rcword
                 .shared
                 .compare_exchange(old, new, Ordering::AcqRel, Ordering::Relaxed)
             {
@@ -490,11 +482,27 @@ impl<T: ?Sized> RcBox<T> {
         }
     }
 
-    fn has_unique_ref(&self) -> bool {
-        let owner = self.rcword.thread_id.get();
+    pub fn decrement(&self) -> DecrementAction {
+        // let owner_tid = self.thread_id.load(Ordering::Relaxed);
+        let owner_tid = self.thread_id.get();
+        let my_tid = ThreadId::current_thread();
+
+        if owner_tid == Some(my_tid) {
+            self.fast_decrement()
+        } else {
+            self.slow_decrement()
+        }
+    }
+}
+
+impl RcWord {
+    /// Destructive: when this wins it consumes the shared count, so the
+    /// caller now holds the only reference.
+    pub fn has_unique_ref(&self) -> bool {
+        let owner = self.thread_id.get();
         match owner {
             None => {
-                let meta = &self.rcword;
+                let meta = self;
                 let mut new;
                 let mut old;
 
@@ -514,11 +522,11 @@ impl<T: ?Sized> RcBox<T> {
                 {
                     false
                 } else {
-                    // let owner = self.rcword.thread_id.get();
+                    // let owner = self.thread_id.get();
                     // match owner {
                     //     None => false,
                     //     Some(tid) if tid == ThreadId::current_thread() => {
-                    //         self.rcword.biased_counter.get() as i32 == 1
+                    //         self.biased_counter.get() as i32 == 1
                     //     }
                     //     Some(_) => false,
                     // }
@@ -527,9 +535,9 @@ impl<T: ?Sized> RcBox<T> {
                 }
             }
             Some(tid) if tid == ThreadId::current_thread() => {
-                let local_count = self.rcword.biased_counter.get();
+                let local_count = self.biased_counter.get();
                 if local_count == 1 {
-                    let meta = &self.rcword;
+                    let meta = self;
                     let old = meta.shared.load(Ordering::Relaxed);
                     std::sync::atomic::fence(Ordering::Acquire);
                     if old.get_counter() != 0 {
@@ -544,6 +552,43 @@ impl<T: ?Sized> RcBox<T> {
 
             Some(_) => false,
         }
+    }
+}
+
+impl<T: ?Sized> RcBox<T> {
+    // TODO: Lift this to the Obj struct that eventually gets made
+    pub fn increment(&self) {
+        self.rcword.increment()
+    }
+
+    pub fn fast_increment(&self) {
+        self.rcword.fast_increment()
+    }
+
+    pub fn slow_increment(&self) {
+        self.rcword.slow_increment()
+    }
+
+    pub fn decrement(&self) -> DecrementAction {
+        self.rcword.decrement()
+    }
+
+    // TODO: @Matt
+    // Call this in the fast path for drop after the drop action is called.
+    pub fn fast_decrement_drop_impl(&self) -> DecrementAction {
+        self.rcword.fast_decrement_drop_impl()
+    }
+
+    pub fn fast_decrement(&self) -> DecrementAction {
+        self.rcword.fast_decrement()
+    }
+
+    pub fn slow_decrement(&self) -> DecrementAction {
+        self.rcword.slow_decrement()
+    }
+
+    fn has_unique_ref(&self) -> bool {
+        self.rcword.has_unique_ref()
     }
 }
 
@@ -654,6 +699,27 @@ impl QueueHandle {
         if !QUEUE.map.contains_key(&Some(key)) {
             QUEUE.map.insert(Some(key), Vec::new());
         }
+    }
+
+    /// Hands an owned merge handle to its owning thread's queue.
+    ///
+    /// Split out from `enqueue` so that allocations other than `BiasedRc` - a
+    /// `PackedRc`, say - can take the same path. The queue already stores these
+    /// type erased, so only the entry point needed widening.
+    pub fn enqueue_merge<M: BiasedMerge + 'static>(key: Option<ThreadId>, value: M) {
+        let wrapper = || Wrapper(Box::new(ManuallyDrop::new(unsafe {
+            core::ptr::read(&value as *const M)
+        })));
+
+        if let Some(mut q) = QUEUE.map.get_mut(&key) {
+            q.push(wrapper());
+        } else if let Some(mut q) = QUEUE.unregistered.get_mut(&key) {
+            q.push(wrapper());
+        } else {
+            QUEUE.unregistered.insert(key, vec![wrapper()]);
+        }
+
+        core::mem::forget(value);
     }
 
     pub fn enqueue<T: ?Sized + 'static>(value: &BiasedRc<T>) {
@@ -2017,3 +2083,531 @@ fn make_mut_test() {
 //     drop(word);
 // }
 
+
+
+/// How a [`PackedRc`] tears its elements down when the last reference goes.
+///
+/// The default drops each element where it sits. An owner that cannot afford to
+/// drop recursively - a deeply nested value that would blow the stack - supplies
+/// its own handler and moves the elements into a work list instead. im-lists
+/// takes the same approach with its list drop handler.
+pub trait PackedDropHandler<T> {
+    /// Must drop or move out every element exactly once. The block is released
+    /// by the caller afterwards.
+    ///
+    /// # Safety
+    ///
+    /// The elements are live and owned on entry, and must not be read after.
+    unsafe fn drop_elements(elements: *mut T, len: usize);
+}
+
+/// Drops each element in place.
+pub struct DefaultPackedDrop;
+
+impl<T> PackedDropHandler<T> for DefaultPackedDrop {
+    #[inline]
+    unsafe fn drop_elements(elements: *mut T, len: usize) {
+        for i in 0..len {
+            unsafe { core::ptr::drop_in_place(elements.add(i)) };
+        }
+    }
+}
+
+/// A thin, reference counted allocation holding a header and an inline slice.
+///
+/// `BiasedRc<[T]>` is a fat pointer, so it cannot be stored anywhere a value has
+/// to stay pointer sized. This keeps the element count in the allocation instead
+/// and hands back a one word handle. The elements sit directly after the header,
+/// so reading one is a single load off the pointer rather than a hop through a
+/// separately allocated buffer, and a value plus its elements is one allocation.
+///
+/// `H` is free space in the header for whatever the owner wants to keep beside
+/// the count - a type descriptor, for instance.
+pub struct PackedRc<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static = DefaultPackedDrop> {
+    ptr: NonNull<PackedHeader<H>>,
+    phantom: PhantomData<(H, T, D)>,
+}
+
+/// The header of a [`PackedRc`] allocation.
+///
+/// `rcword` must stay first: the biased protocol addresses it at offset zero,
+/// and code that inlines the counter decrement (the JIT does) relies on it.
+#[repr(C)]
+pub struct PackedHeader<H> {
+    pub rcword: RcWord,
+    pub len: u32,
+    pub header: H,
+}
+
+impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D> {
+    /// Where the header payload sits, relative to the pointer.
+    ///
+    /// Public because code that addresses the allocation directly - the JIT
+    /// reads the header and the elements without a call - needs both offsets.
+    #[inline]
+    pub const fn header_offset() -> usize {
+        core::mem::offset_of!(PackedHeader<H>, header)
+    }
+
+    /// Where the elements start, relative to the header pointer.
+    #[inline]
+    pub const fn data_offset() -> usize {
+        let align = core::mem::align_of::<T>();
+        let size = core::mem::size_of::<PackedHeader<H>>();
+
+        // Round the header up to the element alignment
+        (size + align - 1) & !(align - 1)
+    }
+
+    fn layout(len: usize) -> Layout {
+        let size = Self::data_offset() + len * core::mem::size_of::<T>();
+        let align = if core::mem::align_of::<PackedHeader<H>>() > core::mem::align_of::<T>() {
+            core::mem::align_of::<PackedHeader<H>>()
+        } else {
+            core::mem::align_of::<T>()
+        };
+
+        Layout::from_size_align(size, align).expect("packed allocation layout overflowed")
+    }
+
+    /// Allocates a header and the elements the iterator yields, in one block.
+    pub fn new(header: H, values: impl ExactSizeIterator<Item = T>) -> Self {
+        let len = values.len();
+        assert!(len <= u32::MAX as usize, "packed allocation is too long");
+
+        let layout = Self::layout(len);
+
+        // Safety: the layout is non zero - the header alone occupies space - and
+        // the allocation is fully initialized below before anything reads it.
+        unsafe {
+            let raw = std::alloc::alloc(layout) as *mut PackedHeader<H>;
+            let Some(ptr) = NonNull::new(raw) else {
+                std::alloc::handle_alloc_error(layout)
+            };
+
+            ptr.as_ptr().write(PackedHeader {
+                rcword: RcWord::new(),
+                len: len as u32,
+                header,
+            });
+
+            let data = (ptr.as_ptr() as *mut u8).add(Self::data_offset()) as *mut T;
+
+            let mut written = 0;
+            for value in values {
+                data.add(written).write(value);
+                written += 1;
+            }
+
+            debug_assert_eq!(written, len, "iterator yielded a different count than len");
+
+            Self {
+                ptr,
+                phantom: PhantomData,
+            }
+        }
+    }
+
+    #[inline]
+    pub fn meta(&self) -> &RcWord {
+        // Safety: the pointer is live for as long as this handle is
+        unsafe { &self.ptr.as_ref().rcword }
+    }
+
+    #[inline]
+    pub fn header(&self) -> &H {
+        unsafe { &self.ptr.as_ref().header }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        unsafe { self.ptr.as_ref().len as usize }
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[inline]
+    pub fn as_ptr(&self) -> *const T {
+        unsafe { (self.ptr.as_ptr() as *const u8).add(Self::data_offset()) as *const T }
+    }
+
+    #[inline]
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { core::slice::from_raw_parts(self.as_ptr(), self.len()) }
+    }
+
+    /// The raw pointer the handle carries. Thin, so it fits in a pointer sized slot.
+    #[inline]
+    pub fn as_raw(&self) -> *const PackedHeader<H> {
+        self.ptr.as_ptr()
+    }
+
+    /// The elements, read back from a raw header pointer.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must have come from [`Self::as_raw`] on a handle that is still live.
+    #[inline]
+    pub unsafe fn slice_from_raw<'a>(ptr: *const PackedHeader<H>) -> &'a [T] {
+        let len = unsafe { (*ptr).len as usize };
+        let data = unsafe { (ptr as *const u8).add(Self::data_offset()) as *const T };
+
+        unsafe { core::slice::from_raw_parts(data, len) }
+    }
+
+    #[inline]
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        core::ptr::eq(self.ptr.as_ptr(), other.ptr.as_ptr())
+    }
+
+    /// A mutable view of the elements, if this is the only live reference.
+    ///
+    /// Mirrors `Gc::get_mut`: callers that need to modify a shared value clone
+    /// it instead. The uniqueness check is destructive - winning it consumes the
+    /// shared count - so a `Some` result means this handle now owns the block
+    /// outright.
+    #[inline]
+    pub fn get_mut(&mut self) -> Option<&mut [T]> {
+        if self.meta().has_unique_ref() {
+            let len = self.len();
+            let data = unsafe { (self.ptr.as_ptr() as *mut u8).add(Self::data_offset()) as *mut T };
+
+            Some(unsafe { core::slice::from_raw_parts_mut(data, len) })
+        } else {
+            None
+        }
+    }
+
+    /// A fresh allocation with the same header and elements.
+    ///
+    /// This is a deep copy of the block itself - the elements are cloned - as
+    /// opposed to `Clone`, which shares it.
+    pub fn deep_clone(&self) -> Self
+    where
+        H: Clone,
+        T: Clone,
+    {
+        Self::new(self.header().clone(), self.as_slice().iter().cloned())
+    }
+
+    /// Applies the outcome of a decrement: nothing, hand off to the owning
+    /// thread, or tear down.
+    #[inline]
+    fn apply(&mut self, action: DecrementAction) {
+        match action {
+            DecrementAction::DoNothing => {}
+            DecrementAction::Queue => {
+                let key = self.meta().thread_id.get();
+                let handoff = Self {
+                    ptr: self.ptr,
+                    phantom: PhantomData,
+                };
+                QueueHandle::enqueue_merge(key, handoff);
+            }
+            DecrementAction::Deallocate => unsafe { self.drop_contents_and_dealloc() },
+        }
+    }
+
+    /// Finishes a decrement whose counter was already lowered elsewhere - the
+    /// JIT lowers it inline and calls back in here.
+    pub fn fast_decrement_post_ref_count_dec(&mut self) {
+        let action = self.meta().fast_decrement_drop_impl();
+        self.apply(action);
+    }
+
+    pub fn raw_slow_increment(&mut self) {
+        self.meta().slow_increment();
+    }
+
+    pub fn raw_slow_decrement(&mut self) {
+        let action = self.meta().slow_decrement();
+        self.apply(action);
+    }
+
+    /// Drops the header and every element, then releases the block.
+    ///
+    /// # Safety
+    ///
+    /// The caller must hold the last reference.
+    unsafe fn drop_contents_and_dealloc(&mut self) {
+        let len = self.len();
+
+        let data = (self.ptr.as_ptr() as *mut u8).add(Self::data_offset()) as *mut T;
+
+        D::drop_elements(data, len);
+
+        core::ptr::drop_in_place(core::ptr::addr_of_mut!((*self.ptr.as_ptr()).header));
+
+        std::alloc::dealloc(self.ptr.as_ptr() as *mut u8, Self::layout(len));
+    }
+}
+
+impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> Clone for PackedRc<H, T, D> {
+    #[inline]
+    fn clone(&self) -> Self {
+        self.meta().increment();
+
+        Self {
+            ptr: self.ptr,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> Drop for PackedRc<H, T, D> {
+    #[inline]
+    fn drop(&mut self) {
+        let action = self.meta().decrement();
+        self.apply(action);
+    }
+}
+
+impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> BiasedMerge for PackedRc<H, T, D> {
+    fn merge(self) {
+        let mut this = ManuallyDrop::new(self);
+
+        match this.meta().fast_decrement_drop_impl() {
+            DecrementAction::Deallocate => unsafe { this.drop_contents_and_dealloc() },
+            _ => {}
+        }
+    }
+
+    fn meta_outer(&self) -> &RcWord {
+        self.meta()
+    }
+
+    unsafe fn drop_contents_and_maybe_box_outer(&mut self) {
+        unsafe { self.drop_contents_and_dealloc() }
+    }
+}
+
+unsafe impl<H: Send + Sync + 'static, T: Send + Sync + 'static, D: PackedDropHandler<T> + 'static> Send for PackedRc<H, T, D> {}
+unsafe impl<H: Send + Sync + 'static, T: Send + Sync + 'static, D: PackedDropHandler<T> + 'static> Sync for PackedRc<H, T, D> {}
+
+#[cfg(test)]
+mod packed_rc_tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    #[derive(Debug, PartialEq, Clone)]
+    struct Desc(u32);
+
+    fn packed(desc: u32, values: &[u64]) -> PackedRc<Desc, u64> {
+        PackedRc::new(Desc(desc), values.iter().copied())
+    }
+
+    #[test]
+    fn handle_is_pointer_sized() {
+        // The whole point: a fat BiasedRc<[T]> would not fit where a value has
+        // to stay pointer sized.
+        assert_eq!(
+            core::mem::size_of::<PackedRc<Desc, u64>>(),
+            core::mem::size_of::<*const u8>()
+        );
+        assert_eq!(core::mem::size_of::<BiasedRc<[u64]>>(), 16);
+    }
+
+    #[test]
+    fn rcword_sits_at_offset_zero() {
+        // Code that inlines the counter decrement addresses the word directly
+        assert_eq!(core::mem::offset_of!(PackedHeader<Desc>, rcword), 0);
+    }
+
+    #[test]
+    fn header_and_elements_round_trip() {
+        let p = packed(7, &[10, 20, 30, 40]);
+        assert_eq!(p.header(), &Desc(7));
+        assert_eq!(p.len(), 4);
+        assert_eq!(p.as_slice(), &[10, 20, 30, 40]);
+    }
+
+    #[test]
+    fn empty_is_allowed() {
+        let p = packed(1, &[]);
+        assert_eq!(p.len(), 0);
+        assert!(p.is_empty());
+        assert_eq!(p.as_slice(), &[] as &[u64]);
+    }
+
+    #[test]
+    fn elements_are_one_load_after_the_header() {
+        let p = packed(3, &[5, 6]);
+        let base = p.as_raw() as usize;
+        let first = p.as_ptr() as usize;
+        assert_eq!(first - base, PackedRc::<Desc, u64>::data_offset());
+        // and the elements are contiguous from there
+        assert_eq!(unsafe { *p.as_ptr().add(1) }, 6);
+    }
+
+    #[test]
+    fn clone_shares_the_allocation() {
+        let a = packed(9, &[1, 2, 3]);
+        let b = a.clone();
+        assert!(a.ptr_eq(&b));
+        assert_eq!(b.as_slice(), &[1, 2, 3]);
+        drop(a);
+        // still readable through the surviving handle
+        assert_eq!(b.as_slice(), &[1, 2, 3]);
+        assert_eq!(b.header(), &Desc(9));
+    }
+
+    // Counts its own drops so we can prove every element is dropped exactly once
+    #[derive(Clone)]
+    struct Tracked(Rc<Cell<usize>>);
+    impl Drop for Tracked {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    #[test]
+    fn every_element_is_dropped_exactly_once() {
+        let counter = Rc::new(Cell::new(0));
+
+        {
+            let values: Vec<Tracked> = (0..5).map(|_| Tracked(counter.clone())).collect();
+            let p: PackedRc<Desc, Tracked> = PackedRc::new(Desc(0), values.into_iter());
+            assert_eq!(p.len(), 5);
+            assert_eq!(counter.get(), 0, "nothing dropped while live");
+        }
+
+        assert_eq!(counter.get(), 5, "each element dropped once");
+    }
+
+    #[test]
+    fn clones_do_not_drop_early() {
+        let counter = Rc::new(Cell::new(0));
+
+        let values: Vec<Tracked> = (0..3).map(|_| Tracked(counter.clone())).collect();
+        let a: PackedRc<Desc, Tracked> = PackedRc::new(Desc(0), values.into_iter());
+        let b = a.clone();
+
+        drop(a);
+        assert_eq!(counter.get(), 0, "still held by the clone");
+
+        drop(b);
+        assert_eq!(counter.get(), 3);
+    }
+
+    // The header owns its contents too
+    struct TrackedHeader(Rc<Cell<usize>>);
+    impl Drop for TrackedHeader {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 100);
+        }
+    }
+
+    #[test]
+    fn the_header_is_dropped_too() {
+        let counter = Rc::new(Cell::new(0));
+        {
+            let _p: PackedRc<TrackedHeader, u64> =
+                PackedRc::new(TrackedHeader(counter.clone()), [1u64, 2].into_iter());
+        }
+        assert_eq!(counter.get(), 100);
+    }
+
+    #[test]
+    fn large_element_counts_are_contiguous() {
+        let values: Vec<u64> = (0..1000).collect();
+        let p: PackedRc<Desc, u64> = PackedRc::new(Desc(42), values.iter().copied());
+        assert_eq!(p.len(), 1000);
+        assert_eq!(p.as_slice(), values.as_slice());
+        assert_eq!(p.header(), &Desc(42));
+    }
+
+    #[test]
+    fn dropped_on_another_thread_is_handed_back() {
+        // A handle released by a thread that does not own it takes the queue
+        // path rather than freeing, which is what enqueue_merge exists for.
+        let p = packed(11, &[1, 2, 3]);
+        let kept = p.clone();
+
+        std::thread::spawn(move || {
+            assert_eq!(p.as_slice(), &[1, 2, 3]);
+            drop(p);
+        })
+        .join()
+        .unwrap();
+
+        // The owning thread's copy is untouched
+        assert_eq!(kept.as_slice(), &[1, 2, 3]);
+        assert_eq!(kept.header(), &Desc(11));
+    }
+
+    // A handler that moves the elements out instead of dropping them in place,
+    // which is what the iterative drop path needs.
+    struct Collect;
+    thread_local! {
+        static COLLECTED: Cell<usize> = const { Cell::new(0) };
+    }
+    impl PackedDropHandler<Tracked> for Collect {
+        unsafe fn drop_elements(elements: *mut Tracked, len: usize) {
+            let mut taken = Vec::with_capacity(len);
+            for i in 0..len {
+                taken.push(unsafe { core::ptr::read(elements.add(i)) });
+            }
+            COLLECTED.with(|c| c.set(c.get() + taken.len()));
+            // taken drops here, exactly once each
+        }
+    }
+
+    #[test]
+    fn a_custom_drop_handler_receives_the_elements() {
+        let counter = Rc::new(Cell::new(0));
+        COLLECTED.with(|c| c.set(0));
+
+        {
+            let values: Vec<Tracked> = (0..4).map(|_| Tracked(counter.clone())).collect();
+            let _p: PackedRc<Desc, Tracked, Collect> = PackedRc::new(Desc(1), values.into_iter());
+        }
+
+        assert_eq!(COLLECTED.with(|c| c.get()), 4, "handler saw every element");
+        assert_eq!(counter.get(), 4, "and each was dropped exactly once");
+    }
+
+    #[test]
+    fn get_mut_when_unique_and_not_when_shared() {
+        let mut a = packed(1, &[1, 2, 3]);
+
+        {
+            let slice = a.get_mut().expect("unique handle should be mutable");
+            slice[1] = 99;
+        }
+        assert_eq!(a.as_slice(), &[1, 99, 3]);
+
+        let b = a.clone();
+        assert!(a.get_mut().is_none(), "shared handle must not hand out &mut");
+        drop(b);
+    }
+
+    #[test]
+    fn deep_clone_is_a_separate_block() {
+        let a = packed(5, &[1, 2, 3]);
+        let mut b = a.deep_clone();
+
+        assert!(!a.ptr_eq(&b), "deep clone allocates its own block");
+        assert_eq!(b.as_slice(), a.as_slice());
+        assert_eq!(b.header(), a.header());
+
+        b.get_mut().unwrap()[0] = 42;
+        assert_eq!(b.as_slice(), &[42, 2, 3]);
+        assert_eq!(a.as_slice(), &[1, 2, 3], "original is untouched");
+    }
+
+    #[test]
+    fn deep_clone_drops_both_copies_exactly_once() {
+        let counter = Rc::new(Cell::new(0));
+        {
+            let values: Vec<Tracked> = (0..3).map(|_| Tracked(counter.clone())).collect();
+            let a: PackedRc<Desc, Tracked> = PackedRc::new(Desc(0), values.into_iter());
+            let _b = a.deep_clone();
+            assert_eq!(counter.get(), 0);
+        }
+        assert_eq!(counter.get(), 6, "three elements in each of two blocks");
+    }
+}

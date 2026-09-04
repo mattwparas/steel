@@ -970,12 +970,12 @@ pub fn empty_channel_objectp(value: &SteelVal) -> bool {
 
     #[cfg(feature = "sync")]
     {
-        struct_.type_descriptor == EMPTY_CHANNEL_OBJECT.1
+        struct_.descriptor() == EMPTY_CHANNEL_OBJECT.1
     }
 
     #[cfg(not(feature = "sync"))]
     {
-        EMPTY_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+        EMPTY_CHANNEL_OBJECT.with(|eof| struct_.descriptor() == eof.1)
     }
 }
 
@@ -1002,12 +1002,12 @@ pub fn disconnected_channel_objectp(value: &SteelVal) -> bool {
 
     #[cfg(feature = "sync")]
     {
-        struct_.type_descriptor == DISCONNECTED_CHANNEL_OBJECT.1
+        struct_.descriptor() == DISCONNECTED_CHANNEL_OBJECT.1
     }
 
     #[cfg(not(feature = "sync"))]
     {
-        DISCONNECTED_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+        DISCONNECTED_CHANNEL_OBJECT.with(|eof| struct_.descriptor() == eof.1)
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::compiler::compiler::Compiler;
+use crate::values::structs::StructRef;
 use crate::compiler::modules::fully_qualified_to_relative;
 use crate::compiler::passes::VisitorMutRefUnit;
 use crate::core::instructions::u24;
@@ -4780,7 +4781,7 @@ impl<'a> VmCore<'a> {
 
     // @Matt
     // TODO: This should handle tail calls as well!
-    fn call_custom_struct(&mut self, s: &UserDefinedStruct, payload_size: usize) -> Result<()> {
+    fn call_custom_struct(&mut self, s: &StructRef, payload_size: usize) -> Result<()> {
         if let Some(procedure) = s.maybe_proc() {
             if let SteelVal::HeapAllocated(h) = procedure {
                 self.handle_global_function_call(h.get(), payload_size)
@@ -5173,7 +5174,7 @@ impl<'a> VmCore<'a> {
             }
             CustomStruct(s) => {
                 let this = &mut *self;
-                let s: &UserDefinedStruct = &s;
+                let s: &StructRef = &s;
                 if let Some(procedure) = s.maybe_proc() {
                     if let SteelVal::HeapAllocated(h) = procedure {
                         this.handle_global_function_call_no_stack(h.get(), payload_size)

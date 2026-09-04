@@ -1,4 +1,5 @@
 use core::sync::atomic::{AtomicBool, Ordering};
+use crate::values::structs::StructRef;
 use core::cell::RefCell;
 use std::collections::HashSet;
 
@@ -411,8 +412,8 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     // TODO: Revisit this
     fn visit_reference_value(&mut self, _reference: Gc<OpaqueReference<'static>>) -> Self::Output {}
 
-    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
-        for field in steel_struct.fields.iter() {
+    fn visit_steel_struct(&mut self, steel_struct: StructRef) -> Self::Output {
+        for field in steel_struct.fields().iter() {
             self.push_back(field.clone());
         }
     }
@@ -653,7 +654,7 @@ impl WillExecutor {
                     SteelVal::Custom(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::HashMapV(steel_hash_map) => Gc::strong_count(&steel_hash_map.0) == 1,
                     SteelVal::HashSetV(steel_hash_set) => Gc::strong_count(&steel_hash_set.0) == 1,
-                    SteelVal::CustomStruct(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::CustomStruct(gc) => gc.strong_count() == 1,
                     SteelVal::PortV(steel_port) => Gc::strong_count(&steel_port.port) == 1,
                     SteelVal::IterV(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::ReducerV(gc) => Gc::strong_count(gc) == 1,
@@ -1812,7 +1813,7 @@ impl Heap {
         globals: &'a [SteelVal],
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
-        out: &mut steel_vec::Vec<SteelVal>,
+        out: &mut Vec<SteelVal>,
     ) {
         self.value_collection(
             values.iter().cloned(),
@@ -2779,8 +2780,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     // TODO: Revisit this
     fn visit_reference_value(&mut self, _reference: Gc<OpaqueReference<'static>>) -> Self::Output {}
 
-    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
-        for field in steel_struct.fields.iter() {
+    fn visit_steel_struct(&mut self, steel_struct: StructRef) -> Self::Output {
+        for field in steel_struct.fields().iter() {
             self.push_back(field.clone());
         }
     }
@@ -3017,8 +3018,8 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         }
     }
 
-    fn visit_steel_struct(&mut self, steel_struct: &UserDefinedStruct) -> Self::Output {
-        for field in steel_struct.fields.iter() {
+    fn visit_steel_struct(&mut self, fields: &[SteelVal]) -> Self::Output {
+        for field in fields.iter() {
             self.push_back(field);
         }
     }

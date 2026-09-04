@@ -593,12 +593,12 @@ pub fn eof_objectp(value: &SteelVal) -> bool {
 
     #[cfg(feature = "sync")]
     {
-        struct_.type_descriptor == EOF_OBJECT.1
+        struct_.descriptor() == EOF_OBJECT.1
     }
 
     #[cfg(not(feature = "sync"))]
     {
-        EOF_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+        EOF_OBJECT.with(|eof| struct_.descriptor() == eof.1)
     }
 }
 
@@ -630,12 +630,12 @@ pub fn would_block_objectp(value: &SteelVal) -> bool {
 
     #[cfg(feature = "sync")]
     {
-        struct_.type_descriptor == WOULD_BLOCK_OBJECT.1
+        struct_.descriptor() == WOULD_BLOCK_OBJECT.1
     }
 
     #[cfg(not(feature = "sync"))]
     {
-        WOULD_BLOCK_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+        WOULD_BLOCK_OBJECT.with(|eof| struct_.descriptor() == eof.1)
     }
 }
 

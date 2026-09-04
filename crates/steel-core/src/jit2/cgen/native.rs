@@ -4,6 +4,7 @@ use crate::values::{
     structs::{StructConstructorRefSpec, StructFunctionType, UserDefinedStruct},
 };
 
+use crate::values::structs::StructStorage;
 use super::*;
 
 // Byte offset from the pointer a HeapRef holds to the steel_vec::Vec itself
@@ -2092,8 +2093,7 @@ fn inline_struct_getter(
         types::I64,
         MemFlagsData::trusted(),
         struct_ref_ptr,
-        (steel_rc::BiasedRc::<UserDefinedStruct>::data_offset()
-            + offset_of!(UserDefinedStruct, type_descriptor)) as i32,
+        StructStorage::header_offset() as i32,
     );
 
     let struct_matches =
@@ -2125,23 +2125,13 @@ fn fast_path_struct_matches(
     struct_ref_ptr: Value,
     ctx: &mut FunctionTranslator<'_>,
 ) -> Value {
-    // UserDefinedStruct stores a steel_vec::Vec<SteelVal> directly, so read the
-    // raw element pointer from the nested Vec layout rather than using the old
-    // shared-vector offsets.
-    let vector_ptr = ctx.builder.ins().load(
-        types::I64,
-        MemFlagsData::trusted(),
-        struct_ref_ptr,
-        (steel_rc::BiasedRc::<UserDefinedStruct>::data_offset()
-            + offset_of!(UserDefinedStruct, fields)
-            + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
-    );
-
+    // The fields sit inline right after the header, so the element address is a
+    // constant displacement off the struct pointer - no separate buffer to load.
     let size: i64 = std::mem::size_of::<SteelVal>() as _;
 
-    let offset = (i as i64 * size);
+    let offset = StructStorage::data_offset() as i64 + (i as i64 * size);
 
-    let slot_ptr = ctx.builder.ins().iadd_imm_s(vector_ptr, offset);
+    let slot_ptr = ctx.builder.ins().iadd_imm_s(struct_ref_ptr, offset);
 
     let local_value = ctx
         .builder

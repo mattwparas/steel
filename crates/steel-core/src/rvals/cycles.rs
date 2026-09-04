@@ -275,7 +275,7 @@ impl CycleDetector {
                             {
                                 write!(f, "({}", guard.name())?;
 
-                                for i in guard.fields.iter() {
+                                for i in guard.fields().iter() {
                                     write!(f, " ")?;
                                     self.format_with_cycles(i, f, FormatType::Normal)?;
                                 }
@@ -297,7 +297,7 @@ impl CycleDetector {
                         {
                             write!(f, "({}", guard.name())?;
 
-                            for i in guard.fields.iter() {
+                            for i in guard.fields().iter() {
                                 write!(f, " ")?;
                                 self.format_with_cycles(i, f, FormatType::Normal)?;
                             }
@@ -651,12 +651,12 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         }
     }
 
-    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
+    fn visit_steel_struct(&mut self, steel_struct: StructRef) -> Self::Output {
         if !self.add(
             (steel_struct.as_ptr() as usize, 0),
             &SteelVal::CustomStruct(steel_struct.clone()),
         ) {
-            for value in steel_struct.fields.iter() {
+            for value in steel_struct.fields().iter() {
                 self.push_back(value.clone())
             }
         }
@@ -743,6 +743,33 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     }
 }
 
+/// Feeds a struct's fields into the shared drop work list.
+///
+/// Returns Err when the list is unavailable, in which case the caller drops
+/// them itself.
+#[cfg(feature = "without-drop-protection")]
+pub fn drop_fields_iteratively(
+    _fields: impl Iterator<Item = SteelVal>,
+) -> core::result::Result<(), ()> {
+    Err(())
+}
+
+#[cfg(not(feature = "without-drop-protection"))]
+pub fn drop_fields_iteratively(
+    fields: impl Iterator<Item = SteelVal>,
+) -> core::result::Result<(), ()> {
+    drop_impls::DROP_BUFFER
+        .try_with(|drop_buffer| {
+            if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
+                drop_buffer.extend(fields);
+
+                IterativeDropHandler::bfs(&mut drop_buffer);
+            }
+        })
+        .map_err(|_| ())
+}
+
+
 #[cfg(not(feature = "without-drop-protection"))]
 pub(crate) mod drop_impls {
     // use crate::values::recycler::{Recyclable, Recycle};
@@ -801,7 +828,7 @@ pub(crate) mod drop_impls {
 
     impl Drop for UserDefinedStruct {
         fn drop(&mut self) {
-            if self.fields.is_empty() {
+            if self.fields().is_empty() {
                 return;
             }
 
@@ -813,7 +840,7 @@ pub(crate) mod drop_impls {
                         // }
 
                         drop_buffer.extend(
-                            self.fields.drain(..),
+                            self.take_fields(),
                             // core::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
                         );
 
@@ -824,7 +851,7 @@ pub(crate) mod drop_impls {
                 })
                 .is_err()
             {
-                let mut buffer = self.fields.drain(..).collect();
+                let mut buffer = self.take_fields().collect();
 
                 IterativeDropHandler::bfs(&mut buffer);
             }
@@ -982,9 +1009,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) {
-        if let Ok(mut inner) = steel_struct.try_unwrap() {
-            for value in inner.fields.drain(..) {
+    fn visit_steel_struct(&mut self, steel_struct: StructRef) {
+        let mut steel_struct = steel_struct;
+        if let Some(fields) = steel_struct.take_fields_if_unique() {
+            for value in fields {
                 self.push_back(value);
             }
         }
@@ -1353,9 +1381,10 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
         }
     }
 
-    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) {
-        if let Ok(mut inner) = steel_struct.try_unwrap() {
-            for value in inner.fields.drain(..) {
+    fn visit_steel_struct(&mut self, steel_struct: StructRef) {
+        let mut steel_struct = steel_struct;
+        if let Some(fields) = steel_struct.take_fields_if_unique() {
+            for value in fields {
                 self.push_back(value);
             }
         }
@@ -1649,7 +1678,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output;
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
-    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output;
+    fn visit_steel_struct(&mut self, steel_struct: StructRef) -> Self::Output;
     fn visit_port(&mut self, port: SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
@@ -1753,7 +1782,7 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
     fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output;
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
-    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output;
+    fn visit_steel_struct(&mut self, steel_struct: StructRef) -> Self::Output;
     fn visit_port(&mut self, port: SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
@@ -1858,7 +1887,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_custom_type(&mut self, custom_type: &'a GcMut<Box<dyn CustomType>>) -> Self::Output;
     fn visit_hash_map(&mut self, hashmap: &'a SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: &'a SteelHashSet) -> Self::Output;
-    fn visit_steel_struct(&mut self, steel_struct: &'a Gc<UserDefinedStruct>) -> Self::Output;
+    fn visit_steel_struct(&mut self, steel_struct: &'a StructRef) -> Self::Output;
     fn visit_port(&mut self, port: &'a SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: &'a Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: &'a Gc<Reducer>) -> Self::Output;
@@ -1902,7 +1931,9 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
                 SteelValPointer::Custom(p) => self.visit_custom_type(unsafe { &(*p) }),
                 SteelValPointer::HashMapV(p) => self.visit_hash_map(unsafe { &(*p) }),
                 SteelValPointer::HashSetV(p) => self.visit_hash_set(unsafe { &(*p) }),
-                SteelValPointer::CustomStruct(p) => self.visit_steel_struct(unsafe { &(*p) }),
+                SteelValPointer::CustomStruct(p) => {
+                    self.visit_steel_struct(unsafe { StructRef::fields_from_ptr(p) })
+                }
                 SteelValPointer::IterV(p) => self.visit_transducer(unsafe { &(*p) }),
                 SteelValPointer::ReducerV(p) => self.visit_reducer(unsafe { &(*p) }),
                 SteelValPointer::StreamV(p) => self.visit_stream(unsafe { &(*p) }),
@@ -1927,7 +1958,7 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
     fn visit_custom_type(&mut self, custom_type: &'a RwLock<Box<dyn CustomType>>) -> Self::Output;
     fn visit_hash_map(&mut self, hashmap: &'a crate::HashMap<SteelVal, SteelVal>) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: &'a crate::HashSet<SteelVal>) -> Self::Output;
-    fn visit_steel_struct(&mut self, steel_struct: &'a UserDefinedStruct) -> Self::Output;
+    fn visit_steel_struct(&mut self, fields: &'a [SteelVal]) -> Self::Output;
     fn visit_transducer(&mut self, transducer: &'a Transducer) -> Self::Output;
     fn visit_reducer(&mut self, reducer: &'a Reducer) -> Self::Output;
     fn visit_stream(&mut self, stream: &'a LazyStream) -> Self::Output;
@@ -2388,7 +2419,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                 }
                 (CustomStruct(l), CustomStruct(r)) => {
                     // If these are the same object, just continue
-                    if Gc::ptr_eq(&l, &r) {
+                    if l.ptr_eq(&r) {
                         continue;
                     }
 
@@ -2397,7 +2428,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     {
                         // Check the top level equality indicators to make sure
                         // that these two types are the same
-                        if !(l.type_descriptor == r.type_descriptor && l.name() == r.name()) {
+                        if !(l.descriptor() == r.descriptor() && l.name() == r.name()) {
                             return false;
                         }
 
@@ -2612,9 +2643,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
         // TODO: See comment above
     }
 
-    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
+    fn visit_steel_struct(&mut self, steel_struct: StructRef) -> Self::Output {
         // if self.should_visit(steel_struct.as_ptr() as usize) {
-        for value in steel_struct.fields.iter() {
+        for value in steel_struct.fields().iter() {
             self.push_back(value.clone());
         }
         // }

@@ -33,6 +33,7 @@ pub mod git;
 
 pub mod hashes;
 
+use crate::values::structs::StructRef;
 use crate::gc::{Gc, GcMut};
 use crate::rvals::{FromSteelVal, IntoSteelVal, SteelByteVector};
 use crate::rvals::{
@@ -519,7 +520,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelByteVector {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a UserDefinedStruct {
+impl<'a> PrimitiveAsRef<'a> for &'a StructRef {
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         Self::maybe_primitive_as_ref(val).ok_or_else(
             crate::throw!(ConversionError => format!("Cannot convert value to struct: {}", val)),
