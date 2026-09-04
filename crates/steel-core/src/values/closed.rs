@@ -473,6 +473,24 @@ const HEAP_GROW_OCCUPANCY: f64 = 0.5;
 const GC_GROW_FACTOR: usize = 4;
 const RESET_LIMIT: usize = 9;
 
+// Allocations to leave available per unit of marking work. Lower means a bigger
+// heap and rarer collections; higher means less memory and more of them.
+fn gc_work_ratio() -> usize {
+    static R: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
+        std::env::var("STEEL_GC_WORK_RATIO").ok().and_then(|x| x.parse().ok()).unwrap_or(4)
+    });
+    *R
+}
+
+// A ceiling on that headroom. Slots are not free - each one is a live allocation
+// - so the heap cannot simply be sized to the graph it traces.
+fn gc_max_headroom() -> usize {
+    static H: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
+        std::env::var("STEEL_GC_MAX_HEADROOM").ok().and_then(|x| x.parse().ok()).unwrap_or(256 * 100 * 16)
+    });
+    *H
+}
+
 // TODO: Do these roots needs to be truly global?
 // Replace this with a lazy static
 thread_local! {
@@ -1278,14 +1296,20 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     }
 
     // Compact every once in a while
-    // Only resize when the collection didn't leave enough room behind. The
-    // headroom floor matters as much as the ratio - a mark walks the whole root
-    // set whatever the heap size, so a small live set still needs a big heap to
-    // keep collections rare
-    fn resize_after_collection(&mut self) {
-        if self.alloc_count >= Self::EXTEND_CHUNK
-            && self.percent_full() <= HEAP_GROW_OCCUPANCY
-        {
+    //
+    // How much room to leave is decided by the work the mark just did, not by
+    // how full this list happens to be. A mark walks every reachable value, and
+    // most of those live outside this list - a list of boxes says nothing about
+    // the size of the graph hanging off them. Sizing on occupancy alone lets a
+    // large live graph get re-traced every time a small list fills, which is
+    // quadratic in the graph size. Leaving free slots in proportion to the
+    // traversal keeps the amortized cost per allocation bounded instead.
+    fn resize_after_collection(&mut self, marking_work: usize) {
+        let target_free = (marking_work / gc_work_ratio())
+            .max(Self::EXTEND_CHUNK)
+            .min(gc_max_headroom());
+
+        if self.alloc_count >= target_free && self.percent_full() <= HEAP_GROW_OCCUPANCY {
             return;
         }
 
@@ -1539,14 +1563,20 @@ impl<T: HeapAble + 'static> FreeList<T> {
     }
 
     // Compact every once in a while
-    // Only resize when the collection didn't leave enough room behind. The
-    // headroom floor matters as much as the ratio - a mark walks the whole root
-    // set whatever the heap size, so a small live set still needs a big heap to
-    // keep collections rare
-    fn resize_after_collection(&mut self) {
-        if self.alloc_count >= Self::EXTEND_CHUNK
-            && self.percent_full() <= HEAP_GROW_OCCUPANCY
-        {
+    //
+    // How much room to leave is decided by the work the mark just did, not by
+    // how full this list happens to be. A mark walks every reachable value, and
+    // most of those live outside this list - a list of boxes says nothing about
+    // the size of the graph hanging off them. Sizing on occupancy alone lets a
+    // large live graph get re-traced every time a small list fills, which is
+    // quadratic in the graph size. Leaving free slots in proportion to the
+    // traversal keeps the amortized cost per allocation bounded instead.
+    fn resize_after_collection(&mut self, marking_work: usize) {
+        let target_free = (marking_work / gc_work_ratio())
+            .max(Self::EXTEND_CHUNK)
+            .min(gc_max_headroom());
+
+        if self.alloc_count >= target_free && self.percent_full() <= HEAP_GROW_OCCUPANCY {
             return;
         }
 
@@ -1882,7 +1912,7 @@ impl Heap {
                     .len()
                     .saturating_sub(stats.vector_reached_count);
 
-                self.memory_free_list.resize_after_collection();
+                self.memory_free_list.resize_after_collection(stats.object_count);
 
                 // synchronizer.resume_threads();
 
@@ -1977,7 +2007,7 @@ impl Heap {
                     .len()
                     .saturating_sub(stats.memory_reached_count);
 
-                self.vector_free_list.resize_after_collection();
+                self.vector_free_list.resize_after_collection(stats.object_count);
 
                 self.vector_free_list.should_run_weak = true;
 
@@ -2042,7 +2072,7 @@ impl Heap {
                     .len()
                     .saturating_sub(stats.memory_reached_count);
 
-                self.vector_free_list.resize_after_collection();
+                self.vector_free_list.resize_after_collection(stats.object_count);
 
                 self.vector_free_list.should_run_weak = true;
 
