@@ -475,20 +475,33 @@ const RESET_LIMIT: usize = 9;
 
 // Allocations to leave available per unit of marking work. Lower means a bigger
 // heap and rarer collections; higher means less memory and more of them.
+//
+// Swept at full size over 4 / 8 / 16: 16 was as good or better everywhere,
+// earley included, which says the win comes from the ceiling and from adapting
+// at all rather than from a large multiplier.
 fn gc_work_ratio() -> usize {
-    static R: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
-        std::env::var("STEEL_GC_WORK_RATIO").ok().and_then(|x| x.parse().ok()).unwrap_or(4)
+    static RATIO: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
+        std::env::var("STEEL_GC_WORK_RATIO")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(16)
     });
-    *R
+
+    *RATIO
 }
 
 // A ceiling on that headroom. Slots are not free - each one is a live allocation
-// - so the heap cannot simply be sized to the graph it traces.
+// - so the heap cannot simply be sized to the graph it traces. Without this the
+// rule reaches for gigabytes on a large graph and ends up slower than it started.
 fn gc_max_headroom() -> usize {
-    static H: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
-        std::env::var("STEEL_GC_MAX_HEADROOM").ok().and_then(|x| x.parse().ok()).unwrap_or(256 * 100 * 16)
+    static HEADROOM: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
+        std::env::var("STEEL_GC_MAX_HEADROOM")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(256 * 100 * 16)
     });
-    *H
+
+    *HEADROOM
 }
 
 // TODO: Do these roots needs to be truly global?
