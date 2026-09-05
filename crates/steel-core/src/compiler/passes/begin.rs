@@ -452,6 +452,144 @@ fn apply_ident(func: ExprKind) -> ExprKind {
     ExprKind::List(List::new(thin_vec![func]))
 }
 
+/// Collects references to a set of names, ignoring quoted data.
+///
+/// The distinction matters: a struct's generated definitions include
+/// `(make-struct-type (quote node) ...)`, and the quoted symbol `node` is an
+/// identifier atom that also happens to be the name of a *later* definition in
+/// the same group. Counting it as a reference made every struct look
+/// self-referential.
+struct ForwardReferences {
+    names: smallvec::SmallVec<[InternedString; 32]>,
+    found: bool,
+}
+
+impl ForwardReferences {
+    fn new() -> Self {
+        ForwardReferences {
+            names: smallvec::SmallVec::default(),
+            found: false,
+        }
+    }
+
+    fn insert(&mut self, name: InternedString) {
+        self.names.push(name);
+    }
+}
+
+impl VisitorMutUnit for ForwardReferences {
+    fn visit_atom(&mut self, a: &Atom) {
+        if let TokenType::Identifier(ident) = &a.syn.ty {
+            self.found = self.found || self.names.contains(ident);
+        }
+    }
+
+    // Quoted data is inert - it names nothing.
+    fn visit_quote(&mut self, _quote: &Quote) {}
+}
+
+/// `STEEL_SEQUENTIAL_DEFINES=0` falls back to encoding every internal define
+/// group as letrec, the way this pass always used to.
+fn sequential_defines_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_SEQUENTIAL_DEFINES").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// True when no expression in the group refers to a name bound at or after its
+/// own position - that is, there is no forward reference and no self
+/// recursion, so the group is `let*` shaped rather than genuinely `letrec`
+/// shaped.
+///
+/// This matters far more than it looks. The letrec encoding below binds every
+/// name to a dummy, thunks each initializer so it can run once all the names
+/// exist, and assigns with `set!`. Both halves of that are visible later:
+/// `replace_mutable_captured_variables_with_boxes` sees a variable that is
+/// *assigned* (the `set!`) and *captured* (by the initializer thunk), so it
+/// boxes it - and every subsequent read becomes an `#%unbox`. A function
+/// defined among the group is enough to drag the whole group onto that path,
+/// so
+///
+/// ```text
+/// (define (seq n)
+///   (define a (+ n 1))
+///   (define b (* a 2))
+///   (define (get) b)      ; merely existing boxed a and b
+///   (+ (get) a))
+/// ```
+///
+/// paid two box allocations and an unbox per read for bindings that are
+/// assigned exactly once, in order, and never mutated again. Closure lifting
+/// does not rescue this: it runs after boxing, so it lifts an already-boxed
+/// function that takes boxes and unboxes them internally.
+///
+/// A `#:mutable` struct nested in a function generates nine such bindings, all
+/// of them acyclic, which is why nested structs were so much slower than top
+/// level ones.
+///
+/// Conservative in the safe direction: identifiers are collected without
+/// tracking shadowing, so a name that merely *looks* like a forward reference
+/// keeps the whole group on the letrec path.
+fn defines_are_sequential(exprs: &[ExprKind]) -> bool {
+    let names: Vec<Option<InternedString>> = exprs
+        .iter()
+        .map(|expr| match expr {
+            ExprKind::Define(d) => d.name.atom_identifier().copied(),
+            _ => None,
+        })
+        .collect();
+
+    // A define we cannot name is one we cannot reason about.
+    if exprs
+        .iter()
+        .zip(names.iter())
+        .any(|(e, n)| matches!(e, ExprKind::Define(_)) && n.is_none())
+    {
+        return false;
+    }
+
+    for (index, expr) in exprs.iter().enumerate() {
+        // Everything bound at or after this point: referring to any of them is
+        // either self recursion or a forward reference.
+        let mut later = ForwardReferences::new();
+        for name in names[index..].iter().flatten() {
+            later.insert(*name);
+        }
+
+        match expr {
+            ExprKind::Define(d) => later.visit(&d.body),
+            other => later.visit(other),
+        }
+
+        if later.found {
+            if std::env::var_os("STEEL_SEQ_DEFINES_LOG").is_some() {
+                let what = match expr {
+                    ExprKind::Define(d) => format!("define {}", d.name),
+                    other => format!("expr {}", other),
+                };
+                let n: Vec<String> = names[index..]
+                    .iter()
+                    .flatten()
+                    .map(|x| x.resolve().to_string())
+                    .collect();
+                eprintln!(
+                    "seq-defines: bail at #{} ({}) refers into [{}]",
+                    index,
+                    what.chars().take(90).collect::<String>(),
+                    n.join(" ")
+                );
+            }
+            return false;
+        }
+    }
+
+    true
+}
+
 fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
     // let defines = collect_defines_from_current_scope(&exprs);
 
@@ -462,9 +600,13 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
         return ExprKind::Begin(begin);
     }
 
+    // A group with no function defines was always safe to lower this way. A
+    // group that merely *contains* one still is, as long as nothing refers
+    // forward - see `defines_are_sequential`.
     if !expression_types
         .iter()
         .any(|x| matches!(x, ExpressionType::DefineFunction(_)))
+        || (sequential_defines_enabled() && defines_are_sequential(&begin.exprs))
     {
         return begin
             .exprs
