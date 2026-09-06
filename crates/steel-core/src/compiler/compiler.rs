@@ -51,6 +51,7 @@ use crate::stop;
 
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
+
 use super::{
     constants::SerializableConstantMap,
     modules::{steel_search_dirs, CompiledModule, ModuleManager, SourceModuleResolver},
@@ -1456,6 +1457,15 @@ impl Compiler {
                 // analysis.fresh_from_exprs(&expanded_statements);
                 semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
             }
+        }
+
+        // Copy propagation (`RemoveLetsBoundToOtherLocalVars`) strips let
+        // bindings whose RHS was just another local, leaving `(let () body)`
+        // shells behind. Those are not free - each one still emits a
+        // BEGINSCOPE/LETENDSCOPE pair. `FlattenEmptyLets` was written for
+        // exactly this and had no callers.
+        if std::env::var("STEEL_FLATTEN_EMPTY_LETS").as_deref() != Ok("0") {
+            semantic.flatten_empty_lets();
         }
 
         // Inlining and closure lifting can make a variable captured and mutated

@@ -2068,11 +2068,183 @@ impl<'a> FunctionTranslator<'a> {
 
                 Some((res, InferredType::Any))
             }
+            // A `#:mutable` struct's accessors are generated as closures over a
+            // box - `(lambda (this) (#%unbox (getter-proto this 0)))` - so after
+            // the wrapper is inlined the call left behind is the *generic*
+            // two-argument prototype with a literal index, rather than the
+            // one-argument specialised prototype an immutable struct gets.
+            // Everything past pulling that index out is identical to the
+            // `GetterProtoVec` case above.
+            StructFunctionType::GetterProto
+                if getter_proto_inlining_enabled()
+                    && matches!(
+                    args,
+                    &[
+                        MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_),
+                        MaybeStackValue::Constant(ConstantValue::Int(_))
+                    ]
+                    ) =>
+            {
+                let index_operand = *self.shadow_stack.last().unwrap();
+                let i = match index_operand.into_constant_int(self) {
+                    Some(i) if i >= 0 => i as usize,
+                    _ => return None,
+                };
+
+                // Saved before the index operand is dropped: every slow arm has
+                // to re-enter the real two argument call.
+                let old_ip = self.ip;
+                let stack = self.shadow_stack.clone();
+
+                // The index is a compile time constant, so nothing is lost by
+                // never materialising it.
+                self.shadow_stack.pop();
+
+                let struct_arg_index = self.shadow_stack.last().unwrap().into_index();
+                let struct_ref = self.read_from_vm_stack(struct_arg_index);
+
+                let maybe_inferred_type = self
+                    .properties
+                    .get(&ValueOrRegister::Register(struct_arg_index));
+
+                if let Some(Properties::InferredType(InferredType::Struct(desc))) =
+                    maybe_inferred_type
+                {
+                    if spec.descriptor == desc {
+                        let last_kind = self.shadow_stack.pop().unwrap();
+                        let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
+                        let res = fast_path_struct_matches(i, struct_ref_ptr, self);
+
+                        match last_kind {
+                            MaybeStackValue::MutRegister(r) => {
+                                let void = self.encode_void();
+                                self.write_to_vm_stack(r, void);
+
+                                self.properties.props.insert(
+                                    ValueOrRegister::Register(r),
+                                    vec![Properties::InferredType(InferredType::Void)],
+                                );
+                            }
+                            MaybeStackValue::Register(_) => {
+                                self.properties.add_property(
+                                    ValueOrRegister::Register(struct_arg_index),
+                                    Properties::InferredType(InferredType::Struct(spec.descriptor)),
+                                );
+                            }
+                            _ => unreachable!(),
+                        }
+
+                        return Some((res, InferredType::Any));
+                    }
+                }
+
+                let is_struct = self.is_type(struct_ref, SteelVal::STRUCT_TAG);
+                let typ = self.int;
+
+                // Take the operand out of its register up front so both arms
+                // start from the same stack.
+                if let Some(MaybeStackValue::MutRegister(p)) = self.shadow_stack.last().copied() {
+                    let (value, inferred_type) = self.mut_register_to_value(p);
+                    *self.shadow_stack.last_mut().unwrap() = MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type,
+                        spilled: false,
+                    });
+                }
+
+                let inner_stack = stack.clone();
+
+                let res = self.converging_if(
+                    is_struct,
+                    |ctx| {
+                        inline_struct_getter_proto(
+                            &spec,
+                            function_index,
+                            i,
+                            struct_ref,
+                            typ,
+                            &inner_stack,
+                            old_ip,
+                            ctx,
+                        )
+                    },
+                    move |ctx| {
+                        ctx.ip = old_ip;
+                        ctx.shadow_stack = stack.clone();
+                        slow_path_struct_getter(GETTER_PROTO_ARITY, function_index, ctx)
+                    },
+                    typ,
+                );
+
+                Some((res, InferredType::Any))
+            }
             _ => {
                 return None;
             }
         }
     }
+}
+
+/// The generic struct getter prototype always takes `(struct, index)`.
+const GETTER_PROTO_ARITY: usize = 2;
+
+/// `STEEL_JIT_GETTER_PROTO=0` turns off inlining of the two argument struct
+/// getter prototype, for A/B measurement.
+fn getter_proto_inlining_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_GETTER_PROTO").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// `inline_struct_getter`, but for the two argument prototype: its slow arm has
+/// to re-enter a call whose index operand this pass already dropped, so it
+/// restores the saved operand stack rather than pushing back the one value it
+/// popped.
+#[allow(clippy::too_many_arguments)]
+fn inline_struct_getter_proto(
+    spec: &StructConstructorRefSpec,
+    function_index: usize,
+    i: usize,
+    struct_ref: Value,
+    typ: Type,
+    saved_stack: &[MaybeStackValue],
+    old_ip: usize,
+    ctx: &mut FunctionTranslator,
+) -> Value {
+    let descriptor = spec.descriptor.key();
+
+    let struct_ref_ptr = ctx.unbox_value_to_pointer(struct_ref);
+
+    let descriptor_on_stack = ctx.builder.ins().load(
+        types::I64,
+        MemFlagsData::trusted(),
+        struct_ref_ptr,
+        StructStorage::header_offset() as i32,
+    );
+
+    let struct_matches =
+        ctx.builder
+            .ins()
+            .icmp_imm_s(IntCC::Equal, descriptor_on_stack, descriptor as i64);
+
+    ctx.shadow_stack.pop();
+
+    let saved = saved_stack.to_vec();
+
+    ctx.converging_if(
+        struct_matches,
+        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx),
+        move |ctx| {
+            ctx.ip = old_ip;
+            ctx.shadow_stack = saved.clone();
+            slow_path_struct_getter(GETTER_PROTO_ARITY, function_index, ctx)
+        },
+        typ,
+    )
 }
 
 fn inline_struct_getter(
