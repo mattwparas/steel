@@ -21,6 +21,10 @@ mod conversions;
 pub mod parser;
 pub mod steel_vm;
 
+// Temporary diagnostic hook: lets the binary dump the tail-call deopt census.
+#[doc(hidden)]
+pub use crate::steel_vm::vm::jit::{deopt_census_enabled, dump_deopt_census};
+
 #[cfg(test)]
 mod tests;
 pub(crate) mod values;

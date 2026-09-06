@@ -17,6 +17,10 @@ static GLOBAL: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let clap_args = SteelCliArgs::parse();
-    steel_interpreter::run(clap_args)?;
+    let result = steel_interpreter::run(clap_args);
+    if steel::deopt_census_enabled() {
+        steel::dump_deopt_census();
+    }
+    result?;
     Ok(())
 }

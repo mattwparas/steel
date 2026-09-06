@@ -46,6 +46,19 @@ const INLINE_STRUCT_FUNCTION_CALLS: bool = true;
 const INLINE_STRUCT_FUNCTION_TAIL_CALLS: bool = true;
 
 const USE_INLINE_CALL_FUNC: bool = true;
+/// Inline tail calls to primitives the JIT already knows how to emit, instead
+/// of routing them through `call_global_function_tail_deopt_*`.
+/// `STEEL_JIT_PRIM_TAIL=0` disables, for A/B measurement.
+fn inline_primitive_tail_calls_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_PRIM_TAIL").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
 const USE_INLINE_GLOBAL_TAIL_CALL: bool = true;
 
 const USE_INLINE_LOCAL_TAIL_CALL: bool = true;
@@ -3273,6 +3286,27 @@ impl FunctionTranslator<'_> {
 
                         return false;
                     } else {
+                        // A tail call to a primitive the JIT can emit directly
+                        // does not need the generic deopt helper at all. This
+                        // is the single hottest path in the suite: mutable
+                        // struct fields are boxes, so `(#%unbox (getter ...))`
+                        // and `#%set-box!` land here, and on `destruc` alone
+                        // that is 1.6 billion trips through a helper that
+                        // re-looks-up the global and re-matches on its kind -
+                        // both of which are already known right here.
+                        if let Some(value) = self.inline_primitive_tail_call(func.as_ref(), arity) {
+                            self.spill_cloned_stack();
+                            let real_res = self.inline_handle_pop(value);
+                            self.builder.ins().return_(&[real_res]);
+
+                            let cold_block = self.builder.create_block();
+                            self.builder.switch_to_block(cold_block);
+
+                            self.depth -= 1;
+                            self.ip = self.instructions.len() + 1;
+                            return false;
+                        }
+
                         if !matches!(func, Some(SteelVal::FuncV(_))) {
                             self.potentially_could_deopt = true;
                         }
@@ -5977,6 +6011,72 @@ impl FunctionTranslator<'_> {
         );
 
         self.push(res, InferredType::Any)
+    }
+
+    /// Emit a tail call to a primitive inline, when we recognise it.
+    ///
+    /// The callee is compared by function pointer rather than by name: the
+    /// global's value is already in hand at the call site, and an identity
+    /// check on the `FuncV` is both cheaper and harder to get wrong than
+    /// resolving a symbol.
+    ///
+    /// Only primitives with an existing inline lowering are handled; anything
+    /// else returns None and takes the generic path. `#%unbox` becomes a real
+    /// inline sequence; `#%set-box!` still calls a native helper, but a direct
+    /// one rather than the deopt trampoline, which skips the global lookup,
+    /// the `SteelVal` kind match and the argument marshalling.
+    fn inline_primitive_tail_call(
+        &mut self,
+        func: Option<&SteelVal>,
+        arity: usize,
+    ) -> Option<Value> {
+        if !inline_primitive_tail_calls_enabled() {
+            return None;
+        }
+
+        let SteelVal::FuncV(f) = func? else {
+            return None;
+        };
+        let target = *f as usize;
+
+        if target == crate::steel_vm::primitives::steel_unbox_mutable as usize && arity == 1 {
+            let last = self.shadow_stack.last().copied()?;
+            self.shadow_mark_local_type_from_var(last, InferredType::Box);
+
+            let (value, owned) = match last {
+                MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i) => {
+                    self.shadow_stack_pop();
+                    (self.read_from_vm_stack(i), false)
+                }
+                MaybeStackValue::Value(StackValue { value, .. }) => {
+                    self.shadow_stack_pop();
+                    (value, true)
+                }
+                // A constant is never a box; let the generic path raise.
+                MaybeStackValue::Constant(_) => return None,
+            };
+
+            return Some(self.unbox_value_checked_register(value, owned));
+        }
+
+        if target == crate::steel_vm::primitives::steel_set_box_mutable as usize && arity == 2 {
+            // Operand order is (box, new-value); the box is the one whose
+            // ownership we may have to release, matching the read path.
+            let owned = matches!(
+                self.shadow_stack.get(self.shadow_stack.len().checked_sub(2)?),
+                Some(MaybeStackValue::Value(_))
+            );
+
+            let args = self
+                .split_off(arity)
+                .into_iter()
+                .map(|x| x.0)
+                .collect::<Vec<_>>();
+
+            return Some(self.set_box_value_checked_register(args[0], args[1], owned));
+        }
+
+        None
     }
 
     fn slow_path_deopt_tail_call(&mut self, function_index: usize, arity: usize) {

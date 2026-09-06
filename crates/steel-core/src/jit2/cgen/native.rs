@@ -1577,6 +1577,102 @@ impl<'a> FunctionTranslator<'a> {
         )
     }
 
+    /// Inline `#%set-box!`: store into the box and yield the value that was
+    /// there, which is what `HeapRef::set_and_return` does.
+    ///
+    /// This mirrors `unbox_value_checked_register` exactly - same tag check,
+    /// same Arc strong-count probe to decide whether the spinlock is needed -
+    /// but it is *cheaper*, because the underlying operation is a
+    /// `mem::replace`: the old value is moved out and the new one moved in, so
+    /// unlike the read path there is no `clone_value` on either side. The
+    /// caller receives ownership of the old value, exactly as the out-of-line
+    /// handler returned it.
+    pub(super) fn set_box_value_checked_register(
+        &mut self,
+        boxed: Value,
+        new_value: Value,
+        should_drop: bool,
+    ) -> Value {
+        let is_box = self.is_type(boxed, SteelVal::HEAP_REF_VALUE_TAG);
+        let typ = self.int;
+
+        self.converging_if(
+            is_box,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(boxed);
+
+                let strong_count =
+                    ctx.builder
+                        .ins()
+                        .atomic_load(types::I64, MemFlagsData::trusted(), ptr);
+
+                let is_one = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong_count, 1);
+                const OFFSET: i64 = 16;
+
+                let old = ctx.converging_if(
+                    is_one,
+                    |ctx| {
+                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, OFFSET);
+                        let data_offset = SpinLock::<SteelVal>::data_offset() as i32;
+
+                        let old = ctx.builder.ins().load(
+                            types::I128,
+                            MemFlagsData::trusted(),
+                            lock_pointer,
+                            data_offset,
+                        );
+                        ctx.builder.ins().store(
+                            MemFlagsData::trusted(),
+                            new_value,
+                            lock_pointer,
+                            data_offset,
+                        );
+
+                        old
+                    },
+                    |ctx| {
+                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, OFFSET);
+                        let data_offset = SpinLock::<SteelVal>::data_offset() as i32;
+
+                        ctx.with_spinlock(lock_pointer, |ctx| {
+                            let old = ctx.builder.ins().load(
+                                types::I128,
+                                MemFlagsData::trusted(),
+                                lock_pointer,
+                                data_offset,
+                            );
+                            ctx.builder.ins().store(
+                                MemFlagsData::trusted(),
+                                new_value,
+                                lock_pointer,
+                                data_offset,
+                            );
+
+                            old
+                        })
+                    },
+                    typ,
+                );
+
+                if should_drop {
+                    ctx.drop_heap_box(ptr);
+                }
+
+                old
+            },
+            |ctx| {
+                // Not a box: let the existing handler raise, with the operands
+                // in the shape it expects.
+                ctx.clone_value(boxed);
+                let res = ctx
+                    .call_function_returns_value_args("set-box-handler", &[boxed, new_value]);
+                ctx.check_deopt();
+                res
+            },
+            typ,
+        )
+    }
+
     // TODO: Replace the spin lock with an actual mutex implementation,
     // eventually.
     pub(super) fn with_spinlock<O>(
