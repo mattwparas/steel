@@ -5670,8 +5670,16 @@ impl FunctionTranslator<'_> {
                         // a register, only the two values, so the old fallback
                         // here was leaving the bounds-checked fast path unused.
                         _ if generic_inline_enabled() => {
-                            let index = self.shadow_pop().0;
-                            let vector_value = self.shadow_pop().0;
+                            // `shadow_pop` asserts the operand is not spilled;
+                            // in this general arm either operand may well be,
+                            // and that is fine - `shadow_stack_pop` already
+                            // accounts for the stack slot, and the SSA value
+                            // stays valid to read. Go through `into_value` the
+                            // way the other inline arms do.
+                            let index = self.shadow_stack_pop().unwrap().into_value(self);
+                            let index = index.as_steelval(self);
+                            let vector_value = self.shadow_stack_pop().unwrap().into_value(self);
+                            let vector_value = vector_value.as_steelval(self);
 
                             let fallback = move |ctx: &mut Self| {
                                 let res = ctx.call_function_returns_value_args(
