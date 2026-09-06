@@ -5802,6 +5802,10 @@ fn call_global_function_deopt(
     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
     debug_assert!(ctx.is_native);
 
+    if deopt_census_enabled() {
+        record_deopt(&func, lookup_index, ctx);
+    }
+
     // println!("---> Calling function: {} - {:?}", func, args);
 
     // Deopt -> Meaning, check the return value if we're done - so we just

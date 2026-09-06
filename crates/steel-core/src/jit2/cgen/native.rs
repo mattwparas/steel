@@ -2044,6 +2044,7 @@ impl<'a> FunctionTranslator<'a> {
     ) -> Option<(Value, InferredType)> {
         let args = self.shadow_stack.get(self.shadow_stack.len() - arity..)?;
 
+
         match spec.typ {
             // TODO: We need to include the arity checks properly! The constructor / spec should be able to include
             // it and then we can make this happen properly with avoiding the checks for the arity!
@@ -2274,6 +2275,60 @@ impl<'a> FunctionTranslator<'a> {
 
                 Some((res, InferredType::Any))
             }
+            // A struct predicate is a tag check and a descriptor compare - no
+            // field access, no allocation, and at the correct arity no error
+            // path at all. It was the single hottest deopt in the whole suite
+            // (`mpair?`, 1.25 billion calls on `destruc`) purely because this
+            // arm was a `todo!()`.
+            //
+            // Restricted to a borrowed register operand: the predicate does not
+            // retain its argument, so with a register there is no ownership to
+            // transfer and nothing to drop. A moved-out or owned operand would
+            // need that bookkeeping, and is rare enough not to be worth the
+            // risk here - it still takes the old path.
+            StructFunctionType::Predicate
+                if predicate_inlining_enabled()
+                    && matches!(args, &[MaybeStackValue::Register(_)]) =>
+            {
+                let operand_index = self.shadow_stack.last().unwrap().into_index();
+                let value = self.read_from_vm_stack(operand_index);
+                self.shadow_stack_pop();
+
+                let is_struct = self.is_type(value, SteelVal::STRUCT_TAG);
+                let typ = self.int;
+                let descriptor = spec.descriptor.key();
+
+                let res = self.converging_if(
+                    is_struct,
+                    |ctx| {
+                        let ptr = ctx.unbox_value_to_pointer(value);
+                        let on_heap = ctx.builder.ins().load(
+                            types::I64,
+                            MemFlagsData::trusted(),
+                            ptr,
+                            StructStorage::header_offset() as i32,
+                        );
+                        let matches = ctx.builder.ins().icmp_imm_s(
+                            IntCC::Equal,
+                            on_heap,
+                            descriptor as i64,
+                        );
+                        let widened = ctx.builder.ins().uextend(types::I64, matches);
+                        ctx.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, widened)
+                    },
+                    // Not a struct at all, so certainly not this one.
+                    |ctx| {
+                        let zero = ctx.builder.ins().iconst(types::I64, 0);
+                        ctx.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, zero)
+                    },
+                    typ,
+                );
+
+                self.ip += 1;
+
+                Some((res, InferredType::Bool))
+            }
+
             _ => {
                 return None;
             }
@@ -2286,6 +2341,17 @@ const GETTER_PROTO_ARITY: usize = 2;
 
 /// `STEEL_JIT_GETTER_PROTO=0` turns off inlining of the two argument struct
 /// getter prototype, for A/B measurement.
+/// `STEEL_JIT_PREDICATE=0` turns off inlining of struct predicates.
+fn predicate_inlining_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_PREDICATE").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
 fn getter_proto_inlining_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| {

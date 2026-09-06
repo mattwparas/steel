@@ -3360,6 +3360,7 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
 
+
                     // Okay, lets do a few things:
                     //
                     // We should attach some context for whether or not this is a closure.
@@ -3377,6 +3378,25 @@ impl FunctionTranslator<'_> {
                     // into the value, and then also leak the ref count here and embed it
                     // directly into the generated code, so that we can call the function
                     // without needing to look it up?
+                    // Struct constructors, predicates and getters are worth
+                    // recognising here for the same reason `call_global_impl`
+                    // does it: this opcode had no such check, so every one of
+                    // them went out through the generic deopt helper even
+                    // though the JIT can emit them directly. `mpair?` alone was
+                    // 1.24 billion of those on `destruc`.
+                    if INLINE_STRUCT_FUNCTION_CALLS {
+                        if let Some(spec) =
+                            self._globals.get(function_index).cloned().and_then(create_struct_spec)
+                        {
+                            if let Some((value, typ)) =
+                                self.inline_struct_call_no_drop(spec, arity, function_index)
+                            {
+                                self.push(value, typ);
+                                return true;
+                            }
+                        }
+                    }
+
                     let name = CallGlobalNoArityFunctionDefinitions::arity_to_name(arity);
 
                     let self_name = CallSelfNoArityFunctionDefinitions::arity_to_name(arity);
@@ -7042,6 +7062,7 @@ impl FunctionTranslator<'_> {
         let function_index = payload;
         self.ip += 1;
         let arity = self.instructions[self.ip].payload_size.to_usize();
+
 
         let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
 
