@@ -46,8 +46,8 @@ pub fn bytevector_module() -> BuiltInModule {
         .register_native_fn_definition(U64_BYTES_SET_DEFINITION);
 
     module
-        .register_native_fn_definition(S16_BYTES_REF_DEFINITION)
-        .register_native_fn_definition(S16_BYTES_SET_DEFINITION);
+        .register_native_fn_definition(S8_BYTES_REF_DEFINITION)
+        .register_native_fn_definition(S8_BYTES_SET_DEFINITION);
 
     module
         .register_native_fn_definition(S32_BYTES_REF_DEFINITION)
@@ -59,13 +59,11 @@ pub fn bytevector_module() -> BuiltInModule {
 
     module
         .register_native_fn_definition(F32_BYTES_REF_DEFINITION)
-        .register_native_fn_definition(F32_BYTES_SET_DEFINITION)
-        .register_native_fn_definition(F32_DOT_PRODUCT_DEFINITION);
+        .register_native_fn_definition(F32_BYTES_SET_DEFINITION);
 
     module
         .register_native_fn_definition(F64_BYTES_REF_DEFINITION)
-        .register_native_fn_definition(F64_BYTES_SET_DEFINITION)
-        .register_native_fn_definition(F64_DOT_PRODUCT_DEFINITION);
+        .register_native_fn_definition(F64_BYTES_SET_DEFINITION);
 
     module
 }
@@ -289,7 +287,7 @@ pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 pub fn bytes_set(value: &mut SteelByteVector, index: usize, byte: u8) -> Result<SteelVal> {
     let mut guard = value.vec.write();
 
-    if index > guard.len() {
+    if index >= guard.len() {
         stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
     }
 
@@ -436,557 +434,172 @@ pub fn bytes_to_string(
     Ok(s.to_string().into())
 }
 
-/// Reads a 16-bit unsigned integer from the bytevector at the given element
-/// index, interpreting the bytes using the platform's native byte order
-/// (endianness). The value occupies the 2 bytes starting at offset `index * 2`;
-/// if that range is out of bounds, this will error.
-///
-/// (bytevector-u16-ref vector index)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 2 0))
-/// (bytevector-u16-set! vec 0 65535)
-/// (bytevector-u16-ref vec 0) ;; => 65535
-/// ```
-#[function(name = "bytevector-u16-ref")]
-pub fn u16_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
-    let guard = value.vec.read();
-    let start = index * 2;
-    guard
-        .get(start..start + 2)
-        .ok_or_else(
-            throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
-        )
-        .map(|x| {
-            let int = u16::from_ne_bytes([x[0], x[1]]);
-            SteelVal::IntV(int as isize)
-        })
+// Generates a matched `bytevector-<ty>-ref` / `bytevector-<ty>-set!` pair for a
+// fixed width numeric type. The element width is taken from the rust type, so
+// the bounds check, the offset and the byte copy cannot drift apart; `$width`
+// is only what the docs say, and is asserted against the type at compile time.
+macro_rules! bytevector_accessor {
+    (
+        $ref_fn:ident => $ref_name:literal,
+        $set_fn:ident => $set_name:literal,
+        $ty:ty as $wrap:ident($cast:ty),
+        width = $width:literal,
+        kind = $kind:literal,
+        range = $range:literal,
+        examples = ($ref_example:literal, $set_example:literal) $(,)?
+    ) => {
+        #[doc = concat!("Reads ", $kind, " from the bytevector at the given element")]
+        #[doc = "index, interpreting the bytes using the platform's native byte order"]
+        #[doc = concat!("(endianness). The value occupies the ", stringify!($width), " bytes starting at offset")]
+        #[doc = concat!("`index * ", stringify!($width), "`; if that range is out of bounds, this will error.")]
+        #[doc = ""]
+        #[doc = concat!("(", $ref_name, " vector index)")]
+        #[doc = ""]
+        #[doc = "* vector : bytes?"]
+        #[doc = "* index : (and exact? int?)"]
+        #[doc = ""]
+        #[doc = "# Examples"]
+        #[doc = "```scheme"]
+        #[doc = concat!("(define vec (make-bytes ", stringify!($width), " 0))")]
+        #[doc = concat!("(", $set_name, " vec 0 ", $ref_example, ")")]
+        #[doc = concat!("(", $ref_name, " vec 0) ;; => ", $ref_example)]
+        #[doc = "```"]
+        #[function(name = $ref_name)]
+        pub fn $ref_fn(vector: &SteelByteVector, index: usize) -> Result<SteelVal> {
+            const WIDTH: usize = core::mem::size_of::<$ty>();
+            const _: () = assert!(WIDTH == $width);
+
+            let guard = vector.vec.read();
+            let start = index * WIDTH;
+
+            guard
+                .get(start..start + WIDTH)
+                .ok_or_else(
+                    throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
+                )
+                .map(|x| {
+                    let mut buf = [0u8; WIDTH];
+                    buf.copy_from_slice(x);
+                    SteelVal::$wrap(<$ty>::from_ne_bytes(buf) as $cast)
+                })
+        }
+
+        #[doc = concat!("Writes ", $kind, " into the bytevector at the given element")]
+        #[doc = "index, storing the bytes using the platform's native byte order (endianness)."]
+        #[doc = concat!("The value occupies the ", stringify!($width), " bytes starting at offset `index * ", stringify!($width), "`;")]
+        #[doc = "will error if the index is out of bounds."]
+        #[doc = ""]
+        #[doc = concat!("(", $set_name, " vector index value)")]
+        #[doc = ""]
+        #[doc = "* vector : bytes?"]
+        #[doc = "* index : (and exact? int?)"]
+        #[doc = concat!("* value : ", $range)]
+        #[doc = ""]
+        #[doc = "# Examples"]
+        #[doc = "```scheme"]
+        #[doc = concat!("(define vec (make-bytes ", stringify!($width), " 0))")]
+        #[doc = concat!("(", $set_name, " vec 0 ", $set_example, ")")]
+        #[doc = concat!("(", $ref_name, " vec 0) ;; => ", $set_example)]
+        #[doc = "```"]
+        #[function(name = $set_name)]
+        pub fn $set_fn(vector: &mut SteelByteVector, index: usize, value: $ty) -> Result<SteelVal> {
+            const WIDTH: usize = core::mem::size_of::<$ty>();
+
+            let mut guard = vector.vec.write();
+
+            // `index` counts elements and `guard.len()` counts bytes, so divide
+            // rather than multiplying out, which could overflow on a huge index.
+            if index >= guard.len() / WIDTH {
+                stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
+            }
+
+            let start = index * WIDTH;
+            guard[start..start + WIDTH].copy_from_slice(&value.to_ne_bytes());
+
+            Ok(SteelVal::Void)
+        }
+    };
 }
 
-/// Writes a 16-bit unsigned integer into the bytevector at the given element
-/// index, storing the bytes using the platform's native byte order (endianness).
-/// The value occupies the 2 bytes starting at offset `index * 2`; will error if
-/// the index is out of bounds.
-///
-/// (bytevector-u16-set! vector index value)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-/// * value : int? ;; 0 to 65535
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 2 0))
-/// (bytevector-u16-set! vec 0 4660)
-/// (bytevector-u16-ref vec 0) ;; => 4660
-/// ```
-#[function(name = "bytevector-u16-set!")]
-pub fn u16_bytes_set(value: &mut SteelByteVector, index: usize, int: u16) -> Result<SteelVal> {
-    let mut guard = value.vec.write();
+bytevector_accessor!(
+    u16_bytes_ref => "bytevector-u16-ref",
+    u16_bytes_set => "bytevector-u16-set!",
+    u16 as IntV(isize),
+    width = 2,
+    kind = "a 16-bit unsigned integer",
+    range = "int? ;; 0 to 65535",
+    examples = ("65535", "4660"),
+);
 
-    if index > guard.len() {
-        stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
-    }
+bytevector_accessor!(
+    u32_bytes_ref => "bytevector-u32-ref",
+    u32_bytes_set => "bytevector-u32-set!",
+    u32 as IntV(isize),
+    width = 4,
+    kind = "a 32-bit unsigned integer",
+    range = "int? ;; 0 to 4294967295",
+    examples = ("4294967295", "305419896"),
+);
 
-    let slice = index * 2;
+bytevector_accessor!(
+    u64_bytes_ref => "bytevector-u64-ref",
+    u64_bytes_set => "bytevector-u64-set!",
+    u64 as IntV(isize),
+    width = 8,
+    kind = "a 64-bit unsigned integer",
+    range = "int? ;; 0 to 9223372036854775807",
+    examples = ("1099511627776", "1099511627776"),
+);
 
-    let bytes = int.to_ne_bytes();
+bytevector_accessor!(
+    f32_bytes_ref => "bytevector-f32-ref",
+    f32_bytes_set => "bytevector-f32-set!",
+    f32 as NumV(f64),
+    width = 4,
+    kind = "a 32-bit floating point number",
+    range = "real?",
+    examples = ("1.5", "1.5"),
+);
 
-    guard[slice] = bytes[0];
-    guard[slice + 1] = bytes[1];
+bytevector_accessor!(
+    f64_bytes_ref => "bytevector-f64-ref",
+    f64_bytes_set => "bytevector-f64-set!",
+    f64 as NumV(f64),
+    width = 8,
+    kind = "a 64-bit floating point number",
+    range = "real?",
+    examples = ("1.5", "1.5"),
+);
 
-    Ok(SteelVal::Void)
-}
+bytevector_accessor!(
+    s16_bytes_ref => "bytevector-s16-ref",
+    s16_bytes_set => "bytevector-s16-set!",
+    i16 as IntV(isize),
+    width = 2,
+    kind = "a 16-bit signed (two's complement) integer",
+    range = "int? ;; -32768 to 32767",
+    examples = ("-1", "-1"),
+);
 
-/// Reads a 32-bit unsigned integer from the bytevector at the given element
-/// index, interpreting the bytes using the platform's native byte order
-/// (endianness). The value occupies the 4 bytes starting at offset `index * 4`;
-/// if that range is out of bounds, this will error.
-///
-/// (bytevector-u32-ref vector index)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 4 0))
-/// (bytevector-u32-set! vec 0 4294967295)
-/// (bytevector-u32-ref vec 0) ;; => 4294967295
-/// ```
-#[function(name = "bytevector-u32-ref")]
-pub fn u32_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
-    let guard = value.vec.read();
-    let start = index * 4;
-    guard
-        .get(start..start + 4)
-        .ok_or_else(
-            throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
-        )
-        .map(|x| {
-            let int = u32::from_ne_bytes([x[0], x[1], x[2], x[3]]);
-            SteelVal::IntV(int as isize)
-        })
-}
+bytevector_accessor!(
+    s32_bytes_ref => "bytevector-s32-ref",
+    s32_bytes_set => "bytevector-s32-set!",
+    i32 as IntV(isize),
+    width = 4,
+    kind = "a 32-bit signed (two's complement) integer",
+    range = "int? ;; -2147483648 to 2147483647",
+    examples = ("-1", "-1"),
+);
 
-/// Writes a 32-bit unsigned integer into the bytevector at the given element
-/// index, storing the bytes using the platform's native byte order (endianness).
-/// The value occupies the 4 bytes starting at offset `index * 4`; will error if
-/// the index is out of bounds.
-///
-/// (bytevector-u32-set! vector index value)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-/// * value : int? ;; 0 to 4294967295
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 4 0))
-/// (bytevector-u32-set! vec 0 305419896)
-/// (bytevector-u32-ref vec 0) ;; => 305419896
-/// ```
-#[function(name = "bytevector-u32-set!")]
-pub fn u32_bytes_set(value: &mut SteelByteVector, index: usize, int: u32) -> Result<SteelVal> {
-    let mut guard = value.vec.write();
-
-    if index > guard.len() {
-        stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
-    }
-
-    let slice = index * 4;
-
-    let bytes = int.to_ne_bytes();
-
-    guard[slice] = bytes[0];
-    guard[slice + 1] = bytes[1];
-    guard[slice + 2] = bytes[2];
-    guard[slice + 3] = bytes[3];
-
-    Ok(SteelVal::Void)
-}
-
-/// Reads a 64-bit unsigned integer from the bytevector at the given element
-/// index, interpreting the bytes using the platform's native byte order
-/// (endianness). The value occupies the 8 bytes starting at offset `index * 8`;
-/// if that range is out of bounds, this will error.
-///
-/// (bytevector-u64-ref vector index)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 8 0))
-/// (bytevector-u64-set! vec 0 1099511627776)
-/// (bytevector-u64-ref vec 0) ;; => 1099511627776
-/// ```
-#[function(name = "bytevector-u64-ref")]
-pub fn u64_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
-    let guard = value.vec.read();
-    let start = index * 8;
-    guard
-        .get(start..start + 8)
-        .ok_or_else(
-            throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
-        )
-        .map(|x| {
-            let int = u64::from_ne_bytes([x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]]);
-            SteelVal::IntV(int as isize)
-        })
-}
-
-/// Writes a 64-bit unsigned integer into the bytevector at the given element
-/// index, storing the bytes using the platform's native byte order (endianness).
-/// The value occupies the 8 bytes starting at offset `index * 8`; will error if
-/// the index is out of bounds.
-///
-/// (bytevector-u64-set! vector index value)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-/// * value : int? ;; 0 to 18446744073709551615
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 8 0))
-/// (bytevector-u64-set! vec 0 1099511627776)
-/// (bytevector-u64-ref vec 0) ;; => 1099511627776
-/// ```
-#[function(name = "bytevector-u64-set!")]
-pub fn u64_bytes_set(value: &mut SteelByteVector, index: usize, int: u64) -> Result<SteelVal> {
-    let mut guard = value.vec.write();
-
-    if index > guard.len() {
-        stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
-    }
-
-    let slice = index * 8;
-
-    let bytes = int.to_ne_bytes();
-
-    guard[slice] = bytes[0];
-    guard[slice + 1] = bytes[1];
-    guard[slice + 2] = bytes[2];
-    guard[slice + 3] = bytes[3];
-    guard[slice + 4] = bytes[4];
-    guard[slice + 5] = bytes[5];
-    guard[slice + 6] = bytes[6];
-    guard[slice + 7] = bytes[7];
-
-    Ok(SteelVal::Void)
-}
-
-/// Reads a 32-bit floating point number from the bytevector at the
-/// given element index, interpreting the bytes using the platform's native byte
-/// order (endianness). The value occupies the 4 bytes starting at offset
-/// `index * 4`; if that range is out of bounds, this will error.
-///
-/// (bytevector-f32-ref vector index)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 4 0))
-/// (bytevector-f32-set! vec 0 1.5)
-/// (bytevector-f32-ref vec 0) ;; => 1.5
-/// ```
-#[function(name = "bytevector-f32-ref")]
-pub fn f32_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
-    let guard = value.vec.read();
-    let start = index * 4;
-    guard
-        .get(start..start + 4)
-        .ok_or_else(
-            throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
-        )
-        .map(|x| {
-            let f = f32::from_ne_bytes([x[0], x[1], x[2], x[3]]);
-            SteelVal::NumV(f as f64)
-        })
-}
-
-/// Writes a 32-bit floating point number into the bytevector at the
-/// given element index, storing the bytes using the platform's native byte order
-/// (endianness). The value occupies the 4 bytes starting at offset `index * 4`;
-/// will error if the index is out of bounds.
-///
-/// (bytevector-f32-set! vector index value)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-/// * value : real?
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 4 0))
-/// (bytevector-f32-set! vec 0 1.5)
-/// (bytevector-f32-ref vec 0) ;; => 1.5
-/// ```
-#[function(name = "bytevector-f32-set!")]
-pub fn f32_bytes_set(value: &mut SteelByteVector, index: usize, f: f32) -> Result<SteelVal> {
-    let mut guard = value.vec.write();
-
-    if index > guard.len() {
-        stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
-    }
-
-    let slice = index * 4;
-
-    let bytes = f.to_ne_bytes();
-
-    guard[slice] = bytes[0];
-    guard[slice + 1] = bytes[1];
-    guard[slice + 2] = bytes[2];
-    guard[slice + 3] = bytes[3];
-
-    Ok(SteelVal::Void)
-}
-
-/// Reads a 64-bit floating point number from the bytevector at the
-/// given element index, interpreting the bytes using the platform's native byte
-/// order (endianness). The value occupies the 8 bytes starting at offset
-/// `index * 8`; if that range is out of bounds, this will error.
-///
-/// (bytevector-f64-ref vector index)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 8 0))
-/// (bytevector-f64-set! vec 0 1.5)
-/// (bytevector-f64-ref vec 0) ;; => 1.5
-/// ```
-#[function(name = "bytevector-f64-ref")]
-pub fn f64_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
-    let guard = value.vec.read();
-    let start = index * 8;
-    guard
-        .get(start..start + 8)
-        .ok_or_else(
-            throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
-        )
-        .map(|x| {
-            let f = f64::from_ne_bytes([x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]]);
-            SteelVal::NumV(f)
-        })
-}
-
-/// Writes a 64-bit floating point number into the bytevector at the
-/// given element index, storing the bytes using the platform's native byte order
-/// (endianness). The value occupies the 8 bytes starting at offset `index * 8`;
-/// will error if the index is out of bounds.
-///
-/// (bytevector-f64-set! vector index value)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-/// * value : real?
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 8 0))
-/// (bytevector-f64-set! vec 0 1.5)
-/// (bytevector-f64-ref vec 0) ;; => 1.5
-/// ```
-#[function(name = "bytevector-f64-set!")]
-pub fn f64_bytes_set(value: &mut SteelByteVector, index: usize, f: f64) -> Result<SteelVal> {
-    let mut guard = value.vec.write();
-
-    if index > guard.len() {
-        stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
-    }
-
-    let slice = index * 8;
-
-    let bytes = f.to_ne_bytes();
-
-    guard[slice] = bytes[0];
-    guard[slice + 1] = bytes[1];
-    guard[slice + 2] = bytes[2];
-    guard[slice + 3] = bytes[3];
-    guard[slice + 4] = bytes[4];
-    guard[slice + 5] = bytes[5];
-    guard[slice + 6] = bytes[6];
-    guard[slice + 7] = bytes[7];
-
-    Ok(SteelVal::Void)
-}
-
-/// Reads a 16-bit signed (two's complement) integer from the bytevector at the
-/// given element index, interpreting the bytes using the platform's native byte
-/// order (endianness). The value occupies the 2 bytes starting at offset
-/// `index * 2`; if that range is out of bounds, this will error.
-///
-/// (bytevector-s16-ref vector index)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 2 0))
-/// (bytevector-s16-set! vec 0 -1)
-/// (bytevector-s16-ref vec 0) ;; => -1
-/// ```
-#[function(name = "bytevector-s16-ref")]
-pub fn s16_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
-    let guard = value.vec.read();
-    let start = index * 2;
-    guard
-        .get(start..start + 2)
-        .ok_or_else(
-            throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
-        )
-        .map(|x| {
-            let int = i16::from_ne_bytes([x[0], x[1]]);
-            SteelVal::IntV(int as isize)
-        })
-}
-
-/// Writes a 16-bit signed integer into the bytevector at the
-/// given element index, storing the bytes using the platform's native byte order
-/// (endianness). The value occupies the 2 bytes starting at offset `index * 2`;
-/// will error if the index is out of bounds.
-///
-/// (bytevector-s16-set! vector index value)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-/// * value : int? ;; -32768 to 32767
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 2 0))
-/// (bytevector-s16-set! vec 0 -1)
-/// (bytevector-s16-ref vec 0) ;; => -1
-/// ```
-#[function(name = "bytevector-s16-set!")]
-pub fn s16_bytes_set(value: &mut SteelByteVector, index: usize, int: i16) -> Result<SteelVal> {
-    let mut guard = value.vec.write();
-
-    if index > guard.len() {
-        stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
-    }
-
-    let slice = index * 2;
-
-    let bytes = int.to_ne_bytes();
-
-    guard[slice] = bytes[0];
-    guard[slice + 1] = bytes[1];
-
-    Ok(SteelVal::Void)
-}
-
-/// Reads a 32-bit signed integer from the bytevector at the
-/// given element index, interpreting the bytes using the platform's native byte
-/// order (endianness). The value occupies the 4 bytes starting at offset
-/// `index * 4`; if that range is out of bounds, this will error.
-///
-/// (bytevector-s32-ref vector index)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 4 0))
-/// (bytevector-s32-set! vec 0 -1)
-/// (bytevector-s32-ref vec 0) ;; => -1
-/// ```
-#[function(name = "bytevector-s32-ref")]
-pub fn s32_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
-    let guard = value.vec.read();
-    let start = index * 4;
-    guard
-        .get(start..start + 4)
-        .ok_or_else(
-            throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
-        )
-        .map(|x| {
-            let int = i32::from_ne_bytes([x[0], x[1], x[2], x[3]]);
-            SteelVal::IntV(int as isize)
-        })
-}
-
-/// Writes a 32-bit signed integer into the bytevector at the
-/// given element index, storing the bytes using the platform's native byte order
-/// (endianness). The value occupies the 4 bytes starting at offset `index * 4`;
-/// will error if the index is out of bounds.
-///
-/// (bytevector-s32-set! vector index value)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-/// * value : int? ;; -2147483648 to 2147483647
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 4 0))
-/// (bytevector-s32-set! vec 0 -1)
-/// (bytevector-s32-ref vec 0) ;; => -1
-/// ```
-#[function(name = "bytevector-s32-set!")]
-pub fn s32_bytes_set(value: &mut SteelByteVector, index: usize, int: i32) -> Result<SteelVal> {
-    let mut guard = value.vec.write();
-
-    if index > guard.len() {
-        stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
-    }
-
-    let slice = index * 4;
-
-    let bytes = int.to_ne_bytes();
-
-    guard[slice] = bytes[0];
-    guard[slice + 1] = bytes[1];
-    guard[slice + 2] = bytes[2];
-    guard[slice + 3] = bytes[3];
-
-    Ok(SteelVal::Void)
-}
-
-/// Reads a 64-bit signed integer from the bytevector at the
-/// given element index, interpreting the bytes using the platform's native byte
-/// order (endianness). The value occupies the 8 bytes starting at offset
-/// `index * 8`; if that range is out of bounds, this will error.
-///
-/// (bytevector-s64-ref vector index)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 8 0))
-/// (bytevector-s64-set! vec 0 -1)
-/// (bytevector-s64-ref vec 0) ;; => -1
-/// ```
-#[function(name = "bytevector-s64-ref")]
-pub fn s64_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
-    let guard = value.vec.read();
-    let start = index * 8;
-    guard
-        .get(start..start + 8)
-        .ok_or_else(
-            throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
-        )
-        .map(|x| {
-            let int = i64::from_ne_bytes([x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]]);
-            SteelVal::IntV(int as isize)
-        })
-}
-
-/// Writes a 64-bit signed integer into the bytevector at the
-/// given element index, storing the bytes using the platform's native byte order
-/// (endianness). The value occupies the 8 bytes starting at offset `index * 8`;
-/// will error if the index is out of bounds.
-///
-/// (bytevector-s64-set! vector index value)
-///
-/// * vector : bytes?
-/// * index : (and exact? int?)
-/// * value : int? ;; -9223372036854775808 to 9223372036854775807
-///
-/// # Examples
-/// ```scheme
-/// (define vec (make-bytes 8 0))
-/// (bytevector-s64-set! vec 0 -1)
-/// (bytevector-s64-ref vec 0) ;; => -1
-/// ```
-#[function(name = "bytevector-s64-set!")]
-pub fn s64_bytes_set(value: &mut SteelByteVector, index: usize, int: i64) -> Result<SteelVal> {
-    let mut guard = value.vec.write();
-
-    if index > guard.len() {
-        stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
-    }
-
-    let slice = index * 8;
-
-    let bytes = int.to_ne_bytes();
-
-    guard[slice] = bytes[0];
-    guard[slice + 1] = bytes[1];
-    guard[slice + 2] = bytes[2];
-    guard[slice + 3] = bytes[3];
-    guard[slice + 4] = bytes[4];
-    guard[slice + 5] = bytes[5];
-    guard[slice + 6] = bytes[6];
-    guard[slice + 7] = bytes[7];
-
-    Ok(SteelVal::Void)
-}
+bytevector_accessor!(
+    s64_bytes_ref => "bytevector-s64-ref",
+    s64_bytes_set => "bytevector-s64-set!",
+    i64 as IntV(isize),
+    width = 8,
+    kind = "a 64-bit signed (two's complement) integer",
+    range = "int? ;; -9223372036854775808 to 9223372036854775807",
+    examples = ("-1", "-1"),
+);
 
 /// Reads an 8-bit signed integer from the bytevector at the
 /// given index. Unlike the wider variants, the index addresses a single byte
@@ -1011,7 +624,7 @@ pub fn s8_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
         .ok_or_else(
             throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
         )
-        .map(|x| SteelVal::IntV(*x as isize))
+        .map(|x| SteelVal::IntV(*x as i8 as isize))
 }
 
 /// Writes an 8-bit signed integer into the bytevector at the
@@ -1034,94 +647,11 @@ pub fn s8_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 pub fn s8_bytes_set(value: &mut SteelByteVector, index: usize, byte: i8) -> Result<SteelVal> {
     let mut guard = value.vec.write();
 
-    if index > guard.len() {
+    if index >= guard.len() {
         stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
     }
 
     guard[index] = byte as _;
 
     Ok(SteelVal::Void)
-}
-
-#[inline(always)]
-pub fn bytes_as_f32<'a>(bytes: &'a [u8]) -> Option<&'a [f32]> {
-    let (prefix, floats, suffix): (&[u8], &[f32], &[u8]) = unsafe { bytes.align_to::<f32>() };
-
-    if prefix.is_empty() && suffix.is_empty() {
-        Some(floats)
-    } else {
-        None
-    }
-}
-
-#[function(name = "bytevector-f32-dot")]
-pub fn f32_dot_product(a: &SteelByteVector, b: &SteelByteVector) -> Result<SteelVal> {
-    let a_bytes = a.vec.read();
-    let b_bytes = b.vec.read();
-    assert_eq!(a_bytes.len(), b_bytes.len());
-
-    // TODO: Better error handling here
-    let a = bytes_as_f32(&a_bytes).expect("a misaligned");
-    let b = bytes_as_f32(&b_bytes).expect("b misaligned");
-
-    let a_chunks = a.chunks_exact(8);
-    let b_chunks = b.chunks_exact(8);
-    let a_rem = a_chunks.remainder();
-    let b_rem = b_chunks.remainder();
-
-    let mut acc = [0.0f32; 8];
-    for (ac, bc) in a_chunks.zip(b_chunks) {
-        let ac: &[f32; 8] = ac.try_into().unwrap();
-        let bc: &[f32; 8] = bc.try_into().unwrap();
-        for i in 0..8 {
-            acc[i] = ac[i].mul_add(bc[i], acc[i]);
-        }
-    }
-
-    let main: f32 = acc.iter().sum();
-    let tail: f32 = a_rem
-        .iter()
-        .zip(b_rem)
-        .map(|(x, y)| x.mul_add(*y, 0.0))
-        .sum();
-    Ok(SteelVal::NumV((main + tail) as _))
-}
-
-#[inline(always)]
-pub fn bytes_as_f64<'a>(bytes: &'a [u8]) -> Option<&'a [f64]> {
-    let (prefix, floats, suffix): (&[u8], &[f64], &[u8]) = unsafe { bytes.align_to::<f64>() };
-    if prefix.is_empty() && suffix.is_empty() {
-        Some(floats)
-    } else {
-        None
-    }
-}
-
-#[function(name = "bytevector-f64-dot")]
-pub fn f64_dot_product(a: &SteelByteVector, b: &SteelByteVector) -> Result<SteelVal> {
-    let a_bytes = a.vec.read();
-    let b_bytes = b.vec.read();
-    assert_eq!(a_bytes.len(), b_bytes.len());
-
-    // TODO: Better error handling here
-    let a = bytes_as_f64(&a_bytes).expect("a misaligned");
-    let b = bytes_as_f64(&b_bytes).expect("b misaligned");
-
-    let a_chunks = a.chunks_exact(8);
-    let b_chunks = b.chunks_exact(8);
-    let a_rem = a_chunks.remainder();
-    let b_rem = b_chunks.remainder();
-
-    let mut acc = [0.0f64; 8];
-    for (ac, bc) in a_chunks.zip(b_chunks) {
-        let ac: &[f64; 8] = ac.try_into().unwrap();
-        let bc: &[f64; 8] = bc.try_into().unwrap();
-        for i in 0..8 {
-            acc[i] = ac[i].mul_add(bc[i], acc[i]);
-        }
-    }
-
-    let main: f64 = acc.iter().sum();
-    let tail: f64 = a_rem.iter().zip(b_rem).map(|(x, y)| x * y).sum();
-    Ok(SteelVal::NumV(main + tail))
 }
