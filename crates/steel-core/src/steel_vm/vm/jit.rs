@@ -3055,6 +3055,44 @@ fn extern_c_lte_two(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
     SteelVal::BoolV(a <= b)
 }
 
+/// Bool-returning comparisons on two arbitrary values.
+///
+/// The `*-binop` helpers return a boxed `SteelVal`, which is fine when the JIT
+/// is going to push the result, but useless as the fallback arm of an inlined
+/// comparison: both arms of the branch have to agree on type, and the inlined
+/// arm produces an unboxed `i1`. These mirror `num_equal_value_bool` so the
+/// generic-value comparison paths have something to fall back to.
+macro_rules! make_value_compare_bool {
+    ($(($name:ident, $op:tt)),* $(,)?) => {
+        $(
+            #[cross_platform_fn]
+            fn $name(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
+                use crate::primitives::numbers::realp;
+
+                if realp(&a) && realp(&b) {
+                    a $op b
+                } else {
+                    let e = SteelErr::new(
+                        ErrorKind::TypeMismatch,
+                        format!("expected real numbers, found: {} - {}", a, b),
+                    );
+                    let guard = unsafe { &mut *ctx };
+                    guard.result = Some(Err(e));
+                    guard.is_native = false;
+                    false
+                }
+            }
+        )*
+    };
+}
+
+make_value_compare_bool!(
+    (extern_c_lt_two_value_bool, <),
+    (extern_c_lte_two_value_bool, <=),
+    (extern_c_gt_two_value_bool, >),
+    (extern_c_gte_two_value_bool, >=),
+);
+
 #[cross_platform_fn]
 fn extern_c_lt_two(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
     // println!("lte two - {} <= {}", a, b);

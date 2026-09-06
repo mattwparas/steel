@@ -59,6 +59,20 @@ fn inline_primitive_tail_calls_enabled() -> bool {
     })
 }
 
+/// Inline `=` / `<` / `<=` / `>` / `>=` on two arbitrary values when both turn
+/// out to be integers, and `vector-ref` when the vector is not in a register -
+/// cases that previously always went out to a helper.
+/// `STEEL_JIT_GENERIC_INLINE=0` disables, for A/B measurement.
+fn generic_inline_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_GENERIC_INLINE").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
 const USE_INLINE_GLOBAL_TAIL_CALL: bool = true;
 
 const USE_INLINE_LOCAL_TAIL_CALL: bool = true;
@@ -1140,6 +1154,27 @@ impl Default for JIT {
         );
 
         map.add_func_hint("lt-binop", extern_c_lt_two as VmBinOp, InferredType::Bool);
+
+        map.add_func_hint(
+            "lt-two-value-bool",
+            abi! { extern_c_lt_two_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
+            InferredType::UnboxedBool,
+        );
+        map.add_func_hint(
+            "lte-two-value-bool",
+            abi! { extern_c_lte_two_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
+            InferredType::UnboxedBool,
+        );
+        map.add_func_hint(
+            "gt-two-value-bool",
+            abi! { extern_c_gt_two_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
+            InferredType::UnboxedBool,
+        );
+        map.add_func_hint(
+            "gte-two-value-bool",
+            abi! { extern_c_gte_two_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
+            InferredType::UnboxedBool,
+        );
 
         map.add_func_hint("lte-binop", extern_c_lte_two as VmBinOp, InferredType::Bool);
 
@@ -4753,6 +4788,18 @@ impl FunctionTranslator<'_> {
                 //
                 // This is where we have to be better; use the registers, use the constants,
                 // and inline the numeric ops since these are likely to be extremely common.
+                // The arms above need one side to be a compile-time constant or a
+                // register. Generic numeric code rarely obliges, so `=` on two
+                // ordinary values fell all the way through to a runtime helper -
+                // 37% of `triangl`. Check both tags instead: when they are both
+                // ints the comparison is a single `icmp`, and everything else
+                // still reaches the same helper it used to.
+                OpCode::NUMEQUAL if payload == 2 && generic_inline_enabled() => {
+                    let res = self.inline_int_compare_two(IntCC::Equal, "num-equal-value-bool");
+                    self.push(res, InferredType::UnboxedBool);
+                    self.ip += 2;
+                }
+
                 OpCode::NUMEQUAL
                     if payload == 2
                         && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
@@ -4771,6 +4818,34 @@ impl FunctionTranslator<'_> {
                 //     // do something inline?
                 //     self.gte()
                 // }
+                // Same story as NUMEQUAL above: the specialised arms all want a
+                // register or a constant, so a comparison between two ordinary
+                // values went out to a helper every time - 19% of `cpstak`.
+                OpCode::LTE | OpCode::GTE | OpCode::LT | OpCode::GT
+                    if payload == 2 && generic_inline_enabled() =>
+                {
+                    for arg in self
+                        .shadow_stack
+                        .get(self.shadow_stack.len() - payload..)
+                        .unwrap()
+                        .to_vec()
+                    {
+                        self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                    }
+
+                    let (cc, fallback) = match op {
+                        OpCode::LT => (IntCC::SignedLessThan, "lt-two-value-bool"),
+                        OpCode::LTE => (IntCC::SignedLessThanOrEqual, "lte-two-value-bool"),
+                        OpCode::GT => (IntCC::SignedGreaterThan, "gt-two-value-bool"),
+                        OpCode::GTE => (IntCC::SignedGreaterThanOrEqual, "gte-two-value-bool"),
+                        _ => unreachable!(),
+                    };
+
+                    let res = self.inline_int_compare_two(cc, fallback);
+                    self.push(res, InferredType::UnboxedBool);
+                    self.ip += 2;
+                }
+
                 OpCode::LTE | OpCode::GTE | OpCode::LT | OpCode::GT => {
                     if payload == 2 {
                         for arg in self
@@ -5590,6 +5665,33 @@ impl FunctionTranslator<'_> {
                             self.ip += 2;
                         }
 
+                        // Neither operand is a register - both are values or
+                        // constants. The inline sequence does not actually need
+                        // a register, only the two values, so the old fallback
+                        // here was leaving the bounds-checked fast path unused.
+                        _ if generic_inline_enabled() => {
+                            let index = self.shadow_pop().0;
+                            let vector_value = self.shadow_pop().0;
+
+                            let fallback = move |ctx: &mut Self| {
+                                let res = ctx.call_function_returns_value_args(
+                                    "vector-ref-value",
+                                    &[vector_value, index],
+                                );
+                                ctx.check_deopt();
+                                res
+                            };
+
+                            let res = if INLINE_FLAT_VECTOR_REF {
+                                self.inline_vector_ref(vector_value, index, fallback)
+                            } else {
+                                fallback(self)
+                            };
+
+                            self.push(res, InferredType::Any);
+                            self.ip += 2;
+                        }
+
                         _ => {
                             self.func_ret_val(op, 2, 2, InferredType::Any);
                         }
@@ -6077,6 +6179,45 @@ impl FunctionTranslator<'_> {
         }
 
         None
+    }
+
+    /// Inline a two-operand integer comparison, checking both tags at runtime.
+    ///
+    /// The existing fast paths for `=`, `<` and friends all require one side to
+    /// be a compile-time constant or a known register. That covers loop
+    /// counters against literals but not generic arithmetic, which then paid a
+    /// full native call per comparison. Here both operands are materialised as
+    /// values, both tags are tested, and the happy path is a single `icmp` on
+    /// the payloads.
+    ///
+    /// `fallback` must be a helper returning an *unboxed* bool, so both arms of
+    /// the branch agree on type and the result can be consumed directly by a
+    /// following `if` without boxing.
+    fn inline_int_compare_two(&mut self, cc: IntCC, fallback: &str) -> Value {
+        let rhs = self.shadow_stack_pop().unwrap().into_value(self).value;
+        let lhs = self.shadow_stack_pop().unwrap().into_value(self).value;
+
+        let lhs_is_int = self.is_type(lhs, SteelVal::INT_TAG);
+        let rhs_is_int = self.is_type(rhs, SteelVal::INT_TAG);
+        let both_int = self.builder.ins().band(lhs_is_int, rhs_is_int);
+
+        self.converging_if(
+            both_int,
+            |ctx| {
+                // Tags already checked, so the payloads are the whole story.
+                let l = ctx.unbox_value_to_pointer(lhs);
+                let r = ctx.unbox_value_to_pointer(rhs);
+                ctx.builder.ins().icmp(cc, l, r)
+            },
+            |ctx| {
+                let vm_ctx = ctx.get_ctx();
+                let res =
+                    ctx.call_function_returns_value_args_no_context(fallback, &[vm_ctx, lhs, rhs]);
+                ctx.check_deopt();
+                res
+            },
+            types::I8,
+        )
     }
 
     fn slow_path_deopt_tail_call(&mut self, function_index: usize, arity: usize) {
