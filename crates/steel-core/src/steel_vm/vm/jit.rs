@@ -69,6 +69,278 @@ fn jit_should_compile(id: u32) -> bool {
 }
 
 
+/// The set of global indices the compiler proved are never `set!`.
+///
+/// Baking a global's *value* into generated code (as the direct global tail
+/// call does) is only sound for these - anything else can come to hold a
+/// different function, or a different closure instance with different captures.
+fn non_mutable_globals(ctx: &VmCore) -> std::collections::HashSet<usize> {
+    ctx.thread
+        .compiler
+        .read()
+        .symbol_map
+        .reified_non_mutable
+        .clone()
+}
+
+/// How many deopts a function may take before it is recompiled.
+const RETIER_DEOPT_THRESHOLD: usize = 64;
+
+/// Bisection aids. `STEEL_JIT_RETIER_MAX=N` allows only the first N tier-ups;
+/// `STEEL_JIT_RETIER_ONLY=a,b,c` restricts them to those function ids;
+/// `STEEL_JIT_RETIER_SKIP=a,b,c` excludes those. Order is deterministic for a
+/// deterministic program, so a binary search on MAX finds the first tier-up
+/// that breaks a benchmark.
+fn retier_max() -> Option<usize> {
+    static N: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("STEEL_JIT_RETIER_MAX")
+            .ok()
+            .and_then(|x| x.parse::<usize>().ok())
+    })
+}
+
+fn retier_id_filter(var: &str) -> Option<Vec<u32>> {
+    let raw = std::env::var(var).ok()?;
+    Some(
+        raw.split(',')
+            .filter_map(|x| x.trim().parse::<u32>().ok())
+            .collect(),
+    )
+}
+
+fn retier_only() -> &'static Option<Vec<u32>> {
+    static V: std::sync::OnceLock<Option<Vec<u32>>> = std::sync::OnceLock::new();
+    V.get_or_init(|| retier_id_filter("STEEL_JIT_RETIER_ONLY"))
+}
+
+fn retier_skip() -> &'static Option<Vec<u32>> {
+    static V: std::sync::OnceLock<Option<Vec<u32>>> = std::sync::OnceLock::new();
+    V.get_or_init(|| retier_id_filter("STEEL_JIT_RETIER_SKIP"))
+}
+
+static RETIER_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Whether this particular function may be tiered up, honouring the bisection
+/// filters. Counted only when it would actually happen, so MAX numbers the
+/// tier-ups that occur rather than the attempts.
+fn retier_allowed(id: u32) -> bool {
+    if let Some(only) = retier_only().as_ref() {
+        if !only.contains(&id) {
+            return false;
+        }
+    }
+    if let Some(skip) = retier_skip().as_ref() {
+        if skip.contains(&id) {
+            return false;
+        }
+    }
+    if let Some(max) = retier_max() {
+        let n = RETIER_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n >= max {
+            return false;
+        }
+    }
+    true
+}
+
+fn retier_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        matches!(
+            std::env::var("STEEL_JIT_RETIER").ok().as_deref(),
+            Some("1") | Some("true")
+        )
+    })
+}
+
+/// Recompile a function against the *current* global environment.
+///
+/// `jit_compile_lambda` runs when a closure is constructed, which for a module
+/// level function is during module loading. Any global it calls that is bound
+/// by a later module is simply absent from `global_env.roots()` at that moment,
+/// so `cgen` cannot specialise the call and emits a generic deopt helper -
+/// permanently, because nothing ever revisits the decision. On `destruc` that
+/// left 35 of 91 `mpair?` call sites deopting forever, ~1.24 billion times.
+///
+/// Recompiling is safe on a shared lambda:
+///   - the new pointer is installed atomically, and callers that cached the old
+///     one keep running valid code (the JIT arena never frees), so a stale read
+///     is slower, never wrong;
+///   - the shared `body_exp` is not mutated - the first instruction was patched
+///     to `DynSuperInstruction` after the original compile, so a repaired copy
+///     with the saved `header` opcode is handed to the compiler instead;
+///   - the symbol gets a distinct name, since cranelift hands back the cached
+///     body for a name it has already defined.
+fn retier_lambda(ctx: &mut VmCore, function: &Gc<ByteCodeLambda>) {
+    if !retier_allowed(function.id) {
+        return;
+    }
+
+    let Some(header) = function.header else {
+        // Never compiled through the normal path; nothing to repair.
+        return;
+    };
+
+    let mut code: Vec<DenseInstruction> = function.body_exp.iter().copied().collect();
+    if code.is_empty() {
+        return;
+    }
+    code[0].op_code = header;
+
+    // The id has to stay numeric - cgen parses it - so the fresh symbol comes
+    // from the generation instead.
+    let non_mutable_globals = non_mutable_globals(ctx);
+    let mut jit = ctx.thread.jit.lock().unwrap_or_else(|e| e.into_inner());
+
+    // Must be the table this body was compiled against, not the thread's
+    // current one - `SteelThread::constant_map` is replaced as modules load.
+    let Some(constants) = jit.constants_for(function.id) else {
+        return;
+    };
+
+    // `translate` records this function's exit types under its id, and *other*
+    // functions consult that when specialising calls to it. A tier-up must not
+    // disturb what they were compiled against, so snapshot and restore.
+    let saved_return_types = jit.take_return_types(function.id);
+
+    let compiled = jit.compile_bytecode_generation(
+        function.id.to_string(),
+        function.arity,
+        &code,
+        &ctx.thread.global_env.roots(),
+        &constants,
+        None,
+        None,
+        None,
+        1,
+        &non_mutable_globals,
+    );
+
+    jit.restore_return_types(function.id, saved_return_types);
+    drop(jit);
+
+    if let Ok(pointer) = compiled {
+        function.set_super_instructions(Some(pointer));
+        if std::env::var_os("STEEL_JIT_RETIER_LOG").is_some() {
+            eprintln!("retier: recompiled function id {}", function.id);
+        }
+    }
+}
+
+/// Called from the deopt helpers: charge the deopt to whatever function is
+/// currently executing, and tier it up once it has taken enough of them.
+fn note_deopt(ctx: &mut VmCore) {
+    if !retier_enabled() {
+        return;
+    }
+
+    let Some(current) = ctx.thread.stack_frames.last().map(|f| f.function.clone()) else {
+        return;
+    };
+
+    if current.note_deopt_should_retier(RETIER_DEOPT_THRESHOLD) {
+        retier_lambda(ctx, &current);
+    }
+}
+
+/// Compile after this many calls when deferral is enabled.
+fn defer_threshold() -> Option<usize> {
+    static N: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("STEEL_JIT_DEFER")
+            .ok()
+            .and_then(|x| x.parse::<usize>().ok())
+            .filter(|x| *x > 0)
+    })
+}
+
+/// True when a lambda should be left uncompiled at construction.
+pub(crate) fn defer_initial_compile() -> bool {
+    defer_threshold().is_some()
+}
+
+/// Compile a function that was deliberately left uncompiled at construction.
+///
+/// Compiling at construction means specialising against whatever globals happen
+/// to be bound at that moment, which for a module level function is partway
+/// through module loading - see the deopt census in `destruc`, where 35 of 91
+/// `mpair?` call sites could not resolve the callee and deopted forever.
+/// Waiting until the function has actually been called a few times means the
+/// first and only compile sees a complete environment.
+///
+/// Unlike a tier-up this needs no repair, no fresh symbol and no id-keyed state
+/// juggling: it *is* the ordinary first compile, just later. It does have to
+/// patch the entry opcode so the interpreter dispatches into the new code,
+/// which the construction-time path also does.
+pub(crate) fn compile_deferred(ctx: &mut VmCore, closure: &Gc<ByteCodeLambda>) {
+    if closure.super_instructions().is_some() {
+        return;
+    }
+
+    let code: Vec<DenseInstruction> = closure.body_exp.iter().copied().collect();
+    if code.is_empty() || code.iter().any(|x| matches!(x.op_code, OpCode::PUREFUNC)) {
+        return;
+    }
+
+    if !jit_should_compile(closure.id) || ctx.thread.compiler.read().kernel.is_none() {
+        return;
+    }
+
+    let non_mutable_globals = non_mutable_globals(ctx);
+    let compiled = ctx
+        .thread
+        .jit
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .compile_bytecode(
+            closure.id.to_string(),
+            closure.arity,
+            &code,
+            &ctx.thread.global_env.roots(),
+            &ctx.thread.constant_map,
+            None,
+            None,
+            None,
+                    &non_mutable_globals,
+        );
+
+    let Ok(pointer) = compiled else {
+        // Mark it so we do not try again on every call.
+        closure.retiered.store(true, core::sync::atomic::Ordering::Relaxed);
+        return;
+    };
+
+    closure.set_super_instructions(Some(pointer));
+
+    // The interpreter enters native code by seeing this opcode at the head of
+    // the body, so it has to be installed for the compile to take effect.
+    unsafe {
+        let body = &closure.body_exp;
+        let ptr = body.as_ptr() as *mut DenseInstruction;
+        (*ptr).op_code = OpCode::DynSuperInstruction;
+    }
+
+    if std::env::var_os("STEEL_JIT_DEFER_LOG").is_some() {
+        eprintln!("defer: compiled function id {}", closure.id);
+    }
+}
+
+/// Count a call and compile once the function looks worth it.
+pub(crate) fn note_call_for_deferred_compile(ctx: &mut VmCore, closure: &Gc<ByteCodeLambda>) {
+    let Some(threshold) = defer_threshold() else {
+        return;
+    };
+    use core::sync::atomic::Ordering::Relaxed;
+    if closure.super_instructions().is_some() || closure.retiered.load(Relaxed) {
+        return;
+    }
+    let seen = closure.deopt_count.fetch_add(1, Relaxed) + 1;
+    if seen >= threshold {
+        compile_deferred(ctx, closure);
+    }
+}
+
 pub(crate) fn jit_compile_lambda(
     ctx: &mut VmCore,
     mut func: ByteCodeLambda,
@@ -84,6 +356,12 @@ pub(crate) fn jit_compile_lambda(
     }
 
     if !jit_should_compile(func.id) {
+        return func;
+    }
+
+    // Deferred mode: leave it as bytecode and let the call path compile it once
+    // the global environment is complete.
+    if defer_initial_compile() {
         return func;
     }
 
@@ -168,6 +446,8 @@ pub(crate) fn jit_compile_lambda(
             .copied()
     });
 
+    let non_mutable_globals = non_mutable_globals(ctx);
+
     // The jit is shared by every engine in the process, so a panic anywhere in
     // cranelift would otherwise poison it for everyone. Take the lock back rather
     // than turning one failed compile into a process wide outage.
@@ -185,6 +465,7 @@ pub(crate) fn jit_compile_lambda(
             maybe_index,
             self_slot.map(|x| &*x),
             fn_ptr_name,
+            &non_mutable_globals,
         );
 
     let fn_pointer = if let Ok(fn_pointer) = fn_pointer {
@@ -194,7 +475,7 @@ pub(crate) fn jit_compile_lambda(
     };
 
     let super_instructions = Some(fn_pointer);
-    func.super_instructions = super_instructions;
+    func.set_super_instructions(super_instructions);
 
     unsafe {
         steel_rc::BiasedRc::get_mut_unchecked(&mut func.body_exp)[0].op_code =
@@ -219,7 +500,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     continue;
                 }
 
-                if f.super_instructions.is_some() {
+                if f.super_instructions().is_some() {
                     continue;
                 }
 
@@ -229,6 +510,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     let name = func.id.to_string();
 
                     // let mut inner = func.unwrap();
+                    let non_mutable = non_mutable_globals(ctx);
                     let compiled = ctx
                         .thread
                         .jit
@@ -243,6 +525,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                             None,
                             None,
                             None,
+                            &non_mutable,
                         );
                     let fn_pointer = match compiled {
                         Ok(p) => p,
@@ -250,7 +533,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     };
 
                     let super_instructions = Some(fn_pointer);
-                    func.super_instructions = super_instructions;
+                    func.set_super_instructions(super_instructions);
 
                     let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
                     instructions[0].op_code = OpCode::DynSuperInstruction;
@@ -300,6 +583,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
         let name = func.id.to_string();
 
         // let mut inner = func.unwrap();
+        let non_mutable = non_mutable_globals(ctx);
         let compiled = ctx
             .thread
             .jit
@@ -314,6 +598,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
                 function_name,
                 None,
                 None,
+                &non_mutable,
             );
         let fn_pointer = match compiled {
             Ok(p) => p,
@@ -321,7 +606,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
         };
 
         let super_instructions = Some(fn_pointer);
-        func.super_instructions = super_instructions;
+        func.set_super_instructions(super_instructions);
 
         let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
         instructions[0].op_code = OpCode::DynSuperInstruction;
@@ -3060,27 +3345,20 @@ fn extern_c_lte_two(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
 /// The `*-binop` helpers return a boxed `SteelVal`, which is fine when the JIT
 /// is going to push the result, but useless as the fallback arm of an inlined
 /// comparison: both arms of the branch have to agree on type, and the inlined
-/// arm produces an unboxed `i1`. These mirror `num_equal_value_bool` so the
-/// generic-value comparison paths have something to fall back to.
+/// arm produces an unboxed `i1`.
+///
+/// These must match `extern_c_lt_two` and friends **exactly**, which means
+/// comparing with `SteelVal`'s own ordering and *not* type checking. Steel
+/// permits `(< "1" 9999)` - it answers `#false` rather than raising - so a
+/// stricter fallback silently turns working programs into type errors. An
+/// earlier version of this macro copied the checked shape of
+/// `extern_c_lte_register` and did exactly that to `compiler`.
 macro_rules! make_value_compare_bool {
     ($(($name:ident, $op:tt)),* $(,)?) => {
         $(
             #[cross_platform_fn]
-            fn $name(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
-                use crate::primitives::numbers::realp;
-
-                if realp(&a) && realp(&b) {
-                    a $op b
-                } else {
-                    let e = SteelErr::new(
-                        ErrorKind::TypeMismatch,
-                        format!("expected real numbers, found: {} - {}", a, b),
-                    );
-                    let guard = unsafe { &mut *ctx };
-                    guard.result = Some(Err(e));
-                    guard.is_native = false;
-                    false
-                }
+            fn $name(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
+                a $op b
             }
         )*
     };
@@ -3417,7 +3695,7 @@ pub static DEOPT_CENSUS: std::sync::Mutex<Option<std::collections::HashMap<Strin
 fn record_deopt(func: &SteelVal, index: usize, ctx: &VmCore) {
     let kind = match func {
         SteelVal::Closure(c) => {
-            if c.super_instructions.is_some() {
+            if c.super_instructions().is_some() {
                 "Closure (compiled - caller was built before it was)"
             } else {
                 "Closure (never compiled)"
@@ -3504,6 +3782,7 @@ fn new_callglobal_tail_handler_deopt_test(
     if deopt_census_enabled() {
         record_deopt(&func, index, ctx);
     }
+    note_deopt(ctx);
 
     // inspect(ctx, &[func.clone()]);
     // println!("What is left on the stack: {:#?}", ctx.thread.stack);
@@ -3538,7 +3817,7 @@ fn new_callglobal_tail_handler_deopt_test(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        // SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+        // SteelVal::Closure(c) if c.0.super_instructions().is_some() && TRAMPOLINE => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::CustomStruct(_)
@@ -3796,7 +4075,7 @@ fn handle_global_function_call_with_args(
 
             if should_trampoline(ctx) {
                 // We're going to de-opt in this case - unless we intend to do some fun inlining business
-                if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                if let Some(func) = closure.0.super_instructions() {
                     let pop_count = ctx.pop_count;
                     let depth = ctx.thread.stack_frames.len();
 
@@ -4251,7 +4530,7 @@ fn check_callable_spill(ctx: *mut VmCore, lookup_index: usize) -> u8 {
 
         if tr {
             if let SteelVal::Closure(c) = func {
-                if c.0.super_instructions.as_ref().is_some() {
+                if c.0.super_instructions().is_some() {
                     return 2;
                 }
             }
@@ -4287,7 +4566,7 @@ fn check_callable(ctx: *mut VmCore, lookup_index: usize) -> bool {
 
         if tr {
             if let SteelVal::Closure(c) = func {
-                if c.0.super_instructions.as_ref().is_some() {
+                if c.0.super_instructions().is_some() {
                     return true;
                 }
             }
@@ -4335,7 +4614,7 @@ fn check_callable_value(ctx: *mut VmCore, func: SteelVal) -> bool {
 
     if should_trampoline(unsafe { &mut *ctx }) {
         if let SteelVal::Closure(c) = &*func {
-            if c.0.super_instructions.as_ref().is_some() {
+            if c.0.super_instructions().is_some() {
                 return true;
             }
         }
@@ -5167,7 +5446,7 @@ macro_rules! make_call_global_function_deopt_no_arity {
                 // Deopt -> Meaning, check the return value if we're done - so we just
                 // will eventually check the stashed error.
                 let should_yield = match &func {
-                    SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
+                    SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => false,
                     SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) | SteelVal::CustomStruct(_) => true,
                     _ => false,
                 };
@@ -5211,7 +5490,7 @@ macro_rules! make_call_global_function_deopt_no_arity {
                             )*
 
                             if should_trampoline(ctx) {
-                                if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                                if let Some(func) = closure.0.super_instructions() {
                                     #[cfg(debug_assertions)]
                                     let pop_count = ctx.pop_count;
 
@@ -5442,7 +5721,7 @@ macro_rules! make_call_self_function_deopt_no_arity {
                     )*
 
                     if !should_yield {
-                        if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                        if let Some(func) = closure.0.super_instructions() {
                             #[cfg(debug_assertions)]
                             let pop_count = ctx.pop_count;
 
@@ -5547,7 +5826,7 @@ fn call_global_function_deopt_no_arity_spilled(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
+        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -5597,7 +5876,7 @@ fn call_global_function_deopt_no_arity_spilled(
                 // TODO: Consider reserving the amount?
 
                 if should_trampoline(ctx) {
-                    if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                    if let Some(func) = closure.0.super_instructions() {
                         let pop_count = ctx.pop_count;
                         let depth = ctx.thread.stack_frames.len();
 
@@ -5677,7 +5956,7 @@ fn call_global_function_deopt_spilled(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
+        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -5727,7 +6006,7 @@ fn call_global_function_deopt_spilled(
                 // TODO: Consider reserving the amount?
 
                 if should_trampoline(ctx) {
-                    if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                    if let Some(func) = closure.0.super_instructions() {
                         let pop_count = ctx.pop_count;
                         let depth = ctx.thread.stack_frames.len();
 
@@ -5805,13 +6084,14 @@ fn call_global_function_deopt(
     if deopt_census_enabled() {
         record_deopt(&func, lookup_index, ctx);
     }
+    note_deopt(ctx);
 
     // println!("---> Calling function: {} - {:?}", func, args);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => {
+        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => {
             ctx.ip = fallback_ip;
         }
         SteelVal::Closure(_)
@@ -5851,7 +6131,7 @@ fn call_function_deopt(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
+        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -5908,7 +6188,7 @@ fn call_function_tail_deopt(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        // SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+        // SteelVal::Closure(c) if c.0.super_instructions().is_some() && TRAMPOLINE => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -5962,7 +6242,7 @@ fn call_function_tail_deopt(
 //     // Deopt -> Meaning, check the return value if we're done - so we just
 //     // will eventually check the stashed error.
 //     let should_yield = match &func {
-//         SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+//         SteelVal::Closure(c) if c.0.super_instructions().is_some() && TRAMPOLINE => false,
 //         SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
 //         _ => false,
 //     };

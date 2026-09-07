@@ -2519,11 +2519,8 @@ impl<'a> VmCore<'a> {
                         .last()
                         .unwrap()
                         .function
-                        .super_instructions
-                        .as_ref()
+                        .super_instructions()
                         .unwrap();
-
-                    let fn_ptr = *fn_ptr;
 
                     // Did we return a value? If we have a result, then we did, otherwise, we did not?
                     //
@@ -4063,7 +4060,7 @@ impl<'a> VmCore<'a> {
         //         .last()
         //         .unwrap()
         //         .function
-        //         .super_instructions
+        //         .super_instructions()
         //         .is_some(),
         //     self.thread
         //         .stack_frames
@@ -6664,7 +6661,7 @@ impl OpCodeOccurenceProfiler {
     //     println!("--------------- Basic Blocks ---------------");
 
     //     let mut blocks = self
-    //         .super_instructions
+    //         .super_instructions()
     //         .basic_blocks
     //         .iter()
     //         .collect::<Vec<_>>();

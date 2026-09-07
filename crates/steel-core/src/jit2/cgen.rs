@@ -73,7 +73,17 @@ fn generic_inline_enabled() -> bool {
     })
 }
 
-const USE_INLINE_GLOBAL_TAIL_CALL: bool = true;
+/// `STEEL_JIT_INLINE_TAIL_CALL=0` disables the direct (address-baked) global
+/// tail call, for isolating bugs in that path.
+fn use_inline_global_tail_call() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        true && !matches!(
+            std::env::var("STEEL_JIT_INLINE_TAIL_CALL").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
 
 const USE_INLINE_LOCAL_TAIL_CALL: bool = true;
 
@@ -114,6 +124,13 @@ pub struct JIT {
     module: JITModule,
 
     function_map: OwnedFunctionMap,
+
+    /// The constant map each function was compiled against, keyed by function
+    /// id. `SteelThread::constant_map` is *replaced* as modules load, so a
+    /// later recompile that used the thread's current map would resolve the
+    /// function's constant indices against the wrong table - which shows up as
+    /// nonsense values rather than a crash. Cloning is three refcount bumps.
+    compiled_constants: HashMap<u32, ConstantMap>,
 
     names: HashMap<u32, String>,
 
@@ -1348,6 +1365,7 @@ impl Default for JIT {
             ctx: module.make_context(),
             module,
             function_map,
+            compiled_constants: Default::default(),
             names: Default::default(),
             defined: Default::default(),
             function_return_types: Default::default(),
@@ -1366,7 +1384,7 @@ fn discriminant(value: &SteelVal) -> u8 {
 
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
-pub struct JitFnPointer(NonNull<u8>);
+pub struct JitFnPointer(pub(crate) NonNull<u8>);
 
 unsafe impl Send for JitFnPointer {}
 unsafe impl Sync for JitFnPointer {}
@@ -1382,6 +1400,8 @@ unsafe fn compile_bytecode(
     function_index: Option<usize>,
     slot: Option<&Gc<ByteCodeLambda>>,
     top_level_name: Option<InternedString>,
+    generation: u32,
+    non_mutable_globals: &HashSet<usize>,
 ) -> Result<JitFnPointer, String> {
     let code_ptr = jit.compile(
         name,
@@ -1392,6 +1412,8 @@ unsafe fn compile_bytecode(
         function_index,
         slot,
         top_level_name,
+        generation,
+        non_mutable_globals,
     )?;
     let code_fn = JitFnPointer(NonNull::new_unchecked(code_ptr.cast_mut()));
 
@@ -1468,6 +1490,28 @@ fn write_perf_map_entry(addr: *const u8, size: usize, name: &str) {
 }
 
 impl JIT {
+    /// The constant map a function was originally compiled against, if the JIT
+    /// has seen it. A tier-up must reuse this rather than the thread's current
+    /// map - see the field's comment.
+    pub fn take_return_types(&mut self, id: u32) -> Option<HashSet<InferredType>> {
+        self.function_return_types.get(&id).cloned()
+    }
+
+    pub fn restore_return_types(&mut self, id: u32, saved: Option<HashSet<InferredType>>) {
+        match saved {
+            Some(types) => {
+                self.function_return_types.insert(id, types);
+            }
+            None => {
+                self.function_return_types.remove(&id);
+            }
+        }
+    }
+
+    pub fn constants_for(&self, id: u32) -> Option<ConstantMap> {
+        self.compiled_constants.get(&id).cloned()
+    }
+
     pub fn compile_bytecode(
         &mut self,
         name: String,
@@ -1478,6 +1522,40 @@ impl JIT {
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
         top_level_name: Option<InternedString>,
+        non_mutable_globals: &HashSet<usize>,
+    ) -> Result<JitFnPointer, String> {
+        self.compile_bytecode_generation(
+            name,
+            arity,
+            code,
+            globals,
+            constants,
+            function_index,
+            slot,
+            top_level_name,
+            0,
+            non_mutable_globals,
+        )
+    }
+
+    /// As `compile_bytecode`, but emitting under a distinct symbol so the same
+    /// function can be compiled more than once. Cranelift hands back the cached
+    /// body for a symbol it has already defined, so a tier upgrade has to ask
+    /// for a new one; `generation` is only part of the symbol, and the numeric
+    /// id stays the real function id.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compile_bytecode_generation(
+        &mut self,
+        name: String,
+        arity: u16,
+        code: &[DenseInstruction],
+        globals: &[SteelVal],
+        constants: &ConstantMap,
+        function_index: Option<usize>,
+        slot: Option<&Gc<ByteCodeLambda>>,
+        top_level_name: Option<InternedString>,
+        generation: u32,
+        non_mutable_globals: &HashSet<usize>,
     ) -> Result<JitFnPointer, String> {
         unsafe {
             compile_bytecode(
@@ -1490,6 +1568,8 @@ impl JIT {
                 function_index,
                 slot,
                 top_level_name,
+                generation,
+                non_mutable_globals,
             )
         }
     }
@@ -1582,17 +1662,28 @@ impl JIT {
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
         top_level_name: Option<InternedString>,
+        generation: u32,
+        non_mutable_globals: &HashSet<usize>,
     ) -> Result<*const u8, String> {
         let id = str::parse::<u32>(&name).unwrap();
 
+        let suffix = if generation == 0 {
+            String::new()
+        } else {
+            format!("_g{}", generation)
+        };
+
         let inner_name = if let Some(top_level_name) = top_level_name {
-            format!("{}_{}_inner", top_level_name, name)
+            format!("{}_{}_inner{}", top_level_name, name, suffix)
         } else {
             // Store the name
-            format!("{}_inner", name)
+            format!("{}_inner{}", name, suffix)
         };
 
         self.names.insert(id, inner_name.clone());
+        // Remember which constant table this body was compiled against, so a
+        // later tier-up can reuse it rather than whatever the thread holds then.
+        self.compiled_constants.insert(id, constants.clone());
 
         // self.ctx.set_disasm(true);
 
@@ -1642,6 +1733,7 @@ impl JIT {
             constants,
             function_index,
             slot,
+            non_mutable_globals,
         )?;
 
         if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
@@ -1714,6 +1806,7 @@ impl JIT {
         constants: &ConstantMap,
         function_context: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
+        non_mutable_globals: &HashSet<usize>,
     ) -> Result<(), String> {
         // println!("----- Compiling function ----");
 
@@ -1786,6 +1879,7 @@ impl JIT {
             vm_context,
             slot,
             function_context,
+            non_mutable_globals,
             names: &self.names,
             function_return_types: &self.function_return_types,
             exit_types: &mut exit_types,
@@ -2406,6 +2500,10 @@ struct FunctionTranslator<'a> {
     // generators: LazyInstructionGenerators,
     slot: Option<&'a Gc<ByteCodeLambda>>,
     function_context: Option<usize>,
+
+    /// Global indices the compiler proved are never `set!`. Only such a global
+    /// may have its *value* baked into generated code.
+    non_mutable_globals: &'a HashSet<usize>,
 
     names: &'a HashMap<u32, String>,
 
@@ -3297,7 +3395,7 @@ impl FunctionTranslator<'_> {
 
                     // Call direct, by hard coding this, and we're gonna check that the
                     // instructions exist already...
-                    if USE_INLINE_GLOBAL_TAIL_CALL && matches!(func, Some(SteelVal::Closure(_))) {
+                    if use_inline_global_tail_call() && matches!(func, Some(SteelVal::Closure(_))) {
                         let function = if let Some(SteelVal::Closure(v)) = func {
                             v
                         } else {
@@ -3306,7 +3404,58 @@ impl FunctionTranslator<'_> {
 
                         // Take this fast path if the super instructions already exists.
                         // Then we can do a direct call.
-                        if function.super_instructions.is_some() {
+                        //
+                        // Only when the callee captures nothing. `inline_global_tail_call`
+                        // bakes *this particular* `Gc<ByteCodeLambda>` into the generated
+                        // code, and for a closure the captured values live on the instance -
+                        // so a later instantiation of the same lambda, with different
+                        // captures, would be called with the captures of whichever instance
+                        // happened to be in the global when this caller was compiled.
+                        // A capture-free top level function has only one instance, so
+                        // baking it is safe.
+                        //
+                        // This is normally unreachable, because callee globals are usually
+                        // still unbound when a caller is compiled at construction time -
+                        // which is why it survived until tier-up started resolving them.
+                        // `inline_global_tail_call` bakes *this particular*
+                        // `Gc<ByteCodeLambda>` into the generated code, so it is
+                        // only sound when the global can never come to hold
+                        // anything else. That is exactly what the analysis
+                        // records in `reified_non_mutable`: globals never `set!`.
+                        //
+                        // Captures are what made the bug visible - `compiler`
+                        // does `(set! label-counter (bbs-lbl-counter bbs))` with
+                        // a closure over `next`/`limit`, and calls kept reaching
+                        // the first instance's captures - but "no captures" is
+                        // neither necessary nor sufficient: a `set!` to a
+                        // different capture-free function breaks it just as
+                        // badly, and a closure in a never-mutated global is fine.
+                        //
+                        // Normally unreachable, because callee globals are
+                        // usually still unbound when a caller is compiled at
+                        // construction time; tier-up is the first thing to
+                        // resolve them.
+                        // `inline_global_tail_call` bakes *this particular*
+                        // `Gc<ByteCodeLambda>` into the generated code, so it is
+                        // only sound when the global can never come to hold
+                        // anything else - which is exactly what the analysis
+                        // records in `reified_non_mutable`.
+                        //
+                        // Captures are how the bug surfaced (`compiler` does
+                        // `(set! label-counter ...)` with a closure over
+                        // `next`/`limit`, and calls kept reaching the first
+                        // instance's captures) but they are the wrong test: a
+                        // `set!` to a different capture-free function is just as
+                        // broken, and a capturing closure in a never-mutated
+                        // global is perfectly safe to bake.
+                        //
+                        // Normally unreachable, because callee globals are
+                        // usually still unbound when a caller is compiled at
+                        // construction time; tier-up is the first thing to
+                        // resolve them.
+                        if function.super_instructions().is_some()
+                            && self.non_mutable_globals.contains(&function_index)
+                        {
                             if function.tier2.is_none() {
                                 self.potentially_could_deopt = true;
                             }
@@ -3391,8 +3540,14 @@ impl FunctionTranslator<'_> {
                             if let Some((value, typ)) =
                                 self.inline_struct_call_no_drop(spec, arity, function_index)
                             {
+                                // `stack_to_ssa` *is* the translation loop, so a
+                                // `return` here would abandon the rest of the
+                                // function body and emit truncated code.
+                                // `inline_struct_call_no_drop` has already
+                                // advanced past the FUNC instruction, so just go
+                                // round again.
                                 self.push(value, typ);
-                                return true;
+                                continue;
                             }
                         }
                     }
@@ -3438,7 +3593,7 @@ impl FunctionTranslator<'_> {
                         // And, we actually have a super instruction
                         && self._globals.get(payload).map(|x| {
                             if let SteelVal::Closure(c) = x {
-                                c.super_instructions.is_some()
+                                c.super_instructions().is_some()
                             } else {
                                 false
                             }
@@ -6031,7 +6186,7 @@ impl FunctionTranslator<'_> {
                     MemFlagsData::trusted().with_readonly(),
                     closure,
                     // Offset for the RC payload
-                    16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
+                    16 + offset_of!(ByteCodeLambda, super_instructions_ptr) as i32,
                 );
 
                 let super_instruction_exists =
@@ -7619,6 +7774,7 @@ impl FunctionTranslator<'_> {
         let vm_ctx = self.get_ctx();
         let id = func.id;
 
+
         // TODO: Consider if we need to spill the whole stack here. We could also
         // just call drop, but writing the values to the stack will help us drop
         // them.
@@ -7626,7 +7782,14 @@ impl FunctionTranslator<'_> {
 
         let instr_fat_ptr = self.rooted_instructions_const(func.body_exp());
 
-        let jit_func_addr = func.super_instructions.unwrap().0.as_ptr() as u64;
+        // Deliberately *not* baking `func.super_instructions()` in as a
+        // constant. The callee's compiled body can be replaced later - a tier
+        // upgrade does exactly that - and a baked address would keep calling
+        // whatever was current when this caller happened to be compiled. The
+        // lambda pointer below is stable (its refcount is leaked), so load the
+        // entry point through it at run time instead; it is one dependent load
+        // on a line that is warm anyway, and it always reaches the newest body.
+        debug_assert!(func.super_instructions().is_some());
 
         func.clone().into_raw();
 
@@ -7672,7 +7835,13 @@ impl FunctionTranslator<'_> {
         );
 
         let sig_ref = self.create_jit_sig_ref();
-        let func_ptr = self.builder.ins().iconst(types::I64, jit_func_addr as i64);
+        let func_ptr = self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            lookup_index,
+            // Skip the refcount header to reach the lambda itself.
+            16 + offset_of!(ByteCodeLambda, super_instructions_ptr) as i32,
+        );
         self.builder
             .ins()
             .return_call_indirect(sig_ref, func_ptr, &args);
@@ -7717,7 +7886,7 @@ impl FunctionTranslator<'_> {
             MemFlagsData::trusted().with_readonly(),
             closure,
             // Offset for the RC payload
-            16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
+            16 + offset_of!(ByteCodeLambda, super_instructions_ptr) as i32,
         );
 
         let super_instruction_exists =

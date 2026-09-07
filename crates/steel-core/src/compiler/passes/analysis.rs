@@ -5468,6 +5468,34 @@ pub enum RequiredIdentifierInformation<'a> {
     Unresolved(InternedString, String, Option<InternedString>),
 }
 
+
+/// Every name that appears as the target of a `set!`, anywhere.
+///
+/// `non_mutated_globals` used to decide this from `set_bang` on the *define's*
+/// syntax object, but `visit_set` records the flag against `scope_info.id` -
+/// the id the scope map held for that name at the time - and after the id churn
+/// of `refresh_variables` the two need not agree. When they disagree the define
+/// looks unmutated, which is how `##mm10630__%#__label-counter` in `compiler.scm`
+/// ended up marked non-mutable despite an explicit `(set! label-counter ...)`
+/// in the same file. Collecting the targets by name sidesteps id identity
+/// entirely, which is the same fix already applied to the inliner's `set!`
+/// guard.
+#[derive(Default)]
+struct SetBangTargets {
+    names: std::collections::HashSet<InternedString>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for SetBangTargets {
+    fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
+        if let Some(name) = s.variable.atom_identifier() {
+            self.names.insert(*name);
+        }
+        self.visit(&s.expr);
+        self.visit(&s.variable);
+    }
+}
+
+
 impl<'a> SemanticAnalysis<'a> {
     pub fn into_analysis(self) -> Analysis {
         self.analysis
@@ -7430,6 +7458,14 @@ impl<'a> SemanticAnalysis<'a> {
         // Such that we can then grab the values
         let mut names = Vec::new();
 
+        // Collect `set!` targets by name first - see `SetBangTargets` for why
+        // the per-define `set_bang` flag cannot be trusted on its own.
+        let mut mutated = SetBangTargets::default();
+        for expr in self.exprs.iter() {
+            mutated.visit(expr);
+        }
+        let mutated = mutated.names;
+
         for expr in self.exprs.iter() {
             match expr {
                 ExprKind::Define(d) => {
@@ -7442,7 +7478,9 @@ impl<'a> SemanticAnalysis<'a> {
                     if let Some(analysis) = self.analysis.get(name) {
                         if !analysis.set_bang {
                             let name = d.name.atom_identifier().unwrap();
-                            names.push(*name);
+                            if !mutated.contains(name) {
+                                names.push(*name);
+                            }
                         }
                     }
                 }
@@ -7459,7 +7497,9 @@ impl<'a> SemanticAnalysis<'a> {
                             if let Some(analysis) = self.analysis.get(name) {
                                 if !analysis.set_bang {
                                     let name = d.name.atom_identifier().unwrap();
-                                    names.push(*name);
+                                    if !mutated.contains(name) {
+                                        names.push(*name);
+                                    }
                                 }
                             }
                         }

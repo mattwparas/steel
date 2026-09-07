@@ -111,7 +111,7 @@ pub type CaptureVec = steel_vec::Vec<SteelVal>;
 pub type CaptureVec = smallvec::SmallVec<[SteelVal; INLINE_CAPTURE_SIZE]>;
 
 #[repr(C)]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ByteCodeLambda {
     pub(crate) id: u32,
     pub(crate) arity: u16,
@@ -146,11 +146,61 @@ pub struct ByteCodeLambda {
     #[cfg(not(feature = "sync"))]
     contract: MutContainer<Option<StructRef>>,
 
+    /// The compiled entry point, or null when not compiled.
+    ///
+    /// Atomic rather than a plain `Option<JitFnPointer>` so a tier upgrade can
+    /// install a newly compiled body on a lambda that is already shared. The
+    /// layout is unchanged - `Option<JitFnPointer>` is niche-optimised to a
+    /// single pointer with `None == null` - which matters because generated
+    /// code loads this field by raw offset. That load is marked readonly, so a
+    /// caller may keep using the previous pointer for a while; that is slower,
+    /// never wrong, since the old code stays valid (the JIT arena never frees).
     #[cfg(feature = "jit2")]
-    pub(crate) super_instructions: Option<JitFnPointer>,
+    pub(crate) super_instructions_ptr: core::sync::atomic::AtomicPtr<u8>,
 
     #[cfg(feature = "jit2")]
     pub(crate) tier2: Option<JitFnPointer>,
+
+    /// How many times generated code for this function has fallen back to a
+    /// deopt helper. Drives tier-up: a function compiled before the globals it
+    /// calls were bound can never specialise those calls, and only a recompile
+    /// against the current environment fixes it.
+    #[cfg(feature = "jit2")]
+    pub(crate) deopt_count: core::sync::atomic::AtomicUsize,
+
+    /// Set once a tier upgrade has been attempted, so a function that still
+    /// deopts afterwards is not recompiled forever.
+    #[cfg(feature = "jit2")]
+    pub(crate) retiered: core::sync::atomic::AtomicBool,
+}
+
+// Hand written because the jit fields are atomics, which are neither Clone nor
+// Debug-derivable in a shared struct. A clone starts its own tier-up bookkeeping
+// but inherits the compiled body, which stays valid for any number of lambdas.
+#[cfg(feature = "jit2")]
+impl Clone for ByteCodeLambda {
+    fn clone(&self) -> Self {
+        use core::sync::atomic::Ordering::Relaxed;
+        Self {
+            id: self.id,
+            arity: self.arity,
+            is_multi_arity: self.is_multi_arity,
+            header: self.header,
+            body_exp: self.body_exp.clone(),
+            #[cfg(feature = "dynamic")]
+            call_count: self.call_count.clone(),
+            captures: self.captures.clone(),
+            #[cfg(feature = "dynamic")]
+            blocks: self.blocks.clone(),
+            contract: self.contract.clone(),
+            super_instructions_ptr: core::sync::atomic::AtomicPtr::new(
+                self.super_instructions_ptr.load(Relaxed),
+            ),
+            tier2: self.tier2,
+            deopt_count: core::sync::atomic::AtomicUsize::new(0),
+            retiered: core::sync::atomic::AtomicBool::new(self.retiered.load(Relaxed)),
+        }
+    }
 }
 
 impl Default for ByteCodeLambda {
@@ -164,7 +214,9 @@ impl Default for ByteCodeLambda {
             contract: SharedMut::new(MutContainer::new(None)),
             captures: Default::default(),
             #[cfg(feature = "jit2")]
-            super_instructions: None,
+            super_instructions_ptr: core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()),
+            deopt_count: core::sync::atomic::AtomicUsize::new(0),
+            retiered: core::sync::atomic::AtomicBool::new(false),
 
             #[cfg(feature = "jit2")]
             tier2: None,
@@ -283,6 +335,45 @@ impl core::ops::Deref for RootedInstructions {
 }
 
 impl ByteCodeLambda {
+
+    /// The compiled entry point for this function, if it has one.
+    #[cfg(feature = "jit2")]
+    #[inline]
+    pub(crate) fn super_instructions(&self) -> Option<JitFnPointer> {
+        core::ptr::NonNull::new(
+            self.super_instructions_ptr
+                .load(core::sync::atomic::Ordering::Relaxed),
+        )
+        .map(JitFnPointer)
+    }
+
+    /// Install a compiled body. Safe to call on a shared lambda: readers either
+    /// see the old pointer or the new one, and both are valid code.
+    #[cfg(feature = "jit2")]
+    #[inline]
+    pub(crate) fn set_super_instructions(&self, pointer: Option<JitFnPointer>) {
+        let raw = pointer.map_or(core::ptr::null_mut(), |p| p.0.as_ptr());
+        self.super_instructions_ptr
+            .store(raw, core::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Record a deopt and report whether this function should now be recompiled.
+    /// Returns true exactly once per function.
+    #[cfg(feature = "jit2")]
+    pub(crate) fn note_deopt_should_retier(&self, threshold: usize) -> bool {
+        use core::sync::atomic::Ordering::Relaxed;
+        if self.retiered.load(Relaxed) || self.super_instructions().is_none() {
+            return false;
+        }
+        let seen = self.deopt_count.fetch_add(1, Relaxed) + 1;
+        if seen < threshold {
+            return false;
+        }
+        // compare_exchange so concurrent threads cannot both start a recompile
+        self.retiered
+            .compare_exchange(false, true, Relaxed, Relaxed)
+            .is_ok()
+    }
     pub fn new(
         id: u32,
         body_exp: InstructionPointer<[DenseInstruction]>,
@@ -316,7 +407,9 @@ impl ByteCodeLambda {
             blocks: RefCell::new(Vec::new()),
 
             #[cfg(feature = "jit2")]
-            super_instructions: None,
+            super_instructions_ptr: core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()),
+            deopt_count: core::sync::atomic::AtomicUsize::new(0),
+            retiered: core::sync::atomic::AtomicBool::new(false),
 
             header: None,
 
@@ -335,7 +428,11 @@ impl ByteCodeLambda {
             captures,
             contract: proto.contract.clone(),
             #[cfg(feature = "jit2")]
-            super_instructions: proto.super_instructions,
+            super_instructions_ptr: core::sync::atomic::AtomicPtr::new(
+                proto.super_instructions_ptr.load(core::sync::atomic::Ordering::Relaxed),
+            ),
+            deopt_count: core::sync::atomic::AtomicUsize::new(0),
+            retiered: core::sync::atomic::AtomicBool::new(false),
             #[cfg(feature = "jit2")]
             tier2: proto.tier2,
         }
