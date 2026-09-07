@@ -5189,6 +5189,16 @@ impl FlattenEmptyLets {
     }
 }
 
+fn lift_in_place_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        matches!(
+            std::env::var("STEEL_LIFT_IN_PLACE").ok().as_deref(),
+            Some("1") | Some("true")
+        )
+    })
+}
+
 impl VisitorMutRefUnit for FlattenEmptyLets {
     fn visit(&mut self, expr: &mut ExprKind) {
         match expr {
@@ -7247,9 +7257,14 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn lift_closures(&mut self) -> &mut Self {
         let mut lifter = LiftClosuresToGlobalScope::new(&self.analysis);
+        // How many functions had been lifted by the time each top level
+        // expression was visited, so they can be put back next to the
+        // expression they came out of rather than all at the front.
+        let mut lifted_by_expr = Vec::with_capacity(self.exprs.len());
         for expr in self.exprs.iter_mut() {
             lifter.visit(expr);
             lifter.found_funcs.clear();
+            lifted_by_expr.push(lifter.lifted_functions.len());
         }
 
         if lifter.lifted_functions.is_empty() {
@@ -7283,8 +7298,33 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
-        lifter.lifted_functions.append(&mut self.exprs);
-        *self.exprs = lifter.lifted_functions;
+        // Placing every lifted function at the front means it is *constructed*
+        // - and so jit compiled - before the requires and defines it calls have
+        // run, leaving the JIT nothing to specialise against. Emitting each one
+        // just ahead of the expression it was lifted out of keeps it top level
+        // without moving it past its own dependencies.
+        if lift_in_place_enabled() {
+            let lifted = std::mem::take(&mut lifter.lifted_functions);
+            let originals = std::mem::take(&mut *self.exprs);
+            let mut out = Vec::with_capacity(lifted.len() + originals.len());
+            let mut lifted = lifted.into_iter();
+            let mut taken = 0usize;
+            for (i, expr) in originals.into_iter().enumerate() {
+                let upto = lifted_by_expr[i];
+                while taken < upto {
+                    if let Some(f) = lifted.next() {
+                        out.push(f);
+                    }
+                    taken += 1;
+                }
+                out.push(expr);
+            }
+            out.extend(lifted);
+            *self.exprs = out;
+        } else {
+            lifter.lifted_functions.append(&mut self.exprs);
+            *self.exprs = lifter.lifted_functions;
+        }
 
         self.changed = true;
         self.analysis.fresh_from_exprs(self.exprs);

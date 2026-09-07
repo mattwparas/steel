@@ -7953,6 +7953,23 @@ impl FunctionTranslator<'_> {
         function_index: usize,
         tail: bool,
     ) -> Value {
+        // TEMPORARY DIAGNOSTIC: what did the global hold when we gave up on it?
+        if std::env::var_os("STEEL_WHY_DEOPT").is_some() {
+            let what = match self._globals.get(function_index) {
+                None => "ABSENT (index past end of roots)".to_string(),
+                Some(SteelVal::Void) => "Void (declared, not yet assigned)".to_string(),
+                Some(SteelVal::Closure(c)) => {
+                    format!("Closure(compiled={})", c.super_instructions().is_some())
+                }
+                Some(SteelVal::BoxedFunction(_)) => "BoxedFunction".to_string(),
+                Some(SteelVal::FuncV(_)) => "FuncV".to_string(),
+                Some(SteelVal::BuiltIn(_)) => "BuiltIn".to_string(),
+                Some(other) => format!("{:?}", std::mem::discriminant(other)),
+            };
+            let spec = self._globals.get(function_index).cloned()
+                .and_then(create_struct_spec).is_some();
+            eprintln!("why-deopt: idx={function_index} tail={tail} at-compile-time={what} struct_spec={spec}");
+        }
         let local_callee = self.get_local_callee(name);
 
         let ctx = self.get_ctx();
