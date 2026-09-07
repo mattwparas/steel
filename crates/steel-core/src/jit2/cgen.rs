@@ -3405,54 +3405,17 @@ impl FunctionTranslator<'_> {
                         // Take this fast path if the super instructions already exists.
                         // Then we can do a direct call.
                         //
-                        // Only when the callee captures nothing. `inline_global_tail_call`
-                        // bakes *this particular* `Gc<ByteCodeLambda>` into the generated
-                        // code, and for a closure the captured values live on the instance -
-                        // so a later instantiation of the same lambda, with different
-                        // captures, would be called with the captures of whichever instance
-                        // happened to be in the global when this caller was compiled.
-                        // A capture-free top level function has only one instance, so
-                        // baking it is safe.
+                        // We bake *this particular* `Gc<ByteCodeLambda>` into the generated
+                        // code, so this is only sound when the global can never come to hold
+                        // anything else - which is what the analysis records in
+                        // `reified_non_mutable`. Captures are how this surfaced, but they're
+                        // the wrong test: a `set!` to a different capture-free function breaks
+                        // it just as badly, and a capturing closure in a never-mutated global
+                        // is perfectly fine to bake.
                         //
-                        // This is normally unreachable, because callee globals are usually
-                        // still unbound when a caller is compiled at construction time -
-                        // which is why it survived until tier-up started resolving them.
-                        // `inline_global_tail_call` bakes *this particular*
-                        // `Gc<ByteCodeLambda>` into the generated code, so it is
-                        // only sound when the global can never come to hold
-                        // anything else. That is exactly what the analysis
-                        // records in `reified_non_mutable`: globals never `set!`.
-                        //
-                        // Captures are what made the bug visible - `compiler`
-                        // does `(set! label-counter (bbs-lbl-counter bbs))` with
-                        // a closure over `next`/`limit`, and calls kept reaching
-                        // the first instance's captures - but "no captures" is
-                        // neither necessary nor sufficient: a `set!` to a
-                        // different capture-free function breaks it just as
-                        // badly, and a closure in a never-mutated global is fine.
-                        //
-                        // Normally unreachable, because callee globals are
-                        // usually still unbound when a caller is compiled at
-                        // construction time; tier-up is the first thing to
-                        // resolve them.
-                        // `inline_global_tail_call` bakes *this particular*
-                        // `Gc<ByteCodeLambda>` into the generated code, so it is
-                        // only sound when the global can never come to hold
-                        // anything else - which is exactly what the analysis
-                        // records in `reified_non_mutable`.
-                        //
-                        // Captures are how the bug surfaced (`compiler` does
-                        // `(set! label-counter ...)` with a closure over
-                        // `next`/`limit`, and calls kept reaching the first
-                        // instance's captures) but they are the wrong test: a
-                        // `set!` to a different capture-free function is just as
-                        // broken, and a capturing closure in a never-mutated
-                        // global is perfectly safe to bake.
-                        //
-                        // Normally unreachable, because callee globals are
-                        // usually still unbound when a caller is compiled at
-                        // construction time; tier-up is the first thing to
-                        // resolve them.
+                        // Normally unreachable, since callee globals are usually still unbound
+                        // when a caller is compiled at construction time; tier-up is the first
+                        // thing to resolve them.
                         if function.super_instructions().is_some()
                             && self.non_mutable_globals.contains(&function_index)
                         {
@@ -3470,14 +3433,12 @@ impl FunctionTranslator<'_> {
 
                         return false;
                     } else {
-                        // A tail call to a primitive the JIT can emit directly
-                        // does not need the generic deopt helper at all. This
-                        // is the single hottest path in the suite: mutable
-                        // struct fields are boxes, so `(#%unbox (getter ...))`
-                        // and `#%set-box!` land here, and on `destruc` alone
-                        // that is 1.6 billion trips through a helper that
+                        // A tail call to a primitive we can emit directly doesn't
+                        // need the generic deopt helper at all. Mutable struct
+                        // fields are boxes, so `(#%unbox (getter ...))` and
+                        // `#%set-box!` land here constantly, and the helper just
                         // re-looks-up the global and re-matches on its kind -
-                        // both of which are already known right here.
+                        // both of which we already know right here.
                         if let Some(value) = self.inline_primitive_tail_call(func.as_ref(), arity) {
                             self.spill_cloned_stack();
                             let real_res = self.inline_handle_pop(value);
@@ -3527,12 +3488,10 @@ impl FunctionTranslator<'_> {
                     // into the value, and then also leak the ref count here and embed it
                     // directly into the generated code, so that we can call the function
                     // without needing to look it up?
-                    // Struct constructors, predicates and getters are worth
-                    // recognising here for the same reason `call_global_impl`
-                    // does it: this opcode had no such check, so every one of
-                    // them went out through the generic deopt helper even
-                    // though the JIT can emit them directly. `mpair?` alone was
-                    // 1.24 billion of those on `destruc`.
+                    // Recognise struct constructors, predicates and getters here
+                    // for the same reason `call_global_impl` does - this opcode
+                    // had no such check, so all of them went out through the
+                    // generic deopt helper even though we can emit them directly.
                     if INLINE_STRUCT_FUNCTION_CALLS {
                         if let Some(spec) =
                             self._globals.get(function_index).cloned().and_then(create_struct_spec)
@@ -4964,11 +4923,9 @@ impl FunctionTranslator<'_> {
                 // This is where we have to be better; use the registers, use the constants,
                 // and inline the numeric ops since these are likely to be extremely common.
                 // The arms above need one side to be a compile-time constant or a
-                // register. Generic numeric code rarely obliges, so `=` on two
-                // ordinary values fell all the way through to a runtime helper -
-                // 37% of `triangl`. Check both tags instead: when they are both
-                // ints the comparison is a single `icmp`, and everything else
-                // still reaches the same helper it used to.
+                // register, which generic numeric code rarely obliges. Check both
+                // tags instead: when they're both ints the comparison is a single
+                // `icmp`, and everything else still reaches the same helper.
                 OpCode::NUMEQUAL if payload == 2 && generic_inline_enabled() => {
                     let res = self.inline_int_compare_two(IntCC::Equal, "num-equal-value-bool");
                     self.push(res, InferredType::UnboxedBool);
@@ -4993,9 +4950,9 @@ impl FunctionTranslator<'_> {
                 //     // do something inline?
                 //     self.gte()
                 // }
-                // Same story as NUMEQUAL above: the specialised arms all want a
-                // register or a constant, so a comparison between two ordinary
-                // values went out to a helper every time - 19% of `cpstak`.
+                // Same story as NUMEQUAL above - the specialised arms all want a
+                // register or a constant, so two ordinary values went out to a
+                // helper every time.
                 OpCode::LTE | OpCode::GTE | OpCode::LT | OpCode::GT
                     if payload == 2 && generic_inline_enabled() =>
                 {

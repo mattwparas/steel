@@ -160,8 +160,7 @@ fn retier_enabled() -> bool {
 /// level function is during module loading. Any global it calls that is bound
 /// by a later module is simply absent from `global_env.roots()` at that moment,
 /// so `cgen` cannot specialise the call and emits a generic deopt helper -
-/// permanently, because nothing ever revisits the decision. On `destruc` that
-/// left 35 of 91 `mpair?` call sites deopting forever, ~1.24 billion times.
+/// permanently, because nothing ever revisits the decision.
 ///
 /// Recompiling is safe on a shared lambda:
 ///   - the new pointer is installed atomically, and callers that cached the old
@@ -264,8 +263,7 @@ pub(crate) fn defer_initial_compile() -> bool {
 ///
 /// Compiling at construction means specialising against whatever globals happen
 /// to be bound at that moment, which for a module level function is partway
-/// through module loading - see the deopt census in `destruc`, where 35 of 91
-/// `mpair?` call sites could not resolve the callee and deopted forever.
+/// through module loading, so calls to globals bound later deopt forever.
 /// Waiting until the function has actually been called a few times means the
 /// first and only compile sees a complete environment.
 ///

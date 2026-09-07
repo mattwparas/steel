@@ -5475,11 +5475,9 @@ pub enum RequiredIdentifierInformation<'a> {
 /// syntax object, but `visit_set` records the flag against `scope_info.id` -
 /// the id the scope map held for that name at the time - and after the id churn
 /// of `refresh_variables` the two need not agree. When they disagree the define
-/// looks unmutated, which is how `##mm10630__%#__label-counter` in `compiler.scm`
-/// ended up marked non-mutable despite an explicit `(set! label-counter ...)`
-/// in the same file. Collecting the targets by name sidesteps id identity
-/// entirely, which is the same fix already applied to the inliner's `set!`
-/// guard.
+/// looks unmutated even though it is plainly `set!` elsewhere in the same file.
+/// Collecting the targets by name sidesteps id identity entirely, which is the
+/// same fix already applied to the inliner's `set!` guard.
 #[derive(Default)]
 struct SetBangTargets {
     names: std::collections::HashSet<InternedString>,

@@ -2277,9 +2277,8 @@ impl<'a> FunctionTranslator<'a> {
             }
             // A struct predicate is a tag check and a descriptor compare - no
             // field access, no allocation, and at the correct arity no error
-            // path at all. It was the single hottest deopt in the whole suite
-            // (`mpair?`, 1.25 billion calls on `destruc`) purely because this
-            // arm was a `todo!()`.
+            // path at all. This arm used to be a `todo!()`, so all of them
+            // deopted.
             //
             // Restricted to a borrowed register operand: the predicate does not
             // retain its argument, so with a register there is no ownership to

@@ -155,17 +155,14 @@ impl SymbolMap {
             .pop_next_free()
             .unwrap_or_else(|| self.values.len());
 
-        // `reified_non_mutable` records *indices* whose symbol the analysis
-        // proved is never `set!`, and it accumulates across compilation units.
-        // Indices are recycled through the free list, though - in one run of
-        // `compiler.scm`, 2016 of 4162 indices are handed to more than one
-        // symbol, and index 493 alone serves `assq`, `bytevector-copy`, `eval`
-        // and `#%gc-collect`. Without this, a slot marked non-mutable for one
-        // symbol keeps that mark for whatever is bound there next, and callers
-        // that bake a global's value into generated code trust it wrongly.
-        // Clearing on (re)binding means the flag only ever describes the symbol
-        // currently occupying the slot; the reify pass re-adds it if the new
-        // occupant qualifies.
+        // `reified_non_mutable` records *indices* whose symbol was proved
+        // never `set!`, and it accumulates across compilation units. Indices
+        // get recycled through the free list though, so without this a slot
+        // marked non-mutable for one symbol keeps that mark for whatever is
+        // bound there next - and callers that bake a global's value into
+        // generated code then trust it wrongly. Clearing on (re)binding means
+        // the flag only describes the symbol currently in the slot; the reify
+        // pass re-adds it if the new occupant qualifies.
         self.reified_non_mutable.remove(&idx);
 
         if USE_LIFTED_LAMBDAS_AS_ROOTS {
