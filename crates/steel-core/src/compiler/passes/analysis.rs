@@ -5189,12 +5189,14 @@ impl FlattenEmptyLets {
     }
 }
 
+/// `STEEL_LIFT_IN_PLACE=false` restores the old behaviour of emitting every
+/// lifted function at the front of the program.
 fn lift_in_place_enabled() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
-        matches!(
+        !matches!(
             std::env::var("STEEL_LIFT_IN_PLACE").ok().as_deref(),
-            Some("1") | Some("true")
+            Some("0") | Some("false")
         )
     })
 }

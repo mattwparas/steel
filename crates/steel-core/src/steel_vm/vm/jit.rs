@@ -83,261 +83,14 @@ fn non_mutable_globals(ctx: &VmCore) -> std::collections::HashSet<usize> {
         .clone()
 }
 
-/// How many deopts a function may take before it is recompiled.
-const RETIER_DEOPT_THRESHOLD: usize = 64;
 
-/// Bisection aids. `STEEL_JIT_RETIER_MAX=N` allows only the first N tier-ups;
-/// `STEEL_JIT_RETIER_ONLY=a,b,c` restricts them to those function ids;
-/// `STEEL_JIT_RETIER_SKIP=a,b,c` excludes those. Order is deterministic for a
-/// deterministic program, so a binary search on MAX finds the first tier-up
-/// that breaks a benchmark.
-fn retier_max() -> Option<usize> {
-    static N: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
-    *N.get_or_init(|| {
-        std::env::var("STEEL_JIT_RETIER_MAX")
-            .ok()
-            .and_then(|x| x.parse::<usize>().ok())
-    })
-}
 
-fn retier_id_filter(var: &str) -> Option<Vec<u32>> {
-    let raw = std::env::var(var).ok()?;
-    Some(
-        raw.split(',')
-            .filter_map(|x| x.trim().parse::<u32>().ok())
-            .collect(),
-    )
-}
 
-fn retier_only() -> &'static Option<Vec<u32>> {
-    static V: std::sync::OnceLock<Option<Vec<u32>>> = std::sync::OnceLock::new();
-    V.get_or_init(|| retier_id_filter("STEEL_JIT_RETIER_ONLY"))
-}
 
-fn retier_skip() -> &'static Option<Vec<u32>> {
-    static V: std::sync::OnceLock<Option<Vec<u32>>> = std::sync::OnceLock::new();
-    V.get_or_init(|| retier_id_filter("STEEL_JIT_RETIER_SKIP"))
-}
 
-static RETIER_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
-/// Whether this particular function may be tiered up, honouring the bisection
-/// filters. Counted only when it would actually happen, so MAX numbers the
-/// tier-ups that occur rather than the attempts.
-fn retier_allowed(id: u32) -> bool {
-    if let Some(only) = retier_only().as_ref() {
-        if !only.contains(&id) {
-            return false;
-        }
-    }
-    if let Some(skip) = retier_skip().as_ref() {
-        if skip.contains(&id) {
-            return false;
-        }
-    }
-    if let Some(max) = retier_max() {
-        let n = RETIER_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if n >= max {
-            return false;
-        }
-    }
-    true
-}
 
-fn retier_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        matches!(
-            std::env::var("STEEL_JIT_RETIER").ok().as_deref(),
-            Some("1") | Some("true")
-        )
-    })
-}
 
-/// Recompile a function against the *current* global environment.
-///
-/// `jit_compile_lambda` runs when a closure is constructed, which for a module
-/// level function is during module loading. Any global it calls that is bound
-/// by a later module is simply absent from `global_env.roots()` at that moment,
-/// so `cgen` cannot specialise the call and emits a generic deopt helper -
-/// permanently, because nothing ever revisits the decision.
-///
-/// Recompiling is safe on a shared lambda:
-///   - the new pointer is installed atomically, and callers that cached the old
-///     one keep running valid code (the JIT arena never frees), so a stale read
-///     is slower, never wrong;
-///   - the shared `body_exp` is not mutated - the first instruction was patched
-///     to `DynSuperInstruction` after the original compile, so a repaired copy
-///     with the saved `header` opcode is handed to the compiler instead;
-///   - the symbol gets a distinct name, since cranelift hands back the cached
-///     body for a name it has already defined.
-fn retier_lambda(ctx: &mut VmCore, function: &Gc<ByteCodeLambda>) {
-    if !retier_allowed(function.id) {
-        return;
-    }
-
-    let Some(header) = function.header else {
-        // Never compiled through the normal path; nothing to repair.
-        return;
-    };
-
-    let mut code: Vec<DenseInstruction> = function.body_exp.iter().copied().collect();
-    if code.is_empty() {
-        return;
-    }
-    code[0].op_code = header;
-
-    // The id has to stay numeric - cgen parses it - so the fresh symbol comes
-    // from the generation instead.
-    let non_mutable_globals = non_mutable_globals(ctx);
-    let mut jit = ctx.thread.jit.lock().unwrap_or_else(|e| e.into_inner());
-
-    // Must be the table this body was compiled against, not the thread's
-    // current one - `SteelThread::constant_map` is replaced as modules load.
-    let Some(constants) = jit.constants_for(function.id) else {
-        return;
-    };
-
-    // `translate` records this function's exit types under its id, and *other*
-    // functions consult that when specialising calls to it. A tier-up must not
-    // disturb what they were compiled against, so snapshot and restore.
-    let saved_return_types = jit.take_return_types(function.id);
-
-    let compiled = jit.compile_bytecode_generation(
-        function.id.to_string(),
-        function.arity,
-        &code,
-        &ctx.thread.global_env.roots(),
-        &constants,
-        None,
-        None,
-        None,
-        1,
-        &non_mutable_globals,
-    );
-
-    jit.restore_return_types(function.id, saved_return_types);
-    drop(jit);
-
-    if let Ok(pointer) = compiled {
-        function.set_super_instructions(Some(pointer));
-        if std::env::var_os("STEEL_JIT_RETIER_LOG").is_some() {
-            eprintln!("retier: recompiled function id {}", function.id);
-        }
-    }
-}
-
-/// Called from the deopt helpers: charge the deopt to whatever function is
-/// currently executing, and tier it up once it has taken enough of them.
-fn note_deopt(ctx: &mut VmCore) {
-    if !retier_enabled() {
-        return;
-    }
-
-    let Some(current) = ctx.thread.stack_frames.last().map(|f| f.function.clone()) else {
-        return;
-    };
-
-    if current.note_deopt_should_retier(RETIER_DEOPT_THRESHOLD) {
-        retier_lambda(ctx, &current);
-    }
-}
-
-/// Compile after this many calls when deferral is enabled.
-fn defer_threshold() -> Option<usize> {
-    static N: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
-    *N.get_or_init(|| {
-        std::env::var("STEEL_JIT_DEFER")
-            .ok()
-            .and_then(|x| x.parse::<usize>().ok())
-            .filter(|x| *x > 0)
-    })
-}
-
-/// True when a lambda should be left uncompiled at construction.
-pub(crate) fn defer_initial_compile() -> bool {
-    defer_threshold().is_some()
-}
-
-/// Compile a function that was deliberately left uncompiled at construction.
-///
-/// Compiling at construction means specialising against whatever globals happen
-/// to be bound at that moment, which for a module level function is partway
-/// through module loading, so calls to globals bound later deopt forever.
-/// Waiting until the function has actually been called a few times means the
-/// first and only compile sees a complete environment.
-///
-/// Unlike a tier-up this needs no repair, no fresh symbol and no id-keyed state
-/// juggling: it *is* the ordinary first compile, just later. It does have to
-/// patch the entry opcode so the interpreter dispatches into the new code,
-/// which the construction-time path also does.
-pub(crate) fn compile_deferred(ctx: &mut VmCore, closure: &Gc<ByteCodeLambda>) {
-    if closure.super_instructions().is_some() {
-        return;
-    }
-
-    let code: Vec<DenseInstruction> = closure.body_exp.iter().copied().collect();
-    if code.is_empty() || code.iter().any(|x| matches!(x.op_code, OpCode::PUREFUNC)) {
-        return;
-    }
-
-    if !jit_should_compile(closure.id) || ctx.thread.compiler.read().kernel.is_none() {
-        return;
-    }
-
-    let non_mutable_globals = non_mutable_globals(ctx);
-    let compiled = ctx
-        .thread
-        .jit
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .compile_bytecode(
-            closure.id.to_string(),
-            closure.arity,
-            &code,
-            &ctx.thread.global_env.roots(),
-            &ctx.thread.constant_map,
-            None,
-            None,
-            None,
-                    &non_mutable_globals,
-        );
-
-    let Ok(pointer) = compiled else {
-        // Mark it so we do not try again on every call.
-        closure.retiered.store(true, core::sync::atomic::Ordering::Relaxed);
-        return;
-    };
-
-    closure.set_super_instructions(Some(pointer));
-
-    // The interpreter enters native code by seeing this opcode at the head of
-    // the body, so it has to be installed for the compile to take effect.
-    unsafe {
-        let body = &closure.body_exp;
-        let ptr = body.as_ptr() as *mut DenseInstruction;
-        (*ptr).op_code = OpCode::DynSuperInstruction;
-    }
-
-    if std::env::var_os("STEEL_JIT_DEFER_LOG").is_some() {
-        eprintln!("defer: compiled function id {}", closure.id);
-    }
-}
-
-/// Count a call and compile once the function looks worth it.
-pub(crate) fn note_call_for_deferred_compile(ctx: &mut VmCore, closure: &Gc<ByteCodeLambda>) {
-    let Some(threshold) = defer_threshold() else {
-        return;
-    };
-    use core::sync::atomic::Ordering::Relaxed;
-    if closure.super_instructions().is_some() || closure.retiered.load(Relaxed) {
-        return;
-    }
-    let seen = closure.deopt_count.fetch_add(1, Relaxed) + 1;
-    if seen >= threshold {
-        compile_deferred(ctx, closure);
-    }
-}
 
 pub(crate) fn jit_compile_lambda(
     ctx: &mut VmCore,
@@ -354,12 +107,6 @@ pub(crate) fn jit_compile_lambda(
     }
 
     if !jit_should_compile(func.id) {
-        return func;
-    }
-
-    // Deferred mode: leave it as bytecode and let the call path compile it once
-    // the global environment is complete.
-    if defer_initial_compile() {
         return func;
     }
 
@@ -3780,7 +3527,6 @@ fn new_callglobal_tail_handler_deopt_test(
     if deopt_census_enabled() {
         record_deopt(&func, index, ctx);
     }
-    note_deopt(ctx);
 
     // inspect(ctx, &[func.clone()]);
     // println!("What is left on the stack: {:#?}", ctx.thread.stack);
@@ -6082,7 +5828,6 @@ fn call_global_function_deopt(
     if deopt_census_enabled() {
         record_deopt(&func, lookup_index, ctx);
     }
-    note_deopt(ctx);
 
     // println!("---> Calling function: {} - {:?}", func, args);
 

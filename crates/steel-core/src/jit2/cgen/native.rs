@@ -2044,23 +2044,6 @@ impl<'a> FunctionTranslator<'a> {
     ) -> Option<(Value, InferredType)> {
         let args = self.shadow_stack.get(self.shadow_stack.len() - arity..)?;
 
-        // TEMPORARY DIAGNOSTIC: which spec/operand shapes are we declining?
-        if std::env::var_os("STEEL_WHY_DEOPT").is_some() {
-            let shape: Vec<&str> = args
-                .iter()
-                .map(|a| match a {
-                    MaybeStackValue::Register(_) => "Register",
-                    MaybeStackValue::MutRegister(_) => "MutRegister",
-                    MaybeStackValue::Value(_) => "Value",
-                    MaybeStackValue::Constant(_) => "Constant",
-                })
-                .collect();
-            eprintln!(
-                "struct-inline: idx={function_index} typ={:?} arity={arity} args={shape:?}",
-                spec.typ
-            );
-        }
-
         match spec.typ {
             // TODO: We need to include the arity checks properly! The constructor / spec should be able to include
             // it and then we can make this happen properly with avoiding the checks for the arity!

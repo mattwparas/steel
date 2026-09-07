@@ -125,13 +125,6 @@ pub struct JIT {
 
     function_map: OwnedFunctionMap,
 
-    /// The constant map each function was compiled against, keyed by function
-    /// id. `SteelThread::constant_map` is *replaced* as modules load, so a
-    /// later recompile that used the thread's current map would resolve the
-    /// function's constant indices against the wrong table - which shows up as
-    /// nonsense values rather than a crash. Cloning is three refcount bumps.
-    compiled_constants: HashMap<u32, ConstantMap>,
-
     names: HashMap<u32, String>,
 
     // Names that made it all the way through define_function. `compile` declares a
@@ -1365,7 +1358,6 @@ impl Default for JIT {
             ctx: module.make_context(),
             module,
             function_map,
-            compiled_constants: Default::default(),
             names: Default::default(),
             defined: Default::default(),
             function_return_types: Default::default(),
@@ -1400,7 +1392,6 @@ unsafe fn compile_bytecode(
     function_index: Option<usize>,
     slot: Option<&Gc<ByteCodeLambda>>,
     top_level_name: Option<InternedString>,
-    generation: u32,
     non_mutable_globals: &HashSet<usize>,
 ) -> Result<JitFnPointer, String> {
     let code_ptr = jit.compile(
@@ -1412,7 +1403,6 @@ unsafe fn compile_bytecode(
         function_index,
         slot,
         top_level_name,
-        generation,
         non_mutable_globals,
     )?;
     let code_fn = JitFnPointer(NonNull::new_unchecked(code_ptr.cast_mut()));
@@ -1490,28 +1480,6 @@ fn write_perf_map_entry(addr: *const u8, size: usize, name: &str) {
 }
 
 impl JIT {
-    /// The constant map a function was originally compiled against, if the JIT
-    /// has seen it. A tier-up must reuse this rather than the thread's current
-    /// map - see the field's comment.
-    pub fn take_return_types(&mut self, id: u32) -> Option<HashSet<InferredType>> {
-        self.function_return_types.get(&id).cloned()
-    }
-
-    pub fn restore_return_types(&mut self, id: u32, saved: Option<HashSet<InferredType>>) {
-        match saved {
-            Some(types) => {
-                self.function_return_types.insert(id, types);
-            }
-            None => {
-                self.function_return_types.remove(&id);
-            }
-        }
-    }
-
-    pub fn constants_for(&self, id: u32) -> Option<ConstantMap> {
-        self.compiled_constants.get(&id).cloned()
-    }
-
     pub fn compile_bytecode(
         &mut self,
         name: String,
@@ -1522,39 +1490,6 @@ impl JIT {
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
         top_level_name: Option<InternedString>,
-        non_mutable_globals: &HashSet<usize>,
-    ) -> Result<JitFnPointer, String> {
-        self.compile_bytecode_generation(
-            name,
-            arity,
-            code,
-            globals,
-            constants,
-            function_index,
-            slot,
-            top_level_name,
-            0,
-            non_mutable_globals,
-        )
-    }
-
-    /// As `compile_bytecode`, but emitting under a distinct symbol so the same
-    /// function can be compiled more than once. Cranelift hands back the cached
-    /// body for a symbol it has already defined, so a tier upgrade has to ask
-    /// for a new one; `generation` is only part of the symbol, and the numeric
-    /// id stays the real function id.
-    #[allow(clippy::too_many_arguments)]
-    pub fn compile_bytecode_generation(
-        &mut self,
-        name: String,
-        arity: u16,
-        code: &[DenseInstruction],
-        globals: &[SteelVal],
-        constants: &ConstantMap,
-        function_index: Option<usize>,
-        slot: Option<&Gc<ByteCodeLambda>>,
-        top_level_name: Option<InternedString>,
-        generation: u32,
         non_mutable_globals: &HashSet<usize>,
     ) -> Result<JitFnPointer, String> {
         unsafe {
@@ -1568,7 +1503,6 @@ impl JIT {
                 function_index,
                 slot,
                 top_level_name,
-                generation,
                 non_mutable_globals,
             )
         }
@@ -1662,28 +1596,18 @@ impl JIT {
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
         top_level_name: Option<InternedString>,
-        generation: u32,
         non_mutable_globals: &HashSet<usize>,
     ) -> Result<*const u8, String> {
         let id = str::parse::<u32>(&name).unwrap();
 
-        let suffix = if generation == 0 {
-            String::new()
-        } else {
-            format!("_g{}", generation)
-        };
-
         let inner_name = if let Some(top_level_name) = top_level_name {
-            format!("{}_{}_inner{}", top_level_name, name, suffix)
+            format!("{}_{}_inner", top_level_name, name)
         } else {
             // Store the name
-            format!("{}_inner{}", name, suffix)
+            format!("{}_inner", name)
         };
 
         self.names.insert(id, inner_name.clone());
-        // Remember which constant table this body was compiled against, so a
-        // later tier-up can reuse it rather than whatever the thread holds then.
-        self.compiled_constants.insert(id, constants.clone());
 
         // self.ctx.set_disasm(true);
 
@@ -6143,7 +6067,7 @@ impl FunctionTranslator<'_> {
                     MemFlagsData::trusted().with_readonly(),
                     closure,
                     // Offset for the RC payload
-                    16 + offset_of!(ByteCodeLambda, super_instructions_ptr) as i32,
+                    16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
                 );
 
                 let super_instruction_exists =
@@ -7797,7 +7721,7 @@ impl FunctionTranslator<'_> {
             MemFlagsData::trusted(),
             lookup_index,
             // Skip the refcount header to reach the lambda itself.
-            16 + offset_of!(ByteCodeLambda, super_instructions_ptr) as i32,
+            16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
         );
         self.builder
             .ins()
@@ -7843,7 +7767,7 @@ impl FunctionTranslator<'_> {
             MemFlagsData::trusted().with_readonly(),
             closure,
             // Offset for the RC payload
-            16 + offset_of!(ByteCodeLambda, super_instructions_ptr) as i32,
+            16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
         );
 
         let super_instruction_exists =
@@ -7953,23 +7877,6 @@ impl FunctionTranslator<'_> {
         function_index: usize,
         tail: bool,
     ) -> Value {
-        // TEMPORARY DIAGNOSTIC: what did the global hold when we gave up on it?
-        if std::env::var_os("STEEL_WHY_DEOPT").is_some() {
-            let what = match self._globals.get(function_index) {
-                None => "ABSENT (index past end of roots)".to_string(),
-                Some(SteelVal::Void) => "Void (declared, not yet assigned)".to_string(),
-                Some(SteelVal::Closure(c)) => {
-                    format!("Closure(compiled={})", c.super_instructions().is_some())
-                }
-                Some(SteelVal::BoxedFunction(_)) => "BoxedFunction".to_string(),
-                Some(SteelVal::FuncV(_)) => "FuncV".to_string(),
-                Some(SteelVal::BuiltIn(_)) => "BuiltIn".to_string(),
-                Some(other) => format!("{:?}", std::mem::discriminant(other)),
-            };
-            let spec = self._globals.get(function_index).cloned()
-                .and_then(create_struct_spec).is_some();
-            eprintln!("why-deopt: idx={function_index} tail={tail} at-compile-time={what} struct_spec={spec}");
-        }
         let local_callee = self.get_local_callee(name);
 
         let ctx = self.get_ctx();
