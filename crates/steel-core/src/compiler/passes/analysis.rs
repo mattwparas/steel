@@ -5189,8 +5189,7 @@ impl FlattenEmptyLets {
     }
 }
 
-/// `STEEL_LIFT_IN_PLACE=false` restores the old behaviour of emitting every
-/// lifted function at the front of the program.
+/// `STEEL_LIFT_IN_PLACE=false` puts lifted functions back at the front.
 fn lift_in_place_enabled() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
@@ -5505,6 +5504,103 @@ impl<'a> VisitorMutUnitRef<'a> for SetBangTargets {
     }
 }
 
+
+
+/// Every identifier an expression refers to, ignoring quoted data.
+#[derive(Default)]
+struct ReferencedNames {
+    names: std::collections::HashSet<InternedString>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for ReferencedNames {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let TokenType::Identifier(ident) = &a.syn.ty {
+            self.names.insert(*ident);
+        }
+    }
+
+    // Quoted data is inert - it names nothing.
+    fn visit_quote(&mut self, _quote: &'a crate::parser::ast::Quote) {}
+}
+
+/// `STEEL_TOPO_DEFINES=false` keeps source order.
+fn topo_defines_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_TOPO_DEFINES").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// Order one run so a definition follows what it calls. Cycles stay put.
+fn sort_define_run(run: Vec<ExprKind>) -> Vec<ExprKind> {
+    if run.len() < 2 {
+        return run;
+    }
+
+    let names: Vec<InternedString> = run
+        .iter()
+        .filter_map(|e| match e {
+            ExprKind::Define(d) => d.name.atom_identifier().copied(),
+            _ => None,
+        })
+        .collect();
+
+    if names.len() != run.len() {
+        return run;
+    }
+
+    let index: std::collections::HashMap<InternedString, usize> =
+        names.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    let deps: Vec<std::collections::HashSet<usize>> = run
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let mut refs = ReferencedNames::default();
+            refs.visit(e);
+            refs.names
+                .iter()
+                .filter_map(|n| index.get(n).copied())
+                .filter(|&j| j != i)
+                .collect()
+        })
+        .collect();
+
+    // Kahn, sweeping in source order so this is deterministic.
+    let mut placed = vec![false; run.len()];
+    let mut order = Vec::with_capacity(run.len());
+    loop {
+        let mut progressed = false;
+        for i in 0..run.len() {
+            if placed[i] {
+                continue;
+            }
+            if deps[i].iter().all(|&j| placed[j]) {
+                order.push(i);
+                placed[i] = true;
+                progressed = true;
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+    // What's left is a cycle - leave it be.
+    for (i, done) in placed.iter().enumerate() {
+        if !done {
+            order.push(i);
+        }
+    }
+
+    let mut slots: Vec<Option<ExprKind>> = run.into_iter().map(Some).collect();
+    order
+        .into_iter()
+        .filter_map(|i| slots[i].take())
+        .collect()
+}
 
 impl<'a> SemanticAnalysis<'a> {
     pub fn into_analysis(self) -> Analysis {
@@ -7257,11 +7353,100 @@ impl<'a> SemanticAnalysis<'a> {
         self
     }
 
+    /// Order top level function definitions so a definition follows the ones it
+    /// calls - closures compile as they're constructed, so top down code leaves
+    /// the JIT nothing to specialise at each forward call site. Only runs of
+    /// adjacent function definitions move, since defining a lambda has no
+    /// effect; anything else ends the run, and a name defined twice never moves.
+    pub fn sort_top_level_defines(&mut self) -> &mut Self {
+        if !topo_defines_enabled() {
+            return self;
+        }
+
+        // `Begin`s included, so a name defined twice never moves.
+        fn count_defines(
+            exprs: &[ExprKind],
+            counts: &mut std::collections::HashMap<InternedString, usize>,
+        ) {
+            for expr in exprs {
+                match expr {
+                    ExprKind::Define(d) => {
+                        if let Some(name) = d.name.atom_identifier() {
+                            *counts.entry(*name).or_default() += 1;
+                        }
+                    }
+                    ExprKind::Begin(b) => count_defines(&b.exprs, counts),
+                    _ => {}
+                }
+            }
+        }
+
+        let mut definitions = std::collections::HashMap::new();
+        count_defines(self.exprs, &mut definitions);
+
+        fn sort_runs(
+            exprs: Vec<ExprKind>,
+            definitions: &std::collections::HashMap<InternedString, usize>,
+            reordered: &mut bool,
+        ) -> Vec<ExprKind> {
+            let movable = |expr: &ExprKind| match expr {
+                ExprKind::Define(d) => {
+                    matches!(d.body, ExprKind::LambdaFunction(_))
+                        && d.name
+                            .atom_identifier()
+                            .and_then(|n| definitions.get(n))
+                            .is_some_and(|count| *count == 1)
+                }
+                _ => false,
+            };
+
+            let mut out = Vec::with_capacity(exprs.len());
+            let mut run: Vec<ExprKind> = Vec::new();
+
+            for mut expr in exprs {
+                if movable(&expr) {
+                    run.push(expr);
+                    continue;
+                }
+                if run.len() > 1 {
+                    *reordered = true;
+                }
+                out.extend(sort_define_run(std::mem::take(&mut run)));
+
+                // Top level defines usually arrive inside a `Begin` - same
+                // split as `non_mutated_globals`.
+                if let ExprKind::Begin(b) = &mut expr {
+                    let inner = std::mem::take(&mut b.exprs);
+                    b.exprs = sort_runs(inner, definitions, reordered);
+                }
+                out.push(expr);
+            }
+            if run.len() > 1 {
+                *reordered = true;
+            }
+            out.extend(sort_define_run(run));
+            out
+        }
+
+        let originals = std::mem::take(&mut *self.exprs);
+        let mut reordered = false;
+        *self.exprs = sort_runs(originals, &definitions, &mut reordered);
+
+        if std::env::var_os("STEEL_TOPO_LOG").is_some() {
+            eprintln!("topo: {} top level exprs, reordered={reordered}", self.exprs.len());
+        }
+
+        if reordered {
+            self.changed = true;
+            self.analysis.fresh_from_exprs(self.exprs);
+        }
+
+        self
+    }
+
     pub fn lift_closures(&mut self) -> &mut Self {
         let mut lifter = LiftClosuresToGlobalScope::new(&self.analysis);
-        // How many functions had been lifted by the time each top level
-        // expression was visited, so they can be put back next to the
-        // expression they came out of rather than all at the front.
+        // So each one goes back next to the expression it came out of.
         let mut lifted_by_expr = Vec::with_capacity(self.exprs.len());
         for expr in self.exprs.iter_mut() {
             lifter.visit(expr);
@@ -7300,11 +7485,8 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
-        // Placing every lifted function at the front means it is *constructed*
-        // - and so jit compiled - before the requires and defines it calls have
-        // run, leaving the JIT nothing to specialise against. Emitting each one
-        // just ahead of the expression it was lifted out of keeps it top level
-        // without moving it past its own dependencies.
+        // At the front they'd be constructed - and jit compiled - before the
+        // requires and defines they call have run.
         if lift_in_place_enabled() {
             let lifted = std::mem::take(&mut lifter.lifted_functions);
             let originals = std::mem::take(&mut *self.exprs);

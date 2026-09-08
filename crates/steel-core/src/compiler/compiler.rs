@@ -1371,6 +1371,10 @@ impl Compiler {
             }
         }
 
+        // After lifting, so lifted functions take part in the ordering too.
+        semantic.sort_top_level_defines();
+        semantic.refresh_variables_if_changed();
+
         // TODO: Configure inlining function size
 
         // Loop unrolling. That is probably what we need?
