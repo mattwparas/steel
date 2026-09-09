@@ -291,6 +291,7 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     match args {
         [] => steelerr!(ArityMismatch => "- requires at least one argument"),
         [x] => negate(x),
+        [x, y] => sub_two(x, y),
         [x, ys @ ..] => {
             let y = negate(&add_primitive_no_check(ys)?)?;
             add_two(x, &y)
@@ -299,6 +300,16 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn sub_two(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
+    match (l, r) {
+        (SteelVal::IntV(x), SteelVal::IntV(y)) => {
+            if let Some(res) = x.checked_sub(*y) {
+                return Ok(SteelVal::IntV(res));
+            }
+        }
+        (SteelVal::NumV(x), SteelVal::NumV(y)) => return Ok(SteelVal::NumV(x - y)),
+        _ => {}
+    }
+
     if !numberp(l) {
         stop!(TypeMismatch => "- expects a number, found: {:?}", l);
     }
