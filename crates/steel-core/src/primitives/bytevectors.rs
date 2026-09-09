@@ -436,12 +436,39 @@ pub fn bytes_to_string(
     Ok(s.to_string().into())
 }
 
+// The doc comments need the element width as a literal unfortunately
+macro_rules! byte_width {
+    (u16) => {
+        2
+    };
+    (i16) => {
+        2
+    };
+    (u32) => {
+        4
+    };
+    (i32) => {
+        4
+    };
+    (f32) => {
+        4
+    };
+    (u64) => {
+        8
+    };
+    (i64) => {
+        8
+    };
+    (f64) => {
+        8
+    };
+}
+
 macro_rules! bytevector_accessor {
     (
         $ref_fn:ident => $ref_name:literal,
         $set_fn:ident => $set_name:literal,
-        int $ty:ty,
-        width = $width:literal,
+        int $ty:ident,
         kind = $kind:literal,
         example = $example:literal $(,)?
     ) => {
@@ -449,7 +476,6 @@ macro_rules! bytevector_accessor {
             $ref_fn => $ref_name,
             $set_fn => $set_name,
             $ty,
-            width = $width,
             kind = $kind,
             range = "int?",
             example = $example
@@ -459,8 +485,7 @@ macro_rules! bytevector_accessor {
     (
         $ref_fn:ident => $ref_name:literal,
         $set_fn:ident => $set_name:literal,
-        real $ty:ty,
-        width = $width:literal,
+        real $ty:ident,
         kind = $kind:literal,
         example = $example:literal $(,)?
     ) => {
@@ -468,7 +493,6 @@ macro_rules! bytevector_accessor {
             $ref_fn => $ref_name,
             $set_fn => $set_name,
             $ty,
-            width = $width,
             kind = $kind,
             range = "real?",
             example = $example
@@ -478,16 +502,15 @@ macro_rules! bytevector_accessor {
     (@build
         $ref_fn:ident => $ref_name:literal,
         $set_fn:ident => $set_name:literal,
-        $ty:ty,
-        width = $width:literal,
+        $ty:ident,
         kind = $kind:literal,
         range = $range:literal,
         example = $example:literal $(,)?
     ) => {
         #[doc = concat!("Reads ", $kind, " from the bytevector at the given element")]
         #[doc = "index, interpreting the bytes using the platform's native byte order"]
-        #[doc = concat!("(endianness). The value occupies the ", stringify!($width), " bytes starting at offset")]
-        #[doc = concat!("`index * ", stringify!($width), "`; if that range is out of bounds, this will error.")]
+        #[doc = concat!("(endianness). The value occupies the ", byte_width!($ty), " bytes starting at offset")]
+        #[doc = concat!("`index * ", byte_width!($ty), "`; if that range is out of bounds, this will error.")]
         #[doc = ""]
         #[doc = concat!("(", $ref_name, " vector index)")]
         #[doc = ""]
@@ -496,14 +519,14 @@ macro_rules! bytevector_accessor {
         #[doc = ""]
         #[doc = "# Examples"]
         #[doc = "```scheme"]
-        #[doc = concat!("(define vec (make-bytes ", stringify!($width), " 0))")]
+        #[doc = concat!("(define vec (make-bytes ", byte_width!($ty), " 0))")]
         #[doc = concat!("(", $set_name, " vec 0 ", $example, ")")]
         #[doc = concat!("(", $ref_name, " vec 0) ;; => ", $example)]
         #[doc = "```"]
         #[function(name = $ref_name)]
         pub fn $ref_fn(vector: &SteelByteVector, index: usize) -> Result<SteelVal> {
             const WIDTH: usize = core::mem::size_of::<$ty>();
-            const _: () = assert!(WIDTH == $width);
+            const _: () = assert!(WIDTH == byte_width!($ty));
 
             let guard = vector.vec.read();
 
@@ -522,7 +545,7 @@ macro_rules! bytevector_accessor {
 
         #[doc = concat!("Writes ", $kind, " into the bytevector at the given element")]
         #[doc = "index, storing the bytes using the platform's native byte order (endianness)."]
-        #[doc = concat!("The value occupies the ", stringify!($width), " bytes starting at offset `index * ", stringify!($width), "`;")]
+        #[doc = concat!("The value occupies the ", byte_width!($ty), " bytes starting at offset `index * ", byte_width!($ty), "`;")]
         #[doc = "will error if the index is out of bounds."]
         #[doc = ""]
         #[doc = concat!("(", $set_name, " vector index value)")]
@@ -533,7 +556,7 @@ macro_rules! bytevector_accessor {
         #[doc = ""]
         #[doc = "# Examples"]
         #[doc = "```scheme"]
-        #[doc = concat!("(define vec (make-bytes ", stringify!($width), " 0))")]
+        #[doc = concat!("(define vec (make-bytes ", byte_width!($ty), " 0))")]
         #[doc = concat!("(", $set_name, " vec 0 ", $example, ")")]
         #[doc = concat!("(", $ref_name, " vec 0) ;; => ", $example)]
         #[doc = "```"]
@@ -558,7 +581,6 @@ bytevector_accessor!(
     u16_bytes_ref => "bytevector-u16-ref",
     u16_bytes_set => "bytevector-u16-set!",
     int u16,
-    width = 2,
     kind = "a 16-bit unsigned integer",
     example = "1000",
 );
@@ -567,7 +589,6 @@ bytevector_accessor!(
     u32_bytes_ref => "bytevector-u32-ref",
     u32_bytes_set => "bytevector-u32-set!",
     int u32,
-    width = 4,
     kind = "a 32-bit unsigned integer",
     example = "100000",
 );
@@ -576,7 +597,6 @@ bytevector_accessor!(
     u64_bytes_ref => "bytevector-u64-ref",
     u64_bytes_set => "bytevector-u64-set!",
     int u64,
-    width = 8,
     kind = "a 64-bit unsigned integer",
     example = "1000000",
 );
@@ -585,7 +605,6 @@ bytevector_accessor!(
     f32_bytes_ref => "bytevector-f32-ref",
     f32_bytes_set => "bytevector-f32-set!",
     real f32,
-    width = 4,
     kind = "a 32-bit floating point number",
     example = "1.5",
 );
@@ -594,7 +613,6 @@ bytevector_accessor!(
     f64_bytes_ref => "bytevector-f64-ref",
     f64_bytes_set => "bytevector-f64-set!",
     real f64,
-    width = 8,
     kind = "a 64-bit floating point number",
     example = "1.5",
 );
@@ -603,7 +621,6 @@ bytevector_accessor!(
     s16_bytes_ref => "bytevector-s16-ref",
     s16_bytes_set => "bytevector-s16-set!",
     int i16,
-    width = 2,
     kind = "a 16-bit signed (two's complement) integer",
     example = "-1000",
 );
@@ -612,7 +629,6 @@ bytevector_accessor!(
     s32_bytes_ref => "bytevector-s32-ref",
     s32_bytes_set => "bytevector-s32-set!",
     int i32,
-    width = 4,
     kind = "a 32-bit signed (two's complement) integer",
     example = "-100000",
 );
@@ -621,7 +637,6 @@ bytevector_accessor!(
     s64_bytes_ref => "bytevector-s64-ref",
     s64_bytes_set => "bytevector-s64-set!",
     int i64,
-    width = 8,
     kind = "a 64-bit signed (two's complement) integer",
     example = "-1000000",
 );
