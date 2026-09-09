@@ -514,7 +514,7 @@ fn gc_max_headroom() -> usize {
         std::env::var("STEEL_GC_MAX_HEADROOM")
             .ok()
             .and_then(|x| x.parse().ok())
-            .unwrap_or(256 * 100 * 16)
+            .unwrap_or(256 * 100 * 128)
     });
 
     *HEADROOM
