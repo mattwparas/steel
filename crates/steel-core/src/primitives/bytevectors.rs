@@ -3,7 +3,7 @@ use steel_derive::function;
 use crate::{
     gc::shared::ShareableMut,
     rerrs::ErrorKind,
-    rvals::{FromSteelVal, RestArgsIter, Result, SteelByteVector},
+    rvals::{FromSteelVal, IntoSteelVal, RestArgsIter, Result, SteelByteVector},
     steel_vm::builtin::BuiltInModule,
     stop, throw, SteelErr, SteelVal,
 };
@@ -173,7 +173,9 @@ pub fn bytevector_copy_new(
         guard.len()
     };
 
-    let copy = guard.get(start..end).ok_or_else(throw!(Generic => "index out of bounds: attempted to slice range: {:?} for bytevector: {:?}", start..end, guard))?.to_vec();
+    let copy = guard
+        .get(start..end)
+        .ok_or_else(throw!(Generic => "index out of bounds: attempted to slice range: {:?} for bytevector: {:?}", start..end, guard))?.to_vec();
 
     Ok(SteelVal::ByteVector(SteelByteVector::new(copy)))
 }
@@ -434,19 +436,53 @@ pub fn bytes_to_string(
     Ok(s.to_string().into())
 }
 
-// Generates a matched `bytevector-<ty>-ref` / `bytevector-<ty>-set!` pair for a
-// fixed width numeric type. The element width is taken from the rust type, so
-// the bounds check, the offset and the byte copy cannot drift apart; `$width`
-// is only what the docs say, and is asserted against the type at compile time.
 macro_rules! bytevector_accessor {
     (
         $ref_fn:ident => $ref_name:literal,
         $set_fn:ident => $set_name:literal,
-        $ty:ty as $wrap:ident($cast:ty),
+        int $ty:ty,
         width = $width:literal,
         kind = $kind:literal,
-        range = $range:literal,
-        examples = ($ref_example:literal, $set_example:literal) $(,)?
+        example = $example:literal $(,)?
+    ) => {
+        bytevector_accessor!(@build
+            $ref_fn => $ref_name,
+            $set_fn => $set_name,
+            $ty,
+            width = $width,
+            kind = $kind,
+            range = concat!("int? ;; ", stringify!($ty), "::MIN to ", stringify!($ty), "::MAX"),
+            example = $example
+        );
+    };
+
+    (
+        $ref_fn:ident => $ref_name:literal,
+        $set_fn:ident => $set_name:literal,
+        real $ty:ty,
+        width = $width:literal,
+        kind = $kind:literal,
+        example = $example:literal $(,)?
+    ) => {
+        bytevector_accessor!(@build
+            $ref_fn => $ref_name,
+            $set_fn => $set_name,
+            $ty,
+            width = $width,
+            kind = $kind,
+            range = "real?",
+            example = $example
+        );
+    };
+
+    (@build
+        $ref_fn:ident => $ref_name:literal,
+        $set_fn:ident => $set_name:literal,
+        $ty:ty,
+        width = $width:literal,
+        kind = $kind:literal,
+        range = $range:expr,
+        example = $example:literal $(,)?
     ) => {
         #[doc = concat!("Reads ", $kind, " from the bytevector at the given element")]
         #[doc = "index, interpreting the bytes using the platform's native byte order"]
@@ -461,8 +497,8 @@ macro_rules! bytevector_accessor {
         #[doc = "# Examples"]
         #[doc = "```scheme"]
         #[doc = concat!("(define vec (make-bytes ", stringify!($width), " 0))")]
-        #[doc = concat!("(", $set_name, " vec 0 ", $ref_example, ")")]
-        #[doc = concat!("(", $ref_name, " vec 0) ;; => ", $ref_example)]
+        #[doc = concat!("(", $set_name, " vec 0 ", $example, ")")]
+        #[doc = concat!("(", $ref_name, " vec 0) ;; => ", $example)]
         #[doc = "```"]
         #[function(name = $ref_name)]
         pub fn $ref_fn(vector: &SteelByteVector, index: usize) -> Result<SteelVal> {
@@ -477,10 +513,10 @@ macro_rules! bytevector_accessor {
                 .ok_or_else(
                     throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
                 )
-                .map(|x| {
+                .and_then(|x| {
                     let mut buf = [0u8; WIDTH];
                     buf.copy_from_slice(x);
-                    SteelVal::$wrap(<$ty>::from_ne_bytes(buf) as $cast)
+                    <$ty>::from_ne_bytes(buf).into_steelval()
                 })
         }
 
@@ -498,8 +534,8 @@ macro_rules! bytevector_accessor {
         #[doc = "# Examples"]
         #[doc = "```scheme"]
         #[doc = concat!("(define vec (make-bytes ", stringify!($width), " 0))")]
-        #[doc = concat!("(", $set_name, " vec 0 ", $set_example, ")")]
-        #[doc = concat!("(", $ref_name, " vec 0) ;; => ", $set_example)]
+        #[doc = concat!("(", $set_name, " vec 0 ", $example, ")")]
+        #[doc = concat!("(", $ref_name, " vec 0) ;; => ", $example)]
         #[doc = "```"]
         #[function(name = $set_name)]
         pub fn $set_fn(vector: &mut SteelByteVector, index: usize, value: $ty) -> Result<SteelVal> {
@@ -524,81 +560,73 @@ macro_rules! bytevector_accessor {
 bytevector_accessor!(
     u16_bytes_ref => "bytevector-u16-ref",
     u16_bytes_set => "bytevector-u16-set!",
-    u16 as IntV(isize),
+    int u16,
     width = 2,
     kind = "a 16-bit unsigned integer",
-    range = "int? ;; 0 to 65535",
-    examples = ("65535", "4660"),
+    example = "1000",
 );
 
 bytevector_accessor!(
     u32_bytes_ref => "bytevector-u32-ref",
     u32_bytes_set => "bytevector-u32-set!",
-    u32 as IntV(isize),
+    int u32,
     width = 4,
     kind = "a 32-bit unsigned integer",
-    range = "int? ;; 0 to 4294967295",
-    examples = ("4294967295", "305419896"),
+    example = "100000",
 );
 
 bytevector_accessor!(
     u64_bytes_ref => "bytevector-u64-ref",
     u64_bytes_set => "bytevector-u64-set!",
-    u64 as IntV(isize),
+    int u64,
     width = 8,
     kind = "a 64-bit unsigned integer",
-    range = "int? ;; 0 to 9223372036854775807",
-    examples = ("1099511627776", "1099511627776"),
+    example = "1000000",
 );
 
 bytevector_accessor!(
     f32_bytes_ref => "bytevector-f32-ref",
     f32_bytes_set => "bytevector-f32-set!",
-    f32 as NumV(f64),
+    real f32,
     width = 4,
     kind = "a 32-bit floating point number",
-    range = "real?",
-    examples = ("1.5", "1.5"),
+    example = "1.5",
 );
 
 bytevector_accessor!(
     f64_bytes_ref => "bytevector-f64-ref",
     f64_bytes_set => "bytevector-f64-set!",
-    f64 as NumV(f64),
+    real f64,
     width = 8,
     kind = "a 64-bit floating point number",
-    range = "real?",
-    examples = ("1.5", "1.5"),
+    example = "1.5",
 );
 
 bytevector_accessor!(
     s16_bytes_ref => "bytevector-s16-ref",
     s16_bytes_set => "bytevector-s16-set!",
-    i16 as IntV(isize),
+    int i16,
     width = 2,
     kind = "a 16-bit signed (two's complement) integer",
-    range = "int? ;; -32768 to 32767",
-    examples = ("-1", "-1"),
+    example = "-1000",
 );
 
 bytevector_accessor!(
     s32_bytes_ref => "bytevector-s32-ref",
     s32_bytes_set => "bytevector-s32-set!",
-    i32 as IntV(isize),
+    int i32,
     width = 4,
     kind = "a 32-bit signed (two's complement) integer",
-    range = "int? ;; -2147483648 to 2147483647",
-    examples = ("-1", "-1"),
+    example = "-100000",
 );
 
 bytevector_accessor!(
     s64_bytes_ref => "bytevector-s64-ref",
     s64_bytes_set => "bytevector-s64-set!",
-    i64 as IntV(isize),
+    int i64,
     width = 8,
     kind = "a 64-bit signed (two's complement) integer",
-    range = "int? ;; -9223372036854775808 to 9223372036854775807",
-    examples = ("-1", "-1"),
+    example = "-1000000",
 );
 
 /// Reads an 8-bit signed integer from the bytevector at the
@@ -613,8 +641,8 @@ bytevector_accessor!(
 /// # Examples
 /// ```scheme
 /// (define vec (make-bytes 1 0))
-/// (bytevector-s8-set! vec 0 -1)
-/// (bytevector-s8-ref vec 0) ;; => -1
+/// (bytevector-s8-set! vec 0 -100)
+/// (bytevector-s8-ref vec 0) ;; => -100
 /// ```
 #[function(name = "bytevector-s8-ref")]
 pub fn s8_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
@@ -635,13 +663,13 @@ pub fn s8_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 ///
 /// * vector : bytes?
 /// * index : (and exact? int?)
-/// * value : int? ;; -128 to 127
+/// * value : int? ;; i8::MIN to i8::MAX
 ///
 /// # Examples
 /// ```scheme
 /// (define vec (make-bytes 1 0))
-/// (bytevector-s8-set! vec 0 -1)
-/// (bytevector-s8-ref vec 0) ;; => -1
+/// (bytevector-s8-set! vec 0 -100)
+/// (bytevector-s8-ref vec 0) ;; => -100
 /// ```
 #[function(name = "bytevector-s8-set!")]
 pub fn s8_bytes_set(value: &mut SteelByteVector, index: usize, byte: i8) -> Result<SteelVal> {
