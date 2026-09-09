@@ -1158,8 +1158,18 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     match &args {
         [] => steelerr!(ArityMismatch => "/ requires at least one argument"),
         [x] => recip(x),
-        // TODO: Provide custom implementation to optimize by joining the multiply and recip calls.
-        [x, y] => multiply_two(x, &recip(y)?),
+        [x, y] => match (x, y) {
+            (SteelVal::NumV(a), SteelVal::NumV(b)) => Ok(SteelVal::NumV(a / b)),
+            (SteelVal::IntV(a), SteelVal::IntV(b))
+                if *b != 0 && a.checked_rem(*b) == Some(0) =>
+            {
+                match a.checked_div(*b) {
+                    Some(res) => Ok(SteelVal::IntV(res)),
+                    None => multiply_two(x, &recip(y)?),
+                }
+            }
+            _ => multiply_two(x, &recip(y)?),
+        },
         [x, ys @ ..] => {
             let d = multiply_primitive_impl(ys)?;
             multiply_two(x, &recip(&d)?)

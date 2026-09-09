@@ -59,6 +59,17 @@ fn inline_primitive_tail_calls_enabled() -> bool {
     })
 }
 
+/// `STEEL_JIT_FLOAT_INLINE=0` sends float arithmetic back out to the helper.
+fn float_inline_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_FLOAT_INLINE").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
 /// Inline `=` / `<` / `<=` / `>` / `>=` on two arbitrary values when both turn
 /// out to be integers, and `vector-ref` when the vector is not in a register -
 /// cases that previously always went out to a helper.
@@ -3394,7 +3405,6 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
 
-
                     // Okay, lets do a few things:
                     //
                     // We should attach some context for whether or not this is a closure.
@@ -3417,8 +3427,11 @@ impl FunctionTranslator<'_> {
                     // had no such check, so all of them went out through the
                     // generic deopt helper even though we can emit them directly.
                     if INLINE_STRUCT_FUNCTION_CALLS {
-                        if let Some(spec) =
-                            self._globals.get(function_index).cloned().and_then(create_struct_spec)
+                        if let Some(spec) = self
+                            ._globals
+                            .get(function_index)
+                            .cloned()
+                            .and_then(create_struct_spec)
                         {
                             if let Some((value, typ)) =
                                 self.inline_struct_call_no_drop(spec, arity, function_index)
@@ -3594,15 +3607,15 @@ impl FunctionTranslator<'_> {
                                     self.vector_set()
                                 }
 
-                                f if f == mut_vec_push as FunctionSignature
-                                    && arity == 2 =>
-                                {
+                                f if f == mut_vec_push as FunctionSignature && arity == 2 => {
                                     self.vector_push()
                                 }
 
                                 f if f == flat_vector_construct as FunctionSignature
-                                    && CallFlatVectorConstructorsDefinitions::arity_to_name(arity)
-                                        .is_some() =>
+                                    && CallFlatVectorConstructorsDefinitions::arity_to_name(
+                                        arity,
+                                    )
+                                    .is_some() =>
                                 {
                                     self.flat_vector_construct(arity)
                                 }
@@ -4168,6 +4181,18 @@ impl FunctionTranslator<'_> {
                 // TODO: Specialize this a bit more. If we know that the RHS is some kind
                 // of constant, we can probably encode that a little bit more effectively
                 // in the generated code.
+                // Integer arithmetic is inlined above; floats fell all the way
+                // through to a helper that builds a slice and a `Result` for one
+                // machine instruction. Check both tags and emit the op directly.
+                OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV
+                    if payload == 2 && generic_inline_enabled() && float_inline_enabled() =>
+                {
+                    let fallback = op_to_name_payload(op, payload);
+                    let res = self.inline_float_binop_two(op, fallback);
+                    self.push(res, InferredType::Number);
+                    self.ip += 2;
+                }
+
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
                     // Call the func
                     self.func_ret_val(op, payload, 2, InferredType::Number);
@@ -5651,11 +5676,7 @@ impl FunctionTranslator<'_> {
                                     };
 
                                     if INLINE_FLAT_VECTOR_REF {
-                                        self.inline_vector_ref(
-                                            vector_value,
-                                            index_value,
-                                            fallback,
-                                        )
+                                        self.inline_vector_ref(vector_value, index_value, fallback)
                                     } else {
                                         fallback(self)
                                     }
@@ -5682,11 +5703,7 @@ impl FunctionTranslator<'_> {
                                     };
 
                                     if INLINE_FLAT_VECTOR_REF {
-                                        self.inline_vector_ref(
-                                            vector_value,
-                                            index_value,
-                                            fallback,
-                                        )
+                                        self.inline_vector_ref(vector_value, index_value, fallback)
                                     } else {
                                         fallback(self)
                                     }
@@ -6229,7 +6246,8 @@ impl FunctionTranslator<'_> {
             // Operand order is (box, new-value); the box is the one whose
             // ownership we may have to release, matching the read path.
             let owned = matches!(
-                self.shadow_stack.get(self.shadow_stack.len().checked_sub(2)?),
+                self.shadow_stack
+                    .get(self.shadow_stack.len().checked_sub(2)?),
                 Some(MaybeStackValue::Value(_))
             );
 
@@ -6281,6 +6299,40 @@ impl FunctionTranslator<'_> {
                 res
             },
             types::I8,
+        )
+    }
+
+    fn inline_float_binop_two(&mut self, op: OpCode, fallback: &str) -> Value {
+        let rhs = self.shadow_stack_pop().unwrap().into_value(self);
+        let rhs = rhs.as_steelval(self);
+        let lhs = self.shadow_stack_pop().unwrap().into_value(self);
+        let lhs = lhs.as_steelval(self);
+
+        let lhs_is_float = self.is_type(lhs, SteelVal::FLOAT_TAG);
+        let rhs_is_float = self.is_type(rhs, SteelVal::FLOAT_TAG);
+        let both_float = self.builder.ins().band(lhs_is_float, rhs_is_float);
+
+        self.converging_if(
+            both_float,
+            |ctx| {
+                let l = ctx.unbox_value_to_float(lhs);
+                let r = ctx.unbox_value_to_float(rhs);
+                let res = match op {
+                    OpCode::ADD => ctx.builder.ins().fadd(l, r),
+                    OpCode::SUB => ctx.builder.ins().fsub(l, r),
+                    OpCode::MUL => ctx.builder.ins().fmul(l, r),
+                    _ => ctx.builder.ins().fdiv(l, r),
+                };
+                ctx.encode_float_value(res)
+            },
+            |ctx| {
+                let vm_ctx = ctx.get_ctx();
+                let res =
+                    ctx.call_function_returns_value_args_no_context(fallback, &[vm_ctx, lhs, rhs]);
+                ctx.check_deopt();
+                res
+            },
+            types::I128,
         )
     }
 
@@ -7099,7 +7151,6 @@ impl FunctionTranslator<'_> {
         self.ip += 1;
         let arity = self.instructions[self.ip].payload_size.to_usize();
 
-
         let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
 
         if INLINE_STRUCT_FUNCTION_CALLS {
@@ -7655,7 +7706,6 @@ impl FunctionTranslator<'_> {
         let vm_ctx = self.get_ctx();
         let id = func.id;
 
-
         // TODO: Consider if we need to spill the whole stack here. We could also
         // just call drop, but writing the values to the stack will help us drop
         // them.
@@ -7864,7 +7914,10 @@ impl FunctionTranslator<'_> {
                     );
                     ctx.push(v, InferredType::Any);
                 } else {
-                    todo!("Implement spilled function call bail out case (arity {})", arity);
+                    todo!(
+                        "Implement spilled function call bail out case (arity {})",
+                        arity
+                    );
                 }
             },
         );
