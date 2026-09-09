@@ -451,7 +451,7 @@ macro_rules! bytevector_accessor {
             $ty,
             width = $width,
             kind = $kind,
-            range = concat!("int? ;; ", stringify!($ty), "::MIN to ", stringify!($ty), "::MAX"),
+            range = "int?",
             example = $example
         );
     };
@@ -481,7 +481,7 @@ macro_rules! bytevector_accessor {
         $ty:ty,
         width = $width:literal,
         kind = $kind:literal,
-        range = $range:expr,
+        range = $range:literal,
         example = $example:literal $(,)?
     ) => {
         #[doc = concat!("Reads ", $kind, " from the bytevector at the given element")]
@@ -506,10 +506,10 @@ macro_rules! bytevector_accessor {
             const _: () = assert!(WIDTH == $width);
 
             let guard = vector.vec.read();
-            let start = index * WIDTH;
 
             guard
-                .get(start..start + WIDTH)
+                .chunks_exact(WIDTH)
+                .nth(index)
                 .ok_or_else(
                     throw!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard),
                 )
@@ -543,14 +543,11 @@ macro_rules! bytevector_accessor {
 
             let mut guard = vector.vec.write();
 
-            // `index` counts elements and `guard.len()` counts bytes, so divide
-            // rather than multiplying out, which could overflow on a huge index.
-            if index >= guard.len() / WIDTH {
+            let Some(slot) = guard.chunks_exact_mut(WIDTH).nth(index) else {
                 stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
-            }
+            };
 
-            let start = index * WIDTH;
-            guard[start..start + WIDTH].copy_from_slice(&value.to_ne_bytes());
+            slot.copy_from_slice(&value.to_ne_bytes());
 
             Ok(SteelVal::Void)
         }
@@ -663,7 +660,7 @@ pub fn s8_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 ///
 /// * vector : bytes?
 /// * index : (and exact? int?)
-/// * value : int? ;; i8::MIN to i8::MAX
+/// * value : int?
 ///
 /// # Examples
 /// ```scheme
