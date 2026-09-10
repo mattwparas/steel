@@ -3,13 +3,27 @@ use std::fmt;
 use std::mem;
 use std::ops::Deref;
 use std::ptr::{self, drop_in_place, NonNull};
-use std::sync::atomic::{self, AtomicUsize, Ordering};
+use std::sync::atomic::{self, AtomicU32, AtomicUsize, Ordering};
 
 #[repr(C)]
 struct ArcInner<T: ?Sized> {
-    strong: AtomicUsize,
-    weak: AtomicUsize,
+    strong: RefCount,
+    weak: RefCount,
     data: T,
+}
+
+/// The counter type in the header. Generated code loads it directly, so the
+/// width has to come from here rather than being assumed at the call site.
+pub type RefCount = AtomicU32;
+
+pub const fn ref_count_width() -> usize {
+    core::mem::size_of::<RefCount>()
+}
+
+/// Byte offset of the weak counter in the header, for generated code that
+/// decrements it directly.
+pub const fn weak_offset<T>() -> usize {
+    core::mem::offset_of!(ArcInner<T>, weak)
 }
 
 #[repr(transparent)]
@@ -37,8 +51,8 @@ impl<T> Arc<T> {
         }
         unsafe {
             ptr.write(ArcInner {
-                strong: AtomicUsize::new(1),
-                weak: AtomicUsize::new(1),
+                strong: RefCount::new(1),
+                weak: RefCount::new(1),
                 data,
             });
             Arc {
@@ -80,23 +94,23 @@ impl<T: ?Sized> Arc<T> {
     }
 
     pub fn strong_count(this: &Self) -> usize {
-        this.inner().strong.load(Ordering::Relaxed)
+        this.inner().strong.load(Ordering::Relaxed) as usize
     }
 
     pub fn weak_count(this: &Self) -> usize {
         let weak = this.inner().weak.load(Ordering::Relaxed);
         // Subtract the implicit weak ref
-        if weak == usize::MAX {
+        if weak == u32::MAX {
             0
         } else {
-            weak - 1
+            (weak - 1) as usize
         }
     }
 
     pub fn downgrade(this: &Self) -> Weak<T> {
         let mut cur = this.inner().weak.load(Ordering::Relaxed);
         loop {
-            if cur == usize::MAX {
+            if cur == u32::MAX {
                 std::hint::spin_loop();
                 cur = this.inner().weak.load(Ordering::Relaxed);
                 continue;
@@ -133,7 +147,7 @@ impl<T: ?Sized> Clone for Arc<T> {
     #[inline]
     fn clone(&self) -> Self {
         let old = self.inner().strong.fetch_add(1, Ordering::Relaxed);
-        if old > isize::MAX as usize {
+        if old > i32::MAX as u32 {
             std::process::abort();
         }
         Arc { ptr: self.ptr }
@@ -194,7 +208,7 @@ impl<T: ?Sized> Weak<T> {
     }
 
     pub fn strong_count(&self) -> usize {
-        self.inner().strong.load(Ordering::Relaxed)
+        self.inner().strong.load(Ordering::Relaxed) as usize
     }
 
     pub fn weak_count(&self) -> usize {
@@ -209,7 +223,7 @@ impl<T: ?Sized> Weak<T> {
             // reference (present whenever any strong references are alive)
             // was still around when we observed the weak count, and can
             // therefore safely subtract it.
-            weak - 1
+            (weak - 1) as usize
         }
     }
 
@@ -222,7 +236,7 @@ impl<T: ?Sized> Clone for Weak<T> {
     #[inline]
     fn clone(&self) -> Self {
         let old = self.inner().weak.fetch_add(1, Ordering::Relaxed);
-        if old > isize::MAX as usize {
+        if old > i32::MAX as u32 {
             panic!("Weak count overflowed");
         }
         Weak { ptr: self.ptr }

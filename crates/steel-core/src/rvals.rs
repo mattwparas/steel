@@ -2110,6 +2110,15 @@ impl core::fmt::Debug for SteelString {
 const _ASSERT_SMALL: () = assert!(core::mem::size_of::<SteelVal>() <= 16);
 
 #[test]
+fn tmp_cell_sizes() {
+    use core::mem::size_of;
+    println!("SteelVal                {}", size_of::<SteelVal>());
+    println!("Pair (car+cdr)          {}", size_of::<crate::values::lists::Pair>());
+    println!("RcBox<Pair>             {}", size_of::<steel_rc::RcBox<crate::values::lists::Pair>>());
+    println!("RcWord header           {}", size_of::<steel_rc::RcWord>());
+}
+
+#[test]
 fn check_size_of_steelval() {
     assert_eq!(core::mem::size_of::<SteelVal>(), 16);
 }

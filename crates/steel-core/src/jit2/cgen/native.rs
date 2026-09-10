@@ -7,6 +7,21 @@ use crate::values::{
 use crate::values::structs::StructStorage;
 use super::*;
 
+// Byte offset from the pointer a HeapRef holds to the boxed value's lock.
+const fn heap_box_lock_offset() -> i64 {
+    steel_rc::weak::Weak::<SpinLock<HeapAllocated<SteelVal>>>::data_offset() as i64
+}
+
+// The header counters are loaded directly, so the width has to track the type.
+// A mismatch reads both counters as a single value instead.
+fn ref_count_type() -> Type {
+    match steel_rc::weak::ref_count_width() {
+        8 => types::I64,
+        4 => types::I32,
+        other => unreachable!("unsupported refcount width: {other}"),
+    }
+}
+
 // Byte offset from the pointer a HeapRef holds to the steel_vec::Vec itself
 const fn heap_vec_offset() -> i32 {
     (steel_rc::weak::Weak::<SpinLock<HeapAllocated<HeapVec>>>::data_offset()
@@ -628,7 +643,7 @@ impl<'a> FunctionTranslator<'a> {
                     let length =
                         self.builder
                             .ins()
-                            .load(types::I32, MemFlagsData::new(), value, 16);
+                            .load(types::I32, MemFlagsData::new(), value, super::list_index_offset());
 
                     let not_empty =
                         BlockArg::Value(self.builder.ins().icmp_imm_s(IntCC::NotEqual, length, 0));
@@ -1516,15 +1531,15 @@ impl<'a> FunctionTranslator<'a> {
                 let strong_count =
                     ctx.builder
                         .ins()
-                        .atomic_load(types::I64, MemFlagsData::trusted(), ptr);
+                        .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
 
                 let is_one = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong_count, 1);
-                const OFFSET: i64 = 16;
+                let offset = heap_box_lock_offset();
 
                 let data = ctx.converging_if(
                     is_one,
                     |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, OFFSET);
+                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
 
                         let data = ctx.builder.ins().load(
                             types::I128,
@@ -1538,7 +1553,7 @@ impl<'a> FunctionTranslator<'a> {
                         data
                     },
                     |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, OFFSET);
+                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
 
                         let data = ctx.with_spinlock(lock_pointer, |ctx| {
                             let data = ctx.builder.ins().load(
@@ -1604,15 +1619,15 @@ impl<'a> FunctionTranslator<'a> {
                 let strong_count =
                     ctx.builder
                         .ins()
-                        .atomic_load(types::I64, MemFlagsData::trusted(), ptr);
+                        .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
 
                 let is_one = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong_count, 1);
-                const OFFSET: i64 = 16;
+                let offset = heap_box_lock_offset();
 
                 let old = ctx.converging_if(
                     is_one,
                     |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, OFFSET);
+                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
                         let data_offset = SpinLock::<SteelVal>::data_offset() as i32;
 
                         let old = ctx.builder.ins().load(
@@ -1631,7 +1646,7 @@ impl<'a> FunctionTranslator<'a> {
                         old
                     },
                     |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, OFFSET);
+                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
                         let data_offset = SpinLock::<SteelVal>::data_offset() as i32;
 
                         ctx.with_spinlock(lock_pointer, |ctx| {
@@ -1744,7 +1759,7 @@ impl<'a> FunctionTranslator<'a> {
         let strong = self
             .builder
             .ins()
-            .atomic_load(types::I64, MemFlagsData::trusted(), ptr);
+            .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
         let is_one = self.builder.ins().icmp_imm_s(IntCC::Equal, strong, 1);
 
         self.converging_if(
@@ -1956,7 +1971,7 @@ impl<'a> FunctionTranslator<'a> {
                 let strong =
                     ctx.builder
                         .ins()
-                        .atomic_load(types::I64, MemFlagsData::trusted(), ptr);
+                        .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
                 let exclusive = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong, 1);
 
                 let len = ctx.heap_vec_len(ptr);

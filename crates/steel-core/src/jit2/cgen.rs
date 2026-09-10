@@ -1378,6 +1378,44 @@ impl Default for JIT {
     }
 }
 
+// Where the slice data starts in an `RcBox<[DenseInstruction]>`. Same header as
+// any other `RcBox`, so take it from the type rather than a literal.
+// The weak counter's offset and width in the box header. `inline_weak_decrement`
+// writes it directly, so both have to track the type - at the wrong offset this
+// decrements the spinlock instead and the next acquire never completes.
+fn weak_counter_offset() -> i64 {
+    steel_rc::weak::weak_offset::<
+        crate::values::lock::SpinLock<crate::values::closed::HeapAllocated<SteelVal>>,
+    >() as i64
+}
+
+fn weak_counter_type() -> Type {
+    match steel_rc::weak::ref_count_width() {
+        8 => types::I64,
+        4 => types::I32,
+        other => unreachable!("unsupported refcount width: {other}"),
+    }
+}
+
+// Byte offsets from the pointer a `SteelVal::ListV` carries to the cell's
+// fields. That pointer is the `RcBox`, so the cell data starts after the header
+// - derive both rather than hardcoding, the way the heap-box offsets do.
+fn list_cell_base() -> i64 {
+    steel_rc::BiasedRc::<SteelVal>::data_offset() as i64
+}
+
+fn list_index_offset() -> i32 {
+    (list_cell_base() + SteelList::<SteelVal>::cell_index_offset() as i64) as i32
+}
+
+fn list_elements_offset() -> i32 {
+    (list_cell_base() + SteelList::<SteelVal>::cell_elements_offset() as i64) as i32
+}
+
+const fn rcbox_slice_data_offset() -> i64 {
+    steel_rc::BiasedRc::<DenseInstruction>::data_offset() as i64
+}
+
 fn discriminant(value: &SteelVal) -> u8 {
     // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
     // between `repr(C)` structs, each of which has the `u8` discriminant as its first
@@ -6126,7 +6164,10 @@ impl FunctionTranslator<'_> {
                             body_exp_offset + 8,
                         );
 
-                        let data_ptr = ctx.builder.ins().iadd_imm_s(rcbox_ptr, 16);
+                        let data_ptr = ctx
+                            .builder
+                            .ins()
+                            .iadd_imm_s(rcbox_ptr, rcbox_slice_data_offset());
 
                         let instr_fat_ptr = ctx.builder.ins().iconcat(data_ptr, len);
 
@@ -6391,7 +6432,7 @@ impl FunctionTranslator<'_> {
         let length = self
             .builder
             .ins()
-            .load(types::I32, MemFlagsData::new(), pointer_value, 16);
+            .load(types::I32, MemFlagsData::new(), pointer_value, list_index_offset());
 
         let is_empty = self.builder.ins().icmp_imm_s(IntCC::Equal, length, 0);
 
@@ -6459,12 +6500,12 @@ impl FunctionTranslator<'_> {
     // if we're the one taking it to zero we put it back and let the real destructor
     // run. The free list holds a strong ref while the slot is live, so thats cold.
     fn inline_weak_decrement(&mut self, ptr: Value, drop_fn: &'static str, drop_arg: Value) {
-        let one = self.builder.ins().iconst(types::I64, 1);
-        let offset = self.builder.ins().iadd_imm_s(ptr, 8);
+        let one = self.builder.ins().iconst(weak_counter_type(), 1);
+        let offset = self.builder.ins().iadd_imm_s(ptr, weak_counter_offset());
 
         // atomic_rmw hands back what was in memory before the operation
         let previous = self.builder.ins().atomic_rmw(
-            types::I64,
+            weak_counter_type(),
             MemFlagsData::trusted(),
             AtomicRmwOp::Sub,
             offset,
@@ -6476,10 +6517,10 @@ impl FunctionTranslator<'_> {
         self.converging_if_no_value_else_cold(
             hit_zero,
             |ctx| {
-                let one = ctx.builder.ins().iconst(types::I64, 1);
-                let offset = ctx.builder.ins().iadd_imm_s(ptr, 8);
+                let one = ctx.builder.ins().iconst(weak_counter_type(), 1);
+                let offset = ctx.builder.ins().iadd_imm_s(ptr, weak_counter_offset());
                 ctx.builder.ins().atomic_rmw(
-                    types::I64,
+                    weak_counter_type(),
                     MemFlagsData::trusted(),
                     AtomicRmwOp::Add,
                     offset,
@@ -6856,13 +6897,13 @@ impl FunctionTranslator<'_> {
         let index = self
             .builder
             .ins()
-            .load(types::I32, MemFlagsData::trusted(), value, 16);
+            .load(types::I32, MemFlagsData::trusted(), value, list_index_offset());
 
         // Thats the index:
         let shared_vector_ptr =
             self.builder
                 .ins()
-                .load(types::I64, MemFlagsData::trusted(), value, 16 + 8 as i32);
+                .load(types::I64, MemFlagsData::trusted(), value, list_elements_offset());
 
         let index = self.builder.ins().uextend(types::I64, index);
 
@@ -6906,13 +6947,13 @@ impl FunctionTranslator<'_> {
         let index = self
             .builder
             .ins()
-            .load(types::I32, MemFlagsData::trusted(), value, 16);
+            .load(types::I32, MemFlagsData::trusted(), value, list_index_offset());
 
         // Thats the index:
         let shared_vector_ptr =
             self.builder
                 .ins()
-                .load(types::I64, MemFlagsData::trusted(), value, 16 + 8 as i32);
+                .load(types::I64, MemFlagsData::trusted(), value, list_elements_offset());
 
         let index = self.builder.ins().uextend(types::I64, index);
 
@@ -7852,7 +7893,10 @@ impl FunctionTranslator<'_> {
                     body_exp_offset + 8,
                 );
 
-                let data_ptr = ctx.builder.ins().iadd_imm_s(rcbox_ptr, 16);
+                let data_ptr = ctx
+                            .builder
+                            .ins()
+                            .iadd_imm_s(rcbox_ptr, rcbox_slice_data_offset());
 
                 let instr_fat_ptr = ctx.builder.ins().iconcat(data_ptr, len);
 
