@@ -123,6 +123,7 @@ const STACK_LIMIT: usize = 10000000;
 const CHECK_STACK_OVERFLOW: bool = false;
 
 pub type Stack<T> = steel_vec::Vec<T>;
+
 pub type InstructionPointer<T> = steel_rc::BiasedRc<T>;
 
 // pub type Stack<T> = Vec<T>;
@@ -1228,7 +1229,7 @@ impl SteelThread {
                 }
 
                 self.stack.clear();
-                unsafe { StandardShared::from_raw(raw_keep_alive) };
+                unsafe { InstructionPointer::from_raw(raw_keep_alive) };
 
                 return Err(e);
             } else {
@@ -1238,7 +1239,7 @@ impl SteelThread {
 
                 // Clean up
                 self.stack.clear();
-                unsafe { StandardShared::from_raw(raw_keep_alive) };
+                unsafe { InstructionPointer::from_raw(raw_keep_alive) };
 
                 return result;
             }

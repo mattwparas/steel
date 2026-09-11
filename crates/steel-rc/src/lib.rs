@@ -13,7 +13,7 @@ use std::thread::JoinHandle;
 use std::{cell::Cell, sync::atomic::Ordering};
 
 use core::convert::TryInto;
-use core::num::NonZeroUsize;
+use core::num::{NonZeroU32, NonZeroUsize};
 
 use std::{alloc, cmp, fmt, iter, mem, ptr};
 
@@ -21,53 +21,116 @@ use std::hash::{Hash, Hasher};
 
 pub mod weak;
 
+/// Width of the owner id in the biased half-word. BRC gives it 18 bits (PACT'18,
+/// Fig. 5); one of those is handed to the allocation's owner as a spare flag,
+/// leaving 17 - still far more concurrently live threads than is plausible,
+/// since ids are recycled.
+const TID_BITS: u32 = 18;
+const MAX_TID: u32 = (1 << TID_BITS) - 1;
+
+/// Handed out when no id is available. Never equal to anything, so an object
+/// allocated by such a thread is simply never biased - it takes the atomic path.
+const SENTINEL: u32 = MAX_TID;
+const SENTINEL_ID: NonZeroU32 = NonZeroU32::new(SENTINEL).unwrap();
+
+static NEXT_TID: AtomicU32 = AtomicU32::new(1);
+static FREE_TIDS: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+
 thread_local! {
-    /// Zero-sized thread-local variable to differentiate threads.
-    static THREAD_MARKER: () = ();
+    /// No destructor, so this stays readable for the whole life of the thread,
+    /// including while other thread locals are being torn down.
+    static MY_TID: Cell<u32> = const { Cell::new(0) };
+
+    /// Separate, and only for its `Drop`: hands the id back when the thread exits.
+    static TID_RELEASER: TidReleaser = const { TidReleaser };
 }
 
-const SENTINEL: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(usize::MAX) };
+struct TidReleaser;
+
+impl Drop for TidReleaser {
+    fn drop(&mut self) {
+        let id = MY_TID.with(|tid| tid.replace(0));
+        if id != 0 && id != SENTINEL {
+            if let Ok(mut free) = FREE_TIDS.lock() {
+                free.push(id);
+            }
+        }
+    }
+}
+
+/// Ids are recycled on thread exit, so the space bounds *concurrently live*
+/// threads rather than total thread creations - which is what keeps 18 bits
+/// workable for a long running process.
+fn acquire_tid() -> u32 {
+    if let Ok(mut free) = FREE_TIDS.lock() {
+        if let Some(id) = free.pop() {
+            return id;
+        }
+    }
+
+    let mut current = NEXT_TID.load(Ordering::Relaxed);
+    loop {
+        if current >= SENTINEL {
+            return SENTINEL;
+        }
+        match NEXT_TID.compare_exchange_weak(
+            current,
+            current + 1,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return current,
+            Err(actual) => current = actual,
+        }
+    }
+}
 
 /// A unique identifier for a running thread.
 ///
-/// Uniqueness is guaranteed between running threads. However, the ids of dead
-/// threads may be reused.
-///
-/// There is a chance that this implementation can be replaced by [`std::thread::ThreadId`]
-/// when [`as_u64()`] is stabilized.
-///
-/// **Note:** The current (non platform specific) implementation uses the address of a
-/// thread local static variable for thread identification.
-///
-/// [`as_u64()`]: std::thread::ThreadId::as_u64
+/// Uniqueness is guaranteed between running threads. The ids of dead threads
+/// are reused, which is what keeps them small enough to pack into the biased
+/// half-word; biased RC only needs "exactly one live thread believes it owns
+/// this object", and a recycled id preserves that.
 #[derive(Debug, Clone, Copy, Hash, Eq)]
 #[repr(transparent)]
-pub struct ThreadId(pub(crate) NonZeroUsize);
+pub struct ThreadId(pub(crate) NonZeroU32);
 
 impl ThreadId {
-    /// Creates a new `ThreadId` for the given raw id.
     #[inline(always)]
-    pub(crate) const fn new(value: NonZeroUsize) -> Self {
+    pub(crate) const fn new(value: NonZeroU32) -> Self {
         Self(value)
+    }
+
+    /// The raw id, as generated code reads it out of the biased half-word.
+    #[inline(always)]
+    pub fn raw(&self) -> u32 {
+        self.0.get()
     }
 
     /// Gets the id for the thread that invokes it.
     #[inline]
     pub fn current_thread() -> Self {
-        Self::new(
-            THREAD_MARKER
-                .try_with(|x| x as *const _ as usize)
-                .expect("the thread's local data has already been destroyed")
-                .try_into()
-                .expect("thread id should never be zero"),
-        )
+        let raw = MY_TID.with(|tid| {
+            let existing = tid.get();
+            if existing != 0 {
+                return existing;
+            }
+
+            let id = acquire_tid();
+            tid.set(id);
+            // Registers the destructor that hands `id` back. During this
+            // thread's own teardown there is nothing left to register.
+            let _ = TID_RELEASER.try_with(|_| ());
+            id
+        });
+        Self::new(NonZeroU32::new(raw).unwrap_or(SENTINEL_ID))
     }
 }
 
 impl PartialEq for ThreadId {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        match (self.0, other.0) {
+        match (self.0.get(), other.0.get()) {
             (SENTINEL, _) | (_, SENTINEL) => false,
             (a, b) => a == b,
         }
@@ -76,12 +139,69 @@ impl PartialEq for ThreadId {
 
 // Okay, now that this appears to be working, we
 // need to shrink this down as much as possible.
+/// The owner id occupies the low bits and its count the high ones. That order
+/// matters: adjusting the count is `word +/- COUNTER_ONE`, so a carry or borrow
+/// leaves the word entirely rather than running into the owner id. With the
+/// fields the other way round a stray decrement silently reassigns ownership.
+const TID_MASK: u32 = (1 << TID_BITS) - 1;
+
+const COUNTER_SHIFT: u32 = TID_BITS;
+const COUNTER_ONE: u32 = 1 << COUNTER_SHIFT;
+const BIASED_COUNTER_BITS: u32 = 32 - COUNTER_SHIFT;
+const BIASED_COUNTER_MASK: u32 = (1 << BIASED_COUNTER_BITS) - 1;
+
+/// The most references the owning thread can hold to one object. BRC calls 14
+/// bits "more than enough for RC" - many Java programs need only 7.
+pub const MAX_BIASED_COUNT: u32 = BIASED_COUNTER_MASK;
+
+/// Where generated code finds the pieces of the biased half-word. It lives at
+/// offset 0 of the `RcWord`, which is itself at offset 0 of the allocation.
+/// Shift that moves the count down to the bottom of the word.
+pub const fn biased_counter_shift() -> u32 {
+    COUNTER_SHIFT
+}
+
+/// Mask selecting the owner id.
+pub const fn biased_tid_mask() -> u32 {
+    TID_MASK
+}
+
+/// What to add to the word to move the count by one.
+pub const fn biased_counter_one() -> u32 {
+    COUNTER_ONE
+}
+
+/// Largest count the field holds; past this the caller must spill to `shared`.
+pub const fn biased_counter_max() -> u32 {
+    BIASED_COUNTER_MASK
+}
+
+/// Offset of the biased half-word within the `RcWord`, which itself sits at the
+/// start of the allocation.
+pub const fn biased_offset() -> usize {
+    core::mem::offset_of!(RcWord, biased)
+}
+
+/// BRC splits the word in two (PACT'18, Fig. 5): a biased half-word owned
+/// outright by one thread, and a shared half-word every other thread updates
+/// atomically. Packing the owner id in alongside its count is what keeps the
+/// whole thing to 8 bytes.
+///
+/// Steel keeps weak references in a separate type, so the paper's 16 reserved
+/// bits are spare here and `shared` keeps its full 30 bit counter rather than
+/// the paper's 14.
 #[repr(C)]
 #[derive(Debug)]
 pub struct RcWord {
-    thread_id: Cell<Option<ThreadId>>,
-    biased_counter: Cell<u32>,
+    /// Owner id in the low `TID_BITS`, the owner's count above it. Only the
+    /// owner thread touches it, hence a plain `Cell`.
+    biased: Cell<u32>,
     shared: SharedPacked,
+}
+
+#[inline(always)]
+const fn pack_biased(tid: u32, counter: u32) -> u32 {
+    (counter << COUNTER_SHIFT) | tid
 }
 
 #[derive(Debug)]
@@ -112,6 +232,26 @@ pub const FLAG_QUEUED: u32 = 1 << 30;
 const VALUE_BITS: u32 = 30;
 const VALUE_MASK: u32 = (1 << VALUE_BITS) - 1;
 const VALUE_SIGN_BIT: u32 = 1 << (VALUE_BITS - 1);
+
+/// The shared half-word counts in a signed 30-bit field, so there is a ceiling
+/// on how many references the non-owning threads can hold between them.
+///
+/// Three things can happen at that ceiling, and only one of them is safe.
+/// Wrapping frees an object that is still referenced. Panicking unwinds
+/// arbitrary code with the count already wrong, and an overflow is not
+/// something the program can catch and repair. Saturating leaks the object -
+/// it can never reach zero again - which costs memory and nothing else, so
+/// that is what the counter does.
+pub const MAX_SHARED_COUNT: i32 = (1 << (VALUE_BITS - 1)) - 1;
+pub const MIN_SHARED_COUNT: i32 = -(1 << (VALUE_BITS - 1));
+
+/// Room to move by one in either direction. One unsigned compare rather than
+/// two signed ones, because this sits inside the shared counter's CAS loop and
+/// `browse` runs through it millions of times.
+#[inline(always)]
+const fn shared_count_has_headroom(value: i32) -> bool {
+    (value.wrapping_sub(MIN_SHARED_COUNT + 1) as u32) < ((MAX_SHARED_COUNT - MIN_SHARED_COUNT - 1) as u32)
+}
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub struct Packed(u32);
@@ -183,9 +323,38 @@ impl Packed {
     }
 
     fn set_value(&mut self, value: i32) {
-        assert!(value >= -(1 << 29) && value < (1 << 29));
-        let v = (value as u32) & VALUE_MASK;
-        self.0 = (self.0 & !VALUE_MASK) | v;
+        // Clamped, not asserted: see `MAX_SHARED_COUNT`. The counter operations
+        // below already refuse to move a saturated count, so reaching the clamp
+        // means something handed us an out-of-range value directly.
+        self.store_value(value.clamp(MIN_SHARED_COUNT, MAX_SHARED_COUNT));
+    }
+
+    /// Stores a value already known to be in range. The mask keeps a wrong one
+    /// inside the field rather than smearing it over the flags.
+    #[inline(always)]
+    fn store_value(&mut self, value: i32) {
+        self.0 = (self.0 & !VALUE_MASK) | ((value as u32) & VALUE_MASK);
+    }
+
+    /// Adds one unless the count has saturated, in which case it stays put and
+    /// the object leaks.
+    #[inline(always)]
+    fn saturating_inc(&mut self) {
+        let v = self.value();
+        if shared_count_has_headroom(v) {
+            self.store_value(v + 1);
+        }
+    }
+
+    /// Removes one unless the count has saturated. A saturated count must never
+    /// come back down: it no longer reflects the real number of references, so
+    /// letting it fall to zero would free a live object.
+    #[inline(always)]
+    fn saturating_dec(&mut self) {
+        let v = self.value();
+        if shared_count_has_headroom(v) {
+            self.store_value(v - 1);
+        }
     }
 
     fn update_counter(&mut self, f: impl FnOnce(i32) -> i32) {
@@ -294,8 +463,7 @@ impl RcWord {
         // debug_assert!(QueueHandle::is_thread_registered(id));
 
         Self {
-            thread_id: Cell::new(Some(id)),
-            biased_counter: Cell::new(1),
+            biased: Cell::new(pack_biased(id.raw(), 1)),
             shared: SharedPacked::new(),
         }
     }
@@ -316,16 +484,46 @@ impl RcWord {
     /// The thread local portion of the count. A cheap, non destructive hint -
     /// unlike `has_unique_ref`, which consumes the shared count when it wins.
     pub fn biased_count(&self) -> u32 {
-        self.biased_counter.get()
+        self.biased.get() >> COUNTER_SHIFT
+    }
+
+    /// The thread this object is biased to, if any.
+    #[inline(always)]
+    pub fn owner(&self) -> Option<ThreadId> {
+        match self.biased.get() & TID_MASK {
+            0 => None,
+            tid => Some(ThreadId::new(unsafe { NonZeroU32::new_unchecked(tid) })),
+        }
+    }
+
+    /// Unbias the object, leaving the count alone. BRC's `biased.tid := 0`.
+    #[inline(always)]
+    pub fn clear_owner(&self) {
+        self.biased.set(self.biased.get() & !TID_MASK);
+    }
+
+    /// Masks the incoming value: the count shares a word with the owner id now,
+    /// so a wrapping decrement must stay inside its own field rather than
+    /// smearing ones across the id.
+    #[inline(always)]
+    fn set_biased_count(&self, counter: u32) {
+        self.biased
+            .set((self.biased.get() & TID_MASK) | ((counter & BIASED_COUNTER_MASK) << COUNTER_SHIFT));
     }
 
     pub fn fast_increment(&self) {
-        let counter = self.biased_counter.get();
+        let counter = self.biased_count();
 
-        if counter == u32::MAX {
-            panic!("reference counter overflow");
+        if counter == MAX_BIASED_COUNT {
+            // The biased field is full. BRC's invariant is that biased + shared
+            // is the true count, so carrying on in the shared half-word is
+            // correct - just slower for this object. The paper calls 14 bits
+            // "more than enough"; `browse` disagrees, and a panic is not an
+            // acceptable answer to a program holding many references.
+            self.slow_increment();
+            return;
         }
-        self.biased_counter.set(counter + 1);
+        self.set_biased_count(counter + 1);
     }
 
     pub fn slow_increment(&self) {
@@ -363,7 +561,7 @@ impl RcWord {
             // Do we have to read the whole thing together?
             // let old = self.shared.load(Ordering::Relaxed);
             let mut new = old;
-            new.update_counter(|x| x + 1);
+            new.saturating_inc();
 
             match self
                 .shared
@@ -379,7 +577,7 @@ impl RcWord {
 
     pub fn increment(&self) {
         // let owner_tid = self.thread_id.load(Ordering::Relaxed);
-        let owner_tid = self.thread_id.get();
+        let owner_tid = self.owner();
         let my_tid = ThreadId::current_thread();
 
         if owner_tid == Some(my_tid) {
@@ -413,14 +611,14 @@ impl RcWord {
         if new.get_counter() == 0 {
             DecrementAction::Deallocate
         } else {
-            self.thread_id.set(None);
+            self.clear_owner();
             DecrementAction::DoNothing
         }
     }
 
     pub fn fast_decrement(&self) -> DecrementAction {
-        self.biased_counter.update(|x| x - 1);
-        if self.biased_counter.get() > 0 {
+        self.set_biased_count(self.biased_count() - 1);
+        if self.biased_count() > 0 {
             return DecrementAction::DoNothing;
         }
 
@@ -454,7 +652,7 @@ impl RcWord {
         let mut new;
         loop {
             new = old;
-            new.update_counter(|x| x - 1);
+            new.saturating_dec();
 
             if new.get_counter() < 0 {
                 new.set_queued(true);
@@ -484,7 +682,7 @@ impl RcWord {
 
     pub fn decrement(&self) -> DecrementAction {
         // let owner_tid = self.thread_id.load(Ordering::Relaxed);
-        let owner_tid = self.thread_id.get();
+        let owner_tid = self.owner();
         let my_tid = ThreadId::current_thread();
 
         if owner_tid == Some(my_tid) {
@@ -499,7 +697,7 @@ impl RcWord {
     /// Destructive: when this wins it consumes the shared count, so the
     /// caller now holds the only reference.
     pub fn has_unique_ref(&self) -> bool {
-        let owner = self.thread_id.get();
+        let owner = self.owner();
         match owner {
             None => {
                 let meta = self;
@@ -522,11 +720,11 @@ impl RcWord {
                 {
                     false
                 } else {
-                    // let owner = self.thread_id.get();
+                    // let owner = self.owner();
                     // match owner {
                     //     None => false,
                     //     Some(tid) if tid == ThreadId::current_thread() => {
-                    //         self.biased_counter.get() as i32 == 1
+                    //         self.biased_count() as i32 == 1
                     //     }
                     //     Some(_) => false,
                     // }
@@ -535,7 +733,7 @@ impl RcWord {
                 }
             }
             Some(tid) if tid == ThreadId::current_thread() => {
-                let local_count = self.biased_counter.get();
+                let local_count = self.biased_count();
                 if local_count == 1 {
                     let meta = self;
                     let old = meta.shared.load(Ordering::Relaxed);
@@ -633,7 +831,7 @@ impl<T: ?Sized> BiasedMerge for BiasedRc<T> {
         // loop {
         //     old = self.meta().shared.load(Ordering::Acquire);
         //     new = old;
-        //     new.update_counter(|x| x + self.meta().biased_counter.get() as i32);
+        //     new.update_counter(|x| x + self.meta().biased_count() as i32);
         //     new.set_merged(true);
 
         //     if self
@@ -650,7 +848,7 @@ impl<T: ?Sized> BiasedMerge for BiasedRc<T> {
         let mut new;
         loop {
             new = old;
-            new.update_counter(|x| x + self.meta().biased_counter.get() as i32);
+            new.update_counter(|x| x + self.meta().biased_count() as i32);
             new.set_merged(true);
 
             match self
@@ -669,7 +867,7 @@ impl<T: ?Sized> BiasedMerge for BiasedRc<T> {
             unsafe { self.drop_contents_and_maybe_box() };
         } else {
             // self.meta().thread_id.store(None, Ordering::Relaxed);
-            self.meta().thread_id.set(None);
+            self.meta().clear_owner();
         }
 
         std::mem::forget(self);
@@ -724,7 +922,7 @@ impl QueueHandle {
 
     pub fn enqueue<T: ?Sized + 'static>(value: &BiasedRc<T>) {
         // let key = value.meta().thread_id.load(Ordering::Relaxed);
-        let key = value.meta().thread_id.get();
+        let key = value.meta().owner();
 
         // TODO: The thread ID needs to be registered once its created. Otherwise,
         // this doesn't really work.
@@ -800,7 +998,7 @@ impl QueueHandle {
             // loop {
             //     old = value.meta_outer().shared.load(Ordering::Acquire);
             //     new = old;
-            //     new.update_counter(|x| x + value.meta_outer().biased_counter.get() as i32);
+            //     new.update_counter(|x| x + value.meta_outer().biased_count() as i32);
             //     new.set_merged(true);
 
             //     if value
@@ -817,7 +1015,7 @@ impl QueueHandle {
             let mut new;
             loop {
                 new = old;
-                new.update_counter(|x| x + value.meta_outer().biased_counter.get() as i32);
+                new.update_counter(|x| x + value.meta_outer().biased_count() as i32);
                 new.set_merged(true);
 
                 match value.meta_outer().shared.compare_exchange(
@@ -838,7 +1036,7 @@ impl QueueHandle {
                 unsafe { value.drop_contents_and_maybe_box_outer() };
             } else {
                 // value.meta_outer().thread_id.store(None, Ordering::Relaxed);
-                value.meta_outer().thread_id.set(None);
+                value.meta_outer().clear_owner();
             }
 
             drop(value);
@@ -1227,11 +1425,11 @@ impl<T: ?Sized> BiasedRc<T> {
         // If the counter is 0, then we have to get the count from somewhere else
         if word.get_counter() == 0 {
             // let owner = self.rcword.thread_id.load(Ordering::Relaxed);
-            let owner = meta.thread_id.get();
+            let owner = meta.owner();
             match owner {
                 None => {}
                 Some(tid) if tid == ThreadId::current_thread() => {
-                    count = meta.biased_counter.get() as i32;
+                    count = meta.biased_count() as i32;
                 }
                 Some(_) => {
                     count = 2;
@@ -1322,11 +1520,11 @@ impl<T> BiasedRc<T> {
 
     pub fn try_unwrap(this: Self) -> Result<T, Self> {
         // let owner = this.meta().thread_id.load(Ordering::Relaxed);
-        let owner = this.meta().thread_id.get();
+        let owner = this.meta().owner();
         match owner {
             None => Self::try_unwrap_internal(this),
             Some(tid) if tid == ThreadId::current_thread() => {
-                let local_count = this.meta().biased_counter.get();
+                let local_count = this.meta().biased_count();
 
                 if local_count == 1 {
                     Self::try_unwrap_internal_same_thread(this)
@@ -1945,7 +2143,7 @@ fn test_moving_across_threads() {
     });
 
     let value = receiver.recv().unwrap();
-    dbg!(value.get_box().rcword.biased_counter.get());
+    dbg!(value.get_box().rcword.biased_count());
     let meta = value.get_box().rcword.shared.load(Ordering::Relaxed);
     dbg!(meta.get_merged());
     dbg!(meta.get_queued());
@@ -1955,7 +2153,7 @@ fn test_moving_across_threads() {
     // owner thread, but the value has not been enqueued. At this point
     // now it should be clear that the thread is dead, because we've marked it
     // as such?
-    dbg!(value.get_box().rcword.thread_id.get() == Some(ThreadId::current_thread()));
+    dbg!(value.get_box().rcword.owner() == Some(ThreadId::current_thread()));
 
     drop(value);
 
@@ -2300,7 +2498,7 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
         match action {
             DecrementAction::DoNothing => {}
             DecrementAction::Queue => {
-                let key = self.meta().thread_id.get();
+                let key = self.meta().owner();
                 let handoff = Self {
                     ptr: self.ptr,
                     phantom: PhantomData,
@@ -2609,5 +2807,403 @@ mod packed_rc_tests {
             assert_eq!(counter.get(), 0);
         }
         assert_eq!(counter.get(), 6, "three elements in each of two blocks");
+    }
+}
+
+#[cfg(test)]
+mod rcword_layout {
+    use super::*;
+
+    #[test]
+    fn rcword_is_one_word() {
+
+        assert_eq!(core::mem::size_of::<ThreadId>(), 4);
+        assert_eq!(core::mem::size_of::<RcWord>(), 8, "BRC keeps RcWord to one word");
+        assert_eq!(core::mem::size_of::<Option<ThreadId>>(), 4, "niche keeps it loadable as one u32");
+        assert_eq!(BiasedRc::<[u8; 16]>::data_offset(), 8);
+
+
+    }
+
+    #[test]
+    fn biased_packing_roundtrips() {
+        let word = RcWord::new();
+        let me = ThreadId::current_thread();
+        assert_eq!(word.owner(), Some(me));
+        assert_eq!(word.biased_count(), 1);
+
+        for _ in 0..1000 {
+            word.fast_increment();
+        }
+        // the count must not have disturbed the owner id
+        assert_eq!(word.biased_count(), 1001);
+        assert_eq!(word.owner(), Some(me));
+
+        word.clear_owner();
+        assert_eq!(word.owner(), None);
+        assert_eq!(word.biased_count(), 1001, "unbias must not touch the count");
+    }
+
+    #[test]
+    fn counter_saturation_spills_to_shared_instead_of_panicking() {
+        let word = RcWord::new();
+        let me = ThreadId::current_thread();
+
+        // Fill the biased field, then keep going well past it.
+        for _ in 0..MAX_BIASED_COUNT + 5_000 {
+            word.fast_increment();
+        }
+
+        assert_eq!(word.biased_count(), MAX_BIASED_COUNT, "field saturated");
+        assert_eq!(word.owner(), Some(me), "owner intact");
+        assert!(
+            word.shared.load(Ordering::Relaxed).get_counter() >= 5_000,
+            "the overflow went to the shared counter"
+        );
+    }
+
+    #[test]
+    fn count_underflow_does_not_disturb_the_owner() {
+        let word = RcWord::new();
+        let me = ThreadId::current_thread();
+        // Drive the count to zero and one past it, the way a stray decrement would.
+        assert!(matches!(word.fast_decrement(), DecrementAction::Deallocate));
+        word.set_biased_count(word.biased_count().wrapping_sub(1));
+        assert!(
+            word.biased_count() <= MAX_BIASED_COUNT,
+            "count escaped its field"
+        );
+        let _ = me;
+    }
+
+    #[test]
+    fn thread_ids_are_unique_among_live_threads() {
+        use std::collections::HashSet;
+        use std::sync::{Arc, Barrier, Mutex};
+
+        let seen = Arc::new(Mutex::new(HashSet::new()));
+        let barrier = Arc::new(Barrier::new(16));
+        let handles: Vec<_> = (0..16)
+            .map(|_| {
+                let seen = seen.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    let id = ThreadId::current_thread();
+                    assert!(seen.lock().unwrap().insert(id.0), "duplicate live id");
+                    barrier.wait(); // hold every thread alive at once
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(seen.lock().unwrap().len(), 16);
+    }
+
+    #[test]
+    fn ids_are_recycled_across_sequential_threads() {
+        // Without recycling this would consume 4000 ids; with it, a handful.
+        let before = NEXT_TID.load(Ordering::Relaxed);
+        for _ in 0..4000 {
+            std::thread::spawn(|| {
+                let _ = ThreadId::current_thread();
+            })
+            .join()
+            .unwrap();
+        }
+        let consumed = NEXT_TID.load(Ordering::Relaxed) - before;
+        assert!(consumed < 64, "ids not being recycled: consumed {consumed}");
+    }
+}
+
+#[cfg(test)]
+mod unsized_roundtrip {
+    use super::*;
+
+    #[test]
+    fn slice_rc_roundtrips() {
+        println!("RcWord size={} align={}", size_of::<RcWord>(), align_of::<RcWord>());
+        println!("RcBox<()> size={} align={}", size_of::<RcBox<()>>(), align_of::<RcBox<()>>());
+        println!("data_offset u32={}", BiasedRc::<u32>::data_offset());
+        println!("data_offset u64={}", BiasedRc::<u64>::data_offset());
+
+        // DenseInstruction is 4 bytes / align 4; mirror that.
+        let values: Vec<u32> = (0..21u32).collect();
+        let rc: BiasedRc<[u32]> = values.clone().into();
+        assert_eq!(rc.len(), 21, "length survived the round trip");
+        assert_eq!(&rc[..], &values[..], "contents survived the round trip");
+
+        let c1 = rc.clone();
+        let c2 = rc.clone();
+        assert_eq!(&c1[..], &values[..]);
+        drop(c1);
+        assert_eq!(&c2[..], &values[..], "still alive after one drop");
+        drop(c2);
+        assert_eq!(&rc[..], &values[..], "still alive after both drops");
+    }
+}
+
+#[cfg(test)]
+mod align1_slice {
+    use super::*;
+
+    // Mirrors DenseInstruction: 4 bytes, align 1.
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    #[repr(C)]
+    struct DI {
+        op: u8,
+        payload: [u8; 3],
+    }
+
+    #[test]
+    fn align1_slice_roundtrips() {
+        assert_eq!(size_of::<DI>(), 4);
+        assert_eq!(align_of::<DI>(), 1);
+        println!(
+            "RcWord={} data_offset(DI)={} data_offset(u32)={}",
+            size_of::<RcWord>(),
+            BiasedRc::<DI>::data_offset(),
+            BiasedRc::<u32>::data_offset()
+        );
+
+        for len in [0usize, 1, 2, 3, 5, 20, 21, 22, 23, 100, 257] {
+            let values: Vec<DI> = (0..len)
+                .map(|i| DI {
+                    op: i as u8,
+                    payload: [(i >> 8) as u8, 1, 2],
+                })
+                .collect();
+            let rc: BiasedRc<[DI]> = values.clone().into();
+            assert_eq!(rc.len(), len, "len wrong for {len}");
+            assert_eq!(&rc[..], &values[..], "contents wrong for {len}");
+
+            // and through the other construction path
+            let rc2: BiasedRc<[DI]> = BiasedRc::from(&values[..]);
+            assert_eq!(rc2.len(), len, "from_slice len wrong for {len}");
+            assert_eq!(&rc2[..], &values[..], "from_slice contents wrong for {len}");
+
+            // clone / drop cycle
+            let c = rc.clone();
+            drop(rc);
+            assert_eq!(&c[..], &values[..], "survived a drop for {len}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod biased_word_layout {
+    /// The owner id and the count share one 32-bit half-word, so widening
+    /// either silently narrows the other. A 14-bit count is already reachable -
+    /// `browse` overflowed it once - so pin both fields here.
+    #[test]
+    fn id_and_count_do_not_overlap() {
+        assert_eq!(super::BIASED_COUNTER_BITS, 14, "counter width must not shrink");
+        assert_eq!(super::MAX_BIASED_COUNT, 16383);
+        assert_eq!(super::TID_MASK, (1 << super::COUNTER_SHIFT) - 1, "id fills everything below the count");
+        assert_eq!(core::mem::size_of::<super::RcWord>(), 8);
+    }
+}
+
+#[cfg(test)]
+mod counter_overflow {
+    use super::*;
+
+    /// BRC's invariant I1: the true count is `biased + shared`. Once the biased
+    /// field saturates, increments spill into the shared half-word - so the
+    /// decrements that pair with them have to be able to come back out of it.
+    #[test]
+    fn owner_thread_can_drop_everything_it_cloned_past_saturation() {
+        let word = RcWord::new();
+        let n = MAX_BIASED_COUNT + 5_000;
+
+        for _ in 0..n {
+            word.fast_increment();
+        }
+        assert_eq!(word.biased_count(), MAX_BIASED_COUNT, "biased field saturated");
+        // RcWord::new() starts at 1, so only MAX-1 of the increments fit in the
+        // biased field and the remainder spill.
+        assert_eq!(
+            word.shared.load(Ordering::Relaxed).get_counter(),
+            5_001,
+            "the rest went to shared"
+        );
+
+        // RcWord::new() starts at 1, so `n` increments means n+1 references.
+        // Drop them all; exactly one decrement may say Deallocate, and it must
+        // be the last one.
+        let mut deallocs = 0;
+        for i in 0..=n {
+            match word.decrement() {
+                DecrementAction::Deallocate => {
+                    deallocs += 1;
+                    assert_eq!(i, n, "freed with {} references still live", n - i);
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(deallocs, 1, "exactly one deallocate for n+1 references");
+    }
+
+    /// The real scenario: one value cloned hard from many threads at once. The
+    /// owning thread takes the biased path and saturates it; every other thread
+    /// goes through the shared half-word.
+    #[test]
+    fn many_threads_cloning_one_value_do_not_panic() {
+        let rc: BiasedRc<u64> = BiasedRc::new(99);
+        let threads = 8;
+        let per_thread = 20_000;
+
+        std::thread::scope(|s| {
+            for _ in 0..threads {
+                let rc = rc.clone();
+                s.spawn(move || {
+                    let mut held = Vec::with_capacity(per_thread);
+                    for _ in 0..per_thread {
+                        held.push(rc.clone());
+                    }
+                    for c in &held {
+                        assert_eq!(**c, 99);
+                    }
+                    drop(held);
+                });
+            }
+        });
+
+        assert_eq!(*rc, 99, "value survived the traffic");
+    }
+
+    /// The owning thread alone, holding far more live clones than the biased
+    /// field can count.
+    #[test]
+    fn one_thread_holding_more_clones_than_the_biased_field_can_count() {
+        let rc: BiasedRc<u64> = BiasedRc::new(7);
+        let n = (MAX_BIASED_COUNT as usize) + 20_000;
+
+        let held: Vec<_> = (0..n).map(|_| rc.clone()).collect();
+        assert_eq!(**held.last().unwrap(), 7);
+        drop(held);
+        assert_eq!(*rc, 7, "still alive with one reference left");
+    }
+
+    /// Seeds the shared counter directly rather than performing 2^29 CAS ops.
+    fn seed_shared(word: &RcWord, value: i32) {
+        loop {
+            let old = word.shared.load(Ordering::Relaxed);
+            let mut new = old;
+            new.set_counter(value);
+            if word
+                .shared
+                .compare_exchange(old, new, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
+                return;
+            }
+        }
+    }
+
+    /// At the ceiling the count pins instead of panicking or wrapping.
+    #[test]
+    fn shared_counter_saturates_rather_than_overflowing() {
+        let word = RcWord::new();
+        seed_shared(&word, MAX_SHARED_COUNT - 1);
+
+        word.slow_increment();
+        assert_eq!(
+            word.shared.load(Ordering::Relaxed).get_counter(),
+            MAX_SHARED_COUNT,
+            "reaches the ceiling"
+        );
+
+        for _ in 0..1_000 {
+            word.slow_increment();
+        }
+        assert_eq!(
+            word.shared.load(Ordering::Relaxed).get_counter(),
+            MAX_SHARED_COUNT,
+            "and stays there instead of wrapping"
+        );
+    }
+
+    /// The safety property that makes leaking the right answer: a saturated
+    /// count must never fall back to zero, or the object is freed while it is
+    /// still referenced.
+    #[test]
+    fn a_saturated_count_never_deallocates() {
+        let word = RcWord::new();
+        seed_shared(&word, MAX_SHARED_COUNT);
+        word.shared.set_flag_merged(true);
+
+        for _ in 0..100_000 {
+            assert!(
+                !matches!(word.slow_decrement(), DecrementAction::Deallocate),
+                "a saturated object must never be freed"
+            );
+        }
+        assert_eq!(
+            word.shared.load(Ordering::Relaxed).get_counter(),
+            MAX_SHARED_COUNT,
+            "count stays pinned"
+        );
+    }
+
+    /// The mirror case: BRC lets the shared count go negative when non-owning
+    /// threads drop references the owner created, so the floor needs the same
+    /// treatment as the ceiling.
+    #[test]
+    fn shared_counter_saturates_at_the_floor_too() {
+        let word = RcWord::new();
+        seed_shared(&word, MIN_SHARED_COUNT + 1);
+
+        for _ in 0..1_000 {
+            word.slow_decrement();
+        }
+        assert_eq!(
+            word.shared.load(Ordering::Relaxed).get_counter(),
+            MIN_SHARED_COUNT,
+            "pins at the floor rather than wrapping positive"
+        );
+    }
+
+    /// The third way the shared counter grows: ExplicitMerge folds the whole
+    /// biased count in at once, so it can jump the ceiling rather than walk up
+    /// to it. `set_value`'s clamp is what catches that one.
+    #[test]
+    fn a_merge_that_jumps_the_ceiling_clamps() {
+        let mut p = Packed(0);
+        p.set_counter(MAX_SHARED_COUNT - 10);
+        p.update_counter(|x| x + 5_000);
+        assert_eq!(
+            p.get_counter(),
+            MAX_SHARED_COUNT,
+            "a merge past the ceiling pins instead of wrapping negative"
+        );
+
+        let mut q = Packed(0);
+        q.set_counter(MIN_SHARED_COUNT + 10);
+        q.update_counter(|x| x - 5_000);
+        assert_eq!(q.get_counter(), MIN_SHARED_COUNT, "and the same at the floor");
+    }
+
+    /// Saturation must not disturb ordinary traffic just below the ceiling.
+    #[test]
+    fn counts_below_the_ceiling_are_exact() {
+        let word = RcWord::new();
+        seed_shared(&word, MAX_SHARED_COUNT - 10);
+
+        for _ in 0..5 {
+            word.slow_increment();
+        }
+        assert_eq!(
+            word.shared.load(Ordering::Relaxed).get_counter(),
+            MAX_SHARED_COUNT - 5
+        );
+        for _ in 0..5 {
+            word.slow_decrement();
+        }
+        assert_eq!(
+            word.shared.load(Ordering::Relaxed).get_counter(),
+            MAX_SHARED_COUNT - 10,
+            "exact both ways while there is headroom"
+        );
     }
 }

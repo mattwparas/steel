@@ -2290,6 +2290,11 @@ fn slow_path_eq_lists(
     _l: &crate::values::lists::List<SteelVal>,
     _r: &crate::values::lists::List<SteelVal>,
 ) -> bool {
+    // Measured: enabling the commented out body below fixes `eq?` on a tail
+    // reached twice, but makes `(eq? (cons 0 l) (cons 0 l))` answer true - two
+    // separate conses are distinct pairs. Same next pointer plus same contents
+    // cannot tell "the same tail" from "built independently and identical",
+    // which is the history the note below is asking for. Staying conservative.
     false
 
     /*

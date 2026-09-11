@@ -454,6 +454,9 @@ pub mod shared {
 #[repr(transparent)]
 pub struct Gc<T: ?Sized + 'static>(pub(crate) Shared<T>);
 
+impl<T: ?Sized + 'static> Gc<T> {
+}
+
 impl<T: ?Sized> Pointer for Gc<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:p}", self.0)

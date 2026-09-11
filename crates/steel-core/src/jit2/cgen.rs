@@ -1400,6 +1400,27 @@ fn weak_counter_type() -> Type {
 // Byte offsets from the pointer a `SteelVal::ListV` carries to the cell's
 // fields. That pointer is the `RcBox`, so the cell data starts after the header
 // - derive both rather than hardcoding, the way the heap-box offsets do.
+/// The biased half-word, which generated code adjusts directly. The owner id is
+/// in the high bits and its count in the low bits, so `word +/- 1` moves the
+/// count alone and never disturbs the id.
+/// `SteelVal::Closure` carries the allocation pointer, so a field of the lambda
+/// sits past the reference counting header. Derived, because that header's size
+/// is not a constant of the language.
+/// `SteelVal::Pair` carries the allocation pointer, so `car` and `cdr` sit past
+/// the reference counting header. Derived - that header's size is not a
+/// constant of the language.
+fn pair_field_offset(field: usize) -> i32 {
+    (steel_rc::BiasedRc::<crate::values::lists::Pair>::data_offset() + field) as i32
+}
+
+fn closure_field_offset(field: usize) -> i32 {
+    (steel_rc::BiasedRc::<ByteCodeLambda>::data_offset() + field) as i32
+}
+
+fn biased_word_offset() -> i32 {
+    steel_rc::biased_offset() as i32
+}
+
 fn list_cell_base() -> i64 {
     steel_rc::BiasedRc::<SteelVal>::data_offset() as i64
 }
@@ -1410,6 +1431,22 @@ fn list_index_offset() -> i32 {
 
 fn list_elements_offset() -> i32 {
     (list_cell_base() + SteelList::<SteelVal>::cell_elements_offset() as i64) as i32
+}
+
+fn list_size_offset() -> i32 {
+    (list_cell_base() + SteelList::<SteelVal>::cell_size_offset() as i64) as i32
+}
+
+/// Where a chunked cell keeps its buffer pointer. Shares bytes with the inline
+/// element, so only read it once the discriminant says the cell is chunked.
+fn list_buffer_offset() -> i32 {
+    (list_cell_base() + SteelList::<SteelVal>::cell_buffer_offset() as i64) as i32
+}
+
+/// The link to the next cell. Its low bit says whether this cell holds its
+/// single element inline, so that is where the discriminant is read from.
+fn list_next_offset() -> i32 {
+    (list_cell_base() + SteelList::<SteelVal>::cell_next_offset() as i64) as i32
 }
 
 const fn rcbox_slice_data_offset() -> i64 {
@@ -6122,7 +6159,7 @@ impl FunctionTranslator<'_> {
                     MemFlagsData::trusted().with_readonly(),
                     closure,
                     // Offset for the RC payload
-                    16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
+                    closure_field_offset(offset_of!(ByteCodeLambda, super_instructions)),
                 );
 
                 let super_instruction_exists =
@@ -6148,7 +6185,7 @@ impl FunctionTranslator<'_> {
                             ctx.increment_ref_count_closure(closure);
                         }
 
-                        let body_exp_offset = 16 + offset_of!(ByteCodeLambda, body_exp) as i32;
+                        let body_exp_offset = closure_field_offset(offset_of!(ByteCodeLambda, body_exp));
 
                         let rcbox_ptr = ctx.builder.ins().load(
                             types::I64,
@@ -6429,10 +6466,7 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(pair_block);
 
         let pointer_value = self.unbox_value_to_pointer(value);
-        let length = self
-            .builder
-            .ins()
-            .load(types::I32, MemFlagsData::new(), pointer_value, list_index_offset());
+        let length = self.list_cell_index(pointer_value);
 
         let is_empty = self.builder.ins().icmp_imm_s(IntCC::Equal, length, 0);
 
@@ -6660,22 +6694,30 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(merge_block);
     }
 
+    /// Is this object biased to the running thread? BRC packs the owner id into
+    /// the high bits of the biased half-word, so read it out and compare.
+    ///
+    /// An unowned object has a zero id, and `VmCore::thread_id` is never zero
+    /// in jitted code, so the unowned case simply fails to match.
     fn check_value_tl(&mut self, value: Value) -> Value {
         let thread_id = self.get_thread_id();
-        let obj_thread_id = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted().with_readonly(),
+        // Not readonly: the owner id now shares this word with the count, which
+        // the increment and decrement paths write.
+        let biased = self.builder.ins().load(
+            types::I32,
+            MemFlagsData::trusted(),
             value,
-            0,
+            biased_word_offset(),
         );
 
-        // Now, we're going to check if the value is local to this thread:
-        let is_thread_local = self
+        let obj_thread_id = self
             .builder
             .ins()
-            .icmp(IntCC::Equal, thread_id, obj_thread_id);
+            .band_imm_u(biased, steel_rc::biased_tid_mask() as i64);
 
-        is_thread_local
+        self.builder
+            .ins()
+            .icmp(IntCC::Equal, thread_id, obj_thread_id)
     }
 
     // We can decide on whether to actually drop the value,
@@ -6710,16 +6752,26 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(yes_tl);
 
         {
-            let local_count =
-                self.builder
-                    .ins()
-                    .load(Type::int(32).unwrap(), MemFlagsData::trusted(), value, 8);
+            let biased = self.builder.ins().load(
+                types::I32,
+                MemFlagsData::trusted(),
+                value,
+                biased_word_offset(),
+            );
 
-            let sub_one = self.builder.ins().iadd_imm_s(local_count, -1);
+            let sub_one = self
+                .builder
+                .ins()
+                .iadd_imm_s(biased, -(steel_rc::biased_counter_one() as i64));
 
             self.builder
                 .ins()
-                .store(MemFlagsData::trusted(), sub_one, value, 8);
+                .store(MemFlagsData::trusted(), sub_one, value, biased_word_offset());
+
+            let sub_one = self
+                .builder
+                .ins()
+                .ushr_imm_u(sub_one, steel_rc::biased_counter_shift() as i64);
 
             let yes_drop = self.builder.create_block();
             let merge_block = self.builder.create_block();
@@ -6784,18 +6836,26 @@ impl FunctionTranslator<'_> {
 
         // Yes block
         {
-            let local_count =
-                self.builder
-                    .ins()
-                    .load(Type::int(32).unwrap(), MemFlagsData::trusted(), value, 8);
+            let biased = self.builder.ins().load(
+                types::I32,
+                MemFlagsData::trusted(),
+                value,
+                biased_word_offset(),
+            );
 
-            // let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
-
-            let sub_one = self.builder.ins().iadd_imm_s(local_count, -1);
+            let sub_one = self
+                .builder
+                .ins()
+                .iadd_imm_s(biased, -(steel_rc::biased_counter_one() as i64));
 
             self.builder
                 .ins()
-                .store(MemFlagsData::trusted(), sub_one, value, 8);
+                .store(MemFlagsData::trusted(), sub_one, value, biased_word_offset());
+
+            let sub_one = self
+                .builder
+                .ins()
+                .ushr_imm_u(sub_one, steel_rc::biased_counter_shift() as i64);
 
             let yes_drop = self.builder.create_block();
             let merge_block = self.builder.create_block();
@@ -6870,67 +6930,105 @@ impl FunctionTranslator<'_> {
     }
 
     fn inline_pair_car_unboxed(&mut self, value: Value) -> Value {
-        let car = self.builder.ins().load(
+        self.builder.ins().load(
             types::I128,
             MemFlagsData::trusted().with_readonly(),
             value,
-            16,
-        );
-
-        car
+            pair_field_offset(offset_of!(crate::values::lists::Pair, car)),
+        )
     }
 
     fn inline_pair_car(&mut self, value: Value) -> Value {
         let value = self.unbox_value_to_pointer(value);
-        let car = self.builder.ins().load(
+        self.builder.ins().load(
             types::I128,
             MemFlagsData::trusted().with_readonly(),
             value,
-            16,
+            pair_field_offset(offset_of!(crate::values::lists::Pair, car)),
+        )
+    }
+
+    /// This cell's cursor. `index` lives in the chunk arm, sharing bytes with an
+    /// inline element, so an inline cell cannot be read for it - it holds
+    /// exactly one element and its cursor is always 1.
+    fn list_cell_index(&mut self, value: Value) -> Value {
+        let is_inline = self.list_is_inline(value);
+        self.converging_if(
+            is_inline,
+            |ctx| ctx.builder.ins().iconst(types::I32, 1),
+            |ctx| {
+                ctx.builder.ins().load(
+                    types::I32,
+                    MemFlagsData::trusted(),
+                    value,
+                    list_index_offset(),
+                )
+            },
+            types::I32,
+        )
+    }
+
+    /// Does this cell keep its single element inline? The flag rides in the low
+    /// bit of the link to the next cell.
+    fn list_is_inline(&mut self, value: Value) -> Value {
+        let link =
+            self.builder
+                .ins()
+                .load(types::I64, MemFlagsData::trusted(), value, list_next_offset());
+        let flag = self
+            .builder
+            .ins()
+            .band_imm_u(link, SteelList::<SteelVal>::cell_inline_flag() as i64);
+        self.builder.ins().icmp_imm_s(IntCC::NotEqual, flag, 0)
+    }
+
+    /// Address of the cell's `index`-th slot, counting from 1. A cell holding a
+    /// single element stores it in the storage field itself; otherwise storage
+    /// points at the chunk and the slot sits past its header.
+    fn list_slot_ptr(&mut self, value: Value, index: Value) -> Value {
+        let is_inline = self.list_is_inline(value);
+
+        // An inline element sits in the cell itself; a chunk sits past its
+        // header. Either way the slot is the same stride in from that base.
+        let base = self.converging_if(
+            is_inline,
+            |ctx| {
+                ctx.builder
+                    .ins()
+                    .iadd_imm_s(value, list_elements_offset() as i64)
+            },
+            |ctx| {
+                let chunk = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlagsData::trusted(),
+                    value,
+                    list_buffer_offset(),
+                );
+                ctx.builder.ins().iadd_imm_s(
+                    chunk,
+                    SteelList::<SteelVal>::vector_header_size() as i64,
+                )
+            },
+            types::I64,
         );
 
-        car
+        let slot = self.builder.ins().iadd_imm_s(index, -1);
+        let offset = self
+            .builder
+            .ins()
+            .imul_imm_s(slot, std::mem::size_of::<SteelVal>() as i64);
+        self.builder.ins().iadd(base, offset)
     }
 
     fn unchecked_car_unboxed(&mut self, value: Value) -> Value {
-        // Lets figure out where car is:
-        let index = self
-            .builder
-            .ins()
-            .load(types::I32, MemFlagsData::trusted(), value, list_index_offset());
-
-        // Thats the index:
-        let shared_vector_ptr =
-            self.builder
-                .ins()
-                .load(types::I64, MemFlagsData::trusted(), value, list_elements_offset());
-
+        let index = self.list_cell_index(value);
         let index = self.builder.ins().uextend(types::I64, index);
 
-        // Now get car:
-        // TODO:
-        // Header size is just gonna be 16
-        let header_size = SteelList::<SteelVal>::vector_header_size();
+        let slot_ptr = self.list_slot_ptr(value, index);
 
-        // self.elements.get(self.index as usize - 1)
-
-        let size: i64 = std::mem::size_of::<SteelVal>() as _;
-        // Okay so this might be wrong: But if we have the value at a certain
-        // location, then we'll need to find the offset of everything directly.
-        //
-        // The header size is
-        let real_slot = self.builder.ins().iadd_imm_s(index, -1);
-
-        let offset = self.builder.ins().imul_imm_s(real_slot, size);
-        let slot_ptr = self.builder.ins().iadd(shared_vector_ptr, offset);
-        let slot_ptr = self.builder.ins().iadd_imm_s(slot_ptr, header_size as i64);
-
-        let local_value =
-            self.builder
-                .ins()
-                .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
-
-        local_value
+        self.builder
+            .ins()
+            .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0)
     }
 
     // First, check the tag:
@@ -6943,18 +7041,7 @@ impl FunctionTranslator<'_> {
         // let is_list = self.is_type(value, SteelVal::LIST_TAG);
         let value = self.unbox_value_to_pointer(original_value);
 
-        // Lets figure out where car is:
-        let index = self
-            .builder
-            .ins()
-            .load(types::I32, MemFlagsData::trusted(), value, list_index_offset());
-
-        // Thats the index:
-        let shared_vector_ptr =
-            self.builder
-                .ins()
-                .load(types::I64, MemFlagsData::trusted(), value, list_elements_offset());
-
+        let index = self.list_cell_index(value);
         let index = self.builder.ins().uextend(types::I64, index);
 
         let is_valid = self.builder.ins().icmp_imm_s(IntCC::NotEqual, index, 0);
@@ -6964,30 +7051,10 @@ impl FunctionTranslator<'_> {
         self.converging_if(
             is_valid,
             |ctx| {
-                // Now get car:
-                // TODO:
-                // Header size is just gonna be 16
-                let header_size = SteelList::<SteelVal>::vector_header_size();
-
-                // self.elements.get(self.index as usize - 1)
-
-                let size: i64 = std::mem::size_of::<SteelVal>() as _;
-                // Okay so this might be wrong: But if we have the value at a certain
-                // location, then we'll need to find the offset of everything directly.
-                //
-                // The header size is
-                let real_slot = ctx.builder.ins().iadd_imm_s(index, -1);
-
-                let offset = ctx.builder.ins().imul_imm_s(real_slot, size);
-                let slot_ptr = ctx.builder.ins().iadd(shared_vector_ptr, offset);
-                let slot_ptr = ctx.builder.ins().iadd_imm_s(slot_ptr, header_size as i64);
-
-                let local_value =
-                    ctx.builder
-                        .ins()
-                        .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
-
-                local_value
+                let slot_ptr = ctx.list_slot_ptr(value, index);
+                ctx.builder
+                    .ins()
+                    .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0)
             },
             |ctx| {
                 // Slow path!
@@ -7812,7 +7879,7 @@ impl FunctionTranslator<'_> {
             MemFlagsData::trusted(),
             lookup_index,
             // Skip the refcount header to reach the lambda itself.
-            16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
+            closure_field_offset(offset_of!(ByteCodeLambda, super_instructions)),
         );
         self.builder
             .ins()
@@ -7858,7 +7925,7 @@ impl FunctionTranslator<'_> {
             MemFlagsData::trusted().with_readonly(),
             closure,
             // Offset for the RC payload
-            16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
+            closure_field_offset(offset_of!(ByteCodeLambda, super_instructions)),
         );
 
         let super_instruction_exists =
@@ -7875,7 +7942,7 @@ impl FunctionTranslator<'_> {
         self.converging_if_no_value(
             super_instruction_exists,
             |ctx| {
-                let body_exp_offset = 16 + offset_of!(ByteCodeLambda, body_exp) as i32;
+                let body_exp_offset = closure_field_offset(offset_of!(ByteCodeLambda, body_exp));
 
                 // See note in inline_call_func: body_exp's buffer pointer and
                 // length are immutable after the lambda is constructed.
@@ -8082,8 +8149,9 @@ impl FunctionTranslator<'_> {
             thread_id
         } else {
             let ctx = self.get_ctx();
+            // `Option<ThreadId>` niches into a single u32.
             let thread_id = self.builder.ins().load(
-                Type::int(64).unwrap(),
+                types::I32,
                 MemFlagsData::trusted(),
                 ctx,
                 offset_of!(VmCore, thread_id) as i32,
@@ -11146,18 +11214,45 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 // Fast path increment the counter
                 // TODO: Panic here if u32 == max?
-                let local_count = ctx.builder.ins().load(
-                    Type::int(32).unwrap(),
+                let biased = ctx.builder.ins().load(
+                    types::I32,
                     MemFlagsData::trusted(),
                     value,
-                    8,
+                    biased_word_offset(),
                 );
 
-                let add_one = ctx.builder.ins().iadd_imm_s(local_count, 1);
-
-                ctx.builder
+                // The count is 14 bits now, so saturation is reachable where a
+                // full word never was. Spill to the shared counter rather than
+                // letting it wrap - the two sum to the true count either way.
+                let count = ctx
+                    .builder
                     .ins()
-                    .store(MemFlagsData::trusted(), add_one, value, 8);
+                    .ushr_imm_u(biased, steel_rc::biased_counter_shift() as i64);
+                let saturated = ctx.builder.ins().icmp_imm_s(
+                    IntCC::Equal,
+                    count,
+                    steel_rc::biased_counter_max() as i64,
+                );
+
+                ctx.converging_if_no_value(
+                    saturated,
+                    |c| {
+                        c.call_function_args_no_context("raw-slow-increment-closure", &[value]);
+                    },
+                    |c| {
+                        let add_one = c
+                            .builder
+                            .ins()
+                            .iadd_imm_s(biased, steel_rc::biased_counter_one() as i64);
+
+                        c.builder.ins().store(
+                            MemFlagsData::trusted(),
+                            add_one,
+                            value,
+                            biased_word_offset(),
+                        );
+                    },
+                );
             },
             |ctx| {
                 // TODO: @Matt - we can inline this as well!
@@ -11209,8 +11304,7 @@ impl FunctionTranslator<'_> {
             types::I64,
             MemFlagsData::trusted().with_readonly(),
             function,
-            // Adjust by 16 for the object header from the function
-            offset_of!(ByteCodeLambda, captures) as i32 + 16,
+            closure_field_offset(offset_of!(ByteCodeLambda, captures)),
         );
 
         // Just load an offset from there:

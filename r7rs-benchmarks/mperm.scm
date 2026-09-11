@@ -93,9 +93,13 @@
       (set! x (revloop x n (list-tail x n)))
       (set! perms (cons x perms)))
     (define (revloop x n y)
-      (if (zero? n) y (revloop (cdr x) (- n 1) (cons (car x) y))))
+      (if (zero? n)
+          y
+          (revloop (cdr x) (- n 1) (cons (car x) y))))
     (define (list-tail x n)
-      (if (zero? n) x (list-tail (cdr x) (- n 1))))
+      (if (zero? n)
+          x
+          (list-tail (cdr x) (- n 1))))
     (P (length x))
     perms))
 
@@ -114,7 +118,10 @@
   (do ((n n (- n 1)) (p '() (cons n p))) ((zero? n) p)))
 
 (define (tenperm . rest)
-  (let ([n (if (null? rest) 9 (car rest))]) (MpermNKL-benchmark 10 n 2 1)))
+  (let ([n (if (null? rest)
+               9
+               (car rest))])
+    (MpermNKL-benchmark 10 n 2 1)))
 
 (define (MpermNKL-benchmark m n k ell)
   (if (and (<= 0 m) (positive? n) (positive? k) (<= 0 ell k))
@@ -140,7 +147,12 @@
         (define (flush-queue)
           (let loop ([i 0])
             (when (< i k)
-              (vector-set! queue i (let ([j (+ i ell)]) (if (< j k) (vector-ref queue j) '())))
+              (vector-set! queue
+                           i
+                           (let ([j (+ i ell)])
+                             (if (< j k)
+                                 (vector-ref queue j)
+                                 '())))
               (loop (+ i 1)))))
 
         (fill-queue 0 (- k ell))
@@ -152,7 +164,9 @@
                            queue)
                          (lambda (q)
                            (define (factorial n)
-                             (if (= n 0) 1 (* n (factorial (- n 1)))))
+                             (if (= n 0)
+                                 1
+                                 (* n (factorial (- n 1)))))
                            (let ([q0 (vector-ref q 0)]
                                  [qi (vector-ref q (max 0 (- k ell 1)))])
                              (and (or (and (null? q0) (null? qi))
