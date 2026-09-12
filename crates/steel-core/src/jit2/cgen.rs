@@ -449,6 +449,53 @@ fn debug_instructions2(value: RootedInstructions) {
     println!("fat pointer instructions: {:?}", value);
 }
 
+/// Caching `SteelThread.stack.buf` across a block. It only moves when the stack
+/// grows, and the jit already invalidates at both of its own growth points; this
+/// adds invalidation around calls, which can grow it from the rust side.
+///
+/// fib reloaded it 27 times for 2.1% of its runtime - the cache field and the
+/// invalidator were both written, the reader was left commented out and never
+/// populated it.
+/// Helpers that provably cannot reallocate `SteelThread.stack`, so a cached
+/// buffer pointer survives a call to them.
+///
+/// Conservative by construction: the answer is "it can move" unless the callee
+/// is on this list. Everything here either does arithmetic on `SteelVal`s it was
+/// handed, or bumps a reference count - none of them push onto the value stack
+/// or re-enter the vm. Getting an entry wrong here leaves generated code using a
+/// dangling buffer pointer, so add to it only after checking the callee.
+fn callee_can_move_value_stack(name: &str) -> bool {
+    const CANNOT: &[&str] = &[
+        // arithmetic and comparison slow paths - operate on values, not the stack
+        "add-binop",
+        "add-binop-int-reg",
+        "add-three",
+        "sub-binop",
+        "sub-binop-int",
+        "sub-binop-int-reg",
+        "sub-binop-both-reg",
+        "sub-negate",
+        "sub-three",
+        "lt-binop",
+        "lt-binop-int",
+        "lt-register-int",
+        "lt-two-value-bool",
+        "lte-two-value-bool",
+        "gt-two-value-bool",
+        "gte-two-value-bool",
+        // refcount traffic only
+        "#%clone-std-rc",
+        "raw-slow-increment-closure",
+    ];
+
+    !CANNOT.contains(&name)
+}
+
+fn stack_buf_cache_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("STEEL_JIT_BUF_PTR_CACHE").as_deref() == Ok("1"))
+}
+
 impl Default for JIT {
     fn default() -> Self {
         let mut flag_builder = settings::builder();
@@ -467,6 +514,11 @@ impl Default for JIT {
             flag_builder.set("enable_verifier", "false").unwrap();
         }
 
+        // Required, not a choice: cranelift's x64 backend asserts on tail calls
+        // without them ("the current implementation relies on them being
+        // present"), and the jit emits tail calls. Worth ~3.4% of fib in prologue
+        // cost plus whatever %rbp would buy the allocator, so revisit if that
+        // restriction is ever lifted upstream.
         flag_builder.set("preserve_frame_pointers", "true").unwrap();
 
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
@@ -2167,6 +2219,8 @@ struct PropertyMap {
     cached_lookups: CachedLookupMap,
 }
 
+
+
 impl PropertyMap {
     // Keep only what both branches agree on; anything else is unknown here.
     pub fn meet(&mut self, other: &PropertyMap) {
@@ -3193,7 +3247,12 @@ impl FunctionTranslator<'_> {
 
                     let (last, typ) = self.shadow_pop();
 
-                    let local_index = *self.let_var_stack.last().unwrap() + self.arity as usize;
+                    // All enclosing scopes, not just this one: `let*` nests, and
+                    // both read paths index with `let_var_stack.iter().sum()`. Using
+                    // `last()` here agrees only while the stack is one deep, so the
+                    // inner binding of a `let*` collided with the outer one.
+                    let local_index =
+                        self.let_var_stack.iter().sum::<usize>() + self.arity as usize;
                     self.value_to_local_map.insert(last, local_index);
                     self.local_to_value_map.insert(local_index, typ);
 
@@ -3210,13 +3269,29 @@ impl FunctionTranslator<'_> {
                         _ => {}
                     }
 
-                    // We can re use this value since we definitely have access to it.
-                    /*
-                    self.properties
-                        .cached_lookups
-                        .registers
-                        .insert(local_index, last);
-                    */
+                    // Caching the let var here would let `read_from_vm_stack`
+                    // skip the reload, which is where a lot of the spill/reload
+                    // cost lives. It still MISCOMPILES, so this is opt-in.
+                    //
+                    // What is already ruled out: it is not the loop back-edge, and
+                    // not branch merging - the smallest failing case has no `if` at
+                    // all. `PropertyMap::meet` is the only join and LETENDSCOPE now
+                    // purges the scope's slots.
+                    //
+                    // Smallest reproducer:
+                    //   (let ((q (quotient x y)))
+                    //     (let ((r (- x (* q y))))
+                    //       (+ q r)))
+                    // The trigger is an inner binding whose RHS reads the OUTER let
+                    // var while the body reads it too; make `r` independent of `q`
+                    // and it passes. Note r5rs/r7rs/syntax all pass with this on, so
+                    // the suites do not cover it - use the reproducer.
+                    // Deliberately not cached here. `local_index` counts let vars
+                    // only, so it misses operands spilled to the value stack across
+                    // a scope boundary - an inlined call under a pending `+` lands
+                    // its bindings one slot higher than this computes. The cache is
+                    // populated on read instead, where the index comes from the
+                    // bytecode and is always right.
 
                     // TODO: @mparas - in the event we're using a local value,
                     // we need to check if this is actually spilled or not.
@@ -3930,6 +4005,13 @@ impl FunctionTranslator<'_> {
 
                     for i in payload..payload + amt {
                         self.properties.remove(&ValueOrRegister::Register(i));
+                        // The loop above only reaches slots still referenced from
+                        // the shadow stack. A cached slot that nothing currently
+                        // points at outlives its scope otherwise, and the next let
+                        // to reuse the index reads the previous scope's value.
+                        // Keyed the same way `LetVar` writes it - let_var_stack +
+                        // arity - which is what `payload` already counts in.
+                        self.properties.cached_lookups.registers.remove(&i);
                     }
 
                     // for p in properties_to_remove {
@@ -5974,7 +6056,10 @@ impl FunctionTranslator<'_> {
 
         let sp = |ctx: &mut Self| {
             let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
-            let value = ctx.encode_integer(1);
+            // The constant this call subtracts, not a literal 1. Reached whenever
+            // the register is not an int, or the fast path overflows - so before
+            // this, `(- 100.0 5)` came back as 99.0 under the JIT.
+            let value = ctx.encode_integer(constant_value as _);
             let args = [register, value];
             let result = ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
 
@@ -6222,6 +6307,10 @@ impl FunctionTranslator<'_> {
                         // call the trampoline function (i.e. have one
                         // trampoline that we can pass by value to the
                         // tail calling convention code.)
+                        // Same reasoning as `get_local_callee`: the callee can
+                        // grow the value stack.
+                        ctx.invalidate_buf_ptr();
+
                         let call =
                             ctx.builder
                                 .ins()
@@ -7910,8 +7999,12 @@ impl FunctionTranslator<'_> {
             .map(|x| x.0)
             .collect::<Vec<_>>();
 
-        // self.builder.ins().get_pinned_reg(iAddr);
-        // self.builder.ins().set_pinned_reg(addr)
+        // Pinning the vm context to r15 with get_pinned_reg/set_pinned_reg was
+        // implemented and measured: ctx reloads in fib went 99 -> 2 and spill
+        // traffic 18.4% -> 14.9%, but instructions went 1287 -> 1372 and fib was
+        // 17% slower, reproducibly. A reload that hits L1 is already free at this
+        // IPC, while reserving r15 costs the allocator a register in a function
+        // that already uses all five callee-saved ones. See `get_ctx`.
 
         let vm_ctx = self.get_ctx();
 
@@ -9508,14 +9601,7 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
-        let thread_pointer = self.get_thread_pointer(ctx);
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
-        );
+        let buf_ptr = self.stack_buf_ptr(ctx);
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
@@ -9568,14 +9654,7 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
-        let thread_pointer = self.get_thread_pointer(ctx);
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
-        );
+        let buf_ptr = self.stack_buf_ptr(ctx);
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
@@ -9615,19 +9694,16 @@ impl FunctionTranslator<'_> {
         // Cache let vars since they're going to be on the stack,
         // but we already had it available.
         if let Some(local) = self.properties.cached_lookups.registers.get(&index) {
+            log::debug!(target: "letvar", "HIT  slot {index}");
             return *local;
         }
+        log::debug!(target: "letvar", "MISS slot {index}");
+        let cache_this_read =
+            std::env::var("STEEL_JIT_LETVAR_CACHE").as_deref() == Ok("1");
 
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
-        let thread_pointer = self.get_thread_pointer(ctx);
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
-        );
+        let buf_ptr = self.stack_buf_ptr(ctx);
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
@@ -9641,7 +9717,12 @@ impl FunctionTranslator<'_> {
             (index * std::mem::size_of::<SteelVal>()) as i32,
         );
 
-        // self.properties.cached_lookups.registers.insert(index, res);
+        // Read-through: the index came from the bytecode, so unlike the one
+        // `LetVar` computes it is always the real stack slot. Later reads of the
+        // same slot reuse this load until something invalidates it.
+        if cache_this_read {
+            self.properties.cached_lookups.registers.insert(index, res);
+        }
 
         res
     }
@@ -9651,14 +9732,7 @@ impl FunctionTranslator<'_> {
     fn read_from_vm_stack_split(&mut self, index: usize) -> (Value, Value) {
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
-        let thread_pointer = self.get_thread_pointer(ctx);
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
-        );
+        let buf_ptr = self.stack_buf_ptr(ctx);
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
@@ -9686,14 +9760,7 @@ impl FunctionTranslator<'_> {
     fn read_from_vm_stack_unboxed(&mut self, index: usize) -> Value {
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
-        let thread_pointer = self.get_thread_pointer(ctx);
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
-        );
+        let buf_ptr = self.stack_buf_ptr(ctx);
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 
@@ -10585,31 +10652,39 @@ impl FunctionTranslator<'_> {
     }
 
     fn invalidate_buf_ptr(&mut self) {
+        if self.properties.cached_lookups.stack_buf_pointer.is_some() {
+            log::debug!(target: "bufptr", "INVALIDATE");
+        }
         self.properties.cached_lookups.stack_buf_pointer.take();
     }
 
-    /*
+    /// The value stack's buffer pointer, reused within a block.
+    ///
+    /// Invalidated by `invalidate_buf_ptr` at the jit's own growth points, by
+    /// every call (rust can grow the stack out from under us), and on a control
+    /// flow join where the two sides disagree - see `PropertyMap::meet`.
     fn stack_buf_ptr(&mut self, vm_ctx: Value) -> Value {
         if let Some(buf_pointer) = self.properties.cached_lookups.stack_buf_pointer {
+            log::debug!(target: "bufptr", "HIT");
             return buf_pointer;
         }
+        log::debug!(target: "bufptr", "MISS");
 
         let thread_pointer = self.get_thread_pointer(vm_ctx);
-
-        // Stack offset:
-        let stack_offset = offset_of!(SteelThread, stack);
-        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
             MemFlagsData::trusted(),
             thread_pointer,
-            (stack_offset + ptr_offset) as i32,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
         );
+
+        if stack_buf_cache_enabled() {
+            self.properties.cached_lookups.stack_buf_pointer = Some(buf_ptr);
+        }
 
         buf_ptr
     }
-    */
 
     // 1. Probably need to check the length, slow path otherwise
     // 2. Should figure out a better way of doing things.
@@ -11835,6 +11910,11 @@ impl FunctionTranslator<'_> {
 
     // Fetch a function byname
     fn get_local_callee(&mut self, name: &str) -> FuncRef {
+        // Most callees can push onto the value stack and reallocate it.
+        if callee_can_move_value_stack(name) {
+            self.invalidate_buf_ptr();
+        }
+
         let sig = self.get_signature(name);
 
         let callee = self
@@ -11882,6 +11962,12 @@ impl FunctionTranslator<'_> {
     }
 
     /// Fetches a pointer to the VM context
+    // The vm context stays an ordinary ssa value, which cranelift spills to a
+    // stack slot and reloads after calls (99 times in fib). Pinning it to r15
+    // instead was tried and measured: the reloads dropped to 2, but each read
+    // became a register move rather than a free L1 hit, and reserving r15 cost
+    // the allocator a register in a function that already used all five
+    // callee-saved ones. fib came out 17% slower, reproducibly.
     fn get_ctx(&mut self) -> Value {
         self.vm_context
     }
