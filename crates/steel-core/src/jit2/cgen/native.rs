@@ -929,6 +929,13 @@ impl<'a> FunctionTranslator<'a> {
         then: impl Fn(&mut Self),
         merge: impl Fn(&mut Self),
     ) {
+        if let Some(taken) = self.const_bool(test_condition) {
+            if taken {
+                then(self);
+            }
+            merge(self);
+            return;
+        }
         let then_block = self.builder.create_block();
         self.builder.set_cold_block(then_block);
 
@@ -957,6 +964,13 @@ impl<'a> FunctionTranslator<'a> {
         then: impl Fn(&mut Self),
         merge: impl Fn(&mut Self),
     ) {
+        if let Some(taken) = self.const_bool(test_condition) {
+            if taken {
+                then(self);
+            }
+            merge(self);
+            return;
+        }
         let then_block = self.builder.create_block();
 
         let merge_block = self.builder.create_block();
@@ -984,6 +998,13 @@ impl<'a> FunctionTranslator<'a> {
         then: impl Fn(&mut Self),
         merge: impl Fn(&mut Self),
     ) {
+        if let Some(taken) = self.const_bool(test_condition) {
+            if taken {
+                then(self);
+            }
+            merge(self);
+            return;
+        }
         let then_block = self.builder.create_block();
         self.builder.set_cold_block(then_block);
 
@@ -1048,6 +1069,10 @@ impl<'a> FunctionTranslator<'a> {
         then: impl Fn(&mut Self),
         else_thunk: impl Fn(&mut Self),
     ) {
+        if let Some(taken) = self.const_bool(test_condition) {
+            if taken { then(self) } else { else_thunk(self) }
+            return;
+        }
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
         let merge_block = self.builder.create_block();
@@ -1079,6 +1104,10 @@ impl<'a> FunctionTranslator<'a> {
         then: impl Fn(&mut Self),
         else_thunk: impl Fn(&mut Self),
     ) {
+        if let Some(taken) = self.const_bool(test_condition) {
+            if taken { then(self) } else { else_thunk(self) }
+            return;
+        }
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
 
@@ -1114,6 +1143,9 @@ impl<'a> FunctionTranslator<'a> {
         else_thunk: impl Fn(&mut Self) -> Value,
         typ: Type,
     ) -> Value {
+        if let Some(taken) = self.const_bool(test_condition) {
+            return if taken { then(self) } else { else_thunk(self) };
+        }
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
         let merge_block = self.builder.create_block();
@@ -1158,6 +1190,9 @@ impl<'a> FunctionTranslator<'a> {
         else_thunk: impl Fn(&mut Self) -> Value,
         typ: Type,
     ) -> Value {
+        if let Some(taken) = self.const_bool(test_condition) {
+            return if taken { then(self) } else { else_thunk(self) };
+        }
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
         let merge_block = self.builder.create_block();
@@ -1343,6 +1378,11 @@ impl<'a> FunctionTranslator<'a> {
 
             let args = [register_l, register_r];
             let result = ctx.call_function_returns_value_args("add-binop-reg-2", &args);
+
+            // The helper reports a type error by flagging the vm rather than
+            // returning one; without this the jitted code kept going and the
+            // error surfaced after `with-handler` had already been unwound.
+            ctx.check_deopt();
 
             result
         };

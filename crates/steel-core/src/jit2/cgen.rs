@@ -371,6 +371,76 @@ macro_rules! abi {
     };
 }
 
+/// How many speculative exits a function may take before speculation stops
+/// being worth it for that function.
+///
+/// A site that is genuinely polymorphic exits on every call, which is strictly
+/// worse than the generic fallback speculation replaced: a full return to the
+/// interpreter instead of a predictable branch. Past this many exits the
+/// function is recorded and compiled without speculation from then on.
+fn speculation_deopt_limit() -> u64 {
+    static V: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("STEEL_JIT_DEOPT_LIMIT")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(64)
+    })
+}
+
+/// Exit counts per jitted function, and the set that has given up on
+/// speculating. Shared across threads because the jit and its code cache are.
+static SPECULATION_DEOPTS: std::sync::Mutex<
+    Option<std::collections::HashMap<usize, u64>>,
+> = std::sync::Mutex::new(None);
+
+static SPECULATION_DISABLED: std::sync::Mutex<
+    Option<std::collections::HashSet<usize>>,
+> = std::sync::Mutex::new(None);
+
+/// Whether this function should still be compiled with speculation.
+fn should_speculate_for(function_index: Option<usize>) -> bool {
+    if !speculate_int_tag_enabled() {
+        return false;
+    }
+
+    let Some(index) = function_index else {
+        return true;
+    };
+
+    SPECULATION_DISABLED
+        .lock()
+        .map(|guard| guard.as_ref().map_or(true, |set| !set.contains(&index)))
+        .unwrap_or(true)
+}
+
+#[cross_platform_fn]
+// Called from a speculative exit. Counts it, and retires speculation for this
+// function once the exits stop looking like a cold path.
+fn record_speculation_deopt(function_index: i64) {
+    let index = function_index as usize;
+    let limit = speculation_deopt_limit();
+
+    let Ok(mut guard) = SPECULATION_DEOPTS.lock() else {
+        return;
+    };
+
+    let counts = guard.get_or_insert_with(Default::default);
+    let count = counts.entry(index).or_insert(0);
+    *count += 1;
+
+    if *count == limit {
+        log::debug!(
+            target: "jit-deopt",
+            "function {index} exited speculatively {limit} times; not speculating it again"
+        );
+
+        if let Ok(mut disabled) = SPECULATION_DISABLED.lock() {
+            disabled.get_or_insert_with(Default::default).insert(index);
+        }
+    }
+}
+
 #[cross_platform_fn]
 fn debug_count(value: i32) {
     println!("Count: {}", value);
@@ -491,6 +561,21 @@ fn callee_can_move_value_stack(name: &str) -> bool {
     !CANNOT.contains(&name)
 }
 
+/// Speculate on the int tag and bail to the interpreter when it misses, instead
+/// of merging with a generic slow path.
+///
+/// The merge is what forces the boxed representation: a `converging_if` joining
+/// an int arm with a "could be anything" arm has to agree on `i128`. Branching to
+/// an exit instead means the fast arm never joins, so it can carry a raw i64 -
+/// which is what makes `InferredType::Int64` producible at all.
+///
+/// Milestone scope: one operation, to answer whether jitted code can hand the
+/// interpreter a state it can resume from.
+fn speculate_int_tag_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("STEEL_JIT_SPECULATE_INT").as_deref() == Ok("1"))
+}
+
 fn stack_buf_cache_enabled() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("STEEL_JIT_BUF_PTR_CACHE").as_deref() == Ok("1"))
@@ -559,6 +644,10 @@ impl Default for JIT {
         map.add_func2("#%debug-steel-value", abi! { debug_value as fn(SteelVal) });
         map.add_func2("#%debug-value", abi! { debug_int as fn(i64) });
         map.add_func2("#%debug-count", abi! { debug_count as fn(i32) });
+        map.add_func2(
+            "#%record-speculation-deopt",
+            abi! { record_speculation_deopt as fn(i64) },
+        );
         map.add_func2("#%debug-tag", abi! { debug_tag as fn(i8) });
 
         map.add_func2(
@@ -1505,6 +1594,220 @@ const fn rcbox_slice_data_offset() -> i64 {
     steel_rc::BiasedRc::<DenseInstruction>::data_offset() as i64
 }
 
+/// Loop specialization (M3). A function whose self tail call carries fixnums
+/// in some argument slots gets a second compiled copy with those slots typed
+/// `Int`. The generic copy checks the slots once, at its tail call, and tail
+/// calls into the specialized one; the specialized copy loops on itself for as
+/// long as the slots stay fixnums, and tail calls back otherwise.
+#[derive(Clone, Debug)]
+enum SpecMode {
+    None,
+    Generic { spec_id: FuncId, seed: Vec<usize> },
+    Specialized { generic_id: FuncId, seed: Vec<usize> },
+}
+
+fn loop_specialization_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("STEEL_JIT_SPECIALIZE_LOOPS").as_deref() == Ok("1"))
+}
+
+fn spec_debug_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("STEEL_JIT_SPEC_DEBUG").is_some())
+}
+
+/// Argument slots of a self tail calling loop worth specializing as fixnums:
+/// read straight into a numeric operation, and never `set!`. A guess - the
+/// guard decides at run time - so it only has to be cheap and usually right.
+fn loop_fixnum_seed(code: &[DenseInstruction], arity: u16, constants: &ConstantMap) -> Vec<usize> {
+    if !code.iter().any(|i| i.op_code == OpCode::SELFTAILCALLNOARITY) {
+        return Vec::new();
+    }
+    let arity = arity as usize;
+    let slot_read = |i: &DenseInstruction| match i.op_code {
+        OpCode::READLOCAL0 | OpCode::MOVEREADLOCAL0 => Some(0),
+        OpCode::READLOCAL1 | OpCode::MOVEREADLOCAL1 => Some(1),
+        OpCode::READLOCAL2 | OpCode::MOVEREADLOCAL2 => Some(2),
+        OpCode::READLOCAL3 | OpCode::MOVEREADLOCAL3 => Some(3),
+        OpCode::READLOCAL | OpCode::MOVEREADLOCAL => Some(i.payload_size.to_usize()),
+        _ => None,
+    };
+    let numeric = |i: &DenseInstruction| {
+        matches!(
+            i.op_code,
+            OpCode::ADD
+                | OpCode::SUB
+                | OpCode::MUL
+                | OpCode::LT
+                | OpCode::LTE
+                | OpCode::GT
+                | OpCode::GTE
+                | OpCode::NUMEQUAL
+        ) && i.payload_size.to_usize() == 2
+    };
+    let int_constant = |i: &DenseInstruction| {
+        matches!(i.op_code, OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2)
+            || (i.op_code == OpCode::PUSHCONST
+                && matches!(constants.get(i.payload_size.to_usize()), SteelVal::IntV(_)))
+    };
+    let float_constant = |i: &DenseInstruction| {
+        i.op_code == OpCode::PUSHCONST
+            && matches!(constants.get(i.payload_size.to_usize()), SteelVal::NumV(_))
+    };
+    let pushes_one = |i: &DenseInstruction| slot_read(i).is_some() || int_constant(i);
+
+    let mut seed = std::collections::BTreeSet::new();
+    let mut mutated = std::collections::BTreeSet::new();
+    // A slot combined with a float literal is carrying floats; guarding it as a
+    // fixnum would only ever fail.
+    let mut floats = std::collections::BTreeSet::new();
+    // Slots combined directly with each other in a numeric operation.
+    let mut pairs = Vec::new();
+    for (idx, ins) in code.iter().enumerate() {
+        if ins.op_code == OpCode::SETLOCAL {
+            mutated.insert(ins.payload_size.to_usize());
+        }
+        let Some(slot) = slot_read(ins) else {
+            continue;
+        };
+        if slot >= arity {
+            continue;
+        }
+        let next = code.get(idx + 1);
+        let after = code.get(idx + 2);
+        let before = idx.checked_sub(1).and_then(|b| code.get(b));
+        if (next.is_some_and(|n| float_constant(n)) && after.is_some_and(|a| numeric(a)))
+            || (before.is_some_and(|b| float_constant(b)) && next.is_some_and(|n| numeric(n)))
+        {
+            floats.insert(slot);
+        }
+        if let (Some(other), true) = (
+            next.and_then(|n| slot_read(n)),
+            after.is_some_and(|a| numeric(a)),
+        ) {
+            if other < arity {
+                pairs.push((slot, other));
+            }
+        }
+        if next.is_some_and(|n| numeric(n))
+            || (next.is_some_and(|n| pushes_one(n)) && after.is_some_and(|a| numeric(a)))
+        {
+            seed.insert(slot);
+        }
+    }
+    // `(+ i sum)` with `i` carrying floats makes `sum` a float too.
+    loop {
+        let before = floats.len();
+        for &(a, b) in &pairs {
+            if floats.contains(&a) || floats.contains(&b) {
+                floats.insert(a);
+                floats.insert(b);
+            }
+        }
+        if floats.len() == before {
+            break;
+        }
+    }
+
+    seed.into_iter()
+        .filter(|s| !mutated.contains(s) && !floats.contains(s))
+        .collect()
+}
+
+/// At the top of a generic copy: tail call into the specialized copy when every
+/// seeded argument slot holds a fixnum. Raw loads, emitted before the
+/// translator exists, so none of its caches see them.
+fn emit_spec_entry_guard(
+    builder: &mut FunctionBuilder,
+    module: &mut JITModule,
+    vm_ctx: Value,
+    spec_id: FuncId,
+    seed: &[usize],
+    arity: u16,
+) {
+    let thread = builder.ins().load(
+        types::I64,
+        MemFlagsData::trusted(),
+        vm_ctx,
+        offset_of!(VmCore, thread) as i32,
+    );
+    let buf_ptr = builder.ins().load(
+        types::I64,
+        MemFlagsData::trusted(),
+        thread,
+        (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
+    );
+    let sp = builder.ins().load(
+        types::I64,
+        MemFlagsData::trusted(),
+        vm_ctx,
+        offset_of!(VmCore, sp) as i32,
+    );
+    let sp_bytes = builder.ins().ishl_imm_u(sp, 4);
+    let frame_base = builder.ins().iadd(buf_ptr, sp_bytes);
+
+    let mut all = builder.ins().iconst(types::I8, 1);
+    for &k in seed.iter().filter(|k| **k < arity as usize) {
+        let tag = builder.ins().load(
+            types::I8,
+            MemFlagsData::trusted(),
+            frame_base,
+            (k * std::mem::size_of::<SteelVal>()) as i32,
+        );
+        let is_int = builder
+            .ins()
+            .icmp_imm_s(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
+        all = builder.ins().band(all, is_int);
+    }
+
+    let spec_block = builder.create_block();
+    let body_block = builder.create_block();
+    builder.ins().brif(all, spec_block, &[], body_block, &[]);
+    builder.seal_block(spec_block);
+    builder.seal_block(body_block);
+
+    builder.switch_to_block(spec_block);
+    let callee = module.declare_func_in_func(spec_id, builder.func);
+    builder.ins().return_call(callee, &[vm_ctx]);
+
+    builder.switch_to_block(body_block);
+}
+
+/// Whether a reachable exit of `func` returns a value whose type was not
+/// recorded. Unreachable blocks are skipped: the translator parks code after a
+/// return in a fresh block with no predecessors, and ends every function with
+/// a `return` in one, so counting those would erase every return type.
+fn has_untyped_exit(
+    func: &cranelift::codegen::ir::Function,
+    typed: &HashSet<cranelift::codegen::ir::Inst>,
+) -> bool {
+    use cranelift::codegen::flowgraph::ControlFlowGraph;
+    use cranelift::codegen::ir::Opcode;
+
+    let Some(entry) = func.layout.entry_block() else {
+        return false;
+    };
+    let cfg = ControlFlowGraph::with_function(func);
+    let mut seen = HashSet::new();
+    let mut work = vec![entry];
+    while let Some(block) = work.pop() {
+        if !seen.insert(block) {
+            continue;
+        }
+        for inst in func.layout.block_insts(block) {
+            let is_exit = matches!(
+                func.dfg.insts[inst].opcode(),
+                Opcode::Return | Opcode::ReturnCall | Opcode::ReturnCallIndirect
+            );
+            if is_exit && !typed.contains(&inst) {
+                return true;
+            }
+        }
+        work.extend(cfg.succ_iter(block));
+    }
+    false
+}
+
 fn discriminant(value: &SteelVal) -> u8 {
     // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
     // between `repr(C)` structs, each of which has the `u8` discriminant as its first
@@ -1762,27 +2065,38 @@ impl JIT {
 
         let stmts = instructions;
 
-        let pointer = self.module.target_config().pointer_type();
-
-        let mut param = AbiParam::new(pointer);
-        param.purpose = ArgumentPurpose::VMContext;
-
-        self.ctx.func.signature.params.push(param);
-        self.ctx.func.signature.call_conv = CallConv::Tail;
-
-        // Return a value. If we concretely return a value,
-        // we're going to avoid writing it to the stack
-        // to save some time.
-        self.ctx
-            .func
-            .signature
-            .returns
-            .push(AbiParam::new(types::I128));
+        self.init_jit_signature();
 
         let inner_id = self
             .module
             .declare_function(&inner_name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
+
+        // Loop specialization: declared up front because the generic copy tail
+        // calls it. It is always defined once the generic copy is (see
+        // `compile_specialized`), so the reference is never left dangling.
+        let seed = if loop_specialization_enabled() {
+            loop_fixnum_seed(stmts, arity, constants)
+        } else {
+            Vec::new()
+        };
+        let spec = if seed.is_empty() {
+            None
+        } else {
+            let spec_name = format!("{}_spec", inner_name);
+            let spec_id = self
+                .module
+                .declare_function(&spec_name, Linkage::Local, &self.ctx.func.signature)
+                .map_err(|e| e.to_string())?;
+            Some((spec_id, spec_name))
+        };
+        let mode = match &spec {
+            Some((spec_id, _)) => SpecMode::Generic {
+                spec_id: *spec_id,
+                seed: seed.clone(),
+            },
+            None => SpecMode::None,
+        };
 
         // Then, translate the AST nodes into Cranelift IR.
         self.translate(
@@ -1796,10 +2110,16 @@ impl JIT {
             function_index,
             slot,
             non_mutable_globals,
+            mode,
         )?;
 
         if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
-            // println!("{:#?}", self.ctx.func);
+            // STEEL_JIT_DUMP_CLIF=1 prints the function that failed, which is the
+            // only practical way to chase a dominance error back to the block
+            // that defines the offending value.
+            if std::env::var("STEEL_JIT_DUMP_CLIF").as_deref() == Ok("1") {
+                eprintln!("--- clif for failed function ---\n{}", self.ctx.func);
+            }
             eprintln!("{:#?}", e);
             self.module.clear_context(&mut self.ctx);
             return Err(format!("errors: {:#?}", e));
@@ -1828,6 +2148,24 @@ impl JIT {
             .unwrap_or(0);
 
         self.module.clear_context(&mut self.ctx);
+
+        let spec_code_size = spec.as_ref().map(|(spec_id, spec_name)| {
+            self.compile_specialized(
+                id,
+                *spec_id,
+                spec_name,
+                inner_id,
+                arity,
+                stmts,
+                globals,
+                constants,
+                function_index,
+                slot,
+                non_mutable_globals,
+                seed.clone(),
+            )
+        });
+
         self.module
             .finalize_definitions()
             .map_err(|e| e.to_string())?;
@@ -1836,6 +2174,24 @@ impl JIT {
 
         // Lets figure out... what we need here
         write_perf_map_entry(code, code_size, &inner_name);
+        if let (Some((spec_id, spec_name)), Some(size)) = (&spec, spec_code_size) {
+            let spec_code = self.module.get_finalized_function(*spec_id);
+            write_perf_map_entry(spec_code, size, spec_name);
+
+            #[cfg(target_os = "linux")]
+            if let Some(jitdump) = self.jitdump.as_mut() {
+                let code_bytes = unsafe { std::slice::from_raw_parts(spec_code, size) };
+                let timestamp = jitdump.get_time_stamp();
+                let pid = std::process::id();
+                let tid = rustix::thread::gettid().as_raw_nonzero().get() as u32;
+                if let Err(e) =
+                    jitdump.dump_code_load_record(spec_name, code_bytes, timestamp, pid, tid)
+                {
+                    log::warn!(target: "jit", "failed to write a jitdump record: {e}; disabling");
+                    self.jitdump = None;
+                }
+            }
+        }
 
         #[cfg(target_os = "linux")]
         if let Some(jitdump) = self.jitdump.as_mut() {
@@ -1857,6 +2213,118 @@ impl JIT {
         Ok(code)
     }
 
+    /// The vmctx-in, value-out tail signature every jitted function shares.
+    fn init_jit_signature(&mut self) {
+        let pointer = self.module.target_config().pointer_type();
+
+        let mut param = AbiParam::new(pointer);
+        param.purpose = ArgumentPurpose::VMContext;
+
+        self.ctx.func.signature.params.push(param);
+        self.ctx.func.signature.call_conv = CallConv::Tail;
+
+        // Return a value. If we concretely return a value,
+        // we're going to avoid writing it to the stack
+        // to save some time.
+        self.ctx
+            .func
+            .signature
+            .returns
+            .push(AbiParam::new(types::I128));
+    }
+
+    /// Compile and define the specialized copy, returning its code size. It
+    /// must end up defined no matter what - the generic copy already tail calls
+    /// it - so a failure, including a panic in the translator, defines a stub
+    /// that tail calls straight back into the generic copy instead. A panic that
+    /// escaped would also poison the jit's shared mutex.
+    #[allow(clippy::too_many_arguments)]
+    fn compile_specialized(
+        &mut self,
+        id: u32,
+        spec_id: FuncId,
+        spec_name: &str,
+        generic_id: FuncId,
+        arity: u16,
+        stmts: &[DenseInstruction],
+        globals: &[SteelVal],
+        constants: &ConstantMap,
+        function_index: Option<usize>,
+        slot: Option<&Gc<ByteCodeLambda>>,
+        non_mutable_globals: &HashSet<usize>,
+        seed: Vec<usize>,
+    ) -> usize {
+        self.init_jit_signature();
+
+        let mode = SpecMode::Specialized { generic_id, seed };
+        let translated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.translate(
+                id,
+                spec_name.to_string(),
+                spec_id,
+                arity,
+                stmts,
+                globals,
+                constants,
+                function_index,
+                slot,
+                non_mutable_globals,
+                mode,
+            )
+        }));
+
+        let failure = match translated {
+            Ok(Ok(())) => {
+                match cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
+                    Ok(()) => match self.module.define_function(spec_id, &mut self.ctx) {
+                        Ok(()) => None,
+                        Err(e) => Some(format!("define: {e}")),
+                    },
+                    Err(e) => Some(format!("verify: {e:#?}")),
+                }
+            }
+            Ok(Err(e)) => Some(format!("translate: {e}")),
+            Err(_) => Some("translate panicked".to_string()),
+        };
+
+        if let Some(reason) = failure {
+            if spec_debug_enabled() {
+                eprintln!("[spec] {spec_name} fell back to a stub: {reason}");
+            }
+            log::debug!(target: "jit", "{spec_name} fell back to a stub: {reason}");
+
+            // The translator may have been torn down mid block.
+            self.module.clear_context(&mut self.ctx);
+            self.builder_context = FunctionBuilderContext::new();
+            self.init_jit_signature();
+            {
+                let mut builder =
+                    FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+                let entry = builder.create_block();
+                builder.append_block_params_for_function_params(entry);
+                builder.switch_to_block(entry);
+                builder.seal_block(entry);
+                let vm_ctx = builder.block_params(entry)[0];
+                let generic = self.module.declare_func_in_func(generic_id, builder.func);
+                builder.ins().return_call(generic, &[vm_ctx]);
+                builder.finalize(self.module.target_config());
+            }
+            self.module
+                .define_function(spec_id, &mut self.ctx)
+                .expect("a stub that only tail calls cannot fail to compile");
+        } else if spec_debug_enabled() {
+            eprintln!("[spec] compiled {spec_name}");
+        }
+
+        let size = self
+            .ctx
+            .compiled_code()
+            .map(|cc| cc.code_buffer().len())
+            .unwrap_or(0);
+        self.module.clear_context(&mut self.ctx);
+        size
+    }
+
     fn translate(
         &mut self,
         id: u32,
@@ -1869,6 +2337,7 @@ impl JIT {
         function_context: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
         non_mutable_globals: &HashSet<usize>,
+        spec_mode: SpecMode,
     ) -> Result<(), String> {
         // println!("----- Compiling function ----");
 
@@ -1893,6 +2362,16 @@ impl JIT {
         // first block param. cranelift 0.135 dropped the global_value instruction
         // that used to materialize it.
         let vm_context = builder.block_params(entry_block)[0];
+
+        // The generic copy of a specialized loop checks its seeded slots on the
+        // way in and hands the whole call to the specialized copy, first
+        // iteration included. Checking at the tail call instead ran the first
+        // iteration generically every call - most of the work in a short loop -
+        // and repeated a failing check on every iteration of a loop whose slots
+        // were never fixnums.
+        if let SpecMode::Generic { spec_id, seed } = &spec_mode {
+            emit_spec_entry_guard(&mut builder, &mut self.module, vm_context, *spec_id, seed, arity);
+        }
 
         let fake_entry_block = if contains_tail_call {
             let fake_entry = builder.create_block();
@@ -1927,6 +2406,7 @@ impl JIT {
             fake_entry_block,
             exit_block,
             deopt_return_block: None,
+            pending_deopt_exits: Vec::new(),
             properties: Default::default(),
             visited: HashSet::default(),
             join_targets: bytecode
@@ -1945,6 +2425,7 @@ impl JIT {
             names: &self.names,
             function_return_types: &self.function_return_types,
             exit_types: &mut exit_types,
+            typed_returns: HashSet::new(),
             potentially_could_deopt: false,
             tier: JitTier::Baseline,
             thread_pointer: None,
@@ -1956,12 +2437,30 @@ impl JIT {
             compilation_stats: CompilationStats::default(),
             thread_id: None,
             use_lbbv: std::env::var("STEEL_LBBV").is_ok(),
+            known_fixnum: HashSet::new(),
+            spec_mode: spec_mode.clone(),
         };
 
         {
             let vm_ctx = trans.get_ctx();
             trans.get_thread_pointer(vm_ctx);
             trans.get_thread_id();
+        }
+
+        match &spec_mode {
+            // Guarded: the generic copy only tail calls in with these slots
+            // holding fixnums, and this copy only loops on itself while they
+            // still do.
+            SpecMode::Specialized { seed, .. } => {
+                for &i in seed.iter().filter(|i| **i < arity as usize) {
+                    trans.properties.set_property(
+                        ValueOrRegister::Register(i),
+                        Properties::InferredType(InferredType::Int),
+                    );
+                    trans.local_to_value_map.insert(i, InferredType::Int);
+                }
+            }
+            SpecMode::Generic { .. } | SpecMode::None => {}
         }
 
         trans.stack_to_ssa();
@@ -1978,12 +2477,17 @@ impl JIT {
 
         trans.builder.seal_block(exit_block);
 
+        // Cold exits last - see `defer_deopt_exit`. After the body's own return,
+        // so the builder is not left positioned inside one of them.
+        trans.flush_deopt_exits();
+
         // Just seal all the blocks?
         trans.builder.seal_all_blocks();
 
         // Tell the builder we're done with this function.
         let frontend_config = trans.module.target_config();
         let deopts = trans.deopt_return_block.is_some();
+        let untyped_exit = has_untyped_exit(trans.builder.func, &trans.typed_returns);
         trans.builder.finalize(frontend_config);
 
         /*
@@ -1999,7 +2503,20 @@ impl JIT {
             exit_types.insert(InferredType::Void);
         }
 
-        self.function_return_types.insert(id, exit_types);
+        // Callers trust a single recorded return type (a call whose callee only
+        // ever returned `Bool` is branched on without a tag check), so every
+        // other way out has to count. A tail call, the memq shortcut or a
+        // speculative exit returns a value nothing typed; before this, a
+        // function like `(if (p x) #t (g x))` was recorded as returning `Bool`.
+        if untyped_exit {
+            exit_types.insert(InferredType::Any);
+        }
+
+        // The specialized copy shares the generic copy's id; callers only ever
+        // reach the generic copy, so its exits are the ones that describe a call.
+        if !matches!(spec_mode, SpecMode::Specialized { .. }) {
+            self.function_return_types.insert(id, exit_types);
+        }
 
         Ok(())
     }
@@ -2007,10 +2524,16 @@ impl JIT {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub enum InferredType {
-    // If we know this is an i64 concretely
+    // A bare i64 payload, untagged. `as_steelval` rebuilds the fixnum tag at
+    // whatever boundary the value escapes through.
     Int64,
 
-    // Could be either an i64 or a big int
+    // A boxed value carrying the fixnum tag (`SteelVal::IntV`) - never a
+    // bignum. The arithmetic and comparison fast arms rely on this: they unbox
+    // an `Int` operand without checking its tag, and `known_fixnum` folds its
+    // tag checks away. So only produce it for values that are fixnums by
+    // construction (today: fixnum constants). An operation that can overflow
+    // into a bignum may only produce `Int` if its overflow path deopts.
     Int,
     // Is just straight up, unboxed, meaning
     // its represented by a u8 on the stack on not
@@ -2059,6 +2582,27 @@ pub enum InferredType {
     MutableVector,
 }
 
+impl InferredType {
+    /// What this value's type becomes once it has been materialized as a
+    /// `SteelVal`.
+    ///
+    /// The untagged types describe how a value is being *carried*, not what it
+    /// is, so they must not survive materialization - a slot recorded as
+    /// `Int64` after the tagged value was written to it would be tagged a second
+    /// time on the next read.
+    fn boxed(self) -> Self {
+        match self {
+            // Number, not Int: `Int` is load bearing in the dispatch guards,
+            // which match on it and then assume the operand is a value or a
+            // constant rather than a register. `Number` is what this operation
+            // reported before it carried the result untagged.
+            InferredType::Int64 => InferredType::Number,
+            InferredType::UnboxedBool => InferredType::Bool,
+            other => other,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct StackValue {
     // Unfortunately this could be both a i128 or (i8, i64)
@@ -2070,11 +2614,24 @@ struct StackValue {
 }
 
 impl StackValue {
+    /// The value as a full `SteelVal`, tagging it if it is being carried
+    /// untagged.
+    ///
+    /// This is the only place an untagged payload becomes a `SteelVal`, so
+    /// anything that reads `self.value` directly has to be sure the value is not
+    /// one of the untagged types below.
     pub fn as_steelval(&self, ctx: &mut FunctionTranslator) -> Value {
         match self.inferred_type {
             InferredType::UnboxedBool => {
                 let value = ctx.builder.ins().uextend(types::I64, self.value);
                 ctx.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, value)
+            }
+            // A bare i64 payload known to fit - the tag is implied by the type,
+            // so it is rebuilt here rather than occupying a register.
+            InferredType::Int64 => {
+                let boxed = ctx.encode_value(SteelVal::INT_TAG as i64, self.value);
+                ctx.known_fixnum.insert(boxed);
+                boxed
             }
             _ => self.value,
         }
@@ -2546,6 +3103,11 @@ struct FunctionTranslator<'a> {
     fake_entry_block: Option<Block>,
     exit_block: Block,
     deopt_return_block: Option<Block>,
+
+    // Speculative exits, filled once the body is done. Emitting them inline puts
+    // their loads ahead of the fast path they branch away from, and those values
+    // then do not dominate it - cranelift reports that as a non-dominating use.
+    pending_deopt_exits: Vec<(Block, Vec<MaybeStackValue>, usize)>,
     visited: HashSet<usize>,
 
     depth: usize,
@@ -2573,6 +3135,9 @@ struct FunctionTranslator<'a> {
 
     function_return_types: &'a HashMap<u32, HashSet<InferredType>>,
     exit_types: &'a mut HashSet<InferredType>,
+    // The `return` instructions whose value's type went into `exit_types`.
+    // Any other reachable exit makes the function's result type unknown.
+    typed_returns: HashSet<cranelift::codegen::ir::Inst>,
 
     potentially_could_deopt: bool,
 
@@ -2594,6 +3159,12 @@ struct FunctionTranslator<'a> {
     compilation_stats: CompilationStats,
 
     use_lbbv: bool,
+    // SSA values known to hold a fixnum-tagged `SteelVal`. An SSA value never
+    // changes, so the fact holds at every use. Tag checks on these fold to a
+    // constant and `converging_if` only emits the arm the constant selects.
+    known_fixnum: HashSet<Value>,
+    // Loop specialization role of this translation; see `SpecMode`.
+    spec_mode: SpecMode,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -2762,7 +3333,8 @@ impl FunctionTranslator<'_> {
                     let real_res = self.vm_pop(value);
 
                     // if we hit this, the value should not end up getting read?
-                    self.builder.ins().return_(&[real_res]);
+                    let ret = self.builder.ins().return_(&[real_res]);
+                    self.typed_returns.insert(ret);
 
                     let cold_block = self.builder.create_block();
                     self.builder.switch_to_block(cold_block);
@@ -3266,7 +3838,24 @@ impl FunctionTranslator<'_> {
                                 Properties::ProperList,
                             );
                         }
-                        _ => {}
+                        // Nothing to record, and writing it would only mask a
+                        // better fact established later in the scope.
+                        InferredType::Any => {
+                            self.properties
+                                .remove(&ValueOrRegister::Register(local_index));
+                        }
+                        // Carry the binding's type onto the slot. Without this
+                        // only `List` survived, so `immutable_register_to_value`
+                        // reported `Any` for every other let-bound register and
+                        // the arithmetic fast arms re-checked a tag we already
+                        // knew. `LETENDSCOPE` clears these when the scope ends
+                        // and `SETLOCAL` clears them on mutation.
+                        typ => {
+                            self.properties.set_property(
+                                ValueOrRegister::Register(local_index),
+                                Properties::InferredType(typ),
+                            );
+                        }
                     }
 
                     // Caching the let var here would let `read_from_vm_stack`
@@ -3317,6 +3906,17 @@ impl FunctionTranslator<'_> {
                 OpCode::SETLOCAL => {
                     let index = self.register_index(payload);
                     let (value, _) = self.shadow_pop();
+
+                    // The slot's type is whatever `LetVar` recorded when it was
+                    // bound, and this overwrites the slot. Both maps have to go:
+                    // `local_to_value_map` feeds the dispatch guards and
+                    // `properties` feeds `immutable_register_to_value`. Benign
+                    // while every fast arm still tag-checks, but not once a known
+                    // type is allowed to skip one.
+                    let slot = payload as usize;
+                    self.local_to_value_map.remove(&slot);
+                    self.properties.remove(&ValueOrRegister::Register(slot));
+                    self.properties.cached_lookups.registers.remove(&slot);
 
                     let value =
                         self.call_function_returns_value_args("set-local-any", &[index, value]);
@@ -4021,6 +4621,23 @@ impl FunctionTranslator<'_> {
                     // self.call_end_scope_handler_new(payload, amt);
                 }
 
+                // Both operands are fixnums by construction (M1's facts), so there is
+                // no tag to check. Arithmetic still has to leave the fixnum range
+                // somewhere: it exits to the interpreter, which produces the bignum.
+                // That is what lets the result stay `Int`.
+                OpCode::ADD
+                | OpCode::SUB
+                | OpCode::MUL
+                | OpCode::LT
+                | OpCode::LTE
+                | OpCode::GT
+                | OpCode::GTE
+                | OpCode::NUMEQUAL
+                    if payload == 2 && self.top_two_are_fixnums() =>
+                {
+                    self.fixnum_binop(op);
+                }
+
                 // When we have two registers, we can add them in place.
                 // we should use type inference if we have it
                 OpCode::SUB
@@ -4130,6 +4747,9 @@ impl FunctionTranslator<'_> {
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
+
+                    self.check_deopt();
+
                     self.ip += 2;
                 }
 
@@ -4162,6 +4782,11 @@ impl FunctionTranslator<'_> {
                         let args = [register, value];
                         let result =
                             ctx.call_function_returns_value_args("add-binop-int-reg", &args);
+
+                        // The helper reports a type error by flagging the vm rather than
+                        // returning one; without this the jitted code kept going and the
+                        // error surfaced after `with-handler` had already been unwound.
+                        ctx.check_deopt();
 
                         result
                     };
@@ -4237,6 +4862,11 @@ impl FunctionTranslator<'_> {
                         let register = ctx.builder.ins().iconst(types::I64, register as i64);
                         let args = [register, value_as_steelval];
                         let result = ctx.call_function_returns_value_args("add-binop-reg", &args);
+
+                        // The helper reports a type error by flagging the vm rather than
+                        // returning one; without this the jitted code kept going and the
+                        // error surfaced after `with-handler` had already been unwound.
+                        ctx.check_deopt();
 
                         result
                     };
@@ -4382,15 +5012,23 @@ impl FunctionTranslator<'_> {
                         Int(i64),
                     }
 
-                    let rhs_int = self
-                        .shadow_stack
-                        .pop()
-                        .map(|x| match x {
-                            MaybeStackValue::Value(v) => Either::Value(v.value),
-                            MaybeStackValue::Constant(ConstantValue::Int(i)) => Either::Int(i as _),
-                            _ => panic!(),
-                        })
-                        .unwrap();
+                    // Materialized rather than read raw: an untagged payload
+                    // would otherwise be used as though it were a SteelVal.
+                    let rhs_int = match self.shadow_stack.pop().unwrap() {
+                        MaybeStackValue::Value(v) => Either::Value(v.as_steelval(self)),
+                        MaybeStackValue::Constant(ConstantValue::Int(i)) => Either::Int(i as _),
+                        // The guard admits any stack entry whose inferred type is
+                        // `Int`, and a let slot bound to an int is a register with
+                        // that type. This used to fall to `panic!()`; it is
+                        // unreachable only while arguments are never typed.
+                        MaybeStackValue::Register(r) => {
+                            Either::Value(self.immutable_register_to_value(r).0)
+                        }
+                        MaybeStackValue::MutRegister(r) => {
+                            Either::Value(self.mut_register_to_value(r).0)
+                        }
+                        _ => panic!(),
+                    };
 
                     let register_l = self.shadow_stack_pop().unwrap().into_index();
 
@@ -4847,8 +5485,14 @@ impl FunctionTranslator<'_> {
                     // otherwise.
 
                     // This will be our constant value:
-                    let right = self.shadow_stack_pop().unwrap().into_value(self).value;
-                    let left = self.shadow_stack_pop().unwrap().into_value(self).value;
+                    let right = {
+            let sv = self.shadow_stack_pop().unwrap().into_value(self);
+            sv.as_steelval(self)
+        };
+                    let left = {
+            let sv = self.shadow_stack_pop().unwrap().into_value(self);
+            sv.as_steelval(self)
+        };
 
                     // Check if the tags are the same, and they're numeric:
                     let left_int = self.is_type(left, SteelVal::INT_TAG);
@@ -4927,7 +5571,8 @@ impl FunctionTranslator<'_> {
                             // Tags coming from rust land in debug mode could have garbage in the
                             // padding that otherwise isn't there in the release build.
                             let register_payload = ctx.unbox_value_to_pointer(register_value);
-                            let rhs = ctx.unbox_value_to_pointer(last.value);
+                            let last_steelval = last.as_steelval(ctx);
+                            let rhs = ctx.unbox_value_to_pointer(last_steelval);
                             ctx.builder.ins().icmp(IntCC::Equal, register_payload, rhs)
                         },
                         |ctx| {
@@ -4939,9 +5584,10 @@ impl FunctionTranslator<'_> {
 
                             let vm_ctx = ctx.get_ctx();
 
+                            let last_steelval = last.as_steelval(ctx);
                             let res = ctx.call_function_returns_value_args_no_context(
                                 "num-equal-int-register",
-                                &[vm_ctx, register_int, last.value],
+                                &[vm_ctx, register_int, last_steelval],
                             );
 
                             // Make sure to check the deopt case here
@@ -4981,7 +5627,10 @@ impl FunctionTranslator<'_> {
                         .unwrap();
 
                     // This is now our register; this is where the values will live.
-                    let value = self.shadow_stack_pop().unwrap().into_value(self).value;
+                    let value = {
+            let sv = self.shadow_stack_pop().unwrap().into_value(self);
+            sv.as_steelval(self)
+        };
 
                     // Check if the tags are the same, and they're numeric:
                     let is_value_int = self.is_type(value, SteelVal::INT_TAG);
@@ -5119,9 +5768,10 @@ impl FunctionTranslator<'_> {
 
                             let register_index = self.builder.ins().iconst(types::I64, i as i64);
 
+                            let v_steelval = v.as_steelval(self);
                             let res = self.call_function_returns_value_args(
                                 "equal-binop-register-bool",
-                                &[register_index, v.value],
+                                &[register_index, v_steelval],
                             );
 
                             self.push(res, InferredType::UnboxedBool);
@@ -5527,7 +6177,12 @@ impl FunctionTranslator<'_> {
                                             let value = ctx.converging_if_else_cold(
                                                 is_pair,
                                                 // Inline car for a pair:
-                                                |ctx| ctx.inline_pair_car(value),
+                                                // Unboxed variant: this site reads with
+                                                // `read_from_vm_stack_split`, so `value` is
+                                                // already the payload. Unboxing again isplits
+                                                // an i64 into i32 halves and uses one as a
+                                                // pointer, which the verifier rejects.
+                                                |ctx| ctx.inline_pair_car_unboxed(value),
                                                 |ctx| {
                                                     let reg = ctx.register_index(reg);
                                                     let res = ctx.call_function_returns_value_args(
@@ -5967,6 +6622,11 @@ impl FunctionTranslator<'_> {
             let args = [register, value];
             let result = ctx.call_function_returns_value_args("sub-binop-float-reg", &args);
 
+            // The helper reports a type error by flagging the vm rather than
+            // returning one; without this the jitted code kept going and the
+            // error surfaced after `with-handler` had already been unwound.
+            ctx.check_deopt();
+
             result
         };
 
@@ -6007,6 +6667,11 @@ impl FunctionTranslator<'_> {
             let args = [register, value];
             let result = ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
 
+            // The helper reports a type error by flagging the vm rather than
+            // returning one; without this the jitted code kept going and the
+            // error surfaced after `with-handler` had already been unwound.
+            ctx.check_deopt();
+
             result
         };
 
@@ -6040,6 +6705,13 @@ impl FunctionTranslator<'_> {
     }
 
     fn sub_register_constant(&mut self) {
+        // Snapshot before the operands come off: on a deopt the interpreter
+        // re-runs this instruction, so it needs them back on its operand stack.
+        // The shadow stack is translator bookkeeping, so restoring the vector is
+        // enough to make `spill_stack_for_branch` write the right things.
+        let deopt_ip = self.ip;
+        let pre_pop_stack = self.shadow_stack.clone();
+
         let constant_value = self
             .shadow_stack_pop()
             .unwrap()
@@ -6063,8 +6735,67 @@ impl FunctionTranslator<'_> {
             let args = [register, value];
             let result = ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
 
+            // The helper reports a type error by flagging the vm rather than
+            // returning one; without this the jitted code kept going and the
+            // error surfaced after `with-handler` had already been unwound.
+            ctx.check_deopt();
+
             result
         };
+
+        // Speculative form: no merge, so the fast arm is free to stay untagged.
+        if should_speculate_for(self.function_context) {
+            // Uniform shadow stack before a two way branch, the same discipline
+            // every other branch here follows. Without it a value defined on one
+            // side survives in translator state past a later join and is used
+            // there without having been passed through it.
+            //
+            // It also means the exit below has nothing left to load: everything
+            // is already written back, so the exit only has to set `ip` and
+            // return.
+            self.spill_stack_for_branch();
+
+            let fast_block = self.builder.create_block();
+            let deopt_block = self.builder.create_block();
+
+            self.builder
+                .ins()
+                .brif(is_int, fast_block, &[], deopt_block, &[]);
+
+            self.builder.seal_block(deopt_block);
+            self.defer_deopt_exit(deopt_block, deopt_ip, pre_pop_stack.clone());
+
+            self.builder.switch_to_block(fast_block);
+            self.builder.seal_block(fast_block);
+
+            // The tag is established, so this is a plain checked subtraction on
+            // the payload. Overflow still has to go somewhere the interpreter can
+            // finish, so it takes the same exit.
+            let rhs = self.builder.ins().iconst(types::I64, constant_value as i64);
+            let (subbed, overflow_flag) = self.builder.ins().ssub_overflow(local_value, rhs);
+
+            let ok_block = self.builder.create_block();
+            let overflow_block = self.builder.create_block();
+
+            self.builder
+                .ins()
+                .brif(overflow_flag, overflow_block, &[], ok_block, &[]);
+
+            self.builder.seal_block(overflow_block);
+            self.defer_deopt_exit(overflow_block, deopt_ip, pre_pop_stack);
+
+            self.builder.switch_to_block(ok_block);
+            self.builder.seal_block(ok_block);
+
+            // Untagged. The tag is implied by `Int64`, and `as_steelval` puts it
+            // back at whatever boundary this value escapes through - a spill, a
+            // call, a return, or the deopt exit above. Until then it costs one
+            // register instead of a pair.
+            self.push(subbed, InferredType::Int64);
+            self.ip += 2;
+
+            return;
+        }
 
         let result = self.converging_if(
             is_int,
@@ -6293,7 +7024,7 @@ impl FunctionTranslator<'_> {
 
                         let instr_fat_ptr = ctx.builder.ins().iconcat(data_ptr, len);
 
-                        ctx.push_stack_frame(arity as _, closure, instr_fat_ptr, fallback_ip);
+                        ctx.push_stack_frame(arity as _, closure, instr_fat_ptr, fallback_ip, false);
 
                         // TODO: Abstract this to a function:
                         // Attempt to look up a value indirectly:
@@ -6443,8 +7174,14 @@ impl FunctionTranslator<'_> {
     /// the branch agree on type and the result can be consumed directly by a
     /// following `if` without boxing.
     fn inline_int_compare_two(&mut self, cc: IntCC, fallback: &str) -> Value {
-        let rhs = self.shadow_stack_pop().unwrap().into_value(self).value;
-        let lhs = self.shadow_stack_pop().unwrap().into_value(self).value;
+        let rhs = {
+            let sv = self.shadow_stack_pop().unwrap().into_value(self);
+            sv.as_steelval(self)
+        };
+        let lhs = {
+            let sv = self.shadow_stack_pop().unwrap().into_value(self);
+            sv.as_steelval(self)
+        };
 
         let lhs_is_int = self.is_type(lhs, SteelVal::INT_TAG);
         let rhs_is_int = self.is_type(rhs, SteelVal::INT_TAG);
@@ -7477,10 +8214,18 @@ impl FunctionTranslator<'_> {
     }
 
     fn translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize) {
-        // let mut args_off_the_stack = self
-        //     .stack
-        //     .drain(self.stack.len() - payload..)
-        //     .collect::<Vec<_>>();
+        // Which argument slots are fixnums by construction, read before any of
+        // them is popped. An unchanged slot shows up as its own register.
+        let proven: Vec<bool> = {
+            let n = self.shadow_stack.len();
+            (0..payload)
+                .map(|pos| {
+                    self.shadow_stack
+                        .get(n + pos - payload)
+                        .is_some_and(|e| self.entry_is_fixnum(e))
+                })
+                .collect()
+        };
 
         if payload > 0 {
             let mut amount_dropped = 0;
@@ -7552,22 +8297,7 @@ impl FunctionTranslator<'_> {
                     self.inline_call_self_tail_call_no_arity_loop(original_payload as _, &args);
                 }
 
-                let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
-
-                let else_block = self.builder.create_block();
-
-                let fake_entry_block = self.fake_entry_block.unwrap();
-
-                // Jump to the fake entry block.
-                //
-                // Construct a fake loop to otherwise jump back to the normal control
-                // flow?
-                self.builder
-                    .ins()
-                    .brif(test, fake_entry_block, &[], else_block, &[]);
-
-                self.builder.switch_to_block(else_block);
-                self.builder.seal_block(else_block);
+                self.emit_self_tail_jump(&proven);
 
                 return;
             }
@@ -7605,14 +8335,14 @@ impl FunctionTranslator<'_> {
             let _call = self.builder.ins().call(local_callee, &arg_values);
         }
 
+        self.emit_self_tail_jump(&proven);
+    }
+
+    /// Back to the top of the loop. The arguments are already written back.
+    fn emit_loop_jump(&mut self) {
         let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
         let else_block = self.builder.create_block();
-        // let merge_block = self.builder.create_block();
-
-        // Set up a while loop based on the result of the call.
-        // It is always going to succeed, so we'll just have an if else
-        // and see if that helps us figure out the proper SSA construction.
 
         let fake_entry_block = self.fake_entry_block.unwrap();
 
@@ -7626,6 +8356,84 @@ impl FunctionTranslator<'_> {
 
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
+    }
+
+    /// The end of a self tail call, once the arguments are written back. Where
+    /// it goes depends on which copy of the function this is: the generic copy
+    /// moves into the specialized one when the seeded slots hold fixnums, and
+    /// the specialized copy moves back out when one might not.
+    fn emit_self_tail_jump(&mut self, proven: &[bool]) {
+        match self.spec_mode.clone() {
+            SpecMode::None => self.emit_loop_jump(),
+
+            // The entry guard already decided; a generic copy stays generic.
+            SpecMode::Generic { .. } => {
+                self.emit_loop_jump();
+            }
+
+            SpecMode::Specialized { generic_id, seed } => {
+                // Slots the translator can prove are still fixnums need no
+                // check; the rest are checked on the values just written.
+                let unproven: Vec<usize> = seed
+                    .iter()
+                    .copied()
+                    .filter(|k| !proven.get(*k).copied().unwrap_or(false))
+                    .collect();
+
+                if unproven.is_empty() {
+                    self.emit_loop_jump();
+                    return;
+                }
+
+                let still_fixnums = self.slots_hold_fixnums(&unproven);
+                let loop_block = self.builder.create_block();
+                let generic_block = self.builder.create_block();
+                self.builder
+                    .ins()
+                    .brif(still_fixnums, loop_block, &[], generic_block, &[]);
+                self.builder.seal_block(loop_block);
+                self.builder.seal_block(generic_block);
+
+                self.builder.switch_to_block(generic_block);
+                self.emit_tail_call_into(generic_id);
+
+                self.builder.switch_to_block(loop_block);
+                self.emit_loop_jump();
+            }
+        }
+    }
+
+    fn emit_tail_call_into(&mut self, callee: FuncId) {
+        let vm_ctx = self.get_ctx();
+        let callee = self.module.declare_func_in_func(callee, self.builder.func);
+        self.builder.ins().return_call(callee, &[vm_ctx]);
+    }
+
+    /// An i8 that is 1 when every slot in `slots` holds a fixnum. Reads the
+    /// tags from memory on purpose: this runs after the tail call wrote new
+    /// values into those slots, so the translator's facts about them are stale.
+    fn slots_hold_fixnums(&mut self, slots: &[usize]) -> Value {
+        let ctx = self.get_ctx();
+        let sp = self.get_sp(ctx);
+        let buf_ptr = self.stack_buf_ptr(ctx);
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
+
+        let mut all = self.builder.ins().iconst(types::I8, 1);
+        for &k in slots {
+            let tag = self.builder.ins().load(
+                types::I8,
+                MemFlagsData::trusted(),
+                frame_base,
+                (k * std::mem::size_of::<SteelVal>()) as i32,
+            );
+            let is_int = self
+                .builder
+                .ins()
+                .icmp_imm_s(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
+            all = self.builder.ins().band(all, is_int);
+        }
+        all
     }
 
     // Make the call:
@@ -7643,7 +8451,35 @@ impl FunctionTranslator<'_> {
 
         let index = self.builder.ins().iadd_imm_s(index, arity);
 
-        self.truncate_stack(vm_ctx, index, None);
+        if self.let_slots_all_fixnum() {
+            self.truncate_stack_no_drop(vm_ctx, index);
+        } else {
+            self.truncate_stack(vm_ctx, index, None);
+        }
+    }
+
+    /// Everything above the arguments is a let slot holding a fixnum, so
+    /// truncating is only a length store - the runtime loop that loads each
+    /// slot's tag to discover there is nothing to drop can go.
+    fn let_slots_all_fixnum(&self) -> bool {
+        if !self.shadow_stack.is_empty() {
+            return false;
+        }
+        let lets: usize = self.let_var_stack.iter().sum();
+        let base = self.arity as usize;
+        (base..base + lets).all(|r| self.register_is_fixnum(r))
+    }
+
+    fn truncate_stack_no_drop(&mut self, vm_ctx: Value, index: Value) {
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
+        let stack_offset = offset_of!(SteelThread, stack);
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+        self.builder.ins().store(
+            MemFlagsData::trusted(),
+            index,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
     }
 
     fn inline_call_self_tail_call_no_arity_loop_all_mut_register(
@@ -7809,6 +8645,7 @@ impl FunctionTranslator<'_> {
         let _ = steel_rc::BiasedRc::into_raw(func.body_exp.clone());
         */
 
+        let callee_is_self = self.callee_shares_our_instructions(func.body_exp());
         let instr_fat_ptr = self.rooted_instructions_const(func.body_exp());
 
         func.clone().into_raw();
@@ -7844,6 +8681,7 @@ impl FunctionTranslator<'_> {
             fallback_ip,
             &args_off_the_stack,
             instr_fat_ptr,
+            callee_is_self,
         )
     }
 
@@ -8268,6 +9106,83 @@ impl FunctionTranslator<'_> {
         is_native
     }
 
+    /// Leave jitted code and let the interpreter re-execute `bytecode_ip`.
+    ///
+    /// Everything needed to resume is already tracked: the shadow stack knows
+    /// every live value and the vm stack slot it belongs to, and spilling it
+    /// writes them back as `SteelVal`s - `as_steelval` tags anything being
+    /// carried untagged. So the exit is: materialize, point `ip` at the
+    /// instruction to redo, clear `is_native` so the caller resumes the loop
+    /// rather than taking our return value, and return.
+    ///
+    /// The caller must not have emitted any effect for that instruction yet,
+    /// since it is about to happen again.
+    /// `emit_deopt_exit` in its own scope: the exit block emits loads and
+    /// rewrites the caches as it materializes, and none of that may be visible
+    /// to the block we return to - values defined in the exit do not dominate
+    /// it, which cranelift's verifier reports as a non-dominating use.
+    /// Queue an exit to be emitted after the body, so its loads land after every
+    /// block that branches to it.
+    fn defer_deopt_exit(&mut self, block: Block, bytecode_ip: usize, stack: Vec<MaybeStackValue>) {
+        self.pending_deopt_exits.push((block, stack, bytecode_ip));
+    }
+
+    /// Fill every queued exit. Each restores the translator state it was queued
+    /// with, so the exits do not see each other either.
+    fn flush_deopt_exits(&mut self) {
+        while let Some((block, stack, bytecode_ip)) = self.pending_deopt_exits.pop() {
+            self.builder.switch_to_block(block);
+            self.emit_deopt_exit_scoped(bytecode_ip, stack);
+        }
+    }
+
+    fn emit_deopt_exit_scoped(&mut self, bytecode_ip: usize, stack: Vec<MaybeStackValue>) {
+        let saved_stack = core::mem::replace(&mut self.shadow_stack, stack);
+        let saved_properties = self.properties.clone();
+        let saved_value_to_local = self.value_to_local_map.clone();
+        let saved_local_to_value = self.local_to_value_map.clone();
+        let saved_let_var_stack = self.let_var_stack.clone();
+
+        self.emit_deopt_exit(bytecode_ip);
+
+        self.shadow_stack = saved_stack;
+        self.properties = saved_properties;
+        self.value_to_local_map = saved_value_to_local;
+        self.local_to_value_map = saved_local_to_value;
+        self.let_var_stack = saved_let_var_stack;
+    }
+
+    fn emit_deopt_exit(&mut self, bytecode_ip: usize) {
+        // Write back everything the interpreter will expect on its operand
+        // stack. This is the same materialization a two way branch does.
+        self.spill_stack_for_branch();
+
+        let ctx = self.get_ctx();
+
+        let ip = self.builder.ins().iconst(types::I64, bytecode_ip as i64);
+        self.builder
+            .ins()
+            .store(MemFlagsData::trusted(), ip, ctx, offset_of!(VmCore, ip) as i32);
+
+        let not_native = self.builder.ins().iconst(types::I8, 0);
+        self.builder.ins().store(
+            MemFlagsData::trusted(),
+            not_native,
+            ctx,
+            offset_of!(VmCore, is_native) as i32,
+        );
+
+        // Tell the policy this exit happened. A function that keeps arriving
+        // here is one speculation is not paying for.
+        if let Some(index) = self.function_context {
+            let index = self.builder.ins().iconst(types::I64, index as i64);
+            self.call_function_args_no_context("#%record-speculation-deopt", &[index]);
+        }
+
+        let void = self.encode_void();
+        self.builder.ins().return_(&[void]);
+    }
+
     fn check_deopt(&mut self) {
         let result = self.check_deopt_ptr_load();
 
@@ -8363,29 +9278,33 @@ impl FunctionTranslator<'_> {
                     spilled = true;
                 }
             }
+            // The register's type is the value's type; spilling does not change
+            // it. It used to reset to `Any`, which is how an unchanged fixnum
+            // argument lost its proof whenever a later argument's arithmetic
+            // spilled the stack.
             MaybeStackValue::MutRegister(p) => {
                 let p = *p;
-                let (value, _) = self.mut_register_to_value(p);
+                let (value, inferred_type) = self.mut_register_to_value(p);
                 spilled = true;
 
                 self.properties.cached_lookups.registers.remove(&p);
 
                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                     value,
-                    inferred_type: InferredType::Any,
+                    inferred_type,
                     spilled: true,
                 });
             }
             MaybeStackValue::Register(p) => {
                 let p = *p;
-                let (value, _) = self.immutable_register_to_value(p);
+                let (value, inferred_type) = self.immutable_register_to_value(p);
                 spilled = true;
 
                 self.properties.cached_lookups.registers.remove(&p);
 
                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                     value,
-                    inferred_type: InferredType::Any,
+                    inferred_type,
                     spilled: true,
                 });
             }
@@ -8417,6 +9336,9 @@ impl FunctionTranslator<'_> {
     // We have a cursor which will go through and mark if the value has already been pushed to the stack.
     // As long as we push the values in the right order, we're good.
     fn push(&mut self, value: Value, typ: InferredType) {
+        if typ == InferredType::Int {
+            self.known_fixnum.insert(value);
+        }
         self.shadow_stack.push(MaybeStackValue::Value(StackValue {
             value,
             inferred_type: typ,
@@ -8584,11 +9506,25 @@ impl FunctionTranslator<'_> {
     fn shadow_stack_pop(&mut self) -> Option<MaybeStackValue> {
         let popped = self.shadow_stack.pop();
 
-        if matches!(
-            popped,
-            Some(MaybeStackValue::Value(StackValue { spilled: true, .. }))
-        ) {
-            self.decrement_vm_stack_len(1);
+        // A spilled entry lives on the vm stack, and the ssa value it was
+        // spilled from is only good while it still dominates. Once a branch has
+        // merged it does not, so read the value back rather than reusing it -
+        // `pop_value_from_vm_stack` both loads it and shortens the stack, which
+        // is what the bare decrement here used to do without the load.
+        if let Some(MaybeStackValue::Value(stack_value)) = &popped {
+            if stack_value.spilled {
+                let inferred_type = stack_value.inferred_type.boxed();
+                let value = self.pop_value_from_vm_stack();
+                if inferred_type == InferredType::Int {
+                    self.known_fixnum.insert(value);
+                }
+
+                return Some(MaybeStackValue::Value(StackValue {
+                    value,
+                    inferred_type,
+                    spilled: false,
+                }));
+            }
         }
 
         popped
@@ -8602,7 +9538,7 @@ impl FunctionTranslator<'_> {
                 assert!(!last.spilled);
 
                 self.value_to_local_map.remove(&last.value);
-                (last.as_steelval(self), last.inferred_type)
+                (last.as_steelval(self), last.inferred_type.boxed())
             }
 
             // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
@@ -8638,6 +9574,240 @@ impl FunctionTranslator<'_> {
     //
     // For mutable registers, we can probably brand the values based on what operations
     // are performed on them.
+    /// The type recorded for a value-stack slot. `properties` is what
+    /// `immutable_register_to_value` reads; `local_to_value_map` is what the
+    /// dispatch guards read. `LetVar` writes both, so they agree, but a slot can
+    /// be present in one and not the other.
+    /// Type of an if-merge's value: what every arm reaching it agrees on, or
+    /// `Any`. The arm types come from `shadow_pop`, so they are already boxed,
+    /// matching the boxed value the merge block receives.
+    fn merge_type(&mut self, phi: Value, arms: &[InferredType]) -> InferredType {
+        let Some((first, rest)) = arms.split_first() else {
+            return InferredType::Any;
+        };
+        if !rest.iter().all(|t| t == first) {
+            return InferredType::Any;
+        }
+        // `UnboxedBool`/`Int64` cannot reach here - `shadow_pop` boxes them -
+        // but a merge block parameter is always a boxed value, so be explicit.
+        let t = first.boxed();
+        if t == InferredType::Int {
+            self.known_fixnum.insert(phi);
+        }
+        t
+    }
+
+    /// A shadow stack entry known to hold a fixnum.
+    fn entry_is_fixnum(&self, entry: &MaybeStackValue) -> bool {
+        match entry {
+            MaybeStackValue::Constant(ConstantValue::Int(_)) => true,
+            MaybeStackValue::Value(v) => {
+                matches!(v.inferred_type, InferredType::Int | InferredType::Int64)
+            }
+            MaybeStackValue::Register(r) | MaybeStackValue::MutRegister(r) => {
+                self.register_is_fixnum(*r)
+            }
+            _ => false,
+        }
+    }
+
+    fn top_two_are_fixnums(&self) -> bool {
+        let n = self.shadow_stack.len();
+        n >= 2
+            && self.entry_is_fixnum(&self.shadow_stack[n - 1])
+            && self.entry_is_fixnum(&self.shadow_stack[n - 2])
+    }
+
+    /// Pop an entry `entry_is_fixnum` accepted and return its untagged payload.
+    fn pop_fixnum_payload(&mut self) -> Value {
+        match self.shadow_stack_pop().unwrap() {
+            MaybeStackValue::Constant(ConstantValue::Int(i)) => {
+                self.builder.ins().iconst(types::I64, i as i64)
+            }
+            MaybeStackValue::Value(v) => {
+                self.value_to_local_map.remove(&v.value);
+                match v.inferred_type {
+                    InferredType::Int64 => v.value,
+                    // A reload of a spilled `Int64` comes back boxed.
+                    _ => self.unbox_value_to_pointer(v.value),
+                }
+            }
+            // A fixnum owns nothing, so reading the payload is the whole move:
+            // there is no reference to take and no drop the slot still owes.
+            MaybeStackValue::Register(r) | MaybeStackValue::MutRegister(r) => {
+                self.read_from_vm_stack_split(r).1
+            }
+            other => unreachable!("not a fixnum entry: {:?}", other),
+        }
+    }
+
+    /// `op` on two fixnum operands. Comparisons need nothing but the compare.
+    /// Arithmetic checks for overflow and, on overflow, exits to the interpreter
+    /// at this instruction with the operands restored, so the interpreter
+    /// produces the bignum and the jitted result is always a fixnum.
+    fn fixnum_binop(&mut self, op: OpCode) {
+        let deopt_ip = self.ip;
+        let pre_pop_stack = self.shadow_stack.clone();
+
+        // Facts about the operands that make overflow impossible, read before
+        // the pops: a register already known to be >= some bound, minus a
+        // non-negative constant; or known < some bound, plus a constant that
+        // keeps the bound representable.
+        let n = self.shadow_stack.len();
+        let lhs_register = match self.shadow_stack[n - 2] {
+            MaybeStackValue::Register(r) | MaybeStackValue::MutRegister(r) => Some(r),
+            _ => None,
+        };
+        let rhs_constant = match self.shadow_stack[n - 1] {
+            MaybeStackValue::Constant(ConstantValue::Int(i)) => Some(i as i64),
+            _ => None,
+        };
+
+        let rhs = self.pop_fixnum_payload();
+        let lhs = self.pop_fixnum_payload();
+
+        let compare = match op {
+            OpCode::LT => Some(IntCC::SignedLessThan),
+            OpCode::LTE => Some(IntCC::SignedLessThanOrEqual),
+            OpCode::GT => Some(IntCC::SignedGreaterThan),
+            OpCode::GTE => Some(IntCC::SignedGreaterThanOrEqual),
+            OpCode::NUMEQUAL => Some(IntCC::Equal),
+            _ => None,
+        };
+
+        if let Some(cc) = compare {
+            let result = self.builder.ins().icmp(cc, lhs, rhs);
+            // Same range fact the register-vs-constant `<` arm records, so a
+            // later subtraction under this test can skip its overflow check.
+            if let (OpCode::LT, Some(r), Some(i)) = (op, lhs_register, rhs_constant) {
+                self.properties.add_property(
+                    ValueOrRegister::Value(result),
+                    Properties::ConditionLessThan(ValueOrRegister::Register(r), i),
+                );
+            }
+            self.push(result, InferredType::UnboxedBool);
+            self.ip += 2;
+            return;
+        }
+
+        // `properties.get` only answers when a slot has exactly one fact, and a
+        // fixnum register with a range fact has two, so look through the list.
+        let has_fact = |props: &PropertyMap, r: usize, pred: &dyn Fn(&Properties) -> bool| {
+            props
+                .props
+                .get(&ValueOrRegister::Register(r))
+                .is_some_and(|facts| facts.iter().any(|f| pred(f)))
+        };
+        let cannot_overflow = match (op, lhs_register, rhs_constant) {
+            (OpCode::SUB, Some(r), Some(c)) if c >= 0 => has_fact(&self.properties, r, &|f| {
+                matches!(f, Properties::GreaterThan(bound) if *bound >= 0)
+            }),
+            (OpCode::ADD, Some(r), Some(c)) if c >= 0 => has_fact(&self.properties, r, &|f| {
+                matches!(f, Properties::LessThan(bound) if bound.checked_add(c).is_some())
+            }),
+            _ => false,
+        };
+
+        let raw = if cannot_overflow {
+            match op {
+                OpCode::ADD => self.builder.ins().iadd(lhs, rhs),
+                _ => self.builder.ins().isub(lhs, rhs),
+            }
+        } else {
+            let (raw, overflow) = match op {
+                OpCode::ADD => self.builder.ins().sadd_overflow(lhs, rhs),
+                OpCode::SUB => self.builder.ins().ssub_overflow(lhs, rhs),
+                _ => self.builder.ins().smul_overflow(lhs, rhs),
+            };
+
+            // No spill before the branch. The overflow side is an exit that
+            // never rejoins, and `emit_deopt_exit_scoped` materializes the
+            // pre-pop snapshot inside the exit block itself. Spilling here put
+            // every pending value and register through a store and a reload on
+            // the fast path - three times an iteration in nqueens' `ok?` - and
+            // turned unchanged arguments back into writes at the tail call.
+            let ok_block = self.builder.create_block();
+            let overflow_block = self.builder.create_block();
+            self.builder
+                .ins()
+                .brif(overflow, overflow_block, &[], ok_block, &[]);
+            self.builder.seal_block(overflow_block);
+            self.defer_deopt_exit(overflow_block, deopt_ip, pre_pop_stack);
+            self.builder.switch_to_block(ok_block);
+            self.builder.seal_block(ok_block);
+            raw
+        };
+
+        // Boxed rather than `Int64`: plenty of arms trust `Int` and treat the
+        // value as a whole `SteelVal`, and none of them expect a bare i64.
+        let boxed = self.encode_value(SteelVal::INT_TAG as i64, raw);
+        self.push(boxed, InferredType::Int);
+        self.ip += 2;
+    }
+
+    /// The slot holds a fixnum: its recorded type is `Int`, which `LetVar`
+    /// only records for fixnum bindings and `SETLOCAL`/`LETENDSCOPE` clear.
+    fn register_is_fixnum(&self, r: usize) -> bool {
+        self.register_type(r) == InferredType::Int
+    }
+
+    fn mark_register_read(&mut self, r: usize, value: Value) {
+        if self.register_is_fixnum(r) {
+            self.known_fixnum.insert(value);
+        }
+    }
+
+    fn const_int(&self, v: Value) -> Option<i64> {
+        use cranelift::codegen::ir::{InstructionData, Opcode, ValueDef};
+        let dfg = &self.builder.func.dfg;
+        let ValueDef::Result(inst, _) = dfg.value_def(v) else {
+            return None;
+        };
+        match dfg.insts[inst] {
+            InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } => Some(imm.bits()),
+            _ => None,
+        }
+    }
+
+    /// Statically evaluate a branch condition built from constants - which is
+    /// what a tag check on a `known_fixnum` value becomes, via `get_tag`.
+    pub(super) fn const_bool(&self, v: Value) -> Option<bool> {
+        use cranelift::codegen::ir::{InstructionData, Opcode, ValueDef};
+        let dfg = &self.builder.func.dfg;
+        let ValueDef::Result(inst, _) = dfg.value_def(v) else {
+            return None;
+        };
+        match dfg.insts[inst] {
+            InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } => Some(imm.bits() != 0),
+            // `icmp_imm_s` is sugar for an `iconst` plus an `icmp` in 0.135.
+            InstructionData::IntCompare { cond, args, .. } => {
+                let a = self.const_int(args[0])?;
+                let b = self.const_int(args[1])?;
+                match cond {
+                    IntCC::Equal => Some(a == b),
+                    IntCC::NotEqual => Some(a != b),
+                    _ => None,
+                }
+            }
+            InstructionData::Binary { opcode: Opcode::Band, args } => {
+                Some(self.const_bool(args[0])? && self.const_bool(args[1])?)
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn register_type(&self, r: usize) -> InferredType {
+        match self.properties.get(&ValueOrRegister::Register(r)) {
+            Some(Properties::InferredType(t)) => t,
+            Some(Properties::ProperList) => InferredType::List,
+            _ => self
+                .local_to_value_map
+                .get(&r)
+                .copied()
+                .unwrap_or(InferredType::Any),
+        }
+    }
+
     fn immutable_register_to_value(&mut self, p: usize) -> (Value, InferredType) {
         let value = self.read_from_vm_stack(p);
 
@@ -8700,9 +9870,17 @@ impl FunctionTranslator<'_> {
         for idx in indices_to_get_from_shadow_stack.iter().rev() {
             let value = self.pop_value_from_vm_stack();
 
+            // A spill and reload does not change the value, so its type survives.
+            // `shadow_stack_pop` already kept it on the same reload; this path
+            // used to reset it to `Any`. Spilled values are boxed, hence `boxed`.
+            let inferred_type = args_off_the_stack[*idx].inferred_type.boxed();
+            if inferred_type == InferredType::Int {
+                self.known_fixnum.insert(value);
+            }
+
             args_off_the_stack[*idx] = StackValue {
                 value,
-                inferred_type: InferredType::Any,
+                inferred_type,
                 spilled: false,
             };
         }
@@ -8854,7 +10032,15 @@ impl FunctionTranslator<'_> {
         self.maybe_patch_from_stack(&mut args);
 
         args.into_iter()
-            .map(|x| (x.as_steelval(self), x.inferred_type))
+            // Materialized above, so the type has to follow - see `boxed`.
+            .map(|x| {
+                let v = x.as_steelval(self);
+                let t = x.inferred_type.boxed();
+                if t == InferredType::Int {
+                    self.known_fixnum.insert(v);
+                }
+                (v, t)
+            })
             .collect()
     }
 
@@ -8935,7 +10121,8 @@ impl FunctionTranslator<'_> {
         self.maybe_patch_from_stack(&mut args);
 
         args.into_iter()
-            .map(|x| (x.as_steelval(self), x.inferred_type))
+            // Materialized above, so the type has to follow - see `boxed`.
+            .map(|x| (x.as_steelval(self), x.inferred_type.boxed()))
             .collect()
     }
 
@@ -9114,6 +10301,17 @@ impl FunctionTranslator<'_> {
     // Build the i128 the jit passes a RootedInstructions around as. Low half is
     // the pointer, high half the length - same order iconcat(data_ptr, len)
     // produces elsewhere, and the same order the fields are declared in.
+    /// Whether a callee runs the same instruction stream we are compiling.
+    ///
+    /// For a self call the instructions saved into the new frame and the ones
+    /// installed into `VmCore` are the same value, so both the load of the
+    /// current stream and the store of the new one are ceremony - fib spent
+    /// ~2.8% of a call window on exactly those four instructions.
+    fn callee_shares_our_instructions(&self, callee: RootedInstructions) -> bool {
+        core::ptr::eq(callee.ptr, self.instructions.as_ptr())
+            && callee.len as usize == self.instructions.len()
+    }
+
     fn rooted_instructions_const(&mut self, instructions: RootedInstructions) -> Value {
         let int = Type::int(64).unwrap();
         let ptr = self.builder.ins().iconst(int, instructions.ptr as i64);
@@ -9184,6 +10382,7 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(Type::int(64).unwrap(), integer as i64);
         let integer = self.encode_value(discriminant(&SteelVal::IntV(0)) as i64, res);
+        self.known_fixnum.insert(integer);
         integer
     }
 
@@ -9219,6 +10418,9 @@ impl FunctionTranslator<'_> {
     }
 
     fn get_tag(&mut self, value: Value) -> Value {
+        if self.known_fixnum.contains(&value) {
+            return self.builder.ins().iconst(types::I8, SteelVal::INT_TAG as i64);
+        }
         self.builder.ins().ireduce(types::I8, value)
     }
 
@@ -9370,6 +10572,7 @@ impl FunctionTranslator<'_> {
 
         // Unwrap or... must have been a tail call?
 
+        let mut then_type = InferredType::Any;
         let then_return = if then_out_of_bounds {
             // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
             // self.create_i128(encode(SteelVal::IntV(12345)))
@@ -9389,7 +10592,9 @@ impl FunctionTranslator<'_> {
         } else {
             // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
             // BlockArg::Value(self.shadow_pop().0)
-            BlockArg::Value(self.shadow_pop().0)
+            let (v, t) = self.shadow_pop();
+            then_type = t;
+            BlockArg::Value(v)
         };
 
         let then_stack = self.shadow_stack.clone();
@@ -9438,10 +10643,13 @@ impl FunctionTranslator<'_> {
         let else_out_of_bounds = self.ip > self.instructions.len();
 
         // Returned, therefore we don't need to do anything.
+        let mut else_type = InferredType::Any;
         let else_return = if else_out_of_bounds {
             BlockArg::Value(self.encode_integer(12345))
         } else {
-            BlockArg::Value(self.shadow_pop().0)
+            let (v, t) = self.shadow_pop();
+            else_type = t;
+            BlockArg::Value(v)
         };
 
         let phi = match (then_out_of_bounds, else_out_of_bounds) {
@@ -9480,7 +10688,8 @@ impl FunctionTranslator<'_> {
 
                 let phi = self.builder.block_params(merge_block)[0];
 
-                self.push(phi, InferredType::Any);
+                let phi_type = self.merge_type(phi, &[else_type]);
+                self.push(phi, phi_type);
 
                 self.stack_to_ssa();
 
@@ -9510,7 +10719,8 @@ impl FunctionTranslator<'_> {
 
                 let phi = self.builder.block_params(merge_block)[0];
 
-                self.push(phi, InferredType::Any);
+                let phi_type = self.merge_type(phi, &[then_type]);
+                self.push(phi, phi_type);
 
                 self.stack_to_ssa();
 
@@ -9555,7 +10765,8 @@ impl FunctionTranslator<'_> {
 
                 let phi = self.builder.block_params(merge_block)[0];
 
-                self.push(phi, InferredType::Any);
+                let phi_type = self.merge_type(phi, &[then_type, else_type]);
+                self.push(phi, phi_type);
 
                 self.stack_to_ssa();
 
@@ -9695,7 +10906,9 @@ impl FunctionTranslator<'_> {
         // but we already had it available.
         if let Some(local) = self.properties.cached_lookups.registers.get(&index) {
             log::debug!(target: "letvar", "HIT  slot {index}");
-            return *local;
+            let local = *local;
+            self.mark_register_read(index, local);
+            return local;
         }
         log::debug!(target: "letvar", "MISS slot {index}");
         let cache_this_read =
@@ -9723,6 +10936,8 @@ impl FunctionTranslator<'_> {
         if cache_this_read {
             self.properties.cached_lookups.registers.insert(index, res);
         }
+
+        self.mark_register_read(index, res);
 
         res
     }
@@ -9752,6 +10967,12 @@ impl FunctionTranslator<'_> {
             frame_base,
             (index * std::mem::size_of::<SteelVal>() + 8) as i32,
         );
+
+        let tag = if self.register_is_fixnum(index) {
+            self.builder.ins().iconst(types::I8, SteelVal::INT_TAG as i64)
+        } else {
+            tag
+        };
 
         (tag, value)
     }
@@ -9867,6 +11088,8 @@ impl FunctionTranslator<'_> {
             (index * std::mem::size_of::<SteelVal>()) as i32,
         );
 
+        self.mark_register_read(index, local_value);
+
         local_value
     }
 
@@ -9933,7 +11156,8 @@ impl FunctionTranslator<'_> {
             // let offset = self.builder.ins().imul_imm_s(local_offset, size);
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
-            if should_drop {
+            // A fixnum has nothing to drop.
+            if should_drop && !self.register_is_fixnum(index) {
                 match self.properties.get(&ValueOrRegister::Register(index)) {
                     // TODO: Can do even better, read less things
                     Some(
@@ -10000,6 +11224,8 @@ impl FunctionTranslator<'_> {
 
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
+            if !self.register_is_fixnum(index)
+            {
             match self.properties.get(&ValueOrRegister::Register(index)) {
                 // TODO: Can do even better, read less thing
                 Some(
@@ -10029,6 +11255,7 @@ impl FunctionTranslator<'_> {
 
                     self.drop_tagged_value(local_value);
                 }
+            }
             }
 
             index += 1;
@@ -10067,7 +11294,8 @@ impl FunctionTranslator<'_> {
             // let offset = self.builder.ins().imul_imm_s(local_offset, size);
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
-            if should_drop {
+            // A fixnum has nothing to drop.
+            if should_drop && !self.register_is_fixnum(index) {
                 match self.properties.get(&ValueOrRegister::Register(index)) {
                     // TODO: Can do even better, read less things
                     Some(
@@ -10149,6 +11377,7 @@ impl FunctionTranslator<'_> {
         fallback_ip: usize,
         args: &[Value],
         instr_fat_ptr: Value,
+        callee_is_self: bool,
     ) -> Value {
         let vm_ctx = self.get_ctx();
         let should_trampoline = self.check_should_trampoline(vm_ctx);
@@ -10183,7 +11412,7 @@ impl FunctionTranslator<'_> {
 
                 // TODO: Consider moving this up before things are pushed on in order
                 // to capture the stack length without needing to compute the value
-                ctx.push_stack_frame(arity as _, func, instr_fat_ptr, fallback_ip);
+                ctx.push_stack_frame(arity as _, func, instr_fat_ptr, fallback_ip, callee_is_self);
 
                 // TODO: Change the calling convention of the function to return a
                 // (tag, Value) rather than an i128 value directly.
@@ -11413,6 +12642,7 @@ impl FunctionTranslator<'_> {
         function: Value,
         instr_fat_ptr: Value,
         fallback_ip: usize,
+        callee_is_self: bool,
     ) {
         // Lets just see if this is even worth it?
         // We could insert a block before hand and link it in
@@ -11523,12 +12753,19 @@ impl FunctionTranslator<'_> {
 
                 // Instructions:
 
-                let current_instructions = ctx.builder.ins().load(
-                    types::I128,
-                    MemFlagsData::trusted(),
-                    vm_ctx,
-                    offset_of!(VmCore, instructions) as i32,
-                );
+                // On a self call the stream we would save is the stream we are
+                // about to install, and it is already a constant - so read it
+                // from `instr_fat_ptr` rather than loading it back out of the vm.
+                let current_instructions = if callee_is_self {
+                    instr_fat_ptr
+                } else {
+                    ctx.builder.ins().load(
+                        types::I128,
+                        MemFlagsData::trusted(),
+                        vm_ctx,
+                        offset_of!(VmCore, instructions) as i32,
+                    )
+                };
 
                 // TODO: This doesn't work correctly; we need to
                 // construct a fat pointer here. So I need something
@@ -11552,13 +12789,17 @@ impl FunctionTranslator<'_> {
                     offset_of!(StackFrame, instructions) as i32,
                 );
 
-                // Store the instructions back to the VM pointer
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    instructions,
-                    vm_ctx,
-                    offset_of!(VmCore, instructions) as i32,
-                );
+                // Store the instructions back to the VM pointer. A self call is
+                // already running this stream, so the store would write the value
+                // that is there.
+                if !callee_is_self {
+                    ctx.builder.ins().store(
+                        MemFlagsData::trusted(),
+                        instructions,
+                        vm_ctx,
+                        offset_of!(VmCore, instructions) as i32,
+                    );
+                }
 
                 // Store the function itself
                 ctx.builder.ins().store(

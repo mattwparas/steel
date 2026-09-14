@@ -5890,91 +5890,106 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     // Inline the function calls n times
-    pub fn recursively_inline_function_calls(&mut self, depth: usize) -> Result<(), SteelErr> {
-        let estimator = self.calculate_function_sizes();
-        let threshold = 75;
+    /// Unroll self recursive calls.
+    ///
+    /// A self recursive function is a loop, and inlining it into itself is loop
+    /// unrolling: each level removes half the remaining calls along with their
+    /// frame push, prologue and arity work.
+    ///
+    /// The admission conditions are deliberately `inline_handle_define`, the same
+    /// ones the ordinary inliner uses. They used to be a copy here, and had drifted
+    /// - notably it was missing the `assigned` guard that keeps a placeholder which
+    /// is `set!` to its real implementation later from being frozen at its current
+    /// definition.
+    pub fn recursively_inline_function_calls(
+        &mut self,
+        depth: usize,
+        module_map: &crate::HashMap<PathBuf, CompiledModule>,
+    ) -> Result<(), SteelErr> {
+        let mut estimator = self.calculate_function_sizes();
 
+        // Module level definitions are where user code lives once it has been
+        // required, and they are only reachable through the module map - without
+        // this the pass only ever saw the stdlib helpers that happen to be inlined
+        // into the program already.
+        for (_, module) in module_map {
+            if let Some(ast) = module.get_compiled_ast() {
+                estimator.visit(ast);
+            }
+        }
+
+        // Self inlining is loop unrolling for recursion, so it wants a larger
+        // budget than ordinary inlining: the body being duplicated is the same
+        // body, and the win scales with how much per call ceremony it removes.
+        let threshold: usize = std::env::var("STEEL_INLINE_RECURSIVE_SIZE")
+            .ok()
+            .and_then(|x| x.trim().parse().ok())
+            .unwrap_or(75);
+
+
+
+        let mut assigned: FxHashSet<InternedString> = FxHashSet::default();
+        {
+            let mut collector = CollectSetTargets {
+                targets: &mut assigned,
+            };
+
+            for expr in self.exprs.iter() {
+                collector.visit(expr);
+            }
+        }
+
+        let changed = Rc::new(Cell::new(false));
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
+
+        let mut handle = |this: &Self,
+                          funcs: &mut HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>>,
+                          d: &Box<Define>| {
+            let _ = this.inline_handle_define(&estimator, threshold, funcs, d, &assigned, &changed);
+        };
+
+        for (_, module) in module_map {
+            if let Some(ast) = module.get_compiled_ast() {
+                match ast {
+                    ExprKind::Define(d) => handle(self, &mut funcs, d),
+                    ExprKind::Begin(b) => {
+                        for expr in b.exprs.iter() {
+                            if let ExprKind::Define(d) = expr {
+                                handle(self, &mut funcs, d);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         // Only inline forwards, as to not run in to any issues with visibility
         for expr in self.exprs.iter() {
             match expr {
-                ExprKind::Define(d) => {
-                    let name = if let Some(name) = d.name.atom_syntax_object() {
-                        name
-                    } else {
-                        continue;
-                    };
-
-                    if let Some(analysis) = self.analysis.get(name) {
-                        if analysis.set_bang {
-                            continue;
-                        }
-                    }
-
-                    if let ExprKind::LambdaFunction(l) = &d.body {
-                        if let Some(count) =
-                            estimator.inline_size(SyntaxObjectId(l.syntax_object_id))
-                        {
-                            if count < threshold {
-                                let original_id = l.syntax_object_id;
-                                let l = l.clone();
-                                funcs.insert(
-                                    *d.name.atom_identifier().unwrap(),
-                                    Box::new(move |_: &Analysis, lst: &mut List| {
-                                        if lst.syntax_object_id > original_id {
-                                            lst.args[0] = ExprKind::LambdaFunction(l.clone());
-                                        }
-                                    }),
-                                );
-                            }
-                        }
-                    }
-                }
-
+                ExprKind::Define(d) => handle(self, &mut funcs, d),
                 ExprKind::Begin(b) => {
                     for expr in b.exprs.iter() {
                         if let ExprKind::Define(d) = expr {
-                            let name = if let Some(name) = d.name.atom_syntax_object() {
-                                name
-                            } else {
-                                continue;
-                            };
-
-                            if let Some(analysis) = self.analysis.get(name) {
-                                if analysis.set_bang {
-                                    continue;
-                                }
-                            }
-
-                            if let ExprKind::LambdaFunction(l) = &d.body {
-                                if let Some(count) =
-                                    estimator.inline_size(SyntaxObjectId(l.syntax_object_id))
-                                {
-                                    if count < threshold {
-                                        let original_id = l.syntax_object_id;
-                                        let l = l.clone();
-                                        funcs.insert(
-                                            *d.name.atom_identifier().unwrap(),
-                                            Box::new(move |_: &Analysis, lst: &mut List| {
-                                                if lst.syntax_object_id > original_id {
-                                                    lst.args[0] =
-                                                        ExprKind::LambdaFunction(l.clone());
-                                                }
-                                            }),
-                                        );
-                                    }
-                                }
-                            }
+                            handle(self, &mut funcs, d);
                         }
                     }
                 }
-
                 _ => {}
             }
         }
 
+        log::debug!(
+            target: "self-inline",
+            "{} unroll candidates at depth {depth} (threshold {threshold}, {} set! targets, {} modules)",
+            funcs.len(),
+            assigned.len(),
+            module_map.len(),
+        );
+
         self.find_call_sites_and_modify_with_many_depth(funcs, depth);
+
+        self.changed |= changed.get();
 
         Ok(())
     }

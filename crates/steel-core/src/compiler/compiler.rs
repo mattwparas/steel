@@ -1392,8 +1392,16 @@ impl Compiler {
             semantic.replace_anonymous_function_calls_with_plain_lets();
         }
 
-        if std::env::var("STEEL_INLINE_RECURSIVE").is_ok() {
-            semantic.recursively_inline_function_calls(2)?;
+        // `STEEL_INLINE_RECURSIVE=<depth>` sets how many levels to unroll. Bare
+        // presence keeps the original depth of 2; a number is taken literally, so
+        // `=1` now means one level rather than "on".
+        if let Ok(recursive) = std::env::var("STEEL_INLINE_RECURSIVE") {
+            let depth = match recursive.trim() {
+                "" => 2,
+                other => other.parse().unwrap_or(2),
+            };
+
+            semantic.recursively_inline_function_calls(depth, self.modules())?;
             semantic.refresh_variables();
             let mut analysis = semantic.into_analysis();
             self.shadowed_variable_renamer
