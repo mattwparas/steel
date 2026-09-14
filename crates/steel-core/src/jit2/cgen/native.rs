@@ -948,12 +948,18 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
 
+        let skipped = self.snapshot_branch_state();
         then(self);
 
         self.builder.ins().jump(merge_block, &[]);
 
         self.builder.switch_to_block(merge_block);
         self.builder.seal_block(merge_block);
+
+        // The branch that skipped `then` reaches here with the state from before
+        // it, so only what `then` left in agreement with that survives.
+        self.properties.meet(&skipped.properties);
+        self.meet_register_maps(&skipped.local_to_value_map, &skipped.value_to_local_map);
 
         merge(self);
     }
@@ -982,12 +988,18 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
 
+        let skipped = self.snapshot_branch_state();
         then(self);
 
         self.builder.ins().jump(merge_block, &[]);
 
         self.builder.switch_to_block(merge_block);
         self.builder.seal_block(merge_block);
+
+        // The branch that skipped `then` reaches here with the state from before
+        // it, so only what `then` left in agreement with that survives.
+        self.properties.meet(&skipped.properties);
+        self.meet_register_maps(&skipped.local_to_value_map, &skipped.value_to_local_map);
 
         merge(self);
     }
@@ -1017,12 +1029,18 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
 
+        let skipped = self.snapshot_branch_state();
         then(self);
 
         self.builder.ins().jump(merge_block, &[]);
 
         self.builder.switch_to_block(merge_block);
         self.builder.seal_block(merge_block);
+
+        // The branch that skipped `then` reaches here with the state from before
+        // it, so only what `then` left in agreement with that survives.
+        self.properties.meet(&skipped.properties);
+        self.meet_register_maps(&skipped.local_to_value_map, &skipped.value_to_local_map);
 
         merge(self);
     }
@@ -1086,6 +1104,9 @@ impl<'a> FunctionTranslator<'a> {
 
         let entry = self.snapshot_branch_state();
         then(self);
+        let then_properties = self.properties.clone();
+        let then_locals = self.local_to_value_map.clone();
+        let then_values = self.value_to_local_map.clone();
 
         self.builder.ins().jump(merge_block, &[]);
 
@@ -1096,6 +1117,10 @@ impl<'a> FunctionTranslator<'a> {
         else_thunk(self);
         self.builder.ins().jump(merge_block, &[]);
         self.builder.switch_to_block(merge_block);
+
+        // Only what both arms agree on survives the merge
+        self.properties.meet(&then_properties);
+        self.meet_register_maps(&then_locals, &then_values);
     }
 
     pub(super) fn converging_if_no_value_else_cold(
@@ -1124,6 +1149,9 @@ impl<'a> FunctionTranslator<'a> {
 
         let entry = self.snapshot_branch_state();
         then(self);
+        let then_properties = self.properties.clone();
+        let then_locals = self.local_to_value_map.clone();
+        let then_values = self.value_to_local_map.clone();
 
         self.builder.ins().jump(merge_block, &[]);
 
@@ -1134,6 +1162,10 @@ impl<'a> FunctionTranslator<'a> {
         else_thunk(self);
         self.builder.ins().jump(merge_block, &[]);
         self.builder.switch_to_block(merge_block);
+
+        // Only what both arms agree on survives the merge
+        self.properties.meet(&then_properties);
+        self.meet_register_maps(&then_locals, &then_values);
     }
 
     pub(super) fn converging_if(
@@ -1162,6 +1194,8 @@ impl<'a> FunctionTranslator<'a> {
         let entry = self.snapshot_branch_state();
         let res = BlockArg::Value(then(self));
         let then_properties = self.properties.clone();
+        let then_locals = self.local_to_value_map.clone();
+        let then_values = self.value_to_local_map.clone();
         let then_state = branch_state_fingerprint(self);
 
         self.builder.ins().jump(merge_block, &[res]);
@@ -1177,6 +1211,7 @@ impl<'a> FunctionTranslator<'a> {
 
         // Only what both arms agree on survives the merge
         self.properties.meet(&then_properties);
+        self.meet_register_maps(&then_locals, &then_values);
 
         let result = self.builder.block_params(merge_block)[0];
 
@@ -1211,6 +1246,8 @@ impl<'a> FunctionTranslator<'a> {
         let entry = self.snapshot_branch_state();
         let res = BlockArg::Value(then(self));
         let then_properties = self.properties.clone();
+        let then_locals = self.local_to_value_map.clone();
+        let then_values = self.value_to_local_map.clone();
         let then_state = branch_state_fingerprint(self);
 
         self.builder.ins().jump(merge_block, &[res]);
@@ -1226,6 +1263,7 @@ impl<'a> FunctionTranslator<'a> {
 
         // Only what both arms agree on survives the merge
         self.properties.meet(&then_properties);
+        self.meet_register_maps(&then_locals, &then_values);
 
         let result = self.builder.block_params(merge_block)[0];
 

@@ -35,7 +35,7 @@ use crate::{
     values::{
         functions::{ByteCodeLambda, RootedInstructions},
         lists::{List, SteelList},
-        structs::{create_struct_spec, StructTypeDescriptor},
+        structs::{create_struct_spec, StructFunctionType, StructTypeDescriptor},
     },
     SteelVal,
 };
@@ -618,7 +618,11 @@ impl Default for JIT {
             .ok()
             .and_then(|s| s.trim().parse::<usize>().ok())
             .filter(|mib| *mib > 0)
-            .unwrap_or(256)
+            // Specialized copies roughly double the code a process generates, and
+            // every test in `cargo test` shares one jit. On unix this is reserved
+            // address space, not committed memory; `region` commits it all on
+            // windows, so stay small there.
+            .unwrap_or(if cfg!(windows) { 256 } else { 1024 })
             .min(2047);
         builder.memory_provider(Box::new(
             ArenaMemoryProvider::new_with_size(arena_mib << 20)
@@ -1602,8 +1606,118 @@ const fn rcbox_slice_data_offset() -> i64 {
 #[derive(Clone, Debug)]
 enum SpecMode {
     None,
-    Generic { spec_id: FuncId, seed: Vec<usize> },
-    Specialized { generic_id: FuncId, seed: Vec<usize> },
+    Generic { spec_id: FuncId, seed: Vec<(usize, SpecType)> },
+    Specialized {
+        generic_id: FuncId,
+        // This copy, for self calls whose arguments are proven to fit the seed.
+        self_id: FuncId,
+        seed: Vec<(usize, SpecType)>,
+        // The type assumed for the results of those direct self calls; only
+        // kept if every return of the function turns out to have it.
+        assume_result: Option<InferredType>,
+    },
+}
+
+/// What a translation reports back to the compile driver.
+struct TranslateInfo {
+    /// Types of the values returned through ordinary returns.
+    returned: HashSet<InferredType>,
+    /// A reachable exit other than an ordinary return or a deopt exit.
+    untyped_non_deopt_exit: bool,
+    /// Self calls compiled as direct calls to this same specialized copy.
+    direct_self_calls: usize,
+}
+
+/// Body of a placeholder function; see `define_stub`.
+#[derive(Clone, Copy)]
+enum StubBody {
+    TailCall(FuncId),
+    InterpretFromStart,
+}
+
+/// What a seeded argument slot is specialized to hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SpecType {
+    Fixnum,
+    Float,
+    List,
+    MutableVector,
+    Struct(StructTypeDescriptor),
+}
+
+impl SpecType {
+    fn tag(self) -> u8 {
+        match self {
+            Self::Fixnum => SteelVal::INT_TAG,
+            Self::Float => SteelVal::FLOAT_TAG,
+            Self::List => SteelVal::LIST_TAG,
+            Self::MutableVector => SteelVal::HEAP_REF_VECTOR_TAG,
+            Self::Struct(_) => SteelVal::STRUCT_TAG,
+        }
+    }
+
+    fn inferred(self) -> InferredType {
+        match self {
+            Self::Fixnum => InferredType::Int,
+            Self::Float => InferredType::Float,
+            Self::List => InferredType::List,
+            Self::MutableVector => InferredType::MutableVector,
+            Self::Struct(d) => InferredType::Struct(d),
+        }
+    }
+
+    /// The property that records this type on a register. Lists use
+    /// `ProperList`, which is what the list fast paths look for and what
+    /// `register_type` reads back as `List`.
+    fn property(self) -> Properties {
+        match self {
+            Self::List => Properties::ProperList,
+            other => Properties::InferredType(other.inferred()),
+        }
+    }
+}
+
+/// Emit a check that every `(slot, type)` holds, reading the slots at
+/// `frame_base`. Falls to `fail` at the first mismatch and leaves the builder
+/// in the block where everything passed. A struct's descriptor is only loaded
+/// once its tag has matched, since the payload is not a pointer otherwise.
+fn emit_slot_type_checks(
+    builder: &mut FunctionBuilder,
+    frame_base: Value,
+    checks: &[(usize, SpecType)],
+    fail: Block,
+) {
+    for &(k, ty) in checks {
+        let base = (k * std::mem::size_of::<SteelVal>()) as i32;
+        let tag = builder
+            .ins()
+            .load(types::I8, MemFlagsData::trusted(), frame_base, base);
+        let tag_ok = builder.ins().icmp_imm_s(IntCC::Equal, tag, ty.tag() as i64);
+        let next = builder.create_block();
+        builder.ins().brif(tag_ok, next, &[], fail, &[]);
+        builder.seal_block(next);
+        builder.switch_to_block(next);
+
+        if let SpecType::Struct(descriptor) = ty {
+            let payload = builder
+                .ins()
+                .load(types::I64, MemFlagsData::trusted(), frame_base, base + 8);
+            let on_heap = builder.ins().load(
+                types::I64,
+                MemFlagsData::trusted(),
+                payload,
+                crate::values::structs::StructStorage::header_offset() as i32,
+            );
+            let descriptor_ok =
+                builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, on_heap, descriptor.key() as i64);
+            let next = builder.create_block();
+            builder.ins().brif(descriptor_ok, next, &[], fail, &[]);
+            builder.seal_block(next);
+            builder.switch_to_block(next);
+        }
+    }
 }
 
 fn loop_specialization_enabled() -> bool {
@@ -1616,92 +1730,202 @@ fn spec_debug_enabled() -> bool {
     *V.get_or_init(|| std::env::var_os("STEEL_JIT_SPEC_DEBUG").is_some())
 }
 
-/// Argument slots of a self tail calling loop worth specializing as fixnums:
-/// read straight into a numeric operation, and never `set!`. A guess - the
-/// guard decides at run time - so it only has to be cheap and usually right.
-fn loop_fixnum_seed(code: &[DenseInstruction], arity: u16, constants: &ConstantMap) -> Vec<usize> {
-    if !code.iter().any(|i| i.op_code == OpCode::SELFTAILCALLNOARITY) {
+/// Guess a type for each argument slot of a loop or recursive function from how
+/// the body consumes it: arithmetic and comparisons (fixnum, or float when a
+/// float literal is involved), `car`/`cdr`/`null?` (list), `vector-ref`
+/// (mutable vector), a struct getter (that struct). A slot with conflicting
+/// evidence, or that is `set!`, gets no guess. The guard at run time decides,
+/// so this only has to be cheap and usually right.
+///
+/// It walks the bytecode with an abstract stack of where each value came from,
+/// forgetting everything at a jump target or at anything it does not model.
+fn loop_type_seed(
+    code: &[DenseInstruction],
+    arity: u16,
+    constants: &ConstantMap,
+    globals: &[SteelVal],
+    function_index: Option<usize>,
+) -> Vec<(usize, SpecType)> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    // Loops (a self tail call) and recursive functions (a self call that is not
+    // in tail position) both run the same body again with the next arguments.
+    let is_self_call = |i: &DenseInstruction| {
+        matches!(i.op_code, OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY)
+            && function_index == Some(i.payload_size.to_usize())
+    };
+    if !code
+        .iter()
+        .any(|i| i.op_code == OpCode::SELFTAILCALLNOARITY || is_self_call(i))
+    {
         return Vec::new();
     }
     let arity = arity as usize;
-    let slot_read = |i: &DenseInstruction| match i.op_code {
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Entry {
+        Slot(usize),
+        IntLit,
+        FloatLit,
+        Other,
+    }
+    #[derive(Default)]
+    struct Uses {
+        numeric: bool,
+        list: bool,
+        vector: bool,
+        structs: BTreeSet<StructTypeDescriptor>,
+    }
+
+    let targets: BTreeSet<usize> = code
+        .iter()
+        .filter(|i| matches!(i.op_code, OpCode::IF | OpCode::JMP | OpCode::POPJMP))
+        .map(|i| i.payload_size.to_usize())
+        .collect();
+
+    let mut uses: BTreeMap<usize, Uses> = BTreeMap::new();
+    let mut mutated = BTreeSet::new();
+    let mut floats = BTreeSet::new();
+    let mut numeric_groups: Vec<Vec<usize>> = Vec::new();
+    let mut stack: Vec<Entry> = Vec::new();
+    // Set by an op whose trailing FUNC/FUNCNOARITY only carries metadata.
+    let mut skip_meta = false;
+
+    let slot_of = |ins: &DenseInstruction| match ins.op_code {
         OpCode::READLOCAL0 | OpCode::MOVEREADLOCAL0 => Some(0),
         OpCode::READLOCAL1 | OpCode::MOVEREADLOCAL1 => Some(1),
         OpCode::READLOCAL2 | OpCode::MOVEREADLOCAL2 => Some(2),
         OpCode::READLOCAL3 | OpCode::MOVEREADLOCAL3 => Some(3),
-        OpCode::READLOCAL | OpCode::MOVEREADLOCAL => Some(i.payload_size.to_usize()),
+        OpCode::READLOCAL | OpCode::MOVEREADLOCAL => Some(ins.payload_size.to_usize()),
         _ => None,
     };
-    let numeric = |i: &DenseInstruction| {
-        matches!(
-            i.op_code,
-            OpCode::ADD
-                | OpCode::SUB
-                | OpCode::MUL
-                | OpCode::LT
-                | OpCode::LTE
-                | OpCode::GT
-                | OpCode::GTE
-                | OpCode::NUMEQUAL
-        ) && i.payload_size.to_usize() == 2
-    };
-    let int_constant = |i: &DenseInstruction| {
-        matches!(i.op_code, OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2)
-            || (i.op_code == OpCode::PUSHCONST
-                && matches!(constants.get(i.payload_size.to_usize()), SteelVal::IntV(_)))
-    };
-    let float_constant = |i: &DenseInstruction| {
-        i.op_code == OpCode::PUSHCONST
-            && matches!(constants.get(i.payload_size.to_usize()), SteelVal::NumV(_))
-    };
-    let pushes_one = |i: &DenseInstruction| slot_read(i).is_some() || int_constant(i);
 
-    let mut seed = std::collections::BTreeSet::new();
-    let mut mutated = std::collections::BTreeSet::new();
-    // A slot combined with a float literal is carrying floats; guarding it as a
-    // fixnum would only ever fail.
-    let mut floats = std::collections::BTreeSet::new();
-    // Slots combined directly with each other in a numeric operation.
-    let mut pairs = Vec::new();
-    for (idx, ins) in code.iter().enumerate() {
-        if ins.op_code == OpCode::SETLOCAL {
-            mutated.insert(ins.payload_size.to_usize());
+    let mut idx = 0;
+    while idx < code.len() {
+        let ins = &code[idx];
+        let payload = ins.payload_size.to_usize();
+        if targets.contains(&idx) {
+            stack.clear();
         }
-        let Some(slot) = slot_read(ins) else {
-            continue;
-        };
-        if slot >= arity {
+        let meta = std::mem::take(&mut skip_meta);
+
+        if let Some(slot) = slot_of(ins) {
+            stack.push(if slot < arity { Entry::Slot(slot) } else { Entry::Other });
+            idx += 1;
             continue;
         }
-        let next = code.get(idx + 1);
-        let after = code.get(idx + 2);
-        let before = idx.checked_sub(1).and_then(|b| code.get(b));
-        if (next.is_some_and(|n| float_constant(n)) && after.is_some_and(|a| numeric(a)))
-            || (before.is_some_and(|b| float_constant(b)) && next.is_some_and(|n| numeric(n)))
-        {
-            floats.insert(slot);
-        }
-        if let (Some(other), true) = (
-            next.and_then(|n| slot_read(n)),
-            after.is_some_and(|a| numeric(a)),
-        ) {
-            if other < arity {
-                pairs.push((slot, other));
+
+        match ins.op_code {
+            OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2 => stack.push(Entry::IntLit),
+            OpCode::PUSHCONST => stack.push(match constants.get(payload) {
+                SteelVal::IntV(_) => Entry::IntLit,
+                SteelVal::NumV(_) => Entry::FloatLit,
+                _ => Entry::Other,
+            }),
+            OpCode::PUSH | OpCode::READCAPTURED | OpCode::TRUE | OpCode::FALSE | OpCode::VOID => {
+                stack.push(Entry::Other)
             }
+            OpCode::PASS | OpCode::BEGINSCOPE => {}
+            OpCode::FUNC | OpCode::FUNCNOARITY if meta => {}
+
+            OpCode::ADD
+            | OpCode::SUB
+            | OpCode::MUL
+            | OpCode::LT
+            | OpCode::LTE
+            | OpCode::GT
+            | OpCode::GTE
+            | OpCode::NUMEQUAL
+                if payload <= stack.len() =>
+            {
+                let operands = stack.split_off(stack.len() - payload);
+                let slots: Vec<usize> = operands
+                    .iter()
+                    .filter_map(|e| if let Entry::Slot(k) = e { Some(*k) } else { None })
+                    .collect();
+                let has_float = operands.contains(&Entry::FloatLit);
+                for &k in &slots {
+                    uses.entry(k).or_default().numeric = true;
+                    if has_float {
+                        floats.insert(k);
+                    }
+                }
+                numeric_groups.push(slots);
+                stack.push(Entry::Other);
+            }
+
+            OpCode::CAR | OpCode::CDR | OpCode::NULL if !stack.is_empty() => {
+                if let Some(Entry::Slot(k)) = stack.pop() {
+                    uses.entry(k).or_default().list = true;
+                }
+                stack.push(Entry::Other);
+                skip_meta = true;
+            }
+
+            OpCode::NOT if !stack.is_empty() => {
+                stack.pop();
+                stack.push(Entry::Other);
+                skip_meta = true;
+            }
+
+            OpCode::VECTORREF if stack.len() >= 2 => {
+                let args = stack.split_off(stack.len() - 2);
+                if let Entry::Slot(k) = args[0] {
+                    uses.entry(k).or_default().vector = true;
+                }
+                stack.push(Entry::Other);
+                skip_meta = true;
+            }
+
+            OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY | OpCode::CALLPRIMITIVE => {
+                let call_arity = code
+                    .get(idx + 1)
+                    .filter(|n| matches!(n.op_code, OpCode::FUNC | OpCode::FUNCNOARITY))
+                    .map(|n| n.payload_size.to_usize());
+                match call_arity {
+                    Some(n) if n <= stack.len() => {
+                        let args = stack.split_off(stack.len() - n);
+                        let getter = globals
+                            .get(payload)
+                            .cloned()
+                            .and_then(create_struct_spec)
+                            .filter(|spec| {
+                                matches!(
+                                    spec.typ,
+                                    StructFunctionType::GetterProto
+                                        | StructFunctionType::GetterProtoVec(_)
+                                )
+                            });
+                        if let (Some(spec), Some(Entry::Slot(k))) = (getter, args.first()) {
+                            uses.entry(*k).or_default().structs.insert(spec.descriptor);
+                        }
+                        stack.push(Entry::Other);
+                        skip_meta = true;
+                    }
+                    _ => stack.clear(),
+                }
+            }
+
+            OpCode::IF | OpCode::LetVar | OpCode::POPSINGLE => {
+                stack.pop();
+            }
+
+            OpCode::SETLOCAL => {
+                mutated.insert(payload);
+                stack.clear();
+            }
+
+            _ => stack.clear(),
         }
-        if next.is_some_and(|n| numeric(n))
-            || (next.is_some_and(|n| pushes_one(n)) && after.is_some_and(|a| numeric(a)))
-        {
-            seed.insert(slot);
-        }
+        idx += 1;
     }
+
     // `(+ i sum)` with `i` carrying floats makes `sum` a float too.
     loop {
         let before = floats.len();
-        for &(a, b) in &pairs {
-            if floats.contains(&a) || floats.contains(&b) {
-                floats.insert(a);
-                floats.insert(b);
+        for group in &numeric_groups {
+            if group.iter().any(|k| floats.contains(k)) {
+                floats.extend(group.iter().copied());
             }
         }
         if floats.len() == before {
@@ -1709,9 +1933,27 @@ fn loop_fixnum_seed(code: &[DenseInstruction], arity: u16, constants: &ConstantM
         }
     }
 
-    seed.into_iter()
-        .filter(|s| !mutated.contains(s) && !floats.contains(s))
-        .collect()
+    let mut seed = Vec::new();
+    for (slot, u) in uses {
+        if mutated.contains(&slot) {
+            continue;
+        }
+        let kinds = u.numeric as usize + u.list as usize + u.vector as usize + (!u.structs.is_empty()) as usize;
+        if kinds != 1 || u.structs.len() > 1 {
+            continue;
+        }
+        let ty = if u.numeric {
+            if floats.contains(&slot) { SpecType::Float } else { SpecType::Fixnum }
+        } else if u.list {
+            SpecType::List
+        } else if u.vector {
+            SpecType::MutableVector
+        } else {
+            SpecType::Struct(*u.structs.iter().next().unwrap())
+        };
+        seed.push((slot, ty));
+    }
+    seed
 }
 
 /// At the top of a generic copy: tail call into the specialized copy when every
@@ -1722,7 +1964,7 @@ fn emit_spec_entry_guard(
     module: &mut JITModule,
     vm_ctx: Value,
     spec_id: FuncId,
-    seed: &[usize],
+    seed: &[(usize, SpecType)],
     arity: u16,
 ) {
     let thread = builder.ins().load(
@@ -1746,30 +1988,18 @@ fn emit_spec_entry_guard(
     let sp_bytes = builder.ins().ishl_imm_u(sp, 4);
     let frame_base = builder.ins().iadd(buf_ptr, sp_bytes);
 
-    let mut all = builder.ins().iconst(types::I8, 1);
-    for &k in seed.iter().filter(|k| **k < arity as usize) {
-        let tag = builder.ins().load(
-            types::I8,
-            MemFlagsData::trusted(),
-            frame_base,
-            (k * std::mem::size_of::<SteelVal>()) as i32,
-        );
-        let is_int = builder
-            .ins()
-            .icmp_imm_s(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
-        all = builder.ins().band(all, is_int);
-    }
-
-    let spec_block = builder.create_block();
     let body_block = builder.create_block();
-    builder.ins().brif(all, spec_block, &[], body_block, &[]);
-    builder.seal_block(spec_block);
-    builder.seal_block(body_block);
+    let checks: Vec<(usize, SpecType)> = seed
+        .iter()
+        .copied()
+        .filter(|(k, _)| *k < arity as usize)
+        .collect();
+    emit_slot_type_checks(builder, frame_base, &checks, body_block);
 
-    builder.switch_to_block(spec_block);
     let callee = module.declare_func_in_func(spec_id, builder.func);
     builder.ins().return_call(callee, &[vm_ctx]);
 
+    builder.seal_block(body_block);
     builder.switch_to_block(body_block);
 }
 
@@ -2076,10 +2306,13 @@ impl JIT {
         // calls it. It is always defined once the generic copy is (see
         // `compile_specialized`), so the reference is never left dangling.
         let seed = if loop_specialization_enabled() {
-            loop_fixnum_seed(stmts, arity, constants)
+            loop_type_seed(stmts, arity, constants, globals, function_index)
         } else {
             Vec::new()
         };
+        if spec_debug_enabled() && !seed.is_empty() {
+            eprintln!("[spec] seed for {inner_name}: {seed:?}");
+        }
         let spec = if seed.is_empty() {
             None
         } else {
@@ -2090,16 +2323,48 @@ impl JIT {
                 .map_err(|e| e.to_string())?;
             Some((spec_id, spec_name))
         };
+        // The specialized copy is compiled first, because whether the generic
+        // copy may hand off to it depends on whether it compiled. If it did not,
+        // it is still defined - as a stub - but the generic copy gets no guard,
+        // so nothing ever calls it. (A guard in front of a stub that calls back
+        // into the generic copy never runs an iteration: it loops forever.)
+        let mut spec_code_size = None;
         let mode = match &spec {
-            Some((spec_id, _)) => SpecMode::Generic {
-                spec_id: *spec_id,
-                seed: seed.clone(),
-            },
+            Some((spec_id, spec_name)) => {
+                self.module.clear_context(&mut self.ctx);
+                let (size, compiled) = self.compile_specialized(
+                    id,
+                    *spec_id,
+                    spec_name,
+                    inner_id,
+                    arity,
+                    stmts,
+                    globals,
+                    constants,
+                    function_index,
+                    slot,
+                    non_mutable_globals,
+                    seed.clone(),
+                );
+                if compiled {
+                    spec_code_size = Some(size);
+                }
+                self.init_jit_signature();
+                if compiled {
+                    SpecMode::Generic {
+                        spec_id: *spec_id,
+                        seed: seed.clone(),
+                    }
+                } else {
+                    SpecMode::None
+                }
+            }
             None => SpecMode::None,
         };
+        let spec_compiled = matches!(mode, SpecMode::Generic { .. });
 
         // Then, translate the AST nodes into Cranelift IR.
-        self.translate(
+        let translated = self.translate(
             id,
             inner_name.clone(),
             inner_id,
@@ -2111,27 +2376,42 @@ impl JIT {
             slot,
             non_mutable_globals,
             mode,
-        )?;
+        );
 
-        if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
-            // STEEL_JIT_DUMP_CLIF=1 prints the function that failed, which is the
-            // only practical way to chase a dominance error back to the block
-            // that defines the offending value.
-            if std::env::var("STEEL_JIT_DUMP_CLIF").as_deref() == Ok("1") {
-                eprintln!("--- clif for failed function ---\n{}", self.ctx.func);
-            }
-            eprintln!("{:#?}", e);
+        let generic_failure = match translated {
+            Err(e) => Some(e),
+            Ok(_) => match cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
+                Err(e) => {
+                    // STEEL_JIT_DUMP_CLIF=1 prints the function that failed, which is the
+                    // only practical way to chase a dominance error back to the block
+                    // that defines the offending value.
+                    if std::env::var("STEEL_JIT_DUMP_CLIF").as_deref() == Ok("1") {
+                        eprintln!("--- clif for failed function ---\n{}", self.ctx.func);
+                    }
+                    eprintln!("{:#?}", e);
+                    Some(format!("errors: {:#?}", e))
+                }
+                Ok(()) => self.module.define_function(inner_id, &mut self.ctx).err().map(|e| {
+                    eprintln!("error in defining function: {}", e);
+                    e.to_string()
+                }),
+            },
+        };
+
+        if let Some(e) = generic_failure {
             self.module.clear_context(&mut self.ctx);
-            return Err(format!("errors: {:#?}", e));
+            // A compiled specialized copy tail calls back into this one, so this
+            // name has to be defined before anything is finalized. The function
+            // itself is not installed - the error below keeps it interpreted - so
+            // the stub only has to be harmless: it hands the call to the
+            // interpreter from the first instruction.
+            if spec_compiled {
+                if let Err(stub) = self.define_stub(inner_id, StubBody::InterpretFromStart) {
+                    log::debug!(target: "jit", "{inner_name}: stub not defined either: {stub}");
+                }
+            }
+            return Err(e);
         }
-
-        self.module
-            .define_function(inner_id, &mut self.ctx)
-            .map_err(|e| {
-                eprintln!("error in defining function: {}", e);
-                self.module.clear_context(&mut self.ctx);
-                e.to_string()
-            })?;
 
         self.defined.insert(inner_name.clone());
 
@@ -2148,23 +2428,6 @@ impl JIT {
             .unwrap_or(0);
 
         self.module.clear_context(&mut self.ctx);
-
-        let spec_code_size = spec.as_ref().map(|(spec_id, spec_name)| {
-            self.compile_specialized(
-                id,
-                *spec_id,
-                spec_name,
-                inner_id,
-                arity,
-                stmts,
-                globals,
-                constants,
-                function_index,
-                slot,
-                non_mutable_globals,
-                seed.clone(),
-            )
-        });
 
         self.module
             .finalize_definitions()
@@ -2252,66 +2515,114 @@ impl JIT {
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
         non_mutable_globals: &HashSet<usize>,
-        seed: Vec<usize>,
-    ) -> usize {
+        seed: Vec<(usize, SpecType)>,
+    ) -> (usize, bool) {
         self.init_jit_signature();
 
-        let mode = SpecMode::Specialized { generic_id, seed };
-        let translated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.translate(
-                id,
-                spec_name.to_string(),
-                spec_id,
-                arity,
-                stmts,
-                globals,
-                constants,
-                function_index,
-                slot,
-                non_mutable_globals,
-                mode,
-            )
-        }));
+        let translate_with = |this: &mut Self, assume_result: Option<InferredType>| {
+            let mode = SpecMode::Specialized {
+                generic_id,
+                self_id: spec_id,
+                seed: seed.clone(),
+                assume_result,
+            };
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                this.translate(
+                    id,
+                    spec_name.to_string(),
+                    spec_id,
+                    arity,
+                    stmts,
+                    globals,
+                    constants,
+                    function_index,
+                    slot,
+                    non_mutable_globals,
+                    mode,
+                )
+            }))
+        };
+
+        let mut translated = translate_with(self, None);
+
+        // A recursive function's direct self calls return whatever this copy
+        // returns, which is circular: in a first translation those results are
+        // untyped, so everything built from them is too, and its returns cannot
+        // suggest the type. Guess from the seed instead - a function specialized
+        // on fixnums most likely returns one - and translate again with direct
+        // self call results assumed to have that type. The assumption is sound
+        // exactly when every return of that translation has the type and nothing
+        // else leaves the function except deopt exits (whose callers check before
+        // using the value), so it is kept only then.
+        let candidate = match &translated {
+            Ok(Ok(info)) if info.direct_self_calls > 0 => {
+                if seed.iter().any(|(_, t)| *t == SpecType::Fixnum) {
+                    Some(InferredType::Int)
+                } else if seed.iter().any(|(_, t)| *t == SpecType::Float) {
+                    Some(InferredType::Float)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(assumed) = candidate {
+            self.module.clear_context(&mut self.ctx);
+            self.init_jit_signature();
+            let second = translate_with(self, Some(assumed));
+            if spec_debug_enabled() {
+                if let Ok(Ok(info)) = &second {
+                    eprintln!("[spec] {spec_name}: with the assumption: returned {:?}, direct self calls {}, untyped exit {}", info.returned, info.direct_self_calls, info.untyped_non_deopt_exit);
+                }
+            }
+            let holds = matches!(&second, Ok(Ok(info))
+                if !info.untyped_non_deopt_exit
+                    && info.returned.iter().all(|t| t.boxed() == assumed));
+            if spec_debug_enabled() {
+                eprintln!("[spec] {spec_name}: assumed self calls return {assumed:?}: {}", if holds { "kept" } else { "rejected" });
+            }
+            if holds {
+                translated = second;
+            } else {
+                self.module.clear_context(&mut self.ctx);
+                self.builder_context = FunctionBuilderContext::new();
+                self.init_jit_signature();
+                translated = translate_with(self, None);
+            }
+        }
 
         let failure = match translated {
-            Ok(Ok(())) => {
+            Ok(Ok(_)) => {
                 match cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
                     Ok(()) => match self.module.define_function(spec_id, &mut self.ctx) {
                         Ok(()) => None,
                         Err(e) => Some(format!("define: {e}")),
                     },
-                    Err(e) => Some(format!("verify: {e:#?}")),
+                    Err(e) => {
+                        if std::env::var("STEEL_JIT_DUMP_CLIF").as_deref() == Ok("1") {
+                            eprintln!("--- clif for failed specialized copy ---\n{}", self.ctx.func);
+                        }
+                        Some(format!("verify: {e:#?}"))
+                    }
                 }
             }
             Ok(Err(e)) => Some(format!("translate: {e}")),
             Err(_) => Some("translate panicked".to_string()),
         };
 
+        let compiled = failure.is_none();
         if let Some(reason) = failure {
             if spec_debug_enabled() {
                 eprintln!("[spec] {spec_name} fell back to a stub: {reason}");
             }
             log::debug!(target: "jit", "{spec_name} fell back to a stub: {reason}");
-
-            // The translator may have been torn down mid block.
             self.module.clear_context(&mut self.ctx);
-            self.builder_context = FunctionBuilderContext::new();
-            self.init_jit_signature();
-            {
-                let mut builder =
-                    FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
-                let entry = builder.create_block();
-                builder.append_block_params_for_function_params(entry);
-                builder.switch_to_block(entry);
-                builder.seal_block(entry);
-                let vm_ctx = builder.block_params(entry)[0];
-                let generic = self.module.declare_func_in_func(generic_id, builder.func);
-                builder.ins().return_call(generic, &[vm_ctx]);
-                builder.finalize(self.module.target_config());
+            // Never called - the generic copy gets no guard - but it is declared,
+            // so it has to be defined.
+            if let Err(e) = self.define_stub(spec_id, StubBody::TailCall(generic_id)) {
+                log::debug!(target: "jit", "{spec_name}: stub not defined either: {e}");
             }
-            self.module
-                .define_function(spec_id, &mut self.ctx)
-                .expect("a stub that only tail calls cannot fail to compile");
+            return (0, false);
         } else if spec_debug_enabled() {
             eprintln!("[spec] compiled {spec_name}");
         }
@@ -2322,7 +2633,61 @@ impl JIT {
             .map(|cc| cc.code_buffer().len())
             .unwrap_or(0);
         self.module.clear_context(&mut self.ctx);
-        size
+        (size, compiled)
+    }
+
+    /// Define `func_id` as a tiny function, for a name that must exist but whose
+    /// real translation failed. Returns its size. It can still fail to define
+    /// when the code arena is full, and that must not panic: the panic would
+    /// happen with the shared jit locked.
+    fn define_stub(&mut self, func_id: FuncId, body: StubBody) -> Result<usize, String> {
+        // The translator may have been torn down mid block.
+        self.module.clear_context(&mut self.ctx);
+        self.builder_context = FunctionBuilderContext::new();
+        self.init_jit_signature();
+        {
+            let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+            let vm_ctx = builder.block_params(entry)[0];
+            match body {
+                StubBody::TailCall(target) => {
+                    let target = self.module.declare_func_in_func(target, builder.func);
+                    builder.ins().return_call(target, &[vm_ctx]);
+                }
+                StubBody::InterpretFromStart => {
+                    let zero = builder.ins().iconst(types::I64, 0);
+                    builder.ins().store(
+                        MemFlagsData::trusted(),
+                        zero,
+                        vm_ctx,
+                        offset_of!(VmCore, ip) as i32,
+                    );
+                    let not_native = builder.ins().iconst(types::I8, 0);
+                    builder.ins().store(
+                        MemFlagsData::trusted(),
+                        not_native,
+                        vm_ctx,
+                        offset_of!(VmCore, is_native) as i32,
+                    );
+                    let tag = builder.ins().iconst(types::I64, SteelVal::VOID_TAG as i64);
+                    let payload = builder.ins().iconst(types::I64, 0);
+                    let void = builder.ins().iconcat(tag, payload);
+                    builder.ins().return_(&[void]);
+                }
+            }
+            builder.finalize(self.module.target_config());
+        }
+        let defined = self.module.define_function(func_id, &mut self.ctx);
+        let size = self
+            .ctx
+            .compiled_code()
+            .map(|cc| cc.code_buffer().len())
+            .unwrap_or(0);
+        self.module.clear_context(&mut self.ctx);
+        defined.map(|()| size).map_err(|e| e.to_string())
     }
 
     fn translate(
@@ -2338,7 +2703,7 @@ impl JIT {
         slot: Option<&Gc<ByteCodeLambda>>,
         non_mutable_globals: &HashSet<usize>,
         spec_mode: SpecMode,
-    ) -> Result<(), String> {
+    ) -> Result<TranslateInfo, String> {
         // println!("----- Compiling function ----");
 
         // pretty_print_dense_instructions(bytecode);
@@ -2437,8 +2802,10 @@ impl JIT {
             compilation_stats: CompilationStats::default(),
             thread_id: None,
             use_lbbv: std::env::var("STEEL_LBBV").is_ok(),
-            known_fixnum: HashSet::new(),
+            known_tags: HashMap::new(),
             spec_mode: spec_mode.clone(),
+            deopt_returns: HashSet::new(),
+            direct_self_calls: 0,
         };
 
         {
@@ -2449,15 +2816,14 @@ impl JIT {
 
         match &spec_mode {
             // Guarded: the generic copy only tail calls in with these slots
-            // holding fixnums, and this copy only loops on itself while they
-            // still do.
+            // holding these types, and this copy only loops on itself while
+            // they still do.
             SpecMode::Specialized { seed, .. } => {
-                for &i in seed.iter().filter(|i| **i < arity as usize) {
-                    trans.properties.set_property(
-                        ValueOrRegister::Register(i),
-                        Properties::InferredType(InferredType::Int),
-                    );
-                    trans.local_to_value_map.insert(i, InferredType::Int);
+                for &(i, ty) in seed.iter().filter(|(i, _)| *i < arity as usize) {
+                    trans
+                        .properties
+                        .set_property(ValueOrRegister::Register(i), ty.property());
+                    trans.local_to_value_map.insert(i, ty.inferred());
                 }
             }
             SpecMode::Generic { .. } | SpecMode::None => {}
@@ -2488,6 +2854,12 @@ impl JIT {
         let frontend_config = trans.module.target_config();
         let deopts = trans.deopt_return_block.is_some();
         let untyped_exit = has_untyped_exit(trans.builder.func, &trans.typed_returns);
+        let untyped_non_deopt_exit = {
+            let mut known = trans.typed_returns.clone();
+            known.extend(trans.deopt_returns.iter().copied());
+            has_untyped_exit(trans.builder.func, &known)
+        };
+        let direct_self_calls = trans.direct_self_calls;
         trans.builder.finalize(frontend_config);
 
         /*
@@ -2497,6 +2869,8 @@ impl JIT {
 
         println!("Stats: {:#?}", trans.compilation_stats);
         */
+
+        let returned = exit_types.clone();
 
         // exit_types only sees the POPPURE returns; a deopt returns void.
         if deopts {
@@ -2518,7 +2892,11 @@ impl JIT {
             self.function_return_types.insert(id, exit_types);
         }
 
-        Ok(())
+        Ok(TranslateInfo {
+            returned,
+            untyped_non_deopt_exit,
+            direct_self_calls,
+        })
     }
 }
 
@@ -2530,7 +2908,7 @@ pub enum InferredType {
 
     // A boxed value carrying the fixnum tag (`SteelVal::IntV`) - never a
     // bignum. The arithmetic and comparison fast arms rely on this: they unbox
-    // an `Int` operand without checking its tag, and `known_fixnum` folds its
+    // an `Int` operand without checking its tag, and `known_tags` folds its
     // tag checks away. So only produce it for values that are fixnums by
     // construction (today: fixnum constants). An operation that can overflow
     // into a bignum may only produce `Int` if its overflow path deopts.
@@ -2590,6 +2968,47 @@ impl InferredType {
     /// is, so they must not survive materialization - a slot recorded as
     /// `Int64` after the tagged value was written to it would be tagged a second
     /// time on the next read.
+    /// The `SteelVal` tag a value of this type is guaranteed to carry, for the
+    /// types whose producers only ever make that variant. `Number`, `Any` and
+    /// the list-or-pair family say nothing about the tag.
+    ///
+    /// Not `Bool`, `Char` or `Void`: helpers are typed `Bool` on paths that can
+    /// still return an error marker, `Void` doubles as "moved out", and nothing
+    /// gains enough from folding those checks to be worth auditing every one.
+    fn exact_tag(self) -> Option<u8> {
+        match self {
+            Self::Int => Some(SteelVal::INT_TAG),
+            Self::Float => Some(SteelVal::FLOAT_TAG),
+            Self::Symbol => Some(SteelVal::SYMBOL_TAG),
+            Self::List => Some(SteelVal::LIST_TAG),
+            Self::MutableVector => Some(SteelVal::HEAP_REF_VECTOR_TAG),
+            Self::Struct(_) => Some(SteelVal::STRUCT_TAG),
+            _ => None,
+        }
+    }
+
+    /// Carries no reference: overwriting or popping it needs no drop.
+    fn is_immediate(self) -> bool {
+        matches!(
+            self,
+            Self::Int | Self::Float | Self::Bool | Self::Char | Self::Void
+        )
+    }
+
+    /// The least type both describe, or `Any`. Numeric kinds meet at `Number`;
+    /// everything else only survives when it is the same on both sides.
+    fn join(self, other: Self) -> Self {
+        let (a, b) = (self.boxed(), other.boxed());
+        if a == b {
+            return a;
+        }
+        let numeric = |t: Self| matches!(t, Self::Int | Self::Float | Self::Number);
+        if numeric(a) && numeric(b) {
+            return Self::Number;
+        }
+        Self::Any
+    }
+
     fn boxed(self) -> Self {
         match self {
             // Number, not Int: `Int` is load bearing in the dispatch guards,
@@ -2630,7 +3049,7 @@ impl StackValue {
             // so it is rebuilt here rather than occupying a register.
             InferredType::Int64 => {
                 let boxed = ctx.encode_value(SteelVal::INT_TAG as i64, self.value);
-                ctx.known_fixnum.insert(boxed);
+                ctx.known_tags.insert(boxed, SteelVal::INT_TAG);
                 boxed
             }
             _ => self.value,
@@ -3159,12 +3578,16 @@ struct FunctionTranslator<'a> {
     compilation_stats: CompilationStats,
 
     use_lbbv: bool,
-    // SSA values known to hold a fixnum-tagged `SteelVal`. An SSA value never
-    // changes, so the fact holds at every use. Tag checks on these fold to a
-    // constant and `converging_if` only emits the arm the constant selects.
-    known_fixnum: HashSet<Value>,
+    // The tag an SSA value is known to carry. An SSA value never changes, so the
+    // fact holds at every use. Tag checks on these fold to a constant and
+    // `converging_if` only emits the arm the constant selects.
+    known_tags: HashMap<Value, u8>,
     // Loop specialization role of this translation; see `SpecMode`.
     spec_mode: SpecMode,
+    // Returns emitted by deopt exits: they hand the call to the interpreter, so
+    // no caller uses their value without checking first.
+    deopt_returns: HashSet<cranelift::codegen::ir::Inst>,
+    direct_self_calls: usize,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -3312,7 +3735,6 @@ impl FunctionTranslator<'_> {
             if !self.visited.insert(self.ip) {
                 panic!("Already visited this instruction",);
             }
-
             match op {
                 OpCode::LOADINT1POP | OpCode::BINOPADDTAIL => {
                     todo!("{:?}", op);
@@ -3823,8 +4245,21 @@ impl FunctionTranslator<'_> {
                     // both read paths index with `let_var_stack.iter().sum()`. Using
                     // `last()` here agrees only while the stack is one deep, so the
                     // inner binding of a `let*` collided with the outer one.
-                    let local_index =
-                        self.let_var_stack.iter().sum::<usize>() + self.arity as usize;
+                    // The slot `push_to_vm_stack_let_var_new` puts the value in:
+                    // after the arguments, the enclosing let bindings, and any
+                    // pending operands already spilled onto the vm stack below
+                    // this one. Leaving out the spilled operands recorded the
+                    // binding's type against the slot of the operand beneath it -
+                    // e.g. the first half of `(+ (let ...) (let ...))` - so the
+                    // binding lost its type and that operand gained a wrong one.
+                    let spilled_below = self
+                        .shadow_stack
+                        .iter()
+                        .filter(|e| matches!(e, MaybeStackValue::Value(v) if v.spilled))
+                        .count();
+                    let local_index = self.let_var_stack.iter().sum::<usize>()
+                        + self.arity as usize
+                        + spilled_below;
                     self.value_to_local_map.insert(last, local_index);
                     self.local_to_value_map.insert(local_index, typ);
 
@@ -4218,12 +4653,30 @@ impl FunctionTranslator<'_> {
                         if USE_EXPERIMENTAL_CALL {
                             let slot = self.slot.unwrap().clone();
 
-                            let result = self.call_self_function_experimental(arity, slot);
-
                             // TODO: Somehow... we'll have to change the calling convention
                             // to always be (tag, Value), and handle that accordingly
                             // in the function signature wherever possible
-                            self.push(result, InferredType::Any);
+                            match self.direct_self_call_target(arity) {
+                                // Arguments proven to fit this specialized copy:
+                                // call it directly, skipping the generic copy's
+                                // guard. Check for a deopt before the result is
+                                // used, since it may carry an assumed type.
+                                Some((target, assumed)) => {
+                                    let result = self.call_self_function_experimental(
+                                        arity,
+                                        slot,
+                                        Some(target),
+                                    );
+                                    self.check_deopt();
+                                    self.direct_self_calls += 1;
+                                    self.push(result, assumed.unwrap_or(InferredType::Any));
+                                }
+                                None => {
+                                    let result =
+                                        self.call_self_function_experimental(arity, slot, None);
+                                    self.push(result, InferredType::Any);
+                                }
+                            }
                         } else {
                             let slot = self.slot.unwrap().clone();
                             let result =
@@ -4257,7 +4710,7 @@ impl FunctionTranslator<'_> {
 
                         let id = func.id;
 
-                        let result = self.call_self_function_experimental(arity, func);
+                        let result = self.call_self_function_experimental(arity, func, None);
 
                         let inferred_type =
                             if let Some(ret_types) = self.function_return_types.get(&id) {
@@ -4605,6 +5058,7 @@ impl FunctionTranslator<'_> {
 
                     for i in payload..payload + amt {
                         self.properties.remove(&ValueOrRegister::Register(i));
+                        self.local_to_value_map.remove(&i);
                         // The loop above only reaches slots still referenced from
                         // the shadow stack. A cached slot that nothing currently
                         // points at outlives its scope otherwise, and the next let
@@ -5974,9 +6428,10 @@ impl FunctionTranslator<'_> {
                             self.ip += 2;
                         }
 
-                        // Anything else, we'll move on
+                        // Anything else, we'll move on. Not `List`: consing onto
+                        // anything but a list makes a pair.
                         _ => {
-                            self.func_ret_val(op, 2, 2, InferredType::List);
+                            self.func_ret_val(op, 2, 2, InferredType::ListOrPair);
                         }
                     }
                 }
@@ -5993,6 +6448,10 @@ impl FunctionTranslator<'_> {
                                 self.properties.get(&ValueOrRegister::Register(reg)),
                                 Some(Properties::ProperNonEmptyList)
                             );
+                            // The rest of a proper list is a proper list. On an
+                            // empty list the helper raises, and the deopt check
+                            // below leaves before the result is used.
+                            let rest_type = self.cdr_result_type(reg);
 
                             self.properties.add_property(
                                 ValueOrRegister::Register(reg),
@@ -6005,12 +6464,12 @@ impl FunctionTranslator<'_> {
                             if can_skip_bounds_check {
                                 let func = "cdr-reg-no-check";
                                 let res = self.call_function_returns_value_args(func, &[reg]);
-                                self.push(res, InferredType::Any);
+                                self.push(res, rest_type);
                             } else {
                                 let func = "cdr-reg";
                                 let res = self.call_function_returns_value_args(func, &[reg]);
-                                self.push(res, InferredType::Any);
                                 self.check_deopt();
+                                self.push(res, rest_type);
                             };
 
                             self.ip += 2;
@@ -6045,6 +6504,7 @@ impl FunctionTranslator<'_> {
                                 self.shadow_push(MaybeStackValue::MutRegister(reg));
                             } else {
                                 let func = "cdr-mut-reg";
+                                let rest_type = self.cdr_result_type(reg);
                                 // println!("Adding inferred type void for register: {}", reg);
                                 self.properties.props.insert(
                                     ValueOrRegister::Register(reg),
@@ -6053,7 +6513,7 @@ impl FunctionTranslator<'_> {
 
                                 let res = self.call_function_returns_value_args(func, &[ir_reg]);
                                 self.check_deopt();
-                                self.push(res, InferredType::Any);
+                                self.push(res, rest_type);
                             };
 
                             self.ip += 2;
@@ -7347,7 +7807,8 @@ impl FunctionTranslator<'_> {
         args.extend(additional_args.into_iter().map(|x| x.0));
 
         let result = self.call_function_returns_value_args(name, &args);
-        self.push(result, InferredType::Char);
+        // The eof object, which is not a char.
+        self.push(result, InferredType::Any);
         self.ip += 1;
 
         // Don't need to check deopt on predicates
@@ -7938,7 +8399,8 @@ impl FunctionTranslator<'_> {
         args.extend(additional_args);
 
         let result = self.call_function_returns_value_args(func, &args);
-        self.push(result, InferredType::Char);
+        // A char, or the eof object at the end of input.
+        self.push(result, InferredType::Any);
         self.ip += 1;
         self.check_deopt();
     }
@@ -8214,15 +8676,22 @@ impl FunctionTranslator<'_> {
     }
 
     fn translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize) {
-        // Which argument slots are fixnums by construction, read before any of
-        // them is popped. An unchanged slot shows up as its own register.
+        // Which seeded slots are passed a value of their seeded type by
+        // construction, read before any of them is popped. An unchanged slot
+        // shows up as its own register.
         let proven: Vec<bool> = {
             let n = self.shadow_stack.len();
+            let seed = match &self.spec_mode {
+                SpecMode::Specialized { seed, .. } => seed.clone(),
+                _ => Vec::new(),
+            };
             (0..payload)
                 .map(|pos| {
-                    self.shadow_stack
-                        .get(n + pos - payload)
-                        .is_some_and(|e| self.entry_is_fixnum(e))
+                    seed.iter().find(|(k, _)| *k == pos).is_some_and(|(_, ty)| {
+                        self.shadow_stack
+                            .get(n + pos - payload)
+                            .is_some_and(|e| self.entry_has_type(e, *ty))
+                    })
                 })
                 .collect()
         };
@@ -8371,13 +8840,13 @@ impl FunctionTranslator<'_> {
                 self.emit_loop_jump();
             }
 
-            SpecMode::Specialized { generic_id, seed } => {
-                // Slots the translator can prove are still fixnums need no
+            SpecMode::Specialized { generic_id, seed, .. } => {
+                // Slots the translator can prove still hold their type need no
                 // check; the rest are checked on the values just written.
-                let unproven: Vec<usize> = seed
+                let unproven: Vec<(usize, SpecType)> = seed
                     .iter()
                     .copied()
-                    .filter(|k| !proven.get(*k).copied().unwrap_or(false))
+                    .filter(|(k, _)| !proven.get(*k).copied().unwrap_or(false))
                     .collect();
 
                 if unproven.is_empty() {
@@ -8385,19 +8854,28 @@ impl FunctionTranslator<'_> {
                     return;
                 }
 
-                let still_fixnums = self.slots_hold_fixnums(&unproven);
-                let loop_block = self.builder.create_block();
-                let generic_block = self.builder.create_block();
-                self.builder
-                    .ins()
-                    .brif(still_fixnums, loop_block, &[], generic_block, &[]);
-                self.builder.seal_block(loop_block);
-                self.builder.seal_block(generic_block);
+                // Read the tags from memory on purpose: the tail call just wrote
+                // new values into these slots, so the translator's facts about
+                // them are stale.
+                let ctx = self.get_ctx();
+                let sp = self.get_sp(ctx);
+                let buf_ptr = self.stack_buf_ptr(ctx);
+                let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
+                let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
+                let generic_block = self.builder.create_block();
+                emit_slot_type_checks(&mut self.builder, frame_base, &unproven, generic_block);
+                let pass_block = self.builder.current_block().unwrap();
+
+                // Fill the fallback first and jump back to the top last: the loop
+                // jump leaves the builder in a fresh block that the rest of the
+                // translation continues into, and a block the builder switches
+                // away from while still empty never makes it into the function.
+                self.builder.seal_block(generic_block);
                 self.builder.switch_to_block(generic_block);
                 self.emit_tail_call_into(generic_id);
 
-                self.builder.switch_to_block(loop_block);
+                self.builder.switch_to_block(pass_block);
                 self.emit_loop_jump();
             }
         }
@@ -8407,33 +8885,6 @@ impl FunctionTranslator<'_> {
         let vm_ctx = self.get_ctx();
         let callee = self.module.declare_func_in_func(callee, self.builder.func);
         self.builder.ins().return_call(callee, &[vm_ctx]);
-    }
-
-    /// An i8 that is 1 when every slot in `slots` holds a fixnum. Reads the
-    /// tags from memory on purpose: this runs after the tail call wrote new
-    /// values into those slots, so the translator's facts about them are stale.
-    fn slots_hold_fixnums(&mut self, slots: &[usize]) -> Value {
-        let ctx = self.get_ctx();
-        let sp = self.get_sp(ctx);
-        let buf_ptr = self.stack_buf_ptr(ctx);
-        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
-        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
-
-        let mut all = self.builder.ins().iconst(types::I8, 1);
-        for &k in slots {
-            let tag = self.builder.ins().load(
-                types::I8,
-                MemFlagsData::trusted(),
-                frame_base,
-                (k * std::mem::size_of::<SteelVal>()) as i32,
-            );
-            let is_int = self
-                .builder
-                .ins()
-                .icmp_imm_s(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
-            all = self.builder.ins().band(all, is_int);
-        }
-        all
     }
 
     // Make the call:
@@ -8458,7 +8909,7 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    /// Everything above the arguments is a let slot holding a fixnum, so
+    /// Everything above the arguments is a let slot holding an immediate, so
     /// truncating is only a length store - the runtime loop that loads each
     /// slot's tag to discover there is nothing to drop can go.
     fn let_slots_all_fixnum(&self) -> bool {
@@ -8467,7 +8918,7 @@ impl FunctionTranslator<'_> {
         }
         let lets: usize = self.let_var_stack.iter().sum();
         let base = self.arity as usize;
-        (base..base + lets).all(|r| self.register_is_fixnum(r))
+        (base..base + lets).all(|r| self.register_is_immediate(r))
     }
 
     fn truncate_stack_no_drop(&mut self, vm_ctx: Value, index: Value) {
@@ -8636,7 +9087,29 @@ impl FunctionTranslator<'_> {
         // self.builder.ins()
     }
 
-    fn call_self_function_experimental(&mut self, arity: usize, func: Gc<ByteCodeLambda>) -> Value {
+    /// In a specialized copy, a self call whose arguments are proven to have
+    /// the seeded types can go straight to this copy. Returns it, with the type
+    /// its result is assumed to have.
+    fn direct_self_call_target(&self, arity: usize) -> Option<(FuncId, Option<InferredType>)> {
+        let SpecMode::Specialized { self_id, seed, assume_result, .. } = &self.spec_mode else {
+            return None;
+        };
+        if arity != self.arity as usize || self.shadow_stack.len() < arity {
+            return None;
+        }
+        let base = self.shadow_stack.len() - arity;
+        let fits = seed
+            .iter()
+            .all(|(k, ty)| self.entry_has_type(&self.shadow_stack[base + k], *ty));
+        fits.then_some((*self_id, *assume_result))
+    }
+
+    fn call_self_function_experimental(
+        &mut self,
+        arity: usize,
+        func: Gc<ByteCodeLambda>,
+        target: Option<FuncId>,
+    ) -> Value {
         // let local_callee = self.get_local_callee(name);
 
         let id = func.id;
@@ -8675,13 +9148,14 @@ impl FunctionTranslator<'_> {
 
         self.spill_stack();
 
-        self.inline_call_global_function(
+        self.inline_call_global_function_to(
             id,
             lookup_index,
             fallback_ip,
             &args_off_the_stack,
             instr_fat_ptr,
             callee_is_self,
+            target,
         )
     }
 
@@ -9180,7 +9654,8 @@ impl FunctionTranslator<'_> {
         }
 
         let void = self.encode_void();
-        self.builder.ins().return_(&[void]);
+        let ret = self.builder.ins().return_(&[void]);
+        self.deopt_returns.insert(ret);
     }
 
     fn check_deopt(&mut self) {
@@ -9203,7 +9678,8 @@ impl FunctionTranslator<'_> {
         if needs_fill {
             self.builder.switch_to_block(deopt_block);
             let void = self.encode_void();
-            self.builder.ins().return_(&[void]);
+            let ret = self.builder.ins().return_(&[void]);
+            self.deopt_returns.insert(ret);
         }
 
         self.builder.switch_to_block(then_block);
@@ -9336,8 +9812,8 @@ impl FunctionTranslator<'_> {
     // We have a cursor which will go through and mark if the value has already been pushed to the stack.
     // As long as we push the values in the right order, we're good.
     fn push(&mut self, value: Value, typ: InferredType) {
-        if typ == InferredType::Int {
-            self.known_fixnum.insert(value);
+        if let Some(tag) = typ.exact_tag() {
+            self.known_tags.insert(value, tag);
         }
         self.shadow_stack.push(MaybeStackValue::Value(StackValue {
             value,
@@ -9366,12 +9842,19 @@ impl FunctionTranslator<'_> {
     fn spill_stack_coalesced(&mut self) {
         let mut buffered_reads = Vec::new();
 
+        // Types are read before the reads: moving a mutable register out marks
+        // its slot `Void`. Spilling does not change what the value is, and
+        // resetting these to `Any` (as this did) dropped the type of every
+        // operand pending under a call - `n` in `(* n (fact (- n 1)))`.
+        let mut register_types = HashMap::new();
         for value in &self.shadow_stack {
             match value {
                 MaybeStackValue::MutRegister(p) => {
+                    register_types.insert(*p, self.register_type(*p));
                     buffered_reads.push((*p, true));
                 }
                 MaybeStackValue::Register(p) => {
+                    register_types.insert(*p, self.register_type(*p));
                     buffered_reads.push((*p, false));
                 }
                 _ => {}
@@ -9403,7 +9886,7 @@ impl FunctionTranslator<'_> {
 
                     self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                         value,
-                        inferred_type: InferredType::Any,
+                        inferred_type: register_types[&p],
                         spilled: true,
                     });
                 }
@@ -9418,7 +9901,7 @@ impl FunctionTranslator<'_> {
 
                     self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                         value,
-                        inferred_type: InferredType::Any,
+                        inferred_type: register_types[&p],
                         spilled: true,
                     });
                 }
@@ -9515,8 +9998,8 @@ impl FunctionTranslator<'_> {
             if stack_value.spilled {
                 let inferred_type = stack_value.inferred_type.boxed();
                 let value = self.pop_value_from_vm_stack();
-                if inferred_type == InferredType::Int {
-                    self.known_fixnum.insert(value);
+                if let Some(tag) = inferred_type.exact_tag() {
+                    self.known_tags.insert(value, tag);
                 }
 
                 return Some(MaybeStackValue::Value(StackValue {
@@ -9553,12 +10036,7 @@ impl FunctionTranslator<'_> {
     fn mut_register_to_value(&mut self, p: usize) -> (Value, InferredType) {
         let value = self.remove_from_vm_stack(p);
 
-        let inferred_type = match self.properties.get(&ValueOrRegister::Register(p)) {
-            Some(Properties::InferredType(t)) => t,
-            Some(Properties::ProperList) => InferredType::List,
-            None => InferredType::Any,
-            _ => InferredType::Any,
-        };
+        let inferred_type = self.register_type(p);
         // println!("Adding inferred type void for register: {}", p);
 
         // We've removed from the stack, meaning we don't need to emit drop glue for this.
@@ -9578,21 +10056,15 @@ impl FunctionTranslator<'_> {
     /// `immutable_register_to_value` reads; `local_to_value_map` is what the
     /// dispatch guards read. `LetVar` writes both, so they agree, but a slot can
     /// be present in one and not the other.
-    /// Type of an if-merge's value: what every arm reaching it agrees on, or
-    /// `Any`. The arm types come from `shadow_pop`, so they are already boxed,
-    /// matching the boxed value the merge block receives.
+    /// Type of an if-merge's value: the join of every arm reaching it.
     fn merge_type(&mut self, phi: Value, arms: &[InferredType]) -> InferredType {
         let Some((first, rest)) = arms.split_first() else {
             return InferredType::Any;
         };
-        if !rest.iter().all(|t| t == first) {
-            return InferredType::Any;
-        }
-        // `UnboxedBool`/`Int64` cannot reach here - `shadow_pop` boxes them -
-        // but a merge block parameter is always a boxed value, so be explicit.
-        let t = first.boxed();
-        if t == InferredType::Int {
-            self.known_fixnum.insert(phi);
+        // A merge block parameter is always a boxed value, and `join` boxes.
+        let t = rest.iter().fold(first.boxed(), |acc, t| acc.join(*t));
+        if let Some(tag) = t.exact_tag() {
+            self.known_tags.insert(phi, tag);
         }
         t
     }
@@ -9611,6 +10083,32 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    /// What `cdr` of this register gives: a proper list when the register is
+    /// one (`ListV` is always proper), nothing known otherwise.
+    fn cdr_result_type(&self, r: usize) -> InferredType {
+        match self.properties.get(&ValueOrRegister::Register(r)) {
+            Some(Properties::ProperList | Properties::ProperNonEmptyList) => InferredType::List,
+            _ => InferredType::Any,
+        }
+    }
+
+    /// A shadow stack entry known to hold a value of `ty`.
+    fn entry_has_type(&self, entry: &MaybeStackValue, ty: SpecType) -> bool {
+        match (entry, ty) {
+            (MaybeStackValue::Constant(ConstantValue::Int(_)), SpecType::Fixnum) => true,
+            (MaybeStackValue::Constant(ConstantValue::Float(_)), SpecType::Float) => true,
+            (MaybeStackValue::Constant(ConstantValue::List(_)), SpecType::List) => true,
+            (MaybeStackValue::Constant(_), _) => false,
+            (MaybeStackValue::Value(v), SpecType::Fixnum) => {
+                matches!(v.inferred_type, InferredType::Int | InferredType::Int64)
+            }
+            (MaybeStackValue::Value(v), ty) => v.inferred_type.boxed() == ty.inferred(),
+            (MaybeStackValue::Register(r) | MaybeStackValue::MutRegister(r), ty) => {
+                self.register_type(*r) == ty.inferred()
+            }
+        }
+    }
+
     fn top_two_are_fixnums(&self) -> bool {
         let n = self.shadow_stack.len();
         n >= 2
@@ -9618,9 +10116,10 @@ impl FunctionTranslator<'_> {
             && self.entry_is_fixnum(&self.shadow_stack[n - 2])
     }
 
-    /// Pop an entry `entry_is_fixnum` accepted and return its untagged payload.
-    fn pop_fixnum_payload(&mut self) -> Value {
-        match self.shadow_stack_pop().unwrap() {
+    /// The untagged payload of an entry `entry_is_fixnum` accepted, already
+    /// popped (so a spilled one has been reloaded).
+    fn fixnum_payload(&mut self, entry: MaybeStackValue) -> Value {
+        match entry {
             MaybeStackValue::Constant(ConstantValue::Int(i)) => {
                 self.builder.ins().iconst(types::I64, i as i64)
             }
@@ -9647,7 +10146,6 @@ impl FunctionTranslator<'_> {
     /// produces the bignum and the jitted result is always a fixnum.
     fn fixnum_binop(&mut self, op: OpCode) {
         let deopt_ip = self.ip;
-        let pre_pop_stack = self.shadow_stack.clone();
 
         // Facts about the operands that make overflow impossible, read before
         // the pops: a register already known to be >= some bound, minus a
@@ -9663,8 +10161,20 @@ impl FunctionTranslator<'_> {
             _ => None,
         };
 
-        let rhs = self.pop_fixnum_payload();
-        let lhs = self.pop_fixnum_payload();
+        // The snapshot for the overflow exit is taken after the pops. Popping a
+        // spilled operand reloads it and shortens the vm stack, and that happens
+        // on the fast path before the overflow branch - so a snapshot from before
+        // the pops still called the operand spilled, the exit did not write it
+        // back, and the interpreter re-ran the instruction one operand short.
+        // `(+ 4611686018427387904 (f (- n 1)))` added `n` instead of the constant.
+        let rhs_entry = self.shadow_stack_pop().unwrap();
+        let lhs_entry = self.shadow_stack_pop().unwrap();
+        let mut pre_pop_stack = self.shadow_stack.clone();
+        pre_pop_stack.push(lhs_entry);
+        pre_pop_stack.push(rhs_entry);
+
+        let rhs = self.fixnum_payload(rhs_entry);
+        let lhs = self.fixnum_payload(lhs_entry);
 
         let compare = match op {
             OpCode::LT => Some(IntCC::SignedLessThan),
@@ -9745,15 +10255,45 @@ impl FunctionTranslator<'_> {
         self.ip += 2;
     }
 
+    /// At a merge, keep only the register types every incoming path agrees on
+    /// (joined), and only the value-to-register links both paths share. The
+    /// current state is one path; `locals`/`values` are the other. Before this,
+    /// merges kept whichever path was translated last, so a type established on
+    /// just that path outlived the merge.
+    pub(super) fn meet_register_maps(
+        &mut self,
+        locals: &HashMap<usize, InferredType>,
+        values: &HashMap<Value, usize>,
+    ) {
+        self.local_to_value_map.retain(|slot, t| match locals.get(slot) {
+            Some(other) => {
+                *t = t.join(*other);
+                *t != InferredType::Any
+            }
+            None => false,
+        });
+        self.value_to_local_map
+            .retain(|value, slot| values.get(value) == Some(slot));
+    }
+
     /// The slot holds a fixnum: its recorded type is `Int`, which `LetVar`
     /// only records for fixnum bindings and `SETLOCAL`/`LETENDSCOPE` clear.
     fn register_is_fixnum(&self, r: usize) -> bool {
         self.register_type(r) == InferredType::Int
     }
 
+    fn register_tag(&self, r: usize) -> Option<u8> {
+        self.register_type(r).exact_tag()
+    }
+
+    /// The slot holds a value with no reference, so nothing needs dropping.
+    fn register_is_immediate(&self, r: usize) -> bool {
+        self.register_type(r).is_immediate()
+    }
+
     fn mark_register_read(&mut self, r: usize, value: Value) {
-        if self.register_is_fixnum(r) {
-            self.known_fixnum.insert(value);
+        if let Some(tag) = self.register_tag(r) {
+            self.known_tags.insert(value, tag);
         }
     }
 
@@ -9770,7 +10310,7 @@ impl FunctionTranslator<'_> {
     }
 
     /// Statically evaluate a branch condition built from constants - which is
-    /// what a tag check on a `known_fixnum` value becomes, via `get_tag`.
+    /// what a tag check on a `known_tags` value becomes, via `get_tag`.
     pub(super) fn const_bool(&self, v: Value) -> Option<bool> {
         use cranelift::codegen::ir::{InstructionData, Opcode, ValueDef};
         let dfg = &self.builder.func.dfg;
@@ -9797,15 +10337,24 @@ impl FunctionTranslator<'_> {
     }
 
     pub(super) fn register_type(&self, r: usize) -> InferredType {
-        match self.properties.get(&ValueOrRegister::Register(r)) {
-            Some(Properties::InferredType(t)) => t,
-            Some(Properties::ProperList) => InferredType::List,
-            _ => self
-                .local_to_value_map
-                .get(&r)
-                .copied()
-                .unwrap_or(InferredType::Any),
+        // Search the facts rather than `properties.get`, which only answers when
+        // a slot has exactly one: a typed register that a comparison has also
+        // given a range fact used to read back as untyped.
+        if let Some(facts) = self.properties.props.get(&ValueOrRegister::Register(r)) {
+            for fact in facts {
+                match fact {
+                    Properties::InferredType(t) => return *t,
+                    Properties::ProperList | Properties::ProperNonEmptyList => {
+                        return InferredType::List
+                    }
+                    _ => {}
+                }
+            }
         }
+        self.local_to_value_map
+            .get(&r)
+            .copied()
+            .unwrap_or(InferredType::Any)
     }
 
     fn immutable_register_to_value(&mut self, p: usize) -> (Value, InferredType) {
@@ -9814,12 +10363,7 @@ impl FunctionTranslator<'_> {
         // Increment the ref count for the value:
         self.clone_value(value);
 
-        let inferred_type = match self.properties.get(&ValueOrRegister::Register(p)) {
-            Some(Properties::InferredType(t)) => t,
-            Some(Properties::ProperList) => InferredType::List,
-            None => InferredType::Any,
-            _ => InferredType::Any,
-        };
+        let inferred_type = self.register_type(p);
 
         (value, inferred_type)
     }
@@ -9874,8 +10418,8 @@ impl FunctionTranslator<'_> {
             // `shadow_stack_pop` already kept it on the same reload; this path
             // used to reset it to `Any`. Spilled values are boxed, hence `boxed`.
             let inferred_type = args_off_the_stack[*idx].inferred_type.boxed();
-            if inferred_type == InferredType::Int {
-                self.known_fixnum.insert(value);
+            if let Some(tag) = inferred_type.exact_tag() {
+                self.known_tags.insert(value, tag);
             }
 
             args_off_the_stack[*idx] = StackValue {
@@ -10036,8 +10580,8 @@ impl FunctionTranslator<'_> {
             .map(|x| {
                 let v = x.as_steelval(self);
                 let t = x.inferred_type.boxed();
-                if t == InferredType::Int {
-                    self.known_fixnum.insert(v);
+                if let Some(tag) = t.exact_tag() {
+                    self.known_tags.insert(v, tag);
                 }
                 (v, t)
             })
@@ -10382,7 +10926,7 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(Type::int(64).unwrap(), integer as i64);
         let integer = self.encode_value(discriminant(&SteelVal::IntV(0)) as i64, res);
-        self.known_fixnum.insert(integer);
+        self.known_tags.insert(integer, SteelVal::INT_TAG);
         integer
     }
 
@@ -10418,8 +10962,8 @@ impl FunctionTranslator<'_> {
     }
 
     fn get_tag(&mut self, value: Value) -> Value {
-        if self.known_fixnum.contains(&value) {
-            return self.builder.ins().iconst(types::I8, SteelVal::INT_TAG as i64);
+        if let Some(tag) = self.known_tags.get(&value).copied() {
+            return self.builder.ins().iconst(types::I8, tag as i64);
         }
         self.builder.ins().ireduce(types::I8, value)
     }
@@ -10756,6 +11300,7 @@ impl FunctionTranslator<'_> {
 
                 // Only what both arms agree on survives the merge
                 self.properties.meet(&properties);
+                self.meet_register_maps(&local_map, &value_to_local);
 
                 self.if_bound = last_bound;
 
@@ -10968,10 +11513,9 @@ impl FunctionTranslator<'_> {
             (index * std::mem::size_of::<SteelVal>() + 8) as i32,
         );
 
-        let tag = if self.register_is_fixnum(index) {
-            self.builder.ins().iconst(types::I8, SteelVal::INT_TAG as i64)
-        } else {
-            tag
+        let tag = match self.register_tag(index) {
+            Some(known) => self.builder.ins().iconst(types::I8, known as i64),
+            None => tag,
         };
 
         (tag, value)
@@ -11157,7 +11701,7 @@ impl FunctionTranslator<'_> {
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
             // A fixnum has nothing to drop.
-            if should_drop && !self.register_is_fixnum(index) {
+            if should_drop && !self.register_is_immediate(index) {
                 match self.properties.get(&ValueOrRegister::Register(index)) {
                     // TODO: Can do even better, read less things
                     Some(
@@ -11224,7 +11768,7 @@ impl FunctionTranslator<'_> {
 
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
-            if !self.register_is_fixnum(index)
+            if !self.register_is_immediate(index)
             {
             match self.properties.get(&ValueOrRegister::Register(index)) {
                 // TODO: Can do even better, read less thing
@@ -11295,7 +11839,7 @@ impl FunctionTranslator<'_> {
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
             // A fixnum has nothing to drop.
-            if should_drop && !self.register_is_fixnum(index) {
+            if should_drop && !self.register_is_immediate(index) {
                 match self.properties.get(&ValueOrRegister::Register(index)) {
                     // TODO: Can do even better, read less things
                     Some(
@@ -11370,7 +11914,7 @@ impl FunctionTranslator<'_> {
         res
     }
 
-    fn inline_call_global_function(
+    fn inline_call_global_function_to(
         &mut self,
         id: u32,
         func: Value,
@@ -11378,6 +11922,7 @@ impl FunctionTranslator<'_> {
         args: &[Value],
         instr_fat_ptr: Value,
         callee_is_self: bool,
+        target: Option<FuncId>,
     ) -> Value {
         let vm_ctx = self.get_ctx();
         let should_trampoline = self.check_should_trampoline(vm_ctx);
@@ -11416,7 +11961,10 @@ impl FunctionTranslator<'_> {
 
                 // TODO: Change the calling convention of the function to return a
                 // (tag, Value) rather than an i128 value directly.
-                let jit_func = ctx.get_jit_func(id);
+                let jit_func = match target {
+                    Some(target) => ctx.module.declare_func_in_func(target, ctx.builder.func),
+                    None => ctx.get_jit_func(id),
+                };
 
                 // Check the result here
                 let call = ctx.builder.ins().call(jit_func, &[vm_ctx]);
