@@ -403,6 +403,11 @@ impl ExpressionType {
     fn generate_expression_types(exprs: &[ExprKind]) -> Vec<ExpressionType> {
         let mut expression_types = Vec::with_capacity(exprs.len());
         let mut defined_idents = DefinedVars::new();
+        // Flat defines after a deferred expression must also be
+        // deferred to make sure we don't accidentally reordering the
+        // flat define expressions (i.e. (define a 10) (define b 20) ordering is
+        // preserved)
+        let mut seen_deferred = false;
 
         for expr in exprs {
             match expr {
@@ -421,16 +426,22 @@ impl ExpressionType {
                         _ => {
                             defined_idents.visit(&d.body);
                             if defined_idents.check_output() {
+                                seen_deferred = true;
                                 expression_types.push(ExpressionType::DefineFlatStar(*name));
                             } else if Self::is_constant(&d.body) {
                                 expression_types.push(ExpressionType::DefineConst(*name));
+                            } else if seen_deferred {
+                                expression_types.push(ExpressionType::DefineFlatStar(*name));
                             } else {
                                 expression_types.push(ExpressionType::DefineFlat(*name));
                             }
                         }
                     }
                 }
-                _ => expression_types.push(ExpressionType::Expression),
+                _ => {
+                    seen_deferred = true;
+                    expression_types.push(ExpressionType::Expression)
+                }
             }
         }
 
