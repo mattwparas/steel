@@ -1720,9 +1720,11 @@ fn emit_slot_type_checks(
     }
 }
 
+/// Type-specialized copies of loops and self-recursive functions. On by default;
+/// `STEEL_JIT_SPECIALIZE_LOOPS=0` turns it off.
 fn loop_specialization_enabled() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("STEEL_JIT_SPECIALIZE_LOOPS").as_deref() == Ok("1"))
+    *V.get_or_init(|| std::env::var("STEEL_JIT_SPECIALIZE_LOOPS").as_deref() != Ok("0"))
 }
 
 fn spec_debug_enabled() -> bool {
@@ -1775,6 +1777,8 @@ fn loop_type_seed(
         list: bool,
         vector: bool,
         structs: BTreeSet<StructTypeDescriptor>,
+        // The body asks what type the slot holds, so it expects more than one.
+        type_tested: bool,
     }
 
     let targets: BTreeSet<usize> = code
@@ -1899,6 +1903,23 @@ fn loop_type_seed(
                         if let (Some(spec), Some(Entry::Slot(k))) = (getter, args.first()) {
                             uses.entry(*k).or_default().structs.insert(spec.descriptor);
                         }
+                        // `null?` is a separate opcode and stays compatible: the
+                        // empty list is a list.
+                        let is_type_test = n == 1
+                            && ins.op_code == OpCode::CALLPRIMITIVE
+                            && matches!(globals.get(payload), Some(SteelVal::FuncV(f))
+                                if [
+                                    steel_pair as FunctionSignature,
+                                    steel_listp as FunctionSignature,
+                                    steel_symbolp as FunctionSignature,
+                                    steel_stringp as FunctionSignature,
+                                    steel_voidp as FunctionSignature,
+                                    steel_eof_objectp as FunctionSignature,
+                                ]
+                                .contains(f));
+                        if let (true, Some(Entry::Slot(k))) = (is_type_test, args.first()) {
+                            uses.entry(*k).or_default().type_tested = true;
+                        }
                         stack.push(Entry::Other);
                         skip_meta = true;
                     }
@@ -1935,7 +1956,10 @@ fn loop_type_seed(
 
     let mut seed = Vec::new();
     for (slot, u) in uses {
-        if mutated.contains(&slot) {
+        // A guess from usage is only worth a guard when the slot has one type.
+        // `deriv` does `(car a)` after `(pair? a)`, and half its calls pass a
+        // symbol: the list seed cost a failing guard on those and bought nothing.
+        if mutated.contains(&slot) || u.type_tested {
             continue;
         }
         let kinds = u.numeric as usize + u.list as usize + u.vector as usize + (!u.structs.is_empty()) as usize;
@@ -2305,7 +2329,17 @@ impl JIT {
         // Loop specialization: declared up front because the generic copy tail
         // calls it. It is always defined once the generic copy is (see
         // `compile_specialized`), so the reference is never left dangling.
-        let seed = if loop_specialization_enabled() {
+        let seed = if loop_specialization_enabled()
+            // For bisecting a specialization problem to one function: comma
+            // separated name substrings to allow (`STEEL_JIT_SPEC_ONLY`) or
+            // exclude (`STEEL_JIT_SPEC_SKIP`).
+            && std::env::var("STEEL_JIT_SPEC_ONLY").map_or(true, |v| {
+                v.split(',').any(|part| inner_name.contains(part))
+            })
+            && std::env::var("STEEL_JIT_SPEC_SKIP").map_or(true, |v| {
+                !v.split(',').any(|part| inner_name.contains(part))
+            })
+        {
             loop_type_seed(stmts, arity, constants, globals, function_index)
         } else {
             Vec::new()
