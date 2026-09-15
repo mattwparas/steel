@@ -2497,11 +2497,14 @@ impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
         self.prim_map
             .insert(SyntaxObjectId(lambda_function.syntax_object_id), self.prims);
 
-        if self.count != std::usize::MAX {
-            self.count = current_count;
-        }
-
-        self.prims = current_prims;
+        // A nested lambda is part of the body that contains it, so its size and
+        // primitive calls count toward the enclosing function too. They used to be
+        // dropped: `let`/`or`/`and` expand to an applied lambda at this point, so
+        // `(define (string? s) (or (mstring? s) (#%prim.string? s)))` looked like
+        // a body with no primitive calls and the density filter never inlined it.
+        // Saturating, so a pessimized (usize::MAX) body stays pessimized.
+        self.count = current_count.saturating_add(self.count);
+        self.prims = current_prims.saturating_add(self.prims);
     }
 
     #[inline]
