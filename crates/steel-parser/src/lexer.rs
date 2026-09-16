@@ -29,6 +29,30 @@ pub trait ToOwnedString<T> {
 
 pub type Span = core::ops::Range<usize>;
 
+impl LexerState {
+    pub fn token_start(&self) -> u32 {
+        self.token_start
+    }
+
+    // Put the cursor back so the token starting here is lexed again.
+    pub fn rewind_to(&mut self, at: u32) {
+        self.at = at;
+        self.token_start = at;
+        self.queued = None;
+        self.error = Default::default();
+        self.ident_buffer.clear();
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LexerState {
+    at: u32,
+    token_start: u32,
+    queued: Option<TokenType<InternedString>>,
+    error: Range<u32>,
+    ident_buffer: String,
+}
+
 pub struct Lexer<'a> {
     /// The source of the lexer.
     source: &'a str,
@@ -53,6 +77,30 @@ impl<'a> Lexer<'a> {
             token_end: 0,
             error: Default::default(),
             ident_buffer: String::new(),
+        }
+    }
+
+    // Everything the lexer needs to pick back up at a byte offset. `chars` is not
+    // in here because its position is always `token_end`, so it can be rebuilt.
+    pub fn state(&self) -> LexerState {
+        LexerState {
+            at: self.token_end,
+            token_start: self.token_start,
+            queued: self.queued.clone(),
+            error: self.error.clone(),
+            ident_buffer: self.ident_buffer.clone(),
+        }
+    }
+
+    pub fn resume(source: &'a str, state: LexerState) -> Self {
+        Self {
+            chars: source[state.at as usize..].chars().peekable(),
+            source,
+            queued: state.queued,
+            token_start: state.token_start,
+            token_end: state.at,
+            error: state.error,
+            ident_buffer: state.ident_buffer,
         }
     }
 
@@ -624,6 +672,20 @@ impl<'a> TokenStream<'a> {
         res
     }
 
+    // No shebang stripping here - that only applies to the first chunk.
+    pub fn resume(
+        input: &'a str,
+        skip_comments: bool,
+        source_id: Option<SourceId>,
+        state: LexerState,
+    ) -> Self {
+        Self {
+            lexer: Lexer::resume(input, state),
+            skip_comments,
+            source_id,
+        }
+    }
+
     pub fn into_owned(self) -> OwnedTokenStream<'a> {
         OwnedTokenStream { stream: self }
     }
@@ -644,6 +706,19 @@ impl<'a> Iterator for OwnedTokenStream<'a> {
 impl<'a> OwnedTokenStream<'a> {
     pub fn offset(&self) -> usize {
         self.stream.lexer.span().end
+    }
+
+    pub fn state(&self) -> LexerState {
+        self.stream.lexer.state()
+    }
+
+    pub fn resume(
+        input: &'a str,
+        skip_comments: bool,
+        source_id: Option<SourceId>,
+        state: LexerState,
+    ) -> Self {
+        TokenStream::resume(input, skip_comments, source_id, state).into_owned()
     }
 }
 impl<'a> Iterator for TokenStream<'a> {

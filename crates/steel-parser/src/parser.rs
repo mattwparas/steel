@@ -302,6 +302,45 @@ pub struct Parser<'a> {
     keep_lists: bool,
 
     queued: Option<ExprKind>,
+
+    // Only set in incremental mode. Holds the half built datum from the last
+    // chunk so the next one can pick up where it left off instead of reparsing.
+    incremental: bool,
+    suspended: Option<Box<SuspendedParse>>,
+    // True while more chunks are still coming. A token that runs up against the
+    // end of the buffer might continue in the next one, so it gets held back.
+    more_to_come: bool,
+    input_len: u32,
+    resume_at: Option<u32>,
+    // Depth of nested `next` calls. The quote shorthands read their inner datum
+    // by recursing, and that context lives in rust frames we cannot stash, so a
+    // parse that stops in there has to be restarted rather than resumed.
+    next_depth: u32,
+    resume_blocked: bool,
+    // Top level `#;` markers live in a local vec in the read loop, so a parse
+    // that stops while one is outstanding cannot be resumed either.
+    pending_datum_comments: u32,
+}
+
+// The parse state of a datum that ran out of input part way through. Owned, so
+// it can outlive the chunk it was parsed from.
+#[derive(Debug)]
+pub struct SuspendedParse {
+    stack: Vec<Frame>,
+    current_frame: Frame,
+    last: Span,
+    quote_stack: Vec<usize>,
+    shorthand_quote_stack: Vec<usize>,
+    quasiquote_depth: isize,
+    quote_context: bool,
+    context: Vec<ParsingContext>,
+}
+
+// Where the lexer stopped, plus the half built datum if it stopped inside one.
+#[derive(Debug)]
+pub struct ParserState {
+    lexer: crate::lexer::LexerState,
+    parse: Option<Box<SuspendedParse>>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -338,6 +377,51 @@ impl<'a> Parser<'a> {
     pub fn offset(&self) -> usize {
         self.tokenizer.offset()
     }
+
+    pub fn new_incremental(input: &'a str, source_id: Option<SourceId>, more_to_come: bool) -> Self {
+        let mut parser = Self::new_flat(input, source_id);
+        parser.incremental = true;
+        parser.more_to_come = more_to_come;
+        parser.input_len = input.len() as u32;
+        parser
+    }
+
+    // Rebuild a parser over `input` and carry on from where `state` left off.
+    // `input` must be the previous chunk with more appended - offsets are
+    // absolute, so earlier bytes have to stay put.
+    pub fn resume(
+        input: &'a str,
+        source_id: Option<SourceId>,
+        state: ParserState,
+        more_to_come: bool,
+    ) -> Self {
+        let mut parser = Self::new_incremental(input, source_id, more_to_come);
+        parser.tokenizer = OwnedTokenStream::resume(input, false, source_id, state.lexer);
+        parser.suspended = state.parse;
+        parser
+    }
+
+    // Where this parser stopped, so a later chunk can carry on from it.
+    // None means this parse cannot be resumed and has to be run again from the
+    // start of the buffer.
+    pub fn take_state(&mut self) -> Option<ParserState> {
+        if self.resume_blocked {
+            return None;
+        }
+
+        let mut lexer = self.tokenizer.state();
+
+        // A held back token has to be lexed again from its start once the rest
+        // of it shows up.
+        if let Some(at) = self.resume_at.take() {
+            lexer.rewind_to(at);
+        }
+
+        Some(ParserState {
+            lexer,
+            parse: self.suspended.take(),
+        })
+    }
 }
 
 pub type Result<T> = result::Result<T, ParseError>;
@@ -356,6 +440,14 @@ impl<'a> Parser<'a> {
             collecting_comments: false,
             keep_lists: false,
             queued: None,
+            incremental: false,
+            suspended: None,
+            more_to_come: false,
+            input_len: 0,
+            resume_at: None,
+            next_depth: 0,
+            resume_blocked: false,
+            pending_datum_comments: 0,
         }
     }
 
@@ -377,6 +469,14 @@ impl<'a> Parser<'a> {
             collecting_comments: false,
             keep_lists: true,
             queued: None,
+            incremental: false,
+            suspended: None,
+            more_to_come: false,
+            input_len: 0,
+            resume_at: None,
+            next_depth: 0,
+            resume_blocked: false,
+            pending_datum_comments: 0,
         }
     }
 
@@ -397,6 +497,14 @@ impl<'a> Parser<'a> {
             collecting_comments: false,
             keep_lists: false,
             queued: None,
+            incremental: false,
+            suspended: None,
+            more_to_come: false,
+            input_len: 0,
+            resume_at: None,
+            next_depth: 0,
+            resume_blocked: false,
+            pending_datum_comments: 0,
         }
     }
 
@@ -414,6 +522,14 @@ impl<'a> Parser<'a> {
             collecting_comments: false,
             keep_lists: false,
             queued: None,
+            incremental: false,
+            suspended: None,
+            more_to_come: false,
+            input_len: 0,
+            resume_at: None,
+            next_depth: 0,
+            resume_blocked: false,
+            pending_datum_comments: 0,
         }
     }
 
@@ -566,29 +682,35 @@ impl<'a> Parser<'a> {
         &mut self,
         (open, paren, paren_mod): (Span, Paren, Option<ParenMod>),
     ) -> Result<ExprKind> {
-        let mut last = open;
+        // Resuming a datum that ran out of input on an earlier chunk, or starting
+        // a fresh one.
+        let (mut stack, mut current_frame, mut last) = match self.suspended.take() {
+            Some(suspended) => {
+                let suspended = *suspended;
 
-        // Can we reuse this?
-        // TODO: I think we have to shove this into the parser state.
-        // Alongside the current frame and anything else.
-        //
-        // That way, we can just keep it around if we hit an EOF and
-        // we're in incremental mode, where we can keep feeding data
-        // in and it can continue to produce parsed values.
-        let mut stack: Vec<Frame> = Vec::new();
+                self.quote_stack = suspended.quote_stack;
+                self.shorthand_quote_stack = suspended.shorthand_quote_stack;
+                self.quasiquote_depth = suspended.quasiquote_depth;
+                self.quote_context = suspended.quote_context;
+                self.context = suspended.context;
 
-        // self.stack.clear();
+                (suspended.stack, suspended.current_frame, suspended.last)
+            }
+            None => {
+                self.quote_stack = Vec::new();
 
-        let mut current_frame = Frame {
-            open,
-            paren,
-            paren_mod,
-            exprs: ThinVec::new(),
-            dot: None,
-            comment: 0,
+                let frame = Frame {
+                    open,
+                    paren,
+                    paren_mod,
+                    exprs: ThinVec::new(),
+                    dot: None,
+                    comment: 0,
+                };
+
+                (Vec::new(), frame, open)
+            }
         };
-
-        self.quote_stack = Vec::new();
 
         // println!("READING FROM TOKENS");
         // self.quasiquote_depth = 0;
@@ -1119,11 +1241,50 @@ impl<'a> Parser<'a> {
             }
         }
 
+        if self.incremental && (self.next_depth > 1 || self.pending_datum_comments > 0) {
+            self.resume_blocked = true;
+        } else if self.incremental {
+            self.suspended = Some(Box::new(SuspendedParse {
+                stack,
+                current_frame,
+                last,
+                quote_stack: core::mem::take(&mut self.quote_stack),
+                shorthand_quote_stack: core::mem::take(&mut self.shorthand_quote_stack),
+                quasiquote_depth: self.quasiquote_depth,
+                quote_context: self.quote_context,
+                context: core::mem::take(&mut self.context),
+            }));
+        }
+
         Err(ParseError::UnexpectedEOF(last, self.source_name.clone()))
     }
 
     fn next_token(&mut self) -> Option<Result<Token<'a, InternedString>>> {
         let res = self.tokenizer.next()?;
+
+        if self.more_to_come {
+            // Ends flush against the buffer, so it may have more to it. Stop here
+            // and pick it up from the start next time.
+            let touches_end = match &res {
+                Ok(token) => token.span.end >= self.input_len,
+                Err(_) => true,
+            };
+
+            if touches_end {
+                self.resume_at = Some(match &res {
+                    Ok(token) => token.span.start,
+                    Err(_) => self.tokenizer.state().token_start(),
+                });
+
+                // Running out inside a nested read means the enclosing shorthand
+                // is only recorded in rust frames, so this parse cannot resume.
+                if self.next_depth > 1 || self.pending_datum_comments > 0 {
+                    self.resume_blocked = true;
+                }
+
+                return None;
+            }
+        }
 
         Some(res.map_err(|err| ParseError::from(err).set_source(self.source_name.clone())))
     }
@@ -1194,6 +1355,8 @@ impl<'a> Parser<'a> {
                 if value.is_ok() {
                     if datum_comments.len() > 0 {
                         let _ = datum_comments.pop();
+                        self.pending_datum_comments =
+                            self.pending_datum_comments.saturating_sub(1);
 
                         continue;
                     }
@@ -1247,6 +1410,7 @@ impl<'a> Parser<'a> {
 
                 TokenType::DatumComment => {
                     datum_comments.push(res.span);
+                    self.pending_datum_comments += 1;
                 }
 
                 // Just turn this into `syntax`
@@ -1477,6 +1641,29 @@ impl<'a> Iterator for Parser<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(next) = self.queued.take() {
             return Some(Ok(next));
+        }
+
+        self.next_depth += 1;
+        let result = self.next_inner();
+        self.next_depth -= 1;
+        result
+    }
+}
+
+impl<'a> Parser<'a> {
+    fn next_inner(&mut self) -> Option<Result<ExprKind>> {
+
+        // Mid datum from a previous chunk - the opening paren is already in the
+        // suspended frame, so go straight back into it.
+        if self.suspended.is_some() {
+            let open = self.suspended.as_ref().map(|x| x.current_frame.open).unwrap();
+            let paren = self.suspended.as_ref().map(|x| x.current_frame.paren).unwrap();
+            let paren_mod = self
+                .suspended
+                .as_ref()
+                .and_then(|x| x.current_frame.paren_mod);
+
+            return Some(self.read_from_tokens((open, paren, paren_mod)));
         }
 
         if self.quote_stack.is_empty()

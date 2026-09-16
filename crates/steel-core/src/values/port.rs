@@ -79,6 +79,10 @@ pub struct Peekable<R> {
     inner: R,
     buf: Vec<u8>,
     pos: usize,
+    // Half parsed datum from an earlier fill, so `read` does not have to start
+    // over every time more bytes show up. Boxed to keep it off every port - it
+    // is only ever set while a datum straddles a fill.
+    parse: Option<Box<steel_parser::parser::ParserState>>,
 }
 
 impl<T> Peekable<T> {
@@ -87,7 +91,16 @@ impl<T> Peekable<T> {
             inner,
             buf: Vec::new(),
             pos: 0,
+            parse: None,
         }
+    }
+
+    pub fn take_parse(&mut self) -> Option<Box<steel_parser::parser::ParserState>> {
+        self.parse.take()
+    }
+
+    pub fn set_parse(&mut self, state: Option<Box<steel_parser::parser::ParserState>>) {
+        self.parse = state;
     }
 
     pub fn pending(&self) -> &[u8] {
@@ -99,6 +112,7 @@ impl<T> Peekable<T> {
     }
 
     pub fn consume(&mut self, amt: usize) {
+        self.parse = None;
         self.pos = usize::min(self.pos + amt, self.buf.len());
 
         if self.pos >= self.buf.len() {
@@ -548,6 +562,32 @@ impl SteelPortRepr {
             SteelPortRepr::DynReader(br) => br.pending(),
             SteelPortRepr::TcpStream(t) => t.pending(),
             _ => &[],
+        }
+    }
+
+    pub fn take_parse(&mut self) -> Option<Box<steel_parser::parser::ParserState>> {
+        match self {
+            SteelPortRepr::FileInput(_, br) => br.take_parse(),
+            SteelPortRepr::StdInput(br) => br.take_parse(),
+            SteelPortRepr::StringInput(s) => s.take_parse(),
+            SteelPortRepr::ChildStdOutput(br) => br.take_parse(),
+            SteelPortRepr::ChildStdError(br) => br.take_parse(),
+            SteelPortRepr::DynReader(br) => br.take_parse(),
+            SteelPortRepr::TcpStream(t) => t.take_parse(),
+            _ => None,
+        }
+    }
+
+    pub fn set_parse(&mut self, state: Option<Box<steel_parser::parser::ParserState>>) {
+        match self {
+            SteelPortRepr::FileInput(_, br) => br.set_parse(state),
+            SteelPortRepr::StdInput(br) => br.set_parse(state),
+            SteelPortRepr::StringInput(s) => s.set_parse(state),
+            SteelPortRepr::ChildStdOutput(br) => br.set_parse(state),
+            SteelPortRepr::ChildStdError(br) => br.set_parse(state),
+            SteelPortRepr::DynReader(br) => br.set_parse(state),
+            SteelPortRepr::TcpStream(t) => t.set_parse(state),
+            _ => {}
         }
     }
 

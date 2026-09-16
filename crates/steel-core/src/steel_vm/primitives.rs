@@ -2025,44 +2025,94 @@ enum Attempt {
 
 // Nothing is consumed unless a whole datum comes out, so an incomplete parse
 // leaves the port as it was.
-fn attempt_parse(port: &mut SteelPortRepr) -> Result<Attempt> {
-    let pending = port.pending();
+fn attempt_parse(port: &mut SteelPortRepr, at_eof: bool) -> Result<Attempt> {
+    let saved = port.take_parse();
 
-    if pending.is_empty() {
-        return Ok(Attempt::Nothing);
-    }
+    // The parser borrows the buffer, so everything it produces has to be owned
+    // and the parser dropped before the port can be touched again.
+    let outcome = {
+        let pending = port.pending();
 
-    // A fill can land mid char, so only look at the valid prefix and treat a
-    // trailing partial sequence as needing more input
-    let (text, truncated) = match core::str::from_utf8(pending) {
-        Ok(text) => (text, false),
-        Err(err) => (
-            core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap(),
-            err.error_len().is_none(),
-        ),
+        if pending.is_empty() {
+            Outcome::Empty
+        } else {
+            // A fill can land mid char, so only look at the valid prefix and treat
+            // a trailing partial sequence as needing more input
+            let (text, truncated) = match core::str::from_utf8(pending) {
+                Ok(text) => (text, false),
+                Err(err) => (
+                    core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap(),
+                    err.error_len().is_none(),
+                ),
+            };
+
+            // Carry on from where the last chunk stopped rather than reparsing it.
+            // A token flush against the end of the buffer may continue in the next
+            // chunk, so hold it back until we know nothing more is coming.
+            let hold_back = truncated || !at_eof;
+
+            let mut parser = match saved {
+                Some(state) => crate::parser::parser::Parser::resume(
+                    text,
+                    SourceId::none(),
+                    *state,
+                    hold_back,
+                ),
+                None => crate::parser::parser::Parser::new_incremental(
+                    text,
+                    SourceId::none(),
+                    hold_back,
+                ),
+            };
+
+            let result = parser.next();
+            let offset = parser.offset();
+
+            match result {
+                Some(Ok(expr)) => Outcome::Parsed(expr, offset),
+                Some(Err(steel_parser::parser::ParseError::UnexpectedEOF(_, _))) => {
+                    Outcome::Incomplete(parser.take_state().map(Box::new))
+                }
+                Some(Err(err)) => Outcome::Bad(err, pending.len()),
+                None => Outcome::Nothing(parser.take_state().map(Box::new)),
+            }
+        }
     };
 
-    let mut parser = crate::parser::parser::Parser::new_flat(text, SourceId::none());
-
-    match parser.next() {
-        Some(Ok(expr)) => Ok(Attempt::Parsed(expr, parser.offset())),
-        Some(Err(steel_parser::parser::ParseError::UnexpectedEOF(_, _))) => Ok(Attempt::Incomplete),
-        Some(Err(err)) => {
+    match outcome {
+        Outcome::Empty => Ok(Attempt::Nothing),
+        Outcome::Parsed(expr, offset) => Ok(Attempt::Parsed(expr, offset)),
+        Outcome::Incomplete(state) => {
+            port.set_parse(state);
+            Ok(Attempt::Incomplete)
+        }
+        Outcome::Nothing(state) => {
+            port.set_parse(state);
+            Ok(Attempt::Nothing)
+        }
+        Outcome::Bad(err, len) => {
             // Drop the bad text, otherwise the next read trips over it again
-            let len = pending.len();
             port.consume_pending(len);
             Err(err.into())
         }
-        None if truncated => Ok(Attempt::Incomplete),
-        None => Ok(Attempt::Nothing),
     }
+}
+
+enum Outcome {
+    Empty,
+    Parsed(ExprKind, usize),
+    Incomplete(Option<Box<steel_parser::parser::ParserState>>),
+    Nothing(Option<Box<steel_parser::parser::ParserState>>),
+    Bad(steel_parser::parser::ParseError, usize),
 }
 
 // Advances the port by exactly one datum. Anything after it stays on the port,
 // so this composes with read-char / read-line.
 fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
+    let mut at_eof = false;
+
     loop {
-        let attempt = attempt_parse(&mut port.port.write())?;
+        let attempt = attempt_parse(&mut port.port.write(), at_eof)?;
 
         match attempt {
             Attempt::Parsed(expr, consumed) => {
@@ -2070,11 +2120,10 @@ fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> R
                 return finisher(expr);
             }
             Attempt::Nothing | Attempt::Incomplete => {
-                let filled = port.port.write().fill_more()?;
-
-                if filled == 0 {
-                    // Port is exhausted. Nothing pending is a clean eof, leftover
-                    // text means a datum was opened and never closed.
+                if at_eof {
+                    // Already retried knowing nothing more is coming. Nothing
+                    // pending is a clean eof, leftover text means a datum was
+                    // opened and never closed.
                     let mut guard = port.port.write();
                     let len = guard.pending().len();
                     guard.consume_pending(len);
@@ -2084,6 +2133,10 @@ fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> R
                         Attempt::Nothing => Ok(crate::primitives::ports::eof()),
                         _ => stop!(Generic => "read: unexpected eof while reading datum"),
                     };
+                }
+
+                if port.port.write().fill_more()? == 0 {
+                    at_eof = true;
                 }
             }
         }
