@@ -484,7 +484,7 @@ pub fn bootstrap_globals(engine: &mut Engine) {
     engine.register_value("std::env::args", SteelVal::ListV(List::new()));
 
     engine.register_fn("##__module-get", BuiltInModule::get);
-    engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_fn("%module-get%", BuiltInModule::get_or_error);
     engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
 
     engine.register_fn("load-from-module!", BuiltInModule::get);
@@ -562,7 +562,7 @@ pub fn private_prim_module() -> BuiltInModule {
     module.register_value("std::env::args", SteelVal::ListV(List::new()));
 
     module.register_fn("##__module-get", BuiltInModule::get);
-    module.register_fn("%module-get%", BuiltInModule::get);
+    module.register_fn("%module-get%", BuiltInModule::get_or_error);
     module.register_fn("%#maybe-module-get", BuiltInModule::try_get);
 
     module.register_fn("load-from-module!", BuiltInModule::get);
