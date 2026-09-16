@@ -72,32 +72,81 @@ impl core::fmt::Display for SteelPort {
 //     fn into_port(self) -> SteelVal {}
 // }
 
+// `buf[pos..]` has been read out of `inner` but not yet handed to the caller.
+// Every read path has to drain that before touching `inner`.
 #[derive(Debug)]
 pub struct Peekable<R> {
     inner: R,
-    peek: [u8; 4],
-    idx: usize,
+    buf: Vec<u8>,
+    pos: usize,
 }
 
 impl<T> Peekable<T> {
     pub fn new(inner: T) -> Self {
         Peekable {
             inner,
-            peek: [0; 4],
-            idx: 0,
+            buf: Vec::new(),
+            pos: 0,
         }
+    }
+
+    pub fn pending(&self) -> &[u8] {
+        &self.buf[self.pos..]
+    }
+
+    pub fn pending_is_empty(&self) -> bool {
+        self.pos >= self.buf.len()
+    }
+
+    pub fn consume(&mut self, amt: usize) {
+        self.pos = usize::min(self.pos + amt, self.buf.len());
+
+        if self.pos >= self.buf.len() {
+            self.buf.clear();
+            self.pos = 0;
+        }
+    }
+
+    fn take_pending(&mut self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.buf[self.pos..]);
+        self.buf.clear();
+        self.pos = 0;
     }
 }
 
 impl<R: Read> Peekable<R> {
+    // Pulls up to `amt` more bytes into the buffer, stopping short at eof.
+    fn fill(&mut self, amt: usize) -> Result<MaybeBlocking<usize>> {
+        let start = self.buf.len();
+        self.buf.resize(start + amt, 0);
+
+        let filled = match read_full(&mut self.inner, &mut self.buf[start..]) {
+            Ok(MaybeBlocking::Nonblocking(n)) => n,
+            Ok(MaybeBlocking::WouldBlock) => {
+                self.buf.truncate(start);
+                return Ok(MaybeBlocking::WouldBlock);
+            }
+            Err(err) => {
+                self.buf.truncate(start);
+                return Err(err);
+            }
+        };
+
+        self.buf.truncate(start + filled);
+        Ok(MaybeBlocking::Nonblocking(filled))
+    }
+
+    pub fn fill_to_end(&mut self) -> io::Result<usize> {
+        let start = self.buf.len();
+        self.inner.read_to_end(&mut self.buf)?;
+        Ok(self.buf.len() - start)
+    }
+
     fn read_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
-        if self.idx > 0 {
-            let peek = self.peek[0];
-
-            self.peek[..].rotate_left(1);
-            self.idx -= 1;
-
-            return Ok(MaybeBlocking::Nonblocking(Some(peek)));
+        if !self.pending_is_empty() {
+            let byte = self.buf[self.pos];
+            self.consume(1);
+            return Ok(MaybeBlocking::Nonblocking(Some(byte)));
         }
 
         let mut byte = [0];
@@ -117,32 +166,33 @@ impl<R: Read> Peekable<R> {
     }
 
     fn peek_char(&mut self) -> Result<MaybeBlocking<Option<char>>> {
-        match read_full(&mut self.inner, &mut self.peek[self.idx..])? {
-            MaybeBlocking::Nonblocking(n) => self.idx += n,
-            MaybeBlocking::WouldBlock => return Ok(MaybeBlocking::WouldBlock),
-        };
+        // A utf8 scalar is at most 4 bytes
+        if self.pending().len() < 4 {
+            let wanted = 4 - self.pending().len();
+            if let MaybeBlocking::WouldBlock = self.fill(wanted)? {
+                if self.pending_is_empty() {
+                    return Ok(MaybeBlocking::WouldBlock);
+                }
+            }
+        }
 
-        if self.idx == 0 {
+        if self.pending_is_empty() {
             return Ok(MaybeBlocking::Nonblocking(None));
         }
 
-        match core::str::from_utf8(&self.peek[0..self.idx]) {
+        let pending = self.pending();
+        let upto = usize::min(pending.len(), 4);
+
+        match core::str::from_utf8(&pending[..upto]) {
             Ok(str) => Ok(MaybeBlocking::Nonblocking(str.chars().next())),
             Err(err) => {
                 if err.valid_up_to() > 0 {
-                    let s = core::str::from_utf8(&self.peek[0..err.valid_up_to()]).unwrap();
+                    let s = core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap();
                     Ok(MaybeBlocking::Nonblocking(s.chars().next()))
-                } else if let Some(len) = err.error_len() {
-                    self.idx -= len;
-                    self.peek[..].rotate_left(len);
-                    Ok(MaybeBlocking::Nonblocking(Some(
-                        char::REPLACEMENT_CHARACTER,
-                    )))
                 } else {
-                    // if error_len is None, it means that there should be more
-                    // bytes coming after, but we tried to fill the buf to a len
-                    // of 4, the maximum, so that just means we got incomplete utf8
-                    self.idx = 0;
+                    // Skip the bad bytes, otherwise we peek them forever
+                    let skip = err.error_len().unwrap_or(upto);
+                    self.consume(skip);
                     Ok(MaybeBlocking::Nonblocking(Some(
                         char::REPLACEMENT_CHARACTER,
                     )))
@@ -152,17 +202,15 @@ impl<R: Read> Peekable<R> {
     }
 
     fn peek_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
-        if self.idx > 0 {
-            Ok(MaybeBlocking::Nonblocking(Some(self.peek[0])))
-        } else {
-            match self.read_byte()? {
-                MaybeBlocking::Nonblocking(None) => Ok(MaybeBlocking::Nonblocking(None)),
-                MaybeBlocking::Nonblocking(Some(peek)) => {
-                    self.peek[0] = peek;
-                    self.idx += 1;
-                    Ok(MaybeBlocking::Nonblocking(Some(peek)))
-                }
-                MaybeBlocking::WouldBlock => Ok(MaybeBlocking::WouldBlock),
+        if !self.pending_is_empty() {
+            return Ok(MaybeBlocking::Nonblocking(Some(self.buf[self.pos])));
+        }
+
+        match self.fill(1)? {
+            MaybeBlocking::WouldBlock => Ok(MaybeBlocking::WouldBlock),
+            MaybeBlocking::Nonblocking(0) => Ok(MaybeBlocking::Nonblocking(None)),
+            MaybeBlocking::Nonblocking(_) => {
+                Ok(MaybeBlocking::Nonblocking(Some(self.buf[self.pos])))
             }
         }
     }
@@ -170,26 +218,118 @@ impl<R: Read> Peekable<R> {
     pub fn read_bytes_amt(&mut self, mut buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
         let mut amt = 0;
 
-        if !buf.is_empty() && self.idx > 0 {
-            let len = usize::min(buf.len(), self.idx);
-            for i in 0..len {
-                buf[i] = self.peek[i];
-            }
+        if !buf.is_empty() && !self.pending_is_empty() {
+            let len = usize::min(buf.len(), self.pending().len());
+            buf[..len].copy_from_slice(&self.buf[self.pos..self.pos + len]);
 
             amt += len;
             buf = &mut buf[len..];
-
-            self.idx -= len;
-            self.peek[..].rotate_left(len);
+            self.consume(len);
         }
 
         match read_full(&mut self.inner, buf)? {
             MaybeBlocking::Nonblocking(n) => amt += n,
-            MaybeBlocking::WouldBlock => return Ok(MaybeBlocking::WouldBlock),
+            MaybeBlocking::WouldBlock => {
+                if amt == 0 {
+                    return Ok(MaybeBlocking::WouldBlock);
+                }
+            }
         };
 
         Ok(MaybeBlocking::Nonblocking(amt))
     }
+
+    pub fn read_to_end_peeked(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
+        let start = buf.len();
+        self.take_pending(buf);
+        self.inner.read_to_end(buf)?;
+        Ok(buf.len() - start)
+    }
+
+    pub fn read_to_string_peeked(&mut self, buf: &mut String) -> io::Result<usize> {
+        if self.pending_is_empty() {
+            return self.inner.read_to_string(buf);
+        }
+
+        // A multi byte char can straddle the boundary, so decode both halves together
+        let mut bytes = Vec::new();
+        self.take_pending(&mut bytes);
+        self.inner.read_to_end(&mut bytes)?;
+
+        let amt = bytes.len();
+        buf.push_str(&into_utf8(bytes)?);
+        Ok(amt)
+    }
+
+    // Returns true if the buffer already held the end of the line, in which case
+    // the caller must not touch `inner`.
+    fn line_from_pending(&mut self, bytes: &mut Vec<u8>) -> bool {
+        match self.pending().iter().position(|b| *b == b'\n') {
+            Some(pos) => {
+                let taken = pos + 1;
+                bytes.extend_from_slice(&self.buf[self.pos..self.pos + taken]);
+                self.consume(taken);
+                true
+            }
+            None => {
+                self.take_pending(bytes);
+                false
+            }
+        }
+    }
+}
+
+impl<R: BufRead> Peekable<R> {
+    pub fn fill_line(&mut self) -> io::Result<usize> {
+        let start = self.buf.len();
+        self.inner.read_until(b'\n', &mut self.buf)?;
+        Ok(self.buf.len() - start)
+    }
+
+    pub fn read_line_peeked(&mut self, buf: &mut String) -> io::Result<usize> {
+        if self.pending_is_empty() {
+            return self.inner.read_line(buf);
+        }
+
+        let mut bytes = Vec::new();
+        if !self.line_from_pending(&mut bytes) {
+            self.inner.read_until(b'\n', &mut bytes)?;
+        }
+
+        let amt = bytes.len();
+        buf.push_str(&into_utf8(bytes)?);
+        Ok(amt)
+    }
+}
+
+// `Stdin` is `Read` but not `BufRead`, only `StdinLock` is, so it needs its own
+// copies that lock.
+impl Peekable<Stdin> {
+    pub fn fill_line_stdin(&mut self) -> io::Result<usize> {
+        let start = self.buf.len();
+        self.inner.lock().read_until(b'\n', &mut self.buf)?;
+        Ok(self.buf.len() - start)
+    }
+
+    pub fn read_line_peeked_stdin(&mut self, buf: &mut String) -> io::Result<usize> {
+        if self.pending_is_empty() {
+            return self.inner.read_line(buf);
+        }
+
+        let mut bytes = Vec::new();
+        if !self.line_from_pending(&mut bytes) {
+            self.inner.lock().read_until(b'\n', &mut bytes)?;
+        }
+
+        let amt = bytes.len();
+        buf.push_str(&into_utf8(bytes)?);
+        Ok(amt)
+    }
+}
+
+fn into_utf8(bytes: Vec<u8>) -> io::Result<String> {
+    String::from_utf8(bytes)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "stream did not contain valid UTF-8"))
 }
 
 fn read_full<R: Read>(mut reader: R, mut buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
@@ -375,12 +515,12 @@ impl SteelPortRepr {
 
     pub fn read_line(&mut self) -> Result<(usize, String)> {
         match self {
-            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br.inner, read_line),
-            SteelPortRepr::StdInput(br) => port_read_str_fn!(br.inner, read_line),
-            SteelPortRepr::StringInput(s) => port_read_str_fn!(s.inner, read_line),
-            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br.inner, read_line),
-            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br.inner, read_line),
-            SteelPortRepr::DynReader(br) => port_read_str_fn!(br.inner, read_line),
+            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_line_peeked),
+            SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_line_peeked_stdin),
+            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_line_peeked),
+            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_line_peeked),
+            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_line_peeked),
+            SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_line_peeked),
             // FIXME: fix this and the functions below
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
@@ -398,26 +538,67 @@ impl SteelPortRepr {
         }
     }
 
+    pub fn pending(&self) -> &[u8] {
+        match self {
+            SteelPortRepr::FileInput(_, br) => br.pending(),
+            SteelPortRepr::StdInput(br) => br.pending(),
+            SteelPortRepr::StringInput(s) => s.pending(),
+            SteelPortRepr::ChildStdOutput(br) => br.pending(),
+            SteelPortRepr::ChildStdError(br) => br.pending(),
+            SteelPortRepr::DynReader(br) => br.pending(),
+            SteelPortRepr::TcpStream(t) => t.pending(),
+            _ => &[],
+        }
+    }
+
+    pub fn consume_pending(&mut self, amt: usize) {
+        match self {
+            SteelPortRepr::FileInput(_, br) => br.consume(amt),
+            SteelPortRepr::StdInput(br) => br.consume(amt),
+            SteelPortRepr::StringInput(s) => s.consume(amt),
+            SteelPortRepr::ChildStdOutput(br) => br.consume(amt),
+            SteelPortRepr::ChildStdError(br) => br.consume(amt),
+            SteelPortRepr::DynReader(br) => br.consume(amt),
+            SteelPortRepr::TcpStream(t) => t.consume(amt),
+            _ => {}
+        }
+    }
+
+    // Buffers more input, returning how many bytes arrived. Finite sources get
+    // taken whole, streams a line at a time - draining those would block until
+    // the other end hangs up.
+    pub fn fill_more(&mut self) -> Result<usize> {
+        match self {
+            SteelPortRepr::FileInput(_, br) => Ok(br.fill_to_end()?),
+            SteelPortRepr::StringInput(s) => Ok(s.fill_to_end()?),
+            SteelPortRepr::StdInput(br) => Ok(br.fill_line_stdin()?),
+            SteelPortRepr::ChildStdOutput(br) => Ok(br.fill_line()?),
+            SteelPortRepr::ChildStdError(br) => Ok(br.fill_line()?),
+            SteelPortRepr::DynReader(br) => Ok(br.fill_line()?),
+            _ => stop!(ContractViolation => "expected input-port?, found {}", self),
+        }
+    }
+
     pub fn read_all_str(&mut self) -> Result<(usize, String)> {
         match self {
-            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br.inner, read_to_string),
-            SteelPortRepr::StdInput(br) => port_read_str_fn!(br.inner, read_to_string),
-            SteelPortRepr::StringInput(s) => port_read_str_fn!(s.inner, read_to_string),
-            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br.inner, read_to_string),
-            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br.inner, read_to_string),
-            SteelPortRepr::DynReader(br) => port_read_str_fn!(br.inner, read_to_string),
+            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_to_string_peeked),
+            SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_to_string_peeked),
+            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_to_string_peeked),
+            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_to_string_peeked),
+            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_to_string_peeked),
+            SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_to_string_peeked),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
 
     pub fn read_all_bytes(&mut self) -> Result<(usize, Vec<u8>)> {
         match self {
-            SteelPortRepr::FileInput(_, br) => port_read_vec_fn!(br.inner, read_to_end),
-            SteelPortRepr::StdInput(br) => port_read_vec_fn!(br.inner, read_to_end),
-            SteelPortRepr::StringInput(s) => port_read_vec_fn!(s.inner, read_to_end),
-            SteelPortRepr::ChildStdOutput(br) => port_read_vec_fn!(br.inner, read_to_end),
-            SteelPortRepr::ChildStdError(br) => port_read_vec_fn!(br.inner, read_to_end),
-            SteelPortRepr::DynReader(br) => port_read_vec_fn!(br.inner, read_to_end),
+            SteelPortRepr::FileInput(_, br) => port_read_vec_fn!(br, read_to_end_peeked),
+            SteelPortRepr::StdInput(br) => port_read_vec_fn!(br, read_to_end_peeked),
+            SteelPortRepr::StringInput(s) => port_read_vec_fn!(s, read_to_end_peeked),
+            SteelPortRepr::ChildStdOutput(br) => port_read_vec_fn!(br, read_to_end_peeked),
+            SteelPortRepr::ChildStdError(br) => port_read_vec_fn!(br, read_to_end_peeked),
+            SteelPortRepr::DynReader(br) => port_read_vec_fn!(br, read_to_end_peeked),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }

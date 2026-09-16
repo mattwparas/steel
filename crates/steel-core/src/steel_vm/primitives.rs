@@ -79,6 +79,7 @@ use crate::{
     },
 };
 
+use crate::values::port::{SteelPort, SteelPortRepr};
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
 };
@@ -2014,97 +2015,92 @@ impl crate::rvals::Custom for MutableVector {
     }
 }
 
-#[derive(Clone)]
-struct Reader {
-    buffer: String,
-    offset: usize,
+enum Attempt {
+    Parsed(ExprKind, usize),
+    // Only whitespace and/or comments left
+    Nothing,
+    // Datum was started but never finished, more input may complete it
+    Incomplete,
 }
 
-impl crate::rvals::Custom for Reader {
-    fn into_serializable_steelval(&mut self) -> Option<crate::rvals::SerializableSteelVal> {
-        // Some(crate::rvals::SerializableSteelVal::Custom(Box::new(
-        //     self.clone(),
-        // )))
+// Nothing is consumed unless a whole datum comes out, so an incomplete parse
+// leaves the port as it was.
+fn attempt_parse(port: &mut SteelPortRepr) -> Result<Attempt> {
+    let pending = port.pending();
 
-        None
+    if pending.is_empty() {
+        return Ok(Attempt::Nothing);
     }
-}
 
-impl Reader {
-    fn create_reader() -> Reader {
-        Self {
-            buffer: String::new(),
-            offset: 0,
+    // A fill can land mid char, so only look at the valid prefix and treat a
+    // trailing partial sequence as needing more input
+    let (text, truncated) = match core::str::from_utf8(pending) {
+        Ok(text) => (text, false),
+        Err(err) => (
+            core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap(),
+            err.error_len().is_none(),
+        ),
+    };
+
+    let mut parser = crate::parser::parser::Parser::new_flat(text, SourceId::none());
+
+    match parser.next() {
+        Some(Ok(expr)) => Ok(Attempt::Parsed(expr, parser.offset())),
+        Some(Err(steel_parser::parser::ParseError::UnexpectedEOF(_, _))) => Ok(Attempt::Incomplete),
+        Some(Err(err)) => {
+            // Drop the bad text, otherwise the next read trips over it again
+            let len = pending.len();
+            port.consume_pending(len);
+            Err(err.into())
         }
+        None if truncated => Ok(Attempt::Incomplete),
+        None => Ok(Attempt::Nothing),
     }
+}
 
-    fn push_string(&mut self, input: crate::rvals::SteelString) {
-        self.buffer.push_str(input.as_str());
-    }
+// Advances the port by exactly one datum. Anything after it stays on the port,
+// so this composes with read-char / read-line.
+fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
+    loop {
+        let attempt = attempt_parse(&mut port.port.write())?;
 
-    fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
-    }
-
-    fn read_one_impl(&mut self, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
-        if let Some(buffer) = self.buffer.get(self.offset..) {
-            let mut parser = crate::parser::parser::Parser::new_flat(buffer, SourceId::none());
-
-            // TODO: This reparses everything while it hasn't yet finished the expression.
-            // What we need to do is keep the parser around while we finish it.
-            // For that, we should leave the parser around, and just leak buffer?
-            // or swap in something else? I think the stack needs to be saved
-            // in between runs. If we hit a situation where we EOF, we want to
-            // resume where we were, and keep the stack in the proper spot. Otherwise,
-            // we reparse everything up to that point since we're reading line by line?
-            if let Some(raw) = parser.next() {
-                let next = match raw {
-                    Ok(next) => next,
-                    // Err(steel_parser::parser::ParseError::UnexpectedEOF(_, _)) => {
-                    //     return Ok(SteelVal::Void);
-                    // }
-                    _ => {
-                        // dbg!(parser.offset());
-
-                        return Ok(SteelVal::Void);
-                    }
-                };
-
-                self.offset += parser.offset();
-
-                let result = finisher(next);
-
-                if let Some(remaining) = self.buffer.get(self.offset..) {
-                    for _ in remaining.chars().take_while(|x| x.is_whitespace()) {
-                        self.offset += 1;
-                    }
-                }
-
-                if self.offset == self.buffer.len() {
-                    self.buffer.clear();
-                    self.offset = 0;
-                }
-
-                result
-            } else {
-                // No value, keep reading
-                Ok(SteelVal::Void)
+        match attempt {
+            Attempt::Parsed(expr, consumed) => {
+                port.port.write().consume_pending(consumed);
+                return finisher(expr);
             }
-        } else {
-            // TODO: This needs to get fixed
-            Ok(crate::primitives::ports::eof())
+            Attempt::Nothing | Attempt::Incomplete => {
+                let filled = port.port.write().fill_more()?;
+
+                if filled == 0 {
+                    // Port is exhausted. Nothing pending is a clean eof, leftover
+                    // text means a datum was opened and never closed.
+                    let mut guard = port.port.write();
+                    let len = guard.pending().len();
+                    guard.consume_pending(len);
+                    drop(guard);
+
+                    return match attempt {
+                        Attempt::Nothing => Ok(crate::primitives::ports::eof()),
+                        _ => stop!(Generic => "read: unexpected eof while reading datum"),
+                    };
+                }
+            }
         }
     }
+}
 
-    fn read_one(&mut self) -> Result<SteelVal> {
-        self.read_one_impl(TryFromExprKindForSteelVal::try_from_expr_kind_quoted)
-    }
+#[steel_derive::function(name = "reader-read-one")]
+pub fn read_one(port: &SteelPort) -> Result<SteelVal> {
+    read_datum(port, TryFromExprKindForSteelVal::try_from_expr_kind_quoted)
+}
 
-    fn read_one_syntax_object(&mut self) -> Result<SteelVal> {
-        self.read_one_impl(
-            crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind,
-        )
-    }
+#[steel_derive::function(name = "reader-read-one-syntax-object")]
+pub fn read_one_syntax_object(port: &SteelPort) -> Result<SteelVal> {
+    read_datum(
+        port,
+        crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind,
+    )
 }
 
 #[steel_derive::context(name = "#%intern", arity = "Exact(1)")]
@@ -2124,14 +2120,8 @@ fn reader_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("#%private/steel/reader");
 
     module
-        .register_fn("new-reader", Reader::create_reader)
-        .register_fn("reader-push-string", Reader::push_string)
-        .register_fn("reader-read-one", Reader::read_one)
-        .register_fn("reader-empty?", Reader::is_empty)
-        .register_fn(
-            "reader-read-one-syntax-object",
-            Reader::read_one_syntax_object,
-        )
+        .register_native_fn_definition(READ_ONE_DEFINITION)
+        .register_native_fn_definition(READ_ONE_SYNTAX_OBJECT_DEFINITION)
         .register_native_fn_definition(INTERN_SYMBOL_DEFINITION);
 
     module

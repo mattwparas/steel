@@ -199,6 +199,175 @@
 (check-equal? "case-lambda, dead clause, 2 args" (dead-clause 1 2) 'many)
 (check-equal? "case-lambda, dead clause, 3 args" (dead-clause 1 2 3) 'many)
 
+;; An unterminated datum on one port must not be completed by the next port.
+(check-err? "read, unterminated list is an error"
+            (read (open-input-string "(1"))
+            'unreachable)
+(check-equal? "read, a later port is unaffected by an earlier unterminated list"
+              2
+              (read (open-input-string "2)")))
+
+(check-err? "read, unterminated list is an error, again"
+            (read (open-input-string "(3 4"))
+            'unreachable)
+(check-err? "read, a stray closing paren is an error"
+            (read (open-input-string ")"))
+            'unreachable)
+
+(check-err? "read, a trailing quote is an error"
+            (read (open-input-string "'"))
+            'unreachable)
+(check-equal? "read, a later port is not wrapped in a leftover quote"
+              42
+              (read (open-input-string "42")))
+
+;; An unterminated datum must not wedge every subsequent read.
+(check-err? "read, a lone open paren is an error"
+            (read (open-input-string "("))
+            'unreachable)
+(check-equal? "read, reads still work after an unterminated datum"
+              42
+              (read (open-input-string "42")))
+(check-equal? "read, reads still work after an unterminated datum, compound"
+              '(5 6)
+              (read (open-input-string "(5 6)")))
+
+;; Fully valid leftovers must not leak across ports either.
+(check-equal? "read, takes the first datum on the port"
+              1
+              (read (open-input-string "1 2")))
+(check-equal? "read, unconsumed leftovers do not leak to the next port"
+              9
+              (read (open-input-string "9")))
+
+;; Successive reads on one port keep working.
+(check-equal? "read, successive reads on one port"
+              '(1 2 3 #true)
+              (let ([p (open-input-string "1 2 3")])
+                (list (read p) (read p) (read p) (eof-object? (read p)))))
+
+;; Two ports read in an interleaved fashion must not disturb each other.
+(check-equal? "read, interleaved reads on two ports"
+              '(1 10 2 20)
+              (let ([a (open-input-string "1 2 3")]
+                    [b (open-input-string "10 20 30")])
+                (list (read a) (read b) (read a) (read b))))
+
+;; Ports with nothing (or nothing but trivia) in them read as eof.
+(check-equal? "read, empty port is eof" #true (eof-object? (read (open-input-string ""))))
+(check-equal? "read, whitespace-only port is eof" #true (eof-object? (read (open-input-string "   "))))
+(check-equal? "read, comment-only port is eof" #true (eof-object? (read (open-input-string "; nothing"))))
+
+;; read-syntax-object must keep producing syntax objects on repeated reads.
+(check-equal? "read-syntax-object, successive reads stay syntax objects"
+              '(#true #true)
+              (let ([p (open-input-string "(a b) (c d)")])
+                (list (syntax? (read-syntax-object p)) (syntax? (read-syntax-object p)))))
+
+(check-equal? "peek-char does not consume, read-port-to-string"
+              '(#\a "abcdef")
+              (let ([p (open-input-string "abcdef")])
+                (list (peek-char p) (read-port-to-string p))))
+
+(check-equal? "peek-char does not consume, read-port-to-bytes"
+              '(#\a #u8(97 98 99 100 101 102))
+              (let ([p (open-input-string "abcdef")])
+                (list (peek-char p) (read-port-to-bytes p))))
+
+;; The newline lands past the peek buffer here...
+(check-equal? "peek-char does not consume, read-line"
+              '(#\h "hello world" "second")
+              (let ([p (open-input-string "hello world\nsecond")])
+                (list (peek-char p) (read-line p) (read-line p))))
+
+;; ...and inside it here, which is a separate path.
+(check-equal? "peek-char does not consume, read-line with newline in the peek buffer"
+              '(#\a "ab" "cd")
+              (let ([p (open-input-string "ab\ncd")])
+                (list (peek-char p) (read-line p) (read-line p))))
+
+;; A multi-byte character can straddle the peek buffer boundary.
+(check-equal? "peek-char does not consume, multi-byte characters"
+              '(#\a "aλμνξ")
+              (let ([p (open-input-string "aλμνξ")])
+                (list (peek-char p) (read-port-to-string p))))
+
+(check-equal? "peek-char does not consume, then read"
+              '(#\( (x y))
+              (let ([p (open-input-string "(x y)")])
+                (list (peek-char p) (read p))))
+
+;; Without a peek in front of them the bulk reads must be unchanged.
+(check-equal? "read-port-to-string with no preceding peek"
+              "abcdef"
+              (read-port-to-string (open-input-string "abcdef")))
+(check-equal? "read-line with no preceding peek"
+              '("xy" "z")
+              (let ([p (open-input-string "xy\nz")]) (list (read-line p) (read-line p))))
+
+(check-equal? "equal?, rational inside a list" #true (equal? (list 1/2) (list 1/2)))
+(check-equal? "equal?, rational inside a vector" #true (equal? (vector 1/2) (vector 1/2)))
+(check-equal? "equal?, differing rationals inside a list" #false (equal? (list 1/2) (list 1/3)))
+
+(check-equal? "equal?, complex inside a list" #true (equal? (list 1+2i) (list 1+2i)))
+(check-equal? "equal?, complex with rational parts inside a list"
+              #true
+              (equal? (list 1/2+3/4i) (list 1/2+3/4i)))
+(check-equal? "equal?, complex differing in the real part" #false (equal? (list 1+2i) (list 3+2i)))
+(check-equal? "equal?, complex differing in the imaginary part" #false (equal? (list 1+2i) (list 1+3i)))
+
+(check-equal? "equal?, bytevector inside a list" #true (equal? (list #u8(1 2)) (list #u8(1 2))))
+(check-equal? "equal?, bytevector inside a vector"
+              #true
+              (equal? (vector #u8(1 2)) (vector #u8(1 2))))
+(check-equal? "equal?, empty bytevector inside a list" #true (equal? (list #u8()) (list #u8())))
+(check-equal? "equal?, bytevectors differing in contents"
+              #false
+              (equal? (list #u8(1 2)) (list #u8(1 3))))
+(check-equal? "equal?, bytevectors differing in length"
+              #false
+              (equal? (list #u8(1 2)) (list #u8(1 2 3))))
+(check-equal? "equal?, bytevector is not a list" #false (equal? (list #u8(1 2)) (list (list 1 2))))
+
+(check-equal? "equal?, big rational inside a list"
+              #true
+              (equal? (list (/ 123456789012345678901234567890 7))
+                      (list (/ 123456789012345678901234567890 7))))
+(check-equal? "equal?, differing big rationals inside a list"
+              #false
+              (equal? (list (/ 123456789012345678901234567890 7))
+                      (list (/ 123456789012345678901234567890 11))))
+
+;; Nested more than one level deep, to make sure these go through the queue.
+(check-equal? "equal?, bytevector nested two containers deep"
+              #true
+              (equal? (list (vector #u8(9))) (list (vector #u8(9)))))
+
+(check-equal? "read leaves the remainder of the port readable as characters"
+              '((1 2) #\space "rest")
+              (let ([p (open-input-string "(1 2) rest")])
+                (list (read p) (read-char p) (read-line p))))
+
+(check-equal? "read then peek-char"
+              '((1 2) #\space)
+              (let ([p (open-input-string "(1 2) rest")])
+                (list (read p) (peek-char p))))
+
+(check-equal? "read-char then read"
+              '(#\space (a b))
+              (let ([p (open-input-string " (a b)")])
+                (list (read-char p) (read p))))
+
+(check-equal? "read consumes only its own datum, not trailing text"
+              '((a) " tail")
+              (let ([p (open-input-string "(a) tail")])
+                (list (read p) (read-port-to-string p))))
+
+(check-equal? "read twice, then the remainder as characters"
+              '(1 2 " 3 4")
+              (let ([p (open-input-string "1 2 3 4")])
+                (list (read p) (read p) (read-port-to-string p))))
+
 (define r7rs-test-stats (get-test-stats))
 
 (displayln "Passed: " (hash-ref r7rs-test-stats 'success-count))
