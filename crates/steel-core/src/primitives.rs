@@ -64,6 +64,48 @@ pub use streams::StreamOperations;
 pub use strings::string_module;
 pub use symbols::symbol_module;
 
+macro_rules! try_from_steelval_int {
+    ($($body:ty),*) => {
+        $(
+            impl TryFrom<SteelVal> for $body {
+                type Error = SteelErr;
+                #[inline]
+                fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
+                    <$body>::try_from(&value)
+                }
+            }
+
+            impl TryFrom<&SteelVal> for $body {
+                type Error = SteelErr;
+                #[inline]
+                fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
+                    match value {
+                        SteelVal::IntV(x) => (*x).try_into().map_err(|_err| SteelErr::new(
+                            ErrorKind::ConversionError,
+                            format!("Unable to convert {} to {}: out of range", x, stringify!($body)),
+                        )),
+                        SteelVal::BigNum(n) => n.as_ref().try_into().map_err(|_err| SteelErr::new(
+                            ErrorKind::ConversionError,
+                            format!("Unable to convert {:?} to {}: out of range", n, stringify!($body)),
+                        )),
+                        _ => Err(SteelErr::new(
+                            ErrorKind::ConversionError,
+                            format!("Expected number, found: {}", value),
+                        )),
+                    }
+                }
+            }
+
+            impl FromSteelVal for $body {
+                #[inline]
+                fn from_steelval(value: &SteelVal) -> result::Result<Self, SteelErr> {
+                    <$body>::try_from(value)
+                }
+            }
+        )*
+    };
+}
+
 macro_rules! try_from_impl {
     ($type:ident => $($body:ty),*) => {
         $(
@@ -129,14 +171,17 @@ macro_rules! from_for_isize {
             impl From<$body> for SteelVal {
                 #[inline]
                 fn from(val: $body) -> SteelVal {
-                    SteelVal::IntV(val as isize)
+                    match isize::try_from(val) {
+                        Ok(value) => SteelVal::IntV(value),
+                        Err(_) => SteelVal::BigNum(Gc::new(BigInt::from(val))),
+                    }
                 }
             }
 
             impl IntoSteelVal for $body {
                 #[inline]
                 fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-                    Ok(SteelVal::IntV(self as isize))
+                    Ok(SteelVal::from(self))
                 }
             }
         )*
@@ -395,7 +440,7 @@ impl IntoSteelVal for BigRational {
 from_f64!(f64, f32);
 from_for_isize!(i32, i16, i8, u8, u16, u32, u64, isize);
 try_from_impl!(NumV => f64, f32);
-try_from_impl!(IntV => i32, i16, u16, u32, u64, usize, isize);
+try_from_steelval_int!(i32, i16, u16, u32, u64, usize, isize);
 
 impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
