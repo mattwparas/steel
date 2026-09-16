@@ -614,6 +614,25 @@ impl BuiltInModuleRepr {
         }
     }
 
+    pub fn get_or_error(&self, name: String) -> Result<SteelVal> {
+        match self.values.get(name.as_str()) {
+            Some(v) => Ok(v.clone()),
+            None => {
+                let known_symbols = self.values.keys().map(Arc::as_ref);
+                match find_closest_match(&name, known_symbols) {
+                    Some(closest_match) => stop!(Generic =>
+                        format!("symbol {name:?} not found in module {module_name}, did you mean {closest_match:?}?",
+                        module_name = self.name)
+                    ),
+                    None => stop!(Generic =>
+                        format!("symbol {name:?} not found in module {module_name}",
+                        module_name = self.name)
+                    ),
+                }
+            }
+        }
+    }
+
     pub fn try_get(&self, name: String) -> Option<SteelVal> {
         self.values.get(name.as_str()).cloned()
     }
@@ -910,6 +929,10 @@ impl BuiltInModule {
     // This _will_ panic given an incorrect value. This will be tied together by macros only allowing legal entries
     pub fn get(&self, name: String) -> SteelVal {
         self.module.read().get(name)
+    }
+
+    pub fn get_or_error(&self, name: String) -> Result<SteelVal> {
+        self.module.read().get_or_error(name)
     }
 
     pub fn try_get(&self, name: String) -> Option<SteelVal> {
