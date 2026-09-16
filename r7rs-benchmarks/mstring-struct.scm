@@ -8,4 +8,8 @@
          mstring?
          mstring-chars)
 
-(struct mstring (chars))
+;;; Printed as the string it stands for: `list->string` hands these back, so one
+;;; can reach any printer a benchmark uses, and the struct form is unreadable.
+(struct mstring (chars)
+  #:printer (lambda (obj printer-function)
+              (printer-function (vector->string (mstring-chars obj)))))

@@ -50,10 +50,12 @@
   (or (mstring? s) (#%prim.string? s)))
 
 ;;; Collapse to a native string, which is what every primitive below expects.
+;;; `vector->string` builds it straight from the character vector. Going by way
+;;; of a list of one-character strings and `string-append` instead made every
+;;; conversion allocate a list plus one string per character - parsing spends
+;;; its time in token extraction, so that dominated the benchmark.
 (define (mstring->string s)
-  (if (mstring? s)
-      (#%prim.apply #%prim.string-append (%map %char->string (mutable-vector->list (mstring-chars s))))
-      s))
+  (if (mstring? s) (#%prim.vector->string (mstring-chars s)) s))
 
 ;;; A benchmark may hand these a list built from mutable pairs, so walk lists
 ;;; with accessors that understand both representations rather than the
@@ -70,8 +72,14 @@
 (define (string-append . args)
   (#%prim.apply #%prim.string-append (%map mstring->string args)))
 
+;;; Slice the character vector directly rather than converting the whole string
+;;; first: a benchmark that pulls short tokens out of a long buffer (parsing
+;;; extracts every token from a 1024 character accumulator) otherwise pays for
+;;; the entire buffer on each one.
 (define (substring s start [end (string-length s)])
-  (#%prim.substring (mstring->string s) start end))
+  (if (mstring? s)
+      (#%prim.vector->string (mstring-chars s) start end)
+      (#%prim.substring s start end)))
 
 (define (string=? a b . rest)
   (#%prim.apply #%prim.string=? (%map mstring->string (#%prim.cons a (#%prim.cons b rest)))))
@@ -97,8 +105,34 @@
   (%list->mlist
    (#%prim.apply #%prim.string->list (#%prim.cons (mstring->string s) rest))))
 
+;;; Collect the characters into a vector and convert once. Building a string per
+;;; character and appending them all cost parsing a second per call: it reads
+;;; its whole 28k input file this way.
 (define (list->string chars)
-  (#%prim.apply #%prim.string-append (%map %char->string chars)))
+  (let ([v (make-vector (%chain-length chars) #\space)])
+    (let loop ([i 0] [xs chars])
+      (if (#%prim.null? xs)
+          ;; Hand back the mutable representation, like `make-string` does. A
+          ;; native Steel string indexes by character - `string-ref` is
+          ;; `chars().nth(i)`, so scanning one costs O(n) per character - and
+          ;; benchmarks build their input this way then scan it (parsing reads a
+          ;; 28k file and walks it with `string-ref`). Backed by a vector, the
+          ;; same scan is an O(1) `vector-ref`.
+          (mstring v)
+          (begin
+            (vector-set! v i (%chain-car xs))
+            (loop (+ i 1) (%chain-cdr xs)))))))
+
+;;; The list may be built from mutable pairs or native ones.
+(define (%chain-car xs)
+  (if (mpair? xs) (mpair-mcar xs) (#%prim.car xs)))
+
+(define (%chain-cdr xs)
+  (if (mpair? xs) (mpair-mcdr xs) (#%prim.cdr xs)))
+
+(define (%chain-length xs)
+  (let loop ([xs xs] [n 0])
+    (if (#%prim.null? xs) n (loop (%chain-cdr xs) (+ n 1)))))
 
 (define (display x . rest)
   (#%prim.apply native-display (#%prim.cons (mstring->string x) rest)))

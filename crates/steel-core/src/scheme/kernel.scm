@@ -284,11 +284,11 @@
          ;; purposes, we'll treat two structs that come from the same place with the
          ;; same name as more or less, identical
          (make-struct-type (quote ,struct-name) ,field-count (current-module-relative)))
-       (define ,struct-prop-name-gensym (list-ref ,struct-proto-gensym 0))
-       (define ,constructor-proto-gensym (list-ref ,struct-proto-gensym 1))
-       (define ,predicate-proto-gensym (list-ref ,struct-proto-gensym 2))
-       (define ,getter-proto-gensym (list-ref ,struct-proto-gensym 3))
-       (define ,getter-proto-list-gensym (list-ref ,struct-proto-gensym 4))
+       (define ,struct-prop-name-gensym (#%prim.list-ref ,struct-proto-gensym 0))
+       (define ,constructor-proto-gensym (#%prim.list-ref ,struct-proto-gensym 1))
+       (define ,predicate-proto-gensym (#%prim.list-ref ,struct-proto-gensym 2))
+       (define ,getter-proto-gensym (#%prim.list-ref ,struct-proto-gensym 3))
+       (define ,getter-proto-list-gensym (#%prim.list-ref ,struct-proto-gensym 4))
        (define ,struct-options-name (#%prim.hash ,@(hash->list options-map)))
 
        (define ,struct-prop-name ,struct-prop-name-gensym)
@@ -303,9 +303,9 @@
                 `(define ,struct-name
                    (lambda ,fields
                      ;; TODO: Put the right thing on here
-                     (#%register-struct-finalizer
-                      (#%make-mutable-struct ,struct-prop-name-gensym ,@fields)
-                      ,maybe-finalizer)))
+                     (#%register-struct-finalizer (#%make-mutable-struct ,struct-prop-name-gensym
+                                                                         ,@fields)
+                                                  ,maybe-finalizer)))
 
                 `(define ,struct-name
                    (lambda ,fields
@@ -335,19 +335,20 @@
 (define (mutable-make-getters struct-name fields getter-proto-gensym)
   (map (lambda (field)
          `(define ,(concat-symbols struct-name '- (car field))
-            (lambda (this) (#%unbox (,getter-proto-gensym this ,(list-ref field 1))))))
+            (lambda (this) (#%unbox (,getter-proto-gensym this ,(#%prim.list-ref field 1))))))
        (enumerate 0 '() fields)))
 
 (define (mutable-make-setters struct-name fields getter-proto-gensym)
   (map (lambda (field)
          `(define ,(concat-symbols 'set- struct-name '- (car field) '!)
-            (lambda (this value) (#%set-box! (,getter-proto-gensym this ,(list-ref field 1)) value))))
+            (lambda (this value)
+              (#%set-box! (,getter-proto-gensym this ,(#%prim.list-ref field 1)) value))))
        (enumerate 0 '() fields)))
 
 (define (new-make-getters struct-name fields getter-proto-list-gensym)
   (map (lambda (field)
          `(define ,(concat-symbols struct-name '- (car field))
-            (list-ref ,getter-proto-list-gensym ,(list-ref field 1))))
+            (list-ref ,getter-proto-list-gensym ,(#%prim.list-ref field 1))))
        (enumerate 0 '() fields)))
 
 (define (%make-memoize f)
@@ -369,19 +370,19 @@
 (define (make-unreadable symbol)
   (~>> symbol (symbol->string) (string-append "##") (string->symbol)))
 
-(#%define-syntax (define-values expr)
-                 ; (displayln expr)
-                 (define underlying (syntax-e expr))
-                 (define bindings (syntax->datum (second underlying)))
-                 (define expression (third underlying))
-                 (define unreadable-list-name
-                   (make-unreadable '#%proto-define-values-binding-gensym__))
-                 `(begin
-                    (define ,unreadable-list-name ,expression)
-                    ,@(map (lambda (binding-index-pair)
-                             `(define ,(car binding-index-pair)
-                                (list-ref ,unreadable-list-name ,(list-ref binding-index-pair 1))))
-                           (enumerate 0 '() bindings))))
+(#%define-syntax
+ (define-values expr)
+ ; (displayln expr)
+ (define underlying (syntax-e expr))
+ (define bindings (syntax->datum (second underlying)))
+ (define expression (third underlying))
+ (define unreadable-list-name (make-unreadable '#%proto-define-values-binding-gensym__))
+ `(begin
+    (define ,unreadable-list-name ,expression)
+    ,@(map (lambda (binding-index-pair)
+             `(define ,(car binding-index-pair)
+                (#%prim.list-ref ,unreadable-list-name ,(#%prim.list-ref binding-index-pair 1))))
+           (enumerate 0 '() bindings))))
 
 (#%define-syntax (#%better-lambda expr) (quasisyntax (list 10 20 30)))
 
@@ -471,9 +472,9 @@
        `(lambda (expr)
           ;; Get the bindings first
           (define result (#%match-syntax-case ,(symbol->string gensym-name) expr))
-          (define index (list-ref result 0))
-          (define case-bindings (list-ref result 1))
-          (define binding-kind (list-ref result 2))
+          (define index (#%prim.list-ref result 0))
+          (define case-bindings (#%prim.list-ref result 1))
+          (define binding-kind (#%prim.list-ref result 2))
           (parameterize ([#%syntax-bindings case-bindings])
             (parameterize ([#%syntax-binding-kind binding-kind])
               (,generated-function-name index)))))
