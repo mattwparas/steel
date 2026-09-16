@@ -2819,3 +2819,107 @@ fn _lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
 
     todo!()
 }
+
+#[cfg(test)]
+mod read_datum_tests {
+    use super::*;
+    use crate::gc::Gc;
+    use crate::values::port::Peekable;
+    use std::io::{BufReader, Read};
+
+    // Hands out one chunk per read call. Once they run out it either reports eof,
+    // or panics - standing in for a source with nothing more to send, where
+    // reading again would block forever.
+    struct Chunks {
+        chunks: Vec<&'static str>,
+        next: usize,
+        then_block: bool,
+    }
+
+    impl Read for Chunks {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            match self.chunks.get(self.next) {
+                Some(chunk) => {
+                    buf[..chunk.len()].copy_from_slice(chunk.as_bytes());
+                    self.next += 1;
+                    Ok(chunk.len())
+                }
+                None if self.then_block => panic!("read again after the datum was complete"),
+                None => Ok(0),
+            }
+        }
+    }
+
+    fn stream(chunks: &[&'static str], then_block: bool) -> SteelPort {
+        let source = Chunks {
+            chunks: chunks.to_vec(),
+            next: 0,
+            then_block,
+        };
+
+        SteelPort {
+            port: Gc::new_lock(SteelPortRepr::DynReader(Peekable::new(BufReader::new(
+                Box::new(source),
+            )))),
+        }
+    }
+
+    fn whole(input: &str) -> SteelVal {
+        read_one(&SteelPort::new_input_port_string(input.to_string())).unwrap()
+    }
+
+    #[test]
+    fn complete_list_does_not_wait() {
+        let port = stream(&["(a b)"], true);
+        assert_eq!(read_one(&port).unwrap(), whole("(a b)"));
+    }
+
+    #[test]
+    fn closed_string_does_not_wait() {
+        let port = stream(&["\"hi\""], true);
+        assert_eq!(read_one(&port).unwrap(), whole("\"hi\""));
+    }
+
+    #[test]
+    fn number_is_not_cut_short_by_a_read_boundary() {
+        let port = stream(&["4", "2", " "], true);
+        assert_eq!(read_one(&port).unwrap(), whole("42"));
+    }
+
+    #[test]
+    fn number_finishes_at_eof() {
+        let port = stream(&["4", "2"], false);
+        assert_eq!(read_one(&port).unwrap(), whole("42"));
+    }
+
+    #[test]
+    fn unquote_splicing_split_across_reads() {
+        let port = stream(&["(a ,", "@b)"], true);
+        assert_eq!(read_one(&port).unwrap(), whole("(a ,@b)"));
+    }
+
+    #[test]
+    fn identifier_split_across_reads() {
+        let port = stream(&["(vec", "tor 1)"], true);
+        assert_eq!(read_one(&port).unwrap(), whole("(vector 1)"));
+    }
+
+    #[test]
+    fn quoted_datum_split_across_reads() {
+        let port = stream(&["'(1 ", "2 3)"], true);
+        assert_eq!(read_one(&port).unwrap(), whole("'(1 2 3)"));
+    }
+
+    #[test]
+    fn leftover_stays_for_the_next_read() {
+        let port = stream(&["(a) (b)"], true);
+        assert_eq!(read_one(&port).unwrap(), whole("(a)"));
+        assert_eq!(read_one(&port).unwrap(), whole("(b)"));
+    }
+
+    #[test]
+    fn unterminated_datum_at_eof_is_an_error() {
+        let port = stream(&["(a ", "b"], false);
+        assert!(read_one(&port).is_err());
+    }
+}

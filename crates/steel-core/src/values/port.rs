@@ -72,6 +72,9 @@ impl core::fmt::Display for SteelPort {
 //     fn into_port(self) -> SteelVal {}
 // }
 
+const MIN_CHUNK: usize = 8 * 1024;
+const MAX_STREAM_CHUNK: usize = 64 * 1024;
+
 // `buf[pos..]` has been read out of `inner` but not yet handed to the caller.
 // Every read path has to drain that before touching `inner`.
 #[derive(Debug)]
@@ -79,6 +82,8 @@ pub struct Peekable<R> {
     inner: R,
     buf: Vec<u8>,
     pos: usize,
+    // How much the next fill asks for. Doubles while a datum is unfinished.
+    chunk: usize,
     // Half parsed datum from an earlier fill, so `read` does not have to start
     // over every time more bytes show up. Boxed to keep it off every port - it
     // is only ever set while a datum straddles a fill.
@@ -91,6 +96,7 @@ impl<T> Peekable<T> {
             inner,
             buf: Vec::new(),
             pos: 0,
+            chunk: MIN_CHUNK,
             parse: None,
         }
     }
@@ -113,10 +119,16 @@ impl<T> Peekable<T> {
 
     pub fn consume(&mut self, amt: usize) {
         self.parse = None;
+        self.chunk = MIN_CHUNK;
         self.pos = usize::min(self.pos + amt, self.buf.len());
 
         if self.pos >= self.buf.len() {
             self.buf.clear();
+            self.pos = 0;
+        } else if self.pos >= self.buf.len() / 2 {
+            // Mostly consumed, so drop the front rather than holding on to
+            // everything a long read has already handed out.
+            self.buf.drain(..self.pos);
             self.pos = 0;
         }
     }
@@ -150,10 +162,37 @@ impl<R: Read> Peekable<R> {
         Ok(MaybeBlocking::Nonblocking(filled))
     }
 
-    pub fn fill_to_end(&mut self) -> io::Result<usize> {
+    // A single read call, which returns whatever the source has ready instead of
+    // waiting for the whole request - so a complete datum is never stuck behind
+    // bytes that may not come. The request doubles while a datum is unfinished,
+    // which keeps a parse that has to restart from scratch linear overall.
+    pub fn fill_chunk(&mut self, max: usize) -> Result<usize> {
+        let unfinished = !self.pending_is_empty();
         let start = self.buf.len();
-        self.inner.read_to_end(&mut self.buf)?;
-        Ok(self.buf.len() - start)
+        self.buf.resize(start + usize::min(self.chunk, max), 0);
+
+        let result = loop {
+            match self.inner.read(&mut self.buf[start..]) {
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                other => break other,
+            }
+        };
+
+        match result {
+            Ok(amt) => {
+                self.buf.truncate(start + amt);
+
+                if unfinished && amt > 0 {
+                    self.chunk = usize::min(self.chunk.saturating_mul(2), max);
+                }
+
+                Ok(amt)
+            }
+            Err(err) => {
+                self.buf.truncate(start);
+                Err(err.into())
+            }
+        }
     }
 
     fn read_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
@@ -294,12 +333,6 @@ impl<R: Read> Peekable<R> {
 }
 
 impl<R: BufRead> Peekable<R> {
-    pub fn fill_line(&mut self) -> io::Result<usize> {
-        let start = self.buf.len();
-        self.inner.read_until(b'\n', &mut self.buf)?;
-        Ok(self.buf.len() - start)
-    }
-
     pub fn read_line_peeked(&mut self, buf: &mut String) -> io::Result<usize> {
         if self.pending_is_empty() {
             return self.inner.read_line(buf);
@@ -317,14 +350,8 @@ impl<R: BufRead> Peekable<R> {
 }
 
 // `Stdin` is `Read` but not `BufRead`, only `StdinLock` is, so it needs its own
-// copies that lock.
+// copy that locks.
 impl Peekable<Stdin> {
-    pub fn fill_line_stdin(&mut self) -> io::Result<usize> {
-        let start = self.buf.len();
-        self.inner.lock().read_until(b'\n', &mut self.buf)?;
-        Ok(self.buf.len() - start)
-    }
-
     pub fn read_line_peeked_stdin(&mut self, buf: &mut String) -> io::Result<usize> {
         if self.pending_is_empty() {
             return self.inner.read_line(buf);
@@ -604,17 +631,22 @@ impl SteelPortRepr {
         }
     }
 
-    // Buffers more input, returning how many bytes arrived. Finite sources get
-    // taken whole, streams a line at a time - draining those would block until
-    // the other end hangs up.
+    // Buffers more input, returning how many bytes arrived. Streams are capped at
+    // a pipe's worth per read, since asking for more than can arrive at once
+    // only costs zeroing the request.
     pub fn fill_more(&mut self) -> Result<usize> {
         match self {
-            SteelPortRepr::FileInput(_, br) => Ok(br.fill_to_end()?),
-            SteelPortRepr::StringInput(s) => Ok(s.fill_to_end()?),
-            SteelPortRepr::StdInput(br) => Ok(br.fill_line_stdin()?),
-            SteelPortRepr::ChildStdOutput(br) => Ok(br.fill_line()?),
-            SteelPortRepr::ChildStdError(br) => Ok(br.fill_line()?),
-            SteelPortRepr::DynReader(br) => Ok(br.fill_line()?),
+            SteelPortRepr::FileInput(_, br) => br.fill_chunk(usize::MAX),
+            SteelPortRepr::StringInput(s) => {
+                // Already in memory, so never ask for more than is left.
+                let left = s.inner.get_ref().len() - s.inner.position() as usize;
+                s.fill_chunk(left)
+            }
+            SteelPortRepr::StdInput(br) => br.fill_chunk(MAX_STREAM_CHUNK),
+            SteelPortRepr::ChildStdOutput(br) => br.fill_chunk(MAX_STREAM_CHUNK),
+            SteelPortRepr::ChildStdError(br) => br.fill_chunk(MAX_STREAM_CHUNK),
+            SteelPortRepr::DynReader(br) => br.fill_chunk(MAX_STREAM_CHUNK),
+            SteelPortRepr::TcpStream(t) => t.fill_chunk(MAX_STREAM_CHUNK),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }

@@ -97,6 +97,10 @@ const CORPUS: &[&str] = &[
     "(a\nb\nc)",
     "((((1))))",
     "(set! x (lambda () (begin 1 2 3)))",
+    "' (1 2)",
+    "(a ' b)",
+    "#; (ignored) (kept)",
+    "(define data '(1 2 3))",
 ];
 
 // A bigger synthetic datum, to exercise many suspends in one parse.

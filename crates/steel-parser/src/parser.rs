@@ -322,6 +322,24 @@ pub struct Parser<'a> {
     pending_datum_comments: u32,
 }
 
+// Whether more input could still change this token - `,` into `,@`, `1` into
+// `12`, `define` into `define-values`. Delimiters and closed strings cannot.
+fn can_continue<S>(ty: &TokenType<S>) -> bool {
+    !matches!(
+        ty,
+        TokenType::OpenParen(..)
+            | TokenType::CloseParen(_)
+            | TokenType::QuoteTick
+            | TokenType::QuasiQuote
+            | TokenType::UnquoteSplice
+            | TokenType::QuoteSyntax
+            | TokenType::QuasiQuoteSyntax
+            | TokenType::UnquoteSpliceSyntax
+            | TokenType::DatumComment
+            | TokenType::StringLiteral(_)
+    )
+}
+
 // The parse state of a datum that ran out of input part way through. Owned, so
 // it can outlive the chunk it was parsed from.
 #[derive(Debug)]
@@ -1259,15 +1277,28 @@ impl<'a> Parser<'a> {
         Err(ParseError::UnexpectedEOF(last, self.source_name.clone()))
     }
 
+    // Running out inside a nested read means the enclosing shorthand or `#;` is
+    // only recorded in rust frames, so this parse cannot resume.
+    fn block_resume_if_nested(&mut self) {
+        if self.next_depth > 1 || self.pending_datum_comments > 0 {
+            self.resume_blocked = true;
+        }
+    }
+
     fn next_token(&mut self) -> Option<Result<Token<'a, InternedString>>> {
-        let res = self.tokenizer.next()?;
+        let Some(res) = self.tokenizer.next() else {
+            self.block_resume_if_nested();
+            return None;
+        };
 
         if self.more_to_come {
-            // Ends flush against the buffer, so it may have more to it. Stop here
-            // and pick it up from the start next time.
+            // Ends flush against the buffer and could still grow, so stop here and
+            // pick it up from the start next time. Tokens that are already
+            // finished go through, otherwise a datum ending in `)` would wait on
+            // input that may never come.
             let touches_end = match &res {
-                Ok(token) => token.span.end >= self.input_len,
-                Err(_) => true,
+                Ok(token) => token.span.end >= self.input_len && can_continue(&token.ty),
+                Err(err) => err.span.end >= self.input_len,
             };
 
             if touches_end {
@@ -1276,11 +1307,7 @@ impl<'a> Parser<'a> {
                     Err(_) => self.tokenizer.state().token_start(),
                 });
 
-                // Running out inside a nested read means the enclosing shorthand
-                // is only recorded in rust frames, so this parse cannot resume.
-                if self.next_depth > 1 || self.pending_datum_comments > 0 {
-                    self.resume_blocked = true;
-                }
+                self.block_resume_if_nested();
 
                 return None;
             }
