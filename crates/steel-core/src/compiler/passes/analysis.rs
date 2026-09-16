@@ -2497,14 +2497,11 @@ impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
         self.prim_map
             .insert(SyntaxObjectId(lambda_function.syntax_object_id), self.prims);
 
-        // A nested lambda is part of the body that contains it, so its size and
-        // primitive calls count toward the enclosing function too. They used to be
-        // dropped: `let`/`or`/`and` expand to an applied lambda at this point, so
-        // `(define (string? s) (or (mstring? s) (#%prim.string? s)))` looked like
-        // a body with no primitive calls and the density filter never inlined it.
-        // Saturating, so a pessimized (usize::MAX) body stays pessimized.
-        self.count = current_count.saturating_add(self.count);
-        self.prims = current_prims.saturating_add(self.prims);
+        if self.count != std::usize::MAX {
+            self.count = current_count;
+        }
+
+        self.prims = current_prims;
     }
 
     #[inline]
@@ -2513,6 +2510,28 @@ impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
             if ident.resolve().starts_with("#%prim.") {
                 self.prims = self.prims.saturating_add(1);
             }
+        }
+
+        // A lambda applied on the spot is code in this body, not a separate
+        // function: `let`, `or` and `and` are all this shape when sizes are
+        // estimated. Visiting it through `visit_lambda_function` reset the counts
+        // and threw them away, so `(define (string? s) (or (mstring? s)
+        // (#%prim.string? s)))` read as a body with no primitive calls and the
+        // density filter never inlined it. A lambda anywhere else - returned,
+        // passed to `apply` - still counts as its own function, which is what
+        // keeps a closure factory like matrix's `make-row-reduce` from looking
+        // small, and a case-lambda dispatcher from looking large.
+        if let Some(ExprKind::LambdaFunction(head)) = l.args.first() {
+            self.count = self.count.saturating_add(1);
+            for var in &head.args {
+                self.visit(var);
+            }
+            self.visit(&head.body);
+
+            for expr in &l.args[1..] {
+                self.visit(expr);
+            }
+            return;
         }
 
         for expr in &l.args {
