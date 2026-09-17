@@ -2157,6 +2157,8 @@ impl<'a> FunctionTranslator<'a> {
                 | OpCode::CALLGLOBALNOARITY
                 | OpCode::CALLGLOBALTAIL
                 | OpCode::CALLGLOBALTAILNOARITY
+                | OpCode::CALLPRIMITIVE
+                | OpCode::CALLPRIMITIVETAIL
         ) && matches!(
             self._globals.get(call_ins.payload_size.to_usize()),
             Some(SteelVal::FuncV(f))

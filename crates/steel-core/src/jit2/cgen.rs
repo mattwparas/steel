@@ -4897,6 +4897,22 @@ impl FunctionTranslator<'_> {
                                 f if f == steel_is_empty as FunctionSignature && arity == 1 => {
                                     self.is_empty()
                                 }
+                                // An inlined accessor's `(#%unbox (getter x))` is a
+                                // non-tail call, so it lands here rather than in the
+                                // tail call arm.
+                                f if inline_primitive_tail_calls_enabled()
+                                    && (f as usize
+                                        == crate::steel_vm::primitives::steel_unbox_mutable
+                                            as usize
+                                        || f as usize
+                                            == crate::steel_vm::primitives::steel_set_box_mutable
+                                                as usize)
+                                    && self.box_primitive_inlinable(f as usize, arity) =>
+                                {
+                                    let value = self.inline_box_primitive(f as usize, arity).unwrap();
+                                    self.push(value, InferredType::Any);
+                                    self.ip += 1;
+                                }
                                 _ => {
                                     let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
@@ -7664,6 +7680,13 @@ impl FunctionTranslator<'_> {
             return Some(self.pop_as_steelval());
         }
 
+        self.inline_box_primitive(target, arity)
+    }
+
+    /// `#%unbox` / `#%set-box!` inline, in any position. Returns the result
+    /// without pushing it, or `None` (having emitted nothing) when the generic
+    /// call has to handle it.
+    fn inline_box_primitive(&mut self, target: usize, arity: usize) -> Option<Value> {
         if target == crate::steel_vm::primitives::steel_unbox_mutable as usize && arity == 1 {
             let last = self.shadow_stack.last().copied()?;
             self.shadow_mark_local_type_from_var(last, InferredType::Box);
@@ -7703,6 +7726,23 @@ impl FunctionTranslator<'_> {
         }
 
         None
+    }
+
+    /// Whether `inline_box_primitive` will take this call, without emitting.
+    fn box_primitive_inlinable(&self, target: usize, arity: usize) -> bool {
+        if target == crate::steel_vm::primitives::steel_unbox_mutable as usize && arity == 1 {
+            return matches!(
+                self.shadow_stack.last(),
+                Some(
+                    MaybeStackValue::MutRegister(_)
+                        | MaybeStackValue::Register(_)
+                        | MaybeStackValue::Value(_)
+                )
+            );
+        }
+        target == crate::steel_vm::primitives::steel_set_box_mutable as usize
+            && arity == 2
+            && self.shadow_stack.len() >= 2
     }
 
     fn pop_as_steelval(&mut self) -> Value {

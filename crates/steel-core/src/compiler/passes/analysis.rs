@@ -2341,6 +2341,83 @@ where
     fn visit_quote(&mut self, _quote: &mut Quote) {}
 }
 
+/// `STEEL_INLINE_FRESH_SNAPSHOTS=0` goes back to snapshotting each function body
+/// before its own callees are inlined into it. On by default.
+fn fresh_snapshots_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_INLINE_FRESH_SNAPSHOTS").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// `FindCallSitesMany`'s replacement over a single definition's body, borrowing
+/// the snapshots gathered so far. Skips the definition's own name: unrolling a
+/// function's recursion stays with the final pass, as before. A replaced call's
+/// new head is a lambda, and like `FindCallSitesMany` it is not visited, so this
+/// does not recurse through what it inserts.
+struct InlineIntoDefinition<'a> {
+    analysis: &'a Analysis,
+    map: &'a HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List) + 'static>>,
+    own_name: InternedString,
+    proto_hash: InternedString,
+    // Definitions of this program already walked, in order.
+    walked: &'a FxHashSet<InternedString>,
+    // Every definition in this program.
+    defined_here: &'a FxHashSet<InternedString>,
+}
+
+impl<'a> VisitorMutRefUnit for InlineIntoDefinition<'a> {
+    fn visit_list(&mut self, l: &mut List) {
+        if let Some(name) = l.first_ident().copied() {
+            if name == self.proto_hash {
+                return;
+            }
+
+            if name != self.own_name {
+                if let Some(semantic_info) =
+                    self.analysis.get(l.args[0].atom_syntax_object().unwrap())
+                {
+                    if semantic_info.kind == IdentifierStatus::Global
+                        || name.resolve().starts_with("##")
+                    {
+                        // A snapshot from this program is only usable once its own
+                        // definition has been walked. Until then the map holds the
+                        // raw module-map copy, whose ids defeat the forward-only
+                        // guard, so it would inline a function the final pass never
+                        // would - and nucleic miscompiled that way (a lifted closure
+                        // referencing `##v2_8` free). Definitions from modules
+                        // compiled elsewhere are not in this program, so theirs are
+                        // fine to use.
+                        let ordered = self.walked.contains(&name)
+                            || !self.defined_here.contains(&name);
+                        if ordered {
+                            if let Some(func) = self.map.get(&name) {
+                                (func)(self.analysis, l);
+                            }
+                        }
+                    }
+                }
+            }
+
+            for arg in &mut l.args[1..] {
+                self.visit(arg);
+            }
+
+            return;
+        }
+
+        for arg in &mut l.args {
+            self.visit(arg);
+        }
+    }
+
+    #[inline]
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
+}
+
 struct FindCallSitesManyDepth<'a, F> {
     analysis: &'a Analysis,
     map: HashMap<InternedString, F>,
@@ -6318,30 +6395,82 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
-        // Only inline forwards, as to not run in to any issues with visibility
+        // Only inline forwards, as to not run in to any issues with visibility.
+        //
+        // Each definition's snapshot is what gets copied into its callers, and it
+        // used to be taken before any call site was replaced - so every copy
+        // carried the body as it was before its own callees were inlined. A
+        // shim's `car` compiled with `mpair-mcar` inlined, while every copy of
+        // `car` spliced elsewhere still called `mpair-mcar`. Definitions arrive
+        // in order, so before snapshotting one, inline what has been gathered so
+        // far into its body in place. It has to be the body itself: a clone gets
+        // fresh syntax object ids, which the analysis knows nothing about, so no
+        // call inside a clone can be recognised. Forward-only means these are the
+        // same call sites the final pass below would replace; they are just
+        // replaced first, and a replaced call's head is a lambda, not a name, so
+        // the final pass leaves it alone.
+        let refresh = fresh_snapshots_enabled();
+
+        let mut defined_here: FxHashSet<InternedString> = FxHashSet::default();
         for expr in self.exprs.iter() {
-            match expr {
-                ExprKind::Define(d) => {
-                    if let ControlFlow::Break(_) =
-                        self.inline_handle_define(&estimator, threshold, &mut funcs, d, &assigned, &changed)
-                    {
-                        continue;
+            let defines: Vec<&ExprKind> = match expr {
+                ExprKind::Begin(b) => b.exprs.iter().collect(),
+                other => vec![other],
+            };
+            for define in defines {
+                if let ExprKind::Define(d) = define {
+                    if let Some(name) = d.name.atom_identifier() {
+                        defined_here.insert(*name);
                     }
                 }
+            }
+        }
+        let mut walked: FxHashSet<InternedString> = FxHashSet::default();
 
-                ExprKind::Begin(b) => {
-                    for expr in b.exprs.iter() {
-                        if let ExprKind::Define(d) = expr {
-                            if let ControlFlow::Break(_) =
-                                self.inline_handle_define(&estimator, threshold, &mut funcs, d, &assigned, &changed)
-                            {
-                                continue;
+        for top in 0..self.exprs.len() {
+            let inner_len = match &self.exprs[top] {
+                ExprKind::Define(_) => None,
+                ExprKind::Begin(b) => Some(b.exprs.len()),
+                _ => continue,
+            };
+
+            match inner_len {
+                None => {
+                    if refresh {
+                        self.inline_into_definition(top, None, &funcs, &walked, &defined_here);
+                    }
+                    if let ExprKind::Define(d) = &self.exprs[top] {
+                        let _ = self.inline_handle_define(
+                            &estimator, threshold, &mut funcs, d, &assigned, &changed,
+                        );
+                        if let Some(name) = d.name.atom_identifier() {
+                            walked.insert(*name);
+                        }
+                    }
+                }
+                Some(len) => {
+                    for inner in 0..len {
+                        if refresh {
+                            self.inline_into_definition(
+                                top,
+                                Some(inner),
+                                &funcs,
+                                &walked,
+                                &defined_here,
+                            );
+                        }
+                        if let ExprKind::Begin(b) = &self.exprs[top] {
+                            if let ExprKind::Define(d) = &b.exprs[inner] {
+                                let _ = self.inline_handle_define(
+                                    &estimator, threshold, &mut funcs, d, &assigned, &changed,
+                                );
+                                if let Some(name) = d.name.atom_identifier() {
+                                    walked.insert(*name);
+                                }
                             }
                         }
                     }
                 }
-
-                _ => {}
             }
         }
 
@@ -6350,6 +6479,52 @@ impl<'a> SemanticAnalysis<'a> {
         self.changed |= changed.get();
 
         Ok(())
+    }
+
+    /// Inline the snapshots gathered so far into one top level definition's body,
+    /// in place, before that body is itself snapshotted. See the loop in
+    /// `inline_function_calls`.
+    fn inline_into_definition(
+        &mut self,
+        top: usize,
+        inner: Option<usize>,
+        funcs: &HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List) + 'static>>,
+        walked: &FxHashSet<InternedString>,
+        defined_here: &FxHashSet<InternedString>,
+    ) {
+        let analysis = &self.analysis;
+        let exprs = &mut *self.exprs;
+
+        let expr = match inner {
+            None => &mut exprs[top],
+            Some(i) => match &mut exprs[top] {
+                ExprKind::Begin(b) => &mut b.exprs[i],
+                _ => return,
+            },
+        };
+
+        let ExprKind::Define(d) = expr else {
+            return;
+        };
+
+        if !matches!(d.body, ExprKind::LambdaFunction(_)) {
+            return;
+        }
+
+        let Some(own_name) = d.name.atom_identifier().copied() else {
+            return;
+        };
+
+        InlineIntoDefinition {
+            analysis,
+            map: funcs,
+            own_name,
+            proto_hash: "%proto-hash%".into(),
+            walked,
+            defined_here,
+        }
+        .visit(&mut d.body);
+
     }
 
     fn inline_handle_define(
