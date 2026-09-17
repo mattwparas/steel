@@ -1360,6 +1360,15 @@ fn eq_value(left: SteelVal, right: SteelVal) -> bool {
     left.ptr_eq(&right)
 }
 
+// `eq?` on values the caller still owns.
+#[cross_platform_fn]
+fn eq_value_no_drop(left: SteelVal, right: SteelVal) -> bool {
+    let res = left.ptr_eq(&right);
+    std::mem::forget(left);
+    std::mem::forget(right);
+    res
+}
+
 #[cross_platform_fn]
 fn vector_set_handler_stack(
     ctx: *mut VmCore,
@@ -4197,6 +4206,38 @@ fn list_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
     let remaining = ctx.thread.stack.drain(last_index..).collect();
 
     SteelVal::ListV(remaining)
+}
+
+// Arithmetic or a comparison at an arity the jit has no fixed helper for: the
+// operands are the top `arity` values of the vm stack. `code` is
+// `variadic_numeric_code` in the jit.
+#[cross_platform_fn]
+fn variadic_numeric_spilled(ctx: *mut VmCore<'_>, code: usize, arity: usize) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+
+    let func: fn(&[SteelVal]) -> Result<SteelVal> = match code {
+        0 => add_primitive,
+        1 => subtract_primitive,
+        2 => multiply_primitive,
+        3 => divide_primitive,
+        4 => lt_primitive,
+        5 => crate::steel_vm::primitives::lte_primitive,
+        6 => gt_primitive,
+        _ => gte_primitive,
+    };
+
+    let len = ctx.thread.stack.len();
+    let result = func(&ctx.thread.stack[len - arity..]);
+    let _ = ctx.thread.stack.truncate(len - arity);
+
+    match result {
+        Ok(value) => value,
+        Err(e) => {
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+            SteelVal::Void
+        }
+    }
 }
 
 #[cross_platform_fn]

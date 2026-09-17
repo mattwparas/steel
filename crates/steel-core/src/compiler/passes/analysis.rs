@@ -2353,6 +2353,636 @@ fn fresh_snapshots_enabled() -> bool {
     })
 }
 
+/// `STEEL_INLINE_KNOWN_FUNCTION_ARGS=0` stops inlining a function only because a
+/// call site hands it a known function for a parameter it calls, and stops
+/// substituting such bindings before closure lifting.
+fn known_function_args_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_INLINE_KNOWN_FUNCTION_ARGS").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// Size budget, counting nested lambdas, for inlining a function only because a
+/// call site passes a known function for a parameter it calls. Larger than the
+/// ordinary budget: what it removes is a call through a value on every
+/// iteration of the loop inside, not one call. `STEEL_INLINE_KNOWN_ARGS_SIZE`.
+fn known_function_args_size() -> usize {
+    static SIZE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *SIZE.get_or_init(|| {
+        std::env::var("STEEL_INLINE_KNOWN_ARGS_SIZE")
+            .ok()
+            .and_then(|x| x.trim().parse().ok())
+            .unwrap_or(150)
+    })
+}
+
+/// Whether `expr` names a function whose identity is fixed for the whole
+/// program: a primitive, or a global defined as a lambda that is never `set!`.
+fn is_known_function(expr: &ExprKind, known: &FxHashSet<InternedString>) -> bool {
+    expr.atom_identifier()
+        .is_some_and(|name| name.resolve().starts_with("#%prim.") || known.contains(name))
+}
+
+/// Top level defines whose value is a lambda and whose name is never `set!`.
+fn collect_known_functions<'a>(
+    exprs: impl Iterator<Item = &'a ExprKind>,
+    assigned: &FxHashSet<InternedString>,
+    known: &mut FxHashSet<InternedString>,
+) {
+    for expr in exprs {
+        match expr {
+            ExprKind::Begin(b) => collect_known_functions(b.exprs.iter(), assigned, known),
+            ExprKind::Define(d) => {
+                if let (Some(name), ExprKind::LambdaFunction(_)) =
+                    (d.name.atom_identifier(), &d.body)
+                {
+                    if !assigned.contains(name) {
+                        known.insert(*name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `collect_known_functions` over the program and every compiled module, with
+/// the modules' own `set!` targets excluded as well as the program's.
+fn known_functions(
+    exprs: &[ExprKind],
+    assigned: &FxHashSet<InternedString>,
+    module_map: &crate::HashMap<PathBuf, CompiledModule>,
+) -> FxHashSet<InternedString> {
+    let mut assigned = assigned.clone();
+    {
+        let mut collector = CollectSetTargets {
+            targets: &mut assigned,
+        };
+        for (_, module) in module_map {
+            if let Some(ast) = module.get_compiled_ast() {
+                collector.visit(ast);
+            }
+        }
+    }
+
+    let mut known = FxHashSet::default();
+    collect_known_functions(exprs.iter(), &assigned, &mut known);
+    for (_, module) in module_map {
+        if let Some(ast) = module.get_compiled_ast() {
+            collect_known_functions(std::iter::once(ast), &assigned, &mut known);
+        }
+    }
+    known
+}
+
+/// `STEEL_RESOLVE_FUNCTION_ALIASES=0` leaves `(define a b)` references alone.
+fn function_alias_resolution_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_RESOLVE_FUNCTION_ALIASES").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+fn collect_aliases<'a>(
+    exprs: impl Iterator<Item = &'a ExprKind>,
+    assigned: &FxHashSet<InternedString>,
+    aliases: &mut FxHashMap<InternedString, InternedString>,
+) {
+    for expr in exprs {
+        match expr {
+            ExprKind::Begin(b) => collect_aliases(b.exprs.iter(), assigned, aliases),
+            ExprKind::Define(d) => {
+                if let (Some(name), Some(target)) =
+                    (d.name.atom_identifier(), d.body.atom_identifier())
+                {
+                    if !assigned.contains(name) && name != target {
+                        aliases.insert(*name, *target);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Rewrites global references to an alias into references to what it names.
+/// See `resolve_function_aliases`.
+struct RewriteAliasReferences<'a> {
+    analysis: &'a Analysis,
+    map: &'a FxHashMap<InternedString, InternedString>,
+    changed: bool,
+}
+
+impl<'a> VisitorMutRefUnit for RewriteAliasReferences<'a> {
+    fn visit_define(&mut self, define: &mut Define) {
+        // The alias's own definition stays, so `provide` still finds it.
+        self.visit(&mut define.body);
+    }
+
+    fn visit_atom(&mut self, a: &mut Atom) {
+        let Some(ident) = a.ident().copied() else {
+            return;
+        };
+        let Some(target) = self.map.get(&ident) else {
+            return;
+        };
+        let is_global = self
+            .analysis
+            .get(&a.syn)
+            .is_some_and(|info| info.kind == IdentifierStatus::Global);
+        if is_global {
+            *a.ident_mut().unwrap() = *target;
+            self.changed = true;
+        }
+    }
+
+    fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
+}
+
+/// Which of a lambda's parameters its body calls - inside nested lambdas too -
+/// and the size of the body counting those nested lambdas, which the ordinary
+/// estimate leaves out.
+struct CalledParams {
+    params: Vec<InternedString>,
+    called: Vec<bool>,
+    size: usize,
+}
+
+impl CalledParams {
+    fn of(l: &LambdaFunction) -> Self {
+        let mut this = CalledParams {
+            params: l
+                .args
+                .iter()
+                .map(|a| a.atom_identifier().copied().unwrap_or_else(|| "".into()))
+                .collect(),
+            called: vec![false; l.args.len()],
+            size: 0,
+        };
+        this.visit(&l.body);
+        this
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for CalledParams {
+    fn visit(&mut self, expr: &'a ExprKind) {
+        self.size = self.size.saturating_add(1);
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(_) => {}
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+
+    fn visit_list(&mut self, l: &'a List) {
+        if let Some(head) = l.first_ident() {
+            if let Some(i) = self.params.iter().position(|p| p == head) {
+                self.called[i] = true;
+            }
+        }
+        for expr in &l.args {
+            self.visit(expr);
+        }
+    }
+}
+
+/// Gives every binder inside a copied lambda - its parameters, nested lambda
+/// parameters, let bindings, internal defines - a fresh name, and renames the references to
+/// match. Closure lifting finds a local loop's call sites by the loop's local
+/// name across the whole program, so two copies of the same body inlined into
+/// different functions must not share those names. Binders are already unique
+/// within one function by this point, so renaming by name is exact.
+struct FreshenBinders {
+    renames: HashMap<InternedString, InternedString>,
+}
+
+static FRESHEN_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+impl FreshenBinders {
+    fn run(l: &mut LambdaFunction) {
+        let mut collect = CollectBinders { names: Vec::new() };
+        for arg in &l.args {
+            if let Some(name) = arg.atom_identifier() {
+                collect.names.push(*name);
+            }
+        }
+        collect.visit(&l.body);
+
+        if collect.names.is_empty() {
+            return;
+        }
+
+        let n = FRESHEN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let renames = collect
+            .names
+            .into_iter()
+            .map(|name| (name, format!("{}_k{}", name.resolve(), n).into()))
+            .collect();
+
+        let mut this = FreshenBinders { renames };
+        for arg in &mut l.args {
+            this.visit(arg);
+        }
+        this.visit(&mut l.body);
+    }
+}
+
+impl VisitorMutRefUnit for FreshenBinders {
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(ident) = a.ident().copied() {
+            if let Some(to) = self.renames.get(&ident) {
+                *a.ident_mut().unwrap() = *to;
+            }
+        }
+    }
+
+    fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
+}
+
+/// `STEEL_LIFT_DEAD_CAPTURES=0` keeps every captured parameter closure lifting
+/// appends, used or not.
+fn lift_dead_captures_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_LIFT_DEAD_CAPTURES").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// Closure lifting appends a parameter for each variable the analysis says a
+/// local function captures, and that set is only narrowed to what the function
+/// uses when it has no nested lambdas - otherwise it is every captured variable
+/// in scope. A loop inlined deep inside closures is lifted with a parameter for
+/// each of them, threaded through every iteration unused.
+///
+/// This runs once lifting has finished rewriting call sites. A captured
+/// parameter is dead when every use of it is passing it straight through, in a
+/// captured position, to a lifted function whose parameter there is dead too -
+/// which is what a loop calling itself, or a group of mutually recursive local
+/// functions calling one another, does. Dead parameters are removed from the
+/// definitions and the matching arguments from every call.
+fn eliminate_dead_captured_params(
+    lifted: &mut [ExprKind],
+    exprs: &mut [ExprKind],
+    captures: &FxHashMap<InternedString, Vec<InternedString>>,
+) {
+    struct Info {
+        params: Vec<InternedString>,
+        start: usize,
+    }
+
+    let mut infos: FxHashMap<InternedString, Info> = FxHashMap::default();
+    for f in lifted.iter() {
+        let ExprKind::Define(d) = f else { continue };
+        let (Some(name), ExprKind::LambdaFunction(l)) = (d.name.atom_identifier(), &d.body) else {
+            continue;
+        };
+        let Some(captured) = captures.get(name) else {
+            continue;
+        };
+        let params: Option<Vec<InternedString>> =
+            l.args.iter().map(|a| a.atom_identifier().copied()).collect();
+        let Some(params) = params else { continue };
+        if l.rest || params.len() < captured.len() {
+            continue;
+        }
+        let start = params.len() - captured.len();
+        if params[start..] != captured[..] {
+            continue;
+        }
+        infos.insert(*name, Info { params, start });
+    }
+
+    if infos.is_empty() {
+        return;
+    }
+
+    // live[(f, i)] for captured parameter i of f; deps are (f, i) <- (g, j).
+    let mut live: FxHashSet<(InternedString, usize)> = FxHashSet::default();
+    let mut deps: Vec<((InternedString, usize), (InternedString, usize))> = Vec::new();
+
+    struct Uses<'a> {
+        func: InternedString,
+        infos: &'a FxHashMap<InternedString, Info>,
+        live: &'a mut FxHashSet<(InternedString, usize)>,
+        deps: &'a mut Vec<((InternedString, usize), (InternedString, usize))>,
+    }
+
+    impl<'a> Uses<'a> {
+        fn captured_index(&self, ident: &InternedString) -> Option<usize> {
+            let info = &self.infos[&self.func];
+            info.params[info.start..]
+                .iter()
+                .position(|p| p == ident)
+                .map(|i| i + info.start)
+        }
+    }
+
+    impl<'a, 'b> VisitorMutUnitRef<'b> for Uses<'a> {
+        fn visit_atom(&mut self, a: &'b Atom) {
+            if let Some(ident) = a.ident() {
+                if let Some(i) = self.captured_index(ident) {
+                    self.live.insert((self.func, i));
+                }
+            }
+        }
+
+        fn visit_quote(&mut self, _: &'b steel_parser::ast::Quote) {}
+
+        fn visit_list(&mut self, l: &'b List) {
+            let callee = l
+                .first_ident()
+                .filter(|g| {
+                    self.infos
+                        .get(*g)
+                        .is_some_and(|info| info.params.len() + 1 == l.args.len())
+                })
+                .copied();
+
+            match callee {
+                Some(g) => {
+                    let g_start = self.infos[&g].start;
+                    for (i, arg) in l.args.iter().enumerate().skip(1) {
+                        let passed = arg
+                            .atom_identifier()
+                            .and_then(|ident| self.captured_index(ident));
+                        match passed {
+                            Some(j) if i - 1 >= g_start => {
+                                self.deps.push(((self.func, j), (g, i - 1)));
+                            }
+                            _ => self.visit(arg),
+                        }
+                    }
+                }
+                None => {
+                    for arg in &l.args {
+                        self.visit(arg);
+                    }
+                }
+            }
+        }
+    }
+
+    for f in lifted.iter() {
+        let ExprKind::Define(d) = f else { continue };
+        let (Some(name), ExprKind::LambdaFunction(l)) = (d.name.atom_identifier(), &d.body) else {
+            continue;
+        };
+        if !infos.contains_key(name) {
+            continue;
+        }
+        Uses {
+            func: *name,
+            infos: &infos,
+            live: &mut live,
+            deps: &mut deps,
+        }
+        .visit(&l.body);
+    }
+
+    loop {
+        let before = live.len();
+        for (f, g) in &deps {
+            if live.contains(g) {
+                live.insert(*f);
+            }
+        }
+        if live.len() == before {
+            break;
+        }
+    }
+
+    let dead: FxHashMap<InternedString, Vec<usize>> = infos
+        .iter()
+        .filter_map(|(name, info)| {
+            let dead: Vec<usize> = (info.start..info.params.len())
+                .filter(|i| !live.contains(&(*name, *i)))
+                .collect();
+            (!dead.is_empty()).then_some((*name, dead))
+        })
+        .collect();
+
+    if dead.is_empty() {
+        return;
+    }
+
+    struct RemoveArgs<'a> {
+        dead: &'a FxHashMap<InternedString, Vec<usize>>,
+        infos: &'a FxHashMap<InternedString, Info>,
+    }
+
+    impl<'a> VisitorMutRefUnit for RemoveArgs<'a> {
+        fn visit_list(&mut self, l: &mut List) {
+            for arg in l.args.iter_mut() {
+                self.visit(arg);
+            }
+            if let Some(g) = l.first_ident().copied() {
+                if let (Some(dead), Some(info)) = (self.dead.get(&g), self.infos.get(&g)) {
+                    if info.params.len() + 1 == l.args.len() {
+                        for i in dead.iter().rev() {
+                            l.args.remove(i + 1);
+                        }
+                    }
+                }
+            }
+        }
+
+        fn visit_define(&mut self, define: &mut Define) {
+            if let (Some(name), ExprKind::LambdaFunction(lambda)) =
+                (define.name.atom_identifier().copied(), &mut define.body)
+            {
+                if let (Some(dead), Some(info)) = (self.dead.get(&name), self.infos.get(&name)) {
+                    if lambda.args.len() == info.params.len() {
+                        for i in dead.iter().rev() {
+                            lambda.args.remove(*i);
+                        }
+                    }
+                }
+            }
+            self.visit(&mut define.body);
+        }
+
+        fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
+    }
+
+    let mut remove = RemoveArgs {
+        dead: &dead,
+        infos: &infos,
+    };
+    for expr in lifted.iter_mut() {
+        remove.visit(expr);
+    }
+    for expr in exprs.iter_mut() {
+        remove.visit(expr);
+    }
+}
+
+fn contains_nested_lambda(expr: &ExprKind) -> bool {
+    struct Find(bool);
+    impl<'a> VisitorMutUnitRef<'a> for Find {
+        fn visit_lambda_function(&mut self, _: &'a LambdaFunction) {
+            self.0 = true;
+        }
+        fn visit_list(&mut self, l: &'a List) {
+            // An applied lambda is a let, not a local function.
+            if let Some(ExprKind::LambdaFunction(head)) = l.args.first() {
+                self.visit(&head.body);
+                for expr in &l.args[1..] {
+                    self.visit(expr);
+                }
+                return;
+            }
+            for expr in &l.args {
+                self.visit(expr);
+            }
+        }
+        fn visit_quote(&mut self, _: &'a steel_parser::ast::Quote) {}
+    }
+    let mut find = Find(false);
+    find.visit(expr);
+    find.0
+}
+
+struct CollectBinders {
+    names: Vec<InternedString>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for CollectBinders {
+    // Inside a lambda body, a define is a local binding too.
+    fn visit_define(&mut self, d: &'a Define) {
+        if let Some(name) = d.name.atom_identifier() {
+            self.names.push(*name);
+        }
+        self.visit(&d.body);
+    }
+
+    fn visit_lambda_function(&mut self, l: &'a LambdaFunction) {
+        for arg in &l.args {
+            if let Some(name) = arg.atom_identifier() {
+                self.names.push(*name);
+            }
+        }
+        self.visit(&l.body);
+    }
+
+    fn visit_let(&mut self, l: &'a Let) {
+        for (binder, expr) in &l.bindings {
+            if let Some(name) = binder.atom_identifier() {
+                self.names.push(*name);
+            }
+            self.visit(expr);
+        }
+        self.visit(&l.body_expr);
+    }
+
+    fn visit_quote(&mut self, _: &'a steel_parser::ast::Quote) {}
+}
+
+/// Replaces references to let-bound names with the known function each is
+/// bound to, stopping where an inner binder shadows the name.
+struct SubstituteBindings {
+    map: Vec<(InternedString, InternedString)>,
+}
+
+impl SubstituteBindings {
+    fn without_shadowed<'b>(
+        &mut self,
+        binders: impl Iterator<Item = &'b ExprKind>,
+    ) -> Vec<(InternedString, InternedString)> {
+        let names: Vec<InternedString> = binders.filter_map(|b| b.atom_identifier().copied()).collect();
+        let saved = self.map.clone();
+        self.map.retain(|(from, _)| !names.contains(from));
+        saved
+    }
+}
+
+impl VisitorMutRefUnit for SubstituteBindings {
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(ident) = a.ident().copied() {
+            if let Some((_, to)) = self.map.iter().find(|(from, _)| *from == ident) {
+                *a.ident_mut().unwrap() = *to;
+            }
+        }
+    }
+
+    fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
+
+    fn visit_lambda_function(&mut self, l: &mut LambdaFunction) {
+        let saved = self.without_shadowed(l.args.iter());
+        self.visit(&mut l.body);
+        self.map = saved;
+    }
+
+    fn visit_let(&mut self, l: &mut Let) {
+        for (_, expr) in l.bindings.iter_mut() {
+            self.visit(expr);
+        }
+        let saved = self.without_shadowed(l.bindings.iter().map(|(b, _)| b));
+        self.visit(&mut l.body_expr);
+        self.map = saved;
+    }
+}
+
+/// Removes `(%plain-let ((f <known function>)) body)` bindings by substituting
+/// the function into the body. See `substitute_known_function_bindings`.
+struct SubstituteKnownFunctionBindings<'a> {
+    known: &'a FxHashSet<InternedString>,
+    assigned: &'a FxHashSet<InternedString>,
+    changed: bool,
+}
+
+impl<'a> VisitorMutRefUnit for SubstituteKnownFunctionBindings<'a> {
+    fn visit_let(&mut self, l: &mut Let) {
+        for (_, expr) in l.bindings.iter_mut() {
+            self.visit(expr);
+        }
+
+        let mut map = Vec::new();
+        l.bindings.retain(|(binder, expr)| {
+            let Some(name) = binder.atom_identifier() else {
+                return true;
+            };
+            if self.assigned.contains(name) || !is_known_function(expr, self.known) {
+                return true;
+            }
+            // A later binding in the same let could shadow an earlier
+            // substitution's target; keep it simple and take the first.
+            if map.iter().any(|(from, _)| from == name) {
+                return true;
+            }
+            map.push((*name, *expr.atom_identifier().unwrap()));
+            false
+        });
+
+        if !map.is_empty() {
+            self.changed = true;
+            SubstituteBindings { map }.visit(&mut l.body_expr);
+        }
+
+        self.visit(&mut l.body_expr);
+    }
+}
+
 /// `FindCallSitesMany`'s replacement over a single definition's body, borrowing
 /// the snapshots gathered so far. Skips the definition's own name: unrolling a
 /// function's recursion stays with the final pass, as before. A replaced call's
@@ -3881,6 +4511,9 @@ struct LiftClosuresToGlobalScope<'a> {
     // every replacer lets the traversal make a final pass over everything it
     // lifted, whatever order the lets were processed in.
     pending_replacers: Vec<(ReplaceUnboxExpressions, BoxedCallSiteModifier<'a>)>,
+    // Each lifted function's name, with the captured variables appended to its
+    // parameters (and to every call to it), in order.
+    lifted_captures: FxHashMap<InternedString, Vec<InternedString>>,
 }
 
 impl<'a> LiftClosuresToGlobalScope<'a> {
@@ -3890,6 +4523,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
             lifted_functions: Vec::new(),
             found_funcs: Vec::new(),
             pending_replacers: Vec::new(),
+            lifted_captures: FxHashMap::default(),
         }
     }
 
@@ -4143,13 +4777,17 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                         // Note: If the resulting function then has a
                                                         // free variable as a
                                                         // result of this, then we can't necessarily do this?
+                                                        let mut pushed = Vec::new();
                                                         for i in &captured_vars_set {
                                                             if self.found_funcs.contains(i) {
                                                                 continue;
                                                             }
 
                                                             r.args.push(ExprKind::atom(*i));
+                                                            pushed.push(*i);
                                                         }
+                                                        self.lifted_captures
+                                                            .insert(name.as_str().into(), pushed);
                                                     } else {
                                                         return;
                                                     }
@@ -6039,12 +6677,15 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         let changed = Rc::new(Cell::new(false));
+        let known = Rc::new(known_functions(self.exprs, &assigned, module_map));
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
 
         let mut handle = |this: &Self,
                           funcs: &mut HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>>,
                           d: &Box<Define>| {
-            let _ = this.inline_handle_define(&estimator, threshold, funcs, d, &assigned, &changed);
+            let _ = this.inline_handle_define(
+                &estimator, threshold, funcs, d, &assigned, &changed, &known,
+            );
         };
 
         for (_, module) in module_map {
@@ -6358,6 +6999,8 @@ impl<'a> SemanticAnalysis<'a> {
         }
         let changed = Rc::new(Cell::new(false));
 
+        let known = Rc::new(known_functions(self.exprs, &assigned, module_map));
+
         // Only do this for functions in which the arity is exactly known
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
 
@@ -6371,7 +7014,7 @@ impl<'a> SemanticAnalysis<'a> {
                     match ast {
                         ExprKind::Define(d) => {
                             if let ControlFlow::Break(_) =
-                                self.inline_handle_define(&estimator, threshold, &mut funcs, &d, &assigned, &changed)
+                                self.inline_handle_define(&estimator, threshold, &mut funcs, &d, &assigned, &changed, &known)
                             {
                                 continue;
                             }
@@ -6381,7 +7024,7 @@ impl<'a> SemanticAnalysis<'a> {
                             for expr in b.exprs.iter() {
                                 if let ExprKind::Define(d) = expr {
                                     if let ControlFlow::Break(_) = self
-                                        .inline_handle_define(&estimator, threshold, &mut funcs, d, &assigned, &changed)
+                                        .inline_handle_define(&estimator, threshold, &mut funcs, d, &assigned, &changed, &known)
                                     {
                                         continue;
                                     }
@@ -6441,7 +7084,7 @@ impl<'a> SemanticAnalysis<'a> {
                     }
                     if let ExprKind::Define(d) = &self.exprs[top] {
                         let _ = self.inline_handle_define(
-                            &estimator, threshold, &mut funcs, d, &assigned, &changed,
+                            &estimator, threshold, &mut funcs, d, &assigned, &changed, &known,
                         );
                         if let Some(name) = d.name.atom_identifier() {
                             walked.insert(*name);
@@ -6463,6 +7106,7 @@ impl<'a> SemanticAnalysis<'a> {
                             if let ExprKind::Define(d) = &b.exprs[inner] {
                                 let _ = self.inline_handle_define(
                                     &estimator, threshold, &mut funcs, d, &assigned, &changed,
+                                    &known,
                                 );
                                 if let Some(name) = d.name.atom_identifier() {
                                     walked.insert(*name);
@@ -6535,6 +7179,7 @@ impl<'a> SemanticAnalysis<'a> {
         d: &Box<Define>,
         assigned: &FxHashSet<InternedString>,
         changed: &Rc<Cell<bool>>,
+        known: &Rc<FxHashSet<InternedString>>,
     ) -> ControlFlow<()> {
         let name = if let Some(name) = d.name.atom_syntax_object() {
             name
@@ -6559,7 +7204,48 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         if let ExprKind::LambdaFunction(l) = &d.body {
-            if let Some(count) = estimator.inline_size(SyntaxObjectId(l.syntax_object_id)) {
+            let size = estimator.inline_size(SyntaxObjectId(l.syntax_object_id));
+
+            // Too big or too call-heavy on its own, but it calls one of its
+            // parameters: `(define (%member-by eq x xs) (let loop ...))`. At a
+            // call site that passes a known function for that parameter, the
+            // inlined copy can have the function substituted in before closure
+            // lifting, so its loop calls the primitive directly instead of
+            // through a value. Only those call sites take it.
+            if !size.is_some_and(|count| count < threshold)
+                && known_function_args_enabled()
+                && !l.rest
+            {
+                let called = CalledParams::of(l);
+                if called.called.iter().any(|c| *c) && called.size < known_function_args_size() {
+                    let original_id = l.syntax_object_id;
+                    let arity = l.args.len();
+                    let l = l.clone();
+                    let changed = Rc::clone(changed);
+                    let known = Rc::clone(known);
+                    let called = called.called;
+
+                    funcs.insert(
+                        *d.name.atom_identifier().unwrap(),
+                        Box::new(move |_: &Analysis, lst: &mut List| {
+                            if lst.syntax_object_id > original_id
+                                && lst.args.len() == arity + 1
+                                && called.iter().enumerate().any(|(i, c)| {
+                                    *c && is_known_function(&lst.args[i + 1], &known)
+                                })
+                            {
+                                let mut copy = l.clone();
+                                FreshenBinders::run(&mut copy);
+                                lst.args[0] = ExprKind::LambdaFunction(copy);
+                                changed.set(true);
+                            }
+                        }),
+                    );
+                }
+                return ControlFlow::Continue(());
+            }
+
+            if let Some(count) = size {
                 if count < threshold {
                     let original_id = l.syntax_object_id;
                     let l = l.clone();
@@ -6570,11 +7256,24 @@ impl<'a> SemanticAnalysis<'a> {
                     // while the bugs behind it were still outstanding
                     let changed = Rc::clone(changed);
 
+                    // A local function in the body becomes a global when closures
+                    // are lifted, and lifting finds its call sites - and appends
+                    // its captured variables to them - by local name, across the
+                    // whole program. Copies that share those names end up sharing
+                    // one lifted function, which only holds while every copy
+                    // captures identically named variables; substituting a known
+                    // function into one copy breaks that. Give each copy its own.
+                    let freshen = contains_nested_lambda(&l.body);
+
                     funcs.insert(
                         *d.name.atom_identifier().unwrap(),
                         Box::new(move |_: &Analysis, lst: &mut List| {
                             if lst.syntax_object_id > original_id {
-                                lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                let mut copy = l.clone();
+                                if freshen {
+                                    FreshenBinders::run(&mut copy);
+                                }
+                                lst.args[0] = ExprKind::LambdaFunction(copy);
                                 changed.set(true);
                             }
                         }),
@@ -7201,6 +7900,115 @@ impl<'a> SemanticAnalysis<'a> {
         self
     }
 
+    /// `(%plain-let ((eq #%prim.eq?)) body)`, as inlining a call that passes a
+    /// known function leaves it, becomes `body` with `#%prim.eq?` in place of
+    /// `eq`. Run before closure lifting: otherwise a local loop in `body`
+    /// captures `eq`, is lifted with it as an extra argument, and calls it
+    /// through a value on every iteration.
+    /// `(define operation blue-edge-operation)` binds a value, not a lambda, so
+    /// the inliner never treats `operation` as a function: every call to it is a
+    /// call to a global closure, and the jit specializes those against whatever
+    /// the global held when the caller was compiled. When neither name is ever
+    /// `set!` and the target is a primitive or a lambda-defined global, the two
+    /// are the same function for the whole program, so references to the alias
+    /// are rewritten to the target - chains included - before inlining runs.
+    pub fn resolve_function_aliases(
+        &mut self,
+        module_map: &crate::HashMap<PathBuf, CompiledModule>,
+    ) -> &mut Self {
+        if !function_alias_resolution_enabled() {
+            return self;
+        }
+
+        let mut assigned: FxHashSet<InternedString> = FxHashSet::default();
+        {
+            let mut collector = CollectSetTargets {
+                targets: &mut assigned,
+            };
+            for expr in self.exprs.iter() {
+                collector.visit(expr);
+            }
+        }
+
+        let mut aliases = FxHashMap::default();
+        collect_aliases(self.exprs.iter(), &assigned, &mut aliases);
+        if aliases.is_empty() {
+            return self;
+        }
+
+        let known = known_functions(self.exprs, &assigned, module_map);
+
+        let resolved: FxHashMap<InternedString, InternedString> = aliases
+            .keys()
+            .filter_map(|alias| {
+                let mut target = aliases[alias];
+                for _ in 0..16 {
+                    match aliases.get(&target) {
+                        Some(next) if next != alias => target = *next,
+                        _ => break,
+                    }
+                }
+                (target.resolve().starts_with("#%prim.") || known.contains(&target))
+                    .then_some((*alias, target))
+            })
+            .collect();
+
+        if resolved.is_empty() {
+            return self;
+        }
+
+        let mut rewrite = RewriteAliasReferences {
+            analysis: &self.analysis,
+            map: &resolved,
+            changed: false,
+        };
+        for expr in self.exprs.iter_mut() {
+            rewrite.visit(expr);
+        }
+
+        if rewrite.changed {
+            self.changed = true;
+        }
+
+        self
+    }
+
+    pub fn substitute_known_function_bindings(
+        &mut self,
+        module_map: &crate::HashMap<PathBuf, CompiledModule>,
+    ) -> &mut Self {
+        if !known_function_args_enabled() {
+            return self;
+        }
+
+        let mut assigned: FxHashSet<InternedString> = FxHashSet::default();
+        {
+            let mut collector = CollectSetTargets {
+                targets: &mut assigned,
+            };
+            for expr in self.exprs.iter() {
+                collector.visit(expr);
+            }
+        }
+
+        let known = known_functions(self.exprs, &assigned, module_map);
+
+        let mut pass = SubstituteKnownFunctionBindings {
+            known: &known,
+            assigned: &assigned,
+            changed: false,
+        };
+        for expr in self.exprs.iter_mut() {
+            pass.visit(expr);
+        }
+
+        if pass.changed {
+            self.changed = true;
+        }
+
+        self
+    }
+
     pub fn refresh_variables(&mut self) -> &mut Self {
         for expr in self.exprs.iter_mut() {
             RefreshVars.visit(expr);
@@ -7695,6 +8503,15 @@ impl<'a> SemanticAnalysis<'a> {
                     callsite_modifier.visit(expr);
                 }
             }
+        }
+
+        if lift_dead_captures_enabled() {
+            let LiftClosuresToGlobalScope {
+                lifted_functions,
+                lifted_captures,
+                ..
+            } = &mut lifter;
+            eliminate_dead_captured_params(lifted_functions, self.exprs, lifted_captures);
         }
 
         // At the front they'd be constructed - and jit compiled - before the

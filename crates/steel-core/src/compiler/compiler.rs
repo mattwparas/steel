@@ -1338,6 +1338,9 @@ impl Compiler {
             semantic.refresh_variables();
         }
 
+        semantic.resolve_function_aliases(self.modules());
+        semantic.refresh_variables_if_changed();
+
         // Do this, and then inline everything. Do it again
         // TODO: Configure the amount that we inline?
         semantic.inline_function_calls(None, self.modules())?;
@@ -1354,6 +1357,15 @@ impl Compiler {
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
         semantic.replace_anonymous_function_calls_with_plain_lets();
         semantic.refresh_variables_if_changed();
+
+        semantic.substitute_known_function_bindings(self.modules());
+        semantic.refresh_variables_if_changed();
+
+        // `STEEL_DEBUG_AST_PRE_LIFT` prints the program as inlining left it, before
+        // closure lifting rewrites local functions into globals.
+        if std::env::var("STEEL_DEBUG_AST_PRE_LIFT").is_ok() {
+            steel_parser::ast::AstTools::pretty_print(&semantic.exprs);
+        }
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());

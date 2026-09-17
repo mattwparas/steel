@@ -368,6 +368,20 @@ impl<'a> FunctionTranslator<'a> {
     pub(super) fn eq(&mut self) {
         use MaybeStackValue::*;
 
+        // Borrowed operands only go through the inline compare, which knows not
+        // to release them.
+        let operands = &self.shadow_stack[self.shadow_stack.len() - 2..];
+        if operands.iter().any(|v| matches!(v, Borrowed(_))) {
+            let all_inlinable = operands
+                .iter()
+                .all(|v| matches!(v, MutRegister(_) | Register(_) | Value(_) | Borrowed(_)));
+            if all_inlinable && super::inline_eq_enabled() {
+                self.inline_eq_operands();
+                return;
+            }
+            self.materialize_borrowed();
+        }
+
         let args = self
             .shadow_stack
             .get(self.shadow_stack.len() - 2..)
@@ -456,6 +470,12 @@ impl<'a> FunctionTranslator<'a> {
                 self.ip += 1;
             }
 
+            &[MutRegister(_) | Register(_) | Value(_), MutRegister(_) | Register(_) | Value(_)]
+                if super::inline_eq_enabled() =>
+            {
+                self.inline_eq_operands();
+            }
+
             &[MutRegister(v) | Register(v), Value(_)] => {
                 let left = self.register_index(v);
                 let right = self.shadow_pop();
@@ -483,6 +503,151 @@ impl<'a> FunctionTranslator<'a> {
                 self.ip += 1;
             }
         }
+    }
+
+    /// `eq?` on two non-constant operands, without a call.
+    ///
+    /// `SteelVal::ptr_eq` is, per tag: a payload compare for everything that
+    /// is a pointer or a fixnum; a compare at the real width for bools, chars
+    /// and floats (the payload's unused bytes are not zeroed, and float `eq?`
+    /// is `==`); always true for void; and always false for the tags it has no
+    /// arm for. Only lists need the out-of-line check, since two handles can
+    /// share storage. Owned operands are released inline afterwards, rather
+    /// than being moved into a helper that drops them.
+    fn inline_eq_operands(&mut self) {
+        // None: borrowed from a register. Some(flag): owned when the flag is 1.
+        let operand = |ctx: &mut Self| -> (Value, Option<Value>) {
+            match ctx.shadow_stack.pop().unwrap() {
+                MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i) => {
+                    (ctx.read_from_vm_stack(i), None)
+                }
+                MaybeStackValue::Borrowed(b) => {
+                    let owned = ctx.builder.use_var(b.owned);
+                    (b.value, Some(owned))
+                }
+                v @ MaybeStackValue::Value(_) => {
+                    ctx.shadow_stack.push(v);
+                    let MaybeStackValue::Value(v) = ctx.shadow_stack_pop().unwrap() else {
+                        unreachable!()
+                    };
+                    ctx.value_to_local_map.remove(&v.value);
+                    let one = ctx.builder.ins().iconst(types::I8, 1);
+                    (v.as_steelval(ctx), Some(one))
+                }
+                MaybeStackValue::Constant(_) => unreachable!(),
+            }
+        };
+
+        let (right, right_owned) = operand(self);
+        let (left, left_owned) = operand(self);
+
+        let left_tag = self.get_tag(left);
+        let right_tag = self.get_tag(right);
+        let same_tag = self.builder.ins().icmp(IntCC::Equal, left_tag, right_tag);
+
+        let left_payload = self.unbox_value_to_pointer(left);
+        let right_payload = self.unbox_value_to_pointer(right);
+
+        // Tags whose ptr_eq is exactly a payload compare.
+        let payload_tags: u64 = [
+            SteelVal::CLOSURE_TAG,
+            SteelVal::INT_TAG,
+            SteelVal::VECTOR_TAG,
+            SteelVal::STRING_TAG,
+            SteelVal::FUNCTION_POINTER_TAG,
+            SteelVal::SYMBOL_TAG,
+            SteelVal::CUSTOM_TAG,
+            SteelVal::HASHMAP_TAG,
+            SteelVal::HASHSET_TAG,
+            SteelVal::STRUCT_TAG,
+            SteelVal::PORT_TAG,
+            SteelVal::ITER_TAG,
+            SteelVal::REDUCER_TAG,
+            SteelVal::ASYNC_FUNCTION_POINTER_TAG,
+            SteelVal::BOXED_FUTURE_TAG,
+            SteelVal::STREAM_TAG,
+            SteelVal::BOXED_FUNCTION_TAG,
+            SteelVal::CONTINUATION_TAG,
+            SteelVal::PAIR_TAG,
+            SteelVal::MUT_FUNCTION_TAG,
+            SteelVal::BUILTIN_FUNCTION_TAG,
+            SteelVal::HEAP_REF_VECTOR_TAG,
+            SteelVal::BIG_NUM_TAG,
+            SteelVal::BYTEVECTOR_TAG,
+            SteelVal::FLAT_VECTOR_TAG,
+        ]
+        .iter()
+        .fold(0, |mask, tag| mask | (1u64 << tag));
+
+        let mask = self.builder.ins().iconst(types::I64, payload_tags as i64);
+        let shifted = self.builder.ins().ushr(mask, left_tag);
+        let is_payload_tag = self.builder.ins().band_imm_u(shifted, 1);
+        let is_payload_tag = self.builder.ins().ireduce(types::I8, is_payload_tag);
+        let same_payload = self
+            .builder
+            .ins()
+            .icmp(IntCC::Equal, left_payload, right_payload);
+        let by_payload = self.builder.ins().band(is_payload_tag, same_payload);
+
+        let is_bool = self
+            .builder
+            .ins()
+            .icmp_imm_s(IntCC::Equal, left_tag, SteelVal::BOOL_TAG as i64);
+        let lb = self.builder.ins().ireduce(types::I8, left_payload);
+        let rb = self.builder.ins().ireduce(types::I8, right_payload);
+        let same_bool = self.builder.ins().icmp(IntCC::Equal, lb, rb);
+        let by_bool = self.builder.ins().band(is_bool, same_bool);
+
+        let is_char = self
+            .builder
+            .ins()
+            .icmp_imm_s(IntCC::Equal, left_tag, SteelVal::CHAR_TAG as i64);
+        let lc = self.builder.ins().ireduce(types::I32, left_payload);
+        let rc = self.builder.ins().ireduce(types::I32, right_payload);
+        let same_char = self.builder.ins().icmp(IntCC::Equal, lc, rc);
+        let by_char = self.builder.ins().band(is_char, same_char);
+
+        let is_float = self
+            .builder
+            .ins()
+            .icmp_imm_s(IntCC::Equal, left_tag, SteelVal::FLOAT_TAG as i64);
+        let lf = self.unbox_value_to_float(left);
+        let rf = self.unbox_value_to_float(right);
+        let same_float = self.builder.ins().fcmp(FloatCC::Equal, lf, rf);
+        let by_float = self.builder.ins().band(is_float, same_float);
+
+        let is_void = self
+            .builder
+            .ins()
+            .icmp_imm_s(IntCC::Equal, left_tag, SteelVal::VOID_TAG as i64);
+
+        let any = self.builder.ins().bor(by_payload, by_bool);
+        let any = self.builder.ins().bor(any, by_char);
+        let any = self.builder.ins().bor(any, by_float);
+        let any = self.builder.ins().bor(any, is_void);
+        let inline_result = self.builder.ins().band(same_tag, any);
+
+        let is_list = self
+            .builder
+            .ins()
+            .icmp_imm_s(IntCC::Equal, left_tag, SteelVal::LIST_TAG as i64);
+        let needs_call = self.builder.ins().band(same_tag, is_list);
+
+        let res = self.converging_if(
+            needs_call,
+            |ctx| ctx.call_function_returns_value_args_no_context("eq?-no-drop", &[left, right]),
+            |_| inline_result,
+            types::I8,
+        );
+
+        for (value, owned) in [(left, left_owned), (right, right_owned)] {
+            if let Some(owned) = owned {
+                self.converging_if_no_value(owned, |ctx| ctx.drop_tagged_value(value), |_| {});
+            }
+        }
+
+        self.push(res, InferredType::UnboxedBool);
+        self.ip += 1;
     }
 
     // Load just the symbols, and eq against each of them, unrolled?
@@ -708,6 +873,7 @@ impl<'a> FunctionTranslator<'a> {
         let last = self.shadow_stack.last().unwrap().clone();
 
         match last {
+            Borrowed(_) => unreachable!("borrowed values are materialized before this instruction"),
             Value(stack_value) => {
                 self.shadow_stack.pop();
                 let value = stack_value.as_steelval(self);
@@ -824,6 +990,7 @@ impl<'a> FunctionTranslator<'a> {
         let last = self.shadow_stack.last().unwrap().clone();
 
         match last {
+            Borrowed(_) => unreachable!("borrowed values are materialized before this instruction"),
             Value(stack_value) => {
                 self.shadow_stack.pop();
                 let value = stack_value.as_steelval(self);
@@ -1471,6 +1638,7 @@ impl<'a> FunctionTranslator<'a> {
         let last = self.shadow_stack.last().unwrap().clone();
 
         match last {
+            Borrowed(_) => unreachable!("borrowed values are materialized before this instruction"),
             Value(stack_value) => {
                 self.shadow_stack.pop();
                 let value = stack_value.as_steelval(self);
@@ -1516,6 +1684,7 @@ impl<'a> FunctionTranslator<'a> {
         let last = self.shadow_last_cloned();
 
         match last {
+            Borrowed(_) => unreachable!("borrowed values are materialized before this instruction"),
             Value(stack_value) => {
                 self.shadow_stack.pop();
                 let value = stack_value.as_steelval(self);
@@ -1661,6 +1830,72 @@ impl<'a> FunctionTranslator<'a> {
                 ctx.clone_value(value);
                 let res = ctx.call_function_returns_value_args("unbox-handler", &[value]);
                 ctx.check_deopt();
+                res
+            },
+            typ,
+        )
+    }
+
+    /// `unbox_value_checked_register` for a box borrowed from something that
+    /// stays alive, leaving the contents borrowed too where it can: on the
+    /// unshared fast path nothing is cloned and `owned` is set to 0. The locked
+    /// and slow paths clone as before and set it to 1.
+    pub(super) fn unbox_value_borrowed(&mut self, value: Value, owned: Variable) -> Value {
+        let is_box = self.is_type(value, SteelVal::HEAP_REF_VALUE_TAG);
+        let typ = self.int;
+
+        self.converging_if(
+            is_box,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(value);
+
+                let strong_count =
+                    ctx.builder
+                        .ins()
+                        .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
+
+                let is_one = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong_count, 1);
+                let offset = heap_box_lock_offset();
+
+                ctx.converging_if(
+                    is_one,
+                    |ctx| {
+                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
+                        let data = ctx.builder.ins().load(
+                            types::I128,
+                            MemFlagsData::trusted(),
+                            lock_pointer,
+                            SpinLock::<SteelVal>::data_offset() as i32,
+                        );
+                        let zero = ctx.builder.ins().iconst(types::I8, 0);
+                        ctx.builder.def_var(owned, zero);
+                        data
+                    },
+                    |ctx| {
+                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
+                        let data = ctx.with_spinlock(lock_pointer, |ctx| {
+                            let data = ctx.builder.ins().load(
+                                types::I128,
+                                MemFlagsData::trusted(),
+                                lock_pointer,
+                                SpinLock::<SteelVal>::data_offset() as i32,
+                            );
+                            ctx.clone_value(data);
+                            data
+                        });
+                        let one = ctx.builder.ins().iconst(types::I8, 1);
+                        ctx.builder.def_var(owned, one);
+                        data
+                    },
+                    typ,
+                )
+            },
+            |ctx| {
+                ctx.clone_value(value);
+                let res = ctx.call_function_returns_value_args("unbox-handler", &[value]);
+                ctx.check_deopt();
+                let one = ctx.builder.ins().iconst(types::I8, 1);
+                ctx.builder.def_var(owned, one);
                 res
             },
             typ,
@@ -2245,7 +2480,7 @@ impl<'a> FunctionTranslator<'a> {
                     if spec.descriptor == desc {
                         let last_kind = self.shadow_stack.pop().unwrap();
                         let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
-                        let res = fast_path_struct_matches(i, struct_ref_ptr, self, None);
+                        let res = fast_path_struct_matches(i, struct_ref_ptr, self, None, None);
 
                         match last_kind {
                             // Move the value out, call drop on it
@@ -2334,6 +2569,17 @@ impl<'a> FunctionTranslator<'a> {
 
                 let fuse = self.fused_unbox_target();
 
+                // A fused read of a struct that stays in its register leaves the
+                // box's contents borrowed.
+                let borrow = (fuse.is_some()
+                    && super::borrow_enabled()
+                    && matches!(
+                        self.shadow_stack.get(self.shadow_stack.len() - 2),
+                        Some(MaybeStackValue::Register(_))
+                    ))
+                .then(|| self.builder.declare_var(types::I8));
+                self.pending_borrow = borrow;
+
                 // Saved before the index operand is dropped: every slow arm has
                 // to re-enter the real two argument call.
                 let old_ip = self.ip;
@@ -2356,7 +2602,7 @@ impl<'a> FunctionTranslator<'a> {
                     if spec.descriptor == desc {
                         let last_kind = self.shadow_stack.pop().unwrap();
                         let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
-                        let res = fast_path_struct_matches(i, struct_ref_ptr, self, fuse);
+                        let res = fast_path_struct_matches(i, struct_ref_ptr, self, fuse, borrow);
 
                         match last_kind {
                             MaybeStackValue::MutRegister(r) => {
@@ -2409,6 +2655,7 @@ impl<'a> FunctionTranslator<'a> {
                             &inner_stack,
                             old_ip,
                             fuse,
+                            borrow,
                             ctx,
                         )
                     },
@@ -2416,7 +2663,7 @@ impl<'a> FunctionTranslator<'a> {
                         ctx.ip = old_ip;
                         ctx.shadow_stack = stack.clone();
                         let value = slow_path_struct_getter(GETTER_PROTO_ARITY, function_index, ctx);
-                        finish_slow_getter(value, fuse, ctx)
+                        finish_slow_getter(value, fuse, borrow, ctx)
                     },
                     typ,
                 );
@@ -2535,6 +2782,7 @@ fn inline_struct_getter_proto(
     saved_stack: &[MaybeStackValue],
     old_ip: usize,
     fuse: Option<usize>,
+    borrow: Option<Variable>,
     ctx: &mut FunctionTranslator,
 ) -> Value {
     let descriptor = spec.descriptor.key();
@@ -2559,12 +2807,12 @@ fn inline_struct_getter_proto(
 
     ctx.converging_if(
         struct_matches,
-        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx, fuse),
+        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx, fuse, borrow),
         move |ctx| {
             ctx.ip = old_ip;
             ctx.shadow_stack = saved.clone();
             let value = slow_path_struct_getter(GETTER_PROTO_ARITY, function_index, ctx);
-            finish_slow_getter(value, fuse, ctx)
+            finish_slow_getter(value, fuse, borrow, ctx)
         },
         typ,
     )
@@ -2601,7 +2849,7 @@ fn inline_struct_getter(
 
     let res = ctx.converging_if(
         struct_matches,
-        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx, None),
+        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx, None, None),
         |ctx| {
             // call_global_function takes self.ip as the deopt fallback and then
             // advances one, so this has to enter on the call itself - the same
@@ -2620,6 +2868,7 @@ fn fast_path_struct_matches(
     struct_ref_ptr: Value,
     ctx: &mut FunctionTranslator<'_>,
     fuse: Option<usize>,
+    borrow: Option<Variable>,
 ) -> Value {
     // The fields sit inline right after the header, so the element address is a
     // constant displacement off the struct pointer - no separate buffer to load.
@@ -2639,7 +2888,12 @@ fn fast_path_struct_matches(
         // it while it is still borrowed from the struct - which holds it alive
         // for the length of the read - so only the value inside is cloned. The
         // box itself is never cloned, and so never dropped.
-        let value = ctx.unbox_value_checked_register(local_value, false);
+        let value = match borrow {
+            // With the struct still in its register, the contents can stay
+            // borrowed as well.
+            Some(owned) => ctx.unbox_value_borrowed(local_value, owned),
+            None => ctx.unbox_value_checked_register(local_value, false),
+        };
         ctx.ip = resume;
         return value;
     }
@@ -2660,8 +2914,13 @@ fn fast_path_struct_matches(
 fn finish_slow_getter(
     value: Value,
     fuse: Option<usize>,
+    borrow: Option<Variable>,
     ctx: &mut FunctionTranslator<'_>,
 ) -> Value {
+    if let Some(owned) = borrow {
+        let one = ctx.builder.ins().iconst(types::I8, 1);
+        ctx.builder.def_var(owned, one);
+    }
     match fuse {
         Some(resume) => {
             let unboxed = ctx.unbox_value_checked_register(value, true);
@@ -2773,6 +3032,7 @@ struct ForkedState {
     if_bound: Option<usize>,
     if_stack: Vec<usize>,
     if_merge_blocks: Vec<Block>,
+    if_merge_flags: Vec<Variable>,
     vm_context: Value,
     function_context: Option<usize>,
     potentially_could_deopt: bool,
@@ -2824,6 +3084,10 @@ impl<'a> FunctionTranslator<'a> {
                     .last()
                     .expect("if_bound is set but no enclosing if merge block was registered - check translate_if_else_value");
                 let return_value = ctx.shadow_pop().0;
+                // `shadow_pop` has materialized it, so it reaches the merge owned.
+                let flag = *ctx.if_merge_flags.last().unwrap();
+                let one = ctx.builder.ins().iconst(types::I8, 1);
+                ctx.builder.def_var(flag, one);
                 ctx.builder
                     .ins()
                     .jump(merge, &[BlockArg::Value(return_value)]);
@@ -2865,6 +3129,7 @@ impl<'a> FunctionTranslator<'a> {
             if_bound: self.if_bound,
             if_stack: self.if_stack.clone(),
             if_merge_blocks: self.if_merge_blocks.clone(),
+            if_merge_flags: self.if_merge_flags.clone(),
             vm_context: self.vm_context,
             function_context: self.function_context,
             potentially_could_deopt: self.potentially_could_deopt,
@@ -2896,6 +3161,7 @@ impl<'a> FunctionTranslator<'a> {
         self.if_bound = state.if_bound;
         self.if_stack = state.if_stack;
         self.if_merge_blocks = state.if_merge_blocks;
+        self.if_merge_flags = state.if_merge_flags;
         self.vm_context = state.vm_context;
         self.function_context = state.function_context;
         self.potentially_could_deopt = state.potentially_could_deopt;

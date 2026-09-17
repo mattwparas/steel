@@ -797,6 +797,11 @@ impl Default for JIT {
         );
 
         map.add_func(
+            "variadic-numeric-spilled",
+            abi! { variadic_numeric_spilled as fn(*mut VmCore, usize, usize) -> SteelVal },
+        );
+
+        map.add_func(
             "vec-handler-spilled",
             abi! { vec_handler_c as fn(*mut VmCore, usize) -> SteelVal },
         );
@@ -1222,6 +1227,11 @@ impl Default for JIT {
             abi! { eq_value as fn(SteelVal, SteelVal) -> bool },
         );
 
+        map.add_func2(
+            "eq?-no-drop",
+            abi! { eq_value_no_drop as fn(SteelVal, SteelVal) -> bool },
+        );
+
         map.add_func("push-const", push_const_value_c as Vm01);
         map.add_func(
             "push-const-index",
@@ -1549,6 +1559,31 @@ fn inline_weak_clone_enabled() -> bool {
 
 /// `STEEL_JIT_PRIM_TAIL_EXTRA=0` turns off tail-position inlining of `eq?`,
 /// `vector-set!` and `#%make-mutable-struct`, leaving `#%unbox` / `#%set-box!`.
+/// `STEEL_JIT_BORROW=0` clones every value read out of a container as it is
+/// read, instead of leaving it borrowed for a consumer that doesn't need it
+/// owned.
+pub(super) fn borrow_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_BORROW").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// `STEEL_JIT_INLINE_EQ=0` sends `eq?` on two non-constant operands back
+/// through the out-of-line helpers.
+pub(super) fn inline_eq_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_INLINE_EQ").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
 fn extra_primitive_tail_calls_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| {
@@ -2842,6 +2877,8 @@ impl JIT {
             if_stack: Vec::new(),
             if_bound: None,
             if_merge_blocks: Vec::new(),
+            if_merge_flags: Vec::new(),
+            pending_borrow: None,
             vm_context,
             slot,
             function_context,
@@ -3224,6 +3261,21 @@ enum MaybeStackValue {
     Register(usize),
 
     Constant(ConstantValue),
+
+    // A value read out of something that is still alive - a list in a local, a
+    // box in a struct in a local - without being cloned. Only a few operations
+    // that neither keep nor free their operand, like `eq?`, can use it as is;
+    // before any other operation it is materialized into a `Value`. See
+    // `materialize_borrowed`.
+    Borrowed(BorrowedValue),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct BorrowedValue {
+    value: Value,
+    // An i8 variable: 1 when the value was cloned after all (a slow path took
+    // it) and so is owned, 0 when it is only borrowed.
+    owned: Variable,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -3478,6 +3530,7 @@ impl MaybeStackValue {
 
     fn into_value(self, ctx: &mut FunctionTranslator) -> StackValue {
         match self {
+            Self::Borrowed(b) => StackValue { value: ctx.materialize(b), inferred_type: InferredType::Any, spilled: false },
             Self::Value(_) | Self::Constant(_) => self.as_value(ctx).unwrap(),
             Self::MutRegister(p) => {
                 let (value, inferred_type) = ctx.mut_register_to_value(p);
@@ -3598,6 +3651,12 @@ struct FunctionTranslator<'a> {
     // IF's merge block is on top. A fork that exits at `if_bound` uses this
     // to register its tail as an extra predecessor of the right merge block.
     if_merge_blocks: Vec<Block>,
+    // Parallel to `if_merge_blocks`: the owned flag for the value each merge
+    // receives. Every jump to a merge block defines it.
+    if_merge_flags: Vec<Variable>,
+    // Set by a struct getter that left its result borrowed, for the caller that
+    // pushes the result.
+    pending_borrow: Option<Variable>,
 
     vm_context: Value,
     // vm_context: StackSlot,
@@ -3664,7 +3723,33 @@ pub fn encode_big(tag: u8, payload: i64) -> i128 {
 // to the stack.
 
 fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
-    match (op, payload) {
+    try_op_to_name_payload(op, payload).unwrap_or_else(|| {
+        panic!(
+            "couldn't match the name for the op code + payload: {:?}",
+            (op, payload)
+        )
+    })
+}
+
+/// The index `variadic-numeric-spilled` knows each arithmetic and comparison
+/// opcode by. The compiler emits these opcodes for any positive arity, but
+/// there are fixed-arity helpers for only a few.
+fn variadic_numeric_code(op: OpCode) -> Option<usize> {
+    Some(match op {
+        OpCode::ADD => 0,
+        OpCode::SUB => 1,
+        OpCode::MUL => 2,
+        OpCode::DIV => 3,
+        OpCode::LT => 4,
+        OpCode::LTE => 5,
+        OpCode::GT => 6,
+        OpCode::GTE => 7,
+        _ => return None,
+    })
+}
+
+fn try_op_to_name_payload(op: OpCode, payload: usize) -> Option<&'static str> {
+    Some(match (op, payload) {
         (OpCode::IF, _) => "if-branch-value",
         (OpCode::CALLGLOBAL, _) => "call-global",
         (OpCode::PUSHCONST, _) => "push-const",
@@ -3711,11 +3796,8 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::LISTREF, _) => "list-ref-value",
         (OpCode::VECTORREF, _) => "vector-ref-value",
 
-        other => panic!(
-            "couldn't match the name for the op code + payload: {:?}",
-            other
-        ),
-    }
+        _ => return None,
+    })
 }
 
 impl FunctionTranslator<'_> {
@@ -3749,6 +3831,7 @@ impl FunctionTranslator<'_> {
 
     fn inferred_type(&self, value: &MaybeStackValue) -> Option<InferredType> {
         match value {
+            MaybeStackValue::Borrowed(_) => None,
             MaybeStackValue::Value(stack_value) => Some(stack_value.inferred_type.clone()),
             MaybeStackValue::MutRegister(i) => self.local_to_value_map.get(i).cloned(),
             MaybeStackValue::Register(i) => self.local_to_value_map.get(i).cloned(),
@@ -3794,6 +3877,11 @@ impl FunctionTranslator<'_> {
             if !self.visited.insert(self.ip) {
                 panic!("Already visited this instruction",);
             }
+
+            if !self.op_keeps_borrows(op, payload) {
+                self.materialize_borrowed();
+            }
+
             match op {
                 OpCode::LOADINT1POP | OpCode::BINOPADDTAIL => {
                     todo!("{:?}", op);
@@ -4555,6 +4643,7 @@ impl FunctionTranslator<'_> {
                                 if let Some((value, typ)) =
                                     self.inline_struct_call_no_drop(spec, arity, function_index)
                                 {
+                                    let value = self.take_struct_result(value);
                                     self.spill_cloned_stack();
                                     let real_res = self.inline_handle_pop(value);
 
@@ -4686,7 +4775,7 @@ impl FunctionTranslator<'_> {
                                 // `inline_struct_call_no_drop` has already
                                 // advanced past the FUNC instruction, so just go
                                 // round again.
-                                self.push(value, typ);
+                                self.push_struct_result(value, typ);
                                 continue;
                             }
                         }
@@ -5885,8 +5974,11 @@ impl FunctionTranslator<'_> {
 
                     let local_value = self.read_from_vm_stack(register_l);
 
+                    // Both operands: checking the register twice compared an int
+                    // or float register against the raw payload of whatever the
+                    // other operand was - `(>= 1.5 2)` read 2 as a denormal float.
                     let register_is_int = self.is_type(local_value, SteelVal::INT_TAG);
-                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+                    let is_int = self.is_type(rhs_int.value, SteelVal::INT_TAG);
 
                     let both_int = self.builder.ins().band(register_is_int, is_int);
 
@@ -5906,7 +5998,7 @@ impl FunctionTranslator<'_> {
                         },
                         |ctx| {
                             let register_is_float = ctx.is_type(local_value, SteelVal::FLOAT_TAG);
-                            let is_float = ctx.is_type(local_value, SteelVal::FLOAT_TAG);
+                            let is_float = ctx.is_type(rhs_int.value, SteelVal::FLOAT_TAG);
 
                             let both_float = ctx.builder.ins().band(register_is_float, is_float);
 
@@ -6681,6 +6773,10 @@ impl FunctionTranslator<'_> {
 
                             match self.properties.get(&ValueOrRegister::Register(reg)) {
                                 Some(Properties::NonNull) if self.use_lbbv => {
+                                    let car_moves = matches!(
+                                        self.shadow_stack.last(),
+                                        Some(MaybeStackValue::MutRegister(_))
+                                    );
                                     self.shadow_stack_pop();
                                     // let value = self.read_from_vm_stack(reg);
 
@@ -6734,8 +6830,15 @@ impl FunctionTranslator<'_> {
                                             (value, InferredType::Any)
                                         },
                                         |ctx, res, typ| {
-                                            ctx.clone_value(res);
-                                            ctx.push(res, typ);
+                                            // The list stays in its register, so
+                                            // the element can be left borrowed.
+                                            if borrow_enabled() && !car_moves {
+                                                let owned = ctx.owned_flag(false);
+                                                ctx.push_borrowed(res, owned);
+                                            } else {
+                                                ctx.clone_value(res);
+                                                ctx.push(res, typ);
+                                            }
                                             ctx.ip += 2;
                                         },
                                     );
@@ -7692,6 +7795,7 @@ impl FunctionTranslator<'_> {
             self.shadow_mark_local_type_from_var(last, InferredType::Box);
 
             let (value, owned) = match last {
+                MaybeStackValue::Borrowed(_) => return None,
                 MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i) => {
                     self.shadow_stack_pop();
                     (self.read_from_vm_stack(i), false)
@@ -8720,7 +8824,7 @@ impl FunctionTranslator<'_> {
                     if let Some((value, typ)) =
                         self.inline_struct_call_no_drop(spec, arity, function_index)
                     {
-                        self.push(value, typ);
+                        self.push_struct_result(value, typ);
                         return;
                     }
                 }
@@ -8838,6 +8942,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize) {
+        self.materialize_borrowed();
         // Which seeded slots are passed a value of their seeded type by
         // construction, read before any of them is popped. An unchanged slot
         // shows up as its own register.
@@ -8863,6 +8968,7 @@ impl FunctionTranslator<'_> {
 
             while let Some(last) = self.shadow_stack.last().copied() {
                 match last {
+                    MaybeStackValue::Borrowed(_) => break,
                     MaybeStackValue::Value(_) => break,
                     MaybeStackValue::Constant(_) => break,
                     MaybeStackValue::MutRegister(r) => {
@@ -9906,10 +10012,19 @@ impl FunctionTranslator<'_> {
     }
 
     fn shadow_spill(&mut self, index: usize) -> Option<()> {
+        if let Some(MaybeStackValue::Borrowed(b)) = self.shadow_stack.get(index).copied() {
+            let value = self.materialize(b);
+            self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                value,
+                inferred_type: InferredType::Any,
+                spilled: false,
+            });
+        }
         // assert!(!self.cloned_stack);
         let guard = self.shadow_stack.get_mut(index)?;
         let mut spilled = false;
         match guard {
+            MaybeStackValue::Borrowed(_) => unreachable!("borrowed values are materialized before spilling"),
             MaybeStackValue::Value(stack_value) => {
                 if !stack_value.spilled {
                     stack_value.spilled = true;
@@ -9984,6 +10099,110 @@ impl FunctionTranslator<'_> {
         }))
     }
 
+    /// Whether a borrowed value can stay borrowed across this instruction: it
+    /// neither runs code nor writes anything that could free what the value was
+    /// read from, or it is a consumer that takes borrowed operands itself.
+    fn op_keeps_borrows(&self, op: OpCode, payload: usize) -> bool {
+        match op {
+            OpCode::READLOCAL0
+            | OpCode::READLOCAL1
+            | OpCode::READLOCAL2
+            | OpCode::READLOCAL3
+            | OpCode::LOADINT0
+            | OpCode::LOADINT1
+            | OpCode::LOADINT2 => true,
+            OpCode::CALLPRIMITIVE => {
+                inline_eq_enabled()
+                    && !self.func_is_join_target(self.ip + 1)
+                    && self
+                        .instructions
+                        .get(self.ip + 1)
+                        .is_some_and(|ins| ins.payload_size.to_usize() == 2)
+                    && matches!(
+                        self._globals.get(payload),
+                        Some(SteelVal::FuncV(f)) if *f as usize == steel_eq as usize
+                    )
+            }
+            _ => false,
+        }
+    }
+
+    fn has_borrowed(&self) -> bool {
+        self.shadow_stack
+            .iter()
+            .any(|v| matches!(v, MaybeStackValue::Borrowed(_)))
+    }
+
+    /// A fresh owned flag, defined in the current block.
+    fn owned_flag(&mut self, owned: bool) -> Variable {
+        let var = self.builder.declare_var(types::I8);
+        let value = self.builder.ins().iconst(types::I8, owned as i64);
+        self.builder.def_var(var, value);
+        var
+    }
+
+    /// Clone a borrowed value unless a slow path already did.
+    fn materialize(&mut self, borrowed: BorrowedValue) -> Value {
+        let value = borrowed.value;
+        let owned = self.builder.use_var(borrowed.owned);
+        self.converging_if_no_value(owned, |_| {}, |ctx| ctx.clone_value(value));
+        value
+    }
+
+    /// Turn every borrowed value on the operand stack into an owned one. Run
+    /// before any instruction that could run code or write memory, which is
+    /// what keeps borrowing sound: at that point whatever the value was read
+    /// from is still alive and unchanged, so cloning now is the same as having
+    /// cloned when it was read.
+    fn materialize_borrowed(&mut self) {
+        if !self.has_borrowed() {
+            return;
+        }
+        for i in 0..self.shadow_stack.len() {
+            if let MaybeStackValue::Borrowed(b) = self.shadow_stack[i] {
+                let value = self.materialize(b);
+                self.shadow_stack[i] = MaybeStackValue::Value(StackValue {
+                    value,
+                    inferred_type: InferredType::Any,
+                    spilled: false,
+                });
+            }
+        }
+    }
+
+    /// Relabel a borrowed top of stack as a plain value without cloning it, for
+    /// a merge that carries its owned flag across instead.
+    fn unborrow_top(&mut self) {
+        if let Some(MaybeStackValue::Borrowed(b)) = self.shadow_stack.last().copied() {
+            *self.shadow_stack.last_mut().unwrap() = MaybeStackValue::Value(StackValue {
+                value: b.value,
+                inferred_type: InferredType::Any,
+                spilled: false,
+            });
+        }
+    }
+
+    /// Push an inlined struct call's result, borrowed if the getter left it so.
+    fn push_struct_result(&mut self, value: Value, typ: InferredType) {
+        match self.pending_borrow.take() {
+            Some(owned) => self.push_borrowed(value, owned),
+            None => self.push(value, typ),
+        }
+    }
+
+    /// An inlined struct call's result, owned.
+    fn take_struct_result(&mut self, value: Value) -> Value {
+        match self.pending_borrow.take() {
+            Some(owned) => self.materialize(BorrowedValue { value, owned }),
+            None => value,
+        }
+    }
+
+    fn push_borrowed(&mut self, value: Value, owned: Variable) {
+        self.shadow_stack
+            .push(MaybeStackValue::Borrowed(BorrowedValue { value, owned }));
+    }
+
     fn shadow_push(&mut self, last: MaybeStackValue) {
         self.shadow_stack.push(last);
     }
@@ -10002,6 +10221,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn spill_stack_coalesced(&mut self) {
+        self.materialize_borrowed();
         let mut buffered_reads = Vec::new();
 
         // Types are read before the reads: moving a mutable register out marks
@@ -10031,6 +10251,7 @@ impl FunctionTranslator<'_> {
             let guard = self.shadow_stack.get_mut(index).unwrap();
             let mut spilled = false;
             match guard {
+                MaybeStackValue::Borrowed(_) => unreachable!("borrowed values are materialized before spilling"),
                 MaybeStackValue::Value(stack_value) => {
                     if !stack_value.spilled {
                         stack_value.spilled = true;
@@ -10093,6 +10314,7 @@ impl FunctionTranslator<'_> {
 
     // Spill all of these at one time!
     fn spill_cloned_stack(&mut self) {
+        self.materialize_borrowed();
         // println!("Spilling cloned stack: {:?}", self.shadow_stack);
         // assert!(!self.cloned_stack);
         // self.cloned_stack = true;
@@ -10117,6 +10339,7 @@ impl FunctionTranslator<'_> {
 
         for value in self.shadow_stack.clone() {
             match value {
+                MaybeStackValue::Borrowed(_) => unreachable!("borrowed values are materialized before spilling"),
                 MaybeStackValue::Value(stack_value) => {
                     if !stack_value.spilled {
                         let steelval = stack_value.as_steelval(self);
@@ -10151,6 +10374,15 @@ impl FunctionTranslator<'_> {
     fn shadow_stack_pop(&mut self) -> Option<MaybeStackValue> {
         let popped = self.shadow_stack.pop();
 
+        if let Some(MaybeStackValue::Borrowed(b)) = popped {
+            let value = self.materialize(b);
+            return Some(MaybeStackValue::Value(StackValue {
+                value,
+                inferred_type: InferredType::Any,
+                spilled: false,
+            }));
+        }
+
         // A spilled entry lives on the vm stack, and the ssa value it was
         // spilled from is only good while it still dominates. Once a branch has
         // merged it does not, so read the value back rather than reusing it -
@@ -10179,6 +10411,7 @@ impl FunctionTranslator<'_> {
         let last = self.shadow_stack_pop().unwrap();
 
         match last {
+            MaybeStackValue::Borrowed(_) => unreachable!("shadow_stack_pop materializes borrowed values"),
             MaybeStackValue::Value(last) => {
                 assert!(!last.spilled);
 
@@ -10257,6 +10490,7 @@ impl FunctionTranslator<'_> {
     /// A shadow stack entry known to hold a value of `ty`.
     fn entry_has_type(&self, entry: &MaybeStackValue, ty: SpecType) -> bool {
         match (entry, ty) {
+            (MaybeStackValue::Borrowed(_), _) => false,
             (MaybeStackValue::Constant(ConstantValue::Int(_)), SpecType::Fixnum) => true,
             (MaybeStackValue::Constant(ConstantValue::Float(_)), SpecType::Float) => true,
             (MaybeStackValue::Constant(ConstantValue::List(_)), SpecType::List) => true,
@@ -10677,6 +10911,7 @@ impl FunctionTranslator<'_> {
         args = args
             .into_iter()
             .map(|x| match x {
+                MaybeStackValue::Borrowed(b) => MaybeStackValue::Value(StackValue { value: self.materialize(b), inferred_type: InferredType::Any, spilled: false }),
                 MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
                 MaybeStackValue::MutRegister(p) => {
                     // let (value, _) = self.mut_register_to_value(p);
@@ -10774,6 +11009,7 @@ impl FunctionTranslator<'_> {
         args = args
             .into_iter()
             .map(|x| match x {
+                MaybeStackValue::Borrowed(b) => MaybeStackValue::Value(StackValue { value: self.materialize(b), inferred_type: InferredType::Any, spilled: false }),
                 MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
                 MaybeStackValue::MutRegister(p) => {
                     let value = coalesced_reads.get(&p).copied().unwrap();
@@ -10839,7 +11075,26 @@ impl FunctionTranslator<'_> {
         ip_inc: usize,
         inferred_type: InferredType,
     ) {
-        let function_name = op_to_name_payload(op, payload);
+        let Some(function_name) = try_op_to_name_payload(op, payload) else {
+            if let Some(code) = variadic_numeric_code(op) {
+                // No helper at this arity: hand the operands over on the vm
+                // stack to one that applies the primitive to a slice.
+                let args = self.split_off(payload);
+                for arg in args {
+                    self.push_to_vm_stack(arg.0);
+                }
+                let code = self.builder.ins().iconst(types::I64, code as i64);
+                let arity = self.builder.ins().iconst(types::I64, payload as i64);
+                let result =
+                    self.call_function_returns_value_args("variadic-numeric-spilled", &[code, arity]);
+                self.check_deopt();
+                self.push(result, inferred_type.boxed());
+                self.ip += ip_inc;
+                return;
+            }
+            op_to_name_payload(op, payload);
+            unreachable!()
+        };
 
         // dbg!(function_name);
         // dbg!(&self.shadow_stack);
@@ -11197,6 +11452,9 @@ impl FunctionTranslator<'_> {
         // the then/else branches so it can register its tail as an extra
         // predecessor.
         self.if_merge_blocks.push(merge_block);
+        let merge_flag = self.builder.declare_var(types::I8);
+        self.if_merge_flags.push(merge_flag);
+        let mut merge_borrowed = false;
 
         // Test the if condition and conditionally branch.
         self.builder
@@ -11279,6 +11537,17 @@ impl FunctionTranslator<'_> {
         // Unwrap or... must have been a tail call?
 
         let mut then_type = InferredType::Any;
+        // The merge keeps a borrowed then value borrowed, passing its flag on;
+        // anything else reaches the merge owned.
+        let then_owned = match self.shadow_stack.last().copied() {
+            Some(MaybeStackValue::Borrowed(b)) if !then_out_of_bounds => {
+                merge_borrowed = true;
+                self.unborrow_top();
+                self.builder.use_var(b.owned)
+            }
+            _ => self.builder.ins().iconst(types::I8, 1),
+        };
+        self.builder.def_var(merge_flag, then_owned);
         let then_return = if then_out_of_bounds {
             // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
             // self.create_i128(encode(SteelVal::IntV(12345)))
@@ -11350,6 +11619,20 @@ impl FunctionTranslator<'_> {
 
         // Returned, therefore we don't need to do anything.
         let mut else_type = InferredType::Any;
+        // A borrowed else value stays borrowed only if the then arm's did too,
+        // or the then arm never reaches the merge; `shadow_pop` materializes it
+        // otherwise.
+        let else_owned = match self.shadow_stack.last().copied() {
+            Some(MaybeStackValue::Borrowed(b))
+                if !else_out_of_bounds && (merge_borrowed || then_out_of_bounds) =>
+            {
+                merge_borrowed = true;
+                self.unborrow_top();
+                self.builder.use_var(b.owned)
+            }
+            _ => self.builder.ins().iconst(types::I8, 1),
+        };
+        self.builder.def_var(merge_flag, else_owned);
         let else_return = if else_out_of_bounds {
             BlockArg::Value(self.encode_integer(12345))
         } else {
@@ -11395,7 +11678,11 @@ impl FunctionTranslator<'_> {
                 let phi = self.builder.block_params(merge_block)[0];
 
                 let phi_type = self.merge_type(phi, &[else_type]);
-                self.push(phi, phi_type);
+                if merge_borrowed {
+                    self.push_borrowed(phi, merge_flag);
+                } else {
+                    self.push(phi, phi_type);
+                }
 
                 self.stack_to_ssa();
 
@@ -11426,7 +11713,11 @@ impl FunctionTranslator<'_> {
                 let phi = self.builder.block_params(merge_block)[0];
 
                 let phi_type = self.merge_type(phi, &[then_type]);
-                self.push(phi, phi_type);
+                if merge_borrowed {
+                    self.push_borrowed(phi, merge_flag);
+                } else {
+                    self.push(phi, phi_type);
+                }
 
                 self.stack_to_ssa();
 
@@ -11473,7 +11764,11 @@ impl FunctionTranslator<'_> {
                 let phi = self.builder.block_params(merge_block)[0];
 
                 let phi_type = self.merge_type(phi, &[then_type, else_type]);
-                self.push(phi, phi_type);
+                if merge_borrowed {
+                    self.push_borrowed(phi, merge_flag);
+                } else {
+                    self.push(phi, phi_type);
+                }
 
                 self.stack_to_ssa();
 
@@ -11492,6 +11787,7 @@ impl FunctionTranslator<'_> {
 
         let popped = self.if_merge_blocks.pop();
         debug_assert_eq!(popped, Some(merge_block));
+        self.if_merge_flags.pop();
 
         phi
     }
