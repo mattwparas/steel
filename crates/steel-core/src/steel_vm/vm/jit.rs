@@ -4708,6 +4708,87 @@ make_struct_constructors!(
     (call_struct_constructor_8, a, b, c, d, e, f, g, h)
 );
 
+// `#%make-mutable-struct` in tail position, called straight from jitted code.
+// The generic tail call handler re-looked-up the global, matched on its kind and
+// went through the `BuiltIn` calling convention for every `cons` a mutable-pair
+// benchmark makes. The first argument is the struct type descriptor; the rest are
+// the fields. On an error the frame is handed back to the interpreter at
+// `fallback_ip`, which is what `check_deopt` after the call looks for.
+macro_rules! make_mutable_struct_constructors {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallMutableStructConstructorsDefinitions;
+
+        impl CallMutableStructConstructorsDefinitions {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
+                $(
+                    #[cfg(target_os = "windows")]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            /// `count` includes the descriptor.
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+            #[cross_platform_fn]
+            fn $name(
+                ctx: *mut VmCore,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                let guard = unsafe { &mut *ctx };
+                match crate::steel_vm::primitives::make_mutable_struct_from_args(guard, &[$($typ),*]) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        guard.ip = fallback_ip;
+                        guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+                        guard.is_native = false;
+                        SteelVal::Void
+                    }
+                }
+            }
+        )*
+    };
+}
+
+make_mutable_struct_constructors!(
+    (call_mutable_struct_constructor_1, a),
+    (call_mutable_struct_constructor_2, a, b),
+    (call_mutable_struct_constructor_3, a, b, c),
+    (call_mutable_struct_constructor_4, a, b, c, d),
+    (call_mutable_struct_constructor_5, a, b, c, d, e),
+    (call_mutable_struct_constructor_6, a, b, c, d, e, f),
+    (call_mutable_struct_constructor_7, a, b, c, d, e, f, g),
+    (call_mutable_struct_constructor_8, a, b, c, d, e, f, g, h)
+);
+
 macro_rules! make_flat_vector_constructors {
     ($(($name:tt, $($typ:ident),*)),*) => {
 

@@ -2126,6 +2126,59 @@ impl<'a> FunctionTranslator<'a> {
         self.ip += 1;
     }
 
+    /// A `#:mutable` struct field is a box, and its accessor is
+    /// `(lambda (this) (#%unbox (getter-proto this i)))`: the getter call is
+    /// followed immediately by a one argument call to `#%unbox`. Reading the
+    /// box out of the struct just to unbox it cost a refcount increment on the
+    /// box (an out-of-line call, since boxes are not biased) and a drop right
+    /// after - a quarter of conform's time. When that pair is what comes next,
+    /// this returns the instruction to resume at once both are done: past the
+    /// unbox's FUNC, or at the POPPURE after a tail call's TAILCALL.
+    ///
+    /// Called with `ip` at the getter's FUNC. Nothing between the two calls may
+    /// be a branch target, since the pair is compiled as one operation.
+    fn fused_unbox_target(&self) -> Option<usize> {
+        if !getter_unbox_fusion_enabled() {
+            return None;
+        }
+
+        let call = self.ip + 1;
+        let apply = call + 1;
+        if self.join_targets.contains(&call) || self.join_targets.contains(&apply) {
+            return None;
+        }
+
+        let call_ins = self.instructions.get(call)?;
+        let apply_ins = self.instructions.get(apply)?;
+
+        let calls_unbox = matches!(
+            call_ins.op_code,
+            OpCode::CALLGLOBAL
+                | OpCode::CALLGLOBALNOARITY
+                | OpCode::CALLGLOBALTAIL
+                | OpCode::CALLGLOBALTAILNOARITY
+        ) && matches!(
+            self._globals.get(call_ins.payload_size.to_usize()),
+            Some(SteelVal::FuncV(f))
+                if *f as usize == crate::steel_vm::primitives::steel_unbox_mutable as usize
+        );
+
+        if !calls_unbox || apply_ins.payload_size.to_usize() != 1 {
+            return None;
+        }
+
+        match apply_ins.op_code {
+            OpCode::FUNC | OpCode::FUNCNOARITY => Some(apply + 1),
+            OpCode::TAILCALL | OpCode::TAILCALLNOARITY => {
+                let ret = apply + 1;
+                (!self.join_targets.contains(&ret)
+                    && matches!(self.instructions.get(ret)?.op_code, OpCode::POPPURE))
+                .then_some(ret)
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn inline_struct_call_no_drop(
         &mut self,
         spec: StructConstructorRefSpec,
@@ -2190,7 +2243,7 @@ impl<'a> FunctionTranslator<'a> {
                     if spec.descriptor == desc {
                         let last_kind = self.shadow_stack.pop().unwrap();
                         let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
-                        let res = fast_path_struct_matches(i, struct_ref_ptr, self);
+                        let res = fast_path_struct_matches(i, struct_ref_ptr, self, None);
 
                         match last_kind {
                             // Move the value out, call drop on it
@@ -2277,6 +2330,8 @@ impl<'a> FunctionTranslator<'a> {
                     _ => return None,
                 };
 
+                let fuse = self.fused_unbox_target();
+
                 // Saved before the index operand is dropped: every slow arm has
                 // to re-enter the real two argument call.
                 let old_ip = self.ip;
@@ -2299,7 +2354,7 @@ impl<'a> FunctionTranslator<'a> {
                     if spec.descriptor == desc {
                         let last_kind = self.shadow_stack.pop().unwrap();
                         let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
-                        let res = fast_path_struct_matches(i, struct_ref_ptr, self);
+                        let res = fast_path_struct_matches(i, struct_ref_ptr, self, fuse);
 
                         match last_kind {
                             MaybeStackValue::MutRegister(r) => {
@@ -2351,13 +2406,15 @@ impl<'a> FunctionTranslator<'a> {
                             typ,
                             &inner_stack,
                             old_ip,
+                            fuse,
                             ctx,
                         )
                     },
                     move |ctx| {
                         ctx.ip = old_ip;
                         ctx.shadow_stack = stack.clone();
-                        slow_path_struct_getter(GETTER_PROTO_ARITY, function_index, ctx)
+                        let value = slow_path_struct_getter(GETTER_PROTO_ARITY, function_index, ctx);
+                        finish_slow_getter(value, fuse, ctx)
                     },
                     typ,
                 );
@@ -2440,6 +2497,18 @@ fn predicate_inlining_enabled() -> bool {
     })
 }
 
+/// `STEEL_JIT_FUSE_GETTER_UNBOX=0` turns off reading a mutable struct field
+/// straight through its box. On by default.
+fn getter_unbox_fusion_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_FUSE_GETTER_UNBOX").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
 fn getter_proto_inlining_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| {
@@ -2463,6 +2532,7 @@ fn inline_struct_getter_proto(
     typ: Type,
     saved_stack: &[MaybeStackValue],
     old_ip: usize,
+    fuse: Option<usize>,
     ctx: &mut FunctionTranslator,
 ) -> Value {
     let descriptor = spec.descriptor.key();
@@ -2487,11 +2557,12 @@ fn inline_struct_getter_proto(
 
     ctx.converging_if(
         struct_matches,
-        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx),
+        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx, fuse),
         move |ctx| {
             ctx.ip = old_ip;
             ctx.shadow_stack = saved.clone();
-            slow_path_struct_getter(GETTER_PROTO_ARITY, function_index, ctx)
+            let value = slow_path_struct_getter(GETTER_PROTO_ARITY, function_index, ctx);
+            finish_slow_getter(value, fuse, ctx)
         },
         typ,
     )
@@ -2528,7 +2599,7 @@ fn inline_struct_getter(
 
     let res = ctx.converging_if(
         struct_matches,
-        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx),
+        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx, None),
         |ctx| {
             // call_global_function takes self.ip as the deopt fallback and then
             // advances one, so this has to enter on the call itself - the same
@@ -2546,6 +2617,7 @@ fn fast_path_struct_matches(
     i: usize,
     struct_ref_ptr: Value,
     ctx: &mut FunctionTranslator<'_>,
+    fuse: Option<usize>,
 ) -> Value {
     // The fields sit inline right after the header, so the element address is a
     // constant displacement off the struct pointer - no separate buffer to load.
@@ -2560,6 +2632,16 @@ fn fast_path_struct_matches(
         .ins()
         .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
+    if let Some(resume) = fuse {
+        // The field is the box and the unbox comes straight after: read through
+        // it while it is still borrowed from the struct - which holds it alive
+        // for the length of the read - so only the value inside is cloned. The
+        // box itself is never cloned, and so never dropped.
+        let value = ctx.unbox_value_checked_register(local_value, false);
+        ctx.ip = resume;
+        return value;
+    }
+
     // Clone whatever comes out of this
     ctx.clone_value(local_value);
 
@@ -2567,6 +2649,25 @@ fn fast_path_struct_matches(
     ctx.ip += 1;
 
     local_value
+}
+
+/// The slow arm of a fused `(#%unbox (getter-proto ...))`: the real getter call
+/// hands back an owned box, so unbox it here and release it. Both arms then end
+/// on the same instruction holding the same kind of value, which the
+/// `converging_if` around them requires.
+fn finish_slow_getter(
+    value: Value,
+    fuse: Option<usize>,
+    ctx: &mut FunctionTranslator<'_>,
+) -> Value {
+    match fuse {
+        Some(resume) => {
+            let unboxed = ctx.unbox_value_checked_register(value, true);
+            ctx.ip = resume;
+            unboxed
+        }
+        None => value,
+    }
 }
 
 fn slow_path_struct_getter(

@@ -950,6 +950,7 @@ impl Default for JIT {
         );
 
         CallStructConstructorsDefinitions::register(&mut map);
+        CallMutableStructConstructorsDefinitions::register(&mut map);
         CallFlatVectorConstructorsDefinitions::register(&mut map);
 
         CallSelfNoArityFunctionDefinitions::register(&mut map);
@@ -1532,6 +1533,30 @@ fn weak_counter_offset() -> i64 {
     steel_rc::weak::weak_offset::<
         crate::values::lock::SpinLock<crate::values::closed::HeapAllocated<SteelVal>>,
     >() as i64
+}
+
+/// `STEEL_JIT_INLINE_WEAK_CLONE=0` sends heap reference clones back through the
+/// out-of-line `clone_one` call. On by default.
+fn inline_weak_clone_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_INLINE_WEAK_CLONE").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// `STEEL_JIT_PRIM_TAIL_EXTRA=0` turns off tail-position inlining of `eq?`,
+/// `vector-set!` and `#%make-mutable-struct`, leaving `#%unbox` / `#%set-box!`.
+fn extra_primitive_tail_calls_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_PRIM_TAIL_EXTRA").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
 }
 
 fn weak_counter_type() -> Type {
@@ -7609,10 +7634,35 @@ impl FunctionTranslator<'_> {
             return None;
         }
 
-        let SteelVal::FuncV(f) = func? else {
+        let func = func?;
+        let extra = extra_primitive_tail_calls_enabled();
+
+        if let SteelVal::BuiltIn(b) = func {
+            if !extra {
+                return None;
+            }
+            return self.inline_mutable_struct_tail_call(*b as usize, arity);
+        }
+
+        let SteelVal::FuncV(f) = func else {
             return None;
         };
         let target = *f as usize;
+
+        // `eq?` and `vector-set!` already have inline lowerings for a call in
+        // any other position: reuse them, then take the result back off the
+        // operand stack to return it. `eq?`'s result is an unboxed bool, so
+        // `as_steelval` boxes it. Their `ip` advance is irrelevant here - the
+        // tail call arm moves past the end of the function once this returns.
+        if extra && target == steel_eq as usize && arity == 2 {
+            self.eq();
+            return Some(self.pop_as_steelval());
+        }
+
+        if extra && target == steel_mut_vec_set as usize && arity == 3 {
+            self.vector_set();
+            return Some(self.pop_as_steelval());
+        }
 
         if target == crate::steel_vm::primitives::steel_unbox_mutable as usize && arity == 1 {
             let last = self.shadow_stack.last().copied()?;
@@ -7653,6 +7703,44 @@ impl FunctionTranslator<'_> {
         }
 
         None
+    }
+
+    fn pop_as_steelval(&mut self) -> Value {
+        let top = self.shadow_stack_pop().unwrap().into_value(self);
+        top.as_steelval(self)
+    }
+
+    /// `#%make-mutable-struct` in tail position, as a direct call to the
+    /// allocation instead of the generic tail call handler.
+    ///
+    /// Only when the constructor's arguments are the whole operand stack. The
+    /// allocation can run a collection, and the collector's roots are the vm
+    /// stack plus these arguments: an operand still held only in the jitted
+    /// frame would not be one. In tail position nothing else is live anyway, so
+    /// this costs nothing in practice - it is `(define (cons a b) (mpair a b))`.
+    fn inline_mutable_struct_tail_call(&mut self, builtin: usize, arity: usize) -> Option<Value> {
+        if builtin != crate::steel_vm::primitives::make_mutable_struct as usize {
+            return None;
+        }
+
+        let name = CallMutableStructConstructorsDefinitions::arity_to_name(arity)?;
+
+        if self.shadow_stack.len() != arity {
+            return None;
+        }
+
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let mut args = vec![fallback_ip];
+        args.extend(self.split_off(arity).into_iter().map(|x| x.0));
+
+        let result = self.call_function_returns_value_args(name, &args);
+        self.check_deopt();
+
+        Some(result)
     }
 
     /// Inline a two-operand integer comparison, checking both tags at runtime.
@@ -13073,9 +13161,50 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(merge_block);
     }
 
-    /// Clone a standard RC value
+    /// Clone a standard RC value.
+    ///
+    /// Boxes and mutable vectors are `HeapRef`s, whose clone is a single atomic
+    /// increment of a `Weak` counter at a fixed offset - the mirror of the
+    /// decrement `inline_weak_decrement` already emits. Calling out to
+    /// `clone_one` for it cost a whole `SteelVal` round trip per clone: 17% of
+    /// conform, which reads mutable vector records and shim pairs constantly.
+    /// Continuations still take the call.
+    ///
+    /// `Weak::clone` panics if the count passes `i32::MAX`; this does not
+    /// check. Reaching that needs two billion live references to one heap
+    /// object, the same assumption the inline decrement makes.
     fn clone_rc_value(&mut self, value: Value) {
-        self.call_function_args_no_context("#%clone-std-rc", &[value]);
+        if !inline_weak_clone_enabled() {
+            self.call_function_args_no_context("#%clone-std-rc", &[value]);
+            return;
+        }
+
+        let tag = self.get_tag(value);
+        let weak_mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, SteelVal::WEAK_RC_MASK as i64);
+        let shifted = self.builder.ins().ushr(weak_mask, tag);
+        let is_weak = self.builder.ins().band_imm_u(shifted, 1);
+
+        self.converging_if_no_value(
+            is_weak,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(value);
+                let one = ctx.builder.ins().iconst(weak_counter_type(), 1);
+                let counter = ctx.builder.ins().iadd_imm_s(ptr, weak_counter_offset());
+                ctx.builder.ins().atomic_rmw(
+                    weak_counter_type(),
+                    MemFlagsData::trusted(),
+                    AtomicRmwOp::Add,
+                    counter,
+                    one,
+                );
+            },
+            |ctx| {
+                ctx.call_function_args_no_context("#%clone-std-rc", &[value]);
+            },
+        );
     }
 
     /// Clone a biased rc value

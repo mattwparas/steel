@@ -2235,40 +2235,44 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
 /// paid N VM dispatches, N safepoint entries and N heap lock acquisitions.
 /// Doing the whole struct here pays those once.
 #[steel_derive::context(name = "#%make-mutable-struct", arity = "AtLeast(1)")]
-fn make_mutable_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    fn make_mutable_struct_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-        let Some((descriptor, fields)) = args.split_first() else {
-            stop!(ArityMismatch => "#%make-mutable-struct expects a struct type descriptor");
-        };
+pub(crate) fn make_mutable_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(make_mutable_struct_from_args(ctx, args))
+}
 
-        let descriptor = StructTypeDescriptor::from_steelval(descriptor)?;
+/// `#%make-mutable-struct` without the `BuiltIn` calling convention, so the jit
+/// can call it directly: `args` is the descriptor followed by the fields. The
+/// fields are handed to the allocator as roots, so a collection triggered while
+/// the boxes are made cannot reclaim them.
+pub(crate) fn make_mutable_struct_from_args(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let Some((descriptor, fields)) = args.split_first() else {
+        stop!(ArityMismatch => "#%make-mutable-struct expects a struct type descriptor");
+    };
 
-        let mut boxed = Vec::with_capacity(fields.len());
+    let descriptor = StructTypeDescriptor::from_steelval(descriptor)?;
 
-        let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+    let mut boxed = Vec::with_capacity(fields.len());
 
-        // The fields go in as roots, so a collection part way through the batch
-        // cannot reclaim the boxes already made or anything only they reach.
-        heap_lock.allocate_many(
-            fields,
-            &ctx.thread.stack,
-            ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-            ctx.thread.global_env.roots(),
-            &ctx.thread.thread_local_storage,
-            &mut ctx.thread.synchronizer,
-            &mut boxed,
-        );
+    let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
 
-        drop(heap_lock);
+    // The fields go in as roots, so a collection part way through the batch
+    // cannot reclaim the boxes already made or anything only they reach.
+    heap_lock.allocate_many(
+        fields,
+        &ctx.thread.stack,
+        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+        ctx.thread.global_env.roots(),
+        &ctx.thread.thread_local_storage,
+        &mut ctx.thread.synchronizer,
+        &mut boxed,
+    );
+
+    drop(heap_lock);
 
 
-        Ok(SteelVal::CustomStruct(StructRef::from_parts(
-            descriptor,
-            boxed.into_iter(),
-        )))
-    }
-
-    Some(make_mutable_struct_impl(ctx, args))
+    Ok(SteelVal::CustomStruct(StructRef::from_parts(
+        descriptor,
+        boxed.into_iter(),
+    )))
 }
 
 /// Creates a mutable box holding the given value. The box is tracked by the
