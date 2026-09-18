@@ -2943,22 +2943,21 @@ impl VisitorMutRefUnit for SubstituteBindings {
     }
 }
 
-/// `STEEL_SUBSTITUTE_LAMBDAS=1` inlines a higher order function at a call site
-/// that passes a lambda, and substitutes that lambda into the calls of it.
+/// `STEEL_SUBSTITUTE_LAMBDAS=0` stops inlining a higher order function at a call
+/// site that passes a lambda, and stops substituting that lambda into the calls
+/// of it.
 ///
-/// **Default off.** It is a large win where it fires cleanly (peval -16% cycles)
-/// but it makes `graphs` allocate a continuation closure per iteration inside an
-/// inlined copy, and the jit leaks a reference on that shape: peak rss goes from
-/// 2.2GB to 23GB, growing ~450MB/s. The leak is jit only - the interpreter
-/// plateaus - and is not any of the jit features added alongside it (borrow,
-/// inline eq, prim tail all off still leak). See the memory note; turn this on
-/// again once that is fixed.
+/// On by default. `peval` is 20% fewer cycles with it, `matrix` 5%, and it is
+/// what lets `graphs` free its continuation closures - 2.3GB of peak rss down to
+/// 316MB. Everything else in the r7rs set is within a couple of percent. It was
+/// off for a while because `graphs` grew to 23GB with it; that turned out to be
+/// the jit's inline tail call never releasing the frame's locals, not this pass.
 fn substitute_lambdas_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| {
-        matches!(
+        !matches!(
             std::env::var("STEEL_SUBSTITUTE_LAMBDAS").ok().as_deref(),
-            Some("1") | Some("true")
+            Some("0") | Some("false")
         )
     })
 }

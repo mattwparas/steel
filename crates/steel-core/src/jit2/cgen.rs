@@ -1355,9 +1355,9 @@ impl Default for JIT {
 
         map.add_func_hint("lte-binop", extern_c_lte_two as VmBinOp, InferredType::Bool);
 
-        map.add_func_hint2(
+        map.add_func_hint(
             "lte-binop-int",
-            extern_c_lte_two_int as BinOp,
+            extern_c_lte_two_int as VmBinOp,
             InferredType::Bool,
         );
 
@@ -1391,9 +1391,9 @@ impl Default for JIT {
             InferredType::UnboxedBool,
         );
 
-        map.add_func_hint2(
+        map.add_func_hint(
             "lt-binop-int",
-            extern_c_lt_two_int as BinOp,
+            extern_c_lt_two_int as VmBinOp,
             InferredType::Bool,
         );
 
@@ -5765,7 +5765,7 @@ impl FunctionTranslator<'_> {
                     }
                     // TODO: This isn't quite right. This doesn not check the input
                     // type properly
-                    self.func_ret_val_named("lt-binop-int", payload, 2, InferredType::Bool);
+                    self.func_ret_val_named_with_context("lt-binop-int", payload, 2, InferredType::Bool);
                 }
 
                 // When the value is a mutable register, or register, and we're comparing
@@ -6128,7 +6128,7 @@ impl FunctionTranslator<'_> {
                             self.shadow_mark_local_type_from_var(arg, InferredType::Number);
                         }
                     }
-                    self.func_ret_val_named("lte-binop-int", payload, 2, InferredType::Bool);
+                    self.func_ret_val_named_with_context("lte-binop-int", payload, 2, InferredType::Bool);
                 }
 
                 OpCode::NUMEQUAL
@@ -12676,9 +12676,14 @@ impl FunctionTranslator<'_> {
         let all_immediate =
             (0..live_above).all(|k| self.register_is_immediate(base_slot + k));
 
+        // Unrolling this - emitting `arity + live_above - base_slot` drops at
+        // fixed offsets instead of the loop - was measured and is a wash:
+        // earley -0.45% instructions, conform -0.09%, browse and destruc 0.00%,
+        // with cycles inside the noise floor in both directions. The cost here
+        // is the refcount and free work for values that used to be leaked, not
+        // the loop driving it, so there is nothing to win by driving it better.
         if live_above > 0 && !all_immediate {
-            let already_dropped = args.len().max(self.arity as usize) as i64;
-            let drop_from = self.builder.ins().iadd_imm_s(index, already_dropped);
+            let drop_from = self.builder.ins().iadd_imm_s(index, base_slot as i64);
             self.drop_vm_stack_range(vm_ctx, drop_from, old_length);
         }
     }

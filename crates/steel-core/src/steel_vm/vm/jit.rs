@@ -3082,227 +3082,336 @@ fn extern_c_negate(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
 }
 
 extern_binop!(extern_c_sub_two, subtract_primitive);
-// extern_binop!(extern_c_lt_two, lt_primitive);
-// extern_binop!(extern_c_lte_two, lte_primitive);
+// These used to be hand written as `SteelVal::BoolV(a <= b)`, which answers
+// `#false` for a pair that cannot be ordered at all. `gt`/`gte` next to them
+// already went through the primitive, so `(< 1 "x")` and `(> 1 "x")`
+// disagreed with each other.
+extern_binop!(extern_c_lt_two, lt_primitive);
+extern_binop!(extern_c_lte_two, lte_primitive);
 
+// Bool-returning comparisons on two arbitrary values.
+//
+// The `*-binop` helpers return a boxed `SteelVal`, which is fine when the JIT
+// is going to push the result, but useless as the fallback arm of an inlined
+// comparison: both arms of the branch have to agree on type, and the inlined
+// arm produces an unboxed `i1`.
+//
+// These must match `ordering_primitive` - the shared body of the `<`, `<=`,
+// `>` and `>=` primitives - exactly, or the same expression answers differently
+// depending on whether the jit picked the inlined comparison. That means
+// raising when the two values cannot be ordered at all, which is what
+// `partial_cmp` returning `None` says.
+//
+// The rule is *comparability*, deliberately not `realp`. An earlier version of
+// these copied the shape of `extern_c_lte_register`, which rejects anything
+// non-real, and that turned working comparisons in `compiler` into type errors.
+// Strings order against strings here, as they always have; only a genuinely
+// incomparable pair - a number against a string, say - raises.
+//
+// (Plain comments, not doc comments: `cross_platform_fn` re-emits the item's
+// attributes after the `extern "C-unwind"`, so a `///` on one of these is a
+// syntax error.)
 #[cross_platform_fn]
-fn extern_c_lte_two(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
-    // println!("lte two - {} <= {}", a, b);
+fn extern_c_lt_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
+    match a.partial_cmp(&b) {
+        Some(ordering) => ordering == std::cmp::Ordering::Less,
+        None => {
+            let e = SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!(
+                    "< expected comparable values, found: {} and {}",
+                    a, b
+                ),
+            );
 
-    // let a = ManuallyDrop::new(a);
-    // let b = ManuallyDrop::new(b);
-    SteelVal::BoolV(a <= b)
-}
-
-/// Bool-returning comparisons on two arbitrary values.
-///
-/// The `*-binop` helpers return a boxed `SteelVal`, which is fine when the JIT
-/// is going to push the result, but useless as the fallback arm of an inlined
-/// comparison: both arms of the branch have to agree on type, and the inlined
-/// arm produces an unboxed `i1`.
-///
-/// These must match `extern_c_lt_two` and friends **exactly**, which means
-/// comparing with `SteelVal`'s own ordering and *not* type checking. Steel
-/// permits `(< "1" 9999)` - it answers `#false` rather than raising - so a
-/// stricter fallback silently turns working programs into type errors. An
-/// earlier version of this macro copied the checked shape of
-/// `extern_c_lte_register` and did exactly that to `compiler`.
-macro_rules! make_value_compare_bool {
-    ($(($name:ident, $op:tt)),* $(,)?) => {
-        $(
-            #[cross_platform_fn]
-            fn $name(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
-                a $op b
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
             }
-        )*
-    };
-}
 
-make_value_compare_bool!(
-    (extern_c_lt_two_value_bool, <),
-    (extern_c_lte_two_value_bool, <=),
-    (extern_c_gt_two_value_bool, >),
-    (extern_c_gte_two_value_bool, >=),
-);
-
-#[cross_platform_fn]
-fn extern_c_lt_two(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
-    // println!("lte two - {} <= {}", a, b);
-
-    // let a = ManuallyDrop::new(a);
-    // let b = ManuallyDrop::new(b);
-    SteelVal::BoolV(a < b)
+            false
+        }
+    }
 }
 
 #[cross_platform_fn]
-fn extern_c_lte_three(_ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
-    SteelVal::BoolV(a <= b && b <= c)
+fn extern_c_lte_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
+    match a.partial_cmp(&b) {
+        Some(ordering) => ordering != std::cmp::Ordering::Greater,
+        None => {
+            let e = SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!(
+                    "<= expected comparable values, found: {} and {}",
+                    a, b
+                ),
+            );
+
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            false
+        }
+    }
 }
 
 #[cross_platform_fn]
-fn extern_c_lt_three(_ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
-    SteelVal::BoolV(a < b && b < c)
+fn extern_c_gt_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
+    match a.partial_cmp(&b) {
+        Some(ordering) => ordering == std::cmp::Ordering::Greater,
+        None => {
+            let e = SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!(
+                    "> expected comparable values, found: {} and {}",
+                    a, b
+                ),
+            );
+
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            false
+        }
+    }
 }
 
 #[cross_platform_fn]
-fn extern_c_gt_three(_ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
-    SteelVal::BoolV(a > b && b > c)
+fn extern_c_gte_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
+    match a.partial_cmp(&b) {
+        Some(ordering) => ordering != std::cmp::Ordering::Less,
+        None => {
+            let e = SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!(
+                    ">= expected comparable values, found: {} and {}",
+                    a, b
+                ),
+            );
+
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            false
+        }
+    }
+}
+
+// The three argument orderings, `(< a b c)`. Same story as the two argument
+// ones: written out as `a < b && b < c` they silently answer `#false` for an
+// unorderable pair, so they go through the primitive instead.
+#[cross_platform_fn]
+fn extern_c_lt_three(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
+    match lt_primitive(&[a, b, c]) {
+        Ok(v) => v,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.is_native = false;
+            guard.result = Some(Err(e));
+            SteelVal::Void
+        }
+    }
 }
 
 #[cross_platform_fn]
-fn extern_c_gte_three(_ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
-    SteelVal::BoolV(a >= b && b >= c)
+fn extern_c_lte_three(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
+    match lte_primitive(&[a, b, c]) {
+        Ok(v) => v,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.is_native = false;
+            guard.result = Some(Err(e));
+            SteelVal::Void
+        }
+    }
 }
 
 #[cross_platform_fn]
-fn extern_c_lte_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
+fn extern_c_gt_three(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
+    match gt_primitive(&[a, b, c]) {
+        Ok(v) => v,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.is_native = false;
+            guard.result = Some(Err(e));
+            SteelVal::Void
+        }
+    }
+}
+
+#[cross_platform_fn]
+fn extern_c_gte_three(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
+    match gte_primitive(&[a, b, c]) {
+        Ok(v) => v,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.is_native = false;
+            guard.result = Some(Err(e));
+            SteelVal::Void
+        }
+    }
+}
+
+// `b` is known to be an integer, but `a` is whatever was on the stack, so this
+// still has to reject an `a` that will not order against it.
+#[cross_platform_fn]
+fn extern_c_lte_two_int(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
     assert!(matches!(b, SteelVal::IntV(_)));
-    SteelVal::BoolV(a <= b)
+    match lte_primitive(&[a, b]) {
+        Ok(v) => v,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.is_native = false;
+            guard.result = Some(Err(e));
+            SteelVal::Void
+        }
+    }
 }
 
 #[cross_platform_fn]
 fn extern_c_lte_register(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
-    use crate::primitives::numbers::realp;
-
-    let mut ctx = unsafe { &mut *ctx };
+    let ctx = unsafe { &mut *ctx };
     let offset = ctx.get_offset();
     let a = &ctx.thread.stack[reg + offset];
 
-    if realp(a) && realp(&b) {
-        a <= &b
-    } else {
-        let e = SteelErr::new(
-            ErrorKind::TypeMismatch,
-            format!("expected real numbers, found: {} - {}", a, b),
-        );
+    match a.partial_cmp(&b) {
+        Some(ordering) => ordering != std::cmp::Ordering::Greater,
+        None => {
+            let e = SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!("<= expected comparable values, found: {} and {}", a, b),
+            );
 
-        unsafe {
-            let guard = &mut *ctx;
-            guard.result = Some(Err(e));
-            guard.is_native = false;
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+
+            false
         }
-
-        false
     }
 }
 
 #[cross_platform_fn]
 fn extern_c_lte_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
-    use crate::primitives::numbers::realp;
-
     assert!(matches!(b, SteelVal::IntV(_)));
-    let mut ctx = unsafe { &mut *ctx };
+    let ctx = unsafe { &mut *ctx };
     let offset = ctx.get_offset();
     let a = &ctx.thread.stack[reg + offset];
 
-    if realp(a) {
-        // Avoid the drop glue. We've already asserted that this is an integer
-        let b = ManuallyDrop::new(b);
-        a <= &b
-    } else {
-        let e = SteelErr::new(
-            ErrorKind::TypeMismatch,
-            format!("expected real numbers, found: {} and {}", a, b),
-        );
+    // Avoid the drop glue. We've already asserted that this is an integer
+    let b = ManuallyDrop::new(b);
 
-        unsafe {
-            let guard = &mut *ctx;
-            guard.result = Some(Err(e));
-            guard.is_native = false;
+    match a.partial_cmp(&*b) {
+        Some(ordering) => ordering != std::cmp::Ordering::Greater,
+        None => {
+            let e = SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!("<= expected comparable values, found: {} and {}", a, *b),
+            );
+
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+
+            false
         }
-
-        false
     }
 }
 
 #[cross_platform_fn]
 fn extern_c_gte_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
-    use crate::primitives::numbers::realp;
-
     assert!(matches!(b, SteelVal::IntV(_)));
-    let mut ctx = unsafe { &mut *ctx };
+    let ctx = unsafe { &mut *ctx };
     let offset = ctx.get_offset();
     let a = &ctx.thread.stack[reg + offset];
 
-    if realp(a) {
-        // Avoid the drop glue. We've already asserted that this is an integer
-        let b = ManuallyDrop::new(b);
-        a >= &b
-    } else {
-        let e = SteelErr::new(
-            ErrorKind::TypeMismatch,
-            format!("expected real numbers, found: {} and {}", a, b),
-        );
+    // Avoid the drop glue. We've already asserted that this is an integer
+    let b = ManuallyDrop::new(b);
 
-        unsafe {
-            let guard = &mut *ctx;
-            guard.result = Some(Err(e));
-            guard.is_native = false;
+    match a.partial_cmp(&*b) {
+        Some(ordering) => ordering != std::cmp::Ordering::Less,
+        None => {
+            let e = SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!(">= expected comparable values, found: {} and {}", a, *b),
+            );
+
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+
+            false
         }
-
-        false
     }
 }
 
 #[cross_platform_fn]
 fn extern_c_gte_register_unknown(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
-    use crate::primitives::numbers::realp;
-
-    let mut ctx = unsafe { &mut *ctx };
+    let ctx = unsafe { &mut *ctx };
     let offset = ctx.get_offset();
     let a = &ctx.thread.stack[reg + offset];
 
-    if realp(a) {
-        a >= &b
-    } else {
-        let e = SteelErr::new(
-            ErrorKind::TypeMismatch,
-            format!("expected real numbers, found: {} and {}", a, b),
-        );
+    match a.partial_cmp(&b) {
+        Some(ordering) => ordering != std::cmp::Ordering::Less,
+        None => {
+            let e = SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!(">= expected comparable values, found: {} and {}", a, b),
+            );
 
-        unsafe {
-            let guard = &mut *ctx;
-            guard.result = Some(Err(e));
-            guard.is_native = false;
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+
+            false
         }
-
-        false
     }
 }
 
 #[cross_platform_fn]
 fn extern_c_lt_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
-    use crate::primitives::numbers::realp;
-
     assert!(matches!(b, SteelVal::IntV(_)));
-    let mut ctx = unsafe { &mut *ctx };
+    let ctx = unsafe { &mut *ctx };
     let offset = ctx.get_offset();
     let a = &ctx.thread.stack[reg + offset];
 
-    if realp(a) {
-        // Avoid the drop glue. We've already asserted that this is an integer
-        let b = ManuallyDrop::new(b);
-        a < &b
-    } else {
-        let e = SteelErr::new(
-            ErrorKind::TypeMismatch,
-            format!("expected real numbers, found: {} and {}", a, b),
-        );
+    // Avoid the drop glue. We've already asserted that this is an integer
+    let b = ManuallyDrop::new(b);
 
-        unsafe {
-            let guard = &mut *ctx;
-            guard.result = Some(Err(e));
-            guard.is_native = false;
+    match a.partial_cmp(&*b) {
+        Some(ordering) => ordering == std::cmp::Ordering::Less,
+        None => {
+            let e = SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!("< expected comparable values, found: {} and {}", a, *b),
+            );
+
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+
+            false
         }
-
-        false
     }
 }
 
 #[cross_platform_fn]
-fn extern_c_lt_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
+fn extern_c_lt_two_int(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
     assert!(matches!(b, SteelVal::IntV(_)));
-    SteelVal::BoolV(a < b)
+    match lt_primitive(&[a, b]) {
+        Ok(v) => v,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.is_native = false;
+            guard.result = Some(Err(e));
+            SteelVal::Void
+        }
+    }
 }
 
 #[cross_platform_fn]

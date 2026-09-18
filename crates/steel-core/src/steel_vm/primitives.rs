@@ -1404,55 +1404,61 @@ pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(args.windows(2).all(|x| x[0] == x[1])))
 }
 
-pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+/// The shared body of `<`, `<=`, `>` and `>=`.
+///
+/// Two values that cannot be ordered - a number against a string, say - used to
+/// come back as `#false`, because `partial_cmp` returning `None` was folded in
+/// with "the comparison did not hold". That silently accepted
+/// `(< 1 2 3 "x")`. R7RS says it is an error to pass a non number, and the jit's
+/// own fallback helpers already raise, so the primitive was the odd one out.
+///
+/// Every pair is checked rather than stopping at the first false one, so
+/// `(< 3 2 "x")` raises rather than returning `#false` because the answer was
+/// already decided - which is what guile does.
+#[inline(always)]
+fn ordering_primitive(
+    args: &[SteelVal],
+    name: &'static str,
+    holds: fn(Ordering) -> bool,
+) -> Result<SteelVal> {
     if args.is_empty() {
-        stop!(ArityMismatch => "expected at least one argument");
+        stop!(ArityMismatch => format!("{} expected at least one argument", name));
     }
 
-    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
-        x[0].partial_cmp(&x[1])
-            .map(|x| x != Ordering::Less)
-            .unwrap_or(false)
-    })))
+    let mut result = true;
+
+    for pair in args.windows(2) {
+        match pair[0].partial_cmp(&pair[1]) {
+            Some(ordering) => result &= holds(ordering),
+            None => {
+                stop!(TypeMismatch => format!(
+                    "{} expected comparable values, found: {} and {}",
+                    name, pair[0], pair[1]
+                ))
+            }
+        }
+    }
+
+    Ok(SteelVal::BoolV(result))
+}
+
+pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    ordering_primitive(args, ">=", |ordering| ordering != Ordering::Less)
 }
 
 #[inline(always)]
 pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.is_empty() {
-        stop!(ArityMismatch => "expected at least one argument");
-    }
-
-    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
-        x[0].partial_cmp(&x[1])
-            .map(|x| x != Ordering::Greater)
-            .unwrap_or(false)
-    })))
+    ordering_primitive(args, "<=", |ordering| ordering != Ordering::Greater)
 }
 
 #[inline(always)]
 pub fn lt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.is_empty() {
-        stop!(ArityMismatch => "expected at least one argument");
-    }
-
-    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
-        x[0].partial_cmp(&x[1])
-            .map(|x| x == Ordering::Less)
-            .unwrap_or(false)
-    })))
+    ordering_primitive(args, "<", |ordering| ordering == Ordering::Less)
 }
 
 #[inline(always)]
 pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.is_empty() {
-        stop!(ArityMismatch => "expected at least one argument");
-    }
-
-    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
-        x[0].partial_cmp(&x[1])
-            .map(|x| x == Ordering::Greater)
-            .unwrap_or(false)
-    })))
+    ordering_primitive(args, ">", |ordering| ordering == Ordering::Greater)
 }
 
 /// Checks two values for pointer equality, i.e. returns #t if the two values
