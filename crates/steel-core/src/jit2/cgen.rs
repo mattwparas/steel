@@ -23,7 +23,10 @@ use crate::{
     gc::Gc,
     primitives::{
         lists::{steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse},
-        numbers::{quotient, remainder, truncate_quotient, truncate_remainder},
+        numbers::{
+            floor_quotient, floor_remainder, modulo, quotient, remainder, truncate_quotient,
+            truncate_remainder,
+        },
         ports::{eof_objectp_jit, steel_eof_objectp},
         strings::steel_char_equals,
         vectors::{flat_vector_construct, mut_vec_push, steel_mut_vec_set},
@@ -1573,8 +1576,41 @@ pub(super) fn borrow_enabled() -> bool {
     })
 }
 
-/// `STEEL_JIT_INLINE_DIVMOD=0` sends `quotient` / `remainder` back out through
-/// the generic primitive call instead of inlining the two-fixnum case.
+/// Which of the four integer division operators `inline_int_divmod` is
+/// lowering. The truncating pair round toward zero and take their sign from the
+/// dividend; the flooring pair round down and take it from the divisor.
+#[derive(Clone, Copy)]
+enum DivMode {
+    TruncQuotient,
+    TruncRemainder,
+    FloorQuotient,
+    FloorRemainder,
+}
+
+/// Maps a primitive to the division it performs, or `None` if it is not one.
+///
+/// `quotient` / `remainder` / `modulo` are thin wrappers over the
+/// `truncate-*` and `floor-*` procedures, but they are distinct fn items with
+/// distinct addresses, so each one has to be named here.
+fn divmod_mode(f: FunctionSignature) -> Option<DivMode> {
+    if f == quotient as FunctionSignature || f == truncate_quotient as FunctionSignature {
+        Some(DivMode::TruncQuotient)
+    } else if f == remainder as FunctionSignature
+        || f == truncate_remainder as FunctionSignature
+    {
+        Some(DivMode::TruncRemainder)
+    } else if f == floor_quotient as FunctionSignature {
+        Some(DivMode::FloorQuotient)
+    } else if f == modulo as FunctionSignature || f == floor_remainder as FunctionSignature {
+        Some(DivMode::FloorRemainder)
+    } else {
+        None
+    }
+}
+
+/// `STEEL_JIT_INLINE_DIVMOD=0` sends `quotient` / `remainder` / `modulo` back
+/// out through the generic primitive call instead of inlining the two-fixnum
+/// case.
 pub(super) fn inline_divmod_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| {
@@ -5017,20 +5053,10 @@ impl FunctionTranslator<'_> {
 
                                 f if inline_divmod_enabled()
                                     && arity == 2
-                                    && (f == quotient as FunctionSignature
-                                        || f == truncate_quotient as FunctionSignature) =>
+                                    && divmod_mode(f).is_some() =>
                                 {
-                                    let v = self.inline_int_divmod(false, f);
-                                    self.push(v, InferredType::Any);
-                                    self.ip += 1;
-                                }
-
-                                f if inline_divmod_enabled()
-                                    && arity == 2
-                                    && (f == remainder as FunctionSignature
-                                        || f == truncate_remainder as FunctionSignature) =>
-                                {
-                                    let v = self.inline_int_divmod(true, f);
+                                    let mode = divmod_mode(f).unwrap();
+                                    let v = self.inline_int_divmod(mode, f);
                                     self.push(v, InferredType::Any);
                                     self.ip += 1;
                                 }
@@ -7961,35 +7987,25 @@ impl FunctionTranslator<'_> {
         Some(result)
     }
 
-    /// Inline a two-operand integer comparison, checking both tags at runtime.
+    /// The four integer division operators, on two fixnums.
     ///
-    /// The existing fast paths for `=`, `<` and friends all require one side to
-    /// be a compile-time constant or a known register. That covers loop
-    /// counters against literals but not generic arithmetic, which then paid a
-    /// full native call per comparison. Here both operands are materialised as
-    /// values, both tags are tested, and the happy path is a single `icmp` on
-    /// the payloads.
-    ///
-    /// `fallback` must be a helper returning an *unboxed* bool, so both arms of
-    /// the branch agree on type and the result can be consumed directly by a
-    /// following `if` without boxing.
-    /// `(quotient a b)` / `(remainder a b)` on two fixnums.
-    ///
-    /// These have no opcode and had no inline arm, so every call went out
-    /// through `call_primitive_function_deopt_2`, which publishes the safepoint
-    /// and hands the arguments to the generic primitive. In `bv2string`'s
-    /// random number generator that path was 26% of the run.
+    /// None of these have an opcode, so every call went out through
+    /// `call_primitive_function_deopt_2`, which publishes the safepoint and
+    /// hands the arguments to the generic primitive. In `bv2string`'s random
+    /// number generator that path was 26% of the run.
     ///
     /// The guard is wider than the arithmetic strictly needs. Cranelift's
     /// `sdiv`/`srem` trap on a zero divisor *and* on `isize::MIN / -1`, and the
     /// primitive answers those two with something that is not a fixnum anyway -
     /// an error, and a `BigNum` - so `b == -1` goes out of line rather than
-    /// being special cased here. Everything else about the primitive's integer
-    /// case is exactly truncating division, which is what these instructions do.
+    /// being special cased here. Within that guard neither the truncating nor
+    /// the flooring form can overflow, so there is no exit on the fast path:
+    /// `q - 1` is bounded because `|q| <= |a| / 2`, and `r + b` is bounded
+    /// because `r` is smaller than `b` and points the other way.
     ///
     /// The result is pushed as `Any`, not `Int`: the fallback can return a
     /// float or a `BigNum`, and both arms have to describe the merge.
-    fn inline_int_divmod(&mut self, is_remainder: bool, function: FunctionSignature) -> Value {
+    fn inline_int_divmod(&mut self, mode: DivMode, function: FunctionSignature) -> Value {
         let rhs = {
             let sv = self.shadow_stack_pop().unwrap().into_value(self);
             sv.as_steelval(self)
@@ -8017,14 +8033,33 @@ impl FunctionTranslator<'_> {
                 let l = ctx.unbox_value_to_pointer(lhs);
                 let r = ctx.unbox_value_to_pointer(rhs);
 
-                let res = if is_remainder {
-                    ctx.builder.ins().srem(l, r)
-                } else {
-                    ctx.builder.ins().sdiv(l, r)
+                let res = match mode {
+                    DivMode::TruncQuotient => ctx.builder.ins().sdiv(l, r),
+                    DivMode::TruncRemainder => ctx.builder.ins().srem(l, r),
+
+                    // The floored forms differ from the truncated ones only
+                    // when the remainder is non zero and points the opposite
+                    // way to the divisor - `(r ^ b) < 0` is that sign test
+                    // without materialising either comparison.
+                    DivMode::FloorQuotient | DivMode::FloorRemainder => {
+                        let rem = ctx.builder.ins().srem(l, r);
+                        let rem_nonzero = ctx.builder.ins().icmp_imm_s(IntCC::NotEqual, rem, 0);
+                        let signs = ctx.builder.ins().bxor(rem, r);
+                        let opposite =
+                            ctx.builder.ins().icmp_imm_s(IntCC::SignedLessThan, signs, 0);
+                        let correct = ctx.builder.ins().band(rem_nonzero, opposite);
+
+                        if let DivMode::FloorQuotient = mode {
+                            let quo = ctx.builder.ins().sdiv(l, r);
+                            let lowered = ctx.builder.ins().iadd_imm_s(quo, -1);
+                            ctx.builder.ins().select(correct, lowered, quo)
+                        } else {
+                            let shifted = ctx.builder.ins().iadd(rem, r);
+                            ctx.builder.ins().select(correct, shifted, rem)
+                        }
+                    }
                 };
 
-                // Both operands were fixnums and the divisor was neither 0 nor
-                // -1, so the result is always a fixnum - no overflow exit.
                 ctx.encode_value(discriminant(&SteelVal::IntV(0)) as i64, res)
             },
             |ctx| {
@@ -8045,6 +8080,18 @@ impl FunctionTranslator<'_> {
         )
     }
 
+    /// Inline a two-operand integer comparison, checking both tags at runtime.
+    ///
+    /// The existing fast paths for `=`, `<` and friends all require one side to
+    /// be a compile-time constant or a known register. That covers loop
+    /// counters against literals but not generic arithmetic, which then paid a
+    /// full native call per comparison. Here both operands are materialised as
+    /// values, both tags are tested, and the happy path is a single `icmp` on
+    /// the payloads.
+    ///
+    /// `fallback` must be a helper returning an *unboxed* bool, so both arms of
+    /// the branch agree on type and the result can be consumed directly by a
+    /// following `if` without boxing.
     fn inline_int_compare_two(&mut self, cc: IntCC, fallback: &str) -> Value {
         let rhs = {
             let sv = self.shadow_stack_pop().unwrap().into_value(self);
