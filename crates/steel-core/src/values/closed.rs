@@ -1890,6 +1890,37 @@ impl Heap {
         }
     }
 
+    /// `allocate_many` for values the caller owns: they are moved into the
+    /// boxes rather than cloned and dropped again. Nothing collects between the
+    /// collection below and the moves, so the pending values only have to be
+    /// reachable for that one call - which takes them by reference, and only
+    /// clones them if a collection actually runs.
+    pub fn allocate_many_owned<'a>(
+        &mut self,
+        values: &mut smallvec::SmallVec<[SteelVal; 8]>,
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+        out: &mut Vec<SteelVal>,
+    ) {
+        self.value_collection(
+            values.iter().cloned(),
+            roots,
+            live_functions,
+            globals,
+            tls,
+            synchronizer,
+            false,
+        );
+
+        for value in values.drain(..) {
+            let allocated = self.memory_free_list.allocate(value);
+            out.push(SteelVal::HeapAllocated(allocated));
+        }
+    }
+
     #[inline(always)]
     fn value_collection<'a>(
         &mut self,

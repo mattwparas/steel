@@ -4805,7 +4805,8 @@ macro_rules! make_mutable_struct_constructors {
                 $($typ: SteelVal),*
             ) -> SteelVal {
                 let guard = unsafe { &mut *ctx };
-                match crate::steel_vm::primitives::make_mutable_struct_from_args(guard, &[$($typ),*]) {
+                let args: smallvec::SmallVec<[SteelVal; 8]> = smallvec::smallvec![$($typ),*];
+                match crate::steel_vm::primitives::make_mutable_struct_from_owned(guard, args) {
                     Ok(v) => v,
                     Err(e) => {
                         guard.ip = fallback_ip;

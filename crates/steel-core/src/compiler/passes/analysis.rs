@@ -2943,6 +2943,105 @@ impl VisitorMutRefUnit for SubstituteBindings {
     }
 }
 
+/// How many call sites of a let-bound lambda are worth substituting it into.
+/// Each one is a copy of the body, and the higher order functions this is for -
+/// `map`, `for-each`, `%member-by` - call their function parameter once.
+const LAMBDA_SUBSTITUTION_SITES: usize = 2;
+
+/// Counts how a name is used in an expression: how often it is the head of a
+/// call, and how often it appears anywhere else (which means it escapes).
+struct CountUses<'a> {
+    name: &'a InternedString,
+    // The lambda's parameter count: a call that does not pass exactly that many
+    // arguments cannot become an applied lambda, since the lowering to a let
+    // binds parameters against arguments pairwise and would leave the rest
+    // free. `call-with-values` calls its consumer with one argument in one
+    // branch and `apply`s it in the other, which is how that surfaced.
+    arity: usize,
+    calls: usize,
+    other: usize,
+}
+
+impl<'a, 'b> VisitorMutUnitRef<'b> for CountUses<'a> {
+    fn visit_atom(&mut self, a: &'b Atom) {
+        if a.ident() == Some(self.name) {
+            self.other += 1;
+        }
+    }
+
+    fn visit_quote(&mut self, _: &'b steel_parser::ast::Quote) {}
+
+    fn visit_list(&mut self, l: &'b List) {
+        if l.first_ident() == Some(self.name) {
+            if l.args.len() == self.arity + 1 {
+                self.calls += 1;
+            } else {
+                self.other += 1;
+            }
+            for expr in &l.args[1..] {
+                self.visit(expr);
+            }
+            return;
+        }
+        for expr in &l.args {
+            self.visit(expr);
+        }
+    }
+}
+
+/// Replaces `(f args ...)` with `((lambda ...) args ...)` for a let-bound `f`,
+/// so the lambda is applied where it is called instead of reached through a
+/// variable. Each site gets its own copy, with fresh binders.
+struct SubstituteLambdaCalls<'a> {
+    name: &'a InternedString,
+    lambda: &'a LambdaFunction,
+    // Names are unique by this point, so a binder of the same name should not
+    // occur; stopping at one anyway keeps this from depending on that.
+    shadowed: bool,
+}
+
+impl<'a> SubstituteLambdaCalls<'a> {
+    fn shadows<'b>(&self, binders: impl Iterator<Item = &'b ExprKind>) -> bool {
+        binders.filter_map(|b| b.atom_identifier()).any(|n| n == self.name)
+    }
+}
+
+impl<'a> VisitorMutRefUnit for SubstituteLambdaCalls<'a> {
+    fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
+
+    fn visit_lambda_function(&mut self, lambda: &mut LambdaFunction) {
+        let was = self.shadowed;
+        self.shadowed |= self.shadows(lambda.args.iter());
+        self.visit(&mut lambda.body);
+        self.shadowed = was;
+    }
+
+    fn visit_let(&mut self, l: &mut Let) {
+        for (_, expr) in l.bindings.iter_mut() {
+            self.visit(expr);
+        }
+        let was = self.shadowed;
+        self.shadowed |= self.shadows(l.bindings.iter().map(|(b, _)| b));
+        self.visit(&mut l.body_expr);
+        self.shadowed = was;
+    }
+
+    fn visit_list(&mut self, l: &mut List) {
+        for expr in l.args.iter_mut() {
+            self.visit(expr);
+        }
+
+        if !self.shadowed
+            && l.first_ident() == Some(self.name)
+            && l.args.len() == self.lambda.args.len() + 1
+        {
+            let mut copy = self.lambda.clone();
+            FreshenBinders::run(&mut copy);
+            l.args[0] = ExprKind::LambdaFunction(Box::new(copy));
+        }
+    }
+}
+
 /// Removes `(%plain-let ((f <known function>)) body)` bindings by substituting
 /// the function into the body. See `substitute_known_function_bindings`.
 struct SubstituteKnownFunctionBindings<'a> {
@@ -2977,6 +3076,61 @@ impl<'a> VisitorMutRefUnit for SubstituteKnownFunctionBindings<'a> {
         if !map.is_empty() {
             self.changed = true;
             SubstituteBindings { map }.visit(&mut l.body_expr);
+        }
+
+        // A lambda bound by the let - which is what inlining a higher order
+        // function with a lambda written at the call site leaves behind - is
+        // substituted into the calls of it, so the body ends up inline rather
+        // than reached through a variable on every iteration. Uses that are not
+        // calls keep the binding alive, since those need the closure itself.
+        let mut lambdas = Vec::new();
+        for (binder, expr) in l.bindings.iter() {
+            let (Some(name), ExprKind::LambdaFunction(lambda)) = (binder.atom_identifier(), expr)
+            else {
+                continue;
+            };
+            if self.assigned.contains(name) || lambda.rest {
+                continue;
+            }
+
+            let mut uses = CountUses {
+                name,
+                arity: lambda.args.len(),
+                calls: 0,
+                other: 0,
+            };
+            uses.visit(&l.body_expr);
+
+            // A lambda that mentions its own binding would lose the recursion.
+            let mut inner = CountUses {
+                name,
+                arity: lambda.args.len(),
+                calls: 0,
+                other: 0,
+            };
+            inner.visit(&lambda.body);
+
+            if uses.calls > 0
+                && uses.calls <= LAMBDA_SUBSTITUTION_SITES
+                && inner.calls + inner.other == 0
+            {
+                lambdas.push((*name, lambda.clone(), uses.other == 0));
+            }
+        }
+
+        for (name, lambda, dead) in lambdas {
+            self.changed = true;
+            SubstituteLambdaCalls {
+                name: &name,
+                lambda: &lambda,
+                shadowed: false,
+            }
+            .visit(&mut l.body_expr);
+
+            if dead {
+                l.bindings
+                    .retain(|(binder, _)| binder.atom_identifier() != Some(&name));
+            }
         }
 
         self.visit(&mut l.body_expr);
@@ -7212,14 +7366,12 @@ impl<'a> SemanticAnalysis<'a> {
             // inlined copy can have the function substituted in before closure
             // lifting, so its loop calls the primitive directly instead of
             // through a value. Only those call sites take it.
-            if !size.is_some_and(|count| count < threshold)
-                && known_function_args_enabled()
-                && !l.rest
-            {
+            if !size.is_some_and(|count| count < threshold) && known_function_args_enabled() {
                 let called = CalledParams::of(l);
                 if called.called.iter().any(|c| *c) && called.size < known_function_args_size() {
                     let original_id = l.syntax_object_id;
-                    let arity = l.args.len();
+                    let params = l.args.len();
+                    let rest = l.rest;
                     let l = l.clone();
                     let changed = Rc::clone(changed);
                     let known = Rc::clone(known);
@@ -7228,10 +7380,26 @@ impl<'a> SemanticAnalysis<'a> {
                     funcs.insert(
                         *d.name.atom_identifier().unwrap(),
                         Box::new(move |_: &Analysis, lst: &mut List| {
+                            // A rest argument collects everything past the fixed
+                            // parameters, so the call site only has to reach them.
+                            let arity_matches = if rest {
+                                lst.args.len() >= params
+                            } else {
+                                lst.args.len() == params + 1
+                            };
+
                             if lst.syntax_object_id > original_id
-                                && lst.args.len() == arity + 1
+                                && arity_matches
                                 && called.iter().enumerate().any(|(i, c)| {
-                                    *c && is_known_function(&lst.args[i + 1], &known)
+                                    *c && lst.args.get(i + 1).is_some_and(|arg| {
+                                        is_known_function(arg, &known)
+                                            // A lambda written at the call site is
+                                            // just as fixed as a named function,
+                                            // and substituting it into the body
+                                            // is what turns `(map (lambda ...) xs)`
+                                            // into a loop with the body inlined.
+                                            || matches!(arg, ExprKind::LambdaFunction(_))
+                                    })
                                 })
                             {
                                 let mut copy = l.clone();

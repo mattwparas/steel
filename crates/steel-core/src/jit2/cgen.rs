@@ -2472,6 +2472,16 @@ impl JIT {
             mode,
         );
 
+        // `STEEL_JIT_DUMP_CLIF=<substring>` prints the ir for every function whose
+        // name contains it - the only way to read what a loop's back edge really
+        // emits. `=1` keeps the original behaviour of printing only a function the
+        // verifier rejected.
+        if let Ok(filter) = std::env::var("STEEL_JIT_DUMP_CLIF") {
+            if filter != "1" && inner_name.contains(&filter) {
+                eprintln!("--- clif for {} ---\n{}", inner_name, self.ctx.func);
+            }
+        }
+
         let generic_failure = match translated {
             Err(e) => Some(e),
             Ok(_) => match cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
@@ -4860,6 +4870,7 @@ impl FunctionTranslator<'_> {
 
                         let result = self.call_self_function_experimental(arity, func, None);
 
+
                         let inferred_type =
                             if let Some(ret_types) = self.function_return_types.get(&id) {
                                 if ret_types.len() == 1 {
@@ -5632,7 +5643,10 @@ impl FunctionTranslator<'_> {
 
                     // Materialized rather than read raw: an untagged payload
                     // would otherwise be used as though it were a SteelVal.
-                    let rhs_int = match self.shadow_stack.pop().unwrap() {
+                    // `shadow_stack_pop` so a spilled operand is taken off the vm
+                    // stack as well, rather than left there to shift everything
+                    // above it - see the `cons` arm above.
+                    let rhs_int = match self.shadow_stack_pop().unwrap() {
                         MaybeStackValue::Value(v) => Either::Value(v.as_steelval(self)),
                         MaybeStackValue::Constant(ConstantValue::Int(i)) => Either::Int(i as _),
                         // The guard admits any stack entry whose inferred type is
@@ -6540,9 +6554,13 @@ impl FunctionTranslator<'_> {
                         // Probably could instead just write the value back to the register
                         &[MaybeStackValue::Value(_), MaybeStackValue::MutRegister(l)] => {
                             let register = self.shadow_stack_pop().unwrap().into_index();
+                            // `shadow_stack_pop`, not a bare pop: a spilled operand
+                            // lives on the vm stack, and taking only its ssa value
+                            // leaves that copy behind. Everything above it then
+                            // shifts by a slot - the self tail call below reads its
+                            // arguments off the top and got this one instead.
                             let value = self
-                                .shadow_stack
-                                .pop()
+                                .shadow_stack_pop()
                                 .unwrap()
                                 .into_value(self)
                                 .as_steelval(self);
@@ -8942,6 +8960,10 @@ impl FunctionTranslator<'_> {
     }
 
     fn translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize) {
+        if std::env::var_os("STEEL_DEBUG_TCO").is_some() { // TEMP-DEBUG
+            eprintln!("[selftail fn={} ip={} payload={} shadow={:?} lets={:?}]",
+                self.name, self.ip, payload, self.shadow_stack, self.let_var_stack);
+        }
         self.materialize_borrowed();
         // Which seeded slots are passed a value of their seeded type by
         // construction, read before any of them is popped. An unchanged slot
@@ -9158,6 +9180,7 @@ impl FunctionTranslator<'_> {
     // Make the call:
     fn inline_call_self_tail_call_no_arity_loop(&mut self, arity: i64, args: &[Value]) {
         let vm_ctx = self.get_ctx();
+
         // Read from VM stack, write back, drop value.
         // then, truncate
         // for (i, arg) in args.iter().enumerate() {
@@ -9207,6 +9230,7 @@ impl FunctionTranslator<'_> {
         args: &[Value],
     ) {
         let vm_ctx = self.get_ctx();
+
         // Read from VM stack, write back, drop value.
         // then, truncate
         // for (i, arg) in args.iter().enumerate() {

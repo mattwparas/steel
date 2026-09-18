@@ -2243,6 +2243,42 @@ pub(crate) fn make_mutable_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 /// can call it directly: `args` is the descriptor followed by the fields. The
 /// fields are handed to the allocator as roots, so a collection triggered while
 /// the boxes are made cannot reclaim them.
+/// `make_mutable_struct_from_args` for a caller that owns the arguments - the
+/// jit's constructor helpers do - so the fields are moved into their boxes
+/// instead of being cloned and then dropped by the caller.
+pub(crate) fn make_mutable_struct_from_owned(
+    ctx: &mut VmCore,
+    mut args: smallvec::SmallVec<[SteelVal; 8]>,
+) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "#%make-mutable-struct expects a struct type descriptor");
+    }
+
+    let descriptor = StructTypeDescriptor::from_steelval(&args[0])?;
+    let mut fields: smallvec::SmallVec<[SteelVal; 8]> = args.drain(1..).collect();
+
+    let mut boxed = Vec::with_capacity(fields.len());
+
+    let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+
+    heap_lock.allocate_many_owned(
+        &mut fields,
+        &ctx.thread.stack,
+        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+        ctx.thread.global_env.roots(),
+        &ctx.thread.thread_local_storage,
+        &mut ctx.thread.synchronizer,
+        &mut boxed,
+    );
+
+    drop(heap_lock);
+
+    Ok(SteelVal::CustomStruct(StructRef::from_parts(
+        descriptor,
+        boxed.into_iter(),
+    )))
+}
+
 pub(crate) fn make_mutable_struct_from_args(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let Some((descriptor, fields)) = args.split_first() else {
         stop!(ArityMismatch => "#%make-mutable-struct expects a struct type descriptor");

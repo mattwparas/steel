@@ -1359,6 +1359,10 @@ impl Compiler {
         semantic.refresh_variables_if_changed();
 
         semantic.substitute_known_function_bindings(self.modules());
+        // Substituting a lambda into the calls of it leaves an applied lambda,
+        // which is a let - without lowering it again the code generator would
+        // build a closure at every one of those call sites instead.
+        semantic.replace_anonymous_function_calls_with_plain_lets();
         semantic.refresh_variables_if_changed();
 
         // `STEEL_DEBUG_AST_PRE_LIFT` prints the program as inlining left it, before
