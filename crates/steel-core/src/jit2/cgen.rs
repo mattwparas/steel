@@ -10141,11 +10141,16 @@ impl FunctionTranslator<'_> {
         var
     }
 
-    /// Clone a borrowed value unless a slow path already did.
+    /// Clone a borrowed value unless a slow path already did. The flag is left
+    /// set, so materializing the same value again on the same path - which the
+    /// operand stack's shape should never ask for, but which costs one store to
+    /// make harmless - does not clone it twice.
     fn materialize(&mut self, borrowed: BorrowedValue) -> Value {
         let value = borrowed.value;
         let owned = self.builder.use_var(borrowed.owned);
         self.converging_if_no_value(owned, |_| {}, |ctx| ctx.clone_value(value));
+        let one = self.builder.ins().iconst(types::I8, 1);
+        self.builder.def_var(borrowed.owned, one);
         value
     }
 

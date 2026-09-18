@@ -2422,6 +2422,11 @@ impl<'a> FunctionTranslator<'a> {
         arity: usize,
         function_index: usize,
     ) -> Option<(Value, InferredType)> {
+        // Only the fused getter-proto arm below sets this, and every exit from
+        // it returns a result its caller takes; clearing it here means a stale
+        // one can never be read as another call's.
+        self.pending_borrow = None;
+
         let args = self.shadow_stack.get(self.shadow_stack.len() - arity..)?;
 
         match spec.typ {
