@@ -2943,6 +2943,26 @@ impl VisitorMutRefUnit for SubstituteBindings {
     }
 }
 
+/// `STEEL_SUBSTITUTE_LAMBDAS=1` inlines a higher order function at a call site
+/// that passes a lambda, and substitutes that lambda into the calls of it.
+///
+/// **Default off.** It is a large win where it fires cleanly (peval -16% cycles)
+/// but it makes `graphs` allocate a continuation closure per iteration inside an
+/// inlined copy, and the jit leaks a reference on that shape: peak rss goes from
+/// 2.2GB to 23GB, growing ~450MB/s. The leak is jit only - the interpreter
+/// plateaus - and is not any of the jit features added alongside it (borrow,
+/// inline eq, prim tail all off still leak). See the memory note; turn this on
+/// again once that is fixed.
+fn substitute_lambdas_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        matches!(
+            std::env::var("STEEL_SUBSTITUTE_LAMBDAS").ok().as_deref(),
+            Some("1") | Some("true")
+        )
+    })
+}
+
 /// How many call sites of a let-bound lambda are worth substituting it into.
 /// Each one is a copy of the body, and the higher order functions this is for -
 /// `map`, `for-each`, `%member-by` - call their function parameter once.
@@ -3084,7 +3104,7 @@ impl<'a> VisitorMutRefUnit for SubstituteKnownFunctionBindings<'a> {
         // than reached through a variable on every iteration. Uses that are not
         // calls keep the binding alive, since those need the closure itself.
         let mut lambdas = Vec::new();
-        for (binder, expr) in l.bindings.iter() {
+        for (binder, expr) in l.bindings.iter().filter(|_| substitute_lambdas_enabled()) {
             let (Some(name), ExprKind::LambdaFunction(lambda)) = (binder.atom_identifier(), expr)
             else {
                 continue;
@@ -7398,7 +7418,8 @@ impl<'a> SemanticAnalysis<'a> {
                                             // and substituting it into the body
                                             // is what turns `(map (lambda ...) xs)`
                                             // into a loop with the body inlined.
-                                            || matches!(arg, ExprKind::LambdaFunction(_))
+                                            || (substitute_lambdas_enabled()
+                                                && matches!(arg, ExprKind::LambdaFunction(_)))
                                     })
                                 })
                             {
