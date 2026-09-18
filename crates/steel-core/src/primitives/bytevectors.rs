@@ -251,7 +251,9 @@ pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 pub fn bytes_set(value: &mut SteelByteVector, index: usize, byte: u8) -> Result<SteelVal> {
     let mut guard = value.vec.write();
 
-    if index > guard.len() {
+    // `>=`, not `>`: at `index == guard.len()` the check passed and the
+    // indexing below panicked out of the runtime instead of raising.
+    if index >= guard.len() {
         stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
     }
 

@@ -23,6 +23,7 @@ use crate::{
     gc::Gc,
     primitives::{
         lists::{steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse},
+        numbers::{quotient, remainder, truncate_quotient, truncate_remainder},
         ports::{eof_objectp_jit, steel_eof_objectp},
         strings::steel_char_equals,
         vectors::{flat_vector_construct, mut_vec_push, steel_mut_vec_set},
@@ -1567,6 +1568,18 @@ pub(super) fn borrow_enabled() -> bool {
     *ENABLED.get_or_init(|| {
         !matches!(
             std::env::var("STEEL_JIT_BORROW").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// `STEEL_JIT_INLINE_DIVMOD=0` sends `quotient` / `remainder` back out through
+/// the generic primitive call instead of inlining the two-fixnum case.
+pub(super) fn inline_divmod_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_INLINE_DIVMOD").ok().as_deref(),
             Some("0") | Some("false")
         )
     })
@@ -5002,6 +5015,26 @@ impl FunctionTranslator<'_> {
 
                                 f if f == steel_eq as FunctionSignature && arity == 2 => self.eq(),
 
+                                f if inline_divmod_enabled()
+                                    && arity == 2
+                                    && (f == quotient as FunctionSignature
+                                        || f == truncate_quotient as FunctionSignature) =>
+                                {
+                                    let v = self.inline_int_divmod(false, f);
+                                    self.push(v, InferredType::Any);
+                                    self.ip += 1;
+                                }
+
+                                f if inline_divmod_enabled()
+                                    && arity == 2
+                                    && (f == remainder as FunctionSignature
+                                        || f == truncate_remainder as FunctionSignature) =>
+                                {
+                                    let v = self.inline_int_divmod(true, f);
+                                    self.push(v, InferredType::Any);
+                                    self.ip += 1;
+                                }
+
                                 f if f == steel_pair as FunctionSignature && arity == 1 => {
                                     self.is_pair()
                                 }
@@ -7940,6 +7973,78 @@ impl FunctionTranslator<'_> {
     /// `fallback` must be a helper returning an *unboxed* bool, so both arms of
     /// the branch agree on type and the result can be consumed directly by a
     /// following `if` without boxing.
+    /// `(quotient a b)` / `(remainder a b)` on two fixnums.
+    ///
+    /// These have no opcode and had no inline arm, so every call went out
+    /// through `call_primitive_function_deopt_2`, which publishes the safepoint
+    /// and hands the arguments to the generic primitive. In `bv2string`'s
+    /// random number generator that path was 26% of the run.
+    ///
+    /// The guard is wider than the arithmetic strictly needs. Cranelift's
+    /// `sdiv`/`srem` trap on a zero divisor *and* on `isize::MIN / -1`, and the
+    /// primitive answers those two with something that is not a fixnum anyway -
+    /// an error, and a `BigNum` - so `b == -1` goes out of line rather than
+    /// being special cased here. Everything else about the primitive's integer
+    /// case is exactly truncating division, which is what these instructions do.
+    ///
+    /// The result is pushed as `Any`, not `Int`: the fallback can return a
+    /// float or a `BigNum`, and both arms have to describe the merge.
+    fn inline_int_divmod(&mut self, is_remainder: bool, function: FunctionSignature) -> Value {
+        let rhs = {
+            let sv = self.shadow_stack_pop().unwrap().into_value(self);
+            sv.as_steelval(self)
+        };
+        let lhs = {
+            let sv = self.shadow_stack_pop().unwrap().into_value(self);
+            sv.as_steelval(self)
+        };
+
+        let lhs_is_int = self.is_type(lhs, SteelVal::INT_TAG);
+        let rhs_is_int = self.is_type(rhs, SteelVal::INT_TAG);
+        let both_int = self.builder.ins().band(lhs_is_int, rhs_is_int);
+
+        // Reading the payload is pure bit extraction, so it is fine to do
+        // before the tag check has decided anything.
+        let divisor = self.unbox_value_to_pointer(rhs);
+        let not_zero = self.builder.ins().icmp_imm_s(IntCC::NotEqual, divisor, 0);
+        let not_neg_one = self.builder.ins().icmp_imm_s(IntCC::NotEqual, divisor, -1);
+        let safe_divisor = self.builder.ins().band(not_zero, not_neg_one);
+        let inlineable = self.builder.ins().band(both_int, safe_divisor);
+
+        self.converging_if(
+            inlineable,
+            |ctx| {
+                let l = ctx.unbox_value_to_pointer(lhs);
+                let r = ctx.unbox_value_to_pointer(rhs);
+
+                let res = if is_remainder {
+                    ctx.builder.ins().srem(l, r)
+                } else {
+                    ctx.builder.ins().sdiv(l, r)
+                };
+
+                // Both operands were fixnums and the divisor was neither 0 nor
+                // -1, so the result is always a fixnum - no overflow exit.
+                ctx.encode_value(discriminant(&SteelVal::IntV(0)) as i64, res)
+            },
+            |ctx| {
+                let func = ctx.builder.ins().iconst(
+                    ctx.module.target_config().pointer_type(),
+                    function as i64,
+                );
+                let fallback_ip = ctx.builder.ins().iconst(types::I64, ctx.ip as i64);
+
+                let res = ctx.call_function_returns_value_args(
+                    "call_primitive_function_deopt_2",
+                    &[func, fallback_ip, lhs, rhs],
+                );
+                ctx.check_deopt();
+                res
+            },
+            types::I128,
+        )
+    }
+
     fn inline_int_compare_two(&mut self, cc: IntCC, fallback: &str) -> Value {
         let rhs = {
             let sv = self.shadow_stack_pop().unwrap().into_value(self);
