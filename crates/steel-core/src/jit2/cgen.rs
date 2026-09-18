@@ -2479,6 +2479,24 @@ impl JIT {
         if let Ok(filter) = std::env::var("STEEL_JIT_DUMP_CLIF") {
             if filter != "1" && inner_name.contains(&filter) {
                 eprintln!("--- clif for {} ---\n{}", inner_name, self.ctx.func);
+                // The ir prints callees as `fnN = u0:M`; M is the module's FuncId,
+                // so this legend turns them back into the helper names.
+                let mut legend: Vec<String> = Vec::new();
+                for (fref, data) in self.ctx.func.dfg.ext_funcs.iter() {
+                    if let cranelift::codegen::ir::ExternalName::User(nameref) = data.name {
+                        let user = &self.ctx.func.params.user_named_funcs()[nameref];
+                        let decl = self
+                            .module
+                            .declarations()
+                            .get_function_decl(cranelift_module::FuncId::from_u32(user.index));
+                        legend.push(format!(
+                            "{} = {}",
+                            fref,
+                            decl.name.as_deref().unwrap_or("<anon>")
+                        ));
+                    }
+                }
+                eprintln!("--- callees ---\n{}", legend.join("\n"));
             }
         }
 
@@ -5118,7 +5136,12 @@ impl FunctionTranslator<'_> {
                         && self.instructions.get(self.ip + 1).map(|x| x.op_code)
                             == Some(OpCode::UNBOX) =>
                 {
-                    let value = self.inline_read_captured(payload, true);
+                    // Borrowed, not cloned: the capture array belongs to the
+                    // closure being run, which outlives this read, and the unbox
+                    // below is told not to release it. Cloning here and not
+                    // dropping leaked a reference to the box on every execution -
+                    // `graphs` grew to 23GB once inlining made this pattern hot.
+                    let value = self.inline_read_captured(payload, false);
                     // Advance for the read captured, but we can elide the unbox since its not
                     // going to escape - we're just reading the box value. We can probably inline this
                     // even more but it'll be fine for now.
@@ -12521,6 +12544,16 @@ impl FunctionTranslator<'_> {
             (stack_offset + capacity_offset) as i32,
         );
 
+        // Read before the store below overwrites it. Everything past the
+        // arguments is the frame's own let bound locals and any operands spilled
+        // under them, which the tail call discards and so has to release.
+        let old_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlagsData::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
         // This is the spot:
         // The new length will be this, so we just have to check the capacity of this
         // if we're going to re alloc
@@ -12618,6 +12651,88 @@ impl FunctionTranslator<'_> {
             // Just call drop on the remaining values, don't write.
             self.drop_from_vm_stack_starting_at(args.len(), amount_to_drop, sp, buf_ptr);
         }
+
+        // Each branch above releases only the slots it writes over, up to the
+        // larger of the old and new argument counts. Past that sit the frame's let
+        // bound locals and spilled operands, and shortening the length alone
+        // discards them while they still hold their references: a continuation
+        // closure built inside a `let` and tail called leaked one closure per
+        // iteration, 23GB of them in `graphs`. Starting above what the branches
+        // already dropped keeps this from releasing anything twice.
+        //
+        // The loop itself is not free - it runs on every jitted tail call, and
+        // emitting it unconditionally cost earley 10% of its instructions - so
+        // skip it when this frame has nothing above the arguments: no let
+        // bindings open and no operands spilled under them, which is the common
+        // shape.
+        let live_above =
+            self.let_var_stack.iter().sum::<usize>() + self.shadow_stack.len();
+
+        // Nor is there anything to release when every slot above the arguments
+        // holds an immediate - a fixnum, or the void a move read left behind.
+        // `conform`, `browse` and `destruc` free no memory from this loop at all,
+        // so the work there is all tag checks on slots that own nothing.
+        let base_slot = args.len().max(self.arity as usize);
+        let all_immediate =
+            (0..live_above).all(|k| self.register_is_immediate(base_slot + k));
+
+        if live_above > 0 && !all_immediate {
+            let already_dropped = args.len().max(self.arity as usize) as i64;
+            let drop_from = self.builder.ins().iadd_imm_s(index, already_dropped);
+            self.drop_vm_stack_range(vm_ctx, drop_from, old_length);
+        }
+    }
+
+    /// Release every stack slot in `[from, to)`. Both are runtime values.
+    fn drop_vm_stack_range(&mut self, vm_ctx: Value, from: Value, to: Value) {
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
+        let stack_offset = offset_of!(SteelThread, stack);
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlagsData::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let loop_header = self.builder.create_block();
+        let loop_body = self.builder.create_block();
+        let loop_exit = self.builder.create_block();
+
+        self.builder.append_block_param(loop_header, types::I64);
+        let start = BlockArg::Value(from);
+        self.builder.ins().jump(loop_header, &[start]);
+
+        self.builder.switch_to_block(loop_header);
+        let i = self.builder.block_params(loop_header)[0];
+        let done = self
+            .builder
+            .ins()
+            .icmp(IntCC::SignedGreaterThanOrEqual, i, to);
+        self.builder
+            .ins()
+            .brif(done, loop_exit, &[], loop_body, &[]);
+
+        self.builder.switch_to_block(loop_body);
+        self.builder.seal_block(loop_body);
+
+        let byte_offset = self
+            .builder
+            .ins()
+            .imul_imm_s(i, size_of::<SteelVal>() as i64);
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
+        let val = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
+        self.drop_tagged_value(val);
+
+        let i_next = BlockArg::Value(self.builder.ins().iadd_imm_s(i, 1));
+        self.builder.ins().jump(loop_header, &[i_next]);
+        self.builder.seal_block(loop_header);
+        self.builder.switch_to_block(loop_exit);
+        self.builder.seal_block(loop_exit);
     }
 
     fn truncate_stack(&mut self, vm_ctx: Value, index: Value, count: Option<i32>) {
