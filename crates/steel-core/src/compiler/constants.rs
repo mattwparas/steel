@@ -6,24 +6,21 @@ use crate::gc::shared::MutContainer;
 #[cfg(not(feature = "sync"))]
 use crate::gc::shared::ShareableMut;
 
-use crate::gc::{Shared, SharedMut};
-use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
+use crate::gc::{Gc, Shared, SharedMut};
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{
-    into_serializable_value, Result, SerializableSteelVal, SerializationContext, SteelVal,
+    into_serializable_value, Result, SerializableSteelVal, SerializationContext, SteelByteVector,
+    SteelComplex, SteelVal,
 };
-
-use crate::parser::{
-    ast::ExprKind,
-    parser::{ParseError, Parser},
-};
+use crate::values::lists::Pair;
 
 use alloc::sync::Arc;
 
 use arc_swap::ArcSwap;
+use num_bigint::BigInt;
+use num_rational::{BigRational, Rational32};
 use rustc_hash::FxHashMap;
-// TODO add the serializing and deserializing for constants
 use serde::{Deserialize, Serialize};
-use steel_parser::parser::{lower_entire_ast, SourceId};
 
 // Shared constant map - for repeated in memory execution of a program, this is going to share the same
 // underlying representation.
@@ -37,6 +34,108 @@ pub struct ConstantMap {
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializableConstantMap(Vec<u8>);
+
+#[derive(Serialize, Deserialize)]
+enum SerializedConstant {
+    Bool(bool),
+    Int(isize),
+    Float(f64),
+    Rational(Rational32),
+    BigInt(BigInt),
+    BigRational(BigRational),
+    Complex(Box<SerializedConstant>, Box<SerializedConstant>),
+    Char(char),
+    String(String),
+    Symbol(String),
+    List(Vec<SerializedConstant>),
+    Pair(Box<SerializedConstant>, Box<SerializedConstant>),
+    Vector(Vec<SerializedConstant>),
+    ByteVector(Vec<u8>),
+    Void,
+}
+
+impl SerializedConstant {
+    fn from_value(value: &SteelVal) -> Result<SerializedConstant> {
+        match value {
+            SteelVal::BoolV(b) => Ok(SerializedConstant::Bool(*b)),
+            SteelVal::IntV(i) => Ok(SerializedConstant::Int(*i)),
+            SteelVal::NumV(n) => Ok(SerializedConstant::Float(*n)),
+            SteelVal::Rational(r) => Ok(SerializedConstant::Rational(*r)),
+            SteelVal::BigNum(b) => Ok(SerializedConstant::BigInt(b.as_ref().clone())),
+            SteelVal::BigRational(r) => Ok(SerializedConstant::BigRational(r.as_ref().clone())),
+            SteelVal::Complex(c) => Ok(SerializedConstant::Complex(
+                Box::new(SerializedConstant::from_value(&c.re)?),
+                Box::new(SerializedConstant::from_value(&c.im)?),
+            )),
+            SteelVal::CharV(c) => Ok(SerializedConstant::Char(*c)),
+            SteelVal::StringV(s) => Ok(SerializedConstant::String(s.as_str().to_owned())),
+            SteelVal::SymbolV(s) => Ok(SerializedConstant::Symbol(s.as_str().to_owned())),
+            SteelVal::ListV(values) => Ok(SerializedConstant::List(
+                values
+                    .iter()
+                    .map(SerializedConstant::from_value)
+                    .collect::<Result<_>>()?,
+            )),
+            SteelVal::Pair(pair) => Ok(SerializedConstant::Pair(
+                Box::new(SerializedConstant::from_value(&pair.car())?),
+                Box::new(SerializedConstant::from_value(&pair.cdr())?),
+            )),
+            SteelVal::VectorV(values) => Ok(SerializedConstant::Vector(
+                values
+                    .iter()
+                    .map(SerializedConstant::from_value)
+                    .collect::<Result<_>>()?,
+            )),
+            SteelVal::ByteVector(bytes) => {
+                Ok(SerializedConstant::ByteVector(bytes.vec.read().clone()))
+            }
+            SteelVal::Void => Ok(SerializedConstant::Void),
+            unsupported => Err(SteelErr::new(
+                ErrorKind::Generic,
+                format!("constant map serialization does not support value: {unsupported}"),
+            )),
+        }
+    }
+
+    fn into_value(self) -> SteelVal {
+        match self {
+            SerializedConstant::Bool(b) => SteelVal::BoolV(b),
+            SerializedConstant::Int(i) => SteelVal::IntV(i),
+            SerializedConstant::Float(n) => SteelVal::NumV(n),
+            SerializedConstant::Rational(r) => SteelVal::Rational(r),
+            SerializedConstant::BigInt(b) => SteelVal::BigNum(Gc::new(b)),
+            SerializedConstant::BigRational(r) => SteelVal::BigRational(Gc::new(r)),
+            SerializedConstant::Complex(re, im) => {
+                SteelVal::Complex(Gc::new(SteelComplex::new(re.into_value(), im.into_value())))
+            }
+            SerializedConstant::Char(c) => SteelVal::CharV(c),
+            SerializedConstant::String(s) => SteelVal::StringV(s.into()),
+            SerializedConstant::Symbol(s) => SteelVal::SymbolV(s.into()),
+            SerializedConstant::List(values) => SteelVal::ListV(
+                values
+                    .into_iter()
+                    .map(SerializedConstant::into_value)
+                    .collect(),
+            ),
+            SerializedConstant::Pair(car, cdr) => {
+                Pair::cons(car.into_value(), cdr.into_value()).into()
+            }
+            SerializedConstant::Vector(values) => SteelVal::VectorV(
+                Gc::new(
+                    values
+                        .into_iter()
+                        .map(SerializedConstant::into_value)
+                        .collect::<crate::values::Vector<_>>(),
+                )
+                .into(),
+            ),
+            SerializedConstant::ByteVector(bytes) => {
+                SteelVal::ByteVector(SteelByteVector::new(bytes))
+            }
+            SerializedConstant::Void => SteelVal::Void,
+        }
+    }
+}
 
 impl Default for ConstantMap {
     fn default() -> Self {
@@ -64,6 +163,10 @@ impl ConstantMap {
         }
     }
 
+    pub(crate) fn shares_storage_with(&self, other: &ConstantMap) -> bool {
+        Shared::ptr_eq(&self.values, &other.values)
+    }
+
     pub fn flush(&self) {
         let values = self.values.read();
         if values.len() != self.reified_values.load().len() {
@@ -89,8 +192,8 @@ impl ConstantMap {
         }
     }
 
-    pub(crate) fn into_serializable_map(self) -> SerializableConstantMap {
-        SerializableConstantMap(self.to_bytes().unwrap())
+    pub(crate) fn into_serializable_map(self) -> Result<SerializableConstantMap> {
+        Ok(SerializableConstantMap(self.to_bytes()?))
     }
 
     pub fn to_serializable_vec(&self, ctx: &mut SerializationContext) -> Vec<SerializableSteelVal> {
@@ -117,28 +220,20 @@ impl ConstantMap {
         }
     }
 
-    fn to_constant_expr_map(&self) -> Vec<String> {
-        self.values
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let constants = self
+            .values
             .read()
             .iter()
-            .map(|x| match x {
-                SteelVal::StringV(s) => {
-                    format!("{:?}", s)
-                }
-                SteelVal::CharV(c) => {
-                    format!("#\\{c}")
-                }
-                _ => x.to_string(),
-            })
-            .collect()
-    }
+            .map(SerializedConstant::from_value)
+            .collect::<Result<Vec<_>>>()?;
 
-    pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        let str_vector = self.to_constant_expr_map();
-        // println!("{:?}", str_vector);
-        let result = bincode::serialize(&str_vector);
-
-        Ok(result.unwrap())
+        bincode::serialize(&constants).map_err(|e| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                format!("unable to serialize the constant map: {e}"),
+            )
+        })
     }
 
     pub fn from_serialized(map: SerializableConstantMap) -> Result<Self> {
@@ -146,31 +241,20 @@ impl ConstantMap {
     }
 
     pub fn from_bytes(encoded: &[u8]) -> Result<ConstantMap> {
-        let str_vector: Vec<String> = bincode::deserialize(encoded).unwrap();
+        let constants: Vec<SerializedConstant> = bincode::deserialize(encoded).map_err(|e| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                format!("unable to deserialize the constant map: {e}"),
+            )
+        })?;
 
-        str_vector
-            .into_iter()
-            .map(|x| {
-                // Parse the input
-                let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
-                    Parser::new_flat(&x, SourceId::none()).collect();
-                let mut parsed = parsed?;
-
-                lower_entire_ast(&mut parsed[0])?;
-
-                // println!("{}", &parsed[0]);
-
-                TryFromExprKindForSteelVal::try_from_expr_kind(parsed[0].clone())
-
-                // Ok(SteelVal::try_from(parsed[0].clone()).unwrap())
-            })
-            .collect::<Result<Vec<_>>>()
-            .map(Self::from_vec)
+        Ok(Self::from_vec(
+            constants
+                .into_iter()
+                .map(SerializedConstant::into_value)
+                .collect(),
+        ))
     }
-
-    // pub fn from_bytes(encoded: &[u8]) -> ConstantMap {
-    //     bincode::deserialize(encoded).unwrap()
-    // }
 }
 
 impl ConstantMap {
@@ -277,6 +361,92 @@ impl ConstantMap {
 #[cfg(test)]
 pub mod constant_table_tests {
     use super::*;
+
+    use crate::gc::Gc;
+    use crate::rvals::SteelByteVector;
+    use crate::values::lists::Pair;
+    use num_bigint::BigInt;
+    use num_rational::{BigRational, Rational32};
+
+    fn list_of(values: Vec<SteelVal>) -> SteelVal {
+        SteelVal::ListV(values.into())
+    }
+
+    fn symbol(name: &str) -> SteelVal {
+        SteelVal::SymbolV(name.into())
+    }
+
+    fn representative_constants() -> Vec<SteelVal> {
+        vec![
+            symbol("plain-symbol"),
+            list_of(vec![symbol("quote"), symbol("inner-symbol")]),
+            list_of(vec![
+                symbol("a"),
+                list_of(vec![
+                    symbol("quote"),
+                    list_of(vec![symbol("b"), SteelVal::IntV(1)]),
+                ]),
+                SteelVal::StringV("nested".into()),
+            ]),
+            list_of(vec![
+                symbol("let"),
+                list_of(vec![list_of(vec![symbol("x"), SteelVal::IntV(1)])]),
+                symbol("x"),
+            ]),
+            list_of(vec![
+                symbol("%plain-let"),
+                list_of(vec![list_of(vec![symbol("y"), SteelVal::CharV('y')])]),
+                symbol("y"),
+            ]),
+            SteelVal::StringV("line one\nline \"two\" \\ λ \t".into()),
+            SteelVal::CharV('\n'),
+            SteelVal::CharV(' '),
+            SteelVal::CharV('λ'),
+            SteelVal::CharV('\\'),
+            SteelVal::IntV(-42),
+            SteelVal::IntV(isize::MAX),
+            SteelVal::NumV(2.5),
+            SteelVal::NumV(-0.0),
+            SteelVal::BoolV(true),
+            SteelVal::BoolV(false),
+            SteelVal::Rational(Rational32::new(1, 3)),
+            SteelVal::BigNum(Gc::new(BigInt::from(isize::MAX) * 16)),
+            SteelVal::BigRational(Gc::new(BigRational::new(
+                BigInt::from(isize::MAX) * 4,
+                BigInt::from(3),
+            ))),
+            SteelVal::ByteVector(SteelByteVector::new(vec![0, 1, 254, 255])),
+            SteelVal::VectorV(
+                Gc::new(
+                    vec![symbol("vec-elem"), SteelVal::IntV(7)]
+                        .into_iter()
+                        .collect::<crate::values::Vector<_>>(),
+                )
+                .into(),
+            ),
+            SteelVal::Pair(Gc::new(Pair::cons(symbol("car-part"), symbol("cdr-part")))),
+            SteelVal::Void,
+        ]
+    }
+
+    #[test]
+    fn round_trip_preserves_constants() {
+        let constants = representative_constants();
+        let map = ConstantMap::from_vec(constants.clone());
+
+        let bytes = map.to_bytes().unwrap();
+        let restored = ConstantMap::from_bytes(&bytes).unwrap();
+
+        assert_eq!(restored.len(), constants.len());
+
+        for (index, expected) in constants.iter().enumerate() {
+            assert_eq!(
+                restored.try_get(index).unwrap(),
+                *expected,
+                "constant {index} did not survive the round trip"
+            );
+        }
+    }
 
     #[test]
     fn run_tests_constant_map() {
