@@ -1496,6 +1496,12 @@ impl Compiler {
             semantic.flatten_empty_lets();
         }
 
+        // `or` expands to `(let ([z x]) (if z z y))`; where `x` can be
+        // re-evaluated for free or is boolean valued, that binding is dead
+        // weight. Runs after the inlining passes so it also catches the `or`s
+        // that inlining brought into view.
+        semantic.simplify_or_bindings();
+
         // Inlining and closure lifting can make a variable captured and mutated
         // that wasn't before, and code_gen emits ALLOC for those. Box again.
         {
