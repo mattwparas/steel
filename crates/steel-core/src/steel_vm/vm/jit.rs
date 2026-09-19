@@ -1128,6 +1128,56 @@ fn is_empty_value(value: SteelVal) -> SteelVal {
     SteelVal::BoolV(crate::primitives::lists::is_empty(&value))
 }
 
+// `list_cursor_materialize`, consuming the head the cursor walked from - the
+// value in its slot, which is being replaced. A head whose cells nothing else
+// shares is reused the way an in-place `cdr` would: stepped past for free and
+// the target repositioned in place. Cloning from it instead copies the target
+// cell (the head still shares it), which turned primes' free in-place cdrs on
+// a uniquely owned list into a copy per step.
+#[cross_platform_fn]
+fn list_cursor_materialize_owned(head: SteelVal, cell: usize, index: usize) -> SteelVal {
+    if index == 0 {
+        drop(head);
+        return SteelVal::ListV(crate::values::lists::List::new());
+    }
+
+    debug_assert!(cell != 0, "a non-empty cursor always has a cell");
+
+    match head {
+        SteelVal::ListV(list) => SteelVal::ListV(unsafe {
+            list.reposition_from_raw_parts(cell as *const u8, index)
+        }),
+        other => {
+            let out = list_cursor_materialize(cell, index);
+            drop(other);
+            out
+        }
+    }
+}
+
+// Turn a `(cell, index)` cursor that jitted code has been walking in registers
+// back into a real list. Only called when the cursor escapes - is stored,
+// returned, handed to a call, or has to be visible to the interpreter at a
+// deopt - so the cell copy it costs is paid once rather than once per step.
+//
+// The cell is kept alive by the head of the list, which stays in its vm stack
+// slot untouched for as long as a cursor is walking it.
+#[cross_platform_fn]
+fn list_cursor_materialize(cell: usize, index: usize) -> SteelVal {
+    // Index 0 is how a cursor spells the empty list - it walked off the end,
+    // and `cell` is just the last cell it was in. Hand back the real empty list
+    // rather than that cell repositioned: an inline cell has no position 0.
+    if index == 0 {
+        return SteelVal::ListV(crate::values::lists::List::new());
+    }
+
+    debug_assert!(cell != 0, "a non-empty cursor always has a cell");
+
+    SteelVal::ListV(unsafe {
+        crate::values::lists::List::<SteelVal>::from_raw_parts(cell as *const u8, index)
+    })
+}
+
 #[cross_platform_fn]
 fn vector_ref_handler_c(ctx: *mut VmCore, mut vec: SteelVal, index: SteelVal) -> SteelVal {
     match vec_ref(&mut vec, &index) {

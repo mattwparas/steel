@@ -1092,6 +1092,22 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             MutRegister(p) | Register(p) => {
+                // A register being walked as a cursor answers from the cursor:
+                // index 0 is how the empty list is spelled there. Reading the
+                // slot would materialise it and undo the walk.
+                if let Some(cursor) = self.properties.cached_lookups.cursors.get(&p).copied() {
+                    self.shadow_stack.pop();
+                    let index = self.builder.use_var(cursor.index);
+                    let is_empty = self.builder.ins().icmp_imm_s(IntCC::Equal, index, 0);
+                    self.properties.add_property(
+                        ValueOrRegister::Value(is_empty),
+                        Properties::CheckedNull(ValueOrRegister::Register(p)),
+                    );
+                    self.push(is_empty, InferredType::UnboxedBool);
+                    self.ip += 1;
+                    return;
+                }
+
                 let register = self.register_index(p);
                 self.shadow_stack.pop();
                 let res = self.call_function_returns_value_args("empty?", &[register]);
@@ -1147,7 +1163,7 @@ impl<'a> FunctionTranslator<'a> {
 
         // The branch that skipped `then` reaches here with the state from before
         // it, so only what `then` left in agreement with that survives.
-        self.properties.meet(&skipped.properties);
+        self.cursor_bail |= self.properties.meet(&skipped.properties);
         self.meet_register_maps(&skipped.local_to_value_map, &skipped.value_to_local_map);
 
         merge(self);
@@ -1187,7 +1203,7 @@ impl<'a> FunctionTranslator<'a> {
 
         // The branch that skipped `then` reaches here with the state from before
         // it, so only what `then` left in agreement with that survives.
-        self.properties.meet(&skipped.properties);
+        self.cursor_bail |= self.properties.meet(&skipped.properties);
         self.meet_register_maps(&skipped.local_to_value_map, &skipped.value_to_local_map);
 
         merge(self);
@@ -1228,7 +1244,7 @@ impl<'a> FunctionTranslator<'a> {
 
         // The branch that skipped `then` reaches here with the state from before
         // it, so only what `then` left in agreement with that survives.
-        self.properties.meet(&skipped.properties);
+        self.cursor_bail |= self.properties.meet(&skipped.properties);
         self.meet_register_maps(&skipped.local_to_value_map, &skipped.value_to_local_map);
 
         merge(self);
@@ -1308,7 +1324,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(merge_block);
 
         // Only what both arms agree on survives the merge
-        self.properties.meet(&then_properties);
+        self.cursor_bail |= self.properties.meet(&then_properties);
         self.meet_register_maps(&then_locals, &then_values);
     }
 
@@ -1353,7 +1369,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(merge_block);
 
         // Only what both arms agree on survives the merge
-        self.properties.meet(&then_properties);
+        self.cursor_bail |= self.properties.meet(&then_properties);
         self.meet_register_maps(&then_locals, &then_values);
     }
 
@@ -1399,7 +1415,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(merge_block);
 
         // Only what both arms agree on survives the merge
-        self.properties.meet(&then_properties);
+        self.cursor_bail |= self.properties.meet(&then_properties);
         self.meet_register_maps(&then_locals, &then_values);
 
         let result = self.builder.block_params(merge_block)[0];
@@ -1451,7 +1467,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(merge_block);
 
         // Only what both arms agree on survives the merge
-        self.properties.meet(&then_properties);
+        self.cursor_bail |= self.properties.meet(&then_properties);
         self.meet_register_maps(&then_locals, &then_values);
 
         let result = self.builder.block_params(merge_block)[0];

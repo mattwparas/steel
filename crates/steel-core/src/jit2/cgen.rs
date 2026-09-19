@@ -150,6 +150,11 @@ pub struct JIT {
 
     function_return_types: HashMap<u32, HashSet<InferredType>>,
 
+    /// Whether the next `translate` may walk lists as cursors. Set around the
+    /// specialized-copy compile only, and cleared again when that translation
+    /// bailed - see `FunctionTranslator::cursor_bail`.
+    allow_cursors: bool,
+
     // perf inject --jit support. None unless STEEL_JIT_DUMP asked for it -
     // opening it eagerly drops a jit-<pid>.dump into the cwd of every process
     // that builds a JIT
@@ -554,6 +559,8 @@ fn callee_can_move_value_stack(name: &str) -> bool {
         "lt-binop",
         "lt-binop-int",
         "lt-register-int",
+        // Builds a list cell; never touches the value stack.
+        "list-cursor-materialize",
         "lt-two-value-bool",
         "lte-two-value-bool",
         "gt-two-value-bool",
@@ -749,6 +756,16 @@ impl Default for JIT {
         map.add_func(
             "empty?",
             abi! { is_empty_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "list-cursor-materialize",
+            abi! { list_cursor_materialize as fn(usize, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "list-cursor-materialize-owned",
+            abi! { list_cursor_materialize_owned as fn(SteelVal, usize, usize) -> SteelVal },
         );
 
         map.add_func2(
@@ -1527,6 +1544,7 @@ impl Default for JIT {
 
         Self {
             builder_context: FunctionBuilderContext::new(),
+            allow_cursors: false,
             ctx: module.make_context(),
             module,
             function_map,
@@ -1614,6 +1632,23 @@ pub(super) fn byte_vec_strict_unshared() -> bool {
             std::env::var("STEEL_JIT_BYTEVECTOR_STRICT_UNSHARED")
                 .ok()
                 .as_deref(),
+            Some("1") | Some("true")
+        )
+    })
+}
+
+/// `STEEL_JIT_LIST_CURSOR=1` walks lists as an unboxed `(cell, index)` pair in
+/// registers instead of materialising a list per `cdr`.
+///
+/// Off by default: a prototype. The win only appears once a cursor survives a
+/// loop unmaterialised, and every deopt reachable while one is live has to
+/// materialise it or the interpreter resumes from the head of the list rather
+/// than the current position.
+pub(super) fn list_cursor_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        matches!(
+            std::env::var("STEEL_JIT_LIST_CURSOR").ok().as_deref(),
             Some("1") | Some("true")
         )
     })
@@ -1747,6 +1782,11 @@ fn list_next_offset() -> i32 {
     (list_cell_base() + SteelList::<SteelVal>::cell_next_offset() as i64) as i32
 }
 
+/// The bits of `next` that are tag rather than pointer.
+fn list_next_tag_mask() -> i64 {
+    SteelList::<SteelVal>::cell_next_tag_mask() as i64
+}
+
 const fn rcbox_slice_data_offset() -> i64 {
     steel_rc::BiasedRc::<DenseInstruction>::data_offset() as i64
 }
@@ -1779,6 +1819,9 @@ struct TranslateInfo {
     untyped_non_deopt_exit: bool,
     /// Self calls compiled as direct calls to this same specialized copy.
     direct_self_calls: usize,
+    /// The translation met something it could not keep a list cursor sound
+    /// across, so it has to be redone without cursors.
+    cursor_bailed: bool,
 }
 
 /// Body of a placeholder function; see `define_stub`.
@@ -2758,7 +2801,21 @@ impl JIT {
             }))
         };
 
+        self.allow_cursors = list_cursor_enabled();
         let mut translated = translate_with(self, None);
+
+        // A cursor the translator could not keep sound spoils the whole
+        // translation, so redo it without cursors rather than patch it.
+        if matches!(&translated, Ok(Ok(info)) if info.cursor_bailed) {
+            if spec_debug_enabled() {
+                eprintln!("[spec] {spec_name}: list cursors bailed, retranslating without");
+            }
+            self.module.clear_context(&mut self.ctx);
+            self.builder_context = FunctionBuilderContext::new();
+            self.init_jit_signature();
+            self.allow_cursors = false;
+            translated = translate_with(self, None);
+        }
 
         // A recursive function's direct self calls return whatever this copy
         // returns, which is circular: in a first translation those results are
@@ -2792,6 +2849,7 @@ impl JIT {
             }
             let holds = matches!(&second, Ok(Ok(info))
                 if !info.untyped_non_deopt_exit
+                    && !info.cursor_bailed
                     && info.returned.iter().all(|t| t.boxed() == assumed));
             if spec_debug_enabled() {
                 eprintln!("[spec] {spec_name}: assumed self calls return {assumed:?}: {}", if holds { "kept" } else { "rejected" });
@@ -2805,6 +2863,8 @@ impl JIT {
                 translated = translate_with(self, None);
             }
         }
+
+        self.allow_cursors = false;
 
         let failure = match translated {
             Ok(Ok(_)) => {
@@ -2953,15 +3013,16 @@ impl JIT {
             emit_spec_entry_guard(&mut builder, &mut self.module, vm_context, *spec_id, seed, arity);
         }
 
+        // Created now, jumped to once the translator exists: a loop that walks
+        // lists as cursors seeds them in the entry block, ahead of the header,
+        // so every back edge feeds the header's phis instead of each iteration
+        // re-seeding from a slot that no longer holds the current position.
         let fake_entry_block = if contains_tail_call {
-            let fake_entry = builder.create_block();
-            builder.ins().jump(fake_entry, &[]);
-            builder.switch_to_block(fake_entry);
-
-            Some(fake_entry)
+            Some(builder.create_block())
         } else {
             None
         };
+        let allow_cursors = self.allow_cursors;
 
         let exit_block = builder.create_block();
         let mut exit_types = HashSet::new();
@@ -2987,6 +3048,13 @@ impl JIT {
             exit_block,
             deopt_return_block: None,
             pending_deopt_exits: Vec::new(),
+            cursors_on: false,
+            cursor_bail: false,
+            cursor_advances: 0,
+            cursor_carries: 0,
+            cursor_copy_reads: 0,
+            header_cursors: HashMap::new(),
+            carry_skip: HashSet::new(),
             properties: Default::default(),
             visited: HashSet::default(),
             join_targets: bytecode
@@ -3025,12 +3093,6 @@ impl JIT {
             direct_self_calls: 0,
         };
 
-        {
-            let vm_ctx = trans.get_ctx();
-            trans.get_thread_pointer(vm_ctx);
-            trans.get_thread_id();
-        }
-
         match &spec_mode {
             // Guarded: the generic copy only tail calls in with these slots
             // holding these types, and this copy only loops on itself while
@@ -3044,6 +3106,25 @@ impl JIT {
                 }
             }
             SpecMode::Generic { .. } | SpecMode::None => {}
+        }
+
+        trans.cursors_on = allow_cursors
+            && matches!(spec_mode, SpecMode::Specialized { .. })
+            && fake_entry_block.is_some();
+
+        if let Some(fake_entry) = fake_entry_block {
+            if trans.cursors_on {
+                trans.seed_header_cursors();
+            }
+            trans.builder.ins().jump(fake_entry, &[]);
+            trans.builder.switch_to_block(fake_entry);
+            trans.forget_entry_block_caches();
+        }
+
+        {
+            let vm_ctx = trans.get_ctx();
+            trans.get_thread_pointer(vm_ctx);
+            trans.get_thread_id();
         }
 
         trans.stack_to_ssa();
@@ -3077,6 +3158,17 @@ impl JIT {
             has_untyped_exit(trans.builder.func, &known)
         };
         let direct_self_calls = trans.direct_self_calls;
+        let cursor_bailed = trans.cursor_bail
+            || (trans.cursors_on && (trans.cursor_advances == 0 || trans.cursor_carries == 0));
+
+        // TEMP-DEBUG
+        if trans.cursors_on && std::env::var_os("STEEL_CURSOR_STATS").is_some() {
+            eprintln!(
+                "[cursor-stats] {} advances={} carries={} copy_reads={} bail={}",
+                trans.name, trans.cursor_advances, trans.cursor_carries,
+                trans.cursor_copy_reads, cursor_bailed
+            );
+        }
         trans.builder.finalize(frontend_config);
 
         /*
@@ -3113,6 +3205,7 @@ impl JIT {
             returned,
             untyped_non_deopt_exit,
             direct_self_calls,
+            cursor_bailed,
         })
     }
 }
@@ -3405,9 +3498,36 @@ enum ValueOrRegister {
     Register(usize),
 }
 
+/// A list being walked as a `(cell, index)` pair in registers instead of as a
+/// `SteelVal` in its stack slot.
+///
+/// `cdr` is then arithmetic - decrement the index, or follow the link when it
+/// runs out - where materialising a real list would have to copy the cell,
+/// because `im-lists` keeps the cursor *inside* the cell and two cursors
+/// therefore need two cells.
+///
+/// The slot keeps holding the head of the list the whole time, untouched, which
+/// is what keeps every cell the cursor reaches alive. Nothing here owns a
+/// reference.
+/// `cell` is the `RcBox` pointer - the same convention as a `ListV` payload, so
+/// the `list_*_offset()` helpers apply to it directly. The links between cells
+/// and the `im-lists` raw-pointer API both use the *data* pointer instead
+/// (`BiasedRc::into_raw` / `from_raw`), `list_cell_base()` bytes further on;
+/// `cursor_advance` and `emit_cursor_write_back` convert at those two edges.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+struct ListCursor {
+    cell: Variable,
+    index: Variable,
+}
+
 #[derive(Default, Clone)]
 struct CachedLookupMap {
     registers: HashMap<usize, Value>,
+
+    /// Registers currently represented by a cursor rather than by their slot.
+    /// Merged the same way as `registers`: a cursor survives a branch only if
+    /// both arms agree on it.
+    cursors: HashMap<usize, ListCursor>,
 
     // Every time we pop off the stack, we'll increase this.
     stack_length_capacity: usize,
@@ -3425,13 +3545,41 @@ struct PropertyMap {
     props: HashMap<ValueOrRegister, Vec<Properties>>,
 
     cached_lookups: CachedLookupMap,
+
+    // The builder is past a return or a loop jump: nothing emitted from here
+    // until the next join runs, so this arm has nothing to contribute to it.
+    dead: bool,
 }
 
 
 
 impl PropertyMap {
     // Keep only what both branches agree on; anything else is unknown here.
-    pub fn meet(&mut self, other: &PropertyMap) {
+    /// Returns whether the two arms disagreed about a list cursor. A cursor is
+    /// the authoritative copy of its value - the slot behind it is stale - so
+    /// one that survives in only one arm cannot just be dropped here the way a
+    /// cached read can.
+    pub fn meet(&mut self, other: &PropertyMap) -> bool {
+        // An arm that ended in a return or a loop jump never reaches the join.
+        if other.dead {
+            return false;
+        }
+        if self.dead {
+            *self = other.clone();
+            return false;
+        }
+
+        let cursor_conflict = self.cached_lookups.cursors != other.cached_lookups.cursors;
+        // TEMP-DEBUG
+        if cursor_conflict && std::env::var_os("STEEL_CURSOR_TRACE").is_some() {
+            let mut a: Vec<_> = self.cached_lookups.cursors.iter().map(|(k, v)| (*k, v.cell.as_u32(), v.index.as_u32())).collect();
+            let mut b: Vec<_> = other.cached_lookups.cursors.iter().map(|(k, v)| (*k, v.cell.as_u32(), v.index.as_u32())).collect();
+            a.sort(); b.sort();
+            let bt = std::backtrace::Backtrace::force_capture().to_string();
+            let frames: Vec<&str> = bt.lines().filter(|l| l.contains("cgen")).take(6).collect();
+            eprintln!("[cursor] meet conflict self={a:?} other={b:?}\n{}", frames.join("\n"));
+        }
+
         self.props.retain(|key, props| match other.props.get(key) {
             Some(other_props) => {
                 props.retain(|p| other_props.contains(p));
@@ -3444,6 +3592,10 @@ impl PropertyMap {
             .registers
             .retain(|key, value| other.cached_lookups.registers.get(key) == Some(value));
 
+        self.cached_lookups
+            .cursors
+            .retain(|key, value| other.cached_lookups.cursors.get(key) == Some(value));
+
         self.cached_lookups.stack_length_capacity = self
             .cached_lookups
             .stack_length_capacity
@@ -3452,6 +3604,8 @@ impl PropertyMap {
         if self.cached_lookups.stack_buf_pointer != other.cached_lookups.stack_buf_pointer {
             self.cached_lookups.stack_buf_pointer = None;
         }
+
+        cursor_conflict
     }
 
     pub fn remove(&mut self, value: &ValueOrRegister) {
@@ -3527,6 +3681,26 @@ impl PropertyMap {
                         }
                     }
                 }
+                // The false arm of a `null?` test. Pushed as a second entry it
+                // would leave two properties, and `get` answers nothing for
+                // more than one - so a proper list that is not null never
+                // reached `ProperNonEmptyList`.
+                Properties::NonNull => {
+                    let already = exists.iter().any(|p| {
+                        matches!(
+                            p,
+                            Properties::NonNull
+                                | Properties::NonEmptyListOrPair
+                                | Properties::ProperNonEmptyList
+                        )
+                    });
+                    if !already {
+                        match exists.iter_mut().find(|p| matches!(p, Properties::ProperList)) {
+                            Some(p) => *p = Properties::ProperNonEmptyList,
+                            None => exists.push(prop),
+                        }
+                    }
+                }
                 _ => {
                     // Coalesce properties on push. In the event there are properties
                     // that are related, we should infer things about them here.
@@ -3571,6 +3745,14 @@ impl PropertyMap {
                             // just assert the exact opposite, which is that its _definitely_ not
                             // a null list.
                             self.add_property(*value_or_register, Properties::NonNull);
+                        }
+                        break;
+                    }
+                    Properties::CheckedNotNull(value_or_register) => {
+                        if branch {
+                            self.add_property(*value_or_register, Properties::NonNull);
+                        } else {
+                            self.add_property(*value_or_register, Properties::Null);
                         }
                         break;
                     }
@@ -3621,6 +3803,8 @@ enum Properties {
     CheckedList(ValueOrRegister),
     CheckedPair(ValueOrRegister),
     CheckedNull(ValueOrRegister),
+    // `(not (null? x))`: the same test with its arms swapped.
+    CheckedNotNull(ValueOrRegister),
 
     ProperList,
 
@@ -3759,7 +3943,38 @@ struct FunctionTranslator<'a> {
     // Speculative exits, filled once the body is done. Emitting them inline puts
     // their loads ahead of the fast path they branch away from, and those values
     // then do not dominate it - cranelift reports that as a non-dominating use.
-    pending_deopt_exits: Vec<(Block, Vec<MaybeStackValue>, usize)>,
+    /// Queued cold exits, each with the list cursors that were live where it
+    /// was queued - those have to be written back to their slots on the way out.
+    pending_deopt_exits: Vec<(Block, Vec<MaybeStackValue>, usize, HashMap<usize, ListCursor>)>,
+
+    /// List cursors are allowed in this translation. Only ever true in a
+    /// specialized copy with a loop, where `List`-seeded parameters are known to
+    /// be lists on entry.
+    cursors_on: bool,
+
+    /// Something happened while a cursor was live that the translator cannot
+    /// keep sound - branch arms disagreeing about cursors, most likely. The
+    /// caller throws this translation away and redoes it without cursors.
+    cursor_bail: bool,
+    // How many `cdr`s walked a cursor. None means the cursors bought nothing
+    // and only cost a write-back at each escape and a re-seed per iteration.
+    cursor_advances: usize,
+    // How many cursors crossed a back edge still unmaterialised. That is where
+    // a cursor pays: a walk that is materialised before every call or loop
+    // jump anyway costs a write-back for each in-place `cdr` it replaced.
+    cursor_carries: usize,
+    // TEMP-DEBUG: `(cdr l)` where `l` is read again - what a derived cursor
+    // (a second cursor for the result) would cover.
+    cursor_copy_reads: usize,
+
+    /// The cursor for each `List`-seeded parameter, seeded before the loop
+    /// header. Every back edge has to arrive with these variables current.
+    header_cursors: HashMap<usize, ListCursor>,
+
+    /// Parameter slots a self tail call is carrying as a cursor: the argument
+    /// is the slot's own value, so the write is skipped and the slot keeps the
+    /// head that keeps the cursor's cells alive.
+    carry_skip: HashSet<usize>,
     visited: HashSet<usize>,
 
     depth: usize,
@@ -4003,6 +4218,22 @@ impl FunctionTranslator<'_> {
                 self.materialize_borrowed();
             }
 
+            // Only ever set by the self tail call that is carrying cursors, and
+            // it must not reach any other op's writes.
+            self.carry_skip.clear();
+
+            // A call can re-enter the vm, and a call that deopts resumes this
+            // frame in the interpreter, which reads the slots. Put every cursor
+            // back first. Plain `FuncV` primitives are Rust functions that cannot
+            // do either; their one way out, raising, goes through `check_deopt`,
+            // which writes the cursors back itself.
+            if self.cursors_on
+                && !self.properties.cached_lookups.cursors.is_empty()
+                && self.op_may_resume_interpreted(op, payload)
+            {
+                self.materialize_all_cursors();
+            }
+
             match op {
                 OpCode::LOADINT1POP | OpCode::BINOPADDTAIL => {
                     todo!("{:?}", op);
@@ -4028,6 +4259,7 @@ impl FunctionTranslator<'_> {
 
                     let cold_block = self.builder.create_block();
                     self.builder.switch_to_block(cold_block);
+                    self.properties.dead = true;
 
                     self.ip = self.instructions.len() + 1;
                     self.depth -= 1;
@@ -4507,7 +4739,50 @@ impl FunctionTranslator<'_> {
 
                     self.maybe_check_last();
 
-                    let (last, typ) = self.shadow_pop();
+                    // A cursor bound by a let moves with its head: the new slot
+                    // takes the head, the old one is left void (it was a move, so
+                    // nothing reads it again), and the walk stays in registers.
+                    let moved_cursor = match self.shadow_stack.last() {
+                        Some(MaybeStackValue::MutRegister(j)) if self.cursors_on => {
+                            let j = *j;
+                            self.properties
+                                .cached_lookups
+                                .cursors
+                                .get(&j)
+                                .copied()
+                                .map(|c| (j, c))
+                        }
+                        _ => None,
+                    };
+                    let moved_props = moved_cursor
+                        .and_then(|(j, _)| self.properties.props.get(&ValueOrRegister::Register(j)).cloned());
+
+                    let (last, typ) = match moved_cursor {
+                        Some((j, cursor)) => {
+                            self.shadow_stack.pop();
+                            let head = self.remove_from_vm_stack_raw(j);
+                            self.properties.cached_lookups.cursors.remove(&j);
+                            self.properties.cached_lookups.registers.remove(&j);
+                            self.properties.props.insert(
+                                ValueOrRegister::Register(j),
+                                vec![Properties::InferredType(InferredType::Void)],
+                            );
+                            let fresh = ListCursor {
+                                cell: self.builder.declare_var(types::I64),
+                                index: self.builder.declare_var(types::I64),
+                            };
+                            let cell = self.builder.use_var(cursor.cell);
+                            let index = self.builder.use_var(cursor.index);
+                            self.builder.def_var(fresh.cell, cell);
+                            self.builder.def_var(fresh.index, index);
+                            (head, (InferredType::List, Some(fresh)))
+                        }
+                        None => {
+                            let (v, t) = self.shadow_pop();
+                            (v, (t, None))
+                        }
+                    };
+                    let (typ, fresh_cursor) = typ;
 
                     // All enclosing scopes, not just this one: `let*` nests, and
                     // both read paths index with `let_var_stack.iter().sum()`. Using
@@ -4590,6 +4865,21 @@ impl FunctionTranslator<'_> {
                     //
                     // It shouldn't be though
                     self.push_to_vm_stack_let_var_new(last);
+
+                    if let Some(fresh_cursor) = fresh_cursor {
+                        // The head in the slot is not the current position;
+                        // nothing may cache it as the value.
+                        self.properties.cached_lookups.registers.remove(&local_index);
+                        self.properties
+                            .cached_lookups
+                            .cursors
+                            .insert(local_index, fresh_cursor);
+                        if let Some(props) = moved_props {
+                            self.properties
+                                .props
+                                .insert(ValueOrRegister::Register(local_index), props);
+                        }
+                    }
                 }
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -4620,6 +4910,7 @@ impl FunctionTranslator<'_> {
                     self.local_to_value_map.remove(&slot);
                     self.properties.remove(&ValueOrRegister::Register(slot));
                     self.properties.cached_lookups.registers.remove(&slot);
+                    self.properties.cached_lookups.cursors.remove(&slot);
 
                     let value =
                         self.call_function_returns_value_args("set-local-any", &[index, value]);
@@ -5345,6 +5636,7 @@ impl FunctionTranslator<'_> {
 
                                 self.properties.remove(&ValueOrRegister::Register(r));
                                 self.properties.cached_lookups.registers.remove(&r);
+                                self.properties.cached_lookups.cursors.remove(&r);
 
                                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                                     value,
@@ -5378,6 +5670,7 @@ impl FunctionTranslator<'_> {
                         // Keyed the same way `LetVar` writes it - let_var_stack +
                         // arity - which is what `payload` already counts in.
                         self.properties.cached_lookups.registers.remove(&i);
+                        self.properties.cached_lookups.cursors.remove(&i);
                     }
 
                     // for p in properties_to_remove {
@@ -5483,7 +5776,7 @@ impl FunctionTranslator<'_> {
                     let value = self.shadow_stack_pop().unwrap().into_value(self);
                     let register = self.shadow_stack_pop().unwrap().into_index();
 
-                    let register = self.builder.ins().iconst(types::I64, register as i64);
+                    let register = self.register_index(register);
 
                     let args = [register, value.as_steelval(self)];
                     let result = self.call_function_returns_value_args("sub-binop-reg", &args);
@@ -5625,7 +5918,7 @@ impl FunctionTranslator<'_> {
                     let typ = self.int;
 
                     let mut sp = |ctx: &mut Self| {
-                        let register = ctx.builder.ins().iconst(types::I64, register as i64);
+                        let register = ctx.register_index(register);
                         let args = [register, value_as_steelval];
                         let result = ctx.call_function_returns_value_args("add-binop-reg", &args);
 
@@ -6352,7 +6645,7 @@ impl FunctionTranslator<'_> {
                             // todo!();
 
                             let register_int =
-                                ctx.builder.ins().iconst(types::I64, register as i64);
+                                ctx.register_index(register);
 
                             let vm_ctx = ctx.get_ctx();
 
@@ -6538,7 +6831,7 @@ impl FunctionTranslator<'_> {
                             self.shadow_stack_pop();
                             self.shadow_stack_pop();
 
-                            let register_index = self.builder.ins().iconst(types::I64, i as i64);
+                            let register_index = self.register_index(i);
 
                             let v_steelval = v.as_steelval(self);
                             let res = self.call_function_returns_value_args(
@@ -6615,7 +6908,7 @@ impl FunctionTranslator<'_> {
                             self.shadow_stack_pop();
                             self.shadow_stack_pop();
 
-                            let register_index = self.builder.ins().iconst(types::I64, i as i64);
+                            let register_index = self.register_index(i);
 
                             let value = v.to_value(self);
 
@@ -6651,8 +6944,19 @@ impl FunctionTranslator<'_> {
                     ) =>
                 {
                     let last = self.shadow_stack_pop().unwrap().into_index();
-                    let value = self.read_from_vm_stack(last);
-                    let result = self.check_null_no_drop(value);
+                    // A cursor answers without being materialised: index 0 is
+                    // how it spells the empty list.
+                    let result = match self.properties.cached_lookups.cursors.get(&last).copied()
+                    {
+                        Some(cursor) => {
+                            let index = self.builder.use_var(cursor.index);
+                            self.builder.ins().icmp_imm_s(IntCC::Equal, index, 0)
+                        }
+                        None => {
+                            let value = self.read_from_vm_stack(last);
+                            self.check_null_no_drop(value)
+                        }
+                    };
 
                     // Okay, we're going to try branch on properties, and assert
                     // type checks depending on which branch we take. If the test
@@ -6702,7 +7006,7 @@ impl FunctionTranslator<'_> {
                                 .into_value(self)
                                 .as_steelval(self);
 
-                            let register = self.builder.ins().iconst(types::I64, register as i64);
+                            let register = self.register_index(register);
 
                             // Just... leave it in place if it mutates the register.
                             // We can lazily have the register move around.
@@ -6725,7 +7029,7 @@ impl FunctionTranslator<'_> {
                             let register = self.shadow_stack_pop().unwrap().into_index();
                             let value = self.shadow_stack_pop().unwrap().into_index();
 
-                            let register = self.builder.ins().iconst(types::I64, register as i64);
+                            let register = self.register_index(register);
                             let value = self.register_index(value);
 
                             // Just... leave it in place if it mutates the register.
@@ -6765,6 +7069,43 @@ impl FunctionTranslator<'_> {
                     }
 
                     match self.shadow_stack.last().unwrap().clone() {
+                        // `(cdr l)` where `l` is still read afterwards: build the
+                        // rest from a copy of the cursor, advanced. One helper
+                        // call, like the plain path - which would first have to
+                        // write the cursor back into the slot - and the cursor
+                        // itself stays live.
+                        MaybeStackValue::Register(reg)
+                            if self.cursors_on
+                                && matches!(
+                                    self.properties.get(&ValueOrRegister::Register(reg)),
+                                    Some(Properties::ProperNonEmptyList)
+                                )
+                                && self.properties.cached_lookups.cursors.contains_key(&reg) =>
+                        {
+                            let rest_type = self.cdr_result_type(reg);
+                            self.cursor_copy_reads += 1;
+                            self.shadow_stack_pop();
+                            let cursor = self.properties.cached_lookups.cursors[&reg];
+                            let rest = ListCursor {
+                                cell: self.builder.declare_var(types::I64),
+                                index: self.builder.declare_var(types::I64),
+                            };
+                            let cell = self.builder.use_var(cursor.cell);
+                            let index = self.builder.use_var(cursor.index);
+                            self.builder.def_var(rest.cell, cell);
+                            self.builder.def_var(rest.index, index);
+                            self.cursor_advance(rest);
+
+                            let cell = self.builder.use_var(rest.cell);
+                            let index = self.builder.use_var(rest.index);
+                            let data = self.builder.ins().iadd_imm_s(cell, list_cell_base());
+                            let res = self.call_function_returns_value_args_no_context(
+                                "list-cursor-materialize",
+                                &[data, index],
+                            );
+                            self.push(res, rest_type);
+                            self.ip += 2;
+                        }
                         MaybeStackValue::Register(reg) => {
                             let can_skip_bounds_check = matches!(
                                 self.properties.get(&ValueOrRegister::Register(reg)),
@@ -6805,6 +7146,30 @@ impl FunctionTranslator<'_> {
                             );
 
                             // let can_skip_bounds_check = false;
+
+                            // Walk it as a cursor instead of building a list.
+                            // Only where the bounds check is already known to be
+                            // unnecessary, so there is nothing here that can
+                            // raise - a cursor must not be live across a deopt.
+                            // Walk it as a cursor instead of building a list -
+                            // only a header cursor that is live here, and only
+                            // where emptiness is ruled out, so there is no raising
+                            // path to take while it is live.
+                            if self.cursors_on
+                                && can_skip_bounds_check
+                                && self.properties.cached_lookups.cursors.contains_key(&reg)
+                            {
+                                self.shadow_stack_pop();
+                                let cursor = self.properties.cached_lookups.cursors[&reg];
+                                self.cursor_advance(cursor);
+                                self.properties.set_property(
+                                    ValueOrRegister::Register(reg),
+                                    Properties::ProperList,
+                                );
+                                self.shadow_push(MaybeStackValue::MutRegister(reg));
+                                self.ip += 2;
+                                continue;
+                            }
 
                             self.shadow_stack_pop();
                             let ir_reg = self.register_index(reg);
@@ -6917,6 +7282,33 @@ impl FunctionTranslator<'_> {
                     }
 
                     match self.shadow_stack.last().unwrap().clone() {
+                        // A cursor-backed list reads its element in place: the
+                        // cell and position are already in registers, and the
+                        // head in the slot keeps the cell alive, so the cursor
+                        // survives the read - even a moving one.
+                        MaybeStackValue::MutRegister(reg) | MaybeStackValue::Register(reg)
+                            if self.cursors_on
+                                && matches!(
+                                    self.properties.get(&ValueOrRegister::Register(reg)),
+                                    Some(Properties::ProperNonEmptyList)
+                                )
+                                && self.properties.cached_lookups.cursors.contains_key(&reg) =>
+                        {
+                            self.shadow_stack_pop();
+                            let cursor = self.properties.cached_lookups.cursors[&reg];
+                            let cell = self.builder.use_var(cursor.cell);
+                            let index = self.builder.use_var(cursor.index);
+                            let slot_ptr = self.list_slot_ptr(cell, index);
+                            let res = self.builder.ins().load(
+                                types::I128,
+                                MemFlagsData::trusted(),
+                                slot_ptr,
+                                0,
+                            );
+                            self.clone_value(res);
+                            self.push(res, InferredType::Any);
+                            self.ip += 2;
+                        }
                         MaybeStackValue::MutRegister(reg) | MaybeStackValue::Register(reg) => {
                             // Don't think we can do this. When checking null?, we also want to check
                             // that the value is a list - if we assert its a list earlier, we can avoid
@@ -7222,6 +7614,16 @@ impl FunctionTranslator<'_> {
                         // let value = self.builder.ins().icmp_imm_s(IntCC::Equal, test, 0);
 
                         let value = self.builder.ins().bxor_imm_u(test, 1);
+
+                        // Negating a `null?` result swaps which arm learns what.
+                        let flipped = match self.properties.get(&ValueOrRegister::Value(test)) {
+                            Some(Properties::CheckedNull(r)) => Some(Properties::CheckedNotNull(r)),
+                            Some(Properties::CheckedNotNull(r)) => Some(Properties::CheckedNull(r)),
+                            _ => None,
+                        };
+                        if let Some(prop) = flipped {
+                            self.properties.add_property(ValueOrRegister::Value(value), prop);
+                        }
 
                         self.push(value, InferredType::UnboxedBool);
                         self.ip += 2;
@@ -8403,10 +8805,14 @@ impl FunctionTranslator<'_> {
     }
 
     fn register_index(&mut self, index: usize) -> Value {
+        // Helpers that take a register number read the slot themselves.
+        self.materialize_cursor(index);
         self.builder.ins().iconst(types::I64, index as i64)
     }
 
     fn register_index_small(&mut self, index: usize) -> Value {
+        // Helpers that take a register number read the slot themselves.
+        self.materialize_cursor(index);
         self.builder.ins().iconst(types::I16, index as i64)
     }
 
@@ -9065,6 +9471,7 @@ impl FunctionTranslator<'_> {
                             MaybeStackValue::Register(i) if *i == payload => {
                                 let (value, typ) = self.immutable_register_to_value(payload);
                                 self.properties.cached_lookups.registers.remove(&payload);
+                                self.properties.cached_lookups.cursors.remove(&payload);
 
                                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                                     value,
@@ -9136,6 +9543,7 @@ impl FunctionTranslator<'_> {
                         MaybeStackValue::Register(i) if *i == payload => {
                             let (value, typ) = self.immutable_register_to_value(payload);
                             self.properties.cached_lookups.registers.remove(&payload);
+                            self.properties.cached_lookups.cursors.remove(&payload);
 
                             self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                                 value,
@@ -9224,6 +9632,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn call_set(&mut self, index: usize, value: Value) -> Value {
+        self.properties.cached_lookups.cursors.remove(&index);
         let local_callee = self.get_local_callee("set-handler");
 
         let ctx = self.get_ctx();
@@ -9265,7 +9674,7 @@ impl FunctionTranslator<'_> {
         // Advance to the next thing
         // self.ip += 1;
 
-        let register = self.builder.ins().iconst(types::I64, register as i64);
+        let register = self.register_index(register);
 
         let arg_values = [ctx, register];
 
@@ -9329,6 +9738,141 @@ impl FunctionTranslator<'_> {
                 })
                 .collect()
         };
+
+        // List cursors across the back edge. A parameter passed its own value
+        // - `MutRegister(j)` / `Register(j)` at position `j`, which is what an
+        // in-place `(cdr l)` leaves - is carried: its cursor variables are
+        // already the next iteration's, so the argument is replaced by a
+        // placeholder nobody reads and its write is skipped. Any other live
+        // cursor is materialised first, because the arguments may read it.
+        let mut handed_over: Vec<(usize, ListCursor)> = Vec::new();
+        if self.cursors_on && payload > 0 && !self.properties.cached_lookups.cursors.is_empty() {
+            let n = self.shadow_stack.len();
+
+            // The trailing run of self-moves that `amount_dropped` below pops
+            // without reading or writing. A carried slot inside it needs nothing
+            // from us - and must be left as it is: a placeholder would end the
+            // run early, and every self-move below it would then be written
+            // back over its own slot, dropping the value it is storing.
+            let mut trailing = 0;
+            while trailing < payload {
+                let pos = payload - trailing - 1;
+                match self.shadow_stack.get(n - payload + pos) {
+                    Some(MaybeStackValue::MutRegister(r) | MaybeStackValue::Register(r))
+                        if *r == pos =>
+                    {
+                        trailing += 1
+                    }
+                    _ => break,
+                }
+            }
+            let first_trailing = payload - trailing;
+
+            // A let slot's cursor handed to parameter `p` - `(let ((x2 (cdr x)))
+            // ... (loop (cdr x2)))` after self-inlining. The head moves from
+            // the let slot into `p`'s slot and the header cursor takes over the
+            // position, so the walk crosses the back edge unmaterialised.
+            // Only when no other argument reads either slot.
+            let arity = self.arity as usize;
+            for p in 0..first_trailing {
+                let Some(MaybeStackValue::MutRegister(r)) =
+                    self.shadow_stack.get(n - payload + p).copied()
+                else {
+                    continue;
+                };
+                if r == p || r < arity {
+                    continue;
+                }
+                let (Some(from), Some(to)) = (
+                    self.properties.cached_lookups.cursors.get(&r).copied(),
+                    self.header_cursors.get(&p).copied(),
+                ) else {
+                    continue;
+                };
+                let shared = (0..payload).filter(|&q| q != p).any(|q| {
+                    matches!(
+                        self.shadow_stack.get(n - payload + q),
+                        Some(MaybeStackValue::MutRegister(x) | MaybeStackValue::Register(x))
+                            if *x == r || *x == p
+                    )
+                });
+                if shared {
+                    continue;
+                }
+
+                let head = self.remove_from_vm_stack_raw(r);
+                self.properties.cached_lookups.cursors.remove(&r);
+                self.properties.cached_lookups.registers.remove(&r);
+                self.properties.props.insert(
+                    ValueOrRegister::Register(r),
+                    vec![Properties::InferredType(InferredType::Void)],
+                );
+                // `p`'s own cursor dies with the head the write below drops.
+                self.properties.cached_lookups.cursors.remove(&p);
+
+                let cell = self.builder.use_var(from.cell);
+                let index = self.builder.use_var(from.index);
+                self.builder.def_var(to.cell, cell);
+                self.builder.def_var(to.index, index);
+
+                self.shadow_stack[n - payload + p] = MaybeStackValue::Value(StackValue {
+                    value: head,
+                    inferred_type: InferredType::List,
+                    spilled: false,
+                });
+                handed_over.push((p, to));
+                self.cursor_carries += 1;
+            }
+
+            let mut live: Vec<usize> = self
+                .properties
+                .cached_lookups
+                .cursors
+                .keys()
+                .copied()
+                .collect();
+            live.sort_unstable();
+            for slot in live {
+                if slot < payload && slot >= first_trailing {
+                    // Popped untouched by `amount_dropped`: the slot keeps its
+                    // head and the cursor its position.
+                    self.cursor_carries += 1;
+                    continue;
+                }
+                let carried = slot < payload
+                    && matches!(
+                        self.shadow_stack.get(n - payload + slot),
+                        Some(MaybeStackValue::MutRegister(r) | MaybeStackValue::Register(r))
+                            if *r == slot
+                    );
+                // Nothing among the arguments reads it, and the slot is
+                // about to be overwritten or truncated - either way the head it
+                // walked from is dropped, so there is nothing to write back.
+                let referenced = (0..payload).any(|q| {
+                    matches!(
+                        self.shadow_stack.get(n - payload + q),
+                        Some(MaybeStackValue::MutRegister(x) | MaybeStackValue::Register(x))
+                            if *x == slot
+                    )
+                });
+                if !referenced {
+                    self.properties.cached_lookups.cursors.remove(&slot);
+                    continue;
+                }
+                if carried {
+                    self.cursor_carries += 1;
+                    let void = self.encode_void();
+                    self.shadow_stack[n - payload + slot] = MaybeStackValue::Value(StackValue {
+                        value: void,
+                        inferred_type: InferredType::Void,
+                        spilled: false,
+                    });
+                    self.carry_skip.insert(slot);
+                } else {
+                    self.materialize_cursor(slot);
+                }
+            }
+        }
 
         if payload > 0 {
             let mut amount_dropped = 0;
@@ -9401,6 +9945,11 @@ impl FunctionTranslator<'_> {
                     self.inline_call_self_tail_call_no_arity_loop(original_payload as _, &args);
                 }
 
+                // Only now: before the writes, a live `p` would have been
+                // materialised over the head just handed to it.
+                for (p, to) in &handed_over {
+                    self.properties.cached_lookups.cursors.insert(*p, *to);
+                }
                 self.emit_self_tail_jump(&proven);
 
                 return;
@@ -9439,11 +9988,30 @@ impl FunctionTranslator<'_> {
             let _call = self.builder.ins().call(local_callee, &arg_values);
         }
 
+        // Only now: before the writes, a live `p` would have been
+        // materialised over the head just handed to it.
+        for (p, to) in &handed_over {
+            self.properties.cached_lookups.cursors.insert(*p, *to);
+        }
         self.emit_self_tail_jump(&proven);
     }
 
     /// Back to the top of the loop. The arguments are already written back.
     fn emit_loop_jump(&mut self) {
+        // The header's cursor variables have to be current on every edge in.
+        // A cursor still live here already is; one that was materialised or
+        // overwritten on this path is not, and the slot holds its value now.
+        if self.cursors_on {
+            let mut header: Vec<(usize, ListCursor)> =
+                self.header_cursors.iter().map(|(k, v)| (*k, *v)).collect();
+            header.sort_unstable_by_key(|(k, _)| *k);
+            for (slot, cursor) in header {
+                if self.properties.cached_lookups.cursors.get(&slot) != Some(&cursor) {
+                    self.define_cursor_from_slot(cursor, slot);
+                }
+            }
+        }
+
         let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
         let else_block = self.builder.create_block();
@@ -9460,6 +10028,7 @@ impl FunctionTranslator<'_> {
 
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
+        self.properties.dead = true;
     }
 
     /// The end of a self tail call, once the arguments are written back. Where
@@ -9508,6 +10077,11 @@ impl FunctionTranslator<'_> {
                 // away from while still empty never makes it into the function.
                 self.builder.seal_block(generic_block);
                 self.builder.switch_to_block(generic_block);
+                // The generic copy reads the parameters out of their slots.
+                if self.cursors_on && !self.properties.cached_lookups.cursors.is_empty() {
+                    let live = self.properties.cached_lookups.cursors.clone();
+                    self.write_back_cursors(&live);
+                }
                 self.emit_tail_call_into(generic_id);
 
                 self.builder.switch_to_block(pass_block);
@@ -10235,14 +10809,21 @@ impl FunctionTranslator<'_> {
     /// Queue an exit to be emitted after the body, so its loads land after every
     /// block that branches to it.
     fn defer_deopt_exit(&mut self, block: Block, bytecode_ip: usize, stack: Vec<MaybeStackValue>) {
-        self.pending_deopt_exits.push((block, stack, bytecode_ip));
+        let cursors = self.properties.cached_lookups.cursors.clone();
+        self.pending_deopt_exits
+            .push((block, stack, bytecode_ip, cursors));
     }
 
     /// Fill every queued exit. Each restores the translator state it was queued
     /// with, so the exits do not see each other either.
     fn flush_deopt_exits(&mut self) {
-        while let Some((block, stack, bytecode_ip)) = self.pending_deopt_exits.pop() {
+        while let Some((block, stack, bytecode_ip, cursors)) = self.pending_deopt_exits.pop() {
             self.builder.switch_to_block(block);
+            // The cursors live where this exit was queued, not the ones live at
+            // the end of the function.
+            if !cursors.is_empty() {
+                self.write_back_cursors(&cursors);
+            }
             self.emit_deopt_exit_scoped(bytecode_ip, stack);
         }
     }
@@ -10250,6 +10831,9 @@ impl FunctionTranslator<'_> {
     fn emit_deopt_exit_scoped(&mut self, bytecode_ip: usize, stack: Vec<MaybeStackValue>) {
         let saved_stack = core::mem::replace(&mut self.shadow_stack, stack);
         let saved_properties = self.properties.clone();
+        // Already written back by the caller; the end-of-function cursor table
+        // says nothing about this exit.
+        self.properties.cached_lookups.cursors.clear();
         let saved_value_to_local = self.value_to_local_map.clone();
         let saved_local_to_value = self.local_to_value_map.clone();
         let saved_let_var_stack = self.let_var_stack.clone();
@@ -10297,6 +10881,31 @@ impl FunctionTranslator<'_> {
 
     fn check_deopt(&mut self) {
         let result = self.check_deopt_ptr_load();
+
+        // The shared deopt block just returns. With a cursor live the
+        // interpreter would resume from a slot still holding the head of the
+        // list, so this exit writes the cursors back first - and needs a block
+        // of its own to do it in, since different sites have different ones.
+        if self.cursors_on && !self.properties.cached_lookups.cursors.is_empty() {
+            let live = self.properties.cached_lookups.cursors.clone();
+            let then_block = self.builder.create_block();
+            let exit_block = self.builder.create_block();
+            self.builder
+                .ins()
+                .brif(result, then_block, &[], exit_block, &[]);
+
+            self.builder.switch_to_block(exit_block);
+            self.builder.seal_block(exit_block);
+            self.builder.set_cold_block(exit_block);
+            self.write_back_cursors(&live);
+            let void = self.encode_void();
+            let ret = self.builder.ins().return_(&[void]);
+            self.deopt_returns.insert(ret);
+
+            self.builder.switch_to_block(then_block);
+            self.builder.seal_block(then_block);
+            return;
+        }
 
         let then_block = self.builder.create_block();
         let (deopt_block, needs_fill) = match self.deopt_return_block {
@@ -10411,6 +11020,8 @@ impl FunctionTranslator<'_> {
 
                 self.properties.cached_lookups.registers.remove(&p);
 
+                self.properties.cached_lookups.cursors.remove(&p);
+
                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                     value,
                     inferred_type,
@@ -10423,6 +11034,8 @@ impl FunctionTranslator<'_> {
                 spilled = true;
 
                 self.properties.cached_lookups.registers.remove(&p);
+
+                self.properties.cached_lookups.cursors.remove(&p);
 
                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                     value,
@@ -10641,6 +11254,8 @@ impl FunctionTranslator<'_> {
 
                     self.properties.cached_lookups.registers.remove(&p);
 
+                    self.properties.cached_lookups.cursors.remove(&p);
+
                     self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                         value,
                         inferred_type: register_types[&p],
@@ -10655,6 +11270,8 @@ impl FunctionTranslator<'_> {
                     spilled = true;
 
                     self.properties.cached_lookups.registers.remove(&p);
+
+                    self.properties.cached_lookups.cursors.remove(&p);
 
                     self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
                         value,
@@ -11293,6 +11910,8 @@ impl FunctionTranslator<'_> {
                     let value = coalesced_reads.get(&p).copied().unwrap();
 
                     self.properties.cached_lookups.registers.remove(&p);
+
+                    self.properties.cached_lookups.cursors.remove(&p);
                     MaybeStackValue::Value(StackValue {
                         value,
                         inferred_type: InferredType::Any,
@@ -11305,6 +11924,8 @@ impl FunctionTranslator<'_> {
                     let value = coalesced_reads.get(&p).copied().unwrap();
 
                     self.properties.cached_lookups.registers.remove(&p);
+
+                    self.properties.cached_lookups.cursors.remove(&p);
                     MaybeStackValue::Value(StackValue {
                         value,
                         inferred_type: InferredType::Any,
@@ -11388,6 +12009,7 @@ impl FunctionTranslator<'_> {
                 MaybeStackValue::MutRegister(p) => {
                     let value = coalesced_reads.get(&p).copied().unwrap();
                     self.properties.cached_lookups.registers.remove(&p);
+                    self.properties.cached_lookups.cursors.remove(&p);
                     MaybeStackValue::Value(StackValue {
                         value,
                         inferred_type: InferredType::Any,
@@ -11397,6 +12019,7 @@ impl FunctionTranslator<'_> {
                 MaybeStackValue::Register(p) => {
                     let value = coalesced_reads.get(&p).copied().unwrap();
                     self.properties.cached_lookups.registers.remove(&p);
+                    self.properties.cached_lookups.cursors.remove(&p);
                     MaybeStackValue::Value(StackValue {
                         value,
                         inferred_type: InferredType::Any,
@@ -12125,8 +12748,21 @@ impl FunctionTranslator<'_> {
                 // We've now seen all the predecessors of the merge block.
                 self.builder.seal_block(merge_block);
 
+                // Cursors the arms disagree on only matter if a slot is read
+                // after the join. When all that is left is the return, no slot
+                // is, and the frame drop releases the heads either way.
+                let mut properties = properties;
+                if self.cursors_on
+                    && self.properties.cached_lookups.cursors
+                        != properties.cached_lookups.cursors
+                    && self.only_returns_from(else_offset.unwrap())
+                {
+                    self.properties.cached_lookups.cursors.clear();
+                    properties.cached_lookups.cursors.clear();
+                }
+
                 // Only what both arms agree on survives the merge
-                self.properties.meet(&properties);
+                self.cursor_bail |= self.properties.meet(&properties);
                 self.meet_register_maps(&local_map, &value_to_local);
 
                 self.if_bound = last_bound;
@@ -12187,6 +12823,11 @@ impl FunctionTranslator<'_> {
             return Default::default();
         }
 
+        // Raw loads below - a cursor-backed slot holds only its head.
+        for (slot, _) in &values {
+            self.materialize_cursor(*slot);
+        }
+
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
         let buf_ptr = self.stack_buf_ptr(ctx);
@@ -12240,6 +12881,11 @@ impl FunctionTranslator<'_> {
             return Default::default();
         }
 
+        // Raw loads below - a cursor-backed slot holds only its head.
+        for (slot, _) in &values {
+            self.materialize_cursor(*slot);
+        }
+
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
         let buf_ptr = self.stack_buf_ptr(ctx);
@@ -12278,7 +12924,308 @@ impl FunctionTranslator<'_> {
     // Cache this. In the event we read something twice, we're going
     // to save the lookup, but we can save it per branch so that we
     // don't mess things up.
+    /// Seed a cursor for every `List`-seeded parameter. Runs in the entry
+    /// block, ahead of the loop header, so the header's phis see the entry
+    /// values and each back edge's values - never a re-seed from a slot that
+    /// is holding only the head of a list the loop has walked past.
+    fn seed_header_cursors(&mut self) {
+        let SpecMode::Specialized { seed, .. } = self.spec_mode.clone() else {
+            return;
+        };
+
+        // TEMP-DEBUG: bisect which function's cursors break a program.
+        if let Ok(only) = std::env::var("STEEL_CURSOR_ONLY") {
+            // The closure-lifting gensym number differs run to run.
+            fn stable(name: &str) -> String {
+                match name.find("closure-lifting-") {
+                    Some(i) => {
+                        let rest = &name[i + "closure-lifting-".len()..];
+                        let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+                        if digits == 0 {
+                            return name.to_string();
+                        }
+                        format!("{}closure-lifting-N{}", &name[..i], &rest[digits..])
+                    }
+                    None => name.to_string(),
+                }
+            }
+            let me = stable(&self.name);
+            if !only.split(',').any(|o| !o.is_empty() && me.contains(stable(o).as_str())) {
+                return;
+            }
+        }
+
+        let mut slots: Vec<usize> = seed
+            .iter()
+            .filter(|(slot, ty)| *ty == SpecType::List && *slot < self.arity as usize)
+            .map(|(slot, _)| *slot)
+            .collect();
+        slots.sort_unstable();
+
+        for slot in slots {
+            let cursor = ListCursor {
+                cell: self.builder.declare_var(types::I64),
+                index: self.builder.declare_var(types::I64),
+            };
+            self.define_cursor_from_slot(cursor, slot);
+            self.header_cursors.insert(slot, cursor);
+        }
+        if std::env::var_os("STEEL_CURSOR_DUMP").is_some() && !self.header_cursors.is_empty() {
+            eprintln!("[cursor] bytecode for {}:", self.name);
+            for (i, ins) in self.instructions.iter().enumerate() {
+                eprintln!("    {i:3}  {:?} {}", ins.op_code, ins.payload_size.to_usize());
+            }
+        }
+        if std::env::var_os("STEEL_CURSOR_TRACE").is_some() && !self.header_cursors.is_empty() {
+            let mut slots: Vec<_> = self.header_cursors.keys().copied().collect();
+            slots.sort_unstable();
+            eprintln!("[cursor] seed fn={} slots={:?}", self.name, slots);
+        }
+    }
+
+    /// Point `cursor` at whatever list is in `slot` right now.
+    ///
+    /// A raw load on purpose: here the slot is the truth, and going through
+    /// `read_from_vm_stack` would materialise the very cursor being defined.
+    fn define_cursor_from_slot(&mut self, cursor: ListCursor, slot: usize) {
+        let saved = self.properties.cached_lookups.clone();
+        let ptr = self.vm_stack_slot_ptr(slot);
+        self.properties.cached_lookups = saved;
+
+        let value = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlagsData::trusted(), ptr, 0);
+        let cell = self.unbox_value_to_pointer(value);
+        let index = self.list_cell_index(cell);
+        let index = self.builder.ins().uextend(types::I64, index);
+
+        self.builder.def_var(cursor.cell, cell);
+        self.builder.def_var(cursor.index, index);
+    }
+
+    /// The entry block's cached loads do not dominate a back edge, and the
+    /// value stack can have been reallocated by the time one arrives. Start
+    /// the header with nothing cached but the cursors themselves.
+    fn forget_entry_block_caches(&mut self) {
+        self.thread_pointer = None;
+        self.thread_id = None;
+        self.sp = None;
+        self.should_trampoline = None;
+        self.pop_count = None;
+        self.pop_count_plus_one = None;
+        self.pop_count_minus_one = None;
+
+        let cursors = self.header_cursors.clone();
+        self.properties.cached_lookups = CachedLookupMap::default();
+        self.properties.cached_lookups.cursors = cursors;
+    }
+
+    /// Store the list `cursor` stands for into `slot`, releasing the head the
+    /// slot was holding. After the store: the cursor's cell is reachable from
+    /// the value just built, so dropping the head first could have freed it.
+    fn emit_cursor_write_back(&mut self, slot: usize, cursor: ListCursor) {
+        let cell = self.builder.use_var(cursor.cell);
+        let idx = self.builder.use_var(cursor.index);
+        // `from_raw_parts` wants the data pointer, not the box pointer.
+        let data = self.builder.ins().iadd_imm_s(cell, list_cell_base());
+
+        // The slot's head is handed over rather than dropped afterwards, so
+        // cells only it owns can be reused in place.
+        let ptr = self.vm_stack_slot_ptr(slot);
+        let old = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlagsData::trusted(), ptr, 0);
+        let list = self.call_function_returns_value_args_no_context(
+            "list-cursor-materialize-owned",
+            &[old, data, idx],
+        );
+        // It drops what it does not reuse, and a drop is not on the list of
+        // callees known to leave the value stack where it was.
+        let ptr = self.vm_stack_slot_ptr(slot);
+        self.builder
+            .ins()
+            .store(MemFlagsData::trusted(), list, ptr, 0);
+    }
+
+    /// Write every given cursor back to its slot without touching the
+    /// translator's state - for an exit, which the hot path does not continue
+    /// from. Caches are restored so nothing loaded here leaks into code the
+    /// exit block does not dominate.
+    fn write_back_cursors(&mut self, cursors: &HashMap<usize, ListCursor>) {
+        let saved = self.properties.cached_lookups.clone();
+        let mut live: Vec<(usize, ListCursor)> =
+            cursors.iter().map(|(k, v)| (*k, *v)).collect();
+        live.sort_unstable_by_key(|(k, _)| *k);
+        for (slot, cursor) in live {
+            self.emit_cursor_write_back(slot, cursor);
+        }
+        self.properties.cached_lookups = saved;
+    }
+
+    /// Put a register that a cursor has been walking back into its slot, and
+    /// stop tracking the cursor - from here on the slot is the truth again.
+    ///
+    /// Everything that reads a slot goes through here first, so the rest of
+    /// the translator only ever sees an ordinary list.
+    fn materialize_cursor(&mut self, index: usize) {
+        let Some(cursor) = self.properties.cached_lookups.cursors.get(&index).copied() else {
+            return;
+        };
+
+        self.emit_cursor_write_back(index, cursor);
+        self.properties.cached_lookups.cursors.remove(&index);
+        self.properties.cached_lookups.registers.remove(&index);
+    }
+
+    /// Whether straight-line code from `ip` does nothing but return: no slot
+    /// is read, and nothing can deopt and resume reading one.
+    fn only_returns_from(&self, mut ip: usize) -> bool {
+        for _ in 0..16 {
+            let Some(ins) = self.instructions.get(ip) else {
+                return false;
+            };
+            match ins.op_code {
+                OpCode::POPPURE => return true,
+                OpCode::LETENDSCOPE => ip += 1,
+                OpCode::JMP | OpCode::POPJMP if ins.payload_size.to_usize() > ip => {
+                    ip = ins.payload_size.to_usize()
+                }
+                _ => return false,
+            }
+        }
+        false
+    }
+
+    fn op_may_resume_interpreted(&self, op: OpCode, payload: usize) -> bool {
+        match op {
+            OpCode::CALLPRIMITIVE | OpCode::CALLPRIMITIVETAIL => {
+                !matches!(self._globals.get(payload), Some(SteelVal::FuncV(_)))
+            }
+            OpCode::FUNC
+            | OpCode::FUNCNOARITY
+            | OpCode::TAILCALL
+            | OpCode::TAILCALLNOARITY
+            | OpCode::TCOJMP
+            | OpCode::CALLGLOBAL
+            | OpCode::CALLGLOBALTAIL
+            | OpCode::CALLGLOBALNOARITY
+            | OpCode::CALLGLOBALTAILNOARITY
+            | OpCode::READLOCAL0CALLGLOBAL
+            | OpCode::READLOCAL1CALLGLOBAL
+            | OpCode::UNBOXCALL
+            | OpCode::UNBOXTAIL => true,
+            _ => false,
+        }
+    }
+
+    fn materialize_all_cursors(&mut self) {
+        let mut slots: Vec<usize> = self
+            .properties
+            .cached_lookups
+            .cursors
+            .keys()
+            .copied()
+            .collect();
+        slots.sort_unstable();
+        for slot in slots {
+            self.materialize_cursor(slot);
+        }
+    }
+
+    /// One `cdr`, as arithmetic.
+    ///
+    /// Still room in this cell: step the cursor down. Otherwise follow the link
+    /// to the next cell and start at its own position. Off the end, the index
+    /// goes to 0, which is how the empty list is spelled here - matching
+    /// `list_cell_index`, where 0 is what `null?` tests for.
+    ///
+    /// No cell is allocated on any of these paths. That is the whole point:
+    /// `im-lists` keeps the cursor inside the cell, so a materialised `cdr` has
+    /// to copy the cell to give the copy its own cursor.
+    fn cursor_advance(&mut self, cursor: ListCursor) {
+        self.cursor_advances += 1;
+        let index = self.builder.use_var(cursor.index);
+        let more_here = self
+            .builder
+            .ins()
+            .icmp_imm_s(IntCC::SignedGreaterThan, index, 1);
+
+        let dec_block = self.builder.create_block();
+        let step_block = self.builder.create_block();
+        let take_block = self.builder.create_block();
+        let end_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(more_here, dec_block, &[], step_block, &[]);
+        self.builder.seal_block(dec_block);
+        self.builder.seal_block(step_block);
+
+        // Room left in this cell.
+        self.builder.switch_to_block(dec_block);
+        let decremented = self.builder.ins().iadd_imm_s(index, -1);
+        self.builder.def_var(cursor.index, decremented);
+        self.builder.ins().jump(merge_block, &[]);
+
+        // Cell exhausted - is there another?
+        self.builder.switch_to_block(step_block);
+        let cell = self.builder.use_var(cursor.cell);
+        let link = self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            cell,
+            list_next_offset(),
+        );
+        let next = self.builder.ins().band_imm_u(link, !list_next_tag_mask());
+        let has_next = self.builder.ins().icmp_imm_s(IntCC::NotEqual, next, 0);
+        self.builder
+            .ins()
+            .brif(has_next, take_block, &[], end_block, &[]);
+        self.builder.seal_block(take_block);
+        self.builder.seal_block(end_block);
+
+        self.builder.switch_to_block(take_block);
+        // The link holds a data pointer; the cursor keeps the box pointer.
+        let next = self.builder.ins().iadd_imm_s(next, -list_cell_base());
+        let next_index = self.list_cell_index(next);
+        let next_index = self.builder.ins().uextend(types::I64, next_index);
+        self.builder.def_var(cursor.cell, next);
+        self.builder.def_var(cursor.index, next_index);
+        self.builder.ins().jump(merge_block, &[]);
+
+        // Walked off the end: the empty list.
+        self.builder.switch_to_block(end_block);
+        let zero = self.builder.ins().iconst(types::I64, 0);
+        self.builder.def_var(cursor.index, zero);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
+    }
+
+    /// Address of a frame slot, for a read or a write.
+    fn vm_stack_slot_ptr(&mut self, index: usize) -> Value {
+        let ctx = self.get_ctx();
+        let sp = self.get_sp(ctx);
+        let buf_ptr = self.stack_buf_ptr(ctx);
+
+        debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
+
+        let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
+        let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
+        self.builder
+            .ins()
+            .iadd_imm_s(frame_base, (index * std::mem::size_of::<SteelVal>()) as i64)
+    }
+
     fn read_from_vm_stack(&mut self, index: usize) -> Value {
+        // A cursor-backed register has to become a real list before anyone
+        // reads its slot.
+        self.materialize_cursor(index);
+
         // Cache let vars since they're going to be on the stack,
         // but we already had it available.
         if let Some(local) = self.properties.cached_lookups.registers.get(&index) {
@@ -12322,6 +13269,7 @@ impl FunctionTranslator<'_> {
     // Read the tag and payload from the vm stack separately; this is helpful
     // in the event that we are then splitting on the value from the stack itself.
     fn read_from_vm_stack_split(&mut self, index: usize) -> (Value, Value) {
+        self.materialize_cursor(index);
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
         let buf_ptr = self.stack_buf_ptr(ctx);
@@ -12355,6 +13303,7 @@ impl FunctionTranslator<'_> {
 
     // Read with an additional 8 offset
     fn read_from_vm_stack_unboxed(&mut self, index: usize) -> Value {
+        self.materialize_cursor(index);
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
         let buf_ptr = self.stack_buf_ptr(ctx);
@@ -12408,6 +13357,15 @@ impl FunctionTranslator<'_> {
     */
 
     fn remove_from_vm_stack(&mut self, index: usize) -> Value {
+        // A move out of the slot: the value moved has to be the current one.
+        self.materialize_cursor(index);
+        self.remove_from_vm_stack_raw(index)
+    }
+
+    /// Move the slot's value out, leaving void, without looking at a cursor.
+    /// For a cursor that moves with the value: the head is what owns the cells
+    /// it walks.
+    fn remove_from_vm_stack_raw(&mut self, index: usize) -> Value {
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
 
@@ -12471,6 +13429,9 @@ impl FunctionTranslator<'_> {
 
     // TODO: Should flatten these ops when calling this multiple times!
     fn write_to_vm_stack(&mut self, index: usize, value: Value) {
+        // The slot still owns the head the cursor walked from, which the drop
+        // below releases; the new value replaces the cursor outright.
+        self.properties.cached_lookups.cursors.remove(&index);
         self.properties
             .cached_lookups
             .registers
@@ -12531,6 +13492,12 @@ impl FunctionTranslator<'_> {
             // let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
             // let offset = self.builder.ins().imul_imm_s(local_offset, size);
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+            // Carried as a cursor: the slot already holds the value's head.
+            if self.carry_skip.contains(&index) {
+                index += 1;
+                continue;
+            }
 
             // A fixnum has nothing to drop.
             if should_drop && !self.register_is_immediate(index) {
@@ -12669,6 +13636,12 @@ impl FunctionTranslator<'_> {
             // let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
             // let offset = self.builder.ins().imul_imm_s(local_offset, size);
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+            // Carried as a cursor: the slot already holds the value's head.
+            if self.carry_skip.contains(&index) {
+                index += 1;
+                continue;
+            }
 
             // A fixnum has nothing to drop.
             if should_drop && !self.register_is_immediate(index) {
