@@ -2812,6 +2812,39 @@ fn test_raw_engine() {
 }
 
 #[test]
+fn test_required_macro_expands_inside_let_body() {
+    let mut engine = Engine::new();
+    engine.register_steel_module(
+        "twice-macro".to_owned(),
+        "(provide twice) (define-syntax twice (syntax-rules () [(_ x) (* 2 x)]))".to_owned(),
+    );
+
+    engine.run(r#"(require "twice-macro")"#).unwrap();
+
+    let res = engine
+        .run(
+            r#"
+            (define (sum-doubled n)
+              (let loop ([i 0] [acc 0])
+                (if (= i n)
+                    acc
+                    (loop (+ i 1) (+ acc (twice i))))))
+            (sum-doubled 4)
+            "#,
+        )
+        .unwrap();
+    assert_eq!(res.last().unwrap(), &SteelVal::IntV(12));
+
+    let res = engine.run("(let ([i 3]) i (twice i))").unwrap();
+    assert_eq!(res.last().unwrap(), &SteelVal::IntV(6));
+
+    let res = engine
+        .run("(let loop ([twice (lambda (x) 100)]) (twice 1))")
+        .unwrap();
+    assert_eq!(res.last().unwrap(), &SteelVal::IntV(100));
+}
+
+#[test]
 fn test_ctx_func() {
     let mut engine = Engine::new();
 

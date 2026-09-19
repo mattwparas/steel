@@ -142,6 +142,67 @@ pub fn expand_with_source_id(
     expander.visit(expr)
 }
 
+fn is_let_head(head: &ExprKind) -> bool {
+    match head {
+        ExprKind::Atom(Atom {
+            syn: SyntaxObject {
+                ty: TokenType::Let, ..
+            },
+        }) => true,
+        ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(i),
+                    ..
+                },
+        }) => *i == *LET,
+        _ => false,
+    }
+}
+
+fn visit_let_form<V: VisitorMutRef<Output = Result<()>>>(
+    visitor: &mut V,
+    scope: fn(&mut V) -> &mut ScopeSet<InternedString, FxBuildHasher>,
+    l: &mut List,
+) -> Result<()> {
+    let name = l.args.get(1).and_then(|x| x.atom_identifier()).copied();
+    let bindings_index = if name.is_some() { 2 } else { 1 };
+
+    scope(visitor).push_layer();
+
+    if let Some(name) = name {
+        scope(visitor).define(name);
+    }
+
+    if let Some(ExprKind::List(bindings)) = l.args.get_mut(bindings_index) {
+        for arg in &mut bindings.args {
+            if let ExprKind::List(binding) = arg {
+                if let Some(ident) = binding.first_ident() {
+                    scope(visitor).define(*ident);
+                }
+
+                if let Some(expr) = binding.args.get_mut(0) {
+                    visitor.visit(expr)?;
+                }
+
+                if let Some(expr) = binding.args.get_mut(1) {
+                    visitor.visit(expr)?;
+                }
+            }
+        }
+    }
+
+    if let Some(body_args) = l.args.get_mut(bindings_index + 1..) {
+        for body_expr in body_args {
+            visitor.visit(body_expr)?;
+        }
+    }
+
+    scope(visitor).pop_layer();
+
+    Ok(())
+}
+
 pub struct Expander<'a> {
     map: &'a FxHashMap<InternedString, SteelMacro>,
     exclusions: &'a HashSet<InternedString>,
@@ -310,84 +371,8 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         return Ok(());
                     }
 
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Identifier(i),
-                                ..
-                            },
-                    })) if *i == *LET => {
-                        self.in_scope_values.push_layer();
-                        if let Some(bindings) = l.args.get_mut(1) {
-                            if let ExprKind::List(l) = bindings {
-                                for arg in &mut l.args {
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(ident) = l.first_ident() {
-                                            self.in_scope_values.define(*ident);
-                                        }
-                                    }
-
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(expr) = l.args.get_mut(0) {
-                                            self.visit(expr)?;
-                                        }
-
-                                        if let Some(expr) = l.args.get_mut(1) {
-                                            self.visit(expr)?;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(body_args) = l.args.get_mut(2..) {
-                                for body_expr in body_args {
-                                    self.visit(body_expr)?;
-                                }
-                            }
-                        }
-
-                        self.in_scope_values.pop_layer();
-
-                        return Ok(());
-                    }
-
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Let, ..
-                            },
-                    })) => {
-                        self.in_scope_values.push_layer();
-                        if let Some(bindings) = l.args.get_mut(1) {
-                            if let ExprKind::List(l) = bindings {
-                                for arg in &mut l.args {
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(ident) = l.first_ident() {
-                                            self.in_scope_values.define(*ident);
-                                        }
-                                    }
-
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(expr) = l.args.get_mut(0) {
-                                            self.visit(expr)?;
-                                        }
-                                        if let Some(expr) = l.args.get_mut(1) {
-                                            self.visit(expr)?;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(body_args) = l.args.get_mut(2..) {
-                            for body_expr in body_args {
-                                self.visit(body_expr)?;
-                            }
-                        }
-
-                        self.in_scope_values.pop_layer();
-
-                        return Ok(());
+                    Some(head) if is_let_head(head) => {
+                        return visit_let_form(self, |v| &mut v.in_scope_values, l);
                     }
 
                     Some(ExprKind::Atom(Atom {
@@ -722,83 +707,8 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             unreachable!()
                         }
                     }
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Identifier(i),
-                                ..
-                            },
-                    })) if *i == *LET => {
-                        self.in_scope_values.push_layer();
-                        if let Some(bindings) = l.args.get_mut(1) {
-                            if let ExprKind::List(l) = bindings {
-                                for arg in &mut l.args {
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(ident) = l.first_ident() {
-                                            self.in_scope_values.define(*ident);
-                                        }
-                                    }
-
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(expr) = l.args.get_mut(0) {
-                                            self.visit(expr)?;
-                                        }
-
-                                        if let Some(expr) = l.args.get_mut(1) {
-                                            self.visit(expr)?;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(body_args) = l.args.get_mut(2..) {
-                                for body_expr in body_args {
-                                    self.visit(body_expr)?;
-                                }
-                            }
-                        }
-
-                        self.in_scope_values.pop_layer();
-
-                        return Ok(());
-                    }
-
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Let, ..
-                            },
-                    })) => {
-                        self.in_scope_values.push_layer();
-                        if let Some(bindings) = l.args.get_mut(1) {
-                            if let ExprKind::List(l) = bindings {
-                                for arg in &mut l.args {
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(ident) = l.first_ident() {
-                                            self.in_scope_values.define(*ident);
-                                        }
-                                    }
-
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(expr) = l.args.get_mut(0) {
-                                            self.visit(expr)?;
-                                        }
-
-                                        if let Some(expr) = l.args.get_mut(1) {
-                                            self.visit(expr)?;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(body) = l.args.get_mut(2) {
-                            self.visit(body)?;
-                        }
-
-                        self.in_scope_values.pop_layer();
-
-                        return Ok(());
+                    Some(head) if is_let_head(head) => {
+                        return visit_let_form(self, |v| &mut v.in_scope_values, l);
                     }
                     Some(ExprKind::Atom(Atom {
                         syn:
@@ -1723,84 +1633,8 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
             ExprKind::List(l) => {
                 {
                     match l.first() {
-                        Some(ExprKind::Atom(Atom {
-                            syn:
-                                SyntaxObject {
-                                    ty: TokenType::Identifier(i),
-                                    ..
-                                },
-                        })) if *i == *LET => {
-                            self.in_scope_values.push_layer();
-                            if let Some(bindings) = l.args.get_mut(1) {
-                                if let ExprKind::List(l) = bindings {
-                                    for arg in &mut l.args {
-                                        if let ExprKind::List(l) = arg {
-                                            if let Some(ident) = l.first_ident() {
-                                                self.in_scope_values.define(*ident);
-                                            }
-                                        }
-
-                                        if let ExprKind::List(l) = arg {
-                                            if let Some(expr) = l.args.get_mut(0) {
-                                                self.visit(expr)?;
-                                            }
-
-                                            if let Some(expr) = l.args.get_mut(1) {
-                                                self.visit(expr)?;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if let Some(body_args) = l.args.get_mut(2..) {
-                                    for body_expr in body_args {
-                                        self.visit(body_expr)?;
-                                    }
-                                }
-                            }
-
-                            self.in_scope_values.pop_layer();
-
-                            return Ok(());
-                        }
-
-                        Some(ExprKind::Atom(Atom {
-                            syn:
-                                SyntaxObject {
-                                    ty: TokenType::Let, ..
-                                },
-                        })) => {
-                            self.in_scope_values.push_layer();
-                            if let Some(bindings) = l.args.get_mut(1) {
-                                if let ExprKind::List(l) = bindings {
-                                    for arg in &mut l.args {
-                                        if let ExprKind::List(l) = arg {
-                                            if let Some(ident) = l.first_ident() {
-                                                self.in_scope_values.define(*ident);
-                                            }
-                                        }
-
-                                        if let ExprKind::List(l) = arg {
-                                            if let Some(expr) = l.args.get_mut(0) {
-                                                self.visit(expr)?;
-                                            }
-                                            if let Some(expr) = l.args.get_mut(1) {
-                                                self.visit(expr)?;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(body_args) = l.args.get_mut(2..) {
-                                for body_expr in body_args {
-                                    self.visit(body_expr)?;
-                                }
-                            }
-
-                            self.in_scope_values.pop_layer();
-
-                            return Ok(());
+                        Some(head) if is_let_head(head) => {
+                            return visit_let_form(self, |v| &mut v.in_scope_values, l);
                         }
                         Some(ExprKind::Atom(
                             ident @ Atom {
