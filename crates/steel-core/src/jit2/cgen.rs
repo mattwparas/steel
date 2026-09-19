@@ -1587,6 +1587,19 @@ enum DivMode {
     FloorRemainder,
 }
 
+/// `STEEL_JIT_INLINE_SETBOX=0` sends the `SETBOX` opcode back out to
+/// `set-box-handler`, which pays a `Weak::upgrade` CAS and the spin lock on
+/// every write even when the box is unshared.
+pub(super) fn inline_setbox_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_INLINE_SETBOX").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
 /// Maps a primitive to the division it performs, or `None` if it is not one.
 ///
 /// `quotient` / `remainder` / `modulo` are thin wrappers over the
@@ -7078,7 +7091,36 @@ impl FunctionTranslator<'_> {
                         self.shadow_mark_local_type_from_var(last, InferredType::Box);
                     }
 
-                    self.func_ret_val(op, 2, 2, InferredType::Any);
+                    // `inline_box_primitive` already lowers `#%set-box!` with
+                    // the unshared fast path - strong count of 1 stores without
+                    // the spin lock and without `Weak::upgrade`. The opcode used
+                    // to go out of line to `set-box-handler` -> `set_and_return`
+                    // and pay both on every write, which is what `(set! x ...)`
+                    // on a captured variable compiles to.
+                    //
+                    // Reuse that lowering rather than repeating the operand
+                    // handling: the new value is *stored into the box*, so it
+                    // has to be materialised as owned. A hand written version
+                    // that let a borrowed register through gave the box a second
+                    // owner and made `puzzle` nondeterministic.
+                    let inlined = if inline_setbox_enabled() {
+                        self.inline_box_primitive(
+                            crate::steel_vm::primitives::steel_set_box_mutable as usize,
+                            2,
+                        )
+                    } else {
+                        None
+                    };
+
+                    match inlined {
+                        Some(res) => {
+                            self.ip += 2;
+                            self.push(res, InferredType::Any);
+                        }
+                        None => {
+                            self.func_ret_val(op, 2, 2, InferredType::Any);
+                        }
+                    }
                 }
                 OpCode::UNBOX => {
                     let last = self.shadow_stack.last().copied().unwrap();
@@ -7881,6 +7923,17 @@ impl FunctionTranslator<'_> {
         if extra && target == steel_mut_vec_set as usize && arity == 3 {
             self.vector_set();
             return Some(self.pop_as_steelval());
+        }
+
+        // Same story for the integer divisions. Inlining them only in operand
+        // position left the tail call deopting once per iteration: in
+        // `bv2string` the prng ends in `(remainder (quotient x 8) n)`, and that
+        // single site was **99.79% of every tail call deopt in the program** -
+        // 2.48M of 2.49M - dropping into the interpreter each time.
+        if inline_divmod_enabled() && arity == 2 {
+            if let Some(mode) = divmod_mode(*f) {
+                return Some(self.inline_int_divmod(mode, *f));
+            }
         }
 
         self.inline_box_primitive(target, arity)
