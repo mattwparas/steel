@@ -45,6 +45,13 @@ impl<T> SpinLock<T> {
         self.lock()
     }
 
+    // There is no shared-read mode - this is a mutex, not an rwlock - but
+    // callers that only read still read better as `read()`, and it keeps the
+    // bytevector primitives reading the same as they did under `GcMut`.
+    pub fn read(&self) -> SpinGuard<'_, T> {
+        self.lock()
+    }
+
     // Reads the payload without taking the lock, so the caller has to know
     // nothing else can touch it - no other thread holding this, no gc pass
     // reaching the same slot
@@ -114,6 +121,13 @@ impl<T> std::ops::Deref for SpinGuard<'_, T> {
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { &*self.lock.data.get() }
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for SpinGuard<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Already holding the lock, so read straight through.
+        (**self).fmt(f)
     }
 }
 

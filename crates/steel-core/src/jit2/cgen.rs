@@ -22,6 +22,7 @@ use crate::{
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     gc::Gc,
     primitives::{
+        bytevectors::{steel_bytes_ref, steel_bytes_set},
         lists::{steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse},
         numbers::{
             floor_quotient, floor_remainder, modulo, quotient, remainder, truncate_quotient,
@@ -1595,6 +1596,36 @@ pub(super) fn inline_setbox_enabled() -> bool {
     *ENABLED.get_or_init(|| {
         !matches!(
             std::env::var("STEEL_JIT_INLINE_SETBOX").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// `STEEL_JIT_BYTEVECTOR_STRICT_UNSHARED=1` makes the bytevector lock elision
+/// additionally require the owner's reference count to be exactly one.
+///
+/// Off by default: a zero shared half-word already proves every reference
+/// belongs to the owner thread, and several references held by one thread
+/// cannot race with each other. The strict form exists to A/B that reasoning.
+pub(super) fn byte_vec_strict_unshared() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        matches!(
+            std::env::var("STEEL_JIT_BYTEVECTOR_STRICT_UNSHARED")
+                .ok()
+                .as_deref(),
+            Some("1") | Some("true")
+        )
+    })
+}
+
+/// `STEEL_JIT_INLINE_BYTEVECTOR=0` sends `bytes-ref` / `bytes-set!` back out to
+/// the generic primitive call.
+pub(super) fn inline_bytevector_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_INLINE_BYTEVECTOR").ok().as_deref(),
             Some("0") | Some("false")
         )
     })
@@ -5062,6 +5093,17 @@ impl FunctionTranslator<'_> {
                                     self.flat_vector_construct(arity)
                                 }
 
+                                f if inline_bytevector_enabled()
+                                    && ((f == steel_bytes_ref as FunctionSignature && arity == 2)
+                                        || (f == steel_bytes_set as FunctionSignature
+                                            && arity == 3))
+                                    && self.byte_vector_shape_ok(arity) =>
+                                {
+                                    let v = self.inline_byte_vector_op(f, arity);
+                                    self.push(v, InferredType::Any);
+                                    self.ip += 1;
+                                }
+
                                 f if f == steel_eq as FunctionSignature && arity == 2 => self.eq(),
 
                                 f if inline_divmod_enabled()
@@ -8038,6 +8080,81 @@ impl FunctionTranslator<'_> {
         self.check_deopt();
 
         Some(result)
+    }
+
+    /// Whether `inline_byte_vector_op` can take this call. Immutable, because a
+    /// match guard cannot borrow `self` mutably.
+    fn byte_vector_shape_ok(&self, arity: usize) -> bool {
+        let Some(base) = self.shadow_stack.len().checked_sub(arity) else {
+            return false;
+        };
+
+        // A borrowed operand would have to be materialised before the helper
+        // could consume it; leave those to the generic call.
+        (0..arity).all(|k| {
+            !matches!(
+                self.shadow_stack.get(base + k),
+                None | Some(MaybeStackValue::Borrowed(_))
+            )
+        })
+    }
+
+    /// `bytes-ref` / `bytes-set!` with no call.
+    ///
+    /// Operands come off with `split_off`, the same way `inline_box_primitive`
+    /// takes `#%set-box!`'s. Reading a spilled operand's value out of the shadow
+    /// stack by hand and materialising the others afterwards puts the
+    /// definition in a block that no longer dominates the use - cranelift
+    /// rejects it with "uses value from non-dominating inst".
+    fn inline_byte_vector_op(&mut self, function: FunctionSignature, arity: usize) -> Value {
+        let base = self.shadow_stack.len() - arity;
+
+        // A register is a borrow that stays live in its slot; a spilled value is
+        // ours to release.
+        let owned = matches!(
+            self.shadow_stack.get(base),
+            Some(MaybeStackValue::Value(_))
+        );
+
+        let args = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        let bytevector_value = args[0];
+        let ip = self.ip;
+
+        let fallback = {
+            let args = args.clone();
+            move |ctx: &mut Self| {
+                // The helper takes ownership, so a borrow has to be cloned
+                // first; a spilled value we already own.
+                if !owned {
+                    ctx.clone_value(bytevector_value);
+                }
+
+                let func = ctx
+                    .builder
+                    .ins()
+                    .iconst(ctx.module.target_config().pointer_type(), function as i64);
+                let fallback_ip = ctx.builder.ins().iconst(types::I64, ip as i64);
+
+                let name = CallPrimitiveDefinitions::arity_to_name(arity).unwrap();
+                let mut call_args = vec![func, fallback_ip];
+                call_args.extend(args.iter().copied());
+
+                let res = ctx.call_function_returns_value_args(name, &call_args);
+                ctx.check_deopt();
+                res
+            }
+        };
+
+        if arity == 2 {
+            self.inline_bytes_ref(bytevector_value, args[1], owned, fallback)
+        } else {
+            self.inline_bytes_set(bytevector_value, args[1], args[2], owned, fallback)
+        }
     }
 
     /// The four integer division operators, on two fixnums.

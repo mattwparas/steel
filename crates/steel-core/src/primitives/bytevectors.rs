@@ -285,8 +285,12 @@ pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 /// (bytes-set! my-bytes 0 100)
 /// (bytes-ref my-bytes 0) ;; => 100
 /// ```
+// Takes `&SteelByteVector`, not `&mut`: the bytes live behind a `SpinLock`, so
+// the mutation is interior. That also makes this a `FuncV` rather than a
+// `MutFunc`, which is what lets the jit recognise it by function pointer in the
+// same arm as `vector-set!`.
 #[function(name = "bytes-set!", alias = "bytevector-u8-set!")]
-pub fn bytes_set(value: &mut SteelByteVector, index: usize, byte: u8) -> Result<SteelVal> {
+pub fn bytes_set(value: &SteelByteVector, index: usize, byte: u8) -> Result<SteelVal> {
     let mut guard = value.vec.write();
 
     if index >= guard.len() {

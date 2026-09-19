@@ -32,7 +32,7 @@ pub fn md5_hasher_update(hasher: &SteelVal, value: &SteelVal) -> Result<SteelVal
 
     match value {
         SteelVal::ByteVector(b) => {
-            hasher.0.update(b.vec.read().as_slice());
+            hasher.0.update(&b.vec.read()[..]);
         }
         SteelVal::StringV(b) => {
             hasher.0.update(b.as_bytes());

@@ -463,7 +463,7 @@ fn serialized_to_bytes(value: &SteelVal) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "bytes->serialized")]
 fn bytes_to_serialized(value: &SteelByteVector) -> Result<SteelVal> {
-    let serde = steel_deserialize::<SerializedValue>(value.vec.read().as_slice())?;
+    let serde = steel_deserialize::<SerializedValue>(&value.vec.read()[..])?;
     serde.into_steelval()
 }
 

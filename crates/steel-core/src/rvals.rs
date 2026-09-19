@@ -92,6 +92,7 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use crate::values::lists::List;
+use crate::values::lock::SpinLock;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::{BigRational, Rational32};
 use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
@@ -1481,7 +1482,7 @@ pub fn into_serializable_value(
         )),
 
         SteelVal::ByteVector(bytes) => {
-            Ok(SerializableSteelVal::ByteVectorV(bytes.vec.read().clone()))
+            Ok(SerializableSteelVal::ByteVectorV(bytes.vec.read().to_vec()))
         }
 
         SteelVal::Rational(r) => Ok(SerializableSteelVal::Rational(r)),
@@ -1849,15 +1850,34 @@ fn check_send_sync() {
     handle.join().unwrap();
 }
 
+/// The bytes of a bytevector.
+///
+/// `steel_vec::Vec` rather than `std::vec::Vec`, and `SpinLock` rather than
+/// `parking_lot::RwLock`, for one reason: **the jit addresses this by raw
+/// offset**. Both of those types publish `const fn *_offset()` and are
+/// `repr(C)`, where the std and parking_lot types have private fields and an
+/// unspecified layout that `offset_of!` cannot even be written against. This is
+/// the same stack `MutableVector` stands on - see `native.rs`'s offset
+/// constants - and it is what lets `bytes-ref` / `bytes-set!` become a load and
+/// a store instead of a call.
+pub type ByteVectorStorage = Gc<SpinLock<steel_vec::Vec<u8>>>;
+
 #[derive(Clone, Debug)]
 pub struct SteelByteVector {
-    pub(crate) vec: GcMut<Vec<u8>>,
+    pub(crate) vec: ByteVectorStorage,
 }
 
 impl SteelByteVector {
+    /// Still takes a `std::vec::Vec<u8>`, since that is what every caller has -
+    /// ports, hashes, http, the ffi boundary and the `#u8(...)` literal reader
+    /// all produce one. The conversion is the only copy.
     pub fn new(vec: Vec<u8>) -> Self {
+        Self::from_storage(vec.into_iter().collect())
+    }
+
+    pub fn from_storage(vec: steel_vec::Vec<u8>) -> Self {
         Self {
-            vec: Gc::new_mut(vec),
+            vec: Gc::new(SpinLock::new(vec)),
         }
     }
 }
@@ -1872,7 +1892,9 @@ impl Eq for SteelByteVector {}
 
 impl Hash for SteelByteVector {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.vec.read().hash(state);
+        // Hash the bytes, not the container: `steel_vec::Vec` has no `Hash`,
+        // and a slice hashes the same as the `std::vec::Vec` this used to be.
+        self.vec.read().as_ref().hash(state);
     }
 }
 

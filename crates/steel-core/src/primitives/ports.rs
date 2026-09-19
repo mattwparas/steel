@@ -308,8 +308,10 @@ pub fn open_input_string(s: &SteelString) -> SteelVal {
 /// (open-input-bytevector bytes?) -> input-port?
 #[function(name = "open-input-bytevector")]
 pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
-    let vec: &Vec<u8> = &*bytes.vec.read();
-    SteelVal::PortV(SteelPort::new_input_port_bytevector(vec.clone()))
+    // The port owns a `std::vec::Vec` (it wraps it in a `Cursor`), so this
+    // copies out of the bytevector rather than sharing it - same as before.
+    let vec = bytes.vec.read().to_vec();
+    SteelVal::PortV(SteelPort::new_input_port_bytevector(vec))
 }
 /// Reads the entire content of an input port into a string.
 ///

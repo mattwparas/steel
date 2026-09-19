@@ -182,6 +182,16 @@ pub const fn biased_offset() -> usize {
     core::mem::offset_of!(RcWord, biased)
 }
 
+/// Offset of the shared half-word, the counterpart to `biased_offset`.
+///
+/// Generated code reads this to decide whether anyone *other than the owner
+/// thread* holds a reference: every non-owner acquire lands here, so a zero
+/// word means every live reference belongs to the owner. A caller that holds
+/// one is therefore the owner, and nothing else can be touching the payload.
+pub const fn shared_offset() -> usize {
+    core::mem::offset_of!(RcWord, shared)
+}
+
 /// BRC splits the word in two (PACT'18, Fig. 5): a biased half-word owned
 /// outright by one thread, and a shared half-word every other thread updates
 /// atomically. Packing the owner id in alongside its count is what keeps the

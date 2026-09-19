@@ -43,6 +43,28 @@ const fn flat_vec_buf_offset() -> i32 {
     flat_vec_offset() + steel_vec::Vec::<SteelVal>::buf_offset() as i32
 }
 
+// A bytevector is `Gc<SpinLock<steel_vec::Vec<u8>>>`, so: the BiasedRc box
+// pointer, then past the lock word, then the vec header. Unlike the vector
+// paths the element is a plain `u8` - no refcount to bump on a read, and no old
+// value to drop on a write.
+const fn byte_vec_offset() -> i32 {
+    (steel_rc::BiasedRc::<SpinLock<steel_vec::Vec<u8>>>::data_offset()
+        + SpinLock::<steel_vec::Vec<u8>>::data_offset()) as i32
+}
+
+const fn byte_vec_len_offset() -> i32 {
+    byte_vec_offset() + steel_vec::Vec::<u8>::len_offset() as i32
+}
+
+const fn byte_vec_buf_offset() -> i32 {
+    byte_vec_offset() + steel_vec::Vec::<u8>::buf_offset() as i32
+}
+
+const fn byte_vec_lock_offset() -> i32 {
+    steel_rc::BiasedRc::<SpinLock<steel_vec::Vec<u8>>>::data_offset() as i32
+        + SpinLock::<steel_vec::Vec<u8>>::lock_offset() as i32
+}
+
 const fn heap_vec_len_offset() -> i32 {
     heap_vec_offset() + HeapVec::len_offset() as i32
 }
@@ -2203,6 +2225,237 @@ impl<'a> FunctionTranslator<'a> {
 
     // vector-ref on a flat vector with no call: check the tags, bounds check, then
     // load. The element is cloned because the vector keeps its own copy
+    /// Whether nothing but this thread can be looking at the bytevector, in
+    /// which case the payload can be touched without taking the lock.
+    ///
+    /// Biased reference counting splits the count in two: the owner thread's
+    /// half is a plain `Cell`, and every *other* thread's acquire lands in the
+    /// shared atomic half. So a zero shared word means every live reference
+    /// belongs to the owner - and since the caller is holding one, the caller
+    /// *is* the owner. Zero rather than "counter is zero" on purpose: it also
+    /// rules out `FLAG_MERGED` / `FLAG_QUEUED`, after which the biased half
+    /// stops meaning anything.
+    ///
+    /// `strict` additionally demands the owner hold exactly one reference,
+    /// which is the conservative reading. It is not needed for soundness -
+    /// several references on one thread still cannot race - so it exists to be
+    /// measured against.
+    fn byte_vec_unshared(&mut self, ptr: Value, strict: bool) -> Value {
+        let shared_ptr = self
+            .builder
+            .ins()
+            .iadd_imm_s(ptr, steel_rc::shared_offset() as i64);
+        let shared =
+            self.builder
+                .ins()
+                .atomic_load(types::I32, MemFlagsData::trusted(), shared_ptr);
+        let unshared = self.builder.ins().icmp_imm_s(IntCC::Equal, shared, 0);
+
+        if !strict {
+            return unshared;
+        }
+
+        let biased = self.builder.ins().load(
+            types::I32,
+            MemFlagsData::trusted(),
+            ptr,
+            steel_rc::biased_offset() as i32,
+        );
+        let count = self
+            .builder
+            .ins()
+            .ushr_imm_u(biased, steel_rc::biased_counter_shift() as i64);
+        let only_one = self.builder.ins().icmp_imm_s(IntCC::Equal, count, 1);
+
+        self.builder.ins().band(unshared, only_one)
+    }
+
+    /// Run `body` against the bytevector's payload, taking the spin lock only
+    /// when another thread could be holding a reference. Mirrors
+    /// `with_heap_vec_lock`.
+    fn with_byte_vec_lock(
+        &mut self,
+        ptr: Value,
+        body: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let unshared = self.byte_vec_unshared(ptr, byte_vec_strict_unshared());
+
+        self.converging_if(
+            unshared,
+            |ctx| body(ctx),
+            |ctx| {
+                let lock_pointer = ctx
+                    .builder
+                    .ins()
+                    .iadd_imm_s(ptr, byte_vec_lock_offset() as i64);
+                ctx.with_spinlock(lock_pointer, |ctx| body(ctx))
+            },
+            types::I64,
+        )
+    }
+
+    /// `(bytes-ref bv i)` with no call.
+    ///
+    /// Simpler than the vector equivalent: the element is a `u8`, so there is
+    /// no refcount to bump - just a `uload8` and a retag as a fixnum.
+    ///
+    /// The locked region hands back a single value because the *fallback* must
+    /// not run inside it: the spin lock is not reentrant and the primitive it
+    /// calls takes the same lock. `-1` is the out-of-bounds sentinel, which a
+    /// real byte can never be.
+    pub(super) fn inline_bytes_ref(
+        &mut self,
+        bytevector: Value,
+        index: Value,
+        owned: bool,
+        fallback: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let is_bytes = self.is_type(bytevector, SteelVal::BYTEVECTOR_TAG);
+        let is_int = self.is_type(index, SteelVal::INT_TAG);
+        let both = self.builder.ins().band(is_bytes, is_int);
+
+        self.converging_if_else_cold(
+            both,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(bytevector);
+                let idx = ctx.unbox_value_to_pointer(index);
+
+                let byte = ctx.with_byte_vec_lock(ptr, |ctx| {
+                    let len = ctx.builder.ins().load(
+                        types::I64,
+                        MemFlagsData::trusted(),
+                        ptr,
+                        byte_vec_len_offset(),
+                    );
+
+                    // Unsigned, so a negative index fails the same comparison
+                    let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
+
+                    ctx.converging_if(
+                        in_bounds,
+                        |ctx| {
+                            let buf = ctx.builder.ins().load(
+                                types::I64,
+                                MemFlagsData::trusted(),
+                                ptr,
+                                byte_vec_buf_offset(),
+                            );
+                            let slot = ctx.builder.ins().iadd(buf, idx);
+                            ctx.builder
+                                .ins()
+                                .uload8(types::I64, MemFlagsData::trusted(), slot, 0)
+                        },
+                        |ctx| ctx.builder.ins().iconst(types::I64, -1),
+                        types::I64,
+                    )
+                });
+
+                let in_bounds = ctx
+                    .builder
+                    .ins()
+                    .icmp_imm_s(IntCC::SignedGreaterThanOrEqual, byte, 0);
+
+                ctx.converging_if_else_cold(
+                    in_bounds,
+                    |ctx| {
+                        // Exactly one of this arm and the fallback runs, and the
+                        // fallback hands the value to a helper that consumes it,
+                        // so releasing here is the whole story.
+                        if owned {
+                            ctx.drop_tagged_value(bytevector);
+                        }
+                        ctx.encode_value(discriminant(&SteelVal::IntV(0)) as i64, byte)
+                    },
+                    |ctx| fallback(ctx),
+                    types::I128,
+                )
+            },
+            |ctx| fallback(ctx),
+            types::I128,
+        )
+    }
+
+    /// `(bytes-set! bv i b)` with no call. No old value to drop - the slot is a
+    /// byte - so this is a bounds check and an `istore8`. Returns 1 from the
+    /// locked region when the store happened.
+    pub(super) fn inline_bytes_set(
+        &mut self,
+        bytevector: Value,
+        index: Value,
+        byte: Value,
+        owned: bool,
+        fallback: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let is_bytes = self.is_type(bytevector, SteelVal::BYTEVECTOR_TAG);
+        let is_int = self.is_type(index, SteelVal::INT_TAG);
+        let byte_is_int = self.is_type(byte, SteelVal::INT_TAG);
+        let tags_ok = self.builder.ins().band(is_bytes, is_int);
+        let tags_ok = self.builder.ins().band(tags_ok, byte_is_int);
+
+        self.converging_if_else_cold(
+            tags_ok,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(bytevector);
+                let idx = ctx.unbox_value_to_pointer(index);
+                let val = ctx.unbox_value_to_pointer(byte);
+
+                // Unsigned again: a negative byte is a very large unsigned one
+                // and fails this the same way 256 does.
+                let byte_in_range =
+                    ctx.builder
+                        .ins()
+                        .icmp_imm_u(IntCC::UnsignedLessThanOrEqual, val, 255);
+
+                let stored = ctx.with_byte_vec_lock(ptr, |ctx| {
+                    let len = ctx.builder.ins().load(
+                        types::I64,
+                        MemFlagsData::trusted(),
+                        ptr,
+                        byte_vec_len_offset(),
+                    );
+
+                    let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
+                    let ok = ctx.builder.ins().band(in_bounds, byte_in_range);
+
+                    ctx.converging_if(
+                        ok,
+                        |ctx| {
+                            let buf = ctx.builder.ins().load(
+                                types::I64,
+                                MemFlagsData::trusted(),
+                                ptr,
+                                byte_vec_buf_offset(),
+                            );
+                            let slot = ctx.builder.ins().iadd(buf, idx);
+                            ctx.builder
+                                .ins()
+                                .istore8(MemFlagsData::trusted(), val, slot, 0);
+                            ctx.builder.ins().iconst(types::I64, 1)
+                        },
+                        |ctx| ctx.builder.ins().iconst(types::I64, 0),
+                        types::I64,
+                    )
+                });
+
+                let ok = ctx.builder.ins().icmp_imm_s(IntCC::Equal, stored, 1);
+
+                ctx.converging_if_else_cold(
+                    ok,
+                    |ctx| {
+                        if owned {
+                            ctx.drop_tagged_value(bytevector);
+                        }
+                        ctx.encode_void()
+                    },
+                    |ctx| fallback(ctx),
+                    types::I128,
+                )
+            },
+            |ctx| fallback(ctx),
+            types::I128,
+        )
+    }
+
     pub(super) fn inline_flat_vector_ref(
         &mut self,
         vector: Value,
