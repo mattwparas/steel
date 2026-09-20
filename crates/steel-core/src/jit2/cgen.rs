@@ -89,6 +89,19 @@ fn generic_inline_enabled() -> bool {
     })
 }
 
+/// Whether calls check the remaining native stack instead of counting vm
+/// frames. `STEEL_JIT_STACK_CHECK=0` restores the old 100-frame cap;
+/// `STEEL_JIT_STACK_BUDGET=<mb>` overrides how much stack the check allows.
+fn native_stack_check_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_STACK_CHECK").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
 /// `STEEL_JIT_INLINE_TAIL_CALL=0` disables the direct (address-baked) global
 /// tail call, for isolating bugs in that path.
 fn use_inline_global_tail_call() -> bool {
@@ -13892,6 +13905,30 @@ impl FunctionTranslator<'_> {
         }
 
         let thread_pointer = self.get_thread_pointer(ctx);
+
+        // Is there room on the native stack for another jitted frame? That is
+        // the question the 100-frame count was standing in for; the limit comes
+        // from the running thread's real stack bounds, so a 2MB spawned thread
+        // and an 8MB main thread each get their own answer.
+        if native_stack_check_enabled() {
+            let limit = self.builder.ins().load(
+                Type::int(64).unwrap(),
+                MemFlagsData::trusted(),
+                thread_pointer,
+                offset_of!(SteelThread, native_stack_limit) as i32,
+            );
+
+            let sp = self
+                .builder
+                .ins()
+                .get_stack_pointer(Type::int(64).unwrap());
+
+            // Stack grows down, so staying native means staying above it.
+            return self
+                .builder
+                .ins()
+                .icmp(IntCC::UnsignedGreaterThan, sp, limit);
+        }
 
         // Stack frame offset:
         let stack_frame_offset = offset_of!(SteelThread, stack_frames);

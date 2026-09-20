@@ -390,6 +390,92 @@ pub struct SteelThread {
 
     #[cfg(feature = "jit2")]
     pub(crate) trampoline: extern "C" fn(*mut VmCore, JitFnPointer) -> SteelVal,
+
+    /// Where this thread's native stack was when it first entered the vm loop.
+    /// Jitted frames live on the native stack, so how far the stack pointer has
+    /// travelled from here is how much of it deep recursion has eaten. Zero
+    /// until the first entry.
+    #[cfg(feature = "jit2")]
+    pub(crate) native_stack_anchor: usize,
+
+    /// The lowest native stack address jitted frames may reach on this thread,
+    /// with a margin left for the Rust helpers they call. Below it, calls hand
+    /// off to the interpreter, which recurses on the heap. Zero until computed.
+    #[cfg(feature = "jit2")]
+    pub(crate) native_stack_limit: usize,
+}
+
+/// How much of the running thread's stack jitted frames may use, as an absolute
+/// address to stay above.
+///
+/// The margin has to cover the deepest Rust helper a jitted frame can call - a
+/// collection, drop glue for a deep structure, an error path - so a fixed
+/// fraction of a thread whose real size we know beats any constant: a spawned
+/// Rust thread gets 2MB by default, a main thread usually 8MB.
+#[cfg(feature = "jit2")]
+pub(crate) fn native_stack_limit() -> usize {
+    const MARGIN: usize = 1024 * 1024;
+
+    if let Some(mb) = std::env::var("STEEL_JIT_STACK_BUDGET")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        // An explicit budget measured from here, for A/B runs.
+        let here = 0u8;
+        let here = &here as *const u8 as usize;
+        return here.saturating_sub(mb * 1024 * 1024);
+    }
+
+    let here = 0u8;
+    let here = &here as *const u8 as usize;
+
+    match stack_bounds() {
+        Some((low, _high)) => low + MARGIN,
+        // Bounds unavailable: a conservative budget measured from this entry,
+        // which is near the top of the stack. `usize::MAX` here would make
+        // every call hand off, which is worse than the frame count this
+        // replaced.
+        None => here.saturating_sub(MARGIN),
+    }
+}
+
+/// (lowest address, highest address) of the running thread's stack.
+#[cfg(all(feature = "jit2", unix))]
+fn stack_bounds() -> Option<(usize, usize)> {
+    unsafe {
+        #[cfg(target_os = "linux")]
+        {
+            let mut attr: libc::pthread_attr_t = core::mem::zeroed();
+            if libc::pthread_getattr_np(libc::pthread_self(), &mut attr) != 0 {
+                return None;
+            }
+            let mut addr: *mut libc::c_void = core::ptr::null_mut();
+            let mut size: libc::size_t = 0;
+            let ok = libc::pthread_attr_getstack(&attr, &mut addr, &mut size) == 0;
+            libc::pthread_attr_destroy(&mut attr);
+            if !ok || addr.is_null() || size == 0 {
+                return None;
+            }
+            let low = addr as usize;
+            Some((low, low + size))
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let this = libc::pthread_self();
+            let high = libc::pthread_get_stackaddr_np(this) as usize;
+            let size = libc::pthread_get_stacksize_np(this) as usize;
+            if high == 0 || size == 0 {
+                return None;
+            }
+            Some((high - size, high))
+        }
+    }
+}
+
+#[cfg(all(feature = "jit2", not(unix)))]
+fn stack_bounds() -> Option<(usize, usize)> {
+    None
 }
 
 #[derive(Clone)]
@@ -782,6 +868,12 @@ impl SteelThread {
 
             #[cfg(feature = "jit2")]
             trampoline,
+
+            #[cfg(feature = "jit2")]
+            native_stack_anchor: 0,
+
+            #[cfg(feature = "jit2")]
+            native_stack_limit: 0,
         }
     }
 
@@ -2375,6 +2467,24 @@ impl<'a> VmCore<'a> {
     }
 
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
+        #[cfg(feature = "jit2")]
+        if self.thread.native_stack_limit == 0 {
+            self.thread.native_stack_limit = crate::steel_vm::vm::native_stack_limit();
+        }
+
+        #[cfg(feature = "jit2")]
+        {
+            // The shallowest vm entry seen on this thread, not the first: the
+            // first one happens deep inside startup, below where the run loop
+            // later settles, which would make every later frame look like it
+            // had *gained* stack.
+            let here = 0u8;
+            let here = &here as *const u8 as usize;
+            if here > self.thread.native_stack_anchor {
+                self.thread.native_stack_anchor = here;
+            }
+        }
+
         // if self.depth > 1024 {
         if self.depth > 1024 * 128 {
             // TODO: Unwind the callstack? Patch over to the VM call stack rather than continue to do recursive calls?

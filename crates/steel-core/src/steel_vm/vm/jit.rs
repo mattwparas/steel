@@ -5907,6 +5907,23 @@ fn setup_closure_call_arity(
 ) -> SteelVal {
     // println!("CALLING THIS THING");
     let mut ctx = unsafe { &mut *ctx };
+
+    // `STEEL_STACK_DEBUG=1`: how much native stack the jitted frames are using
+    // when they hand off here. Read once - this is the hot trampoline path.
+    static STACK_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *STACK_DEBUG.get_or_init(|| std::env::var_os("STEEL_STACK_DEBUG").is_some()) {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        if N.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 200000 == 0 {
+            let here = 0u8;
+            let sp = &here as *const u8 as usize;
+            let anchor = ctx.thread.native_stack_anchor;
+            eprintln!(
+                "[stack] anchor={anchor:#x} sp={sp:#x} used={} frames={}",
+                anchor.wrapping_sub(sp) as i64,
+                ctx.thread.stack_frames.len()
+            );
+        }
+    }
     let closure = ManuallyDrop::new(closure);
     // ctx.ip += 1;
 

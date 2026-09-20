@@ -3900,6 +3900,7 @@ dependencies = [
  "im-rc",
  "js-sys",
  "lasso",
+ "libc",
  "log",
  "md-5",
  "num-bigint",
