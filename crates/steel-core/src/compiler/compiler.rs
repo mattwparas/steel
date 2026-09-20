@@ -1502,6 +1502,14 @@ impl Compiler {
         // that inlining brought into view.
         semantic.simplify_or_bindings();
 
+        // `(loop (cdr l) ... (car l) ...)` reads `l` after the `cdr`, so the
+        // `cdr` cannot move the list's position in place - it has to build a
+        // new one. Binding the `car` first makes the `cdr` the last use.
+        let hoisted = semantic.hoist_car_before_cdr();
+        if std::env::var_os("STEEL_HOIST_CAR_DEBUG").is_some() && hoisted > 0 {
+            eprintln!("[hoist-car] rewrote {hoisted} sites");
+        }
+
         // Inlining and closure lifting can make a variable captured and mutated
         // that wasn't before, and code_gen emits ALLOC for those. Box again.
         {

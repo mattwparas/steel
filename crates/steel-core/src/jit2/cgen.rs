@@ -3161,7 +3161,7 @@ impl JIT {
         let cursor_bailed = trans.cursor_bail
             || (trans.cursors_on && (trans.cursor_advances == 0 || trans.cursor_carries == 0));
 
-        // TEMP-DEBUG
+        // `STEEL_CURSOR_STATS=1`: why a function kept or lost its cursors.
         if trans.cursors_on && std::env::var_os("STEEL_CURSOR_STATS").is_some() {
             eprintln!(
                 "[cursor-stats] {} advances={} carries={} copy_reads={} bail={}",
@@ -3570,7 +3570,7 @@ impl PropertyMap {
         }
 
         let cursor_conflict = self.cached_lookups.cursors != other.cached_lookups.cursors;
-        // TEMP-DEBUG
+        // `STEEL_CURSOR_TRACE=1`: which join lost a cursor, and from where.
         if cursor_conflict && std::env::var_os("STEEL_CURSOR_TRACE").is_some() {
             let mut a: Vec<_> = self.cached_lookups.cursors.iter().map(|(k, v)| (*k, v.cell.as_u32(), v.index.as_u32())).collect();
             let mut b: Vec<_> = other.cached_lookups.cursors.iter().map(|(k, v)| (*k, v.cell.as_u32(), v.index.as_u32())).collect();
@@ -3963,8 +3963,8 @@ struct FunctionTranslator<'a> {
     // a cursor pays: a walk that is materialised before every call or loop
     // jump anyway costs a write-back for each in-place `cdr` it replaced.
     cursor_carries: usize,
-    // TEMP-DEBUG: `(cdr l)` where `l` is read again - what a derived cursor
-    // (a second cursor for the result) would cover.
+    // `(cdr l)` where `l` is read again - what a derived cursor (a second
+    // cursor for the result) would cover. Reported by `STEEL_CURSOR_STATS`.
     cursor_copy_reads: usize,
 
     /// The cursor for each `List`-seeded parameter, seeded before the loop
@@ -12933,7 +12933,10 @@ impl FunctionTranslator<'_> {
             return;
         };
 
-        // TEMP-DEBUG: bisect which function's cursors break a program.
+        // `STEEL_CURSOR_ONLY=name,...`: seed cursors only in these functions,
+        // to bisect which one breaks a program or costs time. The
+        // `closure-lifting-<digits>` gensym differs per run, so it is
+        // normalised away before matching.
         if let Ok(only) = std::env::var("STEEL_CURSOR_ONLY") {
             // The closure-lifting gensym number differs run to run.
             fn stable(name: &str) -> String {

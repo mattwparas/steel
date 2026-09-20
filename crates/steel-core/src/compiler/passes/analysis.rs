@@ -6262,6 +6262,402 @@ impl VisitorMutRefUnit for SimplifyOrBindings {
     }
 }
 
+/// `STEEL_HOIST_CAR_ALL=1` hoists everywhere, not only in tail position.
+fn hoist_tail_only() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        !matches!(std::env::var("STEEL_HOIST_CAR_ALL").ok().as_deref(), Some("1"))
+    })
+}
+
+fn hoist_car_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_HOIST_CAR").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// Reads of a variable that pure primitives can be reordered around.
+const REORDERABLE_PRIMITIVES: &[&str] = &[
+    "car", "cdr", "cons", "not", "null?", "pair?", "list?", "empty?", "eq?", "eqv?", "equal?",
+    "+", "-", "*", "quotient", "remainder", "modulo", "=", "<", ">", "<=", ">=", "vector-ref",
+    "length", "list-ref", "string-ref", "zero?", "even?", "odd?", "abs", "min", "max", "string?",
+    "number?", "symbol?", "boolean?", "char?", "vector?", "string-length",
+];
+
+/// The primitive this application calls, if it is one, without its module
+/// prefix - `(#%prim.car x)` is `car`.
+fn called_primitive(expr: &ExprKind) -> Option<&str> {
+    let name = expr.atom_identifier()?.resolve();
+    Some(name.rsplit('.').next().unwrap_or(name))
+}
+
+/// `(car x)` / `(cdr x)` on a plain variable, with that variable.
+fn list_accessor_on_var<'a>(expr: &'a ExprKind, op: &str) -> Option<&'a InternedString> {
+    let ExprKind::List(l) = expr else {
+        return None;
+    };
+    if l.args.len() != 2 || called_primitive(l.args.first()?) != Some(op) {
+        return None;
+    }
+    l.args[1].atom_identifier()
+}
+
+/// Nothing here can have an effect, so the arguments of one call can be
+/// evaluated in any order. Raising is the exception: reordering can change
+/// *which* error a bad value produces, not whether one is raised.
+fn is_reorderable(expr: &ExprKind) -> bool {
+    match expr {
+        ExprKind::Atom(_) | ExprKind::Quote(_) => true,
+        ExprKind::List(l) => match l.args.first().and_then(called_primitive) {
+            Some(name) if REORDERABLE_PRIMITIVES.contains(&name) => {
+                l.args[1..].iter().all(is_reorderable)
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Replaces every `(car <var>)` with `replacement`, reporting how many.
+struct ReplaceCarOf<'a> {
+    var: &'a InternedString,
+    replacement: &'a ExprKind,
+    replaced: usize,
+}
+
+impl VisitorMutRefUnit for ReplaceCarOf<'_> {
+    // `'(car x)` is a list, not a call.
+    fn visit_quote(&mut self, _quote: &mut crate::parser::ast::Quote) {}
+
+    fn visit(&mut self, expr: &mut ExprKind) {
+        if list_accessor_on_var(expr, "car") == Some(self.var) {
+            *expr = self.replacement.clone();
+            self.replaced += 1;
+            return;
+        }
+
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(t) => self.visit_set(t),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+}
+
+/// Binds `(car x)` before a call that also passes `(cdr x)`, so that the
+/// `cdr` becomes `x`'s last use.
+///
+/// `(loop (cdr l) (+ acc (car l)))` reads `l` after the `cdr`, so the `cdr`
+/// has to build a new list - the original is still needed. Hoisting gives
+/// `(let ([t (car l)]) (loop (cdr l) (+ acc t)))`, where the `cdr` owns the
+/// only remaining reference and can move the position in place. Measured 2x
+/// on a list-summing loop, before the jit's list cursors enter into it, and
+/// it is the shape that lets a cursor carry across the loop.
+///
+/// Only fires where every argument is effect-free, so the reordering is
+/// unobservable apart from which error a non-list would raise.
+struct HoistCarBeforeCdr {
+    rewritten: usize,
+    // Whether the expression being visited is in tail position. A tail call
+    // passing `(cdr x)` is a loop step, where the in-place cdr repays the
+    // binding this adds on every iteration; `(cons (car x) (f (cdr x)))` is
+    // not, and there the binding is the only thing that changes.
+    in_tail: bool,
+    tail_only: bool,
+    // The function being defined. Only its own recursive calls are worth
+    // rewriting: a loop owns the list it is walking after its first step, so
+    // the `cdr` can move in place. A list handed to some other function is
+    // usually still shared, where the `cdr` allocates either way and the
+    // binding this adds is the only change.
+    enclosing: Vec<InternedString>,
+}
+
+impl HoistCarBeforeCdr {
+    fn hoist(exprs: &mut Vec<ExprKind>) -> usize {
+        let mut pass = Self {
+            rewritten: 0,
+            in_tail: true,
+            tail_only: hoist_tail_only(),
+            enclosing: Vec::new(),
+        };
+        for expr in exprs {
+            pass.visit(expr);
+        }
+        pass.rewritten
+    }
+
+    /// The variable to hoist `(car ...)` of, for this call.
+    fn worth_hoisting(&self, calls_self: bool) -> bool {
+        !self.tail_only || (self.in_tail && calls_self)
+    }
+
+    fn is_self_call(&self, callee: &ExprKind) -> bool {
+        match (callee.atom_identifier(), self.enclosing.last()) {
+            (Some(name), Some(enclosing)) => name == enclosing,
+            _ => false,
+        }
+    }
+
+    fn candidate(&self, l: &crate::parser::ast::List) -> Option<InternedString> {
+        // A complex callee would be evaluated after the hoisted read.
+        let callee = l.args.first()?;
+        if callee.atom_identifier().is_none() || l.args.len() < 3 {
+            return None;
+        }
+        if !l.args[1..].iter().all(is_reorderable) {
+            return None;
+        }
+
+        for (i, arg) in l.args.iter().enumerate().skip(1) {
+            let Some(var) = list_accessor_on_var(arg, "cdr") else {
+                continue;
+            };
+            let later = &l.args[i + 1..];
+
+            // Every later mention of the variable has to be a `(car x)` that
+            // moves out with the hoist; one that stays keeps the `cdr` from
+            // being the last use, and the rewrite buys nothing.
+            let mentions: usize = later.iter().map(|e| reference_count(e, var)).sum();
+            let cars: usize = later.iter().map(|e| count_car_of(e, var)).sum();
+            if cars > 0 && cars == mentions && self.worth_hoisting(self.is_self_call(callee)) {
+                return Some(*var);
+            }
+        }
+
+        None
+    }
+
+    /// The same shape as a `let`'s bindings, which is what a call becomes once
+    /// it is inlined: `(let ([rest (cdr l)] [acc (+ acc (car l))]) ...)`.
+    /// Values are evaluated in order, so a `car` after the `cdr` costs the
+    /// same as it does in a call.
+    fn candidate_let(&self, l: &crate::parser::ast::Let) -> Option<InternedString> {
+        if !l.bindings.iter().all(|(_, value)| is_reorderable(value)) {
+            return None;
+        }
+
+        for (i, (_, value)) in l.bindings.iter().enumerate() {
+            let Some(var) = list_accessor_on_var(value, "cdr") else {
+                continue;
+            };
+
+            // A read from the body keeps the list alive past the `cdr` too,
+            // and this rewrite cannot hoist that one out.
+            if reference_count(&l.body_expr, var) != 0 {
+                continue;
+            }
+
+            let later = &l.bindings[i + 1..];
+            let mentions: usize = later.iter().map(|(_, v)| reference_count(v, var)).sum();
+            let cars: usize = later.iter().map(|(_, v)| count_car_of(v, var)).sum();
+            let recurses = self
+                .enclosing
+                .last()
+                .is_some_and(|name| reference_count(&l.body_expr, name) > 0);
+            if cars > 0 && cars == mentions && self.worth_hoisting(recurses) {
+                return Some(*var);
+            }
+        }
+
+        None
+    }
+
+    fn rewrite(&self, expr: &mut ExprKind) -> bool {
+        let var = match expr {
+            ExprKind::List(l) => self.candidate(l),
+            ExprKind::Let(l) => self.candidate_let(l),
+            _ => None,
+        };
+        let Some(var) = var else {
+            return false;
+        };
+
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let name = InternedString::from(format!("##%car-hoist{n}"));
+        let binding = ExprKind::atom(name);
+
+        let mut location = SyntaxObject::default(TokenType::Let);
+        let mut replacer = ReplaceCarOf {
+            var: &var,
+            replacement: &binding,
+            replaced: 0,
+        };
+        match expr {
+            ExprKind::List(l) => {
+                location.set_span(l.location);
+                for arg in l.args.iter_mut().skip(1) {
+                    replacer.visit(arg);
+                }
+            }
+            // An enclosing `let`, not another binding beside them: a `let`
+            // binds in parallel, so its own bindings cannot see each other.
+            ExprKind::Let(l) => {
+                location.set_span(l.location.span);
+                for (_, value) in l.bindings.iter_mut() {
+                    replacer.visit(value);
+                }
+            }
+            _ => unreachable!("matched above"),
+        }
+        debug_assert!(replacer.replaced > 0);
+
+        let value = ExprKind::List(crate::parser::ast::List::new(thin_vec![
+            ExprKind::ident("#%prim.car"),
+            ExprKind::atom(var),
+        ]));
+
+        let call = core::mem::replace(expr, ExprKind::empty());
+        *expr = ExprKind::Let(
+            Let::new(vec![(binding, value)], call, location).into(),
+        );
+        true
+    }
+}
+
+fn count_car_of(expr: &ExprKind, var: &InternedString) -> usize {
+    struct Counter<'a> {
+        var: &'a InternedString,
+        count: usize,
+    }
+    impl VisitorMutUnitRef<'_> for Counter<'_> {
+        fn visit_quote(&mut self, _quote: &crate::parser::ast::Quote) {}
+
+        fn visit(&mut self, expr: &ExprKind) {
+            if list_accessor_on_var(expr, "car") == Some(self.var) {
+                self.count += 1;
+                return;
+            }
+
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => self.visit_list(l),
+                ExprKind::SyntaxRules(sr) => self.visit_syntax_rules(sr),
+                ExprKind::Set(t) => self.visit_set(t),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
+            }
+        }
+    }
+    let mut counter = Counter { var, count: 0 };
+    counter.visit(expr);
+    counter.count
+}
+
+impl VisitorMutRefUnit for HoistCarBeforeCdr {
+    fn visit_quote(&mut self, _quote: &mut crate::parser::ast::Quote) {}
+
+    fn visit_define(&mut self, define: &mut crate::parser::ast::Define) {
+        let named = define.name.atom_identifier().copied();
+        if let Some(name) = named {
+            self.enclosing.push(name);
+        }
+        let outer = core::mem::replace(&mut self.in_tail, false);
+        self.visit(&mut define.body);
+        self.in_tail = outer;
+        if named.is_some() {
+            self.enclosing.pop();
+        }
+    }
+
+    fn visit_lambda_function(&mut self, lambda: &mut crate::parser::ast::LambdaFunction) {
+        let outer = core::mem::replace(&mut self.in_tail, true);
+        self.visit(&mut lambda.body);
+        self.in_tail = outer;
+    }
+
+    // An `if` hands its position to both arms; the test is not in it.
+    fn visit_if(&mut self, f: &mut crate::parser::ast::If) {
+        let tail = self.in_tail;
+        self.in_tail = false;
+        self.visit(&mut f.test_expr);
+        self.in_tail = tail;
+        self.visit(&mut f.then_expr);
+        self.in_tail = tail;
+        self.visit(&mut f.else_expr);
+        self.in_tail = tail;
+    }
+
+    // Only the last expression of a `begin` is.
+    fn visit_begin(&mut self, begin: &mut crate::parser::ast::Begin) {
+        let tail = self.in_tail;
+        let last = begin.exprs.len().saturating_sub(1);
+        for (i, expr) in begin.exprs.iter_mut().enumerate() {
+            self.in_tail = tail && i == last;
+            self.visit(expr);
+        }
+        self.in_tail = tail;
+    }
+
+    // A `let`'s body is, its bindings' values are not.
+    fn visit_let(&mut self, l: &mut crate::parser::ast::Let) {
+        let tail = self.in_tail;
+        for (_, value) in l.bindings.iter_mut() {
+            self.in_tail = false;
+            self.visit(value);
+        }
+        self.in_tail = tail;
+        self.visit(&mut l.body_expr);
+        self.in_tail = tail;
+    }
+
+    // Arguments are evaluated before the call, never in its position.
+    fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
+        let tail = self.in_tail;
+        for expr in l.args.iter_mut() {
+            self.in_tail = false;
+            self.visit(expr);
+        }
+        self.in_tail = tail;
+    }
+
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(t) => self.visit_set(t),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+
+        if self.rewrite(expr) {
+            self.rewritten += 1;
+        }
+    }
+}
+
 struct FlattenEmptyLets;
 
 impl FlattenEmptyLets {
@@ -9041,6 +9437,16 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn flatten_empty_lets(&mut self) {
         FlattenEmptyLets::flatten(self.exprs)
+    }
+
+    /// Binds `(car x)` ahead of a call that also passes `(cdr x)`.
+    /// See `HoistCarBeforeCdr`.
+    pub fn hoist_car_before_cdr(&mut self) -> usize {
+        if !hoist_car_enabled() {
+            return 0;
+        }
+
+        HoistCarBeforeCdr::hoist(self.exprs)
     }
 
     /// Drops the binding that `or` expands into, where that is sound.
