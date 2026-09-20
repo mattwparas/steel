@@ -4990,6 +4990,100 @@ make_mutable_struct_constructors!(
     (call_mutable_struct_constructor_8, a, b, c, d, e, f, g, h)
 );
 
+// `mutable-vector` in tail position, called straight from jitted code. It is a
+// `BuiltIn`, so every `(vector a b c)` otherwise went out through the generic
+// tail call handler and into the interpreter - 32% of every tail call deopt in
+// the `scheme` benchmark, which represents each environment frame as one.
+//
+// The allocation can collect, and the collector's roots are the vm stack plus
+// these arguments; in tail position nothing else in the frame is live, which is
+// what the caller checks before emitting this.
+macro_rules! make_mutable_vector_constructors {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallMutableVectorConstructorsDefinitions;
+
+        impl CallMutableVectorConstructorsDefinitions {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
+                $(
+                    #[cfg(target_os = "windows")]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+            #[cross_platform_fn]
+            fn $name(
+                ctx: *mut VmCore,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                let guard = unsafe { &mut *ctx };
+                guard.make_mutable_vector([$($typ),*].into_iter().collect())
+            }
+        )*
+    };
+}
+
+make_mutable_vector_constructors!(
+    (call_mutable_vector_constructor_1, a),
+    (call_mutable_vector_constructor_2, a, b),
+    (call_mutable_vector_constructor_3, a, b, c),
+    (call_mutable_vector_constructor_4, a, b, c, d),
+    (call_mutable_vector_constructor_5, a, b, c, d, e),
+    (call_mutable_vector_constructor_6, a, b, c, d, e, f),
+    (call_mutable_vector_constructor_7, a, b, c, d, e, f, g),
+    (call_mutable_vector_constructor_8, a, b, c, d, e, f, g, h)
+);
+
+// `cdr` in tail position. `cdr` is a `MutFunc`, which the tail call path had no
+// inline case for at all, so `(loop ... (cdr x))` style tails went through the
+// generic handler into the interpreter. Unlike `cdr_handler_value` this leaves
+// `ip` alone: in tail position the frame is returning, and the only reader of
+// `ip` is the error path, which sets `fallback_ip` itself.
+#[cross_platform_fn]
+fn cdr_tail_value(ctx: *mut VmCore, fallback_ip: usize, arg: SteelVal) -> SteelVal {
+    let mut arg = arg;
+
+    match crate::primitives::lists::cdr(&mut arg) {
+        Ok(v) => v,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.ip = fallback_ip;
+            guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+            guard.is_native = false;
+            SteelVal::Void
+        }
+    }
+}
+
 macro_rules! make_flat_vector_constructors {
     ($(($name:tt, $($typ:ident),*)),*) => {
 

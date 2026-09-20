@@ -15,15 +15,15 @@
 
 ; (require "steel/mutable-vectors")
 
-(define member
-  (lambda (x los)
-    ; (displayln "Calling member")
-    (cond
-      [(null? los) #f]
-      ; (begin
-      ; (displayln los)
-      [(equal? x (car los)) los]
-      [else (member x (cdr los))])))
+; (define member
+;   (lambda (x los)
+;     ; (displayln "Calling member")
+;     (cond
+;       [(null? los) #f]
+;       ; (begin
+;       ; (displayln los)
+;       [(equal? x (car los)) los]
+;       [else (member x (cdr los))])))
 
 ;; Compatibility -----------------------------------------------------------
 (define assq assoc)

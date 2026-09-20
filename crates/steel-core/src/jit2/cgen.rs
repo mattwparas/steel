@@ -978,6 +978,12 @@ impl Default for JIT {
 
         CallStructConstructorsDefinitions::register(&mut map);
         CallMutableStructConstructorsDefinitions::register(&mut map);
+        CallMutableVectorConstructorsDefinitions::register(&mut map);
+
+        map.add_func(
+            "cdr-tail-value",
+            abi! { cdr_tail_value as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
+        );
         CallFlatVectorConstructorsDefinitions::register(&mut map);
 
         CallSelfNoArityFunctionDefinitions::register(&mut map);
@@ -1710,6 +1716,42 @@ pub(super) fn inline_eq_enabled() -> bool {
             Some("0") | Some("false")
         )
     })
+}
+
+/// The list predicates, `cdr` and `mutable-vector`, added after the original
+/// `#%unbox` / `#%set-box!` pair. `STEEL_JIT_PRIM_TAIL2=0` disables just these.
+fn prim_tail2_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_PRIM_TAIL2").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// The three parts of it, so a regression can be attributed to one:
+/// `STEEL_JIT_TAIL_PRED` / `_CDR` / `_VEC` set to 0.
+fn part_enabled(var: &'static str, cell: &'static std::sync::OnceLock<bool>) -> bool {
+    prim_tail2_enabled()
+        && *cell.get_or_init(|| {
+            !matches!(std::env::var(var).ok().as_deref(), Some("0") | Some("false"))
+        })
+}
+
+fn tail_pred_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    part_enabled("STEEL_JIT_TAIL_PRED", &V)
+}
+
+fn tail_cdr_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    part_enabled("STEEL_JIT_TAIL_CDR", &V)
+}
+
+fn tail_vec_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    part_enabled("STEEL_JIT_TAIL_VEC", &V)
 }
 
 fn extra_primitive_tail_calls_enabled() -> bool {
@@ -8346,7 +8388,22 @@ impl FunctionTranslator<'_> {
             if !extra {
                 return None;
             }
-            return self.inline_mutable_struct_tail_call(*b as usize, arity);
+            return self
+                .inline_mutable_struct_tail_call(*b as usize, arity)
+                .or_else(|| {
+                    tail_vec_enabled()
+                        .then(|| self.inline_mutable_vector_tail_call(*b as usize, arity))
+                        .flatten()
+                });
+        }
+
+        // `cdr` is the only `MutFunc` worth recognising so far; it was 28% of
+        // the tail call deopts in `scheme`.
+        if let SteelVal::MutFunc(f) = func {
+            if !extra || !tail_cdr_enabled() {
+                return None;
+            }
+            return self.inline_mut_func_tail_call(*f as usize, arity);
         }
 
         let SteelVal::FuncV(f) = func else {
@@ -8367,6 +8424,25 @@ impl FunctionTranslator<'_> {
         if extra && target == steel_mut_vec_set as usize && arity == 3 {
             self.vector_set();
             return Some(self.pop_as_steelval());
+        }
+
+        // The list predicates, which the jit already lowers inline everywhere
+        // except here. `pair?` and `null?` were 37% of `scheme`'s tail call
+        // deopts between them.
+        if extra && tail_pred_enabled() && arity == 1 {
+            if target == steel_pair as usize {
+                self.is_pair();
+                return Some(self.pop_as_steelval());
+            }
+
+            if target == steel_is_empty as usize {
+                self.is_empty();
+                return Some(self.pop_as_steelval());
+            }
+
+            if target == crate::primitives::vectors::list_vec_null as usize {
+                return Some(self.inline_null_predicate());
+            }
         }
 
         // Same story for the integer divisions. Inlining them only in operand
@@ -8449,6 +8525,111 @@ impl FunctionTranslator<'_> {
     fn pop_as_steelval(&mut self) -> Value {
         let top = self.shadow_stack_pop().unwrap().into_value(self);
         top.as_steelval(self)
+    }
+
+    /// `null?` in tail position. The empty list is the case worth inlining;
+    /// the primitive also answers for empty vectors, which the helper handles.
+    fn inline_null_predicate(&mut self) -> Value {
+        let value = self.pop_as_steelval();
+        let is_list = self.is_type(value, SteelVal::LIST_TAG);
+        let typ = self.int;
+
+        self.converging_if(
+            is_list,
+            |ctx| {
+                let cell = ctx.unbox_value_to_pointer(value);
+                let index = ctx.list_cell_index(cell);
+                let empty = ctx.builder.ins().icmp_imm_s(IntCC::Equal, index, 0);
+                ctx.drop_tagged_value(value);
+                let empty = ctx.builder.ins().uextend(types::I64, empty);
+                ctx.encode_value(SteelVal::BOOL_TAG as i64, empty)
+            },
+            // Consumes the value, as the primitive does.
+            |ctx| ctx.call_function_returns_value_args_no_context("null-handler", &[value]),
+            typ,
+        )
+    }
+
+    /// `cdr` in tail position: a direct call to the primitive instead of the
+    /// generic tail call handler, which re-looks-up the global, re-matches on
+    /// its kind and hands the frame to the interpreter.
+    fn inline_mut_func_tail_call(&mut self, target: usize, arity: usize) -> Option<Value> {
+        if target != crate::primitives::lists::steel_cdr as usize || arity != 1 {
+            return None;
+        }
+
+        if self.shadow_stack.is_empty() {
+            return None;
+        }
+
+        let value = self.pop_as_steelval();
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let result =
+            self.call_function_returns_value_args("cdr-tail-value", &[fallback_ip, value]);
+        self.check_deopt();
+
+        Some(result)
+    }
+
+    /// `mutable-vector` called in any other position: the same direct call,
+    /// but anything else the jitted frame is still holding has to reach the vm
+    /// stack first, because the allocation can collect and only the vm stack
+    /// and the arguments themselves are roots.
+    fn inline_builtin_global_call(&mut self, index: usize, arity: usize) -> Option<Value> {
+        if !extra_primitive_tail_calls_enabled() || !tail_vec_enabled() {
+            return None;
+        }
+
+        let SteelVal::BuiltIn(b) = self._globals.get(index)? else {
+            return None;
+        };
+
+        if *b as usize != crate::primitives::vectors::mut_vec_construct as usize {
+            return None;
+        }
+
+        let name = CallMutableVectorConstructorsDefinitions::arity_to_name(arity)?;
+
+        let below = self.shadow_stack.len().checked_sub(arity)?;
+        for i in 0..below {
+            self.shadow_spill(i);
+        }
+
+        let args = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        Some(self.call_function_returns_value_args(name, &args))
+    }
+
+    /// `mutable-vector` in tail position, as a direct call to the allocation.
+    /// Same shape as the mutable struct constructor above, and the same
+    /// condition: the arguments have to be the whole operand stack, because the
+    /// allocation can collect and only the vm stack and these are roots.
+    fn inline_mutable_vector_tail_call(&mut self, builtin: usize, arity: usize) -> Option<Value> {
+        if builtin != crate::primitives::vectors::mut_vec_construct as usize {
+            return None;
+        }
+
+        let name = CallMutableVectorConstructorsDefinitions::arity_to_name(arity)?;
+
+        if self.shadow_stack.len() != arity {
+            return None;
+        }
+
+        let args = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        Some(self.call_function_returns_value_args(name, &args))
     }
 
     /// `#%make-mutable-struct` in tail position, as a direct call to the
@@ -9585,6 +9766,17 @@ impl FunctionTranslator<'_> {
         let arity = self.instructions[self.ip].payload_size.to_usize();
 
         let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
+
+        // `(vector rte a)` is an argument, not a tail call, so the tail path
+        // above never sees it - and `scheme` builds one environment frame per
+        // closure call that way.
+        if let Some(value) = self.inline_builtin_global_call(function_index, arity) {
+            self.push(value, InferredType::Any);
+            // Past the `FUNC` that carried the arity; the generic paths below
+            // do this inside `call_global_function`.
+            self.ip += 1;
+            return;
+        }
 
         if INLINE_STRUCT_FUNCTION_CALLS {
             let maybe_global = self._globals.get(function_index).cloned();
