@@ -7353,6 +7353,19 @@ impl<'a> SemanticAnalysis<'a> {
 
         let sets = map.keys().copied().collect::<HashSet<_>>();
         let func = move |analysis: &mut Analysis, call_site: &mut List| {
+            // The no-arity opcodes skip the arity check at run time, so only a
+            // call passing exactly the declared number of arguments may use
+            // them. Anything else keeps the checked call, and raises. Without
+            // this, `(cons 0 (f 1))` for a two argument `f` ran `f` with the
+            // pending `0` as its first argument, and left the stack a slot off.
+            let declared = call_site
+                .first_ident()
+                .and_then(|name| map.get(name))
+                .copied();
+            if declared != Some(call_site.args.len() - 1) {
+                return;
+            }
+
             let call_site_id = call_site.syntax_object_id;
             if let Some(call) = analysis.call_info.get_mut(&call_site_id) {
                 match call.kind {

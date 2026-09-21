@@ -8,9 +8,6 @@
 (define (message-of thunk)
   (with-handler (lambda (e) (error-object-message e)) (thunk)))
 
-;; Inline rather than through a thunk: the interpreter currently panics when a
-;; thunk under `with-handler` tail calls something that raises from a non-tail
-;; call (a separate, pre-existing bug).
 (define-syntax catching
   (syntax-rules ()
     [(_ expr) (with-handler (lambda (e) (error-object-message e)) expr)]))
@@ -59,3 +56,17 @@
 (assert-equal! "function expected 2 arguments, found 1" (catching (non-tail-call f)))
 (assert-equal! "function expected at least 2 arguments, found 1" (catching (tail-call v)))
 (assert-equal! '(0 1) (non-tail-call (lambda (x) (list x))))
+
+;; The no-arity call opcodes skip the arity check at run time, and the analysis
+;; used to assign them to every call of a fixed arity function by name. Under
+;; applied, `f` then took the pending `0` below as its first argument and
+;; returned normally, leaving the value stack a slot off.
+(define (pending-then-call)
+  (cons 0 (f 1)))
+
+(assert-equal! "function expected 2 arguments, found 1" (catching (pending-then-call)))
+(assert-equal! "function expected 2 arguments, found 1" (message-of pending-then-call))
+(assert-equal! "function expected 2 arguments, found 1"
+               (message-of (lambda () (non-tail-call f))))
+(assert-equal! "function expected 2 arguments, found 1"
+               (message-of (lambda () (cons 0 (f 1)))))

@@ -4008,8 +4008,8 @@ fn handle_global_function_call_with_args(
 
                     // inspect_impl(ctx, &[SteelVal::Closure(closure.clone())]);
 
-                    ctx.handle_function_call_closure_jit(closure.clone(), arity)
-                        .unwrap();
+                    // An arity mismatch is an ordinary error here, not a bug.
+                    ctx.handle_function_call_closure_jit(closure.clone(), arity)?;
 
                     let tramp = ctx.thread.trampoline;
 
@@ -6109,8 +6109,8 @@ fn call_global_function_deopt_no_arity_spilled(
 
                         // Install the function, so that way we can just trampoline
                         // without needing to spill the stack
-                        ctx.handle_function_call_closure_jit(closure, arity)
-                            .unwrap();
+                        // An arity mismatch is an ordinary error here, not a bug.
+                        ctx.handle_function_call_closure_jit(closure, arity)?;
 
                         let tramp = ctx.thread.trampoline;
 
@@ -6239,8 +6239,8 @@ fn call_global_function_deopt_spilled(
 
                         // Install the function, so that way we can just trampoline
                         // without needing to spill the stack
-                        ctx.handle_function_call_closure_jit(closure, arity)
-                            .unwrap();
+                        // An arity mismatch is an ordinary error here, not a bug.
+                        ctx.handle_function_call_closure_jit(closure, arity)?;
 
                         let tramp = ctx.thread.trampoline;
 
