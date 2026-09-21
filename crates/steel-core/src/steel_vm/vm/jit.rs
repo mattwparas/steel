@@ -6012,7 +6012,13 @@ fn setup_closure_call_arity(
     // ctx.ip += 1;
 
     ctx.ip = fallback_arity;
-    ctx.handle_function_call_closure_jit((&*closure).clone(), arity);
+    // An arity mismatch surfaces here: the generated fast path only takes a
+    // closure whose arity matches, and sends everything else through this.
+    // Dropping the error left no frame pushed and the stack misread.
+    if let Err(e) = ctx.handle_function_call_closure_jit((&*closure).clone(), arity) {
+        ctx.result = Some(Err(e));
+        ctx.is_native = false;
+    }
     SteelVal::Void
 }
 make_call_self_function_deopt_no_arity!(

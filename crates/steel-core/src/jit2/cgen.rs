@@ -102,6 +102,18 @@ fn callglobal_direct_enabled() -> bool {
     })
 }
 
+/// `STEEL_JIT_LATE_TAIL=0` disables the run-time compiled check on a direct
+/// global tail call whose callee was not compiled yet.
+fn late_tail_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_LATE_TAIL").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
 fn rest_args_enabled() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
@@ -5234,6 +5246,40 @@ impl FunctionTranslator<'_> {
                             self.inline_global_tail_call(arity, function);
                             self.ip = self.instructions.len() + 1;
                             self.depth -= 1;
+                        } else if late_tail_enabled()
+                            && Self::rest_arg_plan(&function, arity).is_some()
+                            && self.non_mutable_globals.contains(&function_index)
+                        {
+                            // Not compiled *yet*. Mutually recursive functions
+                            // can't all be compiled before their callers - the
+                            // topological sort has to break every cycle somewhere
+                            // - and without this, the member compiled first went
+                            // through the deopt helper for the rest of the run.
+                            // `inline_global_tail_call` already reads the entry
+                            // point through the lambda at run time, so all it
+                            // needs is a check that there is one by then.
+                            self.potentially_could_deopt = true;
+
+                            // Leaked, like every lambda baked into code.
+                            let lambda = self.builder.ins().iconst(types::I64, unsafe {
+                                std::mem::transmute::<Gc<ByteCodeLambda>, i64>(function.clone())
+                            });
+                            let entry = self.builder.ins().load(
+                                types::I64,
+                                MemFlagsData::trusted(),
+                                lambda,
+                                closure_field_offset(offset_of!(ByteCodeLambda, super_instructions)),
+                            );
+                            let compiled = self.builder.ins().icmp_imm_s(IntCC::NotEqual, entry, 0);
+
+                            self.converging_if_no_value(
+                                compiled,
+                                // `depth` is not part of the branch snapshot, so
+                                // only one arm may drop it: the slow path does.
+                                |ctx| ctx.inline_global_tail_call(arity, function.clone()),
+                                |ctx| ctx.slow_path_deopt_tail_call(function_index, arity),
+                            );
+                            self.ip = self.instructions.len() + 1;
                         } else {
                             self.potentially_could_deopt = true;
                             self.slow_path_deopt_tail_call(function_index, arity);
@@ -5257,6 +5303,58 @@ impl FunctionTranslator<'_> {
 
                             self.depth -= 1;
                             self.ip = self.instructions.len() + 1;
+                            return false;
+                        }
+
+                        // Unbound while this function is being compiled - a
+                        // callee defined further down the file, which is how
+                        // every cycle of mutually recursive functions looks to
+                        // whichever member is compiled first. Nothing to bake,
+                        // so read the global at run time and tail call it the
+                        // way a local closure is: that path already checks for
+                        // a closure that is compiled and fixed arity, and falls
+                        // back to the helper otherwise. It reads the current
+                        // value every time, so `set!` is no concern here.
+                        if func.is_none()
+                            && late_tail_enabled()
+                            && USE_INLINE_LOCAL_TAIL_CALL
+                            && CallFunctionTailDefinitions::arity_to_name(arity).is_some()
+                        {
+                            self.potentially_could_deopt = true;
+                            let name = CallFunctionTailDefinitions::arity_to_name(arity);
+
+                            // The local tail call's ip is one past the `TAILCALL`
+                            // that carries the arity; ours is still on it.
+                            self.ip += 1;
+
+                            // Borrowed, like a register read - see that arm.
+                            let value = self.inline_lookup_global(function_index);
+                            let is_closure = self.is_type(value, SteelVal::CLOSURE_TAG);
+                            let old_stack = self.shadow_stack.clone();
+
+                            self.converging_if_no_value(
+                                is_closure,
+                                |ctx| {
+                                    let closure = ctx.unbox_value_to_pointer(value);
+                                    ctx.increment_ref_count_closure(closure);
+                                    ctx.inline_local_tail_call(arity, closure, value);
+                                },
+                                |ctx| {
+                                    ctx.shadow_stack = old_stack.clone();
+                                    ctx.clone_value(value);
+                                    let v = ctx.call_function_with_func(
+                                        arity,
+                                        name.unwrap(),
+                                        true,
+                                        value,
+                                    );
+                                    ctx.push(v, InferredType::Any);
+                                },
+                            );
+
+                            self.ip = self.instructions.len() + 1;
+                            self.check_deopt();
+                            self.depth -= 1;
                             return false;
                         }
 
@@ -8347,7 +8445,7 @@ impl FunctionTranslator<'_> {
                         .ins()
                         .icmp_imm_s(IntCC::NotEqual, super_instruction, 0);
 
-                let fixed_arity = ctx.closure_is_fixed_arity(closure);
+                let fixed_arity = ctx.closure_accepts_arity(closure, arity);
                 let compiled_and_fixed = ctx
                     .builder
                     .ins()
@@ -10837,8 +10935,6 @@ impl FunctionTranslator<'_> {
         // lambda pointer below is stable (its refcount is leaked), so load the
         // entry point through it at run time instead; it is one dependent load
         // on a line that is warm anyway, and it always reaches the newest body.
-        debug_assert!(func.super_instructions().is_some());
-
         func.clone().into_raw();
 
         // Horrendous crimes, but we'll allow it. We'll also leak the instructions...
@@ -10954,7 +11050,7 @@ impl FunctionTranslator<'_> {
                 .ins()
                 .icmp_imm_s(IntCC::NotEqual, super_instruction, 0);
 
-        let fixed_arity = self.closure_is_fixed_arity(closure);
+        let fixed_arity = self.closure_accepts_arity(closure, arity);
         let super_instruction_exists = self
             .builder
             .ins()
@@ -14112,15 +14208,32 @@ impl FunctionTranslator<'_> {
     /// and only the interpreter-side paths call it. The direct paths here set
     /// the frame up themselves, so they hand a variadic callee back to those
     /// paths instead.
-    fn closure_is_fixed_arity(&mut self, closure: Value) -> Value {
+    /// Whether a closure only known at run time can take `arity` arguments
+    /// through a frame this code sets up itself: fixed arity (a variadic one
+    /// needs its rest list built) and exactly that many parameters. Anything
+    /// else goes to the helper, which adjusts or raises the arity error - the
+    /// generated frame setup checks neither, so a mismatch read garbage slots.
+    fn closure_accepts_arity(&mut self, closure: Value, arity: usize) -> Value {
         let multi = self.builder.ins().load(
             types::I8,
             MemFlagsData::trusted().with_readonly(),
             closure,
             closure_field_offset(offset_of!(ByteCodeLambda, is_multi_arity)),
         );
+        let fixed = self.builder.ins().icmp_imm_s(IntCC::Equal, multi, 0);
 
-        self.builder.ins().icmp_imm_s(IntCC::Equal, multi, 0)
+        let declared = self.builder.ins().load(
+            types::I16,
+            MemFlagsData::trusted().with_readonly(),
+            closure,
+            closure_field_offset(offset_of!(ByteCodeLambda, arity)),
+        );
+        let matches = self
+            .builder
+            .ins()
+            .icmp_imm_s(IntCC::Equal, declared, arity as i64);
+
+        self.builder.ins().band(fixed, matches)
     }
 
     fn check_should_trampoline(&mut self, ctx: Value) -> Value {

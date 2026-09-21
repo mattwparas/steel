@@ -8022,10 +8022,26 @@ impl<'a> SemanticAnalysis<'a> {
                     // function into one copy breaks that. Give each copy its own.
                     let freshen = contains_nested_lambda(&l.body);
 
+                    let params = l.args.len();
+                    let rest = l.rest;
+
                     funcs.insert(
                         *d.name.atom_identifier().unwrap(),
                         Box::new(move |_: &Analysis, lst: &mut List| {
-                            if lst.syntax_object_id > original_id {
+                            // A call with the wrong number of arguments has to
+                            // stay a call, so it raises the arity error when it
+                            // runs. Substituting the lambda binds the parameters
+                            // positionally, and a missing one surfaced as a
+                            // FreeIdentifier compile error - rejecting a program
+                            // whose bad call might never even execute. Same rule
+                            // as the known-function-args path above.
+                            let arity_matches = if rest {
+                                lst.args.len() >= params
+                            } else {
+                                lst.args.len() == params + 1
+                            };
+
+                            if lst.syntax_object_id > original_id && arity_matches {
                                 let mut copy = l.clone();
                                 if freshen {
                                     FreshenBinders::run(&mut copy);
