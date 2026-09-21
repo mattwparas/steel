@@ -9276,7 +9276,15 @@ impl FunctionTranslator<'_> {
             one,
         );
 
-        let hit_zero = self.builder.ins().icmp_imm_s(IntCC::Equal, previous, 1);
+        // The raw counter carries an implicit +1 while the heap still owns the
+        // box, so a previous value of 2 is the last handle to a live box - its
+        // value has to be released now (`Drop for HeapRef`) - and 1 is the last
+        // handle to one the heap already let go of, whose memory is freed here.
+        // Either way it's the out-of-line drop that knows what to do.
+        let hit_zero = self
+            .builder
+            .ins()
+            .icmp_imm_u(IntCC::UnsignedLessThanOrEqual, previous, 2);
 
         self.converging_if_no_value_else_cold(
             hit_zero,

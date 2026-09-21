@@ -99,6 +99,7 @@ test_harness_success_sync! {
 test_harness_success! {
     abc_problem,
     arity_mismatch_calls,
+    box_release,
     jit_arithmetic_errors,
     jit_branch_in_argument_list,
     jit_captures,

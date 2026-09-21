@@ -764,6 +764,19 @@ pub fn drop_fields_iteratively(
                 drop_buffer.extend(fields);
 
                 IterativeDropHandler::bfs(&mut drop_buffer);
+            } else {
+                // A drain is already running further up this thread's stack -
+                // this is a drop reached from inside it. Dropping in place here
+                // recurses once per link of whatever chain is being torn down, so
+                // hand the values to the running drain instead; it empties
+                // `PENDING` before it finishes.
+                let mut fields = Some(fields);
+                let _ = drop_impls::PENDING.try_with(|pending| {
+                    if let Ok(mut pending) = pending.try_borrow_mut() {
+                        pending.extend(fields.take().unwrap());
+                    }
+                });
+                // Otherwise (thread teardown) `fields` drops in place here.
             }
         })
         .map_err(|_| ())
@@ -778,6 +791,9 @@ pub(crate) mod drop_impls {
 
     thread_local! {
         pub static DROP_BUFFER: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
+        /// Values handed over by drops that ran while `DROP_BUFFER` was
+        /// borrowed; the running `IterativeDropHandler` drains them.
+        pub static PENDING: RefCell<Vec<SteelVal>> = const { RefCell::new(Vec::new()) };
         pub static FORMAT_BUFFER: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
     }
 
@@ -921,7 +937,20 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     fn default_output(&mut self) -> Self::Output {}
 
     fn pop_front(&mut self) -> Option<SteelVal> {
-        self.drop_buffer.pop_front()
+        self.drop_buffer.pop_front().or_else(|| {
+            // Anything a nested drop handed over, see `drop_fields_iteratively`
+            #[cfg(not(feature = "without-drop-protection"))]
+            {
+                drop_impls::PENDING
+                    .try_with(|pending| pending.borrow_mut().pop())
+                    .ok()
+                    .flatten()
+            }
+            #[cfg(feature = "without-drop-protection")]
+            {
+                None
+            }
+        })
     }
 
     fn push_back(&mut self, value: SteelVal) {
@@ -1125,7 +1154,16 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     // TODO: When this gets replaced with heap storage, then we can do this more
     // effectively!
-    fn visit_mutable_vector(&mut self, _vector: HeapRef<HeapVec>) {}
+    // The last handle to a mutable vector: queue its elements here, so the
+    // handle drops empty instead of tearing them down recursively. See `Drop
+    // for HeapRef`.
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) {
+        if let Some(elements) = vector.take_if_last() {
+            for value in elements {
+                self.push_back(value);
+            }
+        }
+    }
 
     // TODO: Once the root is added back to this, bring it back
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) {
@@ -1156,7 +1194,12 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_heap_allocated(&mut self, _heap_ref: HeapRef<SteelVal>) -> Self::Output {}
+    // Same for a box.
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
+        if let Some(value) = heap_ref.take_if_last() {
+            self.push_back(value);
+        }
+    }
 
     // TODO: After a certain point, we should just pause
     // and continue the iteration on another thread. That will
@@ -1492,7 +1535,16 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     // TODO: When this gets replaced with heap storage, then we can do this more
     // effectively!
-    fn visit_mutable_vector(&mut self, _vector: HeapRef<HeapVec>) {}
+    // The last handle to a mutable vector: queue its elements here, so the
+    // handle drops empty instead of tearing them down recursively. See `Drop
+    // for HeapRef`.
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) {
+        if let Some(elements) = vector.take_if_last() {
+            for value in elements {
+                self.push_back(value);
+            }
+        }
+    }
 
     // TODO: Once the root is added back to this, bring it back
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) {
@@ -1524,7 +1576,12 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
         }
     }
 
-    fn visit_heap_allocated(&mut self, _heap_ref: HeapRef<SteelVal>) -> Self::Output {}
+    // Same for a box.
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
+        if let Some(value) = heap_ref.take_if_last() {
+            self.push_back(value);
+        }
+    }
 
     // TODO: After a certain point, we should just pause
     // and continue the iteration on another thread. That will

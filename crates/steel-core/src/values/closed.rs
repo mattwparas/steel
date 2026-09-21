@@ -2438,11 +2438,41 @@ impl ParallelMarker {
 
 pub trait HeapAble: Clone + core::fmt::Debug + PartialEq + Eq {
     fn empty() -> Self;
+
+    /// Drops a value taken out of a box whose last handle went away, without
+    /// recursing through whatever it holds - a chain of boxes (a mutable list
+    /// built from mutable structs) would otherwise drop one box per native frame.
+    fn release(self);
 }
 impl HeapAble for SteelVal {
     fn empty() -> Self {
         SteelVal::Void
     }
+
+    fn release(self) {
+        if !needs_release(&self) {
+            return;
+        }
+        if crate::rvals::cycles::drop_fields_iteratively(core::iter::once(self)).is_err() {
+            // Thread teardown: the work list is gone, drop in place.
+        }
+    }
+}
+
+/// Values whose drop does no work worth routing through the work list.
+#[inline]
+fn needs_release(value: &SteelVal) -> bool {
+    !matches!(
+        value,
+        SteelVal::BoolV(_)
+            | SteelVal::NumV(_)
+            | SteelVal::IntV(_)
+            | SteelVal::CharV(_)
+            | SteelVal::Void
+            | SteelVal::FuncV(_)
+            | SteelVal::MutFunc(_)
+            | SteelVal::BuiltIn(_)
+    )
 }
 
 // Backing store for SteelVal::MutableVector. steel_vec is repr(C) with const
@@ -2452,6 +2482,13 @@ pub type HeapVec = steel_vec::Vec<SteelVal>;
 impl HeapAble for HeapVec {
     fn empty() -> Self {
         Self::new()
+    }
+
+    fn release(self) {
+        if self.is_empty() {
+            return;
+        }
+        let _ = crate::rvals::cycles::drop_fields_iteratively(self.into_iter());
     }
 }
 
@@ -2465,7 +2502,44 @@ pub struct HeapRef<T: HeapAble> {
     pub(crate) inner: steel_rc::weak::Weak<SpinLock<HeapAllocated<T>>>,
 }
 
+/// A box can only be read through a handle, so once the last handle is gone
+/// nothing can observe its value again. Release it now rather than when the
+/// heap next collects: the heap decides when to collect by how many boxes it
+/// holds, not by what they keep alive, so a handful of boxes each pinning a
+/// large structure (mperm: the `set!` captured list of every permutation) was
+/// never collected at all. The slot itself is still reclaimed by the heap.
+///
+/// Cycles through boxes keep their handles alive and are left to mark and
+/// sweep, as before.
+impl<T: HeapAble> Drop for HeapRef<T> {
+    #[inline]
+    fn drop(&mut self) {
+        if let Some(value) = self.take_if_last() {
+            value.release();
+        }
+    }
+}
+
 impl<T: HeapAble> HeapRef<T> {
+    /// Takes the value out when this is the only handle left, leaving the
+    /// box empty.
+    #[inline]
+    pub(crate) fn take_if_last(&self) -> Option<T> {
+        if self.inner.weak_count() != 1 {
+            return None;
+        }
+        let inner = self.inner.upgrade()?;
+        // Only if the lock is free. Several places drop a box's old value while
+        // holding that box's lock - the collector emptying a dead slot, `set` -
+        // and when the value is a cycle back through the same box (a closure
+        // capturing it), dropping it lands here on the lock this thread already
+        // holds. The spin lock isn't reentrant, so waiting spins forever. The
+        // holder is replacing the value anyway; anything else leaves it to the
+        // collector, as before.
+        let mut guard = inner.try_lock()?;
+        Some(core::mem::replace(&mut guard.value, T::empty()))
+    }
+
     #[inline(always)]
     pub fn get(&self) -> T {
         self.inner.upgrade().unwrap().lock().value.clone()
