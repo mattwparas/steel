@@ -5195,7 +5195,11 @@ impl FunctionTranslator<'_> {
                         // Normally unreachable, since callee globals are usually still unbound
                         // when a caller is compiled at construction time; tier-up is the first
                         // thing to resolve them.
+                        // A variadic callee needs its trailing arguments collected
+                        // into a list first, which only the interpreter-side paths
+                        // do; this one sets the frame up itself.
                         if function.super_instructions().is_some()
+                            && !function.is_multi_arity
                             && self.non_mutable_globals.contains(&function_index)
                         {
                             if function.tier2.is_none() {
@@ -5309,7 +5313,12 @@ impl FunctionTranslator<'_> {
                         && self._globals.get(payload).is_none()
                         && self.function_context == Some(function_index)
                     {
-                        if USE_EXPERIMENTAL_CALL {
+                        // A variadic self call has to collect its trailing
+                        // arguments into a list, which only the helper path does.
+                        let self_is_variadic =
+                            self.slot.map(|x| x.is_multi_arity).unwrap_or(false);
+
+                        if USE_EXPERIMENTAL_CALL && !self_is_variadic {
                             let slot = self.slot.unwrap().clone();
 
                             // TODO: Somehow... we'll have to change the calling convention
@@ -5348,10 +5357,12 @@ impl FunctionTranslator<'_> {
                     // TODO: inline the call global here!
                     else if USE_INLINE_CALL_GLOBAL
                         && matches!(self._globals.get(payload), Some(SteelVal::Closure(_)))
-                        // And, we actually have a super instruction
+                        // And, we actually have a super instruction, for a
+                        // callee whose arguments arrive as they are written -
+                        // a variadic one needs its rest list built first.
                         && self._globals.get(payload).map(|x| {
                             if let SteelVal::Closure(c) = x {
-                                c.super_instructions().is_some()
+                                c.super_instructions().is_some() && !c.is_multi_arity
                             } else {
                                 false
                             }
@@ -8306,10 +8317,16 @@ impl FunctionTranslator<'_> {
                         .ins()
                         .icmp_imm_s(IntCC::NotEqual, super_instruction, 0);
 
+                let fixed_arity = ctx.closure_is_fixed_arity(closure);
+                let compiled_and_fixed = ctx
+                    .builder
+                    .ins()
+                    .band(super_instruction_exists, fixed_arity);
+
                 let should_continue = ctx
                     .builder
                     .ins()
-                    .band(should_trampoline, super_instruction_exists);
+                    .band(should_trampoline, compiled_and_fixed);
 
                 let should_yield = ctx.builder.ins().bxor_imm_u(should_continue, 1);
                 let fallback_ip = ctx.ip - 1;
@@ -10823,6 +10840,12 @@ impl FunctionTranslator<'_> {
             self.builder
                 .ins()
                 .icmp_imm_s(IntCC::NotEqual, super_instruction, 0);
+
+        let fixed_arity = self.closure_is_fixed_arity(closure);
+        let super_instruction_exists = self
+            .builder
+            .ins()
+            .band(super_instruction_exists, fixed_arity);
 
         // I think I just need to drop the values, not spill them, since they're
         // going to get truncated anyway
@@ -13969,6 +13992,24 @@ impl FunctionTranslator<'_> {
     // We can probably just cache this per branch, so that subsequent calls
     // can avoid this load.
     // ctx.thread.stack_frames.len() < 100
+    /// True when the closure takes a fixed argument list.
+    ///
+    /// A variadic callee needs its trailing arguments collected into a list
+    /// before its frame is set up - `adjust_stack_for_multi_arity` does that,
+    /// and only the interpreter-side paths call it. The direct paths here set
+    /// the frame up themselves, so they hand a variadic callee back to those
+    /// paths instead.
+    fn closure_is_fixed_arity(&mut self, closure: Value) -> Value {
+        let multi = self.builder.ins().load(
+            types::I8,
+            MemFlagsData::trusted().with_readonly(),
+            closure,
+            closure_field_offset(offset_of!(ByteCodeLambda, is_multi_arity)),
+        );
+
+        self.builder.ins().icmp_imm_s(IntCC::Equal, multi, 0)
+    }
+
     fn check_should_trampoline(&mut self, ctx: Value) -> Value {
         if let Some(should_trampoline) = self.should_trampoline {
             return should_trampoline;

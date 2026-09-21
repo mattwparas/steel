@@ -133,11 +133,6 @@ pub(crate) fn jit_compile_lambda(
         return func;
     }
 
-    if func.is_multi_arity {
-        // println!("Skipping compiling because it is multi arity: {}", func.id);
-        return func;
-    }
-
     if std::env::var("STEEL_JIT_DUMP_BC").ok().as_deref() == Some(func.id.to_string().as_str()) {
         eprintln!("=== bytecode for id {} (arity {}) ===", func.id, func.arity);
         crate::core::instructions::pretty_print_dense_instructions(&func.body_exp);
@@ -241,10 +236,6 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
     if let SteelVal::Closure(func) = function {
         for (index, v) in ctx.thread.global_env.roots().iter().enumerate() {
             if let SteelVal::Closure(f) = v {
-                if f.is_multi_arity {
-                    continue;
-                }
-
                 if f.super_instructions().is_some() {
                     continue;
                 }
