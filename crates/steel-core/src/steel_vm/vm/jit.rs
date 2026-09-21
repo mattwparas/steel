@@ -686,6 +686,19 @@ fn pop_slow_path_finish(ctx: *mut VmCore, value: SteelVal) {
     ctx.result = Some(Ok(value));
 }
 
+// Collect the trailing `count` arguments into the list a variadic callee
+// expects in its last slot. This is what `adjust_stack_for_multi_arity` does
+// for the interpreter; a jitted call site that sets the frame up itself calls
+// this instead, once it knows - at compile time - how many arguments are
+// surplus.
+#[cross_platform_fn]
+fn collect_rest_args(ctx: *mut VmCore, count: usize) {
+    let ctx = unsafe { &mut *ctx };
+    let start = ctx.thread.stack.len() - count;
+    let values = ctx.thread.stack.drain(start..).collect();
+    ctx.thread.stack.push(SteelVal::ListV(values));
+}
+
 #[cross_platform_fn]
 fn grow_stack_slow(ctx: *mut VmCore) {
     let mut ctx = unsafe { &mut *ctx };

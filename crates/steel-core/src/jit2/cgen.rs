@@ -92,6 +92,26 @@ fn generic_inline_enabled() -> bool {
 /// Whether calls check the remaining native stack instead of counting vm
 /// frames. `STEEL_JIT_STACK_CHECK=0` restores the old 100-frame cap;
 /// `STEEL_JIT_STACK_BUDGET=<mb>` overrides how much stack the check allows.
+fn callglobal_direct_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_CALLGLOBAL_DIRECT").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+fn rest_args_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_REST_ARGS").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
 fn native_stack_check_enabled() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
@@ -992,6 +1012,11 @@ impl Default for JIT {
         CallStructConstructorsDefinitions::register(&mut map);
         CallMutableStructConstructorsDefinitions::register(&mut map);
         CallMutableVectorConstructorsDefinitions::register(&mut map);
+
+        map.add_func(
+            "#%collect-rest-args",
+            abi! { collect_rest_args as fn(*mut VmCore, usize) },
+        );
 
         map.add_func(
             "cdr-tail-value",
@@ -5195,11 +5220,11 @@ impl FunctionTranslator<'_> {
                         // Normally unreachable, since callee globals are usually still unbound
                         // when a caller is compiled at construction time; tier-up is the first
                         // thing to resolve them.
-                        // A variadic callee needs its trailing arguments collected
-                        // into a list first, which only the interpreter-side paths
-                        // do; this one sets the frame up itself.
+                        // A variadic callee is fine here - the tail call builds
+                        // its rest list below - unless it was given too few
+                        // arguments, which has to raise from the helper path.
                         if function.super_instructions().is_some()
-                            && !function.is_multi_arity
+                            && Self::rest_arg_plan(&function, arity).is_some()
                             && self.non_mutable_globals.contains(&function_index)
                         {
                             if function.tier2.is_none() {
@@ -5313,12 +5338,15 @@ impl FunctionTranslator<'_> {
                         && self._globals.get(payload).is_none()
                         && self.function_context == Some(function_index)
                     {
-                        // A variadic self call has to collect its trailing
-                        // arguments into a list, which only the helper path does.
-                        let self_is_variadic =
-                            self.slot.map(|x| x.is_multi_arity).unwrap_or(false);
+                        // A variadic callee given too few arguments has to
+                        // raise, which the helper path does with the right span.
+                        let arity_ok = self
+                            .slot
+                            .as_ref()
+                            .map(|x| Self::rest_arg_plan(x, arity).is_some())
+                            .unwrap_or(false);
 
-                        if USE_EXPERIMENTAL_CALL && !self_is_variadic {
+                        if USE_EXPERIMENTAL_CALL && arity_ok {
                             let slot = self.slot.unwrap().clone();
 
                             // TODO: Somehow... we'll have to change the calling convention
@@ -5357,12 +5385,14 @@ impl FunctionTranslator<'_> {
                     // TODO: inline the call global here!
                     else if USE_INLINE_CALL_GLOBAL
                         && matches!(self._globals.get(payload), Some(SteelVal::Closure(_)))
-                        // And, we actually have a super instruction, for a
-                        // callee whose arguments arrive as they are written -
-                        // a variadic one needs its rest list built first.
+                        // And, we actually have a super instruction. A variadic
+                        // callee is fine - the call site builds its rest list -
+                        // unless it was given too few arguments, which has to
+                        // raise from the helper path.
                         && self._globals.get(payload).map(|x| {
                             if let SteelVal::Closure(c) = x {
-                                c.super_instructions().is_some() && !c.is_multi_arity
+                                c.super_instructions().is_some()
+                                    && Self::rest_arg_plan(c, arity).is_some()
                             } else {
                                 false
                             }
@@ -9877,6 +9907,48 @@ impl FunctionTranslator<'_> {
             return;
         }
 
+        // A direct call to a compiled closure. The `CALLGLOBALNOARITY` arm
+        // already does this, but that opcode is only assigned when the analysis
+        // proves a fixed-arity callee - so a variadic one like `map` always
+        // arrives here as plain `CALLGLOBAL`, and never took a direct path at
+        // all. The call site builds the rest list; see `rest_arg_plan`.
+        //
+        // Plain `CALLGLOBAL` can also target a global that is `set!`, and this
+        // bakes the closure in, so it needs the same non-mutable guard the
+        // direct tail call relies on.
+        if USE_INLINE_CALL_GLOBAL
+            && callglobal_direct_enabled()
+            && self.non_mutable_globals.contains(&function_index)
+        {
+            if let Some(SteelVal::Closure(func)) = self._globals.get(function_index).cloned() {
+                // Fixed-arity callees land here too when the analysis could not
+                // assign `CALLGLOBALNOARITY` (a name without the `##` prefix, or a
+                // define that is not a bare lambda). `rest_arg_plan` rejects an
+                // arity mismatch for those.
+                if func.super_instructions().is_some()
+                    && Self::rest_arg_plan(&func, arity).is_some()
+                {
+                    let id = func.id;
+                    let result = self.call_self_function_experimental(arity, func, None);
+
+                    let inferred_type = match self.function_return_types.get(&id) {
+                        Some(ret_types) if ret_types.len() == 1 => {
+                            ret_types.iter().next().copied().unwrap()
+                        }
+                        _ => InferredType::Any,
+                    };
+
+                    self.push(result, inferred_type);
+
+                    // The callee can deopt partway through (a builtin tail call,
+                    // say), leaving the interpreter to finish its frame - so this
+                    // needs the same exit check as every other call below.
+                    self.check_deopt();
+                    return;
+                }
+            }
+        }
+
         if INLINE_STRUCT_FUNCTION_CALLS {
             let maybe_global = self._globals.get(function_index).cloned();
             if let Some(maybe_global) = maybe_global {
@@ -10606,6 +10678,33 @@ impl FunctionTranslator<'_> {
         fits.then_some((*self_id, *assume_result))
     }
 
+    /// How a call of `arity` arguments reaches `func`'s frame: `None` when the
+    /// arguments already line up, `Some((surplus, declared))` when the callee is
+    /// variadic and the trailing `surplus` of them become its rest list.
+    ///
+    /// `None` for a variadic callee given too few arguments - that has to raise,
+    /// and the helper path carries the message and span.
+    fn rest_arg_plan(func: &Gc<ByteCodeLambda>, arity: usize) -> Option<Option<(usize, usize)>> {
+        if !func.is_multi_arity {
+            // Exactly its own arity, or the call has to raise. A `NOARITY` call
+            // site is proven to match, but a plain `CALLGLOBAL` is not - a frame
+            // built from the wrong argument count reads past its own slots.
+            return (func.arity() == arity).then_some(None);
+        }
+
+        // `STEEL_JIT_REST_ARGS=0`: leave variadic callees to the helper path.
+        if !rest_args_enabled() {
+            return None;
+        }
+
+        let declared = func.arity();
+        if arity + 1 < declared {
+            return None;
+        }
+
+        Some(Some((arity + 1 - declared, declared)))
+    }
+
     fn call_self_function_experimental(
         &mut self,
         arity: usize,
@@ -10619,6 +10718,9 @@ impl FunctionTranslator<'_> {
         /* TODO: Add this back!!
         let _ = steel_rc::BiasedRc::into_raw(func.body_exp.clone());
         */
+
+        let rest = Self::rest_arg_plan(&func, arity)
+            .expect("the caller checks the arity before taking this path");
 
         let callee_is_self = self.callee_shares_our_instructions(func.body_exp());
         let instr_fat_ptr = self.rooted_instructions_const(func.body_exp());
@@ -10658,6 +10760,7 @@ impl FunctionTranslator<'_> {
             instr_fat_ptr,
             callee_is_self,
             target,
+            rest,
         )
     }
 
@@ -10706,6 +10809,9 @@ impl FunctionTranslator<'_> {
     // First things first - worst case always is to just bail out and fall back
     // to the existing behavior.
     fn inline_global_tail_call(&mut self, arity: usize, func: Gc<ByteCodeLambda>) {
+        let rest = Self::rest_arg_plan(&func, arity)
+            .expect("the caller checks the arity before taking this path");
+
         // First things first, we first get the args off. Worst case, we'll spill
         // these back on to the args
         let args = self
@@ -10761,6 +10867,13 @@ impl FunctionTranslator<'_> {
         // self.push_to_many_vm_stack_let_var_new(&args);
 
         self.truncate_stack_with_args(vm_ctx, offset, &args);
+
+        // The callee's last slot is its rest list, built from whatever the call
+        // site passed beyond its named arguments.
+        if let Some((surplus, _)) = rest {
+            let count = self.builder.ins().iconst(types::I64, surplus as i64);
+            self.call_function_args_no_return("#%collect-rest-args", &[count]);
+        }
 
         // Implement the body of `new_handle_tail_call_closure` here
 
@@ -14062,6 +14175,11 @@ impl FunctionTranslator<'_> {
         res
     }
 
+    /// `rest` is `(surplus, declared arity)` when the callee is variadic: the
+    /// fast path collects that many trailing arguments into the rest list and
+    /// then has `declared arity` slots, which is the frame it builds. The
+    /// fallback hands the arguments over untouched - `#%setup-closure-arity`
+    /// does its own adjusting.
     fn inline_call_global_function_to(
         &mut self,
         id: u32,
@@ -14071,6 +14189,7 @@ impl FunctionTranslator<'_> {
         instr_fat_ptr: Value,
         callee_is_self: bool,
         target: Option<FuncId>,
+        rest: Option<(usize, usize)>,
     ) -> Value {
         let vm_ctx = self.get_ctx();
         let should_trampoline = self.check_should_trampoline(vm_ctx);
@@ -14103,9 +14222,24 @@ impl FunctionTranslator<'_> {
                 // Increment the ref count before we go in
                 ctx.increment_ref_count_closure(func);
 
+                let frame_arity = match rest {
+                    Some((surplus, declared)) => {
+                        let count = ctx.builder.ins().iconst(types::I64, surplus as i64);
+                        ctx.call_function_args_no_return("#%collect-rest-args", &[count]);
+                        declared
+                    }
+                    None => arity,
+                };
+
                 // TODO: Consider moving this up before things are pushed on in order
                 // to capture the stack length without needing to compute the value
-                ctx.push_stack_frame(arity as _, func, instr_fat_ptr, fallback_ip, callee_is_self);
+                ctx.push_stack_frame(
+                    frame_arity as _,
+                    func,
+                    instr_fat_ptr,
+                    fallback_ip,
+                    callee_is_self,
+                );
 
                 // TODO: Change the calling convention of the function to return a
                 // (tag, Value) rather than an i128 value directly.
