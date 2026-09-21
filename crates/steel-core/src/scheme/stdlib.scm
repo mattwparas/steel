@@ -848,15 +848,26 @@
   (define (map1 func accum lst)
     (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
 
+  ;; Two lists is the common multi-list case, and `map-many` pays an `apply`
+  ;; plus two temporary lists *per element* for it. Guile's `map` special-cases
+  ;; one and two lists for the same reason, falling back to `apply` only at
+  ;; three or more.
+  (define (map2 func accum l1 l2)
+    (if (or (null? l1) (null? l2))
+        (reverse accum)
+        (map2 func (cons (func (car l1) (car l2)) accum) (cdr l1) (cdr l2))))
+
   (define (map-many func accum lsts)
     (if (some? null? lsts)
         (reverse accum)
         (map-many func (cons (apply func (map1 car '() lsts)) accum) (map1 cdr '() lsts))))
 
-  (if (null? more-lists)
-      (map1 function '() list1)
-      (let ([lists (cons list1 more-lists)])
-        (if (some? null? lists) '() (map-many function '() lists)))))
+  (cond
+    [(null? more-lists) (map1 function '() list1)]
+    [(null? (cdr more-lists)) (map2 function '() list1 (car more-lists))]
+    [else
+     (let ([lists (cons list1 more-lists)])
+       (if (some? null? lists) '() (map-many function '() lists)))]))
 
 (define (foldl func accum lst)
   (if (null? lst) accum (foldl func (func (car lst) accum) (cdr lst))))
