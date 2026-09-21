@@ -10375,7 +10375,13 @@ impl FunctionTranslator<'_> {
                 // How many elements did we drop off
                 let payload = payload - amount_dropped;
 
-                let args_before_drop = self.shadow_stack.get(self.shadow_stack.len() - payload);
+                // Every remaining argument, not just the first: `.get(i)` is an
+                // `Option` of one element, so iterating it checked position 0
+                // alone. `(loop (cdr x) (- n 1) y)` - an in-place `cdr` left as
+                // `MutRegister(0)`, then a computed value - took the no-drop
+                // write-back, and leaked the list on every iteration.
+                let args_before_drop =
+                    &self.shadow_stack[self.shadow_stack.len() - payload..];
 
                 // Aggressive optimization: if the value is moved, we don't need to put a drop
                 // call inlined here
