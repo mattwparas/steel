@@ -735,7 +735,7 @@ pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
 // Immediates own nothing, so filling with them is a bitwise copy the compiler
 // can widen. Everything else is heap backed and needs a refcount bump per slot,
 // which is what Clone is for.
-fn filled_heap_vec(value: SteelVal, n: usize) -> crate::values::closed::HeapVec {
+pub(crate) fn filled_heap_vec(value: SteelVal, n: usize) -> crate::values::closed::HeapVec {
     use crate::values::closed::HeapVec;
 
     match value {

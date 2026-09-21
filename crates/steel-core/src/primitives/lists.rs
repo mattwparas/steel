@@ -580,7 +580,7 @@ fn length(list: &List<SteelVal>) -> usize {
 /// > (reverse (list 1 2 3 4)) ;; '(4 3 2 1)
 /// ```
 #[steel_derive::function(name = "reverse", constant = true)]
-fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
+pub(crate) fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
     let replaced = core::mem::replace(arg, SteelVal::Void);
     if let SteelVal::ListV(l) = replaced {
         Ok(SteelVal::ListV(l.reverse()))

@@ -2636,7 +2636,53 @@ impl<'a> VmCore<'a> {
                     // Did we return a value? If we have a result, then we did, otherwise, we did not?
                     //
                     // Is this right? Maybe we just need to check the is native part?
+                    static JIT_TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                    let trace = *JIT_TRACE
+                        .get_or_init(|| std::env::var_os("STEEL_JIT_TRACE").is_some());
+                    static TN: std::sync::atomic::AtomicUsize =
+                        std::sync::atomic::AtomicUsize::new(0);
+                    let n = if trace {
+                        TN.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    } else {
+                        usize::MAX
+                    };
+                    if trace && n < 20 {
+                        eprintln!(
+                            "[enter {n}] frames={} stack={} sp={} pop={} ip={}",
+                            self.thread.stack_frames.len(), self.thread.stack.len(), self.sp,
+                            self.pop_count, self.ip
+                        );
+                    }
+
+                    static JT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                    let jt = *JT.get_or_init(|| std::env::var_os("STEEL_JIT_TRACE").is_some());
+                    if jt {
+                        eprintln!(
+                            "[in ] frames={} stack={} sp={} pop={} ip={} fn={:?}",
+                            self.thread.stack_frames.len(), self.thread.stack.len(), self.sp,
+                            self.pop_count, self.ip,
+                            self.thread.stack_frames.last().map(|f| f.function.id)
+                        );
+                    }
+
                     let maybe_result = (tramp)(self as _, fn_ptr);
+
+                    if jt {
+                        eprintln!(
+                            "[out] frames={} stack={} sp={} pop={} ip={} native={} res={}",
+                            self.thread.stack_frames.len(), self.thread.stack.len(), self.sp,
+                            self.pop_count, self.ip, self.is_native,
+                            if self.result.is_some() { "set" } else { "-" }
+                        );
+                    }
+
+                    if trace && n < 20 {
+                        eprintln!(
+                            "[leave {n}] result={maybe_result:?} native={} frames={} stack={} sp={} pop={} ip={}",
+                            self.is_native, self.thread.stack_frames.len(),
+                            self.thread.stack.len(), self.sp, self.pop_count, self.ip
+                        );
+                    }
 
                     // Only describes this dispatch, so clear it on the way out.
                     // Leaving it set on the early return below leaks a stale true
@@ -4833,6 +4879,22 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn call_builtin_func(&mut self, func: BuiltInSignature, payload_size: usize) -> Result<()> {
+        self.call_builtin_func_reporting(func, payload_size).map(|_| ())
+    }
+
+    /// As `call_builtin_func`, reporting whether the builtin produced a value
+    /// (`true`) or transferred control (`false`) - `apply` and `call/cc` set up
+    /// a frame and return nothing.
+    ///
+    /// A caller cannot infer this from the frame count: `apply` in tail
+    /// position *replaces* the current frame, so the count is unchanged, and
+    /// the jit's tail call handler used to read that as "returned a value",
+    /// pop the frame and swallow the result.
+    fn call_builtin_func_reporting(
+        &mut self,
+        func: BuiltInSignature,
+        payload_size: usize,
+    ) -> Result<bool> {
         // println!("Calling builtin function");
 
         // Note: We Advance the pointer here. In the event we're calling a builtin that fusses with
@@ -4861,11 +4923,10 @@ impl<'a> VmCore<'a> {
 
         if let Some(result) = result {
             self.thread.stack.push(result?);
+            return Ok(true);
         }
 
-        Ok(())
-        // self.stack.push(result);
-        // Ok(())
+        Ok(false)
     }
 
     // #[inline(always)]
@@ -6421,6 +6482,23 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         current_instruction.op_code,
         OpCode::TAILCALL | OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY
     );
+
+    // TEMP-DEBUG
+    {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *ON.get_or_init(|| std::env::var_os("STEEL_APPLY_DEBUG").is_some())
+            && N.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 4000
+        {
+            eprintln!(
+                "[apply] ip={} tail_call={tail_call} frames={} stack={} sp={} pop={} top={:?} args={:?}",
+                ctx.ip, ctx.thread.stack_frames.len(), ctx.thread.stack.len(),
+                ctx.sp, ctx.pop_count,
+                ctx.thread.stack_frames.last().map(|f| f.function.id),
+                args.len()
+            );
+        }
+    }
 
     let mut arg_iter = args.iter();
     let fun = arg_iter.next().unwrap();

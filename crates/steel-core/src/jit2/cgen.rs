@@ -997,6 +997,21 @@ impl Default for JIT {
             "cdr-tail-value",
             abi! { cdr_tail_value as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
         );
+
+        map.add_func(
+            "reverse-tail-value",
+            abi! { reverse_tail_value as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "call-make-vector-1",
+            abi! { call_make_vector_1 as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "call-make-vector-2",
+            abi! { call_make_vector_2 as fn(*mut VmCore, usize, SteelVal, SteelVal) -> SteelVal },
+        );
         CallFlatVectorConstructorsDefinitions::register(&mut map);
 
         CallSelfNoArityFunctionDefinitions::register(&mut map);
@@ -1762,6 +1777,17 @@ fn tail_cdr_enabled() -> bool {
     part_enabled("STEEL_JIT_TAIL_CDR", &V)
 }
 
+/// `reverse` in tail position. This used to be default-off: it makes a
+/// function *return* from jitted code where it used to deopt, which exposed a
+/// pre-existing fault in the tail call handler (a tail-position `apply`
+/// replaces the current frame, and the handler read the unchanged frame count
+/// as "the builtin returned a value", popped the frame and swallowed the
+/// result). Fixed in `new_callglobal_tail_handler_deopt_test`.
+fn tail_reverse_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    part_enabled("STEEL_JIT_TAIL_REV", &V)
+}
+
 fn tail_vec_enabled() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     part_enabled("STEEL_JIT_TAIL_VEC", &V)
@@ -2494,6 +2520,7 @@ impl JIT {
         let target = builder.block_params(block)[1];
 
         let sig_ref = builder.import_signature(inner_sig);
+
         let call = builder.ins().call_indirect(sig_ref, target, &[vm_ctx]);
 
         let result = builder.inst_results(call)[0];
@@ -2545,6 +2572,23 @@ impl JIT {
         non_mutable_globals: &HashSet<usize>,
     ) -> Result<*const u8, String> {
         let id = str::parse::<u32>(&name).unwrap();
+
+        // `STEEL_JIT_LOG` prints candidates by id; this names them, which is
+        // what a `STEEL_JIT_SKIP` bisect needs next.
+        if std::env::var_os("STEEL_JIT_LOG").is_some() {
+            eprintln!("jit: compiling id {id} -> {top_level_name:?}");
+        }
+
+        // `STEEL_JIT_DUMP_ID=<id>,...`: the bytecode a bisect landed on.
+        if std::env::var("STEEL_JIT_DUMP_ID")
+            .ok()
+            .is_some_and(|v| v.split(',').any(|x| x.trim() == name))
+        {
+            eprintln!("jit: bytecode for id {id} ({top_level_name:?}):");
+            for (i, ins) in instructions.iter().enumerate() {
+                eprintln!("    {i:3}  {:?} {}", ins.op_code, ins.payload_size.to_usize());
+            }
+        }
 
         let inner_name = if let Some(top_level_name) = top_level_name {
             format!("{}_{}_inner", top_level_name, name)
@@ -8413,7 +8457,7 @@ impl FunctionTranslator<'_> {
         // `cdr` is the only `MutFunc` worth recognising so far; it was 28% of
         // the tail call deopts in `scheme`.
         if let SteelVal::MutFunc(f) = func {
-            if !extra || !tail_cdr_enabled() {
+            if !extra {
                 return None;
             }
             return self.inline_mut_func_tail_call(*f as usize, arity);
@@ -8567,11 +8611,19 @@ impl FunctionTranslator<'_> {
     /// generic tail call handler, which re-looks-up the global, re-matches on
     /// its kind and hands the frame to the interpreter.
     fn inline_mut_func_tail_call(&mut self, target: usize, arity: usize) -> Option<Value> {
-        if target != crate::primitives::lists::steel_cdr as usize || arity != 1 {
+        let name = if target == crate::primitives::lists::steel_cdr as usize
+            && tail_cdr_enabled()
+        {
+            "cdr-tail-value"
+        } else if target == crate::primitives::lists::steel_reverse as usize
+            && tail_reverse_enabled()
+        {
+            "reverse-tail-value"
+        } else {
             return None;
-        }
+        };
 
-        if self.shadow_stack.is_empty() {
+        if arity != 1 || self.shadow_stack.is_empty() {
             return None;
         }
 
@@ -8581,8 +8633,7 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(Type::int(64).unwrap(), self.ip as i64);
 
-        let result =
-            self.call_function_returns_value_args("cdr-tail-value", &[fallback_ip, value]);
+        let result = self.call_function_returns_value_args(name, &[fallback_ip, value]);
         self.check_deopt();
 
         Some(result)
@@ -8601,24 +8652,42 @@ impl FunctionTranslator<'_> {
             return None;
         };
 
-        if *b as usize != crate::primitives::vectors::mut_vec_construct as usize {
-            return None;
-        }
+        let builtin = *b as usize;
+        let make_vector = builtin == crate::primitives::vectors::make_vector as usize;
 
-        let name = CallMutableVectorConstructorsDefinitions::arity_to_name(arity)?;
+        let name = if builtin == crate::primitives::vectors::mut_vec_construct as usize {
+            CallMutableVectorConstructorsDefinitions::arity_to_name(arity)?
+        } else if make_vector && arity == 1 {
+            "call-make-vector-1"
+        } else if make_vector && arity == 2 {
+            "call-make-vector-2"
+        } else {
+            return None;
+        };
 
         let below = self.shadow_stack.len().checked_sub(arity)?;
         for i in 0..below {
             self.shadow_spill(i);
         }
 
-        let args = self
-            .split_off(arity)
-            .into_iter()
-            .map(|x| x.0)
-            .collect::<Vec<_>>();
+        let mut args = Vec::new();
+        if make_vector {
+            // It can raise - on a negative length or a non-integer - so it
+            // needs somewhere to hand the frame back to.
+            args.push(
+                self.builder
+                    .ins()
+                    .iconst(Type::int(64).unwrap(), self.ip as i64),
+            );
+        }
+        args.extend(self.split_off(arity).into_iter().map(|x| x.0));
 
-        Some(self.call_function_returns_value_args(name, &args))
+        let result = self.call_function_returns_value_args(name, &args);
+        if make_vector {
+            self.check_deopt();
+        }
+
+        Some(result)
     }
 
     /// `mutable-vector` in tail position, as a direct call to the allocation.
@@ -10698,6 +10767,7 @@ impl FunctionTranslator<'_> {
             // Skip the refcount header to reach the lambda itself.
             closure_field_offset(offset_of!(ByteCodeLambda, super_instructions)),
         );
+
         self.builder
             .ins()
             .return_call_indirect(sig_ref, func_ptr, &args);

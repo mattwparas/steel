@@ -3696,6 +3696,7 @@ fn new_callglobal_tail_handler_deopt_test(
         record_deopt(&func, index, ctx);
     }
 
+    static REV_DEBUG2: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     // inspect(ctx, &[func.clone()]);
     // println!("What is left on the stack: {:#?}", ctx.thread.stack);
 
@@ -3711,10 +3712,20 @@ fn new_callglobal_tail_handler_deopt_test(
         }
         let base = ctx.thread.stack.len() - len;
         let frames_before = ctx.thread.stack_frames.len();
-        match ctx.call_builtin_func(f, len) {
-            Ok(()) => {
-                let transferred_control = ctx.thread.stack_frames.len() != frames_before;
-                if !transferred_control && ctx.thread.stack.len() > base {
+        let top_before = ctx.thread.stack_frames.last().map(|x| x.function.id);
+        match ctx.call_builtin_func_reporting(f, len) {
+            Ok(returned_value) => {
+                // Both signals are needed. The frame count alone misses a
+                // tail-position `apply`, which *replaces* the current frame -
+                // the count is unchanged although control moved, and this used
+                // to pop the frame and swallow the result. The builtin's own
+                // answer alone misses `call/cc`, which returns a value *and*
+                // sets up a frame.
+                let produced_value = returned_value
+                    && ctx.thread.stack_frames.len() == frames_before
+                    && ctx.thread.stack_frames.last().map(|x| x.function.id) == top_before;
+
+                if produced_value && ctx.thread.stack.len() > base {
                     let v = ctx.thread.stack.pop().unwrap();
                     extern_handle_pop(ctx, v);
                 }
@@ -5079,6 +5090,75 @@ fn cdr_tail_value(ctx: *mut VmCore, fallback_ip: usize, arg: SteelVal) -> SteelV
             guard.ip = fallback_ip;
             guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
             guard.is_native = false;
+            SteelVal::Void
+        }
+    }
+}
+
+// `reverse` in tail position. Another `MutFunc`, and 54% of `matrix`'s tail
+// call deopts - the accumulate-then-reverse idiom puts it exactly there.
+#[cross_platform_fn]
+fn reverse_tail_value(ctx: *mut VmCore, fallback_ip: usize, arg: SteelVal) -> SteelVal {
+    let mut arg = arg;
+
+    let out = match crate::primitives::lists::reverse(&mut arg) {
+        Ok(v) => v,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.ip = fallback_ip;
+            guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+            guard.is_native = false;
+            SteelVal::Void
+        }
+    };
+
+    out
+}
+
+// `(make-vector n)` / `(make-vector n fill)`, called straight from jitted code
+// rather than through the generic handler - 35% of `matrix`'s deopts. As with
+// the other allocating builtins, the caller guarantees the vm stack and these
+// arguments are the only roots it needs.
+#[cross_platform_fn]
+fn call_make_vector_1(ctx: *mut VmCore, fallback_ip: usize, size: SteelVal) -> SteelVal {
+    make_vector_checked(ctx, fallback_ip, size, SteelVal::IntV(0))
+}
+
+#[cross_platform_fn]
+fn call_make_vector_2(
+    ctx: *mut VmCore,
+    fallback_ip: usize,
+    size: SteelVal,
+    fill: SteelVal,
+) -> SteelVal {
+    make_vector_checked(ctx, fallback_ip, size, fill)
+}
+
+fn make_vector_checked(
+    ctx: *mut VmCore,
+    fallback_ip: usize,
+    size: SteelVal,
+    fill: SteelVal,
+) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+
+    match size {
+        SteelVal::IntV(n) if n >= 0 => {
+            let values = crate::primitives::vectors::filled_heap_vec(fill, n as usize);
+            guard.make_mutable_vector(values)
+        }
+        other => {
+            // Everything else - a negative length, a non-integer - raises, and
+            // the message is the primitive's own.
+            let args = [other, fill];
+            match crate::primitives::vectors::make_vector(guard, &args) {
+                Some(Err(e)) => {
+                    guard.ip = fallback_ip;
+                    guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+                    guard.is_native = false;
+                }
+                _ => unreachable!("the success paths are handled above"),
+            }
             SteelVal::Void
         }
     }
