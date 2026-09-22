@@ -21,11 +21,18 @@ use std::hash::{Hash, Hasher};
 
 pub mod weak;
 
-/// Width of the owner id in the biased half-word. BRC gives it 18 bits (PACT'18,
-/// Fig. 5); one of those is handed to the allocation's owner as a spare flag,
-/// leaving 17 - still far more concurrently live threads than is plausible,
-/// since ids are recycled.
-const TID_BITS: u32 = 18;
+/// Width of the owner id in the biased half-word, which leaves the owner's count
+/// the other 18 bits.
+///
+/// BRC gives the id 18 bits and the count 14 (PACT'18, Fig. 5), but the count is
+/// the one that runs out: every live frame of a recursive function holds a
+/// reference to its closure, and ack's 30k-deep recursion went past 16383. Past
+/// the cap increments spill to the shared counter, and once the biased count
+/// then drains to zero the object merges and loses its owner for good - every
+/// later increment and decrement is atomic and out of line (ack: 51% of its
+/// time). 14 bits of id is 16382 concurrently live threads, ids are recycled,
+/// and a thread past that gets `SENTINEL` and just never owns anything.
+const TID_BITS: u32 = 14;
 const MAX_TID: u32 = (1 << TID_BITS) - 1;
 
 /// Handed out when no id is available. Never equal to anything, so an object
@@ -150,7 +157,7 @@ const COUNTER_ONE: u32 = 1 << COUNTER_SHIFT;
 const BIASED_COUNTER_BITS: u32 = 32 - COUNTER_SHIFT;
 const BIASED_COUNTER_MASK: u32 = (1 << BIASED_COUNTER_BITS) - 1;
 
-/// The most references the owning thread can hold to one object. BRC calls 14
+/// The most references the owning thread can hold to one object (18 bits). BRC calls 14
 /// bits "more than enough for RC" - many Java programs need only 7.
 pub const MAX_BIASED_COUNT: u32 = BIASED_COUNTER_MASK;
 
@@ -3003,12 +3010,13 @@ mod align1_slice {
 #[cfg(test)]
 mod biased_word_layout {
     /// The owner id and the count share one 32-bit half-word, so widening
-    /// either silently narrows the other. A 14-bit count is already reachable -
-    /// `browse` overflowed it once - so pin both fields here.
+    /// either silently narrows the other. A 14-bit count was reachable - `browse`
+    /// overflowed it, and ack's recursion merged its closure off the fast path -
+    /// so pin both fields here.
     #[test]
     fn id_and_count_do_not_overlap() {
-        assert_eq!(super::BIASED_COUNTER_BITS, 14, "counter width must not shrink");
-        assert_eq!(super::MAX_BIASED_COUNT, 16383);
+        assert_eq!(super::BIASED_COUNTER_BITS, 18, "counter width must not shrink");
+        assert_eq!(super::MAX_BIASED_COUNT, (1 << 18) - 1);
         assert_eq!(super::TID_MASK, (1 << super::COUNTER_SHIFT) - 1, "id fills everything below the count");
         assert_eq!(core::mem::size_of::<super::RcWord>(), 8);
     }
@@ -3052,6 +3060,26 @@ mod counter_overflow {
             }
         }
         assert_eq!(deallocs, 1, "exactly one deallocate for n+1 references");
+    }
+
+    /// A recursive function's closure: one reference per live frame on the
+    /// owning thread, 20k deep, then all released. With a 14-bit count this
+    /// saturated, spilled, drained to zero and merged - the object lost its
+    /// owner, and every later count change took the atomic path.
+    #[test]
+    fn deep_owner_burst_stays_owned() {
+        let word = RcWord::new();
+        let owner = word.owner();
+        assert!(owner.is_some(), "owned on creation");
+
+        for _ in 0..20_000 {
+            word.increment();
+        }
+        assert_eq!(word.shared.load(Ordering::Relaxed).get_counter(), 0, "nothing spilled");
+        for _ in 0..20_000 {
+            assert!(matches!(word.decrement(), DecrementAction::DoNothing));
+        }
+        assert_eq!(word.owner(), owner, "still owned after the burst");
     }
 
     /// The real scenario: one value cloned hard from many threads at once. The

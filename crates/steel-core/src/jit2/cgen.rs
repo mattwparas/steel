@@ -4386,8 +4386,12 @@ impl FunctionTranslator<'_> {
                     // we have it.
                     self.exit_types.insert(ty);
 
+                    // Decided before the spill: an empty shadow stack means
+                    // nothing but the argument and let slots is left above the
+                    // frame's sp.
+                    let slots_immediate = self.frame_slots_all_immediate();
                     self.spill_cloned_stack();
-                    let real_res = self.vm_pop(value);
+                    let real_res = self.inline_handle_pop_with(value, slots_immediate);
 
                     // if we hit this, the value should not end up getting read?
                     let ret = self.builder.ins().return_(&[real_res]);
@@ -15087,6 +15091,23 @@ impl FunctionTranslator<'_> {
     }
 
     fn inline_handle_pop(&mut self, value: Value) -> Value {
+        self.inline_handle_pop_with(value, false)
+    }
+
+    /// Every argument and let slot of this frame is known to hold an immediate,
+    /// and nothing else is on the value stack above them - so the return can
+    /// drop the frame's slots with a length store. The generic truncate loads
+    /// and tests each slot's tag first, which for ack's two fixnum arguments was
+    /// three masked compares per slot on every return.
+    fn frame_slots_all_immediate(&self) -> bool {
+        if !self.shadow_stack.is_empty() {
+            return false;
+        }
+        let lets: usize = self.let_var_stack.iter().sum();
+        (0..self.arity as usize + lets).all(|r| self.register_is_immediate(r))
+    }
+
+    fn inline_handle_pop_with(&mut self, value: Value, slots_immediate: bool) -> Value {
         let vm_ctx = self.get_ctx();
         let new_pop_count = self.sub_one_pop_count(vm_ctx);
         let should_continue = self.pop_count_should_continue(new_pop_count);
@@ -15140,7 +15161,11 @@ impl FunctionTranslator<'_> {
                         // together, where I can just truncate and then immediately
                         // write this value to the end, eliminate a store of the length
                         // changing twice.
-                        ctx.truncate_stack(vm_ctx, sp, None);
+                        if slots_immediate {
+                            ctx.truncate_stack_no_drop(vm_ctx, sp);
+                        } else {
+                            ctx.truncate_stack(vm_ctx, sp, None);
+                        }
 
                         let ip = ctx.builder.ins().uextend(types::I64, popped_frame.ip);
                         ctx.builder.ins().store(
@@ -15619,7 +15644,7 @@ impl FunctionTranslator<'_> {
                     biased_word_offset(),
                 );
 
-                // The count is 14 bits now, so saturation is reachable where a
+                // The count is 18 bits, so saturation is reachable where a
                 // full word never was. Spill to the shared counter rather than
                 // letting it wrap - the two sum to the true count either way.
                 let count = ctx
