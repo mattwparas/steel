@@ -1981,6 +1981,12 @@ fn frameless_eligible(stmts: &[DenseInstruction], function_index: Option<usize>)
         | OpCode::LOADINT0
         | OpCode::LOADINT1
         | OpCode::LOADINT2
+        // Constant pushes only touch the translator's shadow stack; a spill
+        // writes them out like any other value.
+        | OpCode::PUSHCONST
+        | OpCode::TRUE
+        | OpCode::FALSE
+        | OpCode::VOID
         | OpCode::ADD
         | OpCode::SUB
         | OpCode::LT
@@ -3064,11 +3070,13 @@ impl JIT {
         non_mutable_globals: &HashSet<usize>,
         seed: Vec<(usize, SpecType)>,
     ) -> Option<Option<InferredType>> {
-        // Fixnum seeded functions most likely return fixnums, and a frameless
-        // copy's self calls return what it returns - so assume it and check,
-        // as `compile_specialized` does.
+        // Fixnum (float) seeded functions most likely return fixnums (floats),
+        // and a frameless copy's self calls return what it returns - so assume
+        // it and check, as `compile_specialized` does.
         let guess = if seed.iter().any(|(_, t)| *t == SpecType::Fixnum) {
             Some(InferredType::Int)
+        } else if seed.iter().any(|(_, t)| *t == SpecType::Float) {
+            Some(InferredType::Float)
         } else {
             None
         };
@@ -6273,6 +6281,21 @@ impl FunctionTranslator<'_> {
                     if payload == 2 && self.top_two_are_fixnums() =>
                 {
                     self.fixnum_binop(op);
+                }
+
+                // Both operands statically floats - a Float seeded register, a
+                // float constant or a float typed result - so the result is a
+                // float too. The arms below typed it `Number`, which is what kept
+                // fibfp's `(- n 1.)` from matching its Float seed: its self calls
+                // were never direct. Known float on one side only isn't enough,
+                // a complex number minus a float is complex.
+                OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV
+                    if payload == 2 && float_inline_enabled() && self.top_two_are_floats() =>
+                {
+                    let fallback = op_to_name_payload(op, payload);
+                    let res = self.inline_float_binop_two(op, fallback);
+                    self.push(res, InferredType::Float);
+                    self.ip += 2;
                 }
 
                 // When we have two registers, we can add them in place.
@@ -12555,6 +12578,13 @@ impl FunctionTranslator<'_> {
                 self.register_type(*r) == ty.inferred()
             }
         }
+    }
+
+    fn top_two_are_floats(&self) -> bool {
+        let n = self.shadow_stack.len();
+        n >= 2
+            && self.entry_has_type(&self.shadow_stack[n - 1], SpecType::Float)
+            && self.entry_has_type(&self.shadow_stack[n - 2], SpecType::Float)
     }
 
     fn top_two_are_fixnums(&self) -> bool {
