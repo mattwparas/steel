@@ -111,6 +111,7 @@ test_harness_success! {
     jit_tail_calls,
     jit_type_facts,
     jit_fixnum_arith,
+    jit_frameless_self_calls,
     jit_loop_specialization,
     jit_varargs,
     apply,

@@ -699,6 +699,64 @@ fn collect_rest_args(ctx: *mut VmCore, count: usize) {
     ctx.thread.stack.push(SteelVal::ListV(values));
 }
 
+// Frameless self calls.
+//
+// A jitted self call to a function's `_frameless` copy pushes no `StackFrame`:
+// the arguments are on the value stack exactly where a framed call would put
+// them, but the frame record itself only exists if something has to leave
+// native code. Then each caller, on seeing its frameless callee come back not
+// native, records the frame that call would have pushed. That happens innermost
+// first, as the native stack unwinds, while the frames have to go on
+// outermost first - so the records collect here, and the framed copy that made
+// the first frameless call (the boundary) splices them onto `stack_frames` in
+// reverse.
+thread_local! {
+    static FRAMELESS_PENDING: core::cell::RefCell<Vec<StackFrame>> =
+        const { core::cell::RefCell::new(Vec::new()) };
+}
+
+// Record the frame a frameless call from a jitted caller would have pushed:
+// the callee's `sp`, the caller's return `ip` and instructions, and the
+// closure - which this takes its own reference to, since the frameless call
+// never did.
+#[cfg(feature = "rooted-instructions")]
+#[cross_platform_fn]
+fn frameless_record_frame(
+    _ctx: *mut VmCore,
+    sp: usize,
+    ip: usize,
+    function: Gc<ByteCodeLambda>,
+    instructions_ptr: usize,
+    instructions_len: usize,
+) {
+    let function = ManuallyDrop::new(function);
+    let frame = StackFrame {
+        sp: sp as _,
+        ip: ip as _,
+        instructions: RootedInstructions {
+            ptr: instructions_ptr as *const _,
+            len: instructions_len,
+        },
+        function: (*function).clone(),
+        attachments: None,
+    };
+    FRAMELESS_PENDING.with(|pending| pending.borrow_mut().push(frame));
+}
+
+// Put the recorded frames on the frame stack, outermost first. Each is one
+// more frame for the interpreter to pop before it hands back to native code.
+#[cross_platform_fn]
+fn frameless_splice_frames(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    FRAMELESS_PENDING.with(|pending| {
+        let mut pending = pending.borrow_mut();
+        ctx.pop_count += pending.len();
+        while let Some(frame) = pending.pop() {
+            ctx.thread.stack_frames.push(frame);
+        }
+    });
+}
+
 #[cross_platform_fn]
 fn grow_stack_slow(ctx: *mut VmCore) {
     let mut ctx = unsafe { &mut *ctx };

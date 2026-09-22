@@ -1031,6 +1031,16 @@ impl Default for JIT {
         );
 
         map.add_func(
+            "#%frameless-record-frame",
+            abi! { frameless_record_frame as fn(*mut VmCore, usize, usize, Gc<ByteCodeLambda>, usize, usize) },
+        );
+
+        map.add_func(
+            "#%frameless-splice-frames",
+            abi! { frameless_splice_frames as fn(*mut VmCore) },
+        );
+
+        map.add_func(
             "cdr-tail-value",
             abi! { cdr_tail_value as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
         );
@@ -1929,6 +1939,94 @@ enum SpecMode {
     },
 }
 
+/// Frameless self calls: a self recursive function's `_frameless` copy is
+/// called with its arguments already on the value stack at `sp`, and pushes no
+/// `StackFrame` - no frame record, no `pop_count`, no closure refcount, no
+/// `VmCore` ip/instructions restore on return. Frames are rebuilt only when
+/// something leaves native code: see `frameless_record_frame` in vm/jit.rs.
+///
+/// `STEEL_JIT_FRAMELESS=0` disables.
+fn frameless_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        !matches!(
+            std::env::var("STEEL_JIT_FRAMELESS").ok().as_deref(),
+            Some("0") | Some("false")
+        )
+    })
+}
+
+/// Whether a function's body only does what a frameless copy can: local reads
+/// and writes, fixnum constants, the inlined arithmetic and comparisons,
+/// branches, let scopes, returns, and calls to itself. Everything else either
+/// reads the frame stack, can hand control to the interpreter mid call, or
+/// calls something that could push a frame of its own - and a real frame
+/// pushed underneath pending frameless ones would come out in the wrong order.
+fn frameless_eligible(stmts: &[DenseInstruction], function_index: Option<usize>) -> bool {
+    let Some(me) = function_index else {
+        return false;
+    };
+    let mut calls_self = false;
+    let ok = stmts.iter().all(|ins| match ins.op_code {
+        OpCode::READLOCAL
+        | OpCode::READLOCAL0
+        | OpCode::READLOCAL1
+        | OpCode::READLOCAL2
+        | OpCode::READLOCAL3
+        | OpCode::MOVEREADLOCAL
+        | OpCode::MOVEREADLOCAL0
+        | OpCode::MOVEREADLOCAL1
+        | OpCode::MOVEREADLOCAL2
+        | OpCode::MOVEREADLOCAL3
+        | OpCode::LOADINT0
+        | OpCode::LOADINT1
+        | OpCode::LOADINT2
+        | OpCode::ADD
+        | OpCode::SUB
+        | OpCode::LT
+        | OpCode::LTE
+        | OpCode::GT
+        | OpCode::GTE
+        | OpCode::NUMEQUAL
+        | OpCode::PASS
+        | OpCode::IF
+        | OpCode::JMP
+        | OpCode::POPJMP
+        | OpCode::BEGINSCOPE
+        | OpCode::LetVar
+        | OpCode::LETENDSCOPE
+        | OpCode::POPPURE
+        | OpCode::FUNCNOARITY
+        | OpCode::SELFTAILCALLNOARITY => true,
+        OpCode::CALLGLOBALNOARITY if ins.payload_size.to_usize() == me => {
+            calls_self = true;
+            true
+        }
+        _ => false,
+    });
+    ok && calls_self
+}
+
+/// Which side of a frameless call a translation is on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FramelessRole {
+    /// The specialized copy: entered with a real frame, and the first to make a
+    /// frameless call - so it is the one that splices recorded frames back.
+    Boundary,
+    /// The `_frameless` copy itself: `(vm_ctx, sp)`, no frame of its own.
+    Callee,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FramelessInfo {
+    /// The `_frameless` copy that self calls go to.
+    id: FuncId,
+    role: FramelessRole,
+    /// What a frameless self call returns, as validated when the frameless copy
+    /// was compiled.
+    result: Option<InferredType>,
+}
+
 /// What a translation reports back to the compile driver.
 struct TranslateInfo {
     /// Types of the values returned through ordinary returns.
@@ -2695,6 +2793,50 @@ impl JIT {
         // so nothing ever calls it. (A guard in front of a stub that calls back
         // into the generic copy never runs an iteration: it loops forever.)
         let mut spec_code_size = None;
+
+        // Frameless self calls, for a specialized copy whose body is simple
+        // enough - see `frameless_eligible`. The frameless copy comes first: the
+        // specialized copy only calls it if it compiled.
+        let frameless = match &spec {
+            Some((_, spec_name)) if frameless_enabled() && frameless_eligible(stmts, function_index) => {
+                let frameless_name = format!("{}_frameless", inner_name);
+                let mut sig = self.module.make_signature();
+                let mut vm_param = AbiParam::new(self.module.target_config().pointer_type());
+                vm_param.purpose = ArgumentPurpose::VMContext;
+                sig.params.push(vm_param);
+                sig.params.push(AbiParam::new(types::I64));
+                sig.call_conv = CallConv::Tail;
+                sig.returns.push(AbiParam::new(types::I128));
+                let frameless_id = self
+                    .module
+                    .declare_function(&frameless_name, Linkage::Local, &sig)
+                    .map_err(|e| e.to_string())?;
+                let _ = spec_name;
+                let compiled = self.compile_frameless(
+                    id,
+                    frameless_id,
+                    &frameless_name,
+                    inner_id,
+                    arity,
+                    stmts,
+                    globals,
+                    constants,
+                    function_index,
+                    slot,
+                    non_mutable_globals,
+                    seed.clone(),
+                );
+                self.module.clear_context(&mut self.ctx);
+                self.init_jit_signature();
+                compiled.map(|result| FramelessInfo {
+                    id: frameless_id,
+                    role: FramelessRole::Boundary,
+                    result,
+                })
+            }
+            _ => None,
+        };
+
         let mode = match &spec {
             Some((spec_id, spec_name)) => {
                 self.module.clear_context(&mut self.ctx);
@@ -2711,6 +2853,7 @@ impl JIT {
                     slot,
                     non_mutable_globals,
                     seed.clone(),
+                    frameless,
                 );
                 if compiled {
                     spec_code_size = Some(size);
@@ -2742,6 +2885,7 @@ impl JIT {
             slot,
             non_mutable_globals,
             mode,
+            None,
         );
 
         // `STEEL_JIT_DUMP_CLIF=<substring>` prints the ir for every function whose
@@ -2890,6 +3034,127 @@ impl JIT {
             .push(AbiParam::new(types::I128));
     }
 
+    /// `init_jit_signature` plus the frame base a frameless copy takes as its
+    /// second parameter.
+    fn init_frameless_signature(&mut self) {
+        self.init_jit_signature();
+        self.ctx
+            .func
+            .signature
+            .params
+            .push(AbiParam::new(types::I64));
+    }
+
+    /// Compile the `_frameless` copy of a self recursive function; see
+    /// `frameless_enabled`. Returns the validated type of what it returns when
+    /// it compiled, `None` when it did not - in which case it is defined as a
+    /// stub that nothing calls, because a declared function has to be defined.
+    fn compile_frameless(
+        &mut self,
+        id: u32,
+        frameless_id: FuncId,
+        name: &str,
+        generic_id: FuncId,
+        arity: u16,
+        stmts: &[DenseInstruction],
+        globals: &[SteelVal],
+        constants: &ConstantMap,
+        function_index: Option<usize>,
+        slot: Option<&Gc<ByteCodeLambda>>,
+        non_mutable_globals: &HashSet<usize>,
+        seed: Vec<(usize, SpecType)>,
+    ) -> Option<Option<InferredType>> {
+        // Fixnum seeded functions most likely return fixnums, and a frameless
+        // copy's self calls return what it returns - so assume it and check,
+        // as `compile_specialized` does.
+        let guess = if seed.iter().any(|(_, t)| *t == SpecType::Fixnum) {
+            Some(InferredType::Int)
+        } else {
+            None
+        };
+
+        let attempt = |this: &mut Self, assume: Option<InferredType>| {
+            this.module.clear_context(&mut this.ctx);
+            this.builder_context = FunctionBuilderContext::new();
+            this.init_frameless_signature();
+            let mode = SpecMode::Specialized {
+                generic_id,
+                self_id: frameless_id,
+                seed: seed.clone(),
+                assume_result: assume,
+            };
+            let info = FramelessInfo {
+                id: frameless_id,
+                role: FramelessRole::Callee,
+                result: assume,
+            };
+            let translated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                this.translate(
+                    id,
+                    name.to_string(),
+                    frameless_id,
+                    arity,
+                    stmts,
+                    globals,
+                    constants,
+                    function_index,
+                    slot,
+                    non_mutable_globals,
+                    mode,
+                    Some(info),
+                )
+            }));
+            match translated {
+                Ok(Ok(info))
+                    if !info.untyped_non_deopt_exit
+                        && assume.map_or(true, |t| info.returned.iter().all(|r| r.boxed() == t)) =>
+                {
+                    match cranelift::codegen::verify_function(&this.ctx.func, this.module.isa()) {
+                        Ok(()) => true,
+                        Err(e) => {
+                            if spec_debug_enabled() {
+                                eprintln!("[frameless] {name}: verify failed: {e:#?}");
+                            }
+                            false
+                        }
+                    }
+                }
+                Ok(Ok(_)) => false,
+                Ok(Err(e)) => {
+                    if spec_debug_enabled() {
+                        eprintln!("[frameless] {name}: {e}");
+                    }
+                    false
+                }
+                Err(_) => false,
+            }
+        };
+
+        let mut result = None;
+        if attempt(self, guess) {
+            result = Some(guess);
+        } else if guess.is_some() && attempt(self, None) {
+            result = Some(None);
+        }
+
+        if result.is_some() && self.module.define_function(frameless_id, &mut self.ctx).is_err() {
+            result = None;
+        }
+        if result.is_none() {
+            if let Err(e) = self.define_stub_with_signature(
+                frameless_id,
+                StubBody::InterpretFromStart,
+                true,
+            ) {
+                log::debug!(target: "jit", "{name}: frameless stub not defined either: {e}");
+            }
+        } else if spec_debug_enabled() {
+            eprintln!("[frameless] compiled {name}, returns {:?}", result.unwrap());
+        }
+        self.module.clear_context(&mut self.ctx);
+        result
+    }
+
     /// Compile and define the specialized copy, returning its code size. It
     /// must end up defined no matter what - the generic copy already tail calls
     /// it - so a failure, including a panic in the translator, defines a stub
@@ -2910,6 +3175,7 @@ impl JIT {
         slot: Option<&Gc<ByteCodeLambda>>,
         non_mutable_globals: &HashSet<usize>,
         seed: Vec<(usize, SpecType)>,
+        frameless: Option<FramelessInfo>,
     ) -> (usize, bool) {
         self.init_jit_signature();
 
@@ -2933,6 +3199,7 @@ impl JIT {
                     slot,
                     non_mutable_globals,
                     mode,
+                    frameless,
                 )
             }))
         };
@@ -3052,10 +3319,25 @@ impl JIT {
     /// when the code arena is full, and that must not panic: the panic would
     /// happen with the shared jit locked.
     fn define_stub(&mut self, func_id: FuncId, body: StubBody) -> Result<usize, String> {
+        self.define_stub_with_signature(func_id, body, false)
+    }
+
+    /// `define_stub`, for a frameless copy's `(vm_ctx, sp)` signature when
+    /// `frameless` is set.
+    fn define_stub_with_signature(
+        &mut self,
+        func_id: FuncId,
+        body: StubBody,
+        frameless: bool,
+    ) -> Result<usize, String> {
         // The translator may have been torn down mid block.
         self.module.clear_context(&mut self.ctx);
         self.builder_context = FunctionBuilderContext::new();
-        self.init_jit_signature();
+        if frameless {
+            self.init_frameless_signature();
+        } else {
+            self.init_jit_signature();
+        }
         {
             let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
             let entry = builder.create_block();
@@ -3114,6 +3396,7 @@ impl JIT {
         slot: Option<&Gc<ByteCodeLambda>>,
         non_mutable_globals: &HashSet<usize>,
         spec_mode: SpecMode,
+        frameless: Option<FramelessInfo>,
     ) -> Result<TranslateInfo, String> {
         // println!("----- Compiling function ----");
 
@@ -3183,6 +3466,9 @@ impl JIT {
             fake_entry_block,
             exit_block,
             deopt_return_block: None,
+            frameless,
+            frameless_bail: false,
+            frameless_calls: 0,
             checked_native_block: None,
             pending_deopt_exits: Vec::new(),
             cursors_on: false,
@@ -3245,7 +3531,23 @@ impl JIT {
             SpecMode::Generic { .. } | SpecMode::None => {}
         }
 
+        // A frameless copy's frame base arrives as its second parameter, and it
+        // is published to `VmCore.sp` for the length of the activation: every
+        // exit, helper and deopt then sees this activation's slots exactly as a
+        // framed one would. The caller puts its own back when this returns.
+        if matches!(frameless, Some(FramelessInfo { role: FramelessRole::Callee, .. })) {
+            let sp = trans.builder.block_params(entry_block)[1];
+            trans.builder.ins().store(
+                MemFlagsData::trusted(),
+                sp,
+                vm_context,
+                offset_of!(VmCore, sp) as i32,
+            );
+            trans.sp = Some(sp);
+        }
+
         trans.cursors_on = allow_cursors
+            && frameless.is_none()
             && matches!(spec_mode, SpecMode::Specialized { .. })
             && fake_entry_block.is_some();
 
@@ -3295,6 +3597,7 @@ impl JIT {
             has_untyped_exit(trans.builder.func, &known)
         };
         let direct_self_calls = trans.direct_self_calls;
+        let frameless_bail = trans.frameless_bail;
         let cursor_bailed = trans.cursor_bail
             || (trans.cursors_on && (trans.cursor_advances == 0 || trans.cursor_carries == 0));
 
@@ -3336,6 +3639,10 @@ impl JIT {
         // reach the generic copy, so its exits are the ones that describe a call.
         if !matches!(spec_mode, SpecMode::Specialized { .. }) {
             self.function_return_types.insert(id, exit_types);
+        }
+
+        if frameless_bail {
+            return Err("frameless: body needs a frame".to_string());
         }
 
         Ok(TranslateInfo {
@@ -4076,6 +4383,14 @@ struct FunctionTranslator<'a> {
     fake_entry_block: Option<Block>,
     exit_block: Block,
     deopt_return_block: Option<Block>,
+    /// Set when this translation is one side of a frameless call.
+    frameless: Option<FramelessInfo>,
+    /// A frameless copy met something it can't compile without a frame; the
+    /// whole translation is abandoned.
+    frameless_bail: bool,
+    /// Self calls emitted as frameless calls, so a call arm can tell whether
+    /// it took the frameless path.
+    frameless_calls: usize,
     /// The block a `check_deopt` last continued into. Another check in that
     /// block, with no call or store emitted since, would load the same
     /// `is_native` and can be skipped.
@@ -5384,6 +5699,7 @@ impl FunctionTranslator<'_> {
                     let function_index = payload;
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
+                    let frameless_calls_before = self.frameless_calls;
 
                     // Okay, lets do a few things:
                     //
@@ -5459,6 +5775,13 @@ impl FunctionTranslator<'_> {
                             // to always be (tag, Value), and handle that accordingly
                             // in the function signature wherever possible
                             match self.direct_self_call_target(arity) {
+                                // Proven to fit, and this function has a
+                                // frameless copy: call that, with no frame.
+                                Some(_) if self.frameless.is_some() => {
+                                    let info = self.frameless.unwrap();
+                                    let result = self.frameless_self_call(arity, slot, info);
+                                    self.push(result, info.result.unwrap_or(InferredType::Any));
+                                }
                                 // Arguments proven to fit this specialized copy:
                                 // call it directly, skipping the generic copy's
                                 // guard. Check for a deopt before the result is
@@ -5565,6 +5888,15 @@ impl FunctionTranslator<'_> {
                             self.call_global_function_spilled(arity, name, function_index, false);
 
                         self.push(v, InferredType::Any)
+                    }
+
+                    // A frameless copy can only make frameless calls: anything
+                    // else pushes a real frame, which would sit underneath the
+                    // frames still waiting to be recorded for its callers.
+                    if matches!(self.frameless, Some(FramelessInfo { role: FramelessRole::Callee, .. }))
+                        && self.frameless_calls == frameless_calls_before
+                    {
+                        self.frameless_bail = true;
                     }
 
                     // Then, we're gonna check the result and see if we should deopt
@@ -10565,7 +10897,14 @@ impl FunctionTranslator<'_> {
                     let live = self.properties.cached_lookups.cursors.clone();
                     self.write_back_cursors(&live);
                 }
-                self.emit_tail_call_into(generic_id);
+                if matches!(self.frameless, Some(FramelessInfo { role: FramelessRole::Callee, .. })) {
+                    // The generic copy expects a frame. The arguments are in
+                    // their slots, so start the body over in the interpreter
+                    // instead - which is all a tail call to it would do.
+                    self.frameless_exit_to_interpreter(0);
+                } else {
+                    self.emit_tail_call_into(generic_id);
+                }
 
                 self.builder.switch_to_block(pass_block);
                 self.emit_loop_jump();
@@ -10823,6 +11162,175 @@ impl FunctionTranslator<'_> {
         }
 
         Some(Some((arity + 1 - declared, declared)))
+    }
+
+    /// The current length of the value stack.
+    fn vm_stack_len(&mut self, vm_ctx: Value) -> Value {
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
+        self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            thread_pointer,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::len_offset()) as i32,
+        )
+    }
+
+    /// Leave native code for the interpreter to carry on at `resume_ip` in this
+    /// activation. `VmCore.sp` already describes it - a frameless copy keeps it
+    /// current - and whoever called us records our frame.
+    fn frameless_exit_to_interpreter(&mut self, resume_ip: usize) {
+        let vm_ctx = self.get_ctx();
+        let ip = self.builder.ins().iconst(types::I64, resume_ip as i64);
+        self.builder
+            .ins()
+            .store(MemFlagsData::trusted(), ip, vm_ctx, offset_of!(VmCore, ip) as i32);
+        let not_native = self.builder.ins().iconst(types::I8, 0);
+        self.builder.ins().store(
+            MemFlagsData::trusted(),
+            not_native,
+            vm_ctx,
+            offset_of!(VmCore, is_native) as i32,
+        );
+        let void = self.encode_void();
+        let ret = self.builder.ins().return_(&[void]);
+        self.deopt_returns.insert(ret);
+    }
+
+    /// A self call that pushes no frame; see `frameless_enabled`.
+    ///
+    /// The value stack ends up exactly as a framed call leaves it - pending
+    /// operands spilled, then the arguments - so the callee's slots start at the
+    /// same `sp`. What is skipped is the frame record and everything around it.
+    /// If the callee comes back not native, the frame it would have had is
+    /// recorded then (and, at the boundary, spliced onto the frame stack), so
+    /// the interpreter finds exactly what a framed call would have left.
+    fn frameless_self_call(
+        &mut self,
+        arity: usize,
+        func: Gc<ByteCodeLambda>,
+        info: FramelessInfo,
+    ) -> Value {
+        self.frameless_calls += 1;
+
+        let instructions = func.body_exp();
+        // Leaked, like every lambda baked into code; the frame record takes a
+        // reference of its own if one is ever made.
+        func.clone().into_raw();
+        let closure = self.builder.ins().iconst(types::I64, unsafe {
+            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
+        });
+
+        // `self.ip` is on the FUNCNOARITY that carries the arity; the call
+        // instruction is the one before it.
+        let fallback_ip = self.ip;
+        self.ip += 1;
+
+        let args = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+        self.spill_stack();
+
+        let vm_ctx = self.get_ctx();
+        // Our own frame base, to put back once the callee returns.
+        let own_sp = self.get_sp(vm_ctx);
+
+        self.push_to_many_vm_stack_let_var_new(&args);
+        self.properties.cached_lookups.stack_length_capacity = 0;
+
+        let headroom = self.check_should_trampoline(vm_ctx);
+
+        match info.role {
+            FramelessRole::Boundary => {
+                // The framed fallback below yields to the interpreter.
+                let should_yield = self.builder.ins().bxor_imm_u(headroom, 1);
+                self.update_ip_native_if_yield(vm_ctx, should_yield, fallback_ip + 1);
+            }
+            FramelessRole::Callee => {}
+        }
+
+        let typ = self.int;
+        let res = self.converging_if(
+            headroom,
+            |ctx| {
+                let len = ctx.vm_stack_len(vm_ctx);
+                let callee_sp = ctx.builder.ins().iadd_imm_s(len, -(arity as i64));
+
+                let callee = ctx.module.declare_func_in_func(info.id, ctx.builder.func);
+                // The callee can grow the value stack.
+                ctx.invalidate_buf_ptr();
+                let call = ctx.builder.ins().call(callee, &[vm_ctx, callee_sp]);
+                let res = ctx.builder.inst_results(call)[0];
+
+                let native = ctx.builder.ins().load(
+                    types::I8,
+                    MemFlagsData::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, is_native) as i32,
+                );
+                let back_block = ctx.builder.create_block();
+                let exit_block = ctx.builder.create_block();
+                ctx.builder.ins().brif(native, back_block, &[], exit_block, &[]);
+
+                // Not native: record the frame this call would have pushed.
+                ctx.builder.switch_to_block(exit_block);
+                ctx.builder.seal_block(exit_block);
+                ctx.builder.set_cold_block(exit_block);
+                let (instructions_ptr, instructions_len) = {
+                    let fat = ctx.rooted_instructions_const(instructions);
+                    let halves = ctx.builder.ins().isplit(fat);
+                    (halves.0, halves.1)
+                };
+                let return_ip = ctx.builder.ins().iconst(types::I64, (fallback_ip + 1) as i64);
+                ctx.call_function_args_no_return(
+                    "#%frameless-record-frame",
+                    &[callee_sp, return_ip, closure, instructions_ptr, instructions_len],
+                );
+                if info.role == FramelessRole::Boundary {
+                    ctx.call_function_args_no_return("#%frameless-splice-frames", &[]);
+                }
+                let void = ctx.encode_void();
+                let ret = ctx.builder.ins().return_(&[void]);
+                ctx.deopt_returns.insert(ret);
+
+                ctx.builder.switch_to_block(back_block);
+                ctx.builder.seal_block(back_block);
+                // The callee published its own frame base; put ours back.
+                ctx.builder.ins().store(
+                    MemFlagsData::trusted(),
+                    own_sp,
+                    vm_ctx,
+                    offset_of!(VmCore, sp) as i32,
+                );
+                ctx.checked_native_block = Some(back_block);
+                res
+            },
+            |ctx| match info.role {
+                // Out of native stack at the boundary: the ordinary framed hand
+                // off, which is what this call would have been.
+                FramelessRole::Boundary => {
+                    let arity_val = ctx.builder.ins().iconst(types::I64, arity as i64);
+                    let fallback = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
+                    ctx.call_function_returns_value_args(
+                        "#%setup-closure-arity",
+                        &[closure, arity_val, fallback],
+                    )
+                }
+                // Inside a frameless copy there is no frame to hand off from, so
+                // let the interpreter redo the call instruction instead - the
+                // arguments are already where it expects them.
+                FramelessRole::Callee => {
+                    ctx.frameless_exit_to_interpreter(fallback_ip - 1);
+                    let dead = ctx.builder.create_block();
+                    ctx.builder.switch_to_block(dead);
+                    ctx.builder.seal_block(dead);
+                    ctx.encode_void()
+                }
+            },
+            typ,
+        );
+        res
     }
 
     fn call_self_function_experimental(
@@ -13566,7 +14074,10 @@ impl FunctionTranslator<'_> {
     fn forget_entry_block_caches(&mut self) {
         self.thread_pointer = None;
         self.thread_id = None;
-        self.sp = None;
+        // A frameless copy's sp is a parameter, which dominates everything.
+        if !matches!(self.frameless, Some(FramelessInfo { role: FramelessRole::Callee, .. })) {
+            self.sp = None;
+        }
         self.should_trampoline = None;
         self.pop_count = None;
         self.pop_count_plus_one = None;
@@ -14430,12 +14941,7 @@ impl FunctionTranslator<'_> {
 
     fn inline_let_end_scope(&mut self, amt: usize, count: usize) {
         let vm_ctx = self.get_ctx();
-        let offset = self.builder.ins().load(
-            types::I64,
-            MemFlagsData::trusted(),
-            vm_ctx,
-            offset_of!(VmCore, sp) as i32,
-        );
+        let offset = self.get_sp(vm_ctx);
 
         let rollback_index = self.builder.ins().iadd_imm_s(offset, amt as i64);
 
@@ -15125,6 +15631,20 @@ impl FunctionTranslator<'_> {
     }
 
     fn inline_handle_pop_with(&mut self, value: Value, slots_immediate: bool) -> Value {
+        // A frameless copy has no frame to pop and nothing in the VM to
+        // restore: drop its own slots and hand the value back. `pop_count`
+        // never counted it.
+        if matches!(self.frameless, Some(FramelessInfo { role: FramelessRole::Callee, .. })) {
+            let vm_ctx = self.get_ctx();
+            let sp = self.get_sp(vm_ctx);
+            if slots_immediate {
+                self.truncate_stack_no_drop(vm_ctx, sp);
+            } else {
+                self.truncate_stack(vm_ctx, sp, None);
+            }
+            return value;
+        }
+
         let vm_ctx = self.get_ctx();
         let new_pop_count = self.sub_one_pop_count(vm_ctx);
         let should_continue = self.pop_count_should_continue(new_pop_count);
