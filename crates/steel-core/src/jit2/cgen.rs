@@ -3183,6 +3183,7 @@ impl JIT {
             fake_entry_block,
             exit_block,
             deopt_return_block: None,
+            checked_native_block: None,
             pending_deopt_exits: Vec::new(),
             cursors_on: false,
             cursor_bail: false,
@@ -4075,6 +4076,10 @@ struct FunctionTranslator<'a> {
     fake_entry_block: Option<Block>,
     exit_block: Block,
     deopt_return_block: Option<Block>,
+    /// The block a `check_deopt` last continued into. Another check in that
+    /// block, with no call or store emitted since, would load the same
+    /// `is_native` and can be skipped.
+    checked_native_block: Option<Block>,
 
     // Speculative exits, filled once the body is done. Emitting them inline puts
     // their loads ahead of the fast path they branch away from, and those values
@@ -11403,7 +11408,29 @@ impl FunctionTranslator<'_> {
         self.deopt_returns.insert(ret);
     }
 
+    /// Whether `is_native` is already known to be set here: the previous check
+    /// continued into this block and nothing since could have cleared it. Only
+    /// a call (a helper, or a jitted callee deopting) or a store to the context
+    /// changes it.
+    fn native_already_checked(&self) -> bool {
+        let Some(block) = self.builder.current_block() else {
+            return false;
+        };
+        if self.checked_native_block != Some(block) {
+            return false;
+        }
+        let func = &self.builder.func;
+        !func.layout.block_insts(block).any(|inst| {
+            let op = func.dfg.insts[inst].opcode();
+            op.is_call() || op.can_store()
+        })
+    }
+
     fn check_deopt(&mut self) {
+        if self.native_already_checked() {
+            return;
+        }
+
         let result = self.check_deopt_ptr_load();
 
         // The shared deopt block just returns. With a cursor live the
@@ -11428,6 +11455,7 @@ impl FunctionTranslator<'_> {
 
             self.builder.switch_to_block(then_block);
             self.builder.seal_block(then_block);
+            self.checked_native_block = Some(then_block);
             return;
         }
 
@@ -11454,6 +11482,7 @@ impl FunctionTranslator<'_> {
 
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
+        self.checked_native_block = Some(then_block);
     }
 
     // Same as func_ret_val_named, but the helper takes the vm context so it can
@@ -14381,23 +14410,11 @@ impl FunctionTranslator<'_> {
                 // Check the result here
                 let call = ctx.builder.ins().call(jit_func, &[vm_ctx]);
 
-                let res = ctx.builder.inst_results(call)[0];
-
-                // Check if native still:
-                let is_still_native = ctx.builder.ins().load(
-                    types::I8,
-                    MemFlagsData::trusted(),
-                    vm_ctx,
-                    offset_of!(VmCore, is_native) as i32,
-                );
-
-                ctx.converging_if(
-                    is_still_native,
-                    // |ctx| ctx.inline_pop_from_stack(vm_ctx),
-                    |_| res,
-                    |ctx| ctx.encode_void(),
-                    typ,
-                )
+                // No `is_native` test here. A callee that deopts returns void
+                // from every exit, so choosing between its result and void on
+                // `is_native` always picked the result - and every caller runs
+                // `check_deopt` next, which is the test that matters.
+                ctx.builder.inst_results(call)[0]
             },
             |ctx| {
                 let arity_val = ctx.builder.ins().iconst(types::I64, arity as i64);
