@@ -70,3 +70,19 @@
                (message-of (lambda () (non-tail-call f))))
 (assert-equal! "function expected 2 arguments, found 1"
                (message-of (lambda () (cons 0 (f 1)))))
+
+;; Self calls, fixed and variadic. The jit reads the callee's arity off a
+;; placeholder lambda while compiling it; it has to carry the real arity and
+;; variadic flag, or fixed self calls fall off the fast path and variadic ones
+;; look fixed.
+(define (vsum n . xs)
+  (if (= n 0) (length xs) (vsum (- n 1) n)))
+(define (vcollect n . xs)
+  (if (= n 0) xs (let ([r (vcollect (- n 1) n n)]) (cons n r))))
+(define (self-loop k acc)
+  (if (= k 0) acc (self-loop (- k 1) (+ acc (vsum 50) (length (vcollect 20))))))
+(assert-equal! 46000 (self-loop 2000 0))
+(assert-equal! '(3 2 1 1 1) (vcollect 3))
+(define (needs-two a b . r)
+  (if (= a 0) r (needs-two (- a 1))))
+(assert-equal! "function expected at least 2 arguments, found 1" (catching (needs-two 5 1)))

@@ -4419,6 +4419,13 @@ impl<'a> VmCore<'a> {
                 let mut fake_lambda = ByteCodeLambda::default();
                 fake_lambda.id = closure_id;
                 fake_lambda.body_exp = constructed_lambda.body_exp.clone();
+                // The jit reads the callee's shape off this for self calls, so
+                // it has to be the real one: with the default arity of 0 no
+                // self call matched and every one went out through the helper
+                // (fib 8.4s -> 13.2s), and a variadic function's self calls
+                // looked fixed arity.
+                fake_lambda.arity = constructed_lambda.arity;
+                fake_lambda.is_multi_arity = constructed_lambda.is_multi_arity;
 
                 let mut slot = Gc::new(fake_lambda);
 

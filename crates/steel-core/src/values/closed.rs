@@ -2453,9 +2453,46 @@ impl HeapAble for SteelVal {
         if !needs_release(&self) {
             return;
         }
-        if crate::rvals::cycles::drop_fields_iteratively(core::iter::once(self)).is_err() {
-            // Thread teardown: the work list is gone, drop in place.
-        }
+        // Always through the work list: a box's value is usually a struct or a
+        // list, whose own drop starts a drain of its own - one per release, where
+        // queueing it lets a whole tree go in a single drain (gcbench).
+        let _ = crate::rvals::cycles::drop_fields_iteratively(core::iter::once(self));
+    }
+}
+
+// How many releases may nest on the native stack before the rest go through
+// the iterative work list.
+const RELEASE_DIRECT_DEPTH: u32 = 32;
+
+thread_local! {
+    static RELEASE_DEPTH: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
+
+/// Drops `value` in place while releases are shallowly nested, and hands it to
+/// `queue` past that. Nearly every release is a box or small vector whose value
+/// holds nothing that nests - going through the work list for those (a
+/// thread-local borrow, a queue, a visitor per element) cost paraffins 13% for
+/// nothing. Only a chain of boxes, each the last handle to the next, nests
+/// deeply, and that switches to the work list after `RELEASE_DIRECT_DEPTH`.
+#[inline]
+fn release_bounded<V>(value: V, queue: impl FnOnce(V)) {
+    let direct = RELEASE_DEPTH
+        .try_with(|depth| {
+            let current = depth.get();
+            if current < RELEASE_DIRECT_DEPTH {
+                depth.set(current + 1);
+                true
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false);
+
+    if direct {
+        drop(value);
+        let _ = RELEASE_DEPTH.try_with(|depth| depth.set(depth.get() - 1));
+    } else {
+        queue(value);
     }
 }
 
@@ -2485,10 +2522,18 @@ impl HeapAble for HeapVec {
     }
 
     fn release(self) {
-        if self.is_empty() {
+        // Only what can hold more structure goes through the work list. A
+        // vector of fixnums (array1: a million per vector) would otherwise be
+        // pushed onto and popped off the queue one element at a time, where
+        // dropping the buffer directly is free.
+        if !self.iter().any(needs_release) {
             return;
         }
-        let _ = crate::rvals::cycles::drop_fields_iteratively(self.into_iter());
+        release_bounded(self, |vector| {
+            let _ = crate::rvals::cycles::drop_fields_iteratively(
+                vector.into_iter().filter(needs_release),
+            );
+        });
     }
 }
 

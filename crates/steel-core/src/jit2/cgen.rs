@@ -5443,7 +5443,6 @@ impl FunctionTranslator<'_> {
                             .as_ref()
                             .map(|x| Self::rest_arg_plan(x, arity).is_some())
                             .unwrap_or(false);
-
                         if USE_EXPERIMENTAL_CALL && arity_ok {
                             let slot = self.slot.unwrap().clone();
 
