@@ -87,8 +87,11 @@ mkdir -p "$TMPDIR_RUN"
 
 CSV="${OUTDIR}/results${TAG:+-$TAG}.csv"
 echo "system,config,size,benchmark,run,status,reported_secs,wall_secs,note" > "$CSV"
-PARTS="${TMPDIR_RUN}/parts"
-mkdir -p "$PARTS"
+# Per-run, so the CSV only ever collects this run's rows. A shared directory
+# kept every earlier run's parts, and a --benches subset run concatenated stale
+# rows for all the benchmarks it didn't run.
+PARTS="$(mktemp -d "${TMPDIR_RUN}/parts.XXXXXX")"
+trap 'rm -rf "$PARTS"' EXIT
 LOGDIR="${OUTDIR}/logs"
 mkdir -p "$LOGDIR"
 
