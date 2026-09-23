@@ -91,7 +91,12 @@ httparse = "1.9.4"
 
 compact_str = { version = "0.8.0", features = ["serde"] }
 
-git2 = { version = "0.20.2", optional = true, features = ["vendored-openssl"] }
+gix = { version = "0.84.0", optional = true, default-features = false, features = [
+    "sha1",
+    "blocking-http-transport-reqwest-rust-tls",
+    "worktree-mutation",
+    "revision",
+] }
 ureq = { version = "3.0.12", optional = true }
 
 # For the constant map
@@ -146,8 +151,7 @@ sync = ["dep:im"]
 interrupt = []
 rooted-instructions = []
 recycle = []
-# git = ["dep:gix", "anyhow"]
-git = ["dep:git2", "anyhow"]
+git = ["dep:gix", "anyhow"]
 ureq = ["dep:ureq"]
 disable-arity-checking = ["steel-derive/disable-arity-checking"]
 experimental-drop-handler = []
