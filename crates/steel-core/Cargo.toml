@@ -123,6 +123,7 @@ which = "8.0.0"
 [dev-dependencies]
 proptest = "1.1.0"
 criterion = "0.5.1"
+tempfile = "3"
 
 [features]
 # TODO: Deprecate the modules feature flag, it no longer does anything

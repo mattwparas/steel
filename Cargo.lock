@@ -3882,6 +3882,7 @@ dependencies = [
  "steel-quickscope",
  "steel-rc",
  "strsim",
+ "tempfile",
  "termimad",
  "thin-vec",
  "triomphe",

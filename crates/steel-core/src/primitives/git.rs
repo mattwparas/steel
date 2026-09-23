@@ -98,7 +98,65 @@ mod libgit {
 
     use std::io::{self, Write};
 
-    use git2::Repository;
+    use git2::{Cred, CredentialType, Repository};
+
+    #[derive(Default)]
+    struct Credentials {
+        tried_username: bool,
+        tried_ssh_agent: bool,
+        tried_credential_helper: bool,
+        tried_default: bool,
+    }
+
+    impl Credentials {
+        fn get(
+            &mut self,
+            url: &str,
+            username: Option<&str>,
+            allowed: CredentialType,
+        ) -> Result<Cred, git2::Error> {
+            let username = username.unwrap_or("git");
+
+            if allowed.contains(CredentialType::USERNAME) && !self.tried_username {
+                self.tried_username = true;
+                return Cred::username(username);
+            }
+
+            if allowed.contains(CredentialType::SSH_KEY) && !self.tried_ssh_agent {
+                self.tried_ssh_agent = true;
+                return Cred::ssh_key_from_agent(username);
+            }
+
+            if allowed.contains(CredentialType::USER_PASS_PLAINTEXT)
+                && !self.tried_credential_helper
+            {
+                self.tried_credential_helper = true;
+                let config = git2::Config::open_default()?;
+                return Cred::credential_helper(&config, url, Some(username));
+            }
+
+            if allowed.contains(CredentialType::DEFAULT) && !self.tried_default {
+                self.tried_default = true;
+                return Cred::default();
+            }
+
+            Err(git2::Error::from_str(&format!(
+                "Unable to authenticate with {}. For ssh, the key has to be added to ssh-agent. \
+                 For https, a git credential helper has to be configured.",
+                url
+            )))
+        }
+    }
+
+    fn remote_callbacks<'a>() -> git2::RemoteCallbacks<'a> {
+        let mut credentials = Credentials::default();
+        let mut callbacks = git2::RemoteCallbacks::new();
+
+        callbacks
+            .credentials(move |url, username, allowed| credentials.get(url, username, allowed));
+
+        callbacks
+    }
 
     // Clone into repository
     pub fn git_clone(
@@ -106,7 +164,12 @@ mod libgit {
         dst: String,
         ref_name: Option<String>,
     ) -> anyhow::Result<()> {
-        let repo = git2::Repository::clone(&repo_url, dst)?;
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.remote_callbacks(remote_callbacks());
+
+        let repo = git2::build::RepoBuilder::new()
+            .fetch_options(fetch_options)
+            .clone(&repo_url, std::path::Path::new(&dst))?;
 
         if let Some(refname) = ref_name {
             // let refname = "master"; // or a tag (v0.1.1) or a commit (8e8128)
@@ -132,7 +195,7 @@ mod libgit {
         refs: &[&str],
         remote: &'a mut git2::Remote,
     ) -> Result<git2::AnnotatedCommit<'a>, git2::Error> {
-        let mut cb = git2::RemoteCallbacks::new();
+        let mut cb = remote_callbacks();
 
         // Print out our transfer progress.
         cb.transfer_progress(|stats| {
@@ -343,6 +406,80 @@ mod libgit {
         }
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod git_tests {
+        use super::*;
+
+        const URL: &str = "git@github.com:mattwparas/steel-packages.git";
+
+        #[test]
+        fn each_kind_of_credentials_is_tried_once() {
+            let mut credentials = Credentials::default();
+
+            assert!(credentials.get(URL, None, CredentialType::USERNAME).is_ok());
+            assert!(credentials
+                .get(URL, Some("git"), CredentialType::SSH_KEY)
+                .is_ok());
+
+            let error = credentials
+                .get(URL, Some("git"), CredentialType::SSH_KEY)
+                .err()
+                .unwrap();
+
+            assert!(error.message().contains(URL));
+        }
+
+        #[test]
+        fn default_credentials_are_tried_once() {
+            let mut credentials = Credentials::default();
+
+            assert!(credentials.get(URL, None, CredentialType::DEFAULT).is_ok());
+            assert!(credentials.get(URL, None, CredentialType::DEFAULT).is_err());
+        }
+
+        #[test]
+        fn clone_checks_out_ref() {
+            let dir = tempfile::tempdir().unwrap();
+            let source = dir.path().join("source");
+
+            let repo = Repository::init(&source).unwrap();
+            let signature = git2::Signature::now("steel", "steel@example.com").unwrap();
+
+            let commit = |file: &str| {
+                std::fs::write(source.join(file), "").unwrap();
+
+                let mut index = repo.index().unwrap();
+                index.add_path(std::path::Path::new(file)).unwrap();
+                let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+
+                let parents = match repo.head() {
+                    Ok(head) => vec![head.peel_to_commit().unwrap()],
+                    Err(_) => Vec::new(),
+                };
+                let parents: Vec<_> = parents.iter().collect();
+
+                repo.commit(Some("HEAD"), &signature, &signature, file, &tree, &parents)
+                    .unwrap()
+            };
+
+            let first = commit("first.scm");
+            repo.tag_lightweight("v1", &repo.find_object(first, None).unwrap(), false)
+                .unwrap();
+            commit("second.scm");
+
+            let url = source.display().to_string();
+
+            let latest = dir.path().join("latest");
+            git_clone(url.clone(), latest.display().to_string(), None).unwrap();
+            assert!(latest.join("second.scm").exists());
+
+            let tagged = dir.path().join("tagged");
+            git_clone(url, tagged.display().to_string(), Some("v1".to_string())).unwrap();
+            assert!(tagged.join("first.scm").exists());
+            assert!(!tagged.join("second.scm").exists());
+        }
     }
 
     // TODO: Eventually, try to use gix instead of git2
