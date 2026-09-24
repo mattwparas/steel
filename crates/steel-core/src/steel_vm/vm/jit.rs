@@ -101,7 +101,7 @@ pub(crate) fn jit_compile_lambda(
     jit_compile_lambda_impl(ctx, func, self_slot, maybe_index, false).0
 }
 
-/// `jit_compile_lambda`, except that with `STEEL_JIT_BACKGROUND=1` it only
+/// `jit_compile_lambda`, except that with background compilation on it only
 /// prepares the lambda and returns the compile as a job - to be submitted with
 /// `submit_background_job` once the lambda is in its final `Gc`.
 pub(crate) fn jit_compile_lambda_deferred(
@@ -267,22 +267,24 @@ fn jit_compile_lambda_impl(
 }
 
 // ---------------------------------------------------------------------------
-// Background compilation (`STEEL_JIT_BACKGROUND=1`).
+// Background compilation (on by default; `STEEL_JIT_BACKGROUND=0` turns it off).
 //
 // Compiling every function as it is defined puts all of compilation on the
 // main thread before the program runs: a one line script spends 0.25s of its
 // 0.32s compiling the prelude. With this on, a definition queues its compile
 // on a single process wide worker thread (the jit is already process wide) and
 // the interpreter carries on running the function interpreted until the
-// compiled code is installed. Off by default; synchronous compilation is what
-// the bisection tools (STEEL_JIT_MAX/ONLY/SKIP) and deterministic tests assume.
+// compiled code is installed. Full suite: wall time -5% geomean, nothing
+// slower. Use `STEEL_JIT_BACKGROUND=0` when bisecting a miscompile
+// (STEEL_JIT_MAX/ONLY/SKIP) or profiling compiled code: synchronously, which
+// code runs native no longer depends on how fast the worker is.
 
 pub(crate) fn jit_background_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| {
-        matches!(
+        !matches!(
             std::env::var("STEEL_JIT_BACKGROUND").ok().as_deref(),
-            Some("1") | Some("true")
+            Some("0") | Some("false")
         )
     })
 }

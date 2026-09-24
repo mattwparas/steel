@@ -3,9 +3,10 @@ use alloc::borrow::Cow;
 use crate::steel_vm::engine::Engine;
 
 fn generate_asserting_machine() -> Engine {
-    // Under `STEEL_JIT_BACKGROUND=1` a test program would finish before the
-    // worker compiles any of it; settling after each top level form keeps the
-    // compiled code covered. Run the suite with and without the flag.
+    // With background compilation (the default) a test program would finish
+    // before the worker compiles any of it; settling after each top level form
+    // keeps the compiled code covered. Run the suite a second time with
+    // `STEEL_JIT_BACKGROUND=0` for synchronous compilation.
     #[cfg(feature = "jit2")]
     crate::steel_vm::vm::jit::settle_background_compiles(
         crate::steel_vm::vm::jit::jit_background_enabled(),
