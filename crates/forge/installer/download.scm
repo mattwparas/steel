@@ -180,7 +180,7 @@
 ;;@doc
 ;; Download and install the dylib library!
 (define (download-and-install-library library-name git-url #:subdir [subdir ""] #:sha [*sha* void])
-  (~> (maybe-git-clone library-name git-url *NATIVE_SOURCES_DIR*)
+  (~> (maybe-git-clone library-name git-url *NATIVE_SOURCES_DIR* #:sha *sha*)
       (run-dylib-installation #:subdir subdir)))
 
 ;; Attempt to get the toml - This should actually just expand to the function to parse it,
