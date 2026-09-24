@@ -859,6 +859,89 @@ struct NativeMacroComponents {
     pub rust_function_name: proc_macro2::Ident,
     pub arity_number: syn::Expr,
     pub is_const: bool,
+    pub return_type: proc_macro2::TokenStream,
+}
+
+
+/// The `crate::value_type::ValueType` a native function returns: the macro's
+/// `returns = "..."` if given, otherwise what its Rust return type guarantees.
+///
+/// This is a promise the jit optimizes on, so the inference only claims what
+/// the conversion to a `SteelVal` always produces: `usize` becomes a bignum
+/// past `isize::MAX`, so it is a `number`, not an `int` (a fixnum).
+fn return_type_tokens(
+    keyword_map: &HashMap<String, String>,
+    output: Option<&ReturnType>,
+) -> proc_macro2::TokenStream {
+    let name = match keyword_map.get("returns") {
+        Some(explicit) => explicit.as_str(),
+        None => output.map(rust_return_type_name).unwrap_or("any"),
+    };
+
+    let variant = match name {
+        "any" => "Any",
+        "bool" => "Bool",
+        "int" => "Int",
+        "float" => "Float",
+        "number" => "Number",
+        "char" => "Char",
+        "string" => "String",
+        "symbol" => "Symbol",
+        "list" => "List",
+        "pair" => "Pair",
+        "vector" => "Vector",
+        "mutable-vector" => "MutableVector",
+        "void" => "Void",
+        other => panic!(
+            "unknown return type {other:?}: expected one of any, bool, int, float, number, \
+             char, string, symbol, list, pair, vector, mutable-vector, void"
+        ),
+    };
+    let variant = Ident::new(variant, proc_macro2::Span::call_site());
+
+    quote! { crate::value_type::ValueType::#variant }
+}
+
+fn rust_return_type_name(output: &ReturnType) -> &'static str {
+    match output {
+        ReturnType::Default => "void",
+        ReturnType::Type(_, ty) => rust_type_name(ty),
+    }
+}
+
+fn rust_type_name(ty: &Type) -> &'static str {
+    match ty {
+        Type::Reference(reference) => rust_type_name(&reference.elem),
+        Type::Paren(inner) => rust_type_name(&inner.elem),
+        Type::Tuple(tuple) if tuple.elems.is_empty() => "void",
+        Type::Path(path) => {
+            let Some(last) = path.path.segments.last() else {
+                return "any";
+            };
+            match last.ident.to_string().as_str() {
+                "bool" => "bool",
+                "char" => "char",
+                "f64" | "f32" => "float",
+                "isize" | "i32" | "i16" | "i8" | "u8" | "u16" => "int",
+                "usize" | "u32" | "u64" | "i64" | "u128" | "i128" => "number",
+                "String" | "str" | "SteelString" => "string",
+                // `Result<T>` / `Result<T, E>`: an error never returns.
+                "Result" => match &last.arguments {
+                    syn::PathArguments::AngleBracketed(args) => args
+                        .args
+                        .iter()
+                        .find_map(|arg| match arg {
+                            syn::GenericArgument::Type(ty) => Some(rust_type_name(ty)),
+                            _ => None,
+                        })
+                        .unwrap_or("any"),
+                    _ => "any",
+                },
+                _ => "any",
+            }
+        }
+        _ => "any",
+    }
 }
 
 fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeMacroComponents {
@@ -883,6 +966,9 @@ fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeM
 
     let sign: Signature = input.clone().sig;
 
+    // These take and return `SteelVal`s, so only an explicit `returns` says more.
+    let return_type = return_type_tokens(&keyword_map, None);
+
     let maybe_doc_comments = parse_doc_comment(input.clone());
     let rust_function_name = sign.ident.clone();
 
@@ -903,6 +989,7 @@ fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeM
         rust_function_name,
         arity_number,
         is_const,
+        return_type,
     }
 }
 
@@ -927,6 +1014,7 @@ pub fn native(
         rust_function_name,
         arity_number,
         is_const,
+        return_type,
     } = native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
@@ -937,7 +1025,7 @@ pub fn native(
             arity: crate::steel_vm::builtin::Arity::#arity_number,
             doc: #doc_field,
             is_const: #is_const,
-            signature: None,
+            return_type: #return_type,
         };
     };
 
@@ -976,6 +1064,7 @@ pub fn context(
         rust_function_name,
         arity_number,
         is_const,
+        return_type,
     } = native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
@@ -986,7 +1075,7 @@ pub fn context(
             arity: crate::steel_vm::builtin::Arity::#arity_number,
             doc: #doc_field,
             is_const: #is_const,
-            signature: None,
+            return_type: #return_type,
         };
     };
 
@@ -1023,6 +1112,7 @@ pub fn native_mut(
         rust_function_name,
         arity_number,
         is_const,
+        return_type,
     } = native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
@@ -1033,7 +1123,7 @@ pub fn native_mut(
             arity: crate::steel_vm::builtin::Arity::#arity_number,
             doc: #doc_field,
             is_const: #is_const,
-            signature: None,
+            return_type: #return_type,
         };
     };
 
@@ -1083,6 +1173,8 @@ pub fn function(
     let sign: Signature = input.clone().sig;
 
     let maybe_doc_comments = parse_doc_comment(input);
+
+    let value_type = return_type_tokens(&keyword_map, Some(&sign.output));
 
     let return_type: ReturnType = sign.output;
 
@@ -1244,7 +1336,7 @@ pub fn function(
             arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
             doc: #doc_field,
             is_const: #is_const,
-            signature: None,
+            return_type: #value_type,
         };
     };
 
@@ -1455,6 +1547,8 @@ pub fn custom_function(
 
     let maybe_doc_comments = parse_doc_comment(input);
 
+    let value_type = return_type_tokens(&keyword_map, Some(&sign.output));
+
     let return_type: ReturnType = sign.output;
 
     let ret_val = match return_type {
@@ -1616,7 +1710,7 @@ pub fn custom_function(
             arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
             doc: #doc_field,
             is_const: #is_const,
-            signature: None,
+            return_type: #value_type,
         };
     };
 

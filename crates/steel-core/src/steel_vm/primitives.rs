@@ -1491,7 +1491,7 @@ pub fn equalp(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(left == right))
 }
 
-#[steel_derive::function(name = "eqv?")]
+#[steel_derive::function(name = "eqv?", returns = "bool")]
 pub fn eqv(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(left.ptr_eq(&right)))
 }

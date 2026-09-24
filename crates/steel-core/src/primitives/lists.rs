@@ -563,7 +563,7 @@ fn range(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```scheme
 /// > (length (list 10 20 30)) ;; => 3
 /// ```
-#[steel_derive::function(name = "length", constant = true)]
+#[steel_derive::function(name = "length", constant = true, returns = "int")]
 fn length(list: &List<SteelVal>) -> usize {
     list.len()
 }

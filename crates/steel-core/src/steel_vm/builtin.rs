@@ -25,7 +25,7 @@ use crate::{
     parser::{ast::ExprKind, interner::InternedString, parser::SyntaxObject, tokens::TokenType},
     rvals::{
         Custom, FromSteelVal, FunctionSignature, IntoSteelVal, MutFunctionSignature, Result,
-        SteelVal, TypeKind,
+        SteelVal,
     },
     values::functions::BoxedDynFunction,
 };
@@ -89,6 +89,8 @@ pub struct FunctionSignatureMetadata {
     pub arity: Arity,
     pub is_const: bool,
     pub doc: Option<MarkdownDoc<'static>>,
+    /// What every call returns; see [`crate::value_type`].
+    pub return_type: crate::value_type::ValueType,
 }
 
 impl FunctionSignatureMetadata {
@@ -103,7 +105,13 @@ impl FunctionSignatureMetadata {
             arity,
             is_const,
             doc,
+            return_type: crate::value_type::ValueType::Any,
         }
+    }
+
+    pub fn with_return_type(mut self, return_type: crate::value_type::ValueType) -> Self {
+        self.return_type = return_type;
+        self
     }
 }
 
@@ -254,7 +262,9 @@ pub struct NativeFunctionDefinition {
     pub arity: Arity,
     pub doc: Option<MarkdownDoc<'static>>,
     pub is_const: bool,
-    pub signature: Option<(&'static [TypeKind], TypeKind)>,
+    /// What every call returns, from the Rust return type or the macro's
+    /// `returns = "..."`. The jit types the result of a call with it.
+    pub return_type: crate::value_type::ValueType,
 }
 
 pub fn register_context_functions(
@@ -849,7 +859,8 @@ impl BuiltInModule {
                 definition.arity,
                 definition.is_const,
                 definition.doc.clone(),
-            ),
+            )
+            .with_return_type(definition.return_type),
         );
 
         if let Some(doc) = definition.doc {

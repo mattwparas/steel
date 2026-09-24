@@ -285,7 +285,7 @@ pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> R
 /// ```scheme
 /// > (hash->list (hash 'a 10 'b 20)) ;; => '((a . 10) (b . 20))
 /// ```
-#[function(name = "hash->list")]
+#[function(name = "hash->list", returns = "list")]
 pub fn hash_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     Ok(SteelVal::ListV(
         hashmap

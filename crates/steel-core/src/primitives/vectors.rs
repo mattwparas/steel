@@ -1113,7 +1113,7 @@ pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVa
 /// > (define V (immutable-vector 1 2 3 4)) ;;
 /// > (vector-length V) ;; => 4
 /// ```
-#[steel_derive::native(name = "vector-length", arity = "Exact(1)")]
+#[steel_derive::native(name = "vector-length", arity = "Exact(1)", returns = "int")]
 pub fn vec_length(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
         SteelVal::VectorV(v) => Ok(SteelVal::IntV(v.len() as _)),

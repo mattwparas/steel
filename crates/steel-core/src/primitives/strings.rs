@@ -495,7 +495,7 @@ pub fn string_ci_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
 /// (string-ref "one" 1) ;; => #\n
 /// (string-ref "αβγ" 1) ;; => #\β
 /// ```
-#[function(name = "string-ref", constant = true)]
+#[function(name = "string-ref", constant = true, returns = "char")]
 pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
     let res = if index < value.len() {
         value.chars().nth(index)
@@ -993,7 +993,7 @@ pub fn ends_with(value: &SteelString, suffix: &SteelString) -> bool {
 /// > (string-length "αβγ") ;; => 3
 /// > (string-length "✅") ;; => 1
 /// ```
-#[function(name = "string-length")]
+#[function(name = "string-length", returns = "int")]
 pub fn string_length(value: &SteelString) -> usize {
     value.chars().count()
 }

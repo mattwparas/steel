@@ -117,7 +117,7 @@ fn concat_symbols(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (symbol->string 123)
 /// Error: symbol->string expected a symbol, found 123
 /// ```
-#[steel_derive::native(name = "symbol->string", arity = "Exact(1)")]
+#[steel_derive::native(name = "symbol->string", arity = "Exact(1)", returns = "string")]
 fn symbol_to_string(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
         SteelVal::SymbolV(quoted_value) => Ok(SteelVal::StringV(quoted_value.clone())),

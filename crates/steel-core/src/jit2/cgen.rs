@@ -3634,7 +3634,46 @@ pub enum InferredType {
     MutableVector,
 }
 
+/// The type of what a call to the primitive `f` returns, from the return type
+/// its definition declares (see `crate::value_type`).
+fn primitive_result_type(f: FunctionSignature) -> InferredType {
+    let config = crate::config::config();
+    if !config.jit_primitive_types {
+        return InferredType::Any;
+    }
+    let metadata = crate::steel_vm::builtin::get_function_name(f);
+    let ty = metadata
+        .as_ref()
+        .map_or(InferredType::Any, |m| InferredType::from_value_type(m.return_type));
+    if config.jit_primitive_types_log {
+        let name = metadata.as_ref().map_or("<unregistered>", |m| m.name.as_ref());
+        eprintln!("[prim-type] {name} -> {ty:?}");
+    }
+    ty
+}
+
 impl InferredType {
+    /// A value of `ty`, held the ordinary way (boxed, tagged).
+    pub(crate) fn from_value_type(ty: crate::value_type::ValueType) -> Self {
+        use crate::value_type::ValueType;
+        match ty {
+            ValueType::Any => InferredType::Any,
+            ValueType::Bool => InferredType::Bool,
+            ValueType::Int => InferredType::Int,
+            ValueType::Float => InferredType::Float,
+            ValueType::Number => InferredType::Number,
+            ValueType::Char => InferredType::Char,
+            ValueType::String => InferredType::String,
+            ValueType::Symbol => InferredType::Symbol,
+            ValueType::List => InferredType::List,
+            ValueType::Pair => InferredType::Pair,
+            ValueType::MutableVector => InferredType::MutableVector,
+            ValueType::Void => InferredType::Void,
+            // No immutable vector type here yet.
+            ValueType::Vector => InferredType::Any,
+        }
+    }
+
     /// What this value's type becomes once it has been materialized as a
     /// `SteelVal`.
     ///
@@ -5959,7 +5998,7 @@ impl FunctionTranslator<'_> {
 
                                         let result =
                                             self.call_function_returns_value_args(name, &args);
-                                        self.push(result, InferredType::Any);
+                                        self.push(result, primitive_result_type(f));
                                         self.ip += 1;
                                         self.check_deopt();
                                     } else {
