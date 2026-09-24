@@ -380,6 +380,7 @@ macro_rules! abi {
 
 mod helpers;
 use helpers::*;
+mod inline_primitives;
 
 /// How many speculative exits a function may take before speculation stops
 /// being worth it for that function.
@@ -801,27 +802,6 @@ pub(super) fn list_cursor_enabled() -> bool {
 /// the generic primitive call.
 pub(super) fn inline_bytevector_enabled() -> bool {
     crate::config::config().jit_inline_bytevector
-}
-
-/// Maps a primitive to the division it performs, or `None` if it is not one.
-///
-/// `quotient` / `remainder` / `modulo` are thin wrappers over the
-/// `truncate-*` and `floor-*` procedures, but they are distinct fn items with
-/// distinct addresses, so each one has to be named here.
-fn divmod_mode(f: FunctionSignature) -> Option<DivMode> {
-    if f == quotient as FunctionSignature || f == truncate_quotient as FunctionSignature {
-        Some(DivMode::TruncQuotient)
-    } else if f == remainder as FunctionSignature
-        || f == truncate_remainder as FunctionSignature
-    {
-        Some(DivMode::TruncRemainder)
-    } else if f == floor_quotient as FunctionSignature {
-        Some(DivMode::FloorQuotient)
-    } else if f == modulo as FunctionSignature || f == floor_remainder as FunctionSignature {
-        Some(DivMode::FloorRemainder)
-    } else {
-        None
-    }
 }
 
 /// `STEEL_JIT_INLINE_DIVMOD=0` sends `quotient` / `remainder` / `modulo` back
@@ -5027,102 +5007,9 @@ impl FunctionTranslator<'_> {
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
 
-                            // TODO: Can we abstract this into its own thing?
-                            match f {
-                                f if f == steel_stringp as FunctionSignature && arity == 1 => {
-                                    self.is_string()
-                                }
-
-                                f if f == steel_char_equals as FunctionSignature && arity == 2 => {
-                                    self.char_equals(arity)
-                                }
-
-                                f if f == steel_listp as FunctionSignature && arity == 1 => {
-                                    self.is_list()
-                                }
-
-                                f if f == steel_voidp as FunctionSignature && arity == 1 => {
-                                    self.is_void()
-                                }
-
-                                f if f == steel_eof_objectp as FunctionSignature && arity == 1 => {
-                                    self.eof_object()
-                                }
-
-                                f if f == steel_symbolp as FunctionSignature && arity == 1 => {
-                                    self.is_symbol()
-                                }
-
-                                f if f == steel_mut_vec_set as FunctionSignature && arity == 3 => {
-                                    self.vector_set()
-                                }
-
-                                f if f == mut_vec_push as FunctionSignature && arity == 2 => {
-                                    self.vector_push()
-                                }
-
-                                f if f == flat_vector_construct as FunctionSignature
-                                    && CallFlatVectorConstructorsDefinitions::arity_to_name(
-                                        arity,
-                                    )
-                                    .is_some() =>
-                                {
-                                    self.flat_vector_construct(arity)
-                                }
-
-                                f if inline_bytevector_enabled()
-                                    && ((f == steel_bytes_ref as FunctionSignature && arity == 2)
-                                        || (f == steel_bytes_set as FunctionSignature
-                                            && arity == 3))
-                                    && self.byte_vector_shape_ok(arity) =>
-                                {
-                                    let v = self.inline_byte_vector_op(f, arity);
-                                    self.push(v, InferredType::Any);
-                                    self.ip += 1;
-                                }
-
-                                f if f == steel_eq as FunctionSignature && arity == 2 => self.eq(),
-
-                                f if inline_divmod_enabled()
-                                    && arity == 2
-                                    && divmod_mode(f).is_some() =>
-                                {
-                                    let mode = divmod_mode(f).unwrap();
-                                    let v = self.inline_int_divmod(mode, f);
-                                    self.push(v, InferredType::Any);
-                                    self.ip += 1;
-                                }
-
-                                f if f == steel_pair as FunctionSignature && arity == 1 => {
-                                    self.is_pair()
-                                }
-
-                                f if f == steel_list_contains as FunctionSignature
-                                    && arity == 2 =>
-                                {
-                                    self.list_contains()
-                                }
-
-                                f if f == steel_is_empty as FunctionSignature && arity == 1 => {
-                                    self.is_empty()
-                                }
-                                // An inlined accessor's `(#%unbox (getter x))` is a
-                                // non-tail call, so it lands here rather than in the
-                                // tail call arm.
-                                f if inline_primitive_tail_calls_enabled()
-                                    && (f as usize
-                                        == crate::steel_vm::primitives::steel_unbox_mutable
-                                            as usize
-                                        || f as usize
-                                            == crate::steel_vm::primitives::steel_set_box_mutable
-                                                as usize)
-                                    && self.box_primitive_inlinable(f as usize, arity) =>
-                                {
-                                    let value = self.inline_box_primitive(f as usize, arity).unwrap();
-                                    self.push(value, InferredType::Any);
-                                    self.ip += 1;
-                                }
-                                _ => {
+                            // Primitives with a lowering of their own; see
+                            // `inline_primitives.rs`.
+                            if !self.try_inline_primitive(f as usize, arity) {
                                     let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
                                     if let Some(name) = name {
@@ -5155,7 +5042,6 @@ impl FunctionTranslator<'_> {
                                         self.call_global_impl(payload);
                                     }
                                 }
-                            };
                         }
 
                         Some(SteelVal::MutFunc(f)) => {
@@ -7975,82 +7861,15 @@ impl FunctionTranslator<'_> {
             return None;
         }
 
-        let func = func?;
-        let extra = extra_primitive_tail_calls_enabled();
-
-        if let SteelVal::BuiltIn(b) = func {
-            if !extra {
-                return None;
-            }
-            return self
-                .inline_mutable_struct_tail_call(*b as usize, arity)
-                .or_else(|| {
-                    tail_vec_enabled()
-                        .then(|| self.inline_mutable_vector_tail_call(*b as usize, arity))
-                        .flatten()
-                });
-        }
-
-        // `cdr` is the only `MutFunc` worth recognising so far; it was 28% of
-        // the tail call deopts in `scheme`.
-        if let SteelVal::MutFunc(f) = func {
-            if !extra {
-                return None;
-            }
-            return self.inline_mut_func_tail_call(*f as usize, arity);
-        }
-
-        let SteelVal::FuncV(f) = func else {
-            return None;
+        let target = match func? {
+            SteelVal::FuncV(f) => *f as usize,
+            SteelVal::MutFunc(f) => *f as usize,
+            SteelVal::BuiltIn(b) => *b as usize,
+            _ => return None,
         };
-        let target = *f as usize;
 
-        // `eq?` and `vector-set!` already have inline lowerings for a call in
-        // any other position: reuse them, then take the result back off the
-        // operand stack to return it. `eq?`'s result is an unboxed bool, so
-        // `as_steelval` boxes it. Their `ip` advance is irrelevant here - the
-        // tail call arm moves past the end of the function once this returns.
-        if extra && target == steel_eq as usize && arity == 2 {
-            self.eq();
-            return Some(self.pop_as_steelval());
-        }
-
-        if extra && target == steel_mut_vec_set as usize && arity == 3 {
-            self.vector_set();
-            return Some(self.pop_as_steelval());
-        }
-
-        // The list predicates, which the jit already lowers inline everywhere
-        // except here. `pair?` and `null?` were 37% of `scheme`'s tail call
-        // deopts between them.
-        if extra && tail_pred_enabled() && arity == 1 {
-            if target == steel_pair as usize {
-                self.is_pair();
-                return Some(self.pop_as_steelval());
-            }
-
-            if target == steel_is_empty as usize {
-                self.is_empty();
-                return Some(self.pop_as_steelval());
-            }
-
-            if target == crate::primitives::vectors::list_vec_null as usize {
-                return Some(self.inline_null_predicate());
-            }
-        }
-
-        // Same story for the integer divisions. Inlining them only in operand
-        // position left the tail call deopting once per iteration: in
-        // `bv2string` the prng ends in `(remainder (quotient x 8) n)`, and that
-        // single site was **99.79% of every tail call deopt in the program** -
-        // 2.48M of 2.49M - dropping into the interpreter each time.
-        if inline_divmod_enabled() && arity == 2 {
-            if let Some(mode) = divmod_mode(*f) {
-                return Some(self.inline_int_divmod(mode, *f));
-            }
-        }
-
-        self.inline_box_primitive(target, arity)
+        // Primitives with a lowering of their own; see `inline_primitives.rs`.
+        self.try_inline_primitive_tail(target, arity)
     }
 
     /// `#%unbox` / `#%set-box!` inline, in any position. Returns the result
