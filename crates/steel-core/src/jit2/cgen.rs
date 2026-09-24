@@ -2487,6 +2487,56 @@ fn discriminant(value: &SteelVal) -> u8 {
     unsafe { *<*const _>::from(value).cast::<u8>() }
 }
 
+/// A reference count increment owed to a value baked into generated code,
+/// to be paid by the thread that owns the value (see [`jit_leak`]).
+pub(crate) struct DeferredLeak(Box<dyn FnOnce()>);
+
+// The closure only ever runs on the thread that queued the compile.
+unsafe impl Send for DeferredLeak {}
+
+impl DeferredLeak {
+    pub(crate) fn pay(self) {
+        (self.0)()
+    }
+}
+
+std::thread_local! {
+    static DEFERRED_LEAKS: core::cell::RefCell<Option<Vec<DeferredLeak>>> =
+        const { core::cell::RefCell::new(None) };
+}
+
+/// Compiles on this thread from now on owe their leaks to another thread.
+pub(crate) fn begin_deferred_leaks() {
+    DEFERRED_LEAKS.with(|leaks| *leaks.borrow_mut() = Some(Vec::new()));
+}
+
+pub(crate) fn take_deferred_leaks() -> Vec<DeferredLeak> {
+    DEFERRED_LEAKS.with(|leaks| leaks.borrow_mut().take().unwrap_or_default())
+}
+
+/// A reference to `value` for generated code to hold forever: the caller
+/// consumes the result without dropping it (`into_raw`, a transmute).
+///
+/// Normally that is just a clone. On the background compile thread it is a
+/// bitwise copy, with the increment queued for the thread that owns `value`:
+/// under biased reference counting an increment from any other thread lands
+/// in the shared count, and once the owner's own count drains the object
+/// merges and every later clone and drop of it is atomic. A list constant
+/// baked that way cost paraffins 10%. The compile job keeps `value` alive
+/// until the owner has paid.
+pub(crate) fn jit_leak<T: Clone + 'static>(value: &T) -> T {
+    DEFERRED_LEAKS.with(|leaks| match leaks.borrow_mut().as_mut() {
+        Some(leaks) => {
+            let copy = core::mem::ManuallyDrop::new(unsafe { core::ptr::read(value) });
+            leaks.push(DeferredLeak(Box::new(move || {
+                core::mem::forget(T::clone(&copy));
+            })));
+            unsafe { core::ptr::read(value) }
+        }
+        None => value.clone(),
+    })
+}
+
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct JitFnPointer(pub(crate) NonNull<u8>);
@@ -5594,7 +5644,7 @@ impl FunctionTranslator<'_> {
 
                             // Leaked, like every lambda baked into code.
                             let lambda = self.builder.ins().iconst(types::I64, unsafe {
-                                std::mem::transmute::<Gc<ByteCodeLambda>, i64>(function.clone())
+                                std::mem::transmute::<Gc<ByteCodeLambda>, i64>(jit_leak(&function))
                             });
                             let entry = self.builder.ins().load(
                                 types::I64,
@@ -7457,7 +7507,7 @@ impl FunctionTranslator<'_> {
                             };
 
                             let as_ptr: i64 =
-                                unsafe { std::mem::transmute::<SteelString, _>(s.clone()) };
+                                unsafe { std::mem::transmute::<SteelString, _>(jit_leak(&s)) };
                             let value = self.builder.ins().iconst(types::I64, as_ptr);
 
                             // If they're the same type, just compare the bytes. Don't do a lookup.
@@ -11238,9 +11288,11 @@ impl FunctionTranslator<'_> {
         let instructions = func.body_exp();
         // Leaked, like every lambda baked into code; the frame record takes a
         // reference of its own if one is ever made.
-        func.clone().into_raw();
+        jit_leak(&func).into_raw();
+        let baked = jit_leak(&func);
+        drop(func);
         let closure = self.builder.ins().iconst(types::I64, unsafe {
-            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
+            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked)
         });
 
         // `self.ip` is on the FUNCNOARITY that carries the arity; the call
@@ -11376,11 +11428,13 @@ impl FunctionTranslator<'_> {
         let callee_is_self = self.callee_shares_our_instructions(func.body_exp());
         let instr_fat_ptr = self.rooted_instructions_const(func.body_exp());
 
-        func.clone().into_raw();
+        jit_leak(&func).into_raw();
+        let baked = jit_leak(&func);
+        drop(func);
 
         // Horrendous crimes, but we'll allow it. We'll also leak the instructions...
         let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
-            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
+            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked)
         });
 
         // let fallback_ip = self
@@ -11426,9 +11480,11 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
 
+        let baked = jit_leak(&func);
+        drop(func);
         // Horrendous crimes, but we'll allow it
         let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
-            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
+            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked)
         });
 
         let fallback_ip = self
@@ -11488,11 +11544,13 @@ impl FunctionTranslator<'_> {
         // lambda pointer below is stable (its refcount is leaked), so load the
         // entry point through it at run time instead; it is one dependent load
         // on a line that is warm anyway, and it always reaches the newest body.
-        func.clone().into_raw();
+        jit_leak(&func).into_raw();
+        let baked = jit_leak(&func);
+        drop(func);
 
         // Horrendous crimes, but we'll allow it. We'll also leak the instructions...
         let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
-            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
+            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked)
         });
 
         self.ip += 1;
@@ -13249,12 +13307,12 @@ impl FunctionTranslator<'_> {
 
             // Leak the constant, and then just push it up instead
             SteelVal::SymbolV(c) => {
-                let value = c.clone();
+                let value = jit_leak(c);
 
                 // Leak the value?
                 value.0.into_raw();
 
-                let as_ptr: i64 = unsafe { std::mem::transmute::<SteelString, _>(c.clone()) };
+                let as_ptr: i64 = unsafe { std::mem::transmute::<SteelString, _>(jit_leak(c)) };
 
                 let value = self.builder.ins().iconst(types::I64, as_ptr);
 
@@ -13268,10 +13326,8 @@ impl FunctionTranslator<'_> {
             }
 
             SteelVal::ListV(c) => {
-                let value = c.clone();
-
                 let as_ptr: usize =
-                    unsafe { std::mem::transmute::<crate::values::lists::List<_>, _>(c.clone()) };
+                    unsafe { std::mem::transmute::<crate::values::lists::List<_>, _>(jit_leak(c)) };
 
                 let value = self.builder.ins().iconst(types::I64, as_ptr as i64);
 

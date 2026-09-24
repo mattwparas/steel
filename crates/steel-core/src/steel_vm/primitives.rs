@@ -2691,6 +2691,7 @@ fn meta_module() -> BuiltInModule {
 
     #[cfg(feature = "jit2")]
     module.register_native_fn_definition(super::vm::jit::JIT_COMPILE_TWO_DEFINITION);
+    module.register_native_fn_definition(super::vm::jit::JIT_DRAIN_DEFINITION);
 
     #[cfg(feature = "sync")]
     module.register_native_fn_definition(CLOSURE_TO_BOXED_FUNCTION_DEFINITION);

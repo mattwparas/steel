@@ -3,6 +3,13 @@ use alloc::borrow::Cow;
 use crate::steel_vm::engine::Engine;
 
 fn generate_asserting_machine() -> Engine {
+    // Under `STEEL_JIT_BACKGROUND=1` a test program would finish before the
+    // worker compiles any of it; settling after each top level form keeps the
+    // compiled code covered. Run the suite with and without the flag.
+    #[cfg(feature = "jit2")]
+    crate::steel_vm::vm::jit::settle_background_compiles(
+        crate::steel_vm::vm::jit::jit_background_enabled(),
+    );
     let vm = Engine::new();
     vm
 }
@@ -112,6 +119,7 @@ test_harness_success! {
     jit_type_facts,
     jit_fixnum_arith,
     jit_frameless_self_calls,
+    jit_background_stress,
     jit_loop_specialization,
     jit_varargs,
     apply,

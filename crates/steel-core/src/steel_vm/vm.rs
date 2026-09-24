@@ -1055,11 +1055,14 @@ impl SteelThread {
             .iter()
             .zip(spans.iter())
             .map(|x| {
-                self.execute(
+                let result = self.execute(
                     InstructionPointer::clone(x.0),
                     constant_map.clone(),
                     Shared::clone(x.1),
-                )
+                );
+                #[cfg(feature = "jit2")]
+                jit::settle_after_top_level_form();
+                result
             })
             .collect();
 
@@ -2624,13 +2627,12 @@ impl<'a> VmCore<'a> {
 
                     let tramp = self.thread.trampoline;
 
-                    let fn_ptr = self
-                        .thread
-                        .stack_frames
-                        .last()
-                        .unwrap()
-                        .function
+                    let function = &self.thread.stack_frames.last().unwrap().function;
+                    // Empty only for a lambda made before a background compile
+                    // of its body landed.
+                    let fn_ptr = function
                         .super_instructions()
+                        .or_else(|| jit::resolve_background_entry(function))
                         .unwrap();
 
                     // Did we return a value? If we have a result, then we did, otherwise, we did not?
@@ -4438,17 +4440,30 @@ impl<'a> VmCore<'a> {
                     }
                 });
 
-                let constructed_lambda = if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str())
+                let (constructed_lambda, background_job) = if std::env::var("STEEL_JIT")
+                    .as_ref()
+                    .map(|x| x.as_str())
                     != Ok("false")
                     && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
                 {
-                    jit::jit_compile_lambda(self, constructed_lambda, Some(&mut slot), maybe_bind)
+                    jit::jit_compile_lambda_deferred(
+                        self,
+                        constructed_lambda,
+                        Some(&mut slot),
+                        maybe_bind,
+                    )
                 } else {
-                    constructed_lambda
+                    (constructed_lambda, None)
                 };
 
                 unsafe {
                     *steel_rc::BiasedRc::get_mut_unchecked(&mut slot.0) = constructed_lambda;
+                }
+
+                // Only once the lambda is in its final allocation: the worker
+                // compiles against it and installs into it.
+                if let Some(job) = background_job {
+                    jit::submit_background_job(job, &slot);
                 }
 
                 slot
@@ -4642,7 +4657,15 @@ impl<'a> VmCore<'a> {
             #[cfg(feature = "jit2")]
             let mut constructed_lambda =
                 if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
-                    jit::jit_compile_lambda(self, constructed_lambda, None, None)
+                    let (lambda, background_job) =
+                        jit::jit_compile_lambda_deferred(self, constructed_lambda, None, None);
+                    // The prototype is interned by value, so the worker gets a
+                    // copy: they share the body, which is what the install
+                    // patches and what instances resolve the entry by.
+                    if let Some(job) = background_job {
+                        jit::submit_background_job(job, &Gc::new(lambda.clone()));
+                    }
+                    lambda
                 } else {
                     constructed_lambda
                 };

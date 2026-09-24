@@ -148,11 +148,60 @@ pub struct ByteCodeLambda {
 
     /// The compiled entry point, or null when not compiled.
     #[cfg(feature = "jit2")]
-    pub(crate) super_instructions: Option<JitFnPointer>,
+    pub(crate) super_instructions: JitEntry,
 
     #[cfg(feature = "jit2")]
     pub(crate) tier2: Option<JitFnPointer>,
 }
+
+/// A lambda's compiled entry point: null until compiled.
+///
+/// Atomic because the background compiler installs it into a lambda the
+/// interpreter already holds (see `jit_background_enabled`). Same layout as
+/// `Option<JitFnPointer>` - one pointer, null for none - which is what the
+/// generated code loads through `offset_of!(ByteCodeLambda, super_instructions)`.
+#[cfg(feature = "jit2")]
+#[repr(transparent)]
+pub(crate) struct JitEntry(core::sync::atomic::AtomicPtr<u8>);
+
+#[cfg(feature = "jit2")]
+impl JitEntry {
+    pub(crate) fn new(pointer: Option<JitFnPointer>) -> Self {
+        let entry = Self(core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()));
+        entry.store(pointer);
+        entry
+    }
+
+    #[inline]
+    pub(crate) fn load(&self) -> Option<JitFnPointer> {
+        core::ptr::NonNull::new(self.0.load(core::sync::atomic::Ordering::Acquire)).map(JitFnPointer)
+    }
+
+    #[inline]
+    pub(crate) fn store(&self, pointer: Option<JitFnPointer>) {
+        let raw = pointer.map_or(core::ptr::null_mut(), |p| p.0.as_ptr());
+        self.0.store(raw, core::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(feature = "jit2")]
+impl Clone for JitEntry {
+    fn clone(&self) -> Self {
+        Self::new(self.load())
+    }
+}
+
+#[cfg(feature = "jit2")]
+impl core::fmt::Debug for JitEntry {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:?}", self.load())
+    }
+}
+
+#[cfg(feature = "jit2")]
+const _: () = assert!(
+    core::mem::size_of::<JitEntry>() == core::mem::size_of::<Option<JitFnPointer>>()
+);
 
 impl Default for ByteCodeLambda {
     fn default() -> Self {
@@ -165,7 +214,7 @@ impl Default for ByteCodeLambda {
             contract: SharedMut::new(MutContainer::new(None)),
             captures: Default::default(),
             #[cfg(feature = "jit2")]
-            super_instructions: None,
+            super_instructions: JitEntry::new(None),
 
             #[cfg(feature = "jit2")]
             tier2: None,
@@ -289,14 +338,22 @@ impl ByteCodeLambda {
     #[cfg(feature = "jit2")]
     #[inline]
     pub(crate) fn super_instructions(&self) -> Option<JitFnPointer> {
-        self.super_instructions
+        self.super_instructions.load()
     }
 
     /// Install a compiled body.
     #[cfg(feature = "jit2")]
     #[inline]
     pub(crate) fn set_super_instructions(&mut self, pointer: Option<JitFnPointer>) {
-        self.super_instructions = pointer;
+        self.super_instructions.store(pointer);
+    }
+
+    /// Install a compiled body into a lambda that is already shared - and may be
+    /// running, on this thread or another. See `JitEntry`.
+    #[cfg(feature = "jit2")]
+    #[inline]
+    pub(crate) fn install_super_instructions(&self, pointer: JitFnPointer) {
+        self.super_instructions.store(Some(pointer));
     }
 
     pub fn new(
@@ -332,7 +389,7 @@ impl ByteCodeLambda {
             blocks: RefCell::new(Vec::new()),
 
             #[cfg(feature = "jit2")]
-            super_instructions: None,
+            super_instructions: JitEntry::new(None),
 
             header: None,
 
@@ -351,7 +408,17 @@ impl ByteCodeLambda {
             captures,
             contract: proto.contract.clone(),
             #[cfg(feature = "jit2")]
-            super_instructions: proto.super_instructions,
+            super_instructions: {
+                // A background compile may have switched the shared body over
+                // since the prototype was made; pick its entry up here, once,
+                // rather than on every instance's first call.
+                if proto.super_instructions.load().is_none()
+                    && crate::steel_vm::vm::jit::body_entered_natively(&proto.body_exp)
+                {
+                    crate::steel_vm::vm::jit::resolve_background_entry(proto);
+                }
+                proto.super_instructions.clone()
+            },
             #[cfg(feature = "jit2")]
             tier2: proto.tier2,
         }

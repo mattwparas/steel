@@ -94,20 +94,43 @@ fn non_mutable_globals(ctx: &VmCore) -> std::collections::HashSet<usize> {
 
 pub(crate) fn jit_compile_lambda(
     ctx: &mut VmCore,
+    func: ByteCodeLambda,
+    self_slot: Option<&mut Gc<ByteCodeLambda>>,
+    maybe_index: Option<usize>,
+) -> ByteCodeLambda {
+    jit_compile_lambda_impl(ctx, func, self_slot, maybe_index, false).0
+}
+
+/// `jit_compile_lambda`, except that with `STEEL_JIT_BACKGROUND=1` it only
+/// prepares the lambda and returns the compile as a job - to be submitted with
+/// `submit_background_job` once the lambda is in its final `Gc`.
+pub(crate) fn jit_compile_lambda_deferred(
+    ctx: &mut VmCore,
+    func: ByteCodeLambda,
+    self_slot: Option<&mut Gc<ByteCodeLambda>>,
+    maybe_index: Option<usize>,
+) -> (ByteCodeLambda, Option<BackgroundJob>) {
+    let defer = jit_background_enabled();
+    jit_compile_lambda_impl(ctx, func, self_slot, maybe_index, defer)
+}
+
+fn jit_compile_lambda_impl(
+    ctx: &mut VmCore,
     mut func: ByteCodeLambda,
     mut self_slot: Option<&mut Gc<ByteCodeLambda>>,
     maybe_index: Option<usize>,
-) -> ByteCodeLambda {
+    defer: bool,
+) -> (ByteCodeLambda, Option<BackgroundJob>) {
     if func
         .body_exp
         .iter()
         .any(|x| matches!(x.op_code, OpCode::PUREFUNC))
     {
-        return func;
+        return (func, None);
     }
 
     if !jit_should_compile(func.id) {
-        return func;
+        return (func, None);
     }
 
     if std::env::var("STEEL_JIT_LOG_NAMES").is_ok() {
@@ -130,7 +153,7 @@ pub(crate) fn jit_compile_lambda(
 
     if ctx.thread.compiler.read().kernel.is_none() {
         // println!("Skipping compiling because of the kernel: {}", func.id);
-        return func;
+        return (func, None);
     }
 
     if std::env::var("STEEL_JIT_DUMP_BC").ok().as_deref() == Some(func.id.to_string().as_str()) {
@@ -188,14 +211,30 @@ pub(crate) fn jit_compile_lambda(
 
     let non_mutable_globals = non_mutable_globals(ctx);
 
+    // Background compilation: everything the compile reads from the running
+    // VM is captured now, at the moment a synchronous compile would have read
+    // it - so the compile makes the same decisions (the function's own global
+    // is still unbound here, which the self call fast path relies on); only the
+    // install happens later.
+    if defer {
+        let job = BackgroundJob {
+            name,
+            arity: func.arity,
+            maybe_index,
+            fn_ptr_name,
+            globals: sparse_globals_snapshot(ctx, &func.body_exp, maybe_index),
+            constants: ctx.thread.constant_map.clone(),
+            non_mutable: non_mutable_globals,
+            jit: Arc::clone(&ctx.thread.jit),
+            self_slot: self_slot.is_some(),
+        };
+        return (func, Some(job));
+    }
+
     // The jit is shared by every engine in the process, so a panic anywhere in
     // cranelift would otherwise poison it for everyone. Take the lock back rather
     // than turning one failed compile into a process wide outage.
-    let fn_pointer = ctx
-        .thread
-        .jit
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+    let fn_pointer = lock_jit_for_interpreter(&ctx.thread.jit)
         .compile_bytecode(
             name,
             func.arity,
@@ -211,7 +250,7 @@ pub(crate) fn jit_compile_lambda(
     let fn_pointer = if let Ok(fn_pointer) = fn_pointer {
         fn_pointer
     } else {
-        return func;
+        return (func, None);
     };
 
     let super_instructions = Some(fn_pointer);
@@ -224,8 +263,346 @@ pub(crate) fn jit_compile_lambda(
 
     // func.body_exp.as_mut()[0].op_code = OpCode::DynSuperInstruction;
 
-    func
+    (func, None)
 }
+
+// ---------------------------------------------------------------------------
+// Background compilation (`STEEL_JIT_BACKGROUND=1`).
+//
+// Compiling every function as it is defined puts all of compilation on the
+// main thread before the program runs: a one line script spends 0.25s of its
+// 0.32s compiling the prelude. With this on, a definition queues its compile
+// on a single process wide worker thread (the jit is already process wide) and
+// the interpreter carries on running the function interpreted until the
+// compiled code is installed. Off by default; synchronous compilation is what
+// the bisection tools (STEEL_JIT_MAX/ONLY/SKIP) and deterministic tests assume.
+
+pub(crate) fn jit_background_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        matches!(
+            std::env::var("STEEL_JIT_BACKGROUND").ok().as_deref(),
+            Some("1") | Some("true")
+        )
+    })
+}
+
+/// Everything a compile reads from the running VM, captured on the thread that
+/// defined the function.
+pub(crate) struct BackgroundJob {
+    name: String,
+    arity: u16,
+    maybe_index: Option<usize>,
+    fn_ptr_name: Option<steel_parser::interner::InternedString>,
+    globals: Vec<SteelVal>,
+    constants: crate::compiler::constants::ConstantMap,
+    non_mutable: std::collections::HashSet<usize>,
+    jit: Arc<std::sync::Mutex<crate::jit2::cgen::JIT>>,
+    // Whether the lambda this compiles into is also the one its self calls
+    // go to (a pure function's slot), as opposed to a closure prototype.
+    self_slot: bool,
+}
+
+struct QueuedJob {
+    job: BackgroundJob,
+    lambda: Gc<ByteCodeLambda>,
+    // Where the job goes once compiled, to be dropped by the thread that
+    // queued it. Its `Gc`s (the lambda, the closures in `globals`, the
+    // constant map) were cloned there, and under biased reference counting a
+    // decrement from any other thread queues the object for a merge that
+    // takes it off the owner's fast path for good: every later clone and drop
+    // of it is atomic. For a function that was the lambda itself, called
+    // millions of times - tak ran 6% slower before this.
+    returns: crossbeam_channel::Sender<QueuedJob>,
+    // Reference counts the compiled code owes values it baked in, paid by the
+    // same thread for the same reason (`jit_leak`), before `job` - which keeps
+    // those values alive meanwhile - is dropped.
+    leaks: Vec<crate::jit2::cgen::DeferredLeak>,
+}
+
+impl QueuedJob {
+    fn pay_leaks(&mut self) {
+        for leak in self.leaks.drain(..) {
+            leak.pay();
+        }
+    }
+}
+
+std::thread_local! {
+    static BACKGROUND_RETURNS: (
+        crossbeam_channel::Sender<QueuedJob>,
+        crossbeam_channel::Receiver<QueuedJob>,
+    ) = crossbeam_channel::unbounded();
+
+    // Jobs this thread queued that have not come back yet. Every job comes
+    // back, compiled or not, so this reaching zero means all of this thread's
+    // compiles are installed (or failed).
+    static BACKGROUND_OUTSTANDING: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+
+    // See `settle_background_compiles`.
+    static SETTLE_AT_TOP_LEVEL: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+fn settle_returned_job(mut queued: QueuedJob) {
+    queued.pay_leaks();
+    let _ = BACKGROUND_OUTSTANDING.try_with(|n| n.set(n.get().saturating_sub(1)));
+}
+
+/// Drop the finished jobs this thread queued, on this thread.
+fn drop_returned_background_jobs() {
+    let _ = BACKGROUND_RETURNS.try_with(|(_, receiver)| {
+        while let Ok(queued) = receiver.try_recv() {
+            settle_returned_job(queued);
+        }
+    });
+}
+
+/// Block until every compile this thread queued has been installed. Only
+/// this thread's: tests run side by side in one process and share the worker.
+pub(crate) fn wait_for_background_compiles() {
+    let _ = BACKGROUND_RETURNS.try_with(|(_, receiver)| {
+        while BACKGROUND_OUTSTANDING.with(|n| n.get()) != 0 {
+            match receiver.recv() {
+                Ok(queued) => settle_returned_job(queued),
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+/// With background compilation on, make this thread wait for its queued
+/// compiles after every top level form (`SteelThread::run_executable`).
+///
+/// For tests. A test program normally finishes long before the worker gets to
+/// it, so it would only ever run interpreted; settled, each form sees the
+/// functions defined before it compiled - what synchronous compilation gives -
+/// while every compile still goes through the worker, the snapshot and the
+/// install. (Installs landing mid-run are what the unsettled stress tests are
+/// for.)
+pub fn settle_background_compiles(settle: bool) {
+    SETTLE_AT_TOP_LEVEL.with(|flag| flag.set(settle));
+}
+
+#[inline]
+pub(crate) fn settle_after_top_level_form() {
+    if SETTLE_AT_TOP_LEVEL.with(|flag| flag.get()) {
+        wait_for_background_compiles();
+    }
+}
+
+/// The globals as the compiler sees them, without copying the environment.
+///
+/// The compiler only ever looks a global up by an index it read out of this
+/// function's bytecode (a call or push operand, or the function's own slot), and
+/// only cares whether it is a closure, a primitive, a builtin or a struct
+/// function. So: same length - `get` beyond it still means unbound - with those
+/// kinds copied at the indices the bytecode mentions and `Void` everywhere else,
+/// which can only ever send the compiler down a generic path. Cloning the
+/// shared environment itself would be O(1) here, but it is copy on write: the
+/// next `define` would copy the whole thing, once per queued function.
+fn sparse_globals_snapshot(
+    ctx: &VmCore,
+    body: &[crate::core::instructions::DenseInstruction],
+    own_index: Option<usize>,
+) -> Vec<SteelVal> {
+    let roots = ctx.thread.global_env.roots();
+    let mut globals = vec![SteelVal::Void; roots.len()];
+    let mut copy = |index: usize| {
+        if let Some(value) = roots.get(index) {
+            if matches!(
+                value,
+                SteelVal::Closure(_)
+                    | SteelVal::FuncV(_)
+                    | SteelVal::MutFunc(_)
+                    | SteelVal::BoxedFunction(_)
+                    | SteelVal::BuiltIn(_)
+                    | SteelVal::CustomStruct(_)
+            ) {
+                globals[index] = value.clone();
+            }
+        }
+    };
+    for instruction in body {
+        copy(instruction.payload_size.to_usize());
+    }
+    if let Some(index) = own_index {
+        copy(index);
+    }
+    globals
+}
+
+
+// Entry points installed in the background, by body address - the one thing a
+// closure prototype and all of its instances share. Never pruned: the code is
+// never freed either, and a later body at a reused address is only looked up
+// once its own compile has overwritten the slot (a synchronously compiled
+// lambda always carries its entry and never asks).
+static BACKGROUND_ENTRIES: std::sync::LazyLock<
+    std::sync::RwLock<rustc_hash::FxHashMap<usize, usize>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// The entry point for a lambda whose body was patched to enter native code
+/// after the lambda itself was made (so it copied an empty entry); cached on
+/// the lambda so this only happens once per lambda.
+pub(crate) fn resolve_background_entry(
+    lambda: &ByteCodeLambda,
+) -> Option<crate::jit2::cgen::JitFnPointer> {
+    if !jit_background_enabled() {
+        return None;
+    }
+    let address = *BACKGROUND_ENTRIES
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&(lambda.body_exp.as_ptr() as usize))?;
+    let pointer = crate::jit2::cgen::JitFnPointer(core::ptr::NonNull::new(address as *mut u8)?);
+    lambda.install_super_instructions(pointer);
+    Some(pointer)
+}
+
+/// Whether a background compile has switched this body over to native code.
+/// The worker writes that opcode while interpreters run, hence the atomic read.
+pub(crate) fn body_entered_natively(body: &[crate::core::instructions::DenseInstruction]) -> bool {
+    let Some(first) = body.first() else {
+        return false;
+    };
+    let op = core::ptr::addr_of!(first.op_code) as *const core::sync::atomic::AtomicU8;
+    let byte = unsafe { (*op).load(core::sync::atomic::Ordering::Acquire) };
+    byte == unsafe { core::mem::transmute::<OpCode, u8>(OpCode::DynSuperInstruction) }
+}
+
+// Interpreter threads blocked on the jit lock. The mutex is not fair, and the
+// worker drops it and takes it straight back between jobs, so a synchronous
+// compile (capturing closures still compile in line) would otherwise wait out
+// the whole queue - slatex's main thread sat through all 2s of it. The worker
+// steps aside while this is non zero, so the wait is at most one compile.
+static INTERPRETER_WAITING_ON_JIT: AtomicUsize = AtomicUsize::new(0);
+
+fn lock_jit_for_interpreter(
+    jit: &std::sync::Mutex<crate::jit2::cgen::JIT>,
+) -> std::sync::MutexGuard<'_, crate::jit2::cgen::JIT> {
+    INTERPRETER_WAITING_ON_JIT.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+    let guard = jit.lock().unwrap_or_else(|e| e.into_inner());
+    INTERPRETER_WAITING_ON_JIT.fetch_sub(1, core::sync::atomic::Ordering::AcqRel);
+    guard
+}
+static BACKGROUND_QUEUE: std::sync::OnceLock<crossbeam_channel::Sender<QueuedJob>> =
+    std::sync::OnceLock::new();
+
+fn background_queue() -> &'static crossbeam_channel::Sender<QueuedJob> {
+    BACKGROUND_QUEUE.get_or_init(|| {
+        let (sender, receiver) = crossbeam_channel::unbounded::<QueuedJob>();
+        std::thread::Builder::new()
+            .name("steel-jit".to_string())
+            // Translation recurses over the bytecode; the main thread gets a
+            // large stack for the same reason.
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || {
+                for mut queued in receiver {
+                    // A panic in one compile must not take the worker (and every
+                    // compile after it) down; the lambda just stays interpreted.
+                    crate::jit2::cgen::begin_deferred_leaks();
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        run_background_job(&mut queued)
+                    }));
+                    queued.leaks = crate::jit2::cgen::take_deferred_leaks();
+                    // If the queueing thread has gone there is no owner left to
+                    // protect, and the job is settled here.
+                    let returns = queued.returns.clone();
+                    if let Err(crossbeam_channel::SendError(mut queued)) = returns.send(queued) {
+                        queued.pay_leaks();
+                    }
+                }
+            })
+            .expect("spawning the background jit thread");
+        sender
+    })
+}
+
+/// Queue `lambda`'s compile. `lambda` must be the final, shared `Gc` the
+/// program will call - the compile bakes self calls against it and installs
+/// into it.
+pub(crate) fn submit_background_job(job: BackgroundJob, lambda: &Gc<ByteCodeLambda>) {
+    drop_returned_background_jobs();
+    let Ok(returns) = BACKGROUND_RETURNS.try_with(|(sender, _)| sender.clone()) else {
+        return;
+    };
+    BACKGROUND_OUTSTANDING.with(|n| n.set(n.get() + 1));
+    let queued = QueuedJob {
+        job,
+        lambda: Gc::clone(lambda),
+        returns,
+        leaks: Vec::new(),
+    };
+    if background_queue().send(queued).is_err() {
+        BACKGROUND_OUTSTANDING.with(|n| n.set(n.get() - 1));
+    }
+}
+
+fn run_background_job(queued: &mut QueuedJob) {
+    let QueuedJob { job, lambda, .. } = queued;
+
+    while INTERPRETER_WAITING_ON_JIT.load(core::sync::atomic::Ordering::Acquire) != 0 {
+        std::thread::yield_now();
+    }
+
+    let compiled = job
+        .jit
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .compile_bytecode(
+            core::mem::take(&mut job.name),
+            job.arity,
+            &lambda.body_exp,
+            &job.globals,
+            &job.constants,
+            job.maybe_index,
+            job.self_slot.then_some(&*lambda),
+            job.fn_ptr_name,
+            &job.non_mutable,
+        );
+
+    let Ok(fn_pointer) = compiled else {
+        return;
+    };
+
+    // The entry point first, then the opcode that sends the interpreter to
+    // it: whoever sees `DynSuperInstruction` finds the pointer.
+    lambda.install_super_instructions(fn_pointer);
+    BACKGROUND_ENTRIES
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(lambda.body_exp.as_ptr() as usize, fn_pointer.0.as_ptr() as usize);
+
+    // The interpreter enters native code by executing this lambda's first
+    // instruction, so that is what switches it over - including a loop already
+    // running interpreted, whose next self tail call jumps back to it. The body
+    // is this lambda's private copy (`jit_compile_lambda_impl` made it) and the
+    // store is a single byte; the readers are interpreter dispatch loops, which
+    // see either the old opcode or the new one.
+    //
+    // Other lambdas can share this body with an empty entry: every instance
+    // of a closure copies its prototype's entry when it is created, so the ones
+    // made before this landed have none. They find it in `BACKGROUND_ENTRIES`
+    // (`resolve_background_entry`) the first time they need it.
+    const _: () = assert!(core::mem::size_of::<OpCode>() == 1);
+    let byte = unsafe { core::mem::transmute::<OpCode, u8>(OpCode::DynSuperInstruction) };
+    unsafe {
+        let first = lambda.body_exp.as_ptr();
+        let op = core::ptr::addr_of!((*first).op_code) as *const core::sync::atomic::AtomicU8;
+        (*op).store(byte, core::sync::atomic::Ordering::Release);
+    }
+}
+
+// Block until every background compile this thread queued has been
+// installed. For tests and measurements that want compiled code; returns at
+// once when nothing is queued.
+#[steel_derive::context(name = "#%jit-drain", arity = "Exact(0)")]
+pub(crate) fn jit_drain(_ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    wait_for_background_compiles();
+    Some(Ok(SteelVal::Void))
+}
+
+
 
 #[steel_derive::context(name = "#%jit-compile-2", arity = "AtLeast(1)")]
 pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
@@ -7282,9 +7659,14 @@ fn handle_pure_function(ctx: *mut VmCore, ip: usize, offset: usize) -> SteelVal 
         ctx.thread.function_interner.spans.insert(closure_id, spans);
 
         #[cfg(feature = "jit2")]
-        let constructed_lambda = jit::jit_compile_lambda(ctx, constructed_lambda, None, None);
+        let (constructed_lambda, background_job) =
+            jit::jit_compile_lambda_deferred(ctx, constructed_lambda, None, None);
 
         let constructed_lambda = Gc::new(constructed_lambda);
+
+        if let Some(job) = background_job {
+            jit::submit_background_job(job, &constructed_lambda);
+        }
 
         ctx.thread
             .function_interner
@@ -7480,7 +7862,13 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
             if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false")
                 && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
             {
-                jit::jit_compile_lambda(ctx, constructed_lambda, None, None)
+                let (lambda, background_job) =
+                    jit::jit_compile_lambda_deferred(ctx, constructed_lambda, None, None);
+                // Interned by value, as in `VmCore::handle_new_start_closure`.
+                if let Some(job) = background_job {
+                    jit::submit_background_job(job, &Gc::new(lambda.clone()));
+                }
+                lambda
             } else {
                 constructed_lambda
             };
