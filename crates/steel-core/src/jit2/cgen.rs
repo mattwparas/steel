@@ -897,7 +897,7 @@ fn discriminant(value: &SteelVal) -> u8 {
     // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
     // between `repr(C)` structs, each of which has the `u8` discriminant as its first
     // field, so we can read the discriminant without offsetting the pointer.
-    unsafe { *<*const _>::from(value).cast::<u8>() }
+    unsafe { *(value as *const SteelVal).cast::<u8>() }
 }
 
 // Compile the bytecode assuming that things... work okay?
