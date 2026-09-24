@@ -2344,26 +2344,14 @@ where
 /// `STEEL_INLINE_FRESH_SNAPSHOTS=0` goes back to snapshotting each function body
 /// before its own callees are inlined into it. On by default.
 fn fresh_snapshots_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_INLINE_FRESH_SNAPSHOTS").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().inline_fresh_snapshots
 }
 
 /// `STEEL_INLINE_KNOWN_FUNCTION_ARGS=0` stops inlining a function only because a
 /// call site hands it a known function for a parameter it calls, and stops
 /// substituting such bindings before closure lifting.
 fn known_function_args_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_INLINE_KNOWN_FUNCTION_ARGS").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().inline_known_function_args
 }
 
 /// Size budget, counting nested lambdas, for inlining a function only because a
@@ -2371,13 +2359,7 @@ fn known_function_args_enabled() -> bool {
 /// ordinary budget: what it removes is a call through a value on every
 /// iteration of the loop inside, not one call. `STEEL_INLINE_KNOWN_ARGS_SIZE`.
 fn known_function_args_size() -> usize {
-    static SIZE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *SIZE.get_or_init(|| {
-        std::env::var("STEEL_INLINE_KNOWN_ARGS_SIZE")
-            .ok()
-            .and_then(|x| x.trim().parse().ok())
-            .unwrap_or(150)
-    })
+    crate::config::config().inline_known_args_size
 }
 
 /// Whether `expr` names a function whose identity is fixed for the whole
@@ -2441,13 +2423,7 @@ fn known_functions(
 
 /// `STEEL_RESOLVE_FUNCTION_ALIASES=0` leaves `(define a b)` references alone.
 fn function_alias_resolution_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_RESOLVE_FUNCTION_ALIASES").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().resolve_function_aliases
 }
 
 fn collect_aliases<'a>(
@@ -2620,13 +2596,7 @@ impl VisitorMutRefUnit for FreshenBinders {
 /// `STEEL_LIFT_DEAD_CAPTURES=0` keeps every captured parameter closure lifting
 /// appends, used or not.
 fn lift_dead_captures_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_LIFT_DEAD_CAPTURES").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().lift_dead_captures
 }
 
 /// Closure lifting appends a parameter for each variable the analysis says a
@@ -2953,13 +2923,7 @@ impl VisitorMutRefUnit for SubstituteBindings {
 /// off for a while because `graphs` grew to 23GB with it; that turned out to be
 /// the jit's inline tail call never releasing the frame's locals, not this pass.
 fn substitute_lambdas_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_SUBSTITUTE_LAMBDAS").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().substitute_lambdas
 }
 
 /// How many call sites of a let-bound lambda are worth substituting it into.
@@ -3287,14 +3251,6 @@ struct FunctionSizeEstimator {
 // inlining that was not paying for itself. Useful values sit in roughly 5..15;
 // above that the filter starts rejecting the case-lambda bodies that
 // LowerRestArguments specializes, and wc/cat fall back to the slow path.
-const DEFAULT_INLINE_PRIM_DENSITY: usize = 5;
-
-static INLINE_PRIM_DENSITY: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
-    std::env::var("STEEL_INLINE_PRIM_DENSITY")
-        .ok()
-        .and_then(|x| x.parse().ok())
-        .unwrap_or(DEFAULT_INLINE_PRIM_DENSITY)
-});
 
 impl FunctionSizeEstimator {
     // The size the inliner judges against. None disqualifies the body outright, so
@@ -3309,10 +3265,10 @@ impl FunctionSizeEstimator {
         }
 
         // Inline only bodies that are meaningfully made of primitive calls
-        if *INLINE_PRIM_DENSITY > 0 {
+        if crate::config::config().inline_prim_density > 0 {
             let prims = self.prim_map.get(&id).copied().unwrap_or(0);
 
-            if prims.saturating_mul(100) < count.saturating_mul(*INLINE_PRIM_DENSITY) {
+            if prims.saturating_mul(100) < count.saturating_mul(crate::config::config().inline_prim_density) {
                 return None;
             }
         }
@@ -4759,7 +4715,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
                         let function_info = self.analysis.get_function_info(r).unwrap();
 
-                        if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                        if crate::config::config().lift_debug {
                             let nm = variable.atom_identifier().unwrap().resolve().to_string();
                             if nm.contains("state") || nm.contains("scanner") {
                                 eprintln!(
@@ -4789,7 +4745,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                 for expr in b.exprs.iter_mut() {
                                     if let Some(found_escape_checker) = &mut found_escape_checker {
                                         if found_escape_checker.check(expr) {
-                                            if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                                            if crate::config::config().lift_debug {
                                                 eprintln!("LIFT BAIL: escape in body expr");
                                             }
                                             return;
@@ -4836,7 +4792,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
             for mut escape_checker in found_escape_checkers {
                 if escape_checker.check_let(l) {
-                    if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                    if crate::config::config().lift_debug {
                         eprintln!("LIFT BAIL: check_let escape");
                     }
                     return;
@@ -5256,7 +5212,7 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                 if l.first_ident().copied() == Some(*UNBOX)
                     && l.second_ident().copied() == Some(self.unbox_var)
                 {
-                    if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                    if crate::config::config().lift_debug {
                         eprintln!("ESCAPE(as-value): {}", self.unbox_var.resolve());
                     }
                     self.escapes = true;
@@ -5277,7 +5233,7 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                                 && self.group_boxes.contains(&self.unbox_var);
 
                             if self.inside_lambda && !mutually_recursive {
-                                if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                                if crate::config::config().lift_debug {
                                     eprintln!(
                                         "ESCAPE(call-in-lambda): {} group={}",
                                         self.unbox_var.resolve(),
@@ -5304,7 +5260,7 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                         if let ExprKind::List(il) = arg {
                             if il.first_ident().copied() == Some(*UNBOX) {
                                 if il.second_ident().copied() == Some(self.unbox_var) {
-                                    if std::env::var("STEEL_LIFT_DEBUG").is_ok() {
+                                    if crate::config::config().lift_debug {
                                         eprintln!(
                                             "ESCAPE(as-argument): {}",
                                             self.unbox_var.resolve()
@@ -6091,13 +6047,7 @@ impl<'a> VisitorMutControlFlow for ExprContainsIds<'a> {
 
 /// `STEEL_SIMPLIFY_OR=0` leaves `or`'s let binding in place.
 fn simplify_or_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_SIMPLIFY_OR").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().simplify_or
 }
 
 /// Primitives that answer with `#true` / `#false` and nothing else.
@@ -6264,20 +6214,11 @@ impl VisitorMutRefUnit for SimplifyOrBindings {
 
 /// `STEEL_HOIST_CAR_ALL=1` hoists everywhere, not only in tail position.
 fn hoist_tail_only() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(std::env::var("STEEL_HOIST_CAR_ALL").ok().as_deref(), Some("1"))
-    })
+    !crate::config::config().hoist_car_all
 }
 
 fn hoist_car_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_HOIST_CAR").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().hoist_car
 }
 
 /// Reads of a variable that pure primitives can be reordered around.
@@ -6670,13 +6611,7 @@ impl FlattenEmptyLets {
 
 /// `STEEL_LIFT_IN_PLACE=false` puts lifted functions back at the front.
 fn lift_in_place_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_LIFT_IN_PLACE").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().lift_in_place
 }
 
 impl VisitorMutRefUnit for FlattenEmptyLets {
@@ -7004,13 +6939,7 @@ impl<'a> VisitorMutUnitRef<'a> for ReferencedNames {
 
 /// `STEEL_TOPO_DEFINES=false` keeps source order.
 fn topo_defines_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_TOPO_DEFINES").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().topo_defines
 }
 
 /// Order one run so a definition follows what it calls. Cycles stay put.
@@ -7413,10 +7342,7 @@ impl<'a> SemanticAnalysis<'a> {
         // Self inlining is loop unrolling for recursion, so it wants a larger
         // budget than ordinary inlining: the body being duplicated is the same
         // body, and the win scales with how much per call ceremony it removes.
-        let threshold: usize = std::env::var("STEEL_INLINE_RECURSIVE_SIZE")
-            .ok()
-            .and_then(|x| x.trim().parse().ok())
-            .unwrap_or(75);
+        let threshold: usize = crate::config::config().inline_recursive_size;
 
 
 
@@ -9238,7 +9164,7 @@ impl<'a> SemanticAnalysis<'a> {
         let mut reordered = false;
         *self.exprs = sort_runs(originals, &definitions, &mut reordered);
 
-        if std::env::var_os("STEEL_TOPO_LOG").is_some() {
+        if crate::config::config().topo_log {
             eprintln!("topo: {} top level exprs, reordered={reordered}", self.exprs.len());
         }
 

@@ -502,13 +502,7 @@ impl VisitorMutUnit for ForwardReferences {
 /// `STEEL_SEQUENTIAL_DEFINES=0` falls back to encoding every internal define
 /// group as letrec, the way this pass always used to.
 fn sequential_defines_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_SEQUENTIAL_DEFINES").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().sequential_defines
 }
 
 /// True when no expression in the group refers to a name bound at or after its
@@ -577,7 +571,7 @@ fn defines_are_sequential(exprs: &[ExprKind]) -> bool {
         }
 
         if later.found {
-            if std::env::var_os("STEEL_SEQ_DEFINES_LOG").is_some() {
+            if crate::config::config().seq_defines_log {
                 let what = match expr {
                     ExprKind::Define(d) => format!("define {}", d.name),
                     other => format!("expr {}", other),

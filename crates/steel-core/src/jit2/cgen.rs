@@ -55,24 +55,12 @@ const USE_INLINE_CALL_FUNC: bool = true;
 /// of routing them through `call_global_function_tail_deopt_*`.
 /// `STEEL_JIT_PRIM_TAIL=0` disables, for A/B measurement.
 fn inline_primitive_tail_calls_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_PRIM_TAIL").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_prim_tail
 }
 
 /// `STEEL_JIT_FLOAT_INLINE=0` sends float arithmetic back out to the helper.
 fn float_inline_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_FLOAT_INLINE").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_float_inline
 }
 
 /// Inline `=` / `<` / `<=` / `>` / `>=` on two arbitrary values when both turn
@@ -80,70 +68,34 @@ fn float_inline_enabled() -> bool {
 /// cases that previously always went out to a helper.
 /// `STEEL_JIT_GENERIC_INLINE=0` disables, for A/B measurement.
 fn generic_inline_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_GENERIC_INLINE").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_generic_inline
 }
 
 /// Whether calls check the remaining native stack instead of counting vm
 /// frames. `STEEL_JIT_STACK_CHECK=0` restores the old 100-frame cap;
 /// `STEEL_JIT_STACK_BUDGET=<mb>` overrides how much stack the check allows.
 fn callglobal_direct_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_CALLGLOBAL_DIRECT").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_callglobal_direct
 }
 
 /// `STEEL_JIT_LATE_TAIL=0` disables the run-time compiled check on a direct
 /// global tail call whose callee was not compiled yet.
 fn late_tail_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_LATE_TAIL").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_late_tail
 }
 
 fn rest_args_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_REST_ARGS").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_rest_args
 }
 
 fn native_stack_check_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_STACK_CHECK").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_stack_check
 }
 
 /// `STEEL_JIT_INLINE_TAIL_CALL=0` disables the direct (address-baked) global
 /// tail call, for isolating bugs in that path.
 fn use_inline_global_tail_call() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        true && !matches!(
-            std::env::var("STEEL_JIT_INLINE_TAIL_CALL").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_inline_tail_call
 }
 
 const USE_INLINE_LOCAL_TAIL_CALL: bool = true;
@@ -434,13 +386,7 @@ macro_rules! abi {
 /// interpreter instead of a predictable branch. Past this many exits the
 /// function is recorded and compiled without speculation from then on.
 fn speculation_deopt_limit() -> u64 {
-    static V: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        std::env::var("STEEL_JIT_DEOPT_LIMIT")
-            .ok()
-            .and_then(|x| x.parse().ok())
-            .unwrap_or(64)
-    })
+    crate::config::config().jit_deopt_limit
 }
 
 /// Exit counts per jitted function, and the set that has given up on
@@ -629,13 +575,11 @@ fn callee_can_move_value_stack(name: &str) -> bool {
 /// Milestone scope: one operation, to answer whether jitted code can hand the
 /// interpreter a state it can resume from.
 fn speculate_int_tag_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("STEEL_JIT_SPECULATE_INT").as_deref() == Ok("1"))
+    crate::config::config().jit_speculate_int
 }
 
 fn stack_buf_cache_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("STEEL_JIT_BUF_PTR_CACHE").as_deref() == Ok("1"))
+    crate::config::config().jit_buf_ptr_cache
 }
 
 impl Default for JIT {
@@ -652,7 +596,7 @@ impl Default for JIT {
 
         // On in release too, so a miscompile gets caught rather than emitted.
         // Costs real time on compile heavy programs, hence the opt out
-        if std::env::var("STEEL_JIT_VERIFIER").as_deref() == Ok("false") {
+        if !crate::config::config().jit_verifier {
             flag_builder.set("enable_verifier", "false").unwrap();
         }
 
@@ -671,9 +615,8 @@ impl Default for JIT {
             .unwrap();
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
 
-        let arena_mib = std::env::var("STEEL_JIT_MEMORY_SIZE")
-            .ok()
-            .and_then(|s| s.trim().parse::<usize>().ok())
+        let arena_mib = crate::config::config()
+            .jit_memory_size
             .filter(|mib| *mib > 0)
             // Specialized copies roughly double the code a process generates, and
             // every test in `cargo test` shares one jit. On unix this is reserved
@@ -1652,13 +1595,7 @@ fn weak_counter_offset() -> i64 {
 /// `STEEL_JIT_INLINE_WEAK_CLONE=0` sends heap reference clones back through the
 /// out-of-line `clone_one` call. On by default.
 fn inline_weak_clone_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_INLINE_WEAK_CLONE").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_inline_weak_clone
 }
 
 /// `STEEL_JIT_PRIM_TAIL_EXTRA=0` turns off tail-position inlining of `eq?`,
@@ -1667,13 +1604,7 @@ fn inline_weak_clone_enabled() -> bool {
 /// read, instead of leaving it borrowed for a consumer that doesn't need it
 /// owned.
 pub(super) fn borrow_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_BORROW").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_borrow
 }
 
 /// Which of the four integer division operators `inline_int_divmod` is
@@ -1691,13 +1622,7 @@ enum DivMode {
 /// `set-box-handler`, which pays a `Weak::upgrade` CAS and the spin lock on
 /// every write even when the box is unshared.
 pub(super) fn inline_setbox_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_INLINE_SETBOX").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_inline_setbox
 }
 
 /// `STEEL_JIT_BYTEVECTOR_STRICT_UNSHARED=1` makes the bytevector lock elision
@@ -1707,15 +1632,7 @@ pub(super) fn inline_setbox_enabled() -> bool {
 /// belongs to the owner thread, and several references held by one thread
 /// cannot race with each other. The strict form exists to A/B that reasoning.
 pub(super) fn byte_vec_strict_unshared() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        matches!(
-            std::env::var("STEEL_JIT_BYTEVECTOR_STRICT_UNSHARED")
-                .ok()
-                .as_deref(),
-            Some("1") | Some("true")
-        )
-    })
+    crate::config::config().jit_bytevector_strict_unshared
 }
 
 /// `STEEL_JIT_LIST_CURSOR=1` walks lists as an unboxed `(cell, index)` pair in
@@ -1726,25 +1643,13 @@ pub(super) fn byte_vec_strict_unshared() -> bool {
 /// materialise it or the interpreter resumes from the head of the list rather
 /// than the current position.
 pub(super) fn list_cursor_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        matches!(
-            std::env::var("STEEL_JIT_LIST_CURSOR").ok().as_deref(),
-            Some("1") | Some("true")
-        )
-    })
+    crate::config::config().jit_list_cursor
 }
 
 /// `STEEL_JIT_INLINE_BYTEVECTOR=0` sends `bytes-ref` / `bytes-set!` back out to
 /// the generic primitive call.
 pub(super) fn inline_bytevector_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_INLINE_BYTEVECTOR").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_inline_bytevector
 }
 
 /// Maps a primitive to the division it performs, or `None` if it is not one.
@@ -1772,56 +1677,30 @@ fn divmod_mode(f: FunctionSignature) -> Option<DivMode> {
 /// out through the generic primitive call instead of inlining the two-fixnum
 /// case.
 pub(super) fn inline_divmod_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_INLINE_DIVMOD").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_inline_divmod
 }
 
 /// `STEEL_JIT_INLINE_EQ=0` sends `eq?` on two non-constant operands back
 /// through the out-of-line helpers.
 pub(super) fn inline_eq_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_INLINE_EQ").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_inline_eq
 }
 
 /// The list predicates, `cdr` and `mutable-vector`, added after the original
 /// `#%unbox` / `#%set-box!` pair. `STEEL_JIT_PRIM_TAIL2=0` disables just these.
 fn prim_tail2_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_PRIM_TAIL2").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_prim_tail2
 }
 
 /// The three parts of it, so a regression can be attributed to one:
 /// `STEEL_JIT_TAIL_PRED` / `_CDR` / `_VEC` set to 0.
-fn part_enabled(var: &'static str, cell: &'static std::sync::OnceLock<bool>) -> bool {
-    prim_tail2_enabled()
-        && *cell.get_or_init(|| {
-            !matches!(std::env::var(var).ok().as_deref(), Some("0") | Some("false"))
-        })
-}
 
 fn tail_pred_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    part_enabled("STEEL_JIT_TAIL_PRED", &V)
+    prim_tail2_enabled() && crate::config::config().jit_tail_pred
 }
 
 fn tail_cdr_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    part_enabled("STEEL_JIT_TAIL_CDR", &V)
+    prim_tail2_enabled() && crate::config::config().jit_tail_cdr
 }
 
 /// `reverse` in tail position. This used to be default-off: it makes a
@@ -1831,23 +1710,15 @@ fn tail_cdr_enabled() -> bool {
 /// as "the builtin returned a value", popped the frame and swallowed the
 /// result). Fixed in `new_callglobal_tail_handler_deopt_test`.
 fn tail_reverse_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    part_enabled("STEEL_JIT_TAIL_REV", &V)
+    prim_tail2_enabled() && crate::config::config().jit_tail_rev
 }
 
 fn tail_vec_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    part_enabled("STEEL_JIT_TAIL_VEC", &V)
+    prim_tail2_enabled() && crate::config::config().jit_tail_vec
 }
 
 fn extra_primitive_tail_calls_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_PRIM_TAIL_EXTRA").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_prim_tail_extra
 }
 
 fn weak_counter_type() -> Type {
@@ -1947,13 +1818,7 @@ enum SpecMode {
 ///
 /// `STEEL_JIT_FRAMELESS=0` disables.
 fn frameless_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_FRAMELESS").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_frameless
 }
 
 /// Whether a function's body only does what a frameless copy can: local reads
@@ -2141,13 +2006,11 @@ fn emit_slot_type_checks(
 /// Type-specialized copies of loops and self-recursive functions. On by default;
 /// `STEEL_JIT_SPECIALIZE_LOOPS=0` turns it off.
 fn loop_specialization_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("STEEL_JIT_SPECIALIZE_LOOPS").as_deref() != Ok("0"))
+    crate::config::config().jit_specialize_loops
 }
 
 fn spec_debug_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var_os("STEEL_JIT_SPEC_DEBUG").is_some())
+    crate::config::config().jit_spec_debug
 }
 
 /// Guess a type for each argument slot of a loop or recursive function from how
@@ -2579,14 +2442,12 @@ unsafe fn compile_bytecode(
 // jit-<pid>.dump in the cwd for perf inject --jit. Read once, these are on the
 // compile path.
 fn perf_map_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os("STEEL_JIT_PERF_MAP").is_some())
+    crate::config::config().jit_perf_map
 }
 
 #[cfg(target_os = "linux")]
 fn jitdump_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os("STEEL_JIT_DUMP").is_some())
+    crate::config::config().jit_dump
 }
 
 // None rather than a panic if we can't make the file - a read only working
@@ -2766,14 +2627,15 @@ impl JIT {
 
         // `STEEL_JIT_LOG` prints candidates by id; this names them, which is
         // what a `STEEL_JIT_SKIP` bisect needs next.
-        if std::env::var_os("STEEL_JIT_LOG").is_some() {
+        if crate::config::config().jit_log {
             eprintln!("jit: compiling id {id} -> {top_level_name:?}");
         }
 
         // `STEEL_JIT_DUMP_ID=<id>,...`: the bytecode a bisect landed on.
-        if std::env::var("STEEL_JIT_DUMP_ID")
-            .ok()
-            .is_some_and(|v| v.split(',').any(|x| x.trim() == name))
+        if crate::config::config()
+            .jit_dump_id
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&id))
         {
             eprintln!("jit: bytecode for id {id} ({top_level_name:?}):");
             for (i, ins) in instructions.iter().enumerate() {
@@ -2819,11 +2681,11 @@ impl JIT {
             // For bisecting a specialization problem to one function: comma
             // separated name substrings to allow (`STEEL_JIT_SPEC_ONLY`) or
             // exclude (`STEEL_JIT_SPEC_SKIP`).
-            && std::env::var("STEEL_JIT_SPEC_ONLY").map_or(true, |v| {
-                v.split(',').any(|part| inner_name.contains(part))
+            && crate::config::config().jit_spec_only.as_ref().map_or(true, |parts| {
+                parts.iter().any(|part| inner_name.contains(part.as_str()))
             })
-            && std::env::var("STEEL_JIT_SPEC_SKIP").map_or(true, |v| {
-                !v.split(',').any(|part| inner_name.contains(part))
+            && crate::config::config().jit_spec_skip.as_ref().map_or(true, |parts| {
+                !parts.iter().any(|part| inner_name.contains(part.as_str()))
             })
         {
             loop_type_seed(stmts, arity, constants, globals, function_index)
@@ -2948,8 +2810,8 @@ impl JIT {
         // name contains it - the only way to read what a loop's back edge really
         // emits. `=1` keeps the original behaviour of printing only a function the
         // verifier rejected.
-        if let Ok(filter) = std::env::var("STEEL_JIT_DUMP_CLIF") {
-            if filter != "1" && inner_name.contains(&filter) {
+        if let Some(filter) = &crate::config::config().jit_dump_clif {
+            if filter != "1" && inner_name.contains(filter.as_str()) {
                 eprintln!("--- clif for {} ---\n{}", inner_name, self.ctx.func);
                 // The ir prints callees as `fnN = u0:M`; M is the module's FuncId,
                 // so this legend turns them back into the helper names.
@@ -2979,7 +2841,7 @@ impl JIT {
                     // STEEL_JIT_DUMP_CLIF=1 prints the function that failed, which is the
                     // only practical way to chase a dominance error back to the block
                     // that defines the offending value.
-                    if std::env::var("STEEL_JIT_DUMP_CLIF").as_deref() == Ok("1") {
+                    if crate::config::config().jit_dump_clif.as_deref() == Some("1") {
                         eprintln!("--- clif for failed function ---\n{}", self.ctx.func);
                     }
                     eprintln!("{:#?}", e);
@@ -3335,7 +3197,7 @@ impl JIT {
                         Err(e) => Some(format!("define: {e}")),
                     },
                     Err(e) => {
-                        if std::env::var("STEEL_JIT_DUMP_CLIF").as_deref() == Ok("1") {
+                        if crate::config::config().jit_dump_clif.as_deref() == Some("1") {
                             eprintln!("--- clif for failed specialized copy ---\n{}", self.ctx.func);
                         }
                         Some(format!("verify: {e:#?}"))
@@ -3567,7 +3429,7 @@ impl JIT {
             pop_count_minus_one: None,
             compilation_stats: CompilationStats::default(),
             thread_id: None,
-            use_lbbv: std::env::var("STEEL_LBBV").is_ok(),
+            use_lbbv: crate::config::config().lbbv,
             known_tags: HashMap::new(),
             spec_mode: spec_mode.clone(),
             deopt_returns: HashSet::new(),
@@ -3660,7 +3522,7 @@ impl JIT {
             || (trans.cursors_on && (trans.cursor_advances == 0 || trans.cursor_carries == 0));
 
         // `STEEL_CURSOR_STATS=1`: why a function kept or lost its cursors.
-        if trans.cursors_on && std::env::var_os("STEEL_CURSOR_STATS").is_some() {
+        if trans.cursors_on && crate::config::config().cursor_stats {
             eprintln!(
                 "[cursor-stats] {} advances={} carries={} copy_reads={} bail={}",
                 trans.name, trans.cursor_advances, trans.cursor_carries,
@@ -4073,7 +3935,7 @@ impl PropertyMap {
 
         let cursor_conflict = self.cached_lookups.cursors != other.cached_lookups.cursors;
         // `STEEL_CURSOR_TRACE=1`: which join lost a cursor, and from where.
-        if cursor_conflict && std::env::var_os("STEEL_CURSOR_TRACE").is_some() {
+        if cursor_conflict && crate::config::config().cursor_trace {
             let mut a: Vec<_> = self.cached_lookups.cursors.iter().map(|(k, v)| (*k, v.cell.as_u32(), v.index.as_u32())).collect();
             let mut b: Vec<_> = other.cached_lookups.cursors.iter().map(|(k, v)| (*k, v.cell.as_u32(), v.index.as_u32())).collect();
             a.sort(); b.sort();
@@ -10596,7 +10458,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize) {
-        if std::env::var_os("STEEL_DEBUG_TCO").is_some() { // TEMP-DEBUG
+        if crate::config::config().debug_tco { // TEMP-DEBUG
             eprintln!("[selftail fn={} ip={} payload={} shadow={:?} lets={:?}]",
                 self.name, self.ip, payload, self.shadow_stack, self.let_var_stack);
         }
@@ -14084,7 +13946,7 @@ impl FunctionTranslator<'_> {
         // to bisect which one breaks a program or costs time. The
         // `closure-lifting-<digits>` gensym differs per run, so it is
         // normalised away before matching.
-        if let Ok(only) = std::env::var("STEEL_CURSOR_ONLY") {
+        if let Some(only) = &crate::config::config().cursor_only {
             // The closure-lifting gensym number differs run to run.
             fn stable(name: &str) -> String {
                 match name.find("closure-lifting-") {
@@ -14120,13 +13982,13 @@ impl FunctionTranslator<'_> {
             self.define_cursor_from_slot(cursor, slot);
             self.header_cursors.insert(slot, cursor);
         }
-        if std::env::var_os("STEEL_CURSOR_DUMP").is_some() && !self.header_cursors.is_empty() {
+        if crate::config::config().cursor_dump && !self.header_cursors.is_empty() {
             eprintln!("[cursor] bytecode for {}:", self.name);
             for (i, ins) in self.instructions.iter().enumerate() {
                 eprintln!("    {i:3}  {:?} {}", ins.op_code, ins.payload_size.to_usize());
             }
         }
-        if std::env::var_os("STEEL_CURSOR_TRACE").is_some() && !self.header_cursors.is_empty() {
+        if crate::config::config().cursor_trace && !self.header_cursors.is_empty() {
             let mut slots: Vec<_> = self.header_cursors.keys().copied().collect();
             slots.sort_unstable();
             eprintln!("[cursor] seed fn={} slots={:?}", self.name, slots);
@@ -14388,8 +14250,7 @@ impl FunctionTranslator<'_> {
             return local;
         }
         log::debug!(target: "letvar", "MISS slot {index}");
-        let cache_this_read =
-            std::env::var("STEEL_JIT_LETVAR_CACHE").as_deref() == Ok("1");
+        let cache_this_read = crate::config::config().jit_letvar_cache;
 
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);

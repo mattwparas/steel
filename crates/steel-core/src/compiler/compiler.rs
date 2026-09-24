@@ -1329,11 +1329,7 @@ impl Compiler {
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         // Inline across module boundaries
-        if std::env::var("STEEL_MODULE_INLINE")
-            .as_ref()
-            .map(|x| x.as_str())
-            != Ok("false")
-        {
+        if crate::config::config().module_inline {
             semantic.inline_idents_across_module_boundaries(self.modules())?;
             semantic.refresh_variables();
         }
@@ -1367,7 +1363,7 @@ impl Compiler {
 
         // `STEEL_DEBUG_AST_PRE_LIFT` prints the program as inlining left it, before
         // closure lifting rewrites local functions into globals.
-        if std::env::var("STEEL_DEBUG_AST_PRE_LIFT").is_ok() {
+        if crate::config::config().debug_ast_pre_lift {
             steel_parser::ast::AstTools::pretty_print(&semantic.exprs);
         }
 
@@ -1375,11 +1371,7 @@ impl Compiler {
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
         for _ in 0..3 {
-            if std::env::var("STEEL_CLOSURE_LIFTING")
-                .as_ref()
-                .map(|x| x.as_str())
-                != Ok("false")
-            {
+            if crate::config::config().closure_lifting {
                 semantic.lift_closures();
                 self.shadowed_variable_renamer
                     .rename_shadowed_variables(&mut semantic.exprs, false);
@@ -1395,7 +1387,7 @@ impl Compiler {
 
         // Loop unrolling. That is probably what we need?
         // Inlining?
-        if std::env::var("STEEL_INLINE").is_ok() {
+        if crate::config::config().inline {
             semantic.inline_function_calls(Some(75), self.modules())?;
             self.shadowed_variable_renamer
                 .rename_shadowed_variables(&mut semantic.exprs, false);
@@ -1411,7 +1403,7 @@ impl Compiler {
         // `STEEL_INLINE_RECURSIVE=<depth>` sets how many levels to unroll. Bare
         // presence keeps the original depth of 2; a number is taken literally, so
         // `=1` now means one level rather than "on".
-        if let Ok(recursive) = std::env::var("STEEL_INLINE_RECURSIVE") {
+        if let Some(recursive) = &crate::config::config().inline_recursive {
             let depth = match recursive.trim() {
                 "" => 2,
                 other => other.parse().unwrap_or(2),
@@ -1449,7 +1441,7 @@ impl Compiler {
         // This might have to run later?
         semantic.lower_rest_arguments();
 
-        if let Ok(inline_more) = std::env::var("STEEL_INLINE_MORE") {
+        if let Some(inline_more) = &crate::config::config().inline_more {
             // A comma separated list of size thresholds selects the rounds, so the
             // schedule can be tuned without a rebuild. "1" takes the default: one
             // round at 25, which kept most of the [200, 50] win on dynamic for half
@@ -1492,7 +1484,7 @@ impl Compiler {
         // shells behind. Those are not free - each one still emits a
         // BEGINSCOPE/LETENDSCOPE pair. `FlattenEmptyLets` was written for
         // exactly this and had no callers.
-        if std::env::var("STEEL_FLATTEN_EMPTY_LETS").as_deref() != Ok("0") {
+        if crate::config::config().flatten_empty_lets {
             semantic.flatten_empty_lets();
         }
 
@@ -1506,7 +1498,7 @@ impl Compiler {
         // `cdr` cannot move the list's position in place - it has to build a
         // new one. Binding the `car` first makes the `cdr` the last use.
         let hoisted = semantic.hoist_car_before_cdr();
-        if std::env::var_os("STEEL_HOIST_CAR_DEBUG").is_some() && hoisted > 0 {
+        if crate::config::config().hoist_car_debug && hoisted > 0 {
             eprintln!("[hoist-car] rewrote {hoisted} sites");
         }
 
@@ -1543,7 +1535,7 @@ impl Compiler {
         self.analysis = semantic.into_analysis();
         self.analysis.shrink_capacity();
 
-        if std::env::var("STEEL_DEBUG_AST").is_ok() {
+        if crate::config::config().debug_ast {
             steel_parser::ast::AstTools::pretty_print(&expanded_statements);
         }
 

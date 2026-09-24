@@ -81,8 +81,7 @@ const fn heap_vec_cap_offset() -> i32 {
 // converging_if merges only `properties`, so the arms have to agree on the rest
 // or the mismatch is silent. STEEL_JIT_BRANCH_CHECK=1 reports one.
 fn branch_check_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var("STEEL_JIT_BRANCH_CHECK").is_ok())
+    crate::config::config().jit_branch_check
 }
 
 fn branch_state_fingerprint(ctx: &FunctionTranslator<'_>) -> Option<(usize, String, usize)> {
@@ -3011,35 +3010,17 @@ const GETTER_PROTO_ARITY: usize = 2;
 /// getter prototype, for A/B measurement.
 /// `STEEL_JIT_PREDICATE=0` turns off inlining of struct predicates.
 fn predicate_inlining_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_PREDICATE").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_predicate
 }
 
 /// `STEEL_JIT_FUSE_GETTER_UNBOX=0` turns off reading a mutable struct field
 /// straight through its box. On by default.
 fn getter_unbox_fusion_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_FUSE_GETTER_UNBOX").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_fuse_getter_unbox
 }
 
 fn getter_proto_inlining_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_GETTER_PROTO").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_getter_proto
 }
 
 /// `inline_struct_getter`, but for the two argument prototype: its slow arm has

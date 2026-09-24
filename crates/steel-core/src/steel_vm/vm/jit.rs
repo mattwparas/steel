@@ -34,35 +34,26 @@ fn should_trampoline(ctx: &mut VmCore) -> bool {
 // Binary search on STEEL_JIT_MAX until it breaks, pull the id at that index out of
 // the log, then confirm with STEEL_JIT_SKIP.
 fn jit_should_compile(id: u32) -> bool {
-    fn id_list(var: &str) -> Option<Vec<u32>> {
-        std::env::var(var).ok().map(|x| {
-            x.split(',')
-                .filter_map(|x| x.trim().parse::<u32>().ok())
-                .collect()
-        })
-    }
+    let config = crate::config::config();
 
-    if let Some(only) = id_list("STEEL_JIT_ONLY") {
+    if let Some(only) = &config.jit_only {
         if !only.contains(&id) {
             return false;
         }
     }
 
-    if id_list("STEEL_JIT_SKIP").is_some_and(|skip| skip.contains(&id)) {
+    if config.jit_skip.as_ref().is_some_and(|skip| skip.contains(&id)) {
         return false;
     }
 
     static COUNT: AtomicUsize = AtomicUsize::new(0);
     let n = COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 
-    if std::env::var("STEEL_JIT_LOG").is_ok() {
+    if config.jit_log {
         eprintln!("jit: candidate #{n} -> id {id}");
     }
 
-    match std::env::var("STEEL_JIT_MAX")
-        .ok()
-        .and_then(|x| x.parse().ok())
-    {
+    match config.jit_max {
         Some(max) if n >= max => false,
         _ => true,
     }
@@ -133,7 +124,7 @@ fn jit_compile_lambda_impl(
         return (func, None);
     }
 
-    if std::env::var("STEEL_JIT_LOG_NAMES").is_ok() {
+    if crate::config::config().jit_log_names {
         let name = maybe_index.and_then(|x| {
             ctx.thread
                 .compiler
@@ -156,7 +147,11 @@ fn jit_compile_lambda_impl(
         return (func, None);
     }
 
-    if std::env::var("STEEL_JIT_DUMP_BC").ok().as_deref() == Some(func.id.to_string().as_str()) {
+    if crate::config::config()
+        .jit_dump_bc
+        .as_ref()
+        .is_some_and(|ids| ids.contains(&func.id))
+    {
         eprintln!("=== bytecode for id {} (arity {}) ===", func.id, func.arity);
         crate::core::instructions::pretty_print_dense_instructions(&func.body_exp);
         let guard = ctx.thread.compiler.read();
@@ -280,13 +275,7 @@ fn jit_compile_lambda_impl(
 // code runs native no longer depends on how fast the worker is.
 
 pub(crate) fn jit_background_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("STEEL_JIT_BACKGROUND").ok().as_deref(),
-            Some("0") | Some("false")
-        )
-    })
+    crate::config::config().jit_background
 }
 
 /// Everything a compile reads from the running VM, captured on the thread that
@@ -4039,8 +4028,7 @@ fn push_global(ctx: *mut VmCore, index: usize) -> SteelVal {
 /// actually dispatching on, so the biggest symbol in a profile can be traced
 /// back to a callee kind rather than guessed at.
 pub fn deopt_census_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os("STEEL_DEOPT_CENSUS").is_some())
+    crate::config::config().deopt_census
 }
 
 pub static DEOPT_CENSUS: std::sync::Mutex<Option<std::collections::HashMap<String, u64>>> =
@@ -6431,8 +6419,7 @@ fn setup_closure_call_arity(
 
     // `STEEL_STACK_DEBUG=1`: how much native stack the jitted frames are using
     // when they hand off here. Read once - this is the hot trampoline path.
-    static STACK_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if *STACK_DEBUG.get_or_init(|| std::env::var_os("STEEL_STACK_DEBUG").is_some()) {
+    if crate::config::config().stack_debug {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         if N.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 200000 == 0 {
             let here = 0u8;
@@ -7861,7 +7848,7 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
 
         #[cfg(feature = "jit2")]
         let mut constructed_lambda =
-            if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false")
+            if crate::config::config().jit
                 && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
             {
                 let (lambda, background_job) =

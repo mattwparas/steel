@@ -416,10 +416,7 @@ pub struct SteelThread {
 pub(crate) fn native_stack_limit() -> usize {
     const MARGIN: usize = 1024 * 1024;
 
-    if let Some(mb) = std::env::var("STEEL_JIT_STACK_BUDGET")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-    {
+    if let Some(mb) = crate::config::config().jit_stack_budget {
         // An explicit budget measured from here, for A/B runs.
         let here = 0u8;
         let here = &here as *const u8 as usize;
@@ -2638,9 +2635,7 @@ impl<'a> VmCore<'a> {
                     // Did we return a value? If we have a result, then we did, otherwise, we did not?
                     //
                     // Is this right? Maybe we just need to check the is native part?
-                    static JIT_TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-                    let trace = *JIT_TRACE
-                        .get_or_init(|| std::env::var_os("STEEL_JIT_TRACE").is_some());
+                    let trace = crate::config::config().jit_trace;
                     static TN: std::sync::atomic::AtomicUsize =
                         std::sync::atomic::AtomicUsize::new(0);
                     let n = if trace {
@@ -2656,8 +2651,7 @@ impl<'a> VmCore<'a> {
                         );
                     }
 
-                    static JT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-                    let jt = *JT.get_or_init(|| std::env::var_os("STEEL_JIT_TRACE").is_some());
+                    let jt = crate::config::config().jit_trace;
                     if jt {
                         eprintln!(
                             "[in ] frames={} stack={} sp={} pop={} ip={} fn={:?}",
@@ -4440,10 +4434,7 @@ impl<'a> VmCore<'a> {
                     }
                 });
 
-                let (constructed_lambda, background_job) = if std::env::var("STEEL_JIT")
-                    .as_ref()
-                    .map(|x| x.as_str())
-                    != Ok("false")
+                let (constructed_lambda, background_job) = if crate::config::config().jit
                     && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
                 {
                     jit::jit_compile_lambda_deferred(
@@ -4656,7 +4647,7 @@ impl<'a> VmCore<'a> {
 
             #[cfg(feature = "jit2")]
             let mut constructed_lambda =
-                if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
+                if crate::config::config().jit {
                     let (lambda, background_job) =
                         jit::jit_compile_lambda_deferred(self, constructed_lambda, None, None);
                     // The prototype is interned by value, so the worker gets a
@@ -6516,8 +6507,7 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     // TEMP-DEBUG
     {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *ON.get_or_init(|| std::env::var_os("STEEL_APPLY_DEBUG").is_some())
+        if crate::config::config().apply_debug
             && N.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 4000
         {
             eprintln!(

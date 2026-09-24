@@ -41,14 +41,7 @@ const FLAT: &str = "flat-vector";
 const PRIM: &str = "#%prim.";
 
 pub fn enabled() -> bool {
-    static ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-        matches!(
-            std::env::var("STEEL_FLAT_VECTORS").as_deref(),
-            Ok("1") | Ok("true")
-        )
-    });
-
-    *ENABLED
+    crate::config::config().flat_vectors
 }
 
 fn strip_prim(name: &str) -> &str {

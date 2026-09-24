@@ -480,14 +480,7 @@ const RESET_LIMIT: usize = 9;
 // earley included, which says the win comes from the ceiling and from adapting
 // at all rather than from a large multiplier.
 fn gc_work_ratio() -> usize {
-    static RATIO: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
-        std::env::var("STEEL_GC_WORK_RATIO")
-            .ok()
-            .and_then(|x| x.parse().ok())
-            .unwrap_or(16)
-    });
-
-    *RATIO
+    crate::config::config().gc_work_ratio
 }
 
 // How much a weak collection has to reclaim, as a fraction of the list it walks,
@@ -496,28 +489,14 @@ fn gc_work_ratio() -> usize {
 // the walk swamps everything else. Backing off on yield rather than on occupancy
 // stops that; a full collection re-arms it.
 fn weak_yield_ratio() -> usize {
-    static R: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
-        std::env::var("STEEL_GC_WEAK_YIELD")
-            .ok()
-            .and_then(|x| x.parse().ok())
-            .unwrap_or(32)
-    });
-
-    *R
+    crate::config::config().gc_weak_yield
 }
 
 // A ceiling on that headroom. Slots are not free - each one is a live allocation
 // - so the heap cannot simply be sized to the graph it traces. Without this the
 // rule reaches for gigabytes on a large graph and ends up slower than it started.
 fn gc_max_headroom() -> usize {
-    static HEADROOM: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
-        std::env::var("STEEL_GC_MAX_HEADROOM")
-            .ok()
-            .and_then(|x| x.parse().ok())
-            .unwrap_or(256 * 100 * 128)
-    });
-
-    *HEADROOM
+    crate::config::config().gc_max_headroom
 }
 
 // TODO: Do these roots needs to be truly global?
@@ -2355,11 +2334,7 @@ impl ParallelMarker {
         // and cache thrashing rather than throughput - one is faster than 33 on
         // every benchmark measured, at a ninth of the cpu. STEEL_GC_MARK_THREADS
         // opts back in.
-        let parallelism = std::env::var("STEEL_GC_MARK_THREADS")
-            .ok()
-            .and_then(|x| x.parse::<usize>().ok())
-            .filter(|x| *x > 0)
-            .unwrap_or(1);
+        let parallelism = crate::config::config().gc_mark_threads.max(1);
 
         let mut workers = Vec::with_capacity(parallelism);
         let queue = Arc::new(crossbeam_queue::SegQueue::new());
