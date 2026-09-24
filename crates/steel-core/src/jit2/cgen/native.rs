@@ -229,10 +229,8 @@ impl<'a> FunctionTranslator<'a> {
                     let index = ctx.register_index(i);
                     let value = ctx.register_index(a);
 
-                    ctx.call_function_returns_value_args(
-                        "vector-set-reg-3",
-                        &[vector, index, value],
-                    )
+                    // Checked by the caller, after the result is pushed.
+                    ctx.call_helper_unchecked(VECTOR_SET_REG_3, [vector, index, value])
                 };
 
                 let res = if INLINE_MUTABLE_VECTOR_OPS {
@@ -270,10 +268,8 @@ impl<'a> FunctionTranslator<'a> {
                     let vector = ctx.register_index(v);
                     let index = ctx.register_index(i);
 
-                    ctx.call_function_returns_value_args(
-                        "vector-set-reg-2",
-                        &[vector, index, new_value],
-                    )
+                    // Checked by the caller, after the result is pushed.
+                    ctx.call_helper_unchecked(VECTOR_SET_REG_2, [vector, index, new_value])
                 };
 
                 let res = if INLINE_MUTABLE_VECTOR_OPS {
@@ -305,10 +301,8 @@ impl<'a> FunctionTranslator<'a> {
                 let fallback = move |ctx: &mut Self| {
                     let vector = ctx.register_index(v);
 
-                    ctx.call_function_returns_value_args(
-                        "vector-set-reg-1",
-                        &[vector, index_value, new_value],
-                    )
+                    // Checked by the caller, after the result is pushed.
+                    ctx.call_helper_unchecked(VECTOR_SET_REG_1, [vector, index_value, new_value])
                 };
 
                 let res = if INLINE_MUTABLE_VECTOR_OPS {
@@ -345,7 +339,8 @@ impl<'a> FunctionTranslator<'a> {
                 let (vector, index, value) = (args[0], args[1], args[2]);
 
                 let fallback = move |ctx: &mut Self| {
-                    ctx.call_function_returns_value_args("vector-set-args", &args)
+                    // Checked by the caller, after the result is pushed.
+                    ctx.call_helper_unchecked(VECTOR_SET_ARGS, args.as_slice().try_into().unwrap())
                 };
 
                 let res = if INLINE_MUTABLE_VECTOR_OPS {
@@ -370,7 +365,8 @@ impl<'a> FunctionTranslator<'a> {
                 let (vector, index, value) = (args[0], args[1], args[2]);
 
                 let fallback = move |ctx: &mut Self| {
-                    ctx.call_function_returns_value_args("vector-set-args", &args)
+                    // Checked by the caller, after the result is pushed.
+                    ctx.call_helper_unchecked(VECTOR_SET_ARGS, args.as_slice().try_into().unwrap())
                 };
 
                 let res = if INLINE_MUTABLE_VECTOR_OPS {
@@ -418,7 +414,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.shadow_stack.pop();
                 self.shadow_stack.pop();
 
-                let res = self.call_function_returns_value_args("eq?-reg-2", &[left, right]);
+                let res = self.call_helper(EQ_P_REG_2, [left, right]);
 
                 self.push(res, InferredType::UnboxedBool);
                 self.ip += 1;
@@ -504,7 +500,7 @@ impl<'a> FunctionTranslator<'a> {
                 // Pop them off
                 self.shadow_stack.pop();
 
-                let res = self.call_function_returns_value_args("eq?-reg-1", &[left, right.0]);
+                let res = self.call_helper(EQ_P_REG_1, [left, right.0]);
 
                 self.push(res, InferredType::UnboxedBool);
                 self.ip += 1;
@@ -518,7 +514,7 @@ impl<'a> FunctionTranslator<'a> {
                     .map(|x| x.0)
                     .collect::<Vec<_>>();
 
-                let res = self.call_function_returns_value_args_no_context("eq?-args", &args);
+                let res = self.call_helper(EQ_P_ARGS, args.try_into().unwrap());
 
                 self.push(res, InferredType::UnboxedBool);
                 self.ip += 1;
@@ -656,7 +652,7 @@ impl<'a> FunctionTranslator<'a> {
 
         let res = self.converging_if(
             needs_call,
-            |ctx| ctx.call_function_returns_value_args_no_context("eq?-no-drop", &[left, right]),
+            |ctx| ctx.call_helper(EQ_P_NO_DROP, [left, right]),
             |_| inline_result,
             types::I8,
         );
@@ -706,7 +702,7 @@ impl<'a> FunctionTranslator<'a> {
                 let right = self.shadow_pop().0;
                 let list = self.unbox_value_to_pointer(right);
                 self.shadow_pop();
-                let res = self.call_function_returns_value_args("list-contains-reg", &[left, list]);
+                let res = self.call_helper(LIST_CONTAINS_REG, [left, list]);
                 self.push(res, InferredType::UnboxedBool);
 
                 self.ip += 1;
@@ -729,10 +725,7 @@ impl<'a> FunctionTranslator<'a> {
 
                 let value_ptr = self.builder.ins().iconst(types::I64, as_ptr as i64);
 
-                let res = self.call_function_returns_value_args(
-                    "list-contains-reg-constant",
-                    &[left, value_ptr],
-                );
+                let res = self.call_helper(LIST_CONTAINS_REG_CONSTANT, [left, value_ptr]);
                 self.push(res, InferredType::UnboxedBool);
 
                 self.ip += 1;
@@ -745,9 +738,8 @@ impl<'a> FunctionTranslator<'a> {
                     .map(|x| x.0)
                     .collect::<Vec<_>>();
 
-                let res = self.call_function_returns_value_args("list-contains-value", &args);
+                let res = self.call_helper_checked(LIST_CONTAINS_VALUE, args.try_into().unwrap());
 
-                self.check_deopt();
 
                 self.push(res, InferredType::UnboxedBool);
 
@@ -868,7 +860,7 @@ impl<'a> FunctionTranslator<'a> {
                     // }
                     _ => {
                         self.shadow_stack.pop();
-                        let res = self.call_function_returns_value_args("pair?", &[register]);
+                        let res = self.call_helper(PAIR_P, [register]);
 
                         self.push(res, InferredType::Bool);
                         self.ip += 1;
@@ -881,7 +873,7 @@ impl<'a> FunctionTranslator<'a> {
             _ => {
                 // TODO: Check the inferred type here as well, maybe do unboxed bools
                 let (value, inferred_type) = self.shadow_pop();
-                let res = self.call_function_returns_value_args_no_context("pair?-value", &[value]);
+                let res = self.call_helper(PAIR_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
             }
@@ -948,7 +940,7 @@ impl<'a> FunctionTranslator<'a> {
             }
             Constant(constant_value) => {
                 let (value, inferred_type) = self.shadow_pop();
-                let res = self.call_function_returns_value_args_no_context("list?-value", &[value]);
+                let res = self.call_helper(LIST_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
             }
@@ -980,10 +972,7 @@ impl<'a> FunctionTranslator<'a> {
 
                 let value_ptr = self.builder.ins().iconst(types::I64, as_ptr as i64);
 
-                let res = self.call_function_returns_value_args_no_context(
-                    "memq-unchecked-list",
-                    &[value, value_ptr],
-                );
+                let res = self.call_helper(MEMQ_UNCHECKED_LIST, [value, value_ptr]);
 
                 res
             }
@@ -995,10 +984,9 @@ impl<'a> FunctionTranslator<'a> {
                     .map(|x| x.0)
                     .collect::<Vec<_>>();
 
-                let res = self.call_function_returns_value_args("memq-value", &args);
+                let res = self.call_helper_checked(MEMQ_VALUE, args.try_into().unwrap());
 
                 // TODO: Put the ip in the check deopt!
-                self.check_deopt();
 
                 res
             }
@@ -1033,7 +1021,7 @@ impl<'a> FunctionTranslator<'a> {
                     }
                     _ => {
                         self.shadow_stack.pop();
-                        let res = self.call_function_returns_value_args("string?", &[register]);
+                        let res = self.call_helper(STRING_P, [register]);
 
                         self.push(res, InferredType::Bool);
                         self.ip += 1;
@@ -1043,7 +1031,7 @@ impl<'a> FunctionTranslator<'a> {
             Constant(constant_value) => {
                 let (value, inferred_type) = self.shadow_pop();
                 let res =
-                    self.call_function_returns_value_args_no_context("string?-value", &[value]);
+                    self.call_helper(STRING_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
             }
@@ -1109,7 +1097,7 @@ impl<'a> FunctionTranslator<'a> {
 
                 let register = self.register_index(p);
                 self.shadow_stack.pop();
-                let res = self.call_function_returns_value_args("empty?", &[register]);
+                let res = self.call_helper(EMPTY_P, [register]);
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
             }
@@ -1120,7 +1108,7 @@ impl<'a> FunctionTranslator<'a> {
                 // TODO: Check the inferred type here as well, maybe do unboxed bools
                 let (value, inferred_type) = self.shadow_pop();
                 let res =
-                    self.call_function_returns_value_args_no_context("empty?-value", &[value]);
+                    self.call_helper(EMPTY_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
             }
@@ -1560,9 +1548,8 @@ impl<'a> FunctionTranslator<'a> {
 
         let sp = |ctx: &mut Self| {
             let args = [left, right];
-            let result = ctx.call_function_returns_value_args("add-binop", &args);
+            let result = ctx.call_helper_checked(ADD_BINOP, args);
 
-            ctx.check_deopt();
 
             result
         };
@@ -1619,12 +1606,11 @@ impl<'a> FunctionTranslator<'a> {
             let register_l = ctx.builder.ins().iconst(types::I64, left as i64);
 
             let args = [register_l, register_r];
-            let result = ctx.call_function_returns_value_args("add-binop-reg-2", &args);
+            let result = ctx.call_helper_checked(ADD_BINOP_REG_2, args);
 
             // The helper reports a type error by flagging the vm rather than
             // returning one; without this the jitted code kept going and the
             // error surfaced after `with-handler` had already been unwound.
-            ctx.check_deopt();
 
             result
         };
@@ -1697,7 +1683,7 @@ impl<'a> FunctionTranslator<'a> {
                     }
                     _ => {
                         self.shadow_stack.pop();
-                        let res = self.call_function_returns_value_args("symbol?", &[register]);
+                        let res = self.call_helper(SYMBOL_P, [register]);
 
                         self.push(res, InferredType::Bool);
                         self.ip += 1;
@@ -1708,7 +1694,7 @@ impl<'a> FunctionTranslator<'a> {
             Constant(constant_value) => {
                 let (value, inferred_type) = self.shadow_pop();
                 let res =
-                    self.call_function_returns_value_args_no_context("symbol?-value", &[value]);
+                    self.call_helper(SYMBOL_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
             }
@@ -1773,7 +1759,7 @@ impl<'a> FunctionTranslator<'a> {
 
                     _ => {
                         self.shadow_stack.pop();
-                        let res = self.call_function_returns_value_args("void?", &[register]);
+                        let res = self.call_helper(VOID_P, [register]);
                         self.push(res, InferredType::Bool);
                         self.ip += 1;
                     }
@@ -1781,7 +1767,7 @@ impl<'a> FunctionTranslator<'a> {
             }
             Constant(constant_value) => {
                 let (value, inferred_type) = self.shadow_pop();
-                let res = self.call_function_returns_value_args_no_context("void?-value", &[value]);
+                let res = self.call_helper(VOID_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
             }
@@ -1865,8 +1851,7 @@ impl<'a> FunctionTranslator<'a> {
             |ctx| {
                 // Slow path, check deopt too
                 ctx.clone_value(value);
-                let res = ctx.call_function_returns_value_args("unbox-handler", &[value]);
-                ctx.check_deopt();
+                let res = ctx.call_helper_checked(UNBOX_HANDLER, [value]);
                 res
             },
             typ,
@@ -1929,8 +1914,7 @@ impl<'a> FunctionTranslator<'a> {
             },
             |ctx| {
                 ctx.clone_value(value);
-                let res = ctx.call_function_returns_value_args("unbox-handler", &[value]);
-                ctx.check_deopt();
+                let res = ctx.call_helper_checked(UNBOX_HANDLER, [value]);
                 let one = ctx.builder.ins().iconst(types::I8, 1);
                 ctx.builder.def_var(owned, one);
                 res
@@ -2026,10 +2010,7 @@ impl<'a> FunctionTranslator<'a> {
                 // Not a box: let the existing handler raise, with the operands
                 // in the shape it expects.
                 ctx.clone_value(boxed);
-                let res = ctx
-                    .call_function_returns_value_args("set-box-handler", &[boxed, new_value]);
-                ctx.check_deopt();
-                res
+                ctx.call_helper_checked(SET_BOX_HANDLER, [boxed, new_value])
             },
             typ,
         )
@@ -2596,7 +2577,8 @@ impl<'a> FunctionTranslator<'a> {
         let (vector, value) = (args[0], args[1]);
 
         let fallback = move |ctx: &mut Self| {
-            ctx.call_function_returns_value_args("vector-push-args", &[vector, value])
+            // Checked by the caller, after the result is pushed.
+            ctx.call_helper_unchecked(VECTOR_PUSH_ARGS, [vector, value])
         };
 
         let res = if INLINE_MUTABLE_VECTOR_OPS {

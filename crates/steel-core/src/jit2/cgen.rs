@@ -378,6 +378,9 @@ macro_rules! abi {
     };
 }
 
+mod helpers;
+use helpers::*;
+
 /// How many speculative exits a function may take before speculation stops
 /// being worth it for that function.
 ///
@@ -536,32 +539,7 @@ fn debug_instructions2(value: RootedInstructions) {
 /// or re-enter the vm. Getting an entry wrong here leaves generated code using a
 /// dangling buffer pointer, so add to it only after checking the callee.
 fn callee_can_move_value_stack(name: &str) -> bool {
-    const CANNOT: &[&str] = &[
-        // arithmetic and comparison slow paths - operate on values, not the stack
-        "add-binop",
-        "add-binop-int-reg",
-        "add-three",
-        "sub-binop",
-        "sub-binop-int",
-        "sub-binop-int-reg",
-        "sub-binop-both-reg",
-        "sub-negate",
-        "sub-three",
-        "lt-binop",
-        "lt-binop-int",
-        "lt-register-int",
-        // Builds a list cell; never touches the value stack.
-        "list-cursor-materialize",
-        "lt-two-value-bool",
-        "lte-two-value-bool",
-        "gt-two-value-bool",
-        "gte-two-value-bool",
-        // refcount traffic only
-        "#%clone-std-rc",
-        "raw-slow-increment-closure",
-    ];
-
-    !CANNOT.contains(&name)
+    !KEEPS_STACK.contains(&name)
 }
 
 /// Speculate on the int tag and bail to the interpreter when it misses, instead
@@ -645,363 +623,24 @@ impl Default for JIT {
             return_type_hints: HashMap::new(),
         };
 
-        map.add_func2("#%debug-steel-value", abi! { debug_value as fn(SteelVal) });
-        map.add_func2("#%debug-value", abi! { debug_int as fn(i64) });
-        map.add_func2("#%debug-count", abi! { debug_count as fn(i32) });
-        map.add_func2(
-            "#%record-speculation-deopt",
-            abi! { record_speculation_deopt as fn(i64) },
-        );
-        map.add_func2("#%debug-tag", abi! { debug_tag as fn(i8) });
+        register_helpers(&mut map);
 
-        map.add_func2(
-            "#%debug-instructions",
-            abi! { debug_instructions as fn(RootedInstructions)},
-        );
+        
 
-        map.add_func2(
-            "#%debug-instructions2",
-            abi! { debug_instructions2 as fn(RootedInstructions)},
-        );
+        
 
-        map.add_func(
-            "#%debug-stack-frames",
-            abi! { debug_stack_frames as fn(*mut VmCore) },
-        );
+        
 
-        map.add_func(
-            "#%debug-instructions-before",
-            abi! { debug_instructions_before as fn(*mut VmCore) },
-        );
-        map.add_func(
-            "#%debug-instructions-after",
-            abi! { debug_instructions_after as fn(*mut VmCore) },
-        );
-
-        map.add_func(
-            "#%debug-stack-before",
-            abi! { debug_stack_before as fn(*mut VmCore) },
-        );
-        map.add_func(
-            "#%debug-stack-after",
-            abi! { debug_stack_after as fn(*mut VmCore) },
-        );
-        map.add_func(
-            "#%debug-is-native",
-            abi! { debug_is_native as fn(*mut VmCore) },
-        );
-
-        map.add_func(
-            "pair?",
-            abi! { is_pair_c_reg as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
-        map.add_func2(
-            "pair?-value",
-            abi! { is_pair_value as fn(SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "list?",
-            abi! { is_list_c_reg as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
-        map.add_func2(
-            "list?-value",
-            abi! { is_list_value as fn(SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "void?",
-            abi! { is_void_c_reg as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
-        map.add_func2(
-            "void?-value",
-            abi! { is_void_value as fn(SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "string?",
-            abi! { is_string_c_reg as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
-        map.add_func2(
-            "string?-value",
-            abi! { is_string_value as fn(SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "symbol?",
-            abi! { is_symbol_c_reg as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
-        map.add_func2(
-            "symbol?-value",
-            abi! { is_symbol_value as fn(SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "empty?",
-            abi! { is_empty_c_reg as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
-        map.add_func2(
-            "list-cursor-materialize",
-            abi! { list_cursor_materialize as fn(usize, usize) -> SteelVal },
-        );
-
-        map.add_func2(
-            "list-cursor-materialize-owned",
-            abi! { list_cursor_materialize_owned as fn(SteelVal, usize, usize) -> SteelVal },
-        );
-
-        map.add_func2(
-            "empty?-value",
-            abi! { is_empty_value as fn(SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "if-branch",
-            abi! { if_handler_value as fn(*mut VmCore) -> bool },
-        );
-
-        map.add_func(
-            "if-branch-value",
-            abi! { if_handler_raw_value as fn(*mut VmCore, i128) -> bool },
-        );
-
-        map.add_func(
-            "if-branch-register",
-            abi! { if_handler_register as fn(*mut VmCore, u64) -> bool },
-        );
-
-        map.add_func(
-            "not-value",
-            abi! { not_handler_raw_value as fn(*mut VmCore, SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "call-global",
-            abi! { callglobal_handler_deopt_c as fn(*mut VmCore) -> u8 },
-        );
-
-        map.add_func(
-            "call-global-tail-spilled",
-            abi! { callglobal_tail_handler_deopt_spilled as fn(*mut VmCore, usize, usize, usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "call-global-no-arity-spilled",
-            abi! { call_global_function_deopt_no_arity_spilled as fn(*mut VmCore, usize, usize, usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "call-global-spilled",
-            abi! { call_global_function_deopt_spilled as fn(*mut VmCore, usize, usize, usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "list-handler-spilled",
-            abi! { list_handler_c as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "variadic-numeric-spilled",
-            abi! { variadic_numeric_spilled as fn(*mut VmCore, usize, usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "vec-handler-spilled",
-            abi! { vec_handler_c as fn(*mut VmCore, usize) -> SteelVal },
-        );
+        
 
         // Value functions:
-        map.add_func(
-            "num-equal-value",
-            abi! { num_equal_value as fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "num-equal-value-bool",
-            abi! { num_equal_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
-        );
-
-        map.add_func(
-            "num-equal-int",
-            abi! { num_equal_int as fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "num-equal-int-register",
-            abi! { num_equal_int_register as fn(*mut VmCore, usize, SteelVal) -> bool },
-        );
-
-        map.add_func(
-            "equal-binop-bool",
-            abi! { equal_binop_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
-        );
-
-        map.add_func(
-            "equal-binop-register-bool",
-            abi! { equal_binop_register_bool as fn(*mut VmCore, usize, SteelVal) -> bool },
-        );
-
-        map.add_func(
-            "num-equal-value-unboxed",
-            abi! { num_equal_value_unboxed as fn(*mut VmCore, i128, i128) -> bool },
-        );
-
-        map.add_func(
-            "let-end-scope-c",
-            abi! { let_end_scope_c as fn(*mut VmCore, usize) },
-        );
-
-        map.add_func(
-            "drop-value",
-            abi! { drop_value as fn(*mut VmCore, SteelVal) },
-        );
-
-        map.add_func2("drop-one", abi! { drop_one as fn(SteelVal) });
 
         // TODO: Inline this!
-        map.add_func2(
-            "drop-box",
-            abi! { drop_box as fn(crate::values::closed::HeapRef<SteelVal>) },
-        );
-
-        map.add_func2(
-            "drop-boxed-vec",
-            abi! { drop_boxed_vec as fn(crate::values::closed::HeapRef<crate::values::closed::HeapVec>) },
-        );
-
-        map.add_func2("log-let-var", abi! { log_counter as fn() });
-
-        map.add_func2("#%clone-std-rc", abi! { clone_one as fn(SteelVal) });
-
-        map.add_func2(
-            "drop-value-post-fast-dec",
-            abi! { drop_value_post_fast_decrement as fn(SteelVal) },
-        );
-
-        map.add_func2(
-            "drop-value-post-fast-dec-closure",
-            abi! { drop_value_post_fast_decrement_closure as fn(Gc<ByteCodeLambda>) },
-        );
-
-        map.add_func2(
-            "drop-value-slow-dec",
-            abi! { drop_value_slow_decrement as fn(SteelVal) },
-        );
-
-        map.add_func2(
-            "drop-value-slow-dec-closure",
-            abi! { drop_value_slow_decrement_closure as fn(Gc<ByteCodeLambda>) },
-        );
-
-        map.add_func2(
-            "raw-slow-increment",
-            abi! { increment_ref_count_slow as fn(SteelVal) },
-        );
-
-        map.add_func2(
-            "raw-slow-increment-closure",
-            abi! { increment_ref_count_slow_closure as fn(Gc<ByteCodeLambda>) },
-        );
-
-        map.add_func(
-            "#%handle-attachments",
-            abi! { handle_attachments_pop as fn(*mut VmCore, Option<Box<StackFrameAttachments>>) },
-        );
-
-        map.add_func(
-            "#%pop-slow-path-finish",
-            abi! { pop_slow_path_finish as fn(*mut VmCore, value: SteelVal) },
-        );
-
-        map.add_func(
-            "slow-grow-stack",
-            abi! { grow_stack_slow as fn(*mut VmCore) },
-        );
-
-        map.add_func(
-            "slow-stack-reserve-exact",
-            abi! { stack_ensure_capacity as fn(*mut VmCore, usize) },
-        );
-
-        map.add_func(
-            "slow-grow-frame-stack",
-            abi! { grow_frame_stack_slow as fn(*mut VmCore) },
-        );
-
-        map.add_func(
-            "pop-from-stack",
-            abi! { pop_value as fn(*mut VmCore) -> SteelVal },
-        );
-
-        map.add_func(
-            "handle-pop!",
-            abi! { extern_handle_pop as fn(*mut VmCore, SteelVal) },
-        );
-
-        map.add_func(
-            "new-closure",
-            abi! {handle_new_start_closure as fn(*mut VmCore, usize, usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "pure-func",
-            abi! { handle_pure_function as fn(*mut VmCore, usize, usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "#%setup-closure",
-            abi! { setup_closure_call as fn(*mut VmCore, Gc<ByteCodeLambda>) -> SteelVal },
-        );
-
-        map.add_func(
-            "#%setup-closure-arity",
-            abi! { setup_closure_call_arity as fn(*mut VmCore, Gc<ByteCodeLambda>, usize, usize) -> SteelVal },
-        );
 
         CallStructConstructorsDefinitions::register(&mut map);
         CallMutableStructConstructorsDefinitions::register(&mut map);
         CallMutableVectorConstructorsDefinitions::register(&mut map);
 
-        map.add_func(
-            "#%collect-rest-args",
-            abi! { collect_rest_args as fn(*mut VmCore, usize) },
-        );
-
-        map.add_func(
-            "#%frameless-record-frame",
-            abi! { frameless_record_frame as fn(*mut VmCore, usize, usize, Gc<ByteCodeLambda>, usize, usize) },
-        );
-
-        map.add_func(
-            "#%frameless-splice-frames",
-            abi! { frameless_splice_frames as fn(*mut VmCore) },
-        );
-
-        map.add_func(
-            "cdr-tail-value",
-            abi! { cdr_tail_value as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "reverse-tail-value",
-            abi! { reverse_tail_value as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "call-make-vector-1",
-            abi! { call_make_vector_1 as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "call-make-vector-2",
-            abi! { call_make_vector_2 as fn(*mut VmCore, usize, SteelVal, SteelVal) -> SteelVal },
-        );
         CallFlatVectorConstructorsDefinitions::register(&mut map);
 
         CallSelfNoArityFunctionDefinitions::register(&mut map);
@@ -1025,535 +664,47 @@ impl Default for JIT {
 
         // DebugStackDefinitions::register(&mut map);
 
-        map.add_func(
-            "push-global-value",
-            abi! { push_global as fn(ctx: *mut VmCore, index: usize) -> SteelVal },
-        );
-
         // Check if the function at the global location is in fact the right one.
-        map.add_func(
-            "check-callable",
-            abi! { check_callable as fn(ctx: *mut VmCore, index: usize) -> bool },
-        );
 
-        map.add_func(
-            "should-spill",
-            abi! { should_spill as fn(ctx: *mut VmCore, index: usize) -> bool },
-        );
-
-        map.add_func(
-            "should-spill-value",
-            abi! { should_spill_value as fn(ctx: *mut VmCore, value: SteelVal) -> bool },
-        );
-
-        map.add_func(
-            "check-callable-tail",
-            abi! { check_callable_tail as fn(ctx: *mut VmCore, index: usize) -> bool },
-        );
-
-        map.add_func(
-            "check-callable-value",
-            abi! { check_callable_value as fn(ctx: *mut VmCore, func: SteelVal) -> bool },
-        );
-
-        map.add_func(
-            "check-callable-tail-value",
-            abi! { check_callable_value_tail as fn(ctx: *mut VmCore, func: SteelVal) -> bool },
-        );
-
-        map.add_func(
-            "push-to-vm-stack",
-            abi! { push_to_vm_stack as fn(ctx: *mut VmCore, value: SteelVal) },
-        );
-
-        map.add_func(
-            "push-to-vm-stack-let-var",
-            abi! { push_to_vm_stack_let_var as fn(ctx: *mut VmCore, value: SteelVal) },
-        );
-
-        map.add_func(
-            "push-to-vm-stack-function-spill",
-            abi! { _push_to_vm_stack_function_spill as fn(ctx: *mut VmCore, value: SteelVal) },
-        );
-
-        map.add_func(
-            "push-to-vm-stack-2",
-            abi! { push_to_vm_stack_two as fn(ctx: *mut VmCore, value: SteelVal, value2: SteelVal) },
-        );
-
-        #[cfg(target_os = "windows")]
-        type Vm01 = extern "sysv64-unwind" fn(*mut VmCore) -> SteelVal;
-
-        #[cfg(not(target_os = "windows"))]
-        type Vm01 = extern "C-unwind" fn(*mut VmCore) -> SteelVal;
-
-        #[cfg(target_os = "windows")]
-        type Vm02 = extern "sysv64-unwind" fn(*mut VmCore, SteelVal) -> SteelVal;
-        #[cfg(not(target_os = "windows"))]
-        type Vm02 = extern "C-unwind" fn(*mut VmCore, SteelVal) -> SteelVal;
-
-        #[allow(improper_ctypes_definitions)]
-        #[cfg(target_os = "windows")]
-        type VmBinOp =
-            extern "sysv64-unwind" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
-
-        #[cfg(not(target_os = "windows"))]
-        #[allow(improper_ctypes_definitions)]
-        type VmBinOp = extern "C-unwind" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
-
-        #[allow(improper_ctypes_definitions)]
-        #[cfg(target_os = "windows")]
-        type BinOp = extern "sysv64-unwind" fn(a: SteelVal, b: SteelVal) -> SteelVal;
-        #[allow(improper_ctypes_definitions)]
-        #[cfg(not(target_os = "windows"))]
-        type BinOp = extern "C-unwind" fn(a: SteelVal, b: SteelVal) -> SteelVal;
 
         // TODO: Add type checked variants as well which can allow
         // passing through unboxed values on the stack
-        map.add_func("car-handler-value", car_handler_value as Vm02);
-        map.add_func("cdr-handler-value", cdr_handler_value as Vm02);
 
-        map.add_func(
-            "cdr-reg",
-            abi! { cdr_handler_reg as fn(*mut VmCore, usize) -> SteelVal },
-        );
-        map.add_func(
-            "cdr-mut-reg",
-            abi! { cdr_handler_mut_reg as fn(*mut VmCore, usize) -> SteelVal },
-        );
+        
+
+        
 
         // map.add_func(
         //     "cdr-mut-reg",
         //     abi! { cdr_handler_mut_reg as fn(*mut VmCore, usize) },
         // );
 
-        map.add_func(
-            "cdr-reg-no-check",
-            abi! { cdr_handler_reg_no_check as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "cdr-mut-reg-no-check",
-            abi! { cdr_handler_mut_reg_no_check as fn(*mut VmCore, usize) },
-        );
-
-        map.add_func("cons-handler-value", cons_handler_value as VmBinOp);
-
-        map.add_func(
-            "cons-handler-value-register",
-            abi! { cons_handler_value_register as fn (*mut VmCore, SteelVal, usize) },
-        );
-
-        map.add_func(
-            "cons-handler-register-register",
-            abi! { cons_handler_register_register as fn (*mut VmCore, usize, usize) },
-        );
-
-        map.add_func(
-            "car-reg",
-            abi! { car_handler_reg as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "car-reg-unchecked",
-            abi! { car_handler_reg_no_check as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
         // TODO: Add type checked variants as well which can allow
         // passing through unboxed values on the stack
-        map.add_func("box-handler", box_handler_c as Vm02);
-        map.add_func("unbox-handler", unbox_handler_c as Vm02);
-        map.add_func("set-box-handler", setbox_handler_c as VmBinOp);
-        map.add_func("list-ref-value", list_ref_handler_c as VmBinOp);
-        map.add_func("vector-ref-value", vector_ref_handler_c as VmBinOp);
 
-        map.add_func(
-            "vector-ref-reg-1",
-            abi! { vector_ref_handler_register as fn(*mut VmCore, u16, SteelVal) -> SteelVal },
-        );
+        
 
-        map.add_func(
-            "vector-ref-reg-2",
-            abi! { vector_ref_handler_register_two as fn(*mut VmCore, usize, usize) -> SteelVal },
-        );
+        
 
-        map.add_func(
-            "vector-ref-reg-2-unboxed-index",
-            abi! { vector_ref_handler_register_two_unboxed as fn(*mut VmCore, usize, usize) -> SteelVal },
-        );
+        
 
-        map.add_func(
-            "vector-set-args",
-            abi! { vector_set_handler_stack
-                as fn(
-                    ctx: *mut VmCore,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal
-            },
-        );
+        
 
-        map.add_func(
-            "vector-push-args",
-            abi! { vector_push_handler_stack
-                as fn(
-                    ctx: *mut VmCore,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal
-            },
-        );
+        
 
-        map.add_func(
-            "vector-set-reg-1",
-            abi! { vector_set_handler_register_one
-            as fn(
-                ctx: *mut VmCore,
-                usize,
-                SteelVal,
-                SteelVal,
-            ) -> SteelVal },
-        );
+        
 
-        map.add_func(
-            "vector-set-reg-2",
-            abi! { vector_set_handler_register_two
-            as fn(ctx: *mut VmCore, usize, usize, SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "vector-set-reg-3",
-            abi! { vector_set_handler_register_three
-            as fn(ctx: *mut VmCore, usize, usize, usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "list-contains-reg",
-            abi! { list_contains_reg as fn(ctx: *mut VmCore, usize, List<SteelVal>) -> bool },
-        );
-
-        map.add_func(
-            "list-contains-reg-constant",
-            abi! { list_contains_reg_constant as fn(ctx: *mut VmCore, usize, List<SteelVal>) -> bool },
-        );
-
-        map.add_func(
-            "list-contains-value",
-            abi! { list_contains_value as fn(ctx: *mut VmCore, SteelVal, SteelVal) -> bool },
-        );
-
-        map.add_func2(
-            "memq-unchecked-list",
-            abi! { memq_unchecked_list as fn(SteelVal, List<SteelVal>) -> SteelVal },
-        );
-
-        map.add_func(
-            "memq-value",
-            abi! { memq_value as fn(ctx: *mut VmCore, SteelVal, SteelVal) -> SteelVal },
-        );
-
-        map.add_func(
-            "eq?-reg-2",
-            abi! { eq_reg_2 as fn(ctx: *mut VmCore, usize, usize) -> bool },
-        );
-
-        map.add_func(
-            "eq?-reg-1",
-            abi! { eq_reg_1 as fn(ctx: *mut VmCore, usize, SteelVal) -> bool },
-        );
-
-        map.add_func2(
-            "symbol-equal?-no-drop",
-            abi! { symbol_equal_no_drop as fn(SteelString, SteelString) -> bool },
-        );
-
-        map.add_func2(
-            "eq?-args",
-            abi! { eq_value as fn(SteelVal, SteelVal) -> bool },
-        );
-
-        map.add_func2(
-            "eq?-no-drop",
-            abi! { eq_value_no_drop as fn(SteelVal, SteelVal) -> bool },
-        );
-
-        map.add_func("push-const", push_const_value_c as Vm01);
-        map.add_func(
-            "push-const-index",
-            abi! { push_const_value_index_c as fn(*mut VmCore, usize) -> SteelVal },
-        );
-
-        map.add_func_hint(
-            "add-binop",
-            extern_c_add_two as VmBinOp,
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "add-three",
-            abi! { extern_c_add_three
-            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "add-four",
-            abi! { extern_c_add_four
-            as fn(
-                *mut VmCore,
-                SteelVal,
-                SteelVal,
-                SteelVal,
-                SteelVal,
-            ) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "add-binop-reg",
-            abi! { extern_c_add_two_binop_register
-            as  fn(*mut VmCore, usize, SteelVal) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "add-binop-reg-2",
-            abi! { extern_c_add_two_binop_register_both
-            as fn(*mut VmCore, usize, usize) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "sub-binop",
-            extern_c_sub_two as VmBinOp,
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "sub-negate",
-            abi! { extern_c_negate as fn(ctx: *mut VmCore, a: SteelVal) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "sub-binop-int",
-            extern_c_sub_two_int as VmBinOp,
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "sub-binop-both-reg",
-            abi! { extern_c_sub_two_both_reg as fn(ctx: *mut VmCore, a: usize, b: usize) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "sub-binop-int-reg",
-            abi! { extern_c_sub_two_int_reg
-            as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "add-binop-int-reg",
-            abi! { extern_c_add_two_int_reg
-            as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "sub-binop-float-reg",
-            abi! { extern_c_sub_two_float_reg
-            as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "sub-binop-reg",
-            abi! { extern_c_sub_two_reg
-            as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint("lt-binop", extern_c_lt_two as VmBinOp, InferredType::Bool);
-
-        map.add_func_hint(
-            "lt-two-value-bool",
-            abi! { extern_c_lt_two_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
-            InferredType::UnboxedBool,
-        );
-        map.add_func_hint(
-            "lte-two-value-bool",
-            abi! { extern_c_lte_two_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
-            InferredType::UnboxedBool,
-        );
-        map.add_func_hint(
-            "gt-two-value-bool",
-            abi! { extern_c_gt_two_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
-            InferredType::UnboxedBool,
-        );
-        map.add_func_hint(
-            "gte-two-value-bool",
-            abi! { extern_c_gte_two_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
-            InferredType::UnboxedBool,
-        );
-
-        map.add_func_hint("lte-binop", extern_c_lte_two as VmBinOp, InferredType::Bool);
-
-        map.add_func_hint(
-            "lte-binop-int",
-            extern_c_lte_two_int as VmBinOp,
-            InferredType::Bool,
-        );
-
-        map.add_func_hint(
-            "lte-register",
-            abi! { extern_c_lte_register as fn(*mut VmCore, usize, SteelVal) -> bool },
-            InferredType::UnboxedBool,
-        );
-
-        map.add_func_hint(
-            "lte-register-int",
-            abi! { extern_c_lte_register_int as fn(*mut VmCore, usize, SteelVal) -> bool },
-            InferredType::UnboxedBool,
-        );
-
-        map.add_func_hint(
-            "gte-register-int",
-            abi! { extern_c_gte_register_int as fn(*mut VmCore, usize, SteelVal) -> bool },
-            InferredType::UnboxedBool,
-        );
-
-        map.add_func_hint(
-            "gte-register-unknown",
-            abi! { extern_c_gte_register_unknown as fn(*mut VmCore, usize, SteelVal) -> bool },
-            InferredType::UnboxedBool,
-        );
-
-        map.add_func_hint(
-            "lt-register-int",
-            abi! { extern_c_lt_register_int as fn(*mut VmCore, usize, SteelVal) -> bool },
-            InferredType::UnboxedBool,
-        );
-
-        map.add_func_hint(
-            "lt-binop-int",
-            extern_c_lt_two_int as VmBinOp,
-            InferredType::Bool,
-        );
-
-        map.add_func_hint2(
-            "null-handler",
-            abi! { extern_c_null_handler as fn(a: SteelVal) -> SteelVal },
-            InferredType::Bool,
-        );
-
-        map.add_func_hint(
-            "lt-three",
-            abi! { extern_c_lt_three
-            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
-            InferredType::Bool,
-        );
-
-        map.add_func_hint(
-            "lte-three",
-            abi! { extern_c_lte_three
-            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
-            InferredType::Bool,
-        );
-
-        map.add_func_hint(
-            "gt-three",
-            abi! { extern_c_gt_three
-            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
-            InferredType::Bool,
-        );
-
-        map.add_func_hint(
-            "gte-three",
-            abi! { extern_c_gte_three
-            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
-            InferredType::Bool,
-        );
-
-        map.add_func_hint("gt-binop", extern_c_gt_two as VmBinOp, InferredType::Bool);
-        map.add_func_hint("gte-binop", extern_c_gte_two as VmBinOp, InferredType::Bool);
-        map.add_func_hint(
-            "mult-two",
-            extern_c_mult_two as VmBinOp,
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "mult-three",
-            abi! { extern_c_mult_three
-            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint(
-            "sub-three",
-            abi! { extern_c_sub_three
-            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
-            InferredType::Number,
-        );
-
-        map.add_func_hint("div-two", extern_c_div_two as VmBinOp, InferredType::Number);
-        map.add_func_hint("div-one", extern_c_div_one as Vm02, InferredType::Number);
+        
 
         // TODO: Pick up from here!
-        map.add_func("read-local-0", read_local_0_value_c as Vm01);
-        map.add_func("read-local-1", read_local_1_value_c as Vm01);
-        map.add_func("read-local-2", read_local_2_value_c as Vm01);
-        map.add_func("read-local-3", read_local_3_value_c as Vm01);
-        map.add_func(
-            "set-local-any",
-            abi! { set_local_any_c as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
-        );
 
-        map.add_func(
-            "read-local-any",
-            abi! { read_local_any_value_c
-            as fn(ctx: *mut VmCore, lookup_index: usize) -> SteelVal },
-        );
+        
 
-        map.add_func(
-            "read-captured",
-            abi! { read_captured_c
-            as fn(ctx: *mut VmCore, index: usize) -> SteelVal },
-        );
+        
 
-        map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
-        map.add_func("move-read-local-1", move_read_local_1_value_c as Vm01);
-        map.add_func("move-read-local-2", move_read_local_2_value_c as Vm01);
-        map.add_func("move-read-local-3", move_read_local_3_value_c as Vm01);
+        
 
-        map.add_func(
-            "move-read-local-any",
-            abi! { move_read_local_any_value_c
-            as fn(ctx: *mut VmCore, lookup_index: usize) -> SteelVal },
-        );
-
-        map.add_func(
-            "self-tail-call",
-            abi! { self_tail_call_handler as fn(*mut VmCore, usize) },
-        );
-
-        map.add_func(
-            "self-tail-call-loop",
-            abi! { self_tail_call_handler_loop as fn(*mut VmCore, usize) },
-        );
-
-        map.add_func(
-            "tco-jump",
-            abi! { tcojmp_handler as fn(*mut VmCore, usize) },
-        );
-
-        map.add_func(
-            "set-handler",
-            abi! { set_handler_c as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
-        );
+        
 
         let function_map = OwnedFunctionMap {
             map: map.map,
@@ -5037,8 +4188,7 @@ impl FunctionTranslator<'_> {
                         .iconst(Type::int(64).unwrap(), offset as i64);
 
                     // code gen the sclosure creation:
-                    let v = self
-                        .call_function_returns_value_args("new-closure", &[ip_value, offset_value]);
+                    let v = self.call_helper(NEW_CLOSURE, [ip_value, offset_value]);
 
                     self.push(v, InferredType::BytecodeFunction);
                 }
@@ -5066,8 +4216,7 @@ impl FunctionTranslator<'_> {
                         .iconst(Type::int(64).unwrap(), offset as i64);
 
                     // code gen the sclosure creation:
-                    let v = self
-                        .call_function_returns_value_args("pure-func", &[ip_value, offset_value]);
+                    let v = self.call_helper(PURE_FUNC, [ip_value, offset_value]);
 
                     self.push(v, InferredType::BytecodeFunction);
                 }
@@ -5332,7 +4481,7 @@ impl FunctionTranslator<'_> {
                     self.properties.cached_lookups.cursors.remove(&slot);
 
                     let value =
-                        self.call_function_returns_value_args("set-local-any", &[index, value]);
+                        self.call_helper(SET_LOCAL_ANY, [index, value]);
                     self.push(value, InferredType::Any);
                     self.ip += 1;
                 }
@@ -6331,7 +5480,8 @@ impl FunctionTranslator<'_> {
                     let register = self.register_index(register);
 
                     let args = [register, value.as_steelval(self)];
-                    let result = self.call_function_returns_value_args("sub-binop-reg", &args);
+                    // Checked below, once the result is on the stack for the deopt snapshot.
+                    let result = self.call_helper_unchecked(SUB_BINOP_REG, args);
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
@@ -6354,7 +5504,8 @@ impl FunctionTranslator<'_> {
                     // of getting something running
                     let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
 
-                    let result = self.call_function_returns_value_args("sub-binop-int", &args);
+                    // Checked below, once the result is on the stack for the deopt snapshot.
+                    let result = self.call_helper_unchecked(SUB_BINOP_INT, args.try_into().unwrap());
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
@@ -6392,12 +5543,11 @@ impl FunctionTranslator<'_> {
 
                         let args = [register, value];
                         let result =
-                            ctx.call_function_returns_value_args("add-binop-int-reg", &args);
+                            ctx.call_helper_checked(ADD_BINOP_INT_REG, args);
 
                         // The helper reports a type error by flagging the vm rather than
                         // returning one; without this the jitted code kept going and the
                         // error surfaced after `with-handler` had already been unwound.
-                        ctx.check_deopt();
 
                         result
                     };
@@ -6472,12 +5622,11 @@ impl FunctionTranslator<'_> {
                     let mut sp = |ctx: &mut Self| {
                         let register = ctx.register_index(register);
                         let args = [register, value_as_steelval];
-                        let result = ctx.call_function_returns_value_args("add-binop-reg", &args);
+                        let result = ctx.call_helper_checked(ADD_BINOP_REG, args);
 
                         // The helper reports a type error by flagging the vm rather than
                         // returning one; without this the jitted code kept going and the
                         // error surfaced after `with-handler` had already been unwound.
-                        ctx.check_deopt();
 
                         result
                     };
@@ -6685,8 +5834,7 @@ impl FunctionTranslator<'_> {
 
                             let args = [register_l, rhs_value];
                             let result =
-                                ctx.call_function_returns_value_args("lt-register-int", &args);
-                            ctx.check_deopt();
+                                ctx.call_helper_checked(LT_REGISTER_INT, args);
 
                             result
                         },
@@ -6784,8 +5932,7 @@ impl FunctionTranslator<'_> {
                                 ctx.builder.ins().iconst(types::I64, register_l as i64);
                             let args = [register_l, rhs_int.value];
                             let result =
-                                ctx.call_function_returns_value_args("lte-register-int", &args);
-                            ctx.check_deopt();
+                                ctx.call_helper_checked(LTE_REGISTER_INT, args);
 
                             result
                         },
@@ -6863,8 +6010,7 @@ impl FunctionTranslator<'_> {
 
                             let args = [register_l, value];
                             let result =
-                                ctx.call_function_returns_value_args("lte-register-int", &args);
-                            ctx.check_deopt();
+                                ctx.call_helper_checked(LTE_REGISTER_INT, args);
 
                             result
                         },
@@ -6927,8 +6073,7 @@ impl FunctionTranslator<'_> {
                                 ctx.builder.ins().iconst(types::I64, register_l as i64);
                             let args = [register_l, rhs_int.value];
                             let result =
-                                ctx.call_function_returns_value_args("gte-register-int", &args);
-                            ctx.check_deopt();
+                                ctx.call_helper_checked(GTE_REGISTER_INT, args);
 
                             result
                         },
@@ -7017,11 +6162,7 @@ impl FunctionTranslator<'_> {
                                     let register_l =
                                         ctx.builder.ins().iconst(types::I64, register_l as i64);
                                     let args = [register_l, rhs_int.value];
-                                    let result = ctx.call_function_returns_value_args(
-                                        "gte-register-unknown",
-                                        &args,
-                                    );
-                                    ctx.check_deopt();
+                                    let result = ctx.call_helper_checked(GTE_REGISTER_UNKNOWN, args);
 
                                     result
                                 },
@@ -7062,7 +6203,8 @@ impl FunctionTranslator<'_> {
                     let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
 
                     let args = [register_l, rhs_int.value];
-                    let result = self.call_function_returns_value_args("lte-register", &args);
+                    // Checked below, once the result is on the stack for the deopt snapshot.
+                    let result = self.call_helper_unchecked(LTE_REGISTER, args);
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::UnboxedBool);
@@ -7133,15 +6275,10 @@ impl FunctionTranslator<'_> {
                         },
                         |ctx| {
                             // Handle the else case here as well
-                            let vm_ctx = ctx.get_ctx();
 
-                            let res = ctx.call_function_returns_value_args_no_context(
-                                "num-equal-value-bool",
-                                &[vm_ctx, left, right],
-                            );
+                            let res = ctx.call_helper_checked(NUM_EQUAL_VALUE_BOOL, [left, right]);
 
                             // Make sure to check the deopt case here
-                            ctx.check_deopt();
 
                             res
                         },
@@ -7199,16 +6336,11 @@ impl FunctionTranslator<'_> {
                             let register_int =
                                 ctx.register_index(register);
 
-                            let vm_ctx = ctx.get_ctx();
 
                             let last_steelval = last.as_steelval(ctx);
-                            let res = ctx.call_function_returns_value_args_no_context(
-                                "num-equal-int-register",
-                                &[vm_ctx, register_int, last_steelval],
-                            );
+                            let res = ctx.call_helper_checked(NUM_EQUAL_INT_REGISTER, [register_int, last_steelval]);
 
                             // Make sure to check the deopt case here
-                            ctx.check_deopt();
 
                             res
                         },
@@ -7269,17 +6401,12 @@ impl FunctionTranslator<'_> {
                             // Handle the else case here as well
                             // todo!();
 
-                            let vm_ctx = ctx.get_ctx();
 
                             let last = ctx.encode_integer(int as _);
 
-                            let res = ctx.call_function_returns_value_args_no_context(
-                                "num-equal-value-bool",
-                                &[vm_ctx, value, last],
-                            );
+                            let res = ctx.call_helper_checked(NUM_EQUAL_VALUE_BOOL, [value, last]);
 
                             // Make sure to check the deopt case here
-                            ctx.check_deopt();
 
                             res
                         },
@@ -7386,10 +6513,7 @@ impl FunctionTranslator<'_> {
                             let register_index = self.register_index(i);
 
                             let v_steelval = v.as_steelval(self);
-                            let res = self.call_function_returns_value_args(
-                                "equal-binop-register-bool",
-                                &[register_index, v_steelval],
-                            );
+                            let res = self.call_helper(EQUAL_BINOP_REGISTER_BOOL, [register_index, v_steelval]);
 
                             self.push(res, InferredType::UnboxedBool);
 
@@ -7431,10 +6555,7 @@ impl FunctionTranslator<'_> {
                                     ctx.converging_if(
                                         is_symbol,
                                         |ctx| {
-                                            ctx.call_function_returns_value_args_no_context(
-                                                "symbol-equal?-no-drop",
-                                                &[lvalue, value],
-                                            )
+                                            ctx.call_helper(SYMBOL_EQUAL_P_NO_DROP, [lvalue, value])
                                         },
                                         |ctx| ctx.builder.ins().iconst(types::I8, 0),
                                         types::I8,
@@ -7464,10 +6585,7 @@ impl FunctionTranslator<'_> {
 
                             let value = v.to_value(self);
 
-                            let res = self.call_function_returns_value_args(
-                                "equal-binop-register-bool",
-                                &[register_index, value.0],
-                            );
+                            let res = self.call_helper(EQUAL_BINOP_REGISTER_BOOL, [register_index, value.0]);
 
                             // TODO: Somewhere, I'm not calling unboxed bool to_value properly!
                             self.push(res, InferredType::UnboxedBool);
@@ -7562,10 +6680,7 @@ impl FunctionTranslator<'_> {
 
                             // Just... leave it in place if it mutates the register.
                             // We can lazily have the register move around.
-                            self.call_function_args_no_return(
-                                "cons-handler-value-register",
-                                &[value, register],
-                            );
+                            self.call_helper_void(CONS_HANDLER_VALUE_REGISTER, [value, register]);
 
                             let result = MaybeStackValue::MutRegister(l);
 
@@ -7586,10 +6701,7 @@ impl FunctionTranslator<'_> {
 
                             // Just... leave it in place if it mutates the register.
                             // We can lazily have the register move around.
-                            self.call_function_args_no_return(
-                                "cons-handler-register-register",
-                                &[value, register],
-                            );
+                            self.call_helper_void(CONS_HANDLER_REGISTER_REGISTER, [value, register]);
 
                             let result = MaybeStackValue::MutRegister(l);
 
@@ -7651,10 +6763,7 @@ impl FunctionTranslator<'_> {
                             let cell = self.builder.use_var(rest.cell);
                             let index = self.builder.use_var(rest.index);
                             let data = self.builder.ins().iadd_imm_s(cell, list_cell_base());
-                            let res = self.call_function_returns_value_args_no_context(
-                                "list-cursor-materialize",
-                                &[data, index],
-                            );
+                            let res = self.call_helper(LIST_CURSOR_MATERIALIZE, [data, index]);
                             self.push(res, rest_type);
                             self.ip += 2;
                         }
@@ -7793,10 +6902,7 @@ impl FunctionTranslator<'_> {
                             .ins()
                             .iconst(Type::int(64).unwrap(), arity as i64);
 
-                        let result = self.call_function_returns_value_args(
-                            "list-handler-spilled",
-                            &[arity_value],
-                        );
+                        let result = self.call_helper(LIST_HANDLER_SPILLED, [arity_value]);
 
                         // Check the inferred type, if we know of it
                         self.push(result, InferredType::List);
@@ -7819,8 +6925,7 @@ impl FunctionTranslator<'_> {
                         .ins()
                         .iconst(Type::int(64).unwrap(), payload as i64);
 
-                    let result = self
-                        .call_function_returns_value_args("vec-handler-spilled", &[arity_value]);
+                    let result = self.call_helper(VEC_HANDLER_SPILLED, [arity_value]);
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Any);
@@ -7915,12 +7020,8 @@ impl FunctionTranslator<'_> {
                                                 |ctx| ctx.inline_pair_car_unboxed(value),
                                                 |ctx| {
                                                     let reg = ctx.register_index(reg);
-                                                    let res = ctx.call_function_returns_value_args(
-                                                        "car-reg",
-                                                        &[reg],
-                                                    );
+                                                    let res = ctx.call_helper_checked(CAR_REG, [reg]);
 
-                                                    ctx.check_deopt();
                                                     res
                                                 },
                                                 typ,
@@ -7967,12 +7068,7 @@ impl FunctionTranslator<'_> {
                                                 |ctx| ctx.inline_pair_car_unboxed(value),
                                                 |ctx| {
                                                     let reg = ctx.register_index(reg);
-                                                    let res = ctx.call_function_returns_value_args(
-                                                        "car-reg",
-                                                        &[reg],
-                                                    );
-
-                                                    res
+                                                    ctx.call_helper_checked(CAR_REG, [reg])
                                                 },
                                                 typ,
                                             )
@@ -8033,11 +7129,7 @@ impl FunctionTranslator<'_> {
                                                 |ctx| ctx.inline_pair_car(value),
                                                 |ctx| {
                                                     let reg = ctx.register_index(reg);
-                                                    let res = ctx.call_function_returns_value_args(
-                                                        "car-reg",
-                                                        &[reg],
-                                                    );
-                                                    ctx.check_deopt();
+                                                    let res = ctx.call_helper_checked(CAR_REG, [reg]);
 
                                                     res
                                                 },
@@ -8257,9 +7349,11 @@ impl FunctionTranslator<'_> {
                                     let index = self.read_from_vm_stack_unboxed(i);
 
                                     let fallback = move |ctx: &mut Self| {
-                                        ctx.call_function_returns_value_args(
-                                            "vector-ref-reg-2-unboxed-index",
-                                            &[vector, index],
+                                        // An out of range index raises: leave native code before
+                                        // anything uses the result.
+                                        ctx.call_helper_checked(
+                                            VECTOR_REF_REG_2_UNBOXED_INDEX,
+                                            [vector, index],
                                         )
                                     };
 
@@ -8284,10 +7378,7 @@ impl FunctionTranslator<'_> {
                                     self.shadow_stack_pop();
 
                                     let fallback = move |ctx: &mut Self| {
-                                        ctx.call_function_returns_value_args(
-                                            "vector-ref-reg-2",
-                                            &[vector, index],
-                                        )
+                                        ctx.call_helper_checked(VECTOR_REF_REG_2, [vector, index])
                                     };
 
                                     if INLINE_FLAT_VECTOR_REF {
@@ -8310,10 +7401,7 @@ impl FunctionTranslator<'_> {
 
                             let index_value = index.0;
                             let fallback = move |ctx: &mut Self| {
-                                ctx.call_function_returns_value_args(
-                                    "vector-ref-reg-1",
-                                    &[vector, index_value],
-                                )
+                                ctx.call_helper_checked(VECTOR_REF_REG_1, [vector, index_value])
                             };
 
                             let res = if INLINE_FLAT_VECTOR_REF {
@@ -8343,11 +7431,7 @@ impl FunctionTranslator<'_> {
                             let vector_value = vector_value.as_steelval(self);
 
                             let fallback = move |ctx: &mut Self| {
-                                let res = ctx.call_function_returns_value_args(
-                                    "vector-ref-value",
-                                    &[vector_value, index],
-                                );
-                                ctx.check_deopt();
+                                let res = ctx.call_helper_checked(VECTOR_REF_VALUE, [vector_value, index]);
                                 res
                             };
 
@@ -8396,12 +7480,11 @@ impl FunctionTranslator<'_> {
         let sp = |ctx: &mut Self| {
             let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
             let args = [register, value];
-            let result = ctx.call_function_returns_value_args("sub-binop-float-reg", &args);
+            let result = ctx.call_helper_checked(SUB_BINOP_FLOAT_REG, args);
 
             // The helper reports a type error by flagging the vm rather than
             // returning one; without this the jitted code kept going and the
             // error surfaced after `with-handler` had already been unwound.
-            ctx.check_deopt();
 
             result
         };
@@ -8441,12 +7524,11 @@ impl FunctionTranslator<'_> {
         let sp = |ctx: &mut Self| {
             let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
             let args = [register, value];
-            let result = ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
+            let result = ctx.call_helper_checked(SUB_BINOP_INT_REG, args);
 
             // The helper reports a type error by flagging the vm rather than
             // returning one; without this the jitted code kept going and the
             // error surfaced after `with-handler` had already been unwound.
-            ctx.check_deopt();
 
             result
         };
@@ -8509,12 +7591,11 @@ impl FunctionTranslator<'_> {
             // this, `(- 100.0 5)` came back as 99.0 under the JIT.
             let value = ctx.encode_integer(constant_value as _);
             let args = [register, value];
-            let result = ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
+            let result = ctx.call_helper_checked(SUB_BINOP_INT_REG, args);
 
             // The helper reports a type error by flagging the vm rather than
             // returning one; without this the jitted code kept going and the
             // error surfaced after `with-handler` had already been unwound.
-            ctx.check_deopt();
 
             result
         };
@@ -8651,9 +7732,8 @@ impl FunctionTranslator<'_> {
             let register_l = ctx.builder.ins().iconst(types::I64, register_l as i64);
             let register_r = ctx.builder.ins().iconst(types::I64, register_r as i64);
             let args = [register_l, register_r];
-            let result = ctx.call_function_returns_value_args("sub-binop-both-reg", &args);
+            let result = ctx.call_helper_checked(SUB_BINOP_BOTH_REG, args);
 
-            ctx.check_deopt();
 
             result
         };
@@ -8844,10 +7924,8 @@ impl FunctionTranslator<'_> {
                         let arity = ctx.builder.ins().iconst(types::I64, arity as i64);
                         let fallback_ip = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
                         // TODO: Set up the closure for multi arity?
-                        ctx.call_function_returns_value_args(
-                            "#%setup-closure-arity",
-                            &[closure, arity, fallback_ip],
-                        )
+                        // Part of the call protocol: an arity error is picked up after the merge.
+                        ctx.call_helper_unchecked(SETUP_CLOSURE_ARITY, [closure, arity, fallback_ip])
                     },
                     typ,
                 );
@@ -9061,7 +8139,7 @@ impl FunctionTranslator<'_> {
                 ctx.encode_value(SteelVal::BOOL_TAG as i64, empty)
             },
             // Consumes the value, as the primitive does.
-            |ctx| ctx.call_function_returns_value_args_no_context("null-handler", &[value]),
+            |ctx| ctx.call_helper(NULL_HANDLER, [value]),
             typ,
         )
     }
@@ -9626,7 +8704,7 @@ impl FunctionTranslator<'_> {
         if USE_INLINE_DROP_HEAP_BOX {
             self.inline_weak_decrement(ptr, "drop-one", value);
         } else {
-            self.call_function_args_no_context("drop-one", &[value]);
+            self.call_helper_void(DROP_ONE, [value]);
         }
     }
 
@@ -9840,7 +8918,7 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(yes_drop);
             self.builder.seal_block(yes_drop);
 
-            self.call_function_args_no_context("drop-value-post-fast-dec", &[tagged_value]);
+            self.call_helper_void(DROP_VALUE_POST_FAST_DEC, [tagged_value]);
 
             self.builder.ins().jump(merge_block, &[]);
 
@@ -9854,7 +8932,7 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(no_tl);
             self.builder.seal_block(no_tl);
 
-            self.call_function_args_no_context("drop-value-slow-dec", &[tagged_value]);
+            self.call_helper_void(DROP_VALUE_SLOW_DEC, [tagged_value]);
 
             self.builder.ins().jump(total_merge, &[]);
         }
@@ -9933,7 +9011,7 @@ impl FunctionTranslator<'_> {
             self.builder.seal_block(yes_drop);
 
             // Drop the value after we've determined that we can inline the drop function.
-            self.call_function_args_no_context("drop-value-post-fast-dec-closure", &[value]);
+            self.call_helper_void(DROP_VALUE_POST_FAST_DEC_CLOSURE, [value]);
 
             self.builder.ins().jump(merge_block, &[]);
 
@@ -9948,7 +9026,7 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(no_tl);
             self.builder.seal_block(no_tl);
 
-            self.call_function_args_no_context("drop-value-slow-dec-closure", &[value]);
+            self.call_helper_void(DROP_VALUE_SLOW_DEC_CLOSURE, [value]);
 
             self.builder.ins().jump(total_merge, &[]);
         }
@@ -9960,7 +9038,7 @@ impl FunctionTranslator<'_> {
     // TODO: Replace this with a more sophisticated implementation that doesn't necessarily
     // need the call if we have something like that
     fn drop_value(&mut self, value: Value) {
-        self.call_function_args_no_context("drop-one", &[value]);
+        self.call_helper_void(DROP_ONE, [value]);
     }
 
     // value is a HeapRef<_>, i.e. the bare Weak pointer, which is what
@@ -9969,7 +9047,7 @@ impl FunctionTranslator<'_> {
         if USE_INLINE_DROP_HEAP_BOX {
             self.inline_weak_decrement(value, "drop-box", value);
         } else {
-            self.call_function_args_no_context("drop-box", &[value]);
+            self.call_helper_void(DROP_BOX, [value]);
         }
     }
 
@@ -9977,7 +9055,7 @@ impl FunctionTranslator<'_> {
         if USE_INLINE_DROP_HEAP_BOX {
             self.inline_weak_decrement(value, "drop-boxed-vec", value);
         } else {
-            self.call_function_args_no_context("drop-boxed-vec", &[value]);
+            self.call_helper_void(DROP_BOXED_VEC, [value]);
         }
     }
 
@@ -10111,8 +9189,7 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 // Slow path!
                 let reg = ctx.register_index(reg);
-                let res = ctx.call_function_returns_value_args("car-reg", &[reg]);
-                ctx.check_deopt();
+                let res = ctx.call_helper_checked(CAR_REG, [reg]);
                 res
             },
             typ,
@@ -10416,7 +9493,7 @@ impl FunctionTranslator<'_> {
 
     fn call_set(&mut self, index: usize, value: Value) -> Value {
         self.properties.cached_lookups.cursors.remove(&index);
-        let local_callee = self.get_local_callee("set-handler");
+        let local_callee = self.helper_callee(SET_HANDLER);
 
         let ctx = self.get_ctx();
 
@@ -10436,7 +9513,7 @@ impl FunctionTranslator<'_> {
     fn pop_single(&mut self) {
         let last = self.shadow_pop();
 
-        let local_callee = self.get_local_callee("drop-value");
+        let local_callee = self.helper_callee(DROP_VALUE);
         let ctx = self.get_ctx();
 
         let arg_values = vec![ctx, last.0];
@@ -10450,7 +9527,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn call_test_handler_register(&mut self, register: usize) -> Value {
-        let local_callee = self.get_local_callee("if-branch-register");
+        let local_callee = self.helper_callee(IF_BRANCH_REGISTER);
 
         let ctx = self.get_ctx();
 
@@ -10467,7 +9544,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn call_test_handler(&mut self, test_value: Value) -> Value {
-        let local_callee = self.get_local_callee("if-branch-value");
+        let local_callee = self.helper_callee(IF_BRANCH_VALUE);
 
         let ctx = self.get_ctx();
 
@@ -10484,7 +9561,7 @@ impl FunctionTranslator<'_> {
     fn translate_tco_jmp(&mut self, payload: usize) {
         self.spill_stack();
 
-        let local_callee = self.get_local_callee("tco-jump");
+        let local_callee = self.helper_callee(TCO_JUMP);
 
         let ctx = self.get_ctx();
         let arity = self
@@ -11259,12 +10336,9 @@ impl FunctionTranslator<'_> {
                     (halves.0, halves.1)
                 };
                 let return_ip = ctx.builder.ins().iconst(types::I64, (fallback_ip + 1) as i64);
-                ctx.call_function_args_no_return(
-                    "#%frameless-record-frame",
-                    &[callee_sp, return_ip, closure, instructions_ptr, instructions_len],
-                );
+                ctx.call_helper_void(FRAMELESS_RECORD_FRAME, [callee_sp, return_ip, closure, instructions_ptr, instructions_len]);
                 if info.role == FramelessRole::Boundary {
-                    ctx.call_function_args_no_return("#%frameless-splice-frames", &[]);
+                    ctx.call_helper_void(FRAMELESS_SPLICE_FRAMES, []);
                 }
                 let void = ctx.encode_void();
                 let ret = ctx.builder.ins().return_(&[void]);
@@ -11288,10 +10362,8 @@ impl FunctionTranslator<'_> {
                 FramelessRole::Boundary => {
                     let arity_val = ctx.builder.ins().iconst(types::I64, arity as i64);
                     let fallback = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
-                    ctx.call_function_returns_value_args(
-                        "#%setup-closure-arity",
-                        &[closure, arity_val, fallback],
-                    )
+                    // Part of the call protocol: an arity error is picked up after the merge.
+                    ctx.call_helper_unchecked(SETUP_CLOSURE_ARITY, [closure, arity_val, fallback])
                 }
                 // Inside a frameless copy there is no frame to hand off from, so
                 // let the interpreter redo the call instruction instead - the
@@ -11480,7 +10552,7 @@ impl FunctionTranslator<'_> {
         // site passed beyond its named arguments.
         if let Some((surplus, _)) = rest {
             let count = self.builder.ins().iconst(types::I64, surplus as i64);
-            self.call_function_args_no_return("#%collect-rest-args", &[count]);
+            self.call_helper_void(COLLECT_REST_ARGS, [count]);
         }
 
         // Implement the body of `new_handle_tail_call_closure` here
@@ -11890,7 +10962,7 @@ impl FunctionTranslator<'_> {
         // here is one speculation is not paying for.
         if let Some(index) = self.function_context {
             let index = self.builder.ins().iconst(types::I64, index as i64);
-            self.call_function_args_no_context("#%record-speculation-deopt", &[index]);
+            self.call_helper_void(RECORD_SPECULATION_DEOPT, [index]);
         }
 
         let void = self.encode_void();
@@ -13133,8 +12205,7 @@ impl FunctionTranslator<'_> {
                 let code = self.builder.ins().iconst(types::I64, code as i64);
                 let arity = self.builder.ins().iconst(types::I64, payload as i64);
                 let result =
-                    self.call_function_returns_value_args("variadic-numeric-spilled", &[code, arity]);
-                self.check_deopt();
+                    self.call_helper_checked(VARIADIC_NUMERIC_SPILLED, [code, arity]);
                 self.push(result, inferred_type.boxed());
                 self.ip += ip_inc;
                 return;
@@ -14091,10 +13162,7 @@ impl FunctionTranslator<'_> {
             .builder
             .ins()
             .load(types::I128, MemFlagsData::trusted(), ptr, 0);
-        let list = self.call_function_returns_value_args_no_context(
-            "list-cursor-materialize-owned",
-            &[old, data, idx],
-        );
+        let list = self.call_helper(LIST_CURSOR_MATERIALIZE_OWNED, [old, data, idx]);
         // It drops what it does not reuse, and a drop is not on the list of
         // callees known to leave the value stack where it was.
         let ptr = self.vm_stack_slot_ptr(slot);
@@ -14881,7 +13949,7 @@ impl FunctionTranslator<'_> {
                 let frame_arity = match rest {
                     Some((surplus, declared)) => {
                         let count = ctx.builder.ins().iconst(types::I64, surplus as i64);
-                        ctx.call_function_args_no_return("#%collect-rest-args", &[count]);
+                        ctx.call_helper_void(COLLECT_REST_ARGS, [count]);
                         declared
                     }
                     None => arity,
@@ -14916,10 +13984,8 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 let arity_val = ctx.builder.ins().iconst(types::I64, arity as i64);
                 let fallback_ip_val = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
-                ctx.call_function_returns_value_args(
-                    "#%setup-closure-arity",
-                    &[func, arity_val, fallback_ip_val],
-                )
+                // Part of the call protocol: an arity error is picked up after the merge.
+                ctx.call_helper_unchecked(SETUP_CLOSURE_ARITY, [func, arity_val, fallback_ip_val])
             },
             typ,
         )
@@ -14998,7 +14064,7 @@ impl FunctionTranslator<'_> {
                 |ctx| {
                     let amt = args.len() - ctx.arity as usize;
                     let amt = ctx.builder.ins().iconst(types::I64, amt as i64);
-                    ctx.call_function_args_no_return("slow-stack-reserve-exact", &[amt]);
+                    ctx.call_helper_void(SLOW_STACK_RESERVE_EXACT, [amt]);
                 },
                 |ctx| {
                     // Drop this many:
@@ -15664,10 +14730,7 @@ impl FunctionTranslator<'_> {
                         // If the attachments exist, then we need to:
                         // 1. Call the rust function to close the frame
                         // 2. Close the destructor.
-                        ctx.call_function_args_no_return(
-                            "#%handle-attachments",
-                            &[popped_frame.attachments],
-                        );
+                        ctx.call_helper_void(HANDLE_ATTACHMENTS, [popped_frame.attachments]);
                     },
                     |ctx| {
                         // The rest:
@@ -15727,7 +14790,7 @@ impl FunctionTranslator<'_> {
                 value
             },
             |ctx| {
-                ctx.call_function_args_no_return("#%pop-slow-path-finish", &[value]);
+                ctx.call_helper_void(POP_SLOW_PATH_FINISH, [value]);
 
                 // Return void in this case
                 ctx.encode_void()
@@ -16106,7 +15169,7 @@ impl FunctionTranslator<'_> {
     /// object, the same assumption the inline decrement makes.
     fn clone_rc_value(&mut self, value: Value) {
         if !inline_weak_clone_enabled() {
-            self.call_function_args_no_context("#%clone-std-rc", &[value]);
+            self.call_helper_void(CLONE_STD_RC, [value]);
             return;
         }
 
@@ -16133,7 +15196,7 @@ impl FunctionTranslator<'_> {
                 );
             },
             |ctx| {
-                ctx.call_function_args_no_context("#%clone-std-rc", &[value]);
+                ctx.call_helper_void(CLONE_STD_RC, [value]);
             },
         );
     }
@@ -16183,7 +15246,7 @@ impl FunctionTranslator<'_> {
                 ctx.converging_if_no_value(
                     saturated,
                     |c| {
-                        c.call_function_args_no_context("raw-slow-increment-closure", &[value]);
+                        c.call_helper_void(RAW_SLOW_INCREMENT_CLOSURE, [value]);
                     },
                     |c| {
                         let add_one = c
@@ -16203,7 +15266,7 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 // TODO: @Matt - we can inline this as well!
                 // Slow path increment the counter - this needs to be more generic
-                ctx.call_function_args_no_context("raw-slow-increment-closure", &[value]);
+                ctx.call_helper_void(RAW_SLOW_INCREMENT_CLOSURE, [value]);
             },
         );
     }
@@ -16337,7 +15400,7 @@ impl FunctionTranslator<'_> {
         self.converging_if_no_else_no_value_then_cold(
             at_capacity,
             // If at capacity, call grow
-            |ctx| ctx.call_function_no_return("slow-grow-frame-stack"),
+            |ctx| ctx.call_helper_void(SLOW_GROW_FRAME_STACK, []),
             |ctx| {
                 // Write the value:
                 let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
@@ -16540,7 +15603,7 @@ impl FunctionTranslator<'_> {
         self.converging_if_no_else_no_value_then_cold(
             at_capacity,
             // If at capacity, call grow
-            |ctx| ctx.call_function_no_return("slow-grow-stack"),
+            |ctx| ctx.call_helper_void(SLOW_GROW_STACK, []),
             |ctx| {
                 // Write the value:
                 let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
@@ -16660,7 +15723,7 @@ impl FunctionTranslator<'_> {
             // If at capacity, call grow
             |ctx| {
                 let amt = ctx.builder.ins().iconst(types::I64, arity as i64);
-                ctx.call_function_args_no_return("slow-stack-reserve-exact", &[amt])
+                ctx.call_helper_void(SLOW_STACK_RESERVE_EXACT, [amt])
             },
             |ctx| {
                 // Write the value(s):
@@ -16743,7 +15806,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn push_const_index(&mut self, index: usize) -> Value {
-        let local_callee = self.get_local_callee("push-const-index");
+        let local_callee = self.helper_callee(PUSH_CONST_INDEX);
 
         let ctx = self.get_ctx();
 
@@ -16763,7 +15826,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn call_function_returns_value(&mut self, name: &str) -> Value {
-        let local_callee = self.get_local_callee(name);
+        let local_callee = self.checked_callee(name, 1);
 
         let ctx = self.get_ctx();
 
@@ -16777,7 +15840,7 @@ impl FunctionTranslator<'_> {
     // Call a function by name with no return value, implicitly
     // passes the context
     fn call_function_no_return(&mut self, name: &str) {
-        let local_callee = self.get_local_callee(name);
+        let local_callee = self.checked_callee(name, 1);
         let ctx = self.get_ctx();
         let arg_values = [ctx];
         let _ = self.builder.ins().call(local_callee, &arg_values);
@@ -16855,10 +15918,107 @@ impl FunctionTranslator<'_> {
         self.vm_context
     }
 
+    /// Call a helper declared in `helpers.rs`, with exactly its arguments; the
+    /// vm context goes first implicitly if it takes one. Only for helpers that
+    /// can't raise - see `call_helper_checked`.
+    fn call_helper<const N: usize, const CTX: bool>(
+        &mut self,
+        helper: Helper<N, CTX, true, false>,
+        args: [Value; N],
+    ) -> Value {
+        let call = self.emit_helper_call(helper.name, CTX, &args);
+        self.builder.inst_results(call)[0]
+    }
+
+    /// `call_helper` for a helper that returns nothing.
+    fn call_helper_void<const N: usize, const CTX: bool>(
+        &mut self,
+        helper: Helper<N, CTX, false, false>,
+        args: [Value; N],
+    ) {
+        self.emit_helper_call(helper.name, CTX, &args);
+    }
+
+    /// Call a helper that can raise, and leave native code straight away if it
+    /// did.
+    fn call_helper_checked<const N: usize, const CTX: bool>(
+        &mut self,
+        helper: Helper<N, CTX, true, true>,
+        args: [Value; N],
+    ) -> Value {
+        let call = self.emit_helper_call(helper.name, CTX, &args);
+        let result = self.builder.inst_results(call)[0];
+        self.check_deopt();
+        result
+    }
+
+    /// `call_helper_checked` for a helper that returns nothing.
+    fn call_helper_void_checked<const N: usize, const CTX: bool>(
+        &mut self,
+        helper: Helper<N, CTX, false, true>,
+        args: [Value; N],
+    ) {
+        self.emit_helper_call(helper.name, CTX, &args);
+        self.check_deopt();
+    }
+
+    /// Call a helper that can raise without checking whether it did. The caller
+    /// takes that on: it has to reach a `check_deopt` (or hand control back to
+    /// the interpreter some other way) before anything uses the result.
+    fn call_helper_unchecked<const N: usize, const CTX: bool>(
+        &mut self,
+        helper: Helper<N, CTX, true, true>,
+        args: [Value; N],
+    ) -> Value {
+        let call = self.emit_helper_call(helper.name, CTX, &args);
+        self.builder.inst_results(call)[0]
+    }
+
+    /// `call_helper_unchecked` for a helper that returns nothing.
+    fn call_helper_void_unchecked<const N: usize, const CTX: bool>(
+        &mut self,
+        helper: Helper<N, CTX, false, true>,
+        args: [Value; N],
+    ) {
+        self.emit_helper_call(helper.name, CTX, &args);
+    }
+
+    /// The callee for a declared helper, for building a call by hand.
+    fn helper_callee<const N: usize, const CTX: bool, const RET: bool, const RAISES: bool>(
+        &mut self,
+        helper: Helper<N, CTX, RET, RAISES>,
+    ) -> FuncRef {
+        self.get_local_callee(helper.name)
+    }
+
+    fn emit_helper_call(&mut self, name: &'static str, ctx: bool, args: &[Value]) -> cranelift::codegen::ir::Inst {
+        let callee = self.get_local_callee(name);
+        if ctx {
+            let mut all = Vec::with_capacity(args.len() + 1);
+            all.push(self.get_ctx());
+            all.extend_from_slice(args);
+            self.builder.ins().call(callee, &all)
+        } else {
+            self.builder.ins().call(callee, args)
+        }
+    }
+
+    /// The callee for a helper called by a name chosen at run time, checked
+    /// against its registered signature: a wrong argument count would otherwise
+    /// only surface as a verifier failure, or as garbage in a register.
+    fn checked_callee(&mut self, name: &str, argument_count: usize) -> FuncRef {
+        let expected = self.get_signature(name).params.len();
+        assert_eq!(
+            expected, argument_count,
+            "jit helper `{name}` takes {expected} arguments (vm context included), called with {argument_count}"
+        );
+        self.get_local_callee(name)
+    }
+
     /// Call a function by name, with the first argument implicitly as the VM context.
     /// Returns a value.
     fn call_function_returns_value_args(&mut self, name: &str, args: &[Value]) -> Value {
-        let local_callee = self.get_local_callee(name);
+        let local_callee = self.checked_callee(name, args.len() + 1);
         let ctx = self.get_ctx();
 
         let mut arg_values = vec![ctx];
@@ -16871,7 +16031,7 @@ impl FunctionTranslator<'_> {
     /// Calls a function by name, with the first argument implicitly as the VM context.
     /// Does not return a value.
     fn call_function_args_no_return(&mut self, name: &str, args: &[Value]) {
-        let local_callee = self.get_local_callee(name);
+        let local_callee = self.checked_callee(name, args.len() + 1);
         let ctx = self.get_ctx();
 
         let mut arg_values = vec![ctx];
@@ -16882,7 +16042,7 @@ impl FunctionTranslator<'_> {
     /// Calls a function by name, without implicitly passing a context.
     /// Returns a value.
     fn call_function_returns_value_args_no_context(&mut self, name: &str, args: &[Value]) -> Value {
-        let local_callee = self.get_local_callee(name);
+        let local_callee = self.checked_callee(name, args.len());
         let call = self.builder.ins().call(local_callee, &args);
         let result = self.builder.inst_results(call)[0];
         result
@@ -16892,7 +16052,7 @@ impl FunctionTranslator<'_> {
     ///
     /// Does not return a value.
     fn call_function_args_no_context(&mut self, name: &str, args: &[Value]) {
-        let local_callee = self.get_local_callee(name);
+        let local_callee = self.checked_callee(name, args.len());
         let _ = self.builder.ins().call(local_callee, &args);
     }
 

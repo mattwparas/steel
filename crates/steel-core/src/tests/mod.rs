@@ -121,6 +121,7 @@ test_harness_success! {
     jit_fixnum_arith,
     jit_frameless_self_calls,
     jit_background_stress,
+    jit_helper_error_exits,
     jit_loop_specialization,
     jit_varargs,
     apply,
