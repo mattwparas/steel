@@ -153,7 +153,7 @@ impl Custom for BuiltInModule {
 
 impl RegisterValue for BuiltInModule {
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
-        self.module.write().values.insert(name.into(), value);
+        self.module.write().register_value(name, value);
         self
     }
 
@@ -626,8 +626,46 @@ impl BuiltInModuleRepr {
     /// Add a value to the module namespace. This value can be any legal SteelVal, or if you're explicitly attempting
     /// to compile an program for later use and don't currently have access to the functions in memory, use `SteelVal::Void`
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
+        self.note_function_value(name, &value);
         self.values.insert(name.into(), value);
         self
+    }
+
+    /// Every native function a module exposes gets an entry in the function
+    /// table, however it was registered - the jit looks primitives up there
+    /// (their return types), and printing a function uses it for the name.
+    /// One registered from a `NativeFunctionDefinition` already has an entry
+    /// with its real arity and return type; anything else gets its name, with
+    /// nothing known about the rest.
+    fn note_function_value(&mut self, name: &str, value: &SteelVal) {
+        let key = match value {
+            SteelVal::FuncV(f) => BuiltInFunctionType::Reference(*f),
+            SteelVal::MutFunc(f) => BuiltInFunctionType::Mutable(*f),
+            SteelVal::BuiltIn(f) => BuiltInFunctionType::Context(*f),
+            _ => return,
+        };
+        if self.fn_ptr_table.contains_key(&key) {
+            return;
+        }
+        match get_function_metadata(key) {
+            // Registered elsewhere under its own name (this is an alias or a
+            // re-export): share that entry.
+            Some(existing) => {
+                self.fn_ptr_table.insert(key, existing);
+            }
+            None => {
+                self.add_to_fn_ptr_table(
+                    key,
+                    FunctionSignatureMetadata {
+                        name: Cow::Owned(name.to_string()),
+                        arity: Arity::AtLeast(0),
+                        is_const: false,
+                        doc: None,
+                        return_type: crate::value_type::ValueType::Any,
+                    },
+                );
+            }
+        }
     }
 
     pub fn register_value_with_doc(
@@ -636,6 +674,7 @@ impl BuiltInModuleRepr {
         value: SteelVal,
         doc: DocTemplate<'static>,
     ) -> &mut Self {
+        self.note_function_value(name, &value);
         self.values.insert(name.into(), value);
         self.register_doc(Cow::from(name), doc);
         self

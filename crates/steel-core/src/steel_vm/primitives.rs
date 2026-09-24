@@ -1022,6 +1022,91 @@ pub fn stringp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::StringV(_))
 }
 
+/// Returns `#t` if the value is a mutable vector.
+///
+/// (mutable-vector? value) -> bool?
+///
+/// # Examples
+/// ```scheme
+/// > (mutable-vector? (vector 1 2))
+/// #true
+///
+/// > (mutable-vector? #(1 2))
+/// #false
+/// ```
+#[steel_derive::function(name = "mutable-vector?")]
+pub fn mutable_vectorp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::MutableVector(_))
+}
+
+/// Returns `#t` if the value is an immutable vector.
+///
+/// (immutable-vector? value) -> bool?
+///
+/// # Examples
+/// ```scheme
+/// > (immutable-vector? #(1 2))
+/// #true
+///
+/// > (immutable-vector? (vector 1 2))
+/// #false
+/// ```
+#[steel_derive::function(name = "immutable-vector?")]
+pub fn immutable_vectorp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::VectorV(_))
+}
+
+/// Returns `#t` if the value is a character.
+///
+/// (char? value) -> bool?
+///
+/// # Examples
+/// ```scheme
+/// > (char? #\a)
+/// #true
+///
+/// > (char? "a")
+/// #false
+/// ```
+#[steel_derive::function(name = "char?")]
+pub fn charp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::CharV(_))
+}
+
+/// Returns `#t` if the value is a future.
+///
+/// (future? value) -> bool?
+#[steel_derive::function(name = "future?")]
+pub fn futurep(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::FutureV(_))
+}
+
+/// Returns `#t` if the value is an atom: a number, string, symbol, boolean or
+/// character.
+///
+/// (atom? value) -> bool?
+///
+/// # Examples
+/// ```scheme
+/// > (atom? 'foo)
+/// #true
+///
+/// > (atom? (list 1 2))
+/// #false
+/// ```
+#[steel_derive::function(name = "atom?")]
+pub fn atomp(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::NumV(_)
+            | SteelVal::IntV(_)
+            | SteelVal::StringV(_)
+            | SteelVal::SymbolV(_)
+            | SteelVal::BoolV(_)
+            | SteelVal::CharV(_)
+    )
+}
+
 /// Returns true if the value is a list.
 ///
 /// (list? value) -> boolean?
@@ -1293,17 +1378,14 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(EOF_OBJECTP_DEFINITION)
         .register_native_fn_definition(PRIVATE_STRUCTP_DEFINITION)
         .register_native_fn_definition(ERROR_OBJECTP_DEFINITION)
-        .register_value("mutable-vector?", gen_pred!(MutableVector))
-        .register_value("immutable-vector?", gen_pred!(VectorV))
-        .register_value("char?", gen_pred!(CharV))
-        .register_value("future?", gen_pred!(FutureV))
+        .register_native_fn_definition(MUTABLE_VECTORP_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTORP_DEFINITION)
+        .register_native_fn_definition(CHARP_DEFINITION)
+        .register_native_fn_definition(FUTUREP_DEFINITION)
         .register_native_fn_definition(FUNCTIONP_DEFINITION)
         .register_native_fn_definition(IS_FUNCTION_POINTER_DEFINITION)
         .register_native_fn_definition(PROCEDUREP_DEFINITION)
-        .register_value(
-            "atom?",
-            gen_pred!(NumV, IntV, StringV, SymbolV, BoolV, CharV),
-        );
+        .register_native_fn_definition(ATOMP_DEFINITION);
     module
 }
 
