@@ -1,0 +1,280 @@
+//! Which primitive calls the jit lowers inline, in one table.
+//!
+//! A call to a primitive - a global bound to a native function - normally goes
+//! out through a generic helper. The primitives in [`inline_primitives`] have
+//! lowerings of their own; each entry says which function it is, for which
+//! arity, whether it applies in operand position and in tail position (each
+//! behind its own switch), any further shape check, and how it lowers.
+//! `try_inline_primitive` and `try_inline_primitive_tail` are the only
+//! dispatchers, so recognising a new primitive is one entry here.
+
+use super::*;
+
+type PushLowering = Box<dyn for<'a> Fn(&mut FunctionTranslator<'a>, usize) + Send + Sync>;
+type ReturnLowering =
+    Box<dyn for<'a> Fn(&mut FunctionTranslator<'a>, usize) -> Option<Value> + Send + Sync>;
+
+/// How an entry emits its code, given the call's arity. Either way it consumes
+/// its operands off the operand stack.
+pub(super) enum Lowering {
+    /// Pushes the result and steps past the call itself - the operand position
+    /// shape. In tail position the result is popped back off and returned.
+    Pushes(PushLowering),
+    /// Returns the result, or `None` having emitted nothing when this site
+    /// doesn't suit the lowering after all. In operand position it is pushed
+    /// with `InferredType::Any`.
+    Returns(ReturnLowering),
+}
+
+fn pushes(lower: impl for<'a> Fn(&mut FunctionTranslator<'a>, usize) + Send + Sync + 'static) -> Lowering {
+    Lowering::Pushes(Box::new(lower))
+}
+
+fn returns(
+    lower: impl for<'a> Fn(&mut FunctionTranslator<'a>, usize) -> Option<Value> + Send + Sync + 'static,
+) -> Lowering {
+    Lowering::Returns(Box::new(lower))
+}
+
+pub(super) struct PrimitiveInline {
+    /// For reading the table; the dispatch goes by `target`.
+    #[allow(dead_code)]
+    pub(super) name: &'static str,
+    /// The native function, as a pointer.
+    pub(super) target: usize,
+    /// `None` takes any arity and leaves it to `guard`.
+    pub(super) arity: Option<usize>,
+    /// Whether it applies in operand position, and in tail position.
+    pub(super) operand: fn() -> bool,
+    pub(super) tail: fn() -> bool,
+    /// A check on the operands at this site.
+    pub(super) guard: for<'a> fn(&FunctionTranslator<'a>, usize) -> bool,
+    pub(super) lower: Lowering,
+}
+
+fn always() -> bool {
+    true
+}
+
+fn never() -> bool {
+    false
+}
+
+fn any_shape(_: &FunctionTranslator<'_>, _: usize) -> bool {
+    true
+}
+
+fn extra() -> bool {
+    extra_primitive_tail_calls_enabled()
+}
+
+fn extra_pred() -> bool {
+    extra_primitive_tail_calls_enabled() && tail_pred_enabled()
+}
+
+fn extra_cdr() -> bool {
+    extra_primitive_tail_calls_enabled() && tail_cdr_enabled()
+}
+
+fn extra_rev() -> bool {
+    extra_primitive_tail_calls_enabled() && tail_reverse_enabled()
+}
+
+fn extra_vec() -> bool {
+    extra_primitive_tail_calls_enabled() && tail_vec_enabled()
+}
+
+fn divmod() -> bool {
+    inline_divmod_enabled()
+}
+
+fn bytevector() -> bool {
+    inline_bytevector_enabled()
+}
+
+// Reached from an inlined accessor's `(#%unbox (getter x))`, which is an
+// operand position call - hence the tail call switch in operand position too.
+fn boxes() -> bool {
+    inline_primitive_tail_calls_enabled()
+}
+
+macro_rules! entry {
+    ($name:literal, $target:expr, $arity:expr, operand: $operand:expr, tail: $tail:expr,
+     guard: $guard:expr, $lower:expr) => {
+        PrimitiveInline {
+            name: $name,
+            // Through a raw pointer: the same address the dispatch compares
+            // against, without casting a function item straight to an integer.
+            target: $target as *const () as usize,
+            arity: $arity,
+            operand: $operand,
+            tail: $tail,
+            guard: $guard,
+            lower: $lower,
+        }
+    };
+}
+
+fn divmod_entry(name: &'static str, target: FunctionSignature, mode: DivMode) -> PrimitiveInline {
+    PrimitiveInline {
+        name,
+        target: target as usize,
+        arity: Some(2),
+        operand: divmod,
+        tail: divmod,
+        guard: any_shape,
+        // The fallback calls the primitive itself.
+        lower: returns(move |t, _| Some(t.inline_int_divmod(mode, target))),
+    }
+}
+
+/// Every primitive with an inline lowering.
+pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
+    static TABLE: std::sync::LazyLock<Vec<PrimitiveInline>> = std::sync::LazyLock::new(|| {
+        use crate::primitives::lists::{steel_cdr, steel_reverse};
+        use crate::primitives::vectors::{list_vec_null, mut_vec_construct};
+        use crate::steel_vm::primitives::{
+            make_mutable_struct, steel_set_box_mutable, steel_unbox_mutable,
+        };
+
+        vec![
+            // Type predicates.
+            entry!("string?", steel_stringp, Some(1), operand: always, tail: never,
+                guard: any_shape, pushes(|t, _| t.is_string())),
+            entry!("list?", steel_listp, Some(1), operand: always, tail: never,
+                guard: any_shape, pushes(|t, _| t.is_list())),
+            entry!("void?", steel_voidp, Some(1), operand: always, tail: never,
+                guard: any_shape, pushes(|t, _| t.is_void())),
+            entry!("eof-object?", steel_eof_objectp, Some(1), operand: always, tail: never,
+                guard: any_shape, pushes(|t, _| t.eof_object())),
+            entry!("symbol?", steel_symbolp, Some(1), operand: always, tail: never,
+                guard: any_shape, pushes(|t, _| t.is_symbol())),
+            // `pair?` and `null?` were 37% of `scheme`'s tail call deopts
+            // between them.
+            entry!("pair?", steel_pair, Some(1), operand: always, tail: extra_pred,
+                guard: any_shape, pushes(|t, _| t.is_pair())),
+            entry!("empty?", steel_is_empty, Some(1), operand: always, tail: extra_pred,
+                guard: any_shape, pushes(|t, _| t.is_empty())),
+            // `null?` in operand position is its own opcode. In tail position
+            // the empty list is the case worth inlining; the primitive also
+            // answers for empty vectors, which the helper handles.
+            entry!("null?", list_vec_null, Some(1), operand: never, tail: extra_pred,
+                guard: any_shape, returns(|t, _| Some(t.inline_null_predicate()))),
+            // Equality and membership.
+            entry!("eq?", steel_eq, Some(2), operand: always, tail: extra,
+                guard: any_shape, pushes(|t, _| t.eq())),
+            entry!("char=?", steel_char_equals, Some(2), operand: always, tail: never,
+                guard: any_shape, pushes(|t, arity| t.char_equals(arity))),
+            entry!("list-contains", steel_list_contains, Some(2), operand: always, tail: never,
+                guard: any_shape, pushes(|t, _| t.list_contains())),
+            // Vectors.
+            entry!("vector-set!", steel_mut_vec_set, Some(3), operand: always, tail: extra,
+                guard: any_shape, pushes(|t, _| t.vector_set())),
+            entry!("vector-push!", mut_vec_push, Some(2), operand: always, tail: never,
+                guard: any_shape, pushes(|t, _| t.vector_push())),
+            entry!("flat vector", flat_vector_construct, None, operand: always, tail: never,
+                guard: |_, arity| CallFlatVectorConstructorsDefinitions::arity_to_name(arity)
+                    .is_some(),
+                pushes(|t, arity| t.flat_vector_construct(arity))),
+            entry!("mutable-vector", mut_vec_construct, None, operand: never, tail: extra_vec,
+                guard: any_shape,
+                returns(|t, arity| {
+                    t.inline_mutable_vector_tail_call(mut_vec_construct as *const () as usize, arity)
+                })),
+            entry!("bytes-ref", steel_bytes_ref, Some(2), operand: bytevector, tail: never,
+                guard: |t, arity| t.byte_vector_shape_ok(arity),
+                returns(|t, arity| Some(t.inline_byte_vector_op(steel_bytes_ref, arity)))),
+            entry!("bytes-set!", steel_bytes_set, Some(3), operand: bytevector, tail: never,
+                guard: |t, arity| t.byte_vector_shape_ok(arity),
+                returns(|t, arity| Some(t.inline_byte_vector_op(steel_bytes_set, arity)))),
+            // Integer division. Inlining these only in operand position left
+            // `bv2string`'s `(remainder (quotient x 8) n)` deopting once per
+            // iteration: 99.79% of every tail call deopt in the program.
+            divmod_entry("quotient", quotient, DivMode::TruncQuotient),
+            divmod_entry("truncate-quotient", truncate_quotient, DivMode::TruncQuotient),
+            divmod_entry("remainder", remainder, DivMode::TruncRemainder),
+            divmod_entry("truncate-remainder", truncate_remainder, DivMode::TruncRemainder),
+            divmod_entry("floor-quotient", floor_quotient, DivMode::FloorQuotient),
+            divmod_entry("modulo", modulo, DivMode::FloorRemainder),
+            divmod_entry("floor-remainder", floor_remainder, DivMode::FloorRemainder),
+            // Boxes: mutable struct fields, so `(#%unbox (getter ...))` and
+            // `#%set-box!` are everywhere.
+            entry!("#%unbox", steel_unbox_mutable, Some(1), operand: boxes, tail: always,
+                guard: |t, arity| t.box_primitive_inlinable(steel_unbox_mutable as *const () as usize, arity),
+                returns(|t, arity| {
+                    t.inline_box_primitive(steel_unbox_mutable as *const () as usize, arity)
+                })),
+            entry!("#%set-box!", steel_set_box_mutable, Some(2), operand: boxes, tail: always,
+                guard: |t, arity| t.box_primitive_inlinable(steel_set_box_mutable as *const () as usize, arity),
+                returns(|t, arity| {
+                    t.inline_box_primitive(steel_set_box_mutable as *const () as usize, arity)
+                })),
+            // Structs.
+            entry!("#%make-mutable-struct", make_mutable_struct, None, operand: never,
+                tail: extra, guard: any_shape,
+                returns(|t, arity| {
+                    t.inline_mutable_struct_tail_call(make_mutable_struct as *const () as usize, arity)
+                })),
+            // Lists: `cdr` was 28% of the tail call deopts in `scheme`.
+            entry!("cdr", steel_cdr, None, operand: never, tail: extra_cdr, guard: any_shape,
+                returns(|t, arity| t.inline_mut_func_tail_call(steel_cdr as *const () as usize, arity))),
+            entry!("reverse", steel_reverse, None, operand: never, tail: extra_rev,
+                guard: any_shape,
+                returns(|t, arity| {
+                    t.inline_mut_func_tail_call(steel_reverse as *const () as usize, arity)
+                })),
+        ]
+    });
+    &TABLE
+}
+
+fn find(target: usize, arity: usize) -> Option<&'static PrimitiveInline> {
+    inline_primitives()
+        .iter()
+        .find(|entry| entry.target == target && entry.arity.is_none_or(|a| a == arity))
+}
+
+impl FunctionTranslator<'_> {
+    /// Lower a call to the primitive `target` in operand position, if it has
+    /// an inline lowering here; `false` (nothing emitted) sends it down the
+    /// generic call.
+    pub(super) fn try_inline_primitive(&mut self, target: usize, arity: usize) -> bool {
+        let Some(entry) = find(target, arity) else {
+            return false;
+        };
+        if !(entry.operand)() || !(entry.guard)(self, arity) {
+            return false;
+        }
+        match &entry.lower {
+            Lowering::Pushes(lower) => lower(self, arity),
+            Lowering::Returns(lower) => {
+                let Some(value) = lower(self, arity) else {
+                    return false;
+                };
+                self.push(value, InferredType::Any);
+                self.ip += 1;
+            }
+        }
+        true
+    }
+
+    /// The same in tail position: the value to return, or `None` (nothing
+    /// emitted) for the generic tail call.
+    pub(super) fn try_inline_primitive_tail(&mut self, target: usize, arity: usize) -> Option<Value> {
+        let entry = find(target, arity)?;
+        if !(entry.tail)() || !(entry.guard)(self, arity) {
+            return None;
+        }
+        match &entry.lower {
+            // The operand position lowering, then its result back off the
+            // stack. Its `ip` step doesn't matter: the tail call arm moves
+            // past the end of the function once this returns.
+            Lowering::Pushes(lower) => {
+                lower(self, arity);
+                Some(self.pop_as_steelval())
+            }
+            Lowering::Returns(lower) => lower(self, arity),
+        }
+    }
+
+}
