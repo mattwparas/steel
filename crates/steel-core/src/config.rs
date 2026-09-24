@@ -163,6 +163,8 @@ steel_config! {
     /// Print the cranelift ir of functions whose name contains this; `1` prints
     /// only functions the verifier rejected.
     jit_dump_clif: Option<String> = None, "STEEL_JIT_DUMP_CLIF";
+    /// Print the machine code of functions whose name contains this.
+    jit_dump_asm: Option<String> = None, "STEEL_JIT_DUMP_ASM";
     /// Append compiled functions to /tmp/perf-<pid>.map for `perf report`.
     jit_perf_map: bool = false, "STEEL_JIT_PERF_MAP";
     /// Write jit-<pid>.dump for `perf inject --jit`.
@@ -247,6 +249,9 @@ steel_config! {
     /// Log each generic primitive call site the jit compiles, with the type
     /// its result was given.
     jit_primitive_types_log: bool = false, "STEEL_JIT_PRIMITIVE_TYPES_LOG";
+    /// Treat a value's inferred type as proof of its tag, so tag checks on it
+    /// fold away.
+    jit_proven_tags: bool = true, "STEEL_JIT_PROVEN_TAGS";
 
     // ---- jit: specialization and experiments ------------------------------------------
 

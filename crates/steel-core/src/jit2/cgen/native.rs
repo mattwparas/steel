@@ -1488,9 +1488,7 @@ impl<'a> FunctionTranslator<'a> {
             //     todo!()
             // }
             (StackValue { value: lv, .. }, StackValue { value: rv, .. }) => {
-                let left_is_int = self.is_type(lv, SteelVal::INT_TAG);
-                let right_is_int = self.is_type(rv, SteelVal::INT_TAG);
-                let both_int = self.builder.ins().band(left_is_int, right_is_int);
+                let both_int = self.tags_are(&[(lv, SteelVal::INT_TAG), (rv, SteelVal::INT_TAG)]);
 
                 let sp = |ctx: &mut Self| {
                     let function_name = op_to_name_payload(OpCode::ADD, 2);
@@ -1542,9 +1540,7 @@ impl<'a> FunctionTranslator<'a> {
         left: Value,
         right: Value,
     ) -> (Value, InferredType) {
-        let left_is_int = self.is_type(left, SteelVal::INT_TAG);
-        let right_is_int = self.is_type(right, SteelVal::INT_TAG);
-        let both_int = self.builder.ins().band(left_is_int, right_is_int);
+        let both_int = self.tags_are(&[(left, SteelVal::INT_TAG), (right, SteelVal::INT_TAG)]);
 
         let sp = |ctx: &mut Self| {
             let args = [left, right];
@@ -1597,9 +1593,7 @@ impl<'a> FunctionTranslator<'a> {
         let lv = self.read_from_vm_stack(left);
         let rv = self.read_from_vm_stack(right);
 
-        let left_is_int = self.is_type(lv, SteelVal::INT_TAG);
-        let right_is_int = self.is_type(rv, SteelVal::INT_TAG);
-        let both_int = self.builder.ins().band(left_is_int, right_is_int);
+        let both_int = self.tags_are(&[(lv, SteelVal::INT_TAG), (rv, SteelVal::INT_TAG)]);
 
         let sp = |ctx: &mut Self| {
             let register_r = ctx.builder.ins().iconst(types::I64, right as i64);
@@ -2116,9 +2110,7 @@ impl<'a> FunctionTranslator<'a> {
         value_owned: bool,
         fallback: impl Fn(&mut Self) -> Value,
     ) -> Value {
-        let is_vec = self.is_type(vector, SteelVal::HEAP_REF_VECTOR_TAG);
-        let is_int = self.is_type(index, SteelVal::INT_TAG);
-        let both = self.builder.ins().band(is_vec, is_int);
+        let both = self.tags_are(&[(vector, SteelVal::HEAP_REF_VECTOR_TAG), (index, SteelVal::INT_TAG)]);
 
         let body = |ctx: &mut Self| {
             let ptr = ctx.unbox_value_to_pointer(vector);
@@ -2179,9 +2171,7 @@ impl<'a> FunctionTranslator<'a> {
         index: Value,
         fallback: impl Fn(&mut Self) -> Value,
     ) -> Value {
-        let is_vec = self.is_type(vector, SteelVal::HEAP_REF_VECTOR_TAG);
-        let is_int = self.is_type(index, SteelVal::INT_TAG);
-        let both = self.builder.ins().band(is_vec, is_int);
+        let both = self.tags_are(&[(vector, SteelVal::HEAP_REF_VECTOR_TAG), (index, SteelVal::INT_TAG)]);
 
         self.converging_if_else_cold(
             both,
@@ -2306,9 +2296,7 @@ impl<'a> FunctionTranslator<'a> {
         owned: bool,
         fallback: impl Fn(&mut Self) -> Value,
     ) -> Value {
-        let is_bytes = self.is_type(bytevector, SteelVal::BYTEVECTOR_TAG);
-        let is_int = self.is_type(index, SteelVal::INT_TAG);
-        let both = self.builder.ins().band(is_bytes, is_int);
+        let both = self.tags_are(&[(bytevector, SteelVal::BYTEVECTOR_TAG), (index, SteelVal::INT_TAG)]);
 
         self.converging_if_else_cold(
             both,
@@ -2382,11 +2370,7 @@ impl<'a> FunctionTranslator<'a> {
         owned: bool,
         fallback: impl Fn(&mut Self) -> Value,
     ) -> Value {
-        let is_bytes = self.is_type(bytevector, SteelVal::BYTEVECTOR_TAG);
-        let is_int = self.is_type(index, SteelVal::INT_TAG);
-        let byte_is_int = self.is_type(byte, SteelVal::INT_TAG);
-        let tags_ok = self.builder.ins().band(is_bytes, is_int);
-        let tags_ok = self.builder.ins().band(tags_ok, byte_is_int);
+        let tags_ok = self.tags_are(&[(bytevector, SteelVal::BYTEVECTOR_TAG), (index, SteelVal::INT_TAG), (byte, SteelVal::INT_TAG)]);
 
         self.converging_if_else_cold(
             tags_ok,
@@ -2458,9 +2442,7 @@ impl<'a> FunctionTranslator<'a> {
         index: Value,
         fallback: impl Fn(&mut Self) -> Value,
     ) -> Value {
-        let is_flat = self.is_type(vector, SteelVal::FLAT_VECTOR_TAG);
-        let is_int = self.is_type(index, SteelVal::INT_TAG);
-        let both = self.builder.ins().band(is_flat, is_int);
+        let both = self.tags_are(&[(vector, SteelVal::FLAT_VECTOR_TAG), (index, SteelVal::INT_TAG)]);
 
         self.converging_if_else_cold(
             both,

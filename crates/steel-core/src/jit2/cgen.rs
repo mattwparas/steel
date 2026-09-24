@@ -381,6 +381,7 @@ macro_rules! abi {
 mod helpers;
 use helpers::*;
 mod inline_primitives;
+mod guarded;
 
 /// How many speculative exits a function may take before speculation stops
 /// being worth it for that function.
@@ -2098,6 +2099,33 @@ impl JIT {
     /// `frameless_enabled`. Returns the validated type of what it returns when
     /// it compiled, `None` when it did not - in which case it is defined as a
     /// stub that nothing calls, because a declared function has to be defined.
+    /// `STEEL_JIT_DUMP_CLIF=<substring>` for the specialized and frameless
+    /// copies too, which is where the hot code of a typed loop lives.
+    fn dump_clif_if_asked(&mut self, name: &str) {
+        if let Some(filter) = &crate::config::config().jit_dump_clif {
+            if filter != "1" && name.contains(filter.as_str()) {
+                eprintln!("--- clif for {} ---\n{}", name, self.ctx.func);
+            }
+        }
+        // `STEEL_JIT_DUMP_ASM`: have cranelift keep the disassembly of what it
+        // is about to emit; `dump_asm_if_asked` prints it once defined.
+        if crate::config::config()
+            .jit_dump_asm
+            .as_ref()
+            .is_some_and(|filter| name.contains(filter.as_str()))
+        {
+            self.ctx.set_disasm(true);
+        }
+    }
+
+    /// The machine code `dump_clif_if_asked` asked cranelift to keep.
+    fn dump_asm_if_asked(&mut self, name: &str) {
+        if let Some(code) = self.ctx.compiled_code().and_then(|c| c.vcode.clone()) {
+            eprintln!("--- asm for {name} ---\n{code}");
+        }
+        self.ctx.set_disasm(false);
+    }
+
     fn compile_frameless(
         &mut self,
         id: u32,
@@ -2188,7 +2216,14 @@ impl JIT {
             result = Some(None);
         }
 
-        if result.is_some() && self.module.define_function(frameless_id, &mut self.ctx).is_err() {
+        if result.is_some() {
+            self.dump_clif_if_asked(&name);
+        }
+        if result.is_some() && {
+            let defined = self.module.define_function(frameless_id, &mut self.ctx);
+            self.dump_asm_if_asked(&name);
+            defined.is_err()
+        } {
             result = None;
         }
         if result.is_none() {
@@ -2323,7 +2358,12 @@ impl JIT {
         let failure = match translated {
             Ok(Ok(_)) => {
                 match cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
-                    Ok(()) => match self.module.define_function(spec_id, &mut self.ctx) {
+                    Ok(()) => match {
+                        self.dump_clif_if_asked(&spec_name);
+                        let defined = self.module.define_function(spec_id, &mut self.ctx);
+                        self.dump_asm_if_asked(&spec_name);
+                        defined
+                    } {
                         Ok(()) => None,
                         Err(e) => Some(format!("define: {e}")),
                     },
@@ -2784,6 +2824,26 @@ fn primitive_result_type(f: FunctionSignature) -> InferredType {
 }
 
 impl InferredType {
+    /// The tag every boxed value of this type carries, for types that pin it
+    /// down to one. Tag checks on a value with one of these fold away, so the
+    /// type has to be exact wherever it is produced - `Int` is a fixnum, never
+    /// a bignum; `List` a proper list, never a pair.
+    pub(super) fn proven_tag(&self) -> Option<u8> {
+        Some(match self {
+            InferredType::Int | InferredType::Int64 => SteelVal::INT_TAG,
+            InferredType::Float => SteelVal::FLOAT_TAG,
+            InferredType::Bool | InferredType::UnboxedBool => SteelVal::BOOL_TAG,
+            InferredType::Char => SteelVal::CHAR_TAG,
+            InferredType::String => SteelVal::STRING_TAG,
+            InferredType::Symbol => SteelVal::SYMBOL_TAG,
+            InferredType::List => SteelVal::LIST_TAG,
+            InferredType::Pair => SteelVal::PAIR_TAG,
+            InferredType::Void => SteelVal::VOID_TAG,
+            InferredType::MutableVector => SteelVal::HEAP_REF_VECTOR_TAG,
+            _ => return None,
+        })
+    }
+
     /// A value of `ty`, held the ordinary way (boxed, tagged).
     pub(crate) fn from_value_type(ty: crate::value_type::ValueType) -> Self {
         use crate::value_type::ValueType;
@@ -2896,7 +2956,19 @@ impl StackValue {
                 ctx.known_tags.insert(boxed, SteelVal::INT_TAG);
                 boxed
             }
-            _ => self.value,
+            _ => {
+                // The type proves the tag, so every tag check on this value from
+                // here on folds to a constant (`get_tag`), and a guard built
+                // from them to one arm (`converging_if`).
+                if let Some(tag) = self
+                    .inferred_type
+                    .proven_tag()
+                    .filter(|_| crate::config::config().jit_proven_tags)
+                {
+                    ctx.known_tags.entry(self.value).or_insert(tag);
+                }
+                self.value
+            }
         }
 
         // Encode it using the discriminant associated with the inferred
@@ -6004,10 +6076,7 @@ impl FunctionTranslator<'_> {
                     // Both operands: checking the register twice compared an int
                     // or float register against the raw payload of whatever the
                     // other operand was - `(>= 1.5 2)` read 2 as a denormal float.
-                    let register_is_int = self.is_type(local_value, SteelVal::INT_TAG);
-                    let is_int = self.is_type(rhs_int.value, SteelVal::INT_TAG);
-
-                    let both_int = self.builder.ins().band(register_is_int, is_int);
+                    let both_int = self.tags_are(&[(local_value, SteelVal::INT_TAG), (rhs_int.value, SteelVal::INT_TAG)]);
 
                     let result = self.converging_if(
                         both_int,
@@ -6024,10 +6093,7 @@ impl FunctionTranslator<'_> {
                             res
                         },
                         |ctx| {
-                            let register_is_float = ctx.is_type(local_value, SteelVal::FLOAT_TAG);
-                            let is_float = ctx.is_type(rhs_int.value, SteelVal::FLOAT_TAG);
-
-                            let both_float = ctx.builder.ins().band(register_is_float, is_float);
+                            let both_float = ctx.tags_are(&[(local_value, SteelVal::FLOAT_TAG), (rhs_int.value, SteelVal::FLOAT_TAG)]);
 
                             ctx.converging_if(
                                 both_float,
@@ -6130,20 +6196,11 @@ impl FunctionTranslator<'_> {
                     // otherwise.
 
                     // This will be our constant value:
-                    let right = {
-            let sv = self.shadow_stack_pop().unwrap().into_value(self);
-            sv.as_steelval(self)
-        };
-                    let left = {
-            let sv = self.shadow_stack_pop().unwrap().into_value(self);
-            sv.as_steelval(self)
-        };
+                    let right = self.pop_boxed();
+                    let left = self.pop_boxed();
 
                     // Check if the tags are the same, and they're numeric:
-                    let left_int = self.is_type(left, SteelVal::INT_TAG);
-                    let right_int = self.is_type(right, SteelVal::INT_TAG);
-
-                    let both_int = self.builder.ins().band(left_int, right_int);
+                    let both_int = self.tags_are(&[(left, SteelVal::INT_TAG), (right, SteelVal::INT_TAG)]);
 
                     // Just check equality of the unboxed values
 
@@ -6262,10 +6319,7 @@ impl FunctionTranslator<'_> {
                         .unwrap();
 
                     // This is now our register; this is where the values will live.
-                    let value = {
-            let sv = self.shadow_stack_pop().unwrap().into_value(self);
-            sv.as_steelval(self)
-        };
+                    let value = self.pop_boxed();
 
                     // Check if the tags are the same, and they're numeric:
                     let is_value_int = self.is_type(value, SteelVal::INT_TAG);
@@ -7311,10 +7365,8 @@ impl FunctionTranslator<'_> {
                             // accounts for the stack slot, and the SSA value
                             // stays valid to read. Go through `into_value` the
                             // way the other inline arms do.
-                            let index = self.shadow_stack_pop().unwrap().into_value(self);
-                            let index = index.as_steelval(self);
-                            let vector_value = self.shadow_stack_pop().unwrap().into_value(self);
-                            let vector_value = vector_value.as_steelval(self);
+                            let index = self.pop_boxed();
+                            let vector_value = self.pop_boxed();
 
                             let fallback = move |ctx: &mut Self| {
                                 let res = ctx.call_helper_checked(VECTOR_REF_VALUE, [vector_value, index]);
@@ -7607,10 +7659,7 @@ impl FunctionTranslator<'_> {
         let local_value_r = self.read_from_vm_stack(register_r);
         let local_value_l = self.read_from_vm_stack(register_l);
 
-        let is_right_int = self.is_type(local_value_r, SteelVal::INT_TAG);
-        let is_left_int = self.is_type(local_value_l, SteelVal::INT_TAG);
-
-        let both_int = self.builder.ins().band(is_right_int, is_left_int);
+        let both_int = self.tags_are(&[(local_value_r, SteelVal::INT_TAG), (local_value_l, SteelVal::INT_TAG)]);
 
         // TODO: Adjust all of these things - in the event we're subtracting two
         // integer values, then we need to do
@@ -7935,15 +7984,10 @@ impl FunctionTranslator<'_> {
             && self.shadow_stack.len() >= 2
     }
 
-    fn pop_as_steelval(&mut self) -> Value {
-        let top = self.shadow_stack_pop().unwrap().into_value(self);
-        top.as_steelval(self)
-    }
-
     /// `null?` in tail position. The empty list is the case worth inlining;
     /// the primitive also answers for empty vectors, which the helper handles.
     fn inline_null_predicate(&mut self) -> Value {
-        let value = self.pop_as_steelval();
+        let value = self.pop_boxed();
         let is_list = self.is_type(value, SteelVal::LIST_TAG);
         let typ = self.int;
 
@@ -7983,7 +8027,7 @@ impl FunctionTranslator<'_> {
             return None;
         }
 
-        let value = self.pop_as_steelval();
+        let value = self.pop_boxed();
         let fallback_ip = self
             .builder
             .ins()
@@ -8197,30 +8241,18 @@ impl FunctionTranslator<'_> {
     /// The result is pushed as `Any`, not `Int`: the fallback can return a
     /// float or a `BigNum`, and both arms have to describe the merge.
     fn inline_int_divmod(&mut self, mode: DivMode, function: FunctionSignature) -> Value {
-        let rhs = {
-            let sv = self.shadow_stack_pop().unwrap().into_value(self);
-            sv.as_steelval(self)
-        };
-        let lhs = {
-            let sv = self.shadow_stack_pop().unwrap().into_value(self);
-            sv.as_steelval(self)
-        };
-
-        let lhs_is_int = self.is_type(lhs, SteelVal::INT_TAG);
-        let rhs_is_int = self.is_type(rhs, SteelVal::INT_TAG);
-        let both_int = self.builder.ins().band(lhs_is_int, rhs_is_int);
-
-        // Reading the payload is pure bit extraction, so it is fine to do
-        // before the tag check has decided anything.
-        let divisor = self.unbox_value_to_pointer(rhs);
-        let not_zero = self.builder.ins().icmp_imm_s(IntCC::NotEqual, divisor, 0);
-        let not_neg_one = self.builder.ins().icmp_imm_s(IntCC::NotEqual, divisor, -1);
-        let safe_divisor = self.builder.ins().band(not_zero, not_neg_one);
-        let inlineable = self.builder.ins().band(both_int, safe_divisor);
-
-        self.converging_if(
-            inlineable,
-            |ctx| {
+        self.guarded_op::<2>()
+            .require([SteelVal::INT_TAG, SteelVal::INT_TAG])
+            // Reading the payload is pure bit extraction, so it is fine to do
+            // before the tag check has decided anything.
+            .and_also(|ctx, [_, rhs]| {
+                let divisor = ctx.unbox_value_to_pointer(rhs);
+                let not_zero = ctx.builder.ins().icmp_imm_s(IntCC::NotEqual, divisor, 0);
+                let not_neg_one = ctx.builder.ins().icmp_imm_s(IntCC::NotEqual, divisor, -1);
+                ctx.builder.ins().band(not_zero, not_neg_one)
+            })
+            .emit(
+            |ctx, [lhs, rhs]| {
                 let l = ctx.unbox_value_to_pointer(lhs);
                 let r = ctx.unbox_value_to_pointer(rhs);
 
@@ -8253,7 +8285,7 @@ impl FunctionTranslator<'_> {
 
                 ctx.encode_value(discriminant(&SteelVal::IntV(0)) as i64, res)
             },
-            |ctx| {
+            |ctx, [lhs, rhs]| {
                 let func = ctx.builder.ins().iconst(
                     ctx.module.target_config().pointer_type(),
                     function as i64,
@@ -8284,70 +8316,50 @@ impl FunctionTranslator<'_> {
     /// the branch agree on type and the result can be consumed directly by a
     /// following `if` without boxing.
     fn inline_int_compare_two(&mut self, cc: IntCC, fallback: &str) -> Value {
-        let rhs = {
-            let sv = self.shadow_stack_pop().unwrap().into_value(self);
-            sv.as_steelval(self)
-        };
-        let lhs = {
-            let sv = self.shadow_stack_pop().unwrap().into_value(self);
-            sv.as_steelval(self)
-        };
-
-        let lhs_is_int = self.is_type(lhs, SteelVal::INT_TAG);
-        let rhs_is_int = self.is_type(rhs, SteelVal::INT_TAG);
-        let both_int = self.builder.ins().band(lhs_is_int, rhs_is_int);
-
-        self.converging_if(
-            both_int,
-            |ctx| {
-                // Tags already checked, so the payloads are the whole story.
-                let l = ctx.unbox_value_to_pointer(lhs);
-                let r = ctx.unbox_value_to_pointer(rhs);
-                ctx.builder.ins().icmp(cc, l, r)
-            },
-            |ctx| {
-                let vm_ctx = ctx.get_ctx();
-                let res =
-                    ctx.call_function_returns_value_args_no_context(fallback, &[vm_ctx, lhs, rhs]);
-                ctx.check_deopt();
-                res
-            },
-            types::I8,
-        )
+        self.guarded_op::<2>()
+            .require([SteelVal::INT_TAG, SteelVal::INT_TAG])
+            .emit(
+                |ctx, [lhs, rhs]| {
+                    // Tags already checked, so the payloads are the whole story.
+                    let l = ctx.unbox_value_to_pointer(lhs);
+                    let r = ctx.unbox_value_to_pointer(rhs);
+                    ctx.builder.ins().icmp(cc, l, r)
+                },
+                |ctx, [lhs, rhs]| {
+                    let vm_ctx = ctx.get_ctx();
+                    let res = ctx
+                        .call_function_returns_value_args_no_context(fallback, &[vm_ctx, lhs, rhs]);
+                    ctx.check_deopt();
+                    res
+                },
+                types::I8,
+            )
     }
 
     fn inline_float_binop_two(&mut self, op: OpCode, fallback: &str) -> Value {
-        let rhs = self.shadow_stack_pop().unwrap().into_value(self);
-        let rhs = rhs.as_steelval(self);
-        let lhs = self.shadow_stack_pop().unwrap().into_value(self);
-        let lhs = lhs.as_steelval(self);
-
-        let lhs_is_float = self.is_type(lhs, SteelVal::FLOAT_TAG);
-        let rhs_is_float = self.is_type(rhs, SteelVal::FLOAT_TAG);
-        let both_float = self.builder.ins().band(lhs_is_float, rhs_is_float);
-
-        self.converging_if(
-            both_float,
-            |ctx| {
-                let l = ctx.unbox_value_to_float(lhs);
-                let r = ctx.unbox_value_to_float(rhs);
-                let res = match op {
-                    OpCode::ADD => ctx.builder.ins().fadd(l, r),
-                    OpCode::SUB => ctx.builder.ins().fsub(l, r),
-                    OpCode::MUL => ctx.builder.ins().fmul(l, r),
-                    _ => ctx.builder.ins().fdiv(l, r),
-                };
-                ctx.encode_float_value(res)
-            },
-            |ctx| {
-                let vm_ctx = ctx.get_ctx();
-                let res =
-                    ctx.call_function_returns_value_args_no_context(fallback, &[vm_ctx, lhs, rhs]);
-                ctx.check_deopt();
-                res
-            },
-            types::I128,
-        )
+        self.guarded_op::<2>()
+            .require([SteelVal::FLOAT_TAG, SteelVal::FLOAT_TAG])
+            .emit(
+                |ctx, [lhs, rhs]| {
+                    let l = ctx.unbox_value_to_float(lhs);
+                    let r = ctx.unbox_value_to_float(rhs);
+                    let res = match op {
+                        OpCode::ADD => ctx.builder.ins().fadd(l, r),
+                        OpCode::SUB => ctx.builder.ins().fsub(l, r),
+                        OpCode::MUL => ctx.builder.ins().fmul(l, r),
+                        _ => ctx.builder.ins().fdiv(l, r),
+                    };
+                    ctx.encode_float_value(res)
+                },
+                |ctx, [lhs, rhs]| {
+                    let vm_ctx = ctx.get_ctx();
+                    let res = ctx
+                        .call_function_returns_value_args_no_context(fallback, &[vm_ctx, lhs, rhs]);
+                    ctx.check_deopt();
+                    res
+                },
+                types::I128,
+            )
     }
 
     fn slow_path_deopt_tail_call(&mut self, function_index: usize, arity: usize) {

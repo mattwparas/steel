@@ -271,7 +271,7 @@ impl FunctionTranslator<'_> {
             // past the end of the function once this returns.
             Lowering::Pushes(lower) => {
                 lower(self, arity);
-                Some(self.pop_as_steelval())
+                Some(self.pop_boxed())
             }
             Lowering::Returns(lower) => lower(self, arity),
         }
