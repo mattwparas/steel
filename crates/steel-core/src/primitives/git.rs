@@ -124,7 +124,8 @@ mod libgit {
         let (mut checkout, _) = gix::prepare_clone(repo_url.as_str(), &dst)?
             .configure_remote(|remote| Ok(remote.with_fetch_tags(gix::remote::fetch::Tags::All)))
             .fetch_then_checkout(Discard, &INTERRUPT)?;
-        let (repo, _) = checkout.main_worktree(Discard, &INTERRUPT)?;
+        let (mut repo, _) = checkout.main_worktree(Discard, &INTERRUPT)?;
+        repo.committer_or_set_generic_fallback()?;
 
         if let Some(ref_name) = ref_name {
             let commit = resolve(&repo, "origin", &ref_name)?;
@@ -140,7 +141,8 @@ mod libgit {
         remote_name: Option<String>,
         remote_branch: Option<String>,
     ) -> anyhow::Result<()> {
-        let repo = gix::discover(&path)?;
+        let mut repo = gix::discover(&path)?;
+        repo.committer_or_set_generic_fallback()?;
         let remote_name = remote_name.as_deref().unwrap_or("origin");
 
         fetch(&repo, remote_name)?;
