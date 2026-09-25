@@ -5495,7 +5495,7 @@ fn inspect_impl(ctx: &VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "inspect", arity = "Exact(1)", returns = "void")]
+#[steel_derive::context(name = "inspect", arity = "Exact(1)", returns = "void", args = "any", raises = "never")]
 pub fn inspect(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     inspect_impl(ctx, args)
 }
@@ -5701,7 +5701,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
-#[steel_derive::context(name = "debug-globals", arity = "Exact(0)", returns = "void")]
+#[steel_derive::context(name = "debug-globals", arity = "Exact(0)", returns = "void", args = "", raises = "never")]
 fn debug_globals(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(debug_global_env(ctx, args))
 }
@@ -5940,7 +5940,7 @@ fn load_expanded_file(path: String) {
     engine.load_from_expanded_file(&path)
 }
 
-#[steel_derive::context(name = "current-module", arity = "Exact(0)")]
+#[steel_derive::context(name = "current-module", arity = "Exact(0)", args = "", raises = "never")]
 fn get_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -5983,7 +5983,7 @@ fn get_module_relative_context(
     Some(Ok(SteelVal::StringV(relative.to_str().unwrap().into())))
 }
 
-#[steel_derive::context(name = "#%push-module-context", arity = "Exact(1)", returns = "void")]
+#[steel_derive::context(name = "#%push-module-context", arity = "Exact(1)", returns = "void", args = "any", raises = "never")]
 fn push_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -5996,7 +5996,7 @@ fn push_module_context(
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "#%pop-module-context", arity = "Exact(0)", returns = "void")]
+#[steel_derive::context(name = "#%pop-module-context", arity = "Exact(0)", returns = "void", args = "", raises = "never")]
 fn pop_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -6420,7 +6420,7 @@ pub fn dump_profiler(value: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
-#[steel_derive::function(name = "make-callstack-profiler")]
+#[steel_derive::function(name = "make-callstack-profiler", args = "", raises = "never")]
 pub fn make_callstack_profiler() -> Result<SteelVal> {
     CallStackCapture {
         timer: HashMap::default(),

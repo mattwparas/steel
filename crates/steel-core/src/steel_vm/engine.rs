@@ -460,7 +460,7 @@ impl RegisterValue for Engine {
     }
 }
 
-#[steel_derive::function(name = "#%get-dylib")]
+#[steel_derive::function(name = "#%get-dylib", args = "string")]
 pub fn load_module_noop(target: &crate::rvals::SteelString) -> crate::rvals::Result<SteelVal> {
     stop!(Generic => "This engine has not been given the capability to load dylibs")
 }

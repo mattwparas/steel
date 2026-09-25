@@ -860,6 +860,8 @@ struct NativeMacroComponents {
     pub arity_number: syn::Expr,
     pub is_const: bool,
     pub return_type: proc_macro2::TokenStream,
+    pub arg_types: proc_macro2::TokenStream,
+    pub raises: proc_macro2::TokenStream,
 }
 
 
@@ -878,7 +880,15 @@ fn return_type_tokens(
         None => output.map(rust_return_type_name).unwrap_or("any"),
     };
 
-    let variant = match name {
+    value_type_tokens(name, "return")
+}
+
+const VALUE_TYPE_NAMES: &str = "any, bool, int, float, number, char, string, symbol, list, \
+     pair, vector, mutable-vector, hashmap, hashset, bytevector, void";
+
+/// The `crate::value_type::ValueType` variant spelled `name` in `returns` / `args`.
+fn value_type_variant(name: &str) -> Option<&'static str> {
+    Some(match name {
         "any" => "Any",
         "bool" => "Bool",
         "int" => "Int",
@@ -895,15 +905,139 @@ fn return_type_tokens(
         "hashset" => "HashSet",
         "bytevector" => "ByteVector",
         "void" => "Void",
-        other => panic!(
-            "unknown return type {other:?}: expected one of any, bool, int, float, number, \
-             char, string, symbol, list, pair, vector, mutable-vector, hashmap, hashset, \
-             bytevector, void"
-        ),
-    };
-    let variant = Ident::new(variant, proc_macro2::Span::call_site());
+        _ => return None,
+    })
+}
 
+fn value_type_tokens(name: &str, what: &str) -> proc_macro2::TokenStream {
+    let variant = value_type_variant(name).unwrap_or_else(|| {
+        panic!("unknown {what} type {name:?}: expected one of {VALUE_TYPE_NAMES}")
+    });
+    let variant = Ident::new(variant, proc_macro2::Span::call_site());
     quote! { crate::value_type::ValueType::#variant }
+}
+
+/// How many arguments a function always takes, and whether it can take more:
+/// what `args = "..."` has to line up with.
+#[derive(Clone, Copy)]
+struct ArgShape {
+    fixed: usize,
+    more: bool,
+}
+
+/// The shape of a native function's `arity = "..."` (`Exact(n)`, `AtLeast(n)`,
+/// `AtMost(n)`, `Range(a, b)`).
+fn arity_shape(arity: &str) -> ArgShape {
+    let arity: String = arity.chars().filter(|c| !c.is_whitespace()).collect();
+    let (kind, numbers) = arity
+        .strip_suffix(')')
+        .and_then(|a| a.split_once('('))
+        .unwrap_or_else(|| panic!("unable to parse arity {arity:?}"));
+    let numbers: Vec<usize> = numbers
+        .split(',')
+        .map(|n| n.parse().unwrap_or_else(|_| panic!("unable to parse arity {arity:?}")))
+        .collect();
+    match (kind, numbers.as_slice()) {
+        ("Exact", [n]) => ArgShape { fixed: *n, more: false },
+        ("AtLeast", [n]) => ArgShape { fixed: *n, more: true },
+        ("AtMost", [_]) => ArgShape { fixed: 0, more: true },
+        ("Range", [a, _]) => ArgShape { fixed: *a, more: true },
+        _ => panic!("unable to parse arity {arity:?}"),
+    }
+}
+
+/// The macro's `args = "..."` and `raises = "..."` as the
+/// `(Option<ArgTypes>, Raises)` expressions of a definition. `args` lists one
+/// type per argument, the last one ending in `...` when the function takes
+/// more (`"int, any..."`); it is checked against `shape`.
+fn signature_tokens(
+    keyword_map: &HashMap<String, String>,
+    shape: ArgShape,
+) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    let name = keyword_map.get("name").cloned().unwrap_or_default();
+
+    let raises = match keyword_map.get("raises") {
+        None => quote! { crate::value_type::Raises::Maybe },
+        Some(raises) => {
+            if !keyword_map.contains_key("args") {
+                panic!("`{name}`: `raises` needs `args` too - it is a promise about them");
+            }
+            let variant = match raises.as_str() {
+                "maybe" => "Maybe",
+                "bad-args" => "BadArgs",
+                "never" => "Never",
+                other => panic!(
+                    "`{name}`: unknown raises {other:?}: expected one of maybe, bad-args, never"
+                ),
+            };
+            let variant = Ident::new(variant, proc_macro2::Span::call_site());
+            quote! { crate::value_type::Raises::#variant }
+        }
+    };
+
+    let Some(args) = keyword_map.get("args") else {
+        return (quote! { None }, raises);
+    };
+
+    let mut fixed = Vec::new();
+    let mut rest = None;
+    let entries: Vec<&str> = if args.trim().is_empty() {
+        Vec::new()
+    } else {
+        args.split(',').map(str::trim).collect()
+    };
+    for (i, entry) in entries.iter().enumerate() {
+        match entry.strip_suffix("...") {
+            Some(ty) if i == entries.len() - 1 => rest = Some(value_type_tokens(ty.trim(), "argument")),
+            Some(_) => panic!("`{name}`: only the last of `args` can end in `...`"),
+            None => fixed.push(value_type_tokens(entry, "argument")),
+        }
+    }
+
+    if fixed.len() != shape.fixed || rest.is_some() != shape.more {
+        panic!(
+            "`{name}`: `args = {args:?}` does not match the arity: expected {} argument type(s){}",
+            shape.fixed,
+            if shape.more { " and a last one ending in `...` for the rest" } else { "" }
+        );
+    }
+
+    let rest = match rest {
+        Some(rest) => quote! { Some(#rest) },
+        None => quote! { None },
+    };
+    (
+        quote! { Some(crate::value_type::ArgTypes { fixed: &[#(#fixed),*], rest: #rest }) },
+        raises,
+    )
+}
+
+/// For a function with `args` (or `raises`): the debug-build check around a
+/// call. The first half runs before the body, on the slice `args` as passed in;
+/// the second after it, on the result bound to `__ret`.
+fn call_check_tokens(
+    keyword_map: &HashMap<String, String>,
+    shape: ArgShape,
+    args: &proc_macro2::TokenStream,
+) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    if !keyword_map.contains_key("args") {
+        return (quote! {}, quote! {});
+    }
+    let name = keyword_map.get("name").cloned().unwrap_or_default();
+    let (arg_types, raises) = signature_tokens(keyword_map, shape);
+    (
+        quote! {
+            #[cfg(debug_assertions)]
+            let __arg_match = {
+                let arg_types: Option<crate::value_type::ArgTypes> = #arg_types;
+                arg_types.unwrap().check(&#args[..])
+            };
+        },
+        quote! {
+            #[cfg(debug_assertions)]
+            crate::value_type::check_call(&__ret, &__arg_match, #raises, #name);
+        },
+    )
 }
 
 /// For a function with an explicit `returns = "..."`: a debug-build check of
@@ -924,25 +1058,57 @@ fn return_check_tokens(
 }
 
 /// For a `native` / `context` / `native_mut` function with an explicit
-/// `returns = "..."`: its body run as a closure of the same type, and the result
-/// checked (debug builds) before it is returned. `return` and `?` in the body
+/// `returns = "..."` or `args = "..."`: its body run as a closure of the same
+/// type, with the debug-build checks around it. `return` and `?` in the body
 /// behave as before - they leave the closure.
-fn wrap_with_return_check(mut input: ItemFn, args: &Punctuated<Meta, Comma>) -> ItemFn {
+fn wrap_with_checks(
+    mut input: ItemFn,
+    args: &Punctuated<Meta, Comma>,
+    is_context_function: bool,
+) -> ItemFn {
     let keyword_map = parse_key_value_pairs(args);
-    if !keyword_map.contains_key("returns") {
+    if !keyword_map.contains_key("returns") && !keyword_map.contains_key("args") {
+        if keyword_map.contains_key("raises") {
+            // Reported by signature_tokens.
+            signature_tokens(&keyword_map, ArgShape { fixed: 0, more: false });
+        }
         return input;
     }
     let ReturnType::Type(_, returned) = &input.sig.output else {
         return input;
     };
     let steel_name = keyword_map.get("name").cloned().unwrap_or_default();
-    let check = return_check_tokens(&keyword_map, &steel_name);
+    let return_check = return_check_tokens(&keyword_map, &steel_name);
+
+    // Context functions take the vm first; the argument slice is the next one.
+    let slice = input
+        .sig
+        .inputs
+        .iter()
+        .nth(usize::from(is_context_function))
+        .and_then(|arg| match arg {
+            FnArg::Typed(pat_type) => match &*pat_type.pat {
+                Pat::Ident(ident) => Some(ident.ident.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("`{steel_name}`: could not find the argument slice"));
+    let shape = arity_shape(
+        keyword_map
+            .get("arity")
+            .expect("native definition requires an arity"),
+    );
+    let (before, after) = call_check_tokens(&keyword_map, shape, &quote! { #slice });
+
     let block = &input.block;
     let wrapped: syn::Block = syn::parse_quote! {
         {
+            #before
             #[allow(clippy::redundant_closure_call)]
             let __ret: #returned = (|| -> #returned #block)();
-            #check
+            #return_check
+            #after
             __ret
         }
     };
@@ -1019,6 +1185,14 @@ fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeM
 
     // These take and return `SteelVal`s, so only an explicit `returns` says more.
     let return_type = return_type_tokens(&keyword_map, None);
+    let (arg_types, raises) = signature_tokens(
+        &keyword_map,
+        arity_shape(
+            keyword_map
+                .get("arity")
+                .expect("native definition requires an arity"),
+        ),
+    );
 
     let maybe_doc_comments = parse_doc_comment(input.clone());
     let rust_function_name = sign.ident.clone();
@@ -1041,6 +1215,8 @@ fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeM
         arity_number,
         is_const,
         return_type,
+        arg_types,
+        raises,
     }
 }
 
@@ -1057,7 +1233,7 @@ pub fn native(
     } else {
         arity_code_injection(&input, &args, false)
     };
-    let modified_input = wrap_with_return_check(modified_input, &args);
+    let modified_input = wrap_with_checks(modified_input, &args, false);
 
     let NativeMacroComponents {
         doc_field,
@@ -1067,6 +1243,8 @@ pub fn native(
         arity_number,
         is_const,
         return_type,
+        arg_types,
+        raises,
     } = native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
@@ -1078,6 +1256,8 @@ pub fn native(
             doc: #doc_field,
             is_const: #is_const,
             return_type: #return_type,
+            arg_types: #arg_types,
+            raises: #raises,
         };
     };
 
@@ -1108,7 +1288,7 @@ pub fn context(
     } else {
         arity_code_injection(&input, &args, true)
     };
-    let modified_input = wrap_with_return_check(modified_input, &args);
+    let modified_input = wrap_with_checks(modified_input, &args, true);
 
     let NativeMacroComponents {
         doc_field,
@@ -1118,6 +1298,8 @@ pub fn context(
         arity_number,
         is_const,
         return_type,
+        arg_types,
+        raises,
     } = native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
@@ -1129,6 +1311,8 @@ pub fn context(
             doc: #doc_field,
             is_const: #is_const,
             return_type: #return_type,
+            arg_types: #arg_types,
+            raises: #raises,
         };
     };
 
@@ -1157,7 +1341,7 @@ pub fn native_mut(
     } else {
         arity_code_injection(&input, &args, false)
     };
-    let modified_input = wrap_with_return_check(modified_input, &args);
+    let modified_input = wrap_with_checks(modified_input, &args, false);
 
     let NativeMacroComponents {
         doc_field,
@@ -1167,6 +1351,8 @@ pub fn native_mut(
         arity_number,
         is_const,
         return_type,
+        arg_types,
+        raises,
     } = native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
@@ -1178,6 +1364,8 @@ pub fn native_mut(
             doc: #doc_field,
             is_const: #is_const,
             return_type: #return_type,
+            arg_types: #arg_types,
+            raises: #raises,
         };
     };
 
@@ -1260,13 +1448,7 @@ pub fn function(
     };
 
     let return_check = return_check_tokens(&keyword_map, &value);
-    let ret_val = quote! {
-        {
-            let __ret = #ret_val;
-            #return_check
-            __ret
-        }
-    };
+    let ret_val_inner = ret_val;
 
     let mut type_vec: Vec<Box<Type>> = Vec::new();
 
@@ -1370,6 +1552,21 @@ pub fn function(
         quote! { Exact }
     };
 
+    let shape = ArgShape {
+        fixed: arity_number,
+        more: rest_arg_generic_inner_type,
+    };
+    let (arg_types, raises) = signature_tokens(&keyword_map, shape);
+    let (before_check, after_check) = call_check_tokens(&keyword_map, shape, &quote! { args });
+    // What follows the call: the checks, on its result `__ret`. The argument
+    // conversions and the call run in a closure so that a conversion error
+    // reaches them too.
+    let ret_tail = quote! {
+        #return_check
+        #after_check
+        __ret
+    };
+
     let function_type = if promote_to_mutable {
         quote! {
             crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#copied_function_name)
@@ -1400,6 +1597,8 @@ pub fn function(
             doc: #doc_field,
             is_const: #is_const,
             return_type: #value_type,
+            arg_types: #arg_types,
+            raises: #raises,
         };
     };
 
@@ -1437,12 +1636,17 @@ pub fn function(
                     crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
                 }
 
+                #before_check
+
+
                 fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                     err.prepend_message(#function_name_with_colon);
                     err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
                     err
                 };
 
+                #[allow(clippy::redundant_closure_call)]
+                let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
                 let res = #function_name(
                     #(
                         // TODO: Distinguish reference types here if possible - make a special implementation
@@ -1453,7 +1657,9 @@ pub fn function(
                     )*
                 );
 
-                #ret_val
+                #ret_val_inner
+                })();
+                #ret_tail
             }
         };
 
@@ -1495,6 +1701,10 @@ pub fn function(
                     // }
 
 
+                    #before_check
+
+
+
                     fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                         err.prepend_message(#function_name_with_colon);
                         err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
@@ -1503,7 +1713,9 @@ pub fn function(
 
                     if let [ #(#temporary_fields,)* ] = args {
 
-                        let res = #function_name(
+                        #[allow(clippy::redundant_closure_call)]
+                let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
+                let res = #function_name(
                             #(
                                 // TODO: Distinguish reference types here if possible - make a special implementation
                                 // for builtin pointer types here to distinguish them
@@ -1512,7 +1724,9 @@ pub fn function(
                             )*
                         );
 
-                        #ret_val
+                        #ret_val_inner
+                })();
+                #ret_tail
                     } else {
                         crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
 
@@ -1556,13 +1770,19 @@ pub fn function(
             }
 
 
+            #before_check
+
+
+
             fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                 err.prepend_message(#function_name_with_colon);
                 err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
                 err
             };
 
-            let res = #function_name(
+            #[allow(clippy::redundant_closure_call)]
+                let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
+                let res = #function_name(
                 #(
                     // TODO: Distinguish reference types here if possible - make a special implementation
                     // for builtin pointer types here to distinguish them
@@ -1571,7 +1791,9 @@ pub fn function(
                 )*
             );
 
-            #ret_val
+            #ret_val_inner
+                })();
+                #ret_tail
         }
     };
 
@@ -1642,13 +1864,7 @@ pub fn custom_function(
     };
 
     let return_check = return_check_tokens(&keyword_map, &value);
-    let ret_val = quote! {
-        {
-            let __ret = #ret_val;
-            #return_check
-            __ret
-        }
-    };
+    let ret_val_inner = ret_val;
 
     let mut type_vec: Vec<Box<Type>> = Vec::new();
 
@@ -1753,6 +1969,21 @@ pub fn custom_function(
         quote! { Exact }
     };
 
+    let shape = ArgShape {
+        fixed: arity_number,
+        more: rest_arg_generic_inner_type,
+    };
+    let (arg_types, raises) = signature_tokens(&keyword_map, shape);
+    let (before_check, after_check) = call_check_tokens(&keyword_map, shape, &quote! { args });
+    // What follows the call: the checks, on its result `__ret`. The argument
+    // conversions and the call run in a closure so that a conversion error
+    // reaches them too.
+    let ret_tail = quote! {
+        #return_check
+        #after_check
+        __ret
+    };
+
     let function_type = if promote_to_mutable {
         quote! {
             crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#copied_function_name)
@@ -1783,6 +2014,8 @@ pub fn custom_function(
             doc: #doc_field,
             is_const: #is_const,
             return_type: #value_type,
+            arg_types: #arg_types,
+            raises: #raises,
         };
     };
 
@@ -1820,12 +2053,17 @@ pub fn custom_function(
                     crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
                 }
 
+                #before_check
+
+
                 fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                     err.prepend_message(#function_name_with_colon);
                     err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
                     err
                 };
 
+                #[allow(clippy::redundant_closure_call)]
+                let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
                 let res = #function_name(
                     #(
                         // TODO: Distinguish reference types here if possible - make a special implementation
@@ -1836,7 +2074,9 @@ pub fn custom_function(
                     )*
                 );
 
-                #ret_val
+                #ret_val_inner
+                })();
+                #ret_tail
             }
         };
 
@@ -1878,6 +2118,10 @@ pub fn custom_function(
                     // }
 
 
+                    #before_check
+
+
+
                     fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                         err.prepend_message(#function_name_with_colon);
                         err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
@@ -1886,7 +2130,9 @@ pub fn custom_function(
 
                     if let [ #(#temporary_fields,)* ] = args {
 
-                        let res = #function_name(
+                        #[allow(clippy::redundant_closure_call)]
+                let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
+                let res = #function_name(
                             #(
                                 // TODO: Distinguish reference types here if possible - make a special implementation
                                 // for builtin pointer types here to distinguish them
@@ -1895,7 +2141,9 @@ pub fn custom_function(
                             )*
                         );
 
-                        #ret_val
+                        #ret_val_inner
+                })();
+                #ret_tail
                     } else {
                         crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
 
@@ -1939,13 +2187,19 @@ pub fn custom_function(
             }
 
 
+            #before_check
+
+
+
             fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                 err.prepend_message(#function_name_with_colon);
                 err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
                 err
             };
 
-            let res = #function_name(
+            #[allow(clippy::redundant_closure_call)]
+                let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
+                let res = #function_name(
                 #(
                     // TODO: Distinguish reference types here if possible - make a special implementation
                     // for builtin pointer types here to distinguish them
@@ -1954,7 +2208,9 @@ pub fn custom_function(
                 )*
             );
 
-            #ret_val
+            #ret_val_inner
+                })();
+                #ret_tail
         }
     };
 

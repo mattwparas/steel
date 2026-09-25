@@ -46,7 +46,7 @@ pub fn immutable_vectors_module() -> BuiltInModule {
 /// > (define A (immutable-vector 1 2 3)) ;;
 /// > (immutable-vector-rest A) ;; => '#(2 3)
 /// ```
-#[steel_derive::function(name = "immutable-vector-rest", returns = "vector")]
+#[steel_derive::function(name = "immutable-vector-rest", returns = "vector", args = "vector", raises = "bad-args")]
 fn immutable_vector_rest(vector: &mut SteelVal) -> Result<SteelVal> {
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
@@ -78,7 +78,7 @@ fn immutable_vector_rest(vector: &mut SteelVal) -> Result<SteelVal> {
 /// > (define A (immutable-vector 1 2 3)) ;;
 /// > (immutable-vector->list A) ;; => '(1 2 3)
 /// ```
-#[steel_derive::function(name = "immutable-vector->list", returns = "list")]
+#[steel_derive::function(name = "immutable-vector->list", returns = "list", args = "vector, int...")]
 fn immutable_vector_to_list(
     vector: &SteelVector,
     rest: RestArgsIter<'_, isize>,
@@ -101,7 +101,7 @@ fn immutable_vector_to_list(
 /// > (define A (vector #\a #\b #\c)) ;;
 /// > (vector->string A) ;; => "abc"
 /// ```
-#[steel_derive::function(name = "vector->string", returns = "string")]
+#[steel_derive::function(name = "vector->string", returns = "string", args = "any, int...")]
 fn vector_to_string(
     vector: Either<&SteelVector, &HeapRef<HeapVec>>,
     rest: RestArgsIter<'_, isize>,
@@ -130,7 +130,7 @@ fn vector_to_string(
 /// > (define A (immutable-vector #\a #\b #\c)) ;;
 /// > (immutable-vector->string A) ;; => "abc"
 /// ```
-#[steel_derive::function(name = "immutable-vector->string", returns = "string")]
+#[steel_derive::function(name = "immutable-vector->string", returns = "string", args = "vector, int...")]
 fn immutable_vector_to_string(
     vector: &SteelVector,
     rest: RestArgsIter<'_, isize>,
@@ -173,7 +173,7 @@ fn chars_to_string<'a>(
 /// > (define A (vector 1 2 3)) ;;
 /// > (vector-copy A) ;; => '#(1 2 3)
 /// ```
-#[steel_derive::context(name = "vector-copy", arity = "AtLeast(1)")]
+#[steel_derive::context(name = "vector-copy", arity = "AtLeast(1)", args = "any, int...")]
 fn vector_copy(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -236,7 +236,7 @@ fn vector_copy(
 /// > (define A (immutable-vector 1 2 3)) ;;
 /// > (immutable-vector-copy A) ;; => '#(1 2 3)
 /// ```
-#[steel_derive::function(name = "immutable-vector-copy", returns = "vector")]
+#[steel_derive::function(name = "immutable-vector-copy", returns = "vector", args = "vector, int...")]
 fn immutable_vector_copy(vector: &SteelVector, rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let (start, end) = bounds(rest, "immutable-vector-copy", 3, vector)?;
 
@@ -311,7 +311,7 @@ fn vector_append(
 /// > (define B (immutable-vector 4 5 6)) ;;
 /// > (immutable-vector-append A B) ;; => '#(1 2 3 4 5 6)
 /// ```
-#[steel_derive::function(name = "immutable-vector-append", returns = "vector")]
+#[steel_derive::function(name = "immutable-vector-append", returns = "vector", args = "vector...", raises = "bad-args")]
 fn immutable_vector_append(mut rest: RestArgsIter<'_, &SteelVector>) -> Result<SteelVal> {
     let mut vector = Vector::new();
 
@@ -373,7 +373,7 @@ fn make_immutable_vector(mut rest: RestArgsIter<'_, &SteelVal>) -> Result<SteelV
 /// > (define A (immutable-vector 1 2 3)) ;;
 /// > (immutable-vector-push A 5) ;; => '#(1 2 3 5)
 /// ```
-#[steel_derive::function(name = "immutable-vector-push", returns = "vector")]
+#[steel_derive::function(name = "immutable-vector-push", returns = "vector", args = "vector, any", raises = "bad-args")]
 fn immutable_vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
@@ -433,7 +433,7 @@ fn vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
 /// > (define A (immutable-vector 1 2 3)) ;;
 /// > (vector-push-front A 5) ;; => '#(5 1 2 3)
 /// ```
-#[steel_derive::function(name = "vector-push-front", returns = "vector")]
+#[steel_derive::function(name = "vector-push-front", returns = "vector", args = "vector, any", raises = "bad-args")]
 fn immutable_vector_push_front(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
@@ -471,12 +471,12 @@ fn immutable_vector_push_front(vector: &mut SteelVal, value: SteelVal) -> Result
 /// > (define A (immutable-vector 1 2 3)) ;;
 /// > (immutable-vector-set A 0 5) ;; => '#(5 2 3)
 /// ```
-#[steel_derive::function(name = "immutable-vector-set", returns = "vector")]
+#[steel_derive::function(name = "immutable-vector-set", returns = "vector", args = "vector, number, any")]
 fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) -> Result<SteelVal> {
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
-                if index > v.len() {
+                if index >= v.len() {
                     stop!(Generic => "immutable-vector-set: index out of bounds - attempted to index at offset: {} with length {}", index, v.len());
                 }
 
@@ -484,7 +484,7 @@ fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) ->
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
-                if index > v.len() {
+                if index >= v.len() {
                     stop!(Generic => "immutable-vector-set: index out of bounds - attempted to index at offset: {} with length {}", index, v.len());
                 }
 
@@ -495,13 +495,13 @@ fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) ->
         },
 
         _ => {
-            stop!(TypeMismatch => "vector-push-front expected an immutable vector, found: {:?}", vector);
+            stop!(TypeMismatch => "immutable-vector-set expected an immutable vector, found: {:?}", vector);
         }
     }
 }
 
 // TODO: Register function
-#[steel_derive::function(name = "immutable-vector-pop-back")]
+#[steel_derive::function(name = "immutable-vector-pop-back", args = "vector")]
 fn immutable_vector_pop_back(vector: &mut SteelVal) -> Result<SteelVal> {
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
@@ -551,7 +551,7 @@ fn immutable_vector_pop_back(vector: &mut SteelVal) -> Result<SteelVal> {
 /// > (define A (immutable-vector 1 2 3 4)) ;;
 /// > (immutable-vector-take A 2) ;; => '#(1 2)
 /// ```
-#[steel_derive::function(name = "immutable-vector-take", returns = "vector")]
+#[steel_derive::function(name = "immutable-vector-take", returns = "vector", args = "vector, number")]
 fn immutable_vector_take(vector: &mut SteelVal, count: usize) -> Result<SteelVal> {
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
@@ -599,7 +599,7 @@ fn immutable_vector_take(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 /// > (define A (immutable-vector 1 2 3 4)) ;;
 /// > (immutable-vector-drop A 2) ;; => '#(3 4)
 /// ```
-#[steel_derive::function(name = "immutable-vector-drop", returns = "vector")]
+#[steel_derive::function(name = "immutable-vector-drop", returns = "vector", args = "vector, number")]
 fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal> {
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
@@ -653,7 +653,7 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 /// > (mutable-vector->clear A) ;;
 /// > A ;; => '#()
 /// ```
-#[steel_derive::function(name = "mutable-vector->clear")]
+#[steel_derive::function(name = "mutable-vector->clear", args = "mutable-vector", raises = "bad-args")]
 fn mutable_vector_clear(vec: &HeapRef<HeapVec>) {
     // Snag the interior value
     vec.strong_ptr().write().value.clear()
@@ -670,7 +670,7 @@ fn mutable_vector_clear(vec: &HeapRef<HeapVec>) {
 /// > (define A (vector #\H #\e #\l #\l #\o))
 /// > (mutable-vector->string A) ;; => "Hello"
 /// ```
-#[steel_derive::function(name = "mutable-vector->string", returns = "string")]
+#[steel_derive::function(name = "mutable-vector->string", returns = "string", args = "mutable-vector")]
 fn mutable_vector_to_string(vec: &HeapRef<HeapVec>) -> Result<SteelVal> {
     let guard = vec.strong_ptr();
     let mut buf = String::new();
@@ -698,7 +698,7 @@ fn mutable_vector_to_string(vec: &HeapRef<HeapVec>) -> Result<SteelVal> {
 /// > (mutable-vector-pop! A) ;; => 3
 /// > A ;; => '#(1 2)
 /// ```
-#[steel_derive::function(name = "mutable-vector-pop!")]
+#[steel_derive::function(name = "mutable-vector-pop!", args = "mutable-vector", raises = "bad-args")]
 fn mutable_vector_pop(vec: &HeapRef<HeapVec>) -> Result<SteelVal> {
     let last = vec.strong_ptr().write().value.pop();
 
@@ -715,7 +715,7 @@ fn mutable_vector_pop(vec: &HeapRef<HeapVec>) -> Result<SteelVal> {
 /// ```scheme
 /// > (mutable-vector 1 2 3) ;; => '#(1 2 3)
 /// ```
-#[steel_derive::context(name = "mutable-vector", arity = "AtLeast(0)", returns = "mutable-vector")]
+#[steel_derive::context(name = "mutable-vector", arity = "AtLeast(0)", returns = "mutable-vector", args = "any...", raises = "never")]
 pub fn mut_vec_construct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.make_mutable_vector(args.iter().cloned().collect())))
 }
@@ -730,7 +730,7 @@ pub fn mut_vec_construct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<S
 /// ```scheme
 /// > (vector 1 2 3) ;; => '#(1 2 3)
 /// ```
-#[steel_derive::context(name = "vector", arity = "AtLeast(0)", returns = "mutable-vector")]
+#[steel_derive::context(name = "vector", arity = "AtLeast(0)", returns = "mutable-vector", args = "any...", raises = "never")]
 pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.make_mutable_vector(args.iter().cloned().collect())))
 }
@@ -769,7 +769,7 @@ pub(crate) fn filled_heap_vec(value: SteelVal, n: usize) -> crate::values::close
 /// > (make-vector 3) ;; => '#(0 0 0)
 /// > (make-vector 3 42) ;; => '#(42 42 42)
 /// ```
-#[steel_derive::context(name = "make-vector", arity = "AtLeast(1)", returns = "mutable-vector")]
+#[steel_derive::context(name = "make-vector", arity = "AtLeast(1)", returns = "mutable-vector", args = "int, any...")]
 pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn make_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         match &args {
@@ -807,7 +807,7 @@ pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVa
 /// > (vector-copy! B 1 A 2 4) ;;
 /// > B ;; => '#(10 3 4 40 50)
 /// ```
-#[steel_derive::function(name = "vector-copy!", returns = "void")]
+#[steel_derive::function(name = "vector-copy!", returns = "void", args = "mutable-vector, number, any, int...")]
 pub fn mut_vector_copy(
     dest: &HeapRef<HeapVec>,
     dest_start: usize,
@@ -906,7 +906,7 @@ pub fn mut_vector_copy(
 /// > (vector-fill! A 9 1 4) ;;
 /// > A ;; => '#(1 9 9 9 5)
 /// ```
-#[steel_derive::function(name = "vector-fill!", returns = "void")]
+#[steel_derive::function(name = "vector-fill!", returns = "void", args = "mutable-vector, any, int...")]
 pub fn vector_fill(
     vec: &HeapRef<HeapVec>,
     element: SteelVal,
@@ -940,7 +940,7 @@ pub fn vector_fill(
 /// > (mutable-vector->list A) ;; => '(1 2 3 4 5)
 /// > (mutable-vector->list A 1 4) ;; => '(2 3 4)
 /// ```
-#[steel_derive::function(name = "mutable-vector->list", returns = "list")]
+#[steel_derive::function(name = "mutable-vector->list", returns = "list", args = "mutable-vector, int...")]
 pub fn mut_vec_to_list(vec: &HeapRef<HeapVec>, rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
     let guard = &ptr.lock().value;
@@ -963,7 +963,7 @@ pub fn mut_vec_to_list(vec: &HeapRef<HeapVec>, rest: RestArgsIter<'_, isize>) ->
 /// > (define A (mutable-vector 1 2 3 4 5)) ;;
 /// > (mut-vec-len A) ;; => 5
 /// ```
-#[steel_derive::function(name = "mut-vec-len", returns = "int")]
+#[steel_derive::function(name = "mut-vec-len", returns = "int", args = "mutable-vector", raises = "bad-args")]
 pub fn mut_vec_length(vec: &HeapRef<HeapVec>) -> SteelVal {
     SteelVal::IntV(vec.inner.upgrade().unwrap().lock().value.len() as isize)
 }
@@ -982,7 +982,7 @@ pub fn mut_vec_length(vec: &HeapRef<HeapVec>) -> SteelVal {
 /// > (vector-set! A 1 42) ;;
 /// > A ;; => '#(1 42 3)
 /// ```
-#[steel_derive::function(name = "vector-set!", returns = "void")]
+#[steel_derive::function(name = "vector-set!", returns = "void", args = "mutable-vector, number, any")]
 pub fn mut_vec_set(vec: &HeapRef<HeapVec>, i: usize, value: SteelVal) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
     let guard = &mut ptr.write().value;
@@ -1012,7 +1012,7 @@ pub fn mut_vec_set(vec: &HeapRef<HeapVec>, i: usize, value: SteelVal) -> Result<
 /// > (vector-swap! A 0 1) ;;
 /// > A ;; => '#(2 1 3)
 /// ```
-#[steel_derive::function(name = "vector-swap!", returns = "void")]
+#[steel_derive::function(name = "vector-swap!", returns = "void", args = "mutable-vector, number, number")]
 pub fn mut_vec_swap(vec: &HeapRef<HeapVec>, i: usize, j: usize) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
 
@@ -1042,7 +1042,7 @@ pub fn mut_vec_swap(vec: &HeapRef<HeapVec>, i: usize, j: usize) -> Result<SteelV
 /// ```
 /// Constructs a flat, immutable vector. Indexing is a load rather than a tree
 /// walk, and it is reference counted rather than tracked by the collector.
-#[steel_derive::native(name = "flat-vector", arity = "AtLeast(0)")]
+#[steel_derive::native(name = "flat-vector", arity = "AtLeast(0)", args = "any...", raises = "never")]
 pub fn flat_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::FlatVector(Gc::new(
         args.iter().cloned().collect::<steel_vec::Vec<SteelVal>>(),
@@ -1050,14 +1050,14 @@ pub fn flat_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 /// Returns true if the value is a flat vector.
-#[steel_derive::function(name = "flat-vector?", constant = true)]
+#[steel_derive::function(name = "flat-vector?", constant = true, args = "any", raises = "never")]
 pub fn flat_vectorp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::FlatVector(_))
 }
 
 /// Converts a flat vector into a list, optionally over a sub range.
 /// Converts a flat vector into a list, optionally over a sub range.
-#[steel_derive::native(name = "flat-vector->list", arity = "AtLeast(1)", returns = "list")]
+#[steel_derive::native(name = "flat-vector->list", arity = "AtLeast(1)", returns = "list", args = "any, int...")]
 pub fn flat_vector_to_list(args: &[SteelVal]) -> Result<SteelVal> {
     use crate::rvals::FromSteelVal;
 
@@ -1080,7 +1080,7 @@ pub fn flat_vector_to_list(args: &[SteelVal]) -> Result<SteelVal> {
     ))
 }
 
-#[steel_derive::native(name = "immutable-vector", arity = "AtLeast(0)", returns = "vector")]
+#[steel_derive::native(name = "immutable-vector", arity = "AtLeast(0)", returns = "vector", args = "any...", raises = "never")]
 pub fn immutable_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::VectorV(
         Gc::new(args.iter().cloned().collect::<Vector<_>>()).into(),
@@ -1100,7 +1100,7 @@ pub fn immutable_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (vector-immutable 1 2 3) ;; => '#(1 2 3)
 /// ```
 // TODO: Fix this naming issue
-#[steel_derive::native(name = "vector-immutable", arity = "AtLeast(0)", returns = "vector")]
+#[steel_derive::native(name = "vector-immutable", arity = "AtLeast(0)", returns = "vector", args = "any...", raises = "never")]
 pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::VectorV(
         Gc::new(args.iter().cloned().collect::<Vector<_>>()).into(),
@@ -1141,17 +1141,18 @@ pub fn vec_length(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```scheme
 /// > (range-vec 1 5) ;; => '#(1 2 3 4)
 /// ```
-#[steel_derive::native(name = "range-vec", constant = true, arity = "Exact(2)", returns = "vector")]
+#[steel_derive::native(name = "range-vec", constant = true, arity = "Exact(2)", returns = "vector", args = "int, int")]
 pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
-        (SteelVal::IntV(lower), SteelVal::IntV(upper)) => Ok(SteelVal::VectorV(
-            Gc::new(
-                (*lower as usize..*upper as usize)
-                    .map(|x| SteelVal::IntV(x as isize))
-                    .collect::<Vector<_>>(),
-            )
-            .into(),
-        )),
+        (SteelVal::IntV(lower), SteelVal::IntV(upper)) => {
+            // Like `range`. (Casting a negative bound to usize would wrap it.)
+            if *lower < 0 || *upper < 0 {
+                stop!(Generic => "range-vec expects a positive integer");
+            }
+            Ok(SteelVal::VectorV(
+                Gc::new((*lower..*upper).map(SteelVal::IntV).collect::<Vector<_>>()).into(),
+            ))
+        }
         _ => stop!(TypeMismatch => "range expected number"),
     }
 }
@@ -1168,7 +1169,7 @@ pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (define A (mutable-vector 10 20 30)) ;;
 /// > (mut-vector-ref A 1) ;; => 20
 /// ```
-#[steel_derive::native(name = "mut-vector-ref", constant = true, arity = "Exact(2)")]
+#[steel_derive::native(name = "mut-vector-ref", constant = true, arity = "Exact(2)", args = "mutable-vector, int")]
 pub fn mut_vec_get(args: &[SteelVal]) -> Result<SteelVal> {
     let vec = args[0].clone();
     let pos = args[1].clone();
@@ -1213,7 +1214,7 @@ pub fn mut_vec_get(args: &[SteelVal]) -> Result<SteelVal> {
 // TODO: This _should_ increase the size count on the maybe_memory_size on the heap
 // since it is a growable structure, we'll need to know to rerun the GC when that size
 // increases past a certain amount
-#[steel_derive::native(name = "vector-push!", constant = true, arity = "Exact(2)", returns = "void")]
+#[steel_derive::native(name = "vector-push!", constant = true, arity = "Exact(2)", returns = "void", args = "mutable-vector, any", raises = "bad-args")]
 pub fn mut_vec_push(args: &[SteelVal]) -> Result<SteelVal> {
     let vec = &args[0];
 
@@ -1246,7 +1247,7 @@ pub fn mut_vec_push(args: &[SteelVal]) -> Result<SteelVal> {
 /// > A ;; => '#(1 2 3 4)
 /// > B ;; => '#()
 /// ```
-#[steel_derive::native(name = "vector-append!", constant = true, arity = "Exact(2)", returns = "void")]
+#[steel_derive::native(name = "vector-append!", constant = true, arity = "Exact(2)", returns = "void", args = "mutable-vector, mutable-vector", raises = "bad-args")]
 pub fn mut_vec_append(args: &[SteelVal]) -> Result<SteelVal> {
     let vec = args[0].clone();
     let other_vec = args[1].clone();
@@ -1289,7 +1290,7 @@ pub fn vec_construct_iter_normal<I: Iterator<Item = SteelVal>>(arg: I) -> Result
 /// > (define B (immutable-vector 4 5)) ;;
 /// > (vec-append A B) ;; => '#(1 2 3 4 5)
 /// ```
-#[steel_derive::native(name = "vec-append", constant = true, arity = "AtLeast(0)", returns = "vector")]
+#[steel_derive::native(name = "vec-append", constant = true, arity = "AtLeast(0)", returns = "vector", args = "vector...", raises = "bad-args")]
 pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
     let lsts: Vector<SteelVal> = unwrap_list_of_lists(args.to_vec())?
         .into_iter()
@@ -1312,7 +1313,7 @@ pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (define B (mutable-vector 5 15 25)) ;;
 /// > (vector-ref B 2) ;; => 25
 /// ```
-#[steel_derive::function(name = "vector-ref", constant = true)]
+#[steel_derive::function(name = "vector-ref", constant = true, args = "any, int")]
 #[inline(always)]
 pub fn vec_ref(vec: &mut SteelVal, idx: &SteelVal) -> Result<SteelVal> {
     // First, ensure the index is a valid non-negative integer
@@ -1402,7 +1403,7 @@ pub fn vec_ref(vec: &mut SteelVal, idx: &SteelVal) -> Result<SteelVal> {
 /// > (define A (immutable-vector 1 2 3)) ;;
 /// > (push 4 A) ;; => '#(1 2 3 4)
 /// ```
-#[steel_derive::native(name = "push", constant = true, arity = "Exact(2)", returns = "vector")]
+#[steel_derive::native(name = "push", constant = true, arity = "Exact(2)", returns = "vector", args = "any, any", raises = "never")]
 pub fn vec_push(args: &[SteelVal]) -> Result<SteelVal> {
     let elem = &args[0];
     let lst = &args[1];
@@ -1434,7 +1435,7 @@ pub fn vec_push(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (define A (immutable-vector 2 3 4)) ;;
 /// > (push-front 1 A) ;; => '#(1 2 3 4)
 /// ```
-#[steel_derive::native(name = "push-front", constant = true, arity = "Exact(2)", returns = "vector")]
+#[steel_derive::native(name = "push-front", constant = true, arity = "Exact(2)", returns = "vector", args = "any, any", raises = "never")]
 pub fn vec_cons(args: &[SteelVal]) -> Result<SteelVal> {
     let elem = &args[0];
     let lst = &args[1];
@@ -1465,7 +1466,7 @@ pub fn vec_cons(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (define A (immutable-vector 1 2 3)) ;;
 /// > (pop-front A) ;; => 1
 /// ```
-#[steel_derive::native(name = "pop-front", constant = true, arity = "Exact(1)")]
+#[steel_derive::native(name = "pop-front", constant = true, arity = "Exact(1)", args = "vector")]
 pub fn vec_car(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
         SteelVal::VectorV(v) => {
@@ -1490,7 +1491,7 @@ pub fn vec_car(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (define A (immutable-vector 1 2 3)) ;;
 /// > (vec-rest A) ;; => '#(2 3)
 /// ```
-#[steel_derive::native(name = "vec-rest", constant = true, arity = "Exact(1)", returns = "vector")]
+#[steel_derive::native(name = "vec-rest", constant = true, arity = "Exact(1)", returns = "vector", args = "vector")]
 pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
         SteelVal::VectorV(v) => {
@@ -1519,7 +1520,7 @@ pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (null? '()) ;; => #t
 /// > (null? '(1 2 3)) ;; => #f
 /// ```
-#[steel_derive::native(name = "null?", constant = true, arity = "Exact(1)", returns = "bool")]
+#[steel_derive::native(name = "null?", constant = true, arity = "Exact(1)", returns = "bool", args = "any", raises = "never")]
 pub fn list_vec_null(args: &[SteelVal]) -> Result<SteelVal> {
     let result = match &args[0] {
         SteelVal::ListV(l) => l.is_empty(),

@@ -2835,7 +2835,7 @@ fn bignum_float_equality(bigint: &Gc<BigInt>, float: f64) -> bool {
 }
 
 #[inline(always)]
-#[steel_derive::function(name = "=", constant = true, returns = "bool")]
+#[steel_derive::function(name = "=", constant = true, returns = "bool", args = "number, number", raises = "bad-args")]
 pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     let result = match (left, right) {
         (IntV(l), IntV(r)) => l == r,
@@ -2862,9 +2862,15 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
         (IntV(_), BigNum(_)) | (BigNum(_), IntV(_)) => false,
         (Complex(x), Complex(y)) => {
             number_equality(&x.re, &y.re)? == BoolV(true)
-                && number_equality(&x.im, &y.re)? == BoolV(true)
+                && number_equality(&x.im, &y.im)? == BoolV(true)
         }
-        (Complex(_), _) | (_, Complex(_)) => false,
+        // A complex equals a real number when its imaginary part is zero (an
+        // inexact zero can survive normalization, e.g. `1+0.0i`).
+        (Complex(x), other @ (IntV(_) | NumV(_) | Rational(_) | BigNum(_) | BigRational(_)))
+        | (other @ (IntV(_) | NumV(_) | Rational(_) | BigNum(_) | BigRational(_)), Complex(x)) => {
+            number_equality(&x.re, other)? == BoolV(true)
+                && number_equality(&x.im, &IntV(0))? == BoolV(true)
+        }
         _ => stop!(TypeMismatch => "= expects two numbers, found: {:?} and {:?}", left, right),
     };
     Ok(BoolV(result))

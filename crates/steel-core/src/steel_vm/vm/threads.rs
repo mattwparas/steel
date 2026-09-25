@@ -85,7 +85,7 @@ impl MutexGuard {
 }
 
 /// Construct a new mutex
-#[steel_derive::function(name = "mutex")]
+#[steel_derive::function(name = "mutex", args = "", raises = "never")]
 pub fn new_mutex() -> Result<SteelVal> {
     SteelMutex::new().into_steelval()
 }
@@ -461,7 +461,7 @@ fn serialized_to_bytes(value: &SteelVal) -> Result<SteelVal> {
     )))
 }
 
-#[steel_derive::function(name = "bytes->serialized")]
+#[steel_derive::function(name = "bytes->serialized", args = "bytevector")]
 fn bytes_to_serialized(value: &SteelByteVector) -> Result<SteelVal> {
     let serde = steel_deserialize::<SerializedValue>(&value.vec.read()[..])?;
     serde.into_steelval()
@@ -883,7 +883,7 @@ pub fn select(values: &[SteelVal]) -> Result<SteelVal> {
     selector.ready().into_steelval()
 }
 
-#[steel_derive::function(name = "channels/new")]
+#[steel_derive::function(name = "channels/new", args = "", raises = "never")]
 pub fn new_channels() -> Channels {
     Channels::new()
 }
@@ -962,7 +962,7 @@ pub static DISCONNECTED_CHANNEL_OBJECT: once_cell::sync::Lazy<(
 /// Returns `#t` if the value is an empty-channel object.
 ///
 /// (empty-channel-object? any/c) -> bool?
-#[function(name = "empty-channel-object?")]
+#[function(name = "empty-channel-object?", args = "any", raises = "never")]
 pub fn empty_channel_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {
         return false;
@@ -994,7 +994,7 @@ pub fn empty_channel() -> SteelVal {
 /// Returns `#t` if the value is an disconnected-channel object.
 ///
 /// (eof-object? any/c) -> bool?
-#[function(name = "disconnected-channel-object?")]
+#[function(name = "disconnected-channel-object?", args = "any", raises = "never")]
 pub fn disconnected_channel_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {
         return false;
@@ -1023,7 +1023,7 @@ pub fn disconnected_channel() -> SteelVal {
     }
 }
 
-#[steel_derive::context(name = "current-thread-id", arity = "Exact(0)", returns = "int")]
+#[steel_derive::context(name = "current-thread-id", arity = "Exact(0)", returns = "int", args = "", raises = "never")]
 pub fn engine_id(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(SteelVal::IntV(ctx.thread.id.0 as _)))
 }
@@ -1057,7 +1057,7 @@ pub(crate) fn spawn_native_thread(
     name = "spawn-native-thread",
     arity = "Exact(1)",
     alias = "spawn-thread"
-)]
+, args = "any", raises = "never")]
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // We are now in a world in which we have to support safe points
     ctx.thread.safepoints_enabled = true;
@@ -1169,7 +1169,7 @@ impl crate::rvals::Custom for ThreadLocalStorage {
 ///
 /// When spawning a new thread, the value inside will be shared into that slot, however
 /// future updates to the slot will be local to that thread.
-#[steel_derive::context(name = "make-tls", arity = "Exact(1)")]
+#[steel_derive::context(name = "make-tls", arity = "Exact(1)", args = "any", raises = "never")]
 pub(crate) fn make_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let index = ctx.thread.thread_local_storage.len();
     ctx.thread.thread_local_storage.push(args[0].clone());

@@ -43,12 +43,12 @@ pub fn process_module() -> BuiltInModule {
     module
 }
 
-#[function(name = "subprocess?", alias = "ChildProcess?", returns = "bool")]
+#[function(name = "subprocess?", alias = "ChildProcess?", returns = "bool", args = "any", raises = "never")]
 pub fn is_subprocess(value: &SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(SteelVal::BoolV(ChildProcess::as_ref(value).is_ok()))
 }
 
-#[function(name = "command-builder?", alias = "CommandBuilder?", returns = "bool")]
+#[function(name = "command-builder?", alias = "CommandBuilder?", returns = "bool", args = "any", raises = "never")]
 pub fn is_command_builder(value: &SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(SteelVal::BoolV(CommandBuilder::as_ref(value).is_ok()))
 }
@@ -64,7 +64,7 @@ pub fn is_command_builder(value: &SteelVal) -> Result<SteelVal, SteelErr> {
 /// ```scheme
 /// > (spawn-process (command "echo" (list "hello" "world")))
 /// ```
-#[function(name = "command")]
+#[function(name = "command", args = "string, list")]
 pub fn command(name: SteelString, args: &List<SteelVal>) -> Result<SteelVal, SteelErr> {
     let mut command = Command::new(name.as_str());
 

@@ -70,7 +70,7 @@ impl Custom for SystemTime {
 /// without any time zone information attached).
 ///
 /// (naive-current-date-local) -> naive-date?
-#[function(name = "naive-current-date-local")]
+#[function(name = "naive-current-date-local", args = "", raises = "never")]
 fn naive_current_date() -> NaiveDate {
     Local::now().date_naive()
 }
@@ -83,7 +83,7 @@ fn naive_current_date() -> NaiveDate {
 /// * year : int?
 /// * month : int? - the month, from 1 to 12
 /// * day : int? - the day of the month, from 1 to 31
-#[function(name = "naive-date-ymd")]
+#[function(name = "naive-date-ymd", args = "int, int, int")]
 fn naive_date(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year, month, day)
 }
@@ -97,7 +97,7 @@ fn naive_date(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
 /// * hour : int? - the hour, from 0 to 23
 /// * minute : int? - the minute, from 0 to 59
 /// * second : int? - the second, from 0 to 59
-#[function(name = "naive-date-and-hms")]
+#[function(name = "naive-date-and-hms", args = "any, int, int, int")]
 fn with_time(date: NaiveDate, hour: u32, minute: u32, second: u32) -> Option<NaiveDateTime> {
     date.and_hms_opt(hour, minute, second)
 }
@@ -181,7 +181,7 @@ fn system_time_lte(left: SystemTime, right: SystemTime) -> bool {
 /// (time/sleep-ms ms)
 ///
 /// * ms : int?
-#[function(name = "time/sleep-ms")]
+#[function(name = "time/sleep-ms", args = "number")]
 fn sleep_millis(millis: usize) {
     std::thread::sleep(Duration::from_millis(millis.try_into().unwrap()))
 }
@@ -189,7 +189,7 @@ fn sleep_millis(millis: usize) {
 /// Returns the number of milliseconds since the Unix epoch as an integer.
 ///
 /// (current-milliseconds) -> int?
-#[function(name = "current-milliseconds", returns = "number")]
+#[function(name = "current-milliseconds", returns = "number", args = "", raises = "never")]
 fn current_milliseconds() -> SteelVal {
     use crate::time::{SystemTime, UNIX_EPOCH};
 
@@ -208,7 +208,7 @@ fn current_milliseconds() -> SteelVal {
 /// Returns the number of seconds since the Unix epoch as an integer.
 ///
 /// (current-second) -> int?
-#[function(name = "current-second", returns = "number")]
+#[function(name = "current-second", returns = "number", args = "", raises = "never")]
 fn current_seconds() -> SteelVal {
     use crate::time::{SystemTime, UNIX_EPOCH};
 
@@ -227,7 +227,7 @@ fn current_seconds() -> SteelVal {
 /// Returns the number of milliseconds since the Unix epoch as an inexact number.
 ///
 /// (current-inexact-milliseconds) -> inexact?
-#[function(name = "current-inexact-milliseconds")]
+#[function(name = "current-inexact-milliseconds", args = "", raises = "never")]
 fn current_inexact_milliseconds() -> f64 {
     use crate::time::{SystemTime, UNIX_EPOCH};
 
@@ -240,7 +240,7 @@ fn current_inexact_milliseconds() -> f64 {
 /// Returns the current `SystemTime`.
 ///
 /// (system-time/now) -> SystemTime?
-#[function(name = "system-time/now")]
+#[function(name = "system-time/now", args = "", raises = "never")]
 fn system_time_now() -> SystemTime {
     SystemTime::now()
 }
@@ -262,7 +262,7 @@ fn system_time_duration_since(
 /// `instant/elapsed` or `duration-since` to measure how much time has passed.
 ///
 /// (instant/now) -> instant?
-#[function(name = "instant/now")]
+#[function(name = "instant/now", args = "", raises = "never")]
 fn instant_now() -> Instant {
     Instant::now()
 }

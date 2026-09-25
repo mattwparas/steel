@@ -67,7 +67,7 @@ enum TransducerKind {
     MapPair,
 }
 
-#[steel_derive::function(name = "#%reducer->int")]
+#[steel_derive::function(name = "#%reducer->int", args = "any", raises = "never")]
 pub fn reducer_to_int(arg: &SteelVal) -> Option<SteelVal> {
     if let SteelVal::ReducerV(r) = arg {
         Some(match r.as_ref() {
@@ -102,7 +102,7 @@ pub fn reducer_to_int(arg: &SteelVal) -> Option<SteelVal> {
     }
 }
 
-#[steel_derive::function(name = "#%transducers->funcs")]
+#[steel_derive::function(name = "#%transducers->funcs", args = "any", raises = "never")]
 pub fn transducers_func(arg: &SteelVal) -> Option<SteelVal> {
     let mut funcs = Vec::new();
 
@@ -263,7 +263,7 @@ pub fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
 /// ```scheme
 /// (transduce (list 1 3 5) (enumerating) (into-list)) ;; => '((0 1) (1 3) (2 5))
 /// ```
-#[steel_derive::function(name = "enumerating")]
+#[steel_derive::function(name = "enumerating", args = "", raises = "never")]
 pub fn enumerating() -> Result<SteelVal> {
     let mut transducer = Transducer::new();
     transducer.push(Transducers::Enumerating);
@@ -386,7 +386,7 @@ pub fn flat_mapping(func: &SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// (transduce (list '(1 2) '(3 4) '(5 6)) (flattening) (into-list)) ;; => '(1 2 3 4 5 6)
 /// ```
-#[steel_derive::function(name = "flattening")]
+#[steel_derive::function(name = "flattening", args = "", raises = "never")]
 pub fn flattening() -> Result<SteelVal> {
     let mut transducer = Transducer::new();
     transducer.push(Transducers::Flatten);
@@ -421,7 +421,7 @@ pub fn filtering(func: &SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// (transduce (list 1 2 3 4 5) (taking 3) (into-list)) ;; => '(1 2 3)
 /// ```
-#[steel_derive::function(name = "taking")]
+#[steel_derive::function(name = "taking", args = "int", raises = "bad-args")]
 pub fn taking(amt: &SteelVal) -> Result<SteelVal> {
     if let IntV(_) = &amt {
         let mut transducer = Transducer::new();
@@ -440,7 +440,7 @@ pub fn taking(amt: &SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// (transduce (list 1 2 3 4 5) (dropping 3) (into-list)) ;; => '(4 5)
 /// ```
-#[steel_derive::function(name = "dropping")]
+#[steel_derive::function(name = "dropping", args = "int", raises = "bad-args")]
 pub fn dropping(amt: &SteelVal) -> Result<SteelVal> {
     if let IntV(_) = amt {
         let mut transducer = Transducer::new();

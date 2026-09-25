@@ -20,7 +20,7 @@ use steel_derive::function;
 /// ```scheme
 /// (string->jsexpr "{\"foo\": [3]}") ;; => '#hash((foo . (3)))
 /// ```
-#[function(name = "string->jsexpr")]
+#[function(name = "string->jsexpr", args = "string")]
 pub fn string_to_jsexpr(value: &SteelString) -> Result<SteelVal> {
     // let unescaped = unescape(&value);
     let unescaped = value;

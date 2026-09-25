@@ -84,7 +84,7 @@ pub fn symbol_equals(mut iter: RestArgsIter<SteelSymbol<'_>>) -> Result<SteelVal
 /// > (concat-symbols)
 /// => '
 /// ```
-#[steel_derive::native(name = "concat-symbols", arity = "AtLeast(0)", returns = "symbol")]
+#[steel_derive::native(name = "concat-symbols", arity = "AtLeast(0)", returns = "symbol", args = "symbol...", raises = "bad-args")]
 fn concat_symbols(args: &[SteelVal]) -> Result<SteelVal> {
     let mut new_symbol = String::new();
 

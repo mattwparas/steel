@@ -21,7 +21,7 @@ pub fn hashes_module() -> BuiltInModule {
     module
 }
 
-#[steel_derive::function(name = "md5-hasher")]
+#[steel_derive::function(name = "md5-hasher", args = "", raises = "never")]
 pub fn md5_hasher() -> SteelVal {
     Md5Hasher(Md5::new()).into_steelval().unwrap()
 }

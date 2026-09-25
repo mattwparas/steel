@@ -124,6 +124,7 @@ test_harness_success! {
     jit_helper_error_exits,
     inline_mutated_parameter,
     jit_pair_predicate,
+    primitive_edge_cases,
     drop_hash_vector_string,
     jit_loop_specialization,
     jit_varargs,

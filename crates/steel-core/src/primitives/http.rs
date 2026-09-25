@@ -80,7 +80,7 @@ pub fn version(value: &SteelVal) -> Result<SteelVal> {
 }
 
 /// Download file from a URL
-#[steel_derive::function(name = "download-file!", returns = "void")]
+#[steel_derive::function(name = "download-file!", returns = "void", args = "string, string")]
 fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
     #[cfg(not(feature = "ureq"))]
     {
@@ -243,7 +243,7 @@ fn parse_response(buf: &[u8]) -> Result<SteelVal> {
 /// (http-parse-request buf) -> (or http-request? #false)
 ///
 /// * buf : bytes?
-#[steel_derive::function(name = "http-parse-request")]
+#[steel_derive::function(name = "http-parse-request", args = "bytevector")]
 pub fn parse_http_request(vector: &SteelByteVector) -> Result<SteelVal> {
     parse_request(&vector.vec.read())
 }
@@ -255,7 +255,7 @@ pub fn parse_http_request(vector: &SteelByteVector) -> Result<SteelVal> {
 /// (http-parse-response buf) -> (or http-response? #false)
 ///
 /// * buf : bytes?
-#[steel_derive::function(name = "http-parse-response")]
+#[steel_derive::function(name = "http-parse-response", args = "bytevector")]
 pub fn parse_http_response(vector: &SteelByteVector) -> Result<SteelVal> {
     parse_response(&vector.vec.read())
 }

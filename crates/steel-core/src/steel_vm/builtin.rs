@@ -91,6 +91,10 @@ pub struct FunctionSignatureMetadata {
     pub doc: Option<MarkdownDoc<'static>>,
     /// What every call returns; see [`crate::value_type`].
     pub return_type: crate::value_type::ValueType,
+    /// What a successful call's arguments were, if declared.
+    pub arg_types: Option<crate::value_type::ArgTypes>,
+    /// When a call can raise.
+    pub raises: crate::value_type::Raises,
 }
 
 impl FunctionSignatureMetadata {
@@ -106,11 +110,23 @@ impl FunctionSignatureMetadata {
             is_const,
             doc,
             return_type: crate::value_type::ValueType::Any,
+            arg_types: None,
+            raises: crate::value_type::Raises::Maybe,
         }
     }
 
     pub fn with_return_type(mut self, return_type: crate::value_type::ValueType) -> Self {
         self.return_type = return_type;
+        self
+    }
+
+    pub fn with_arg_types(
+        mut self,
+        arg_types: Option<crate::value_type::ArgTypes>,
+        raises: crate::value_type::Raises,
+    ) -> Self {
+        self.arg_types = arg_types;
+        self.raises = raises;
         self
     }
 }
@@ -265,6 +281,10 @@ pub struct NativeFunctionDefinition {
     /// What every call returns, from the Rust return type or the macro's
     /// `returns = "..."`. The jit types the result of a call with it.
     pub return_type: crate::value_type::ValueType,
+    /// The macro's `args = "..."`; see [`crate::value_type::ArgTypes`].
+    pub arg_types: Option<crate::value_type::ArgTypes>,
+    /// The macro's `raises = "..."`.
+    pub raises: crate::value_type::Raises,
 }
 
 pub fn register_context_functions(
@@ -662,6 +682,8 @@ impl BuiltInModuleRepr {
                         is_const: false,
                         doc: None,
                         return_type: crate::value_type::ValueType::Any,
+                        arg_types: None,
+                        raises: crate::value_type::Raises::Maybe,
                     },
                 );
             }
@@ -899,7 +921,8 @@ impl BuiltInModule {
                 definition.is_const,
                 definition.doc.clone(),
             )
-            .with_return_type(definition.return_type),
+            .with_return_type(definition.return_type)
+            .with_arg_types(definition.arg_types, definition.raises),
         );
 
         if let Some(doc) = definition.doc {

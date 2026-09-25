@@ -34,7 +34,7 @@ impl Custom for TcpListener {}
 /// ```scheme
 /// (tcp-connect "127.0.0.1:8080")
 /// ```
-#[function(name = "tcp-connect")]
+#[function(name = "tcp-connect", args = "string")]
 pub fn tcp_connect(addr: SteelString) -> Result<SteelVal> {
     TcpStream::connect(addr.as_str())?.into_steelval()
 }
@@ -130,7 +130,7 @@ pub fn tcp_buffered_output_port(stream: &SteelVal) -> Result<SteelVal> {
 /// (tcp-listen "127.0.0.1:80")
 /// ```
 ///
-#[function(name = "tcp-listen")]
+#[function(name = "tcp-listen", args = "string")]
 pub fn tcp_listen(addr: SteelString) -> Result<SteelVal> {
     TcpListener::bind(addr.as_str())?.into_steelval()
 }

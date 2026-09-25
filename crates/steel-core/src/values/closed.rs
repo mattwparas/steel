@@ -753,7 +753,7 @@ impl Custom for WillExecutor {
 }
 
 #[cfg(feature = "sync")]
-#[steel_derive::function(name = "make-will-executor")]
+#[steel_derive::function(name = "make-will-executor", args = "", raises = "never")]
 pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
     let (sender, incoming) = crossbeam_channel::unbounded();
     WillExecutor {
@@ -765,7 +765,7 @@ pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
 }
 
 #[cfg(not(feature = "sync"))]
-#[steel_derive::function(name = "make-will-executor")]
+#[steel_derive::function(name = "make-will-executor", args = "", raises = "never")]
 pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
     WillExecutor {}.into_steelval()
 }
@@ -773,7 +773,10 @@ pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
 #[cfg(feature = "sync")]
 #[steel_derive::context(name = "will-execute", arity = "Exact(1)")]
 pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
-    let executor = WillExecutor::as_ref(&args[0]).unwrap();
+    let executor = match WillExecutor::as_ref(&args[0]) {
+        Ok(executor) => executor,
+        Err(err) => return Some(Err(err)),
+    };
 
     // TODO: Make this find the next thing? Perhaps just have this be a channel
     // or something that waits until the next thing is found?
@@ -804,7 +807,9 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 #[cfg(not(feature = "sync"))]
 #[steel_derive::context(name = "will-execute", arity = "Exact(1)")]
 pub fn will_execute(_ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
-    let _ = WillExecutor::as_ref(&args[0]).unwrap();
+    if let Err(err) = WillExecutor::as_ref(&args[0]) {
+        return Some(Err(err));
+    }
     Some(Ok(SteelVal::Void))
 }
 
@@ -821,7 +826,7 @@ pub fn will_register(
 }
 
 #[cfg(not(feature = "sync"))]
-#[steel_derive::function(name = "will-register", returns = "void")]
+#[steel_derive::function(name = "will-register", returns = "void", args = "any, any, any", raises = "never")]
 pub fn will_register(
     _will: SteelVal,
     _value: SteelVal,
@@ -845,7 +850,7 @@ impl Custom for WeakBox {}
 ///
 /// In other words, a weak box does not keep the value contained alive through
 /// a gc collection.
-#[steel_derive::context(name = "make-weak-box", arity = "Exact(1)")]
+#[steel_derive::context(name = "make-weak-box", arity = "Exact(1)", args = "any", raises = "never")]
 pub fn make_weak_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
     let value = args[0].clone();
     if let SteelVal::HeapAllocated(made_box) = ctx.make_box(value) {

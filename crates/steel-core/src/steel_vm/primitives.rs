@@ -932,7 +932,7 @@ fn vector_module() -> BuiltInModule {
 /// > (not "hello")
 /// #false
 /// ```
-#[steel_derive::function(name = "not", constant = true)]
+#[steel_derive::function(name = "not", constant = true, args = "any", raises = "never")]
 pub fn not(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(false))
 }
@@ -951,7 +951,7 @@ pub fn not(value: &SteelVal) -> bool {
 /// > (string? 'foo)
 /// #false
 /// ```
-#[steel_derive::function(name = "string?", constant = true)]
+#[steel_derive::function(name = "string?", constant = true, args = "any", raises = "never")]
 pub fn stringp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::StringV(_))
 }
@@ -968,7 +968,7 @@ pub fn stringp(value: &SteelVal) -> bool {
 /// > (mutable-vector? #(1 2))
 /// #false
 /// ```
-#[steel_derive::function(name = "mutable-vector?")]
+#[steel_derive::function(name = "mutable-vector?", args = "any", raises = "never")]
 pub fn mutable_vectorp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::MutableVector(_))
 }
@@ -985,7 +985,7 @@ pub fn mutable_vectorp(value: &SteelVal) -> bool {
 /// > (immutable-vector? (vector 1 2))
 /// #false
 /// ```
-#[steel_derive::function(name = "immutable-vector?")]
+#[steel_derive::function(name = "immutable-vector?", args = "any", raises = "never")]
 pub fn immutable_vectorp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::VectorV(_))
 }
@@ -1002,7 +1002,7 @@ pub fn immutable_vectorp(value: &SteelVal) -> bool {
 /// > (char? "a")
 /// #false
 /// ```
-#[steel_derive::function(name = "char?")]
+#[steel_derive::function(name = "char?", args = "any", raises = "never")]
 pub fn charp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::CharV(_))
 }
@@ -1010,7 +1010,7 @@ pub fn charp(value: &SteelVal) -> bool {
 /// Returns `#t` if the value is a future.
 ///
 /// (future? value) -> bool?
-#[steel_derive::function(name = "future?")]
+#[steel_derive::function(name = "future?", args = "any", raises = "never")]
 pub fn futurep(value: &SteelVal) -> bool {
     matches!(value, SteelVal::FutureV(_))
 }
@@ -1028,7 +1028,7 @@ pub fn futurep(value: &SteelVal) -> bool {
 /// > (atom? (list 1 2))
 /// #false
 /// ```
-#[steel_derive::function(name = "atom?")]
+#[steel_derive::function(name = "atom?", args = "any", raises = "never")]
 pub fn atomp(value: &SteelVal) -> bool {
     matches!(
         value,
@@ -1044,7 +1044,7 @@ pub fn atomp(value: &SteelVal) -> bool {
 /// Returns `#t` if the value is an iterator (for internal use).
 ///
 /// (%iterator? value) -> bool?
-#[steel_derive::function(name = "%iterator?")]
+#[steel_derive::function(name = "%iterator?", args = "any", raises = "never")]
 pub fn iteratorp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoxedIterator(_))
 }
@@ -1052,7 +1052,7 @@ pub fn iteratorp(value: &SteelVal) -> bool {
 /// Returns `#t` if the value is a syntax object.
 ///
 /// (syntax? value) -> bool?
-#[steel_derive::function(name = "syntax?")]
+#[steel_derive::function(name = "syntax?", args = "any", raises = "never")]
 pub fn syntaxp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::SyntaxObject(_))
 }
@@ -1071,7 +1071,7 @@ pub fn syntaxp(value: &SteelVal) -> bool {
 /// > (list? "not-a-list")
 /// #false
 /// ```
-#[steel_derive::function(name = "list?", constant = true)]
+#[steel_derive::function(name = "list?", constant = true, args = "any", raises = "never")]
 pub fn listp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ListV(_))
 }
@@ -1090,7 +1090,7 @@ pub fn listp(value: &SteelVal) -> bool {
 /// > (vector? 'foo)
 /// #false
 /// ```
-#[steel_derive::function(name = "vector?", constant = true)]
+#[steel_derive::function(name = "vector?", constant = true, args = "any", raises = "never")]
 pub fn vectorp(value: &SteelVal) -> bool {
     matches!(
         value,
@@ -1112,7 +1112,7 @@ pub fn vectorp(value: &SteelVal) -> bool {
 /// > (symbol? "hello")
 /// #false
 /// ```
-#[steel_derive::function(name = "symbol?", constant = true)]
+#[steel_derive::function(name = "symbol?", constant = true, args = "any", raises = "never")]
 pub fn symbolp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::SymbolV(_))
 }
@@ -1131,7 +1131,7 @@ pub fn symbolp(value: &SteelVal) -> bool {
 /// > (hash? '(a b c))
 /// #false
 /// ```
-#[steel_derive::function(name = "hash?", constant = true)]
+#[steel_derive::function(name = "hash?", constant = true, args = "any", raises = "never")]
 fn hashp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashMapV(_))
 }
@@ -1150,12 +1150,12 @@ fn hashp(value: &SteelVal) -> bool {
 /// > (set? "abc")
 /// #false
 /// ```
-#[steel_derive::function(name = "set?", constant = true)]
+#[steel_derive::function(name = "set?", constant = true, args = "any", raises = "never")]
 pub fn hashsetp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashSetV(_))
 }
 
-#[steel_derive::function(name = "continuation?", constant = true)]
+#[steel_derive::function(name = "continuation?", constant = true, args = "any", raises = "never")]
 pub fn continuationp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ContinuationFunction(_))
 }
@@ -1177,7 +1177,7 @@ pub fn continuationp(value: &SteelVal) -> bool {
 /// > (boolean? 0)
 /// #false
 /// ```
-#[steel_derive::function(name = "boolean?", constant = true)]
+#[steel_derive::function(name = "boolean?", constant = true, args = "any", raises = "never")]
 pub fn booleanp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(_))
 }
@@ -1196,7 +1196,7 @@ pub fn booleanp(value: &SteelVal) -> bool {
 /// > (bool? "hi")
 /// #false
 /// ```
-#[steel_derive::function(name = "bool?", constant = true)]
+#[steel_derive::function(name = "bool?", constant = true, args = "any", raises = "never")]
 pub fn boolp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(_))
 }
@@ -1215,12 +1215,12 @@ pub fn boolp(value: &SteelVal) -> bool {
 /// > (void? 42)
 /// #false
 /// ```
-#[steel_derive::function(name = "void?", constant = true)]
+#[steel_derive::function(name = "void?", constant = true, args = "any", raises = "never")]
 pub fn voidp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::Void)
 }
 
-#[steel_derive::function(name = "struct?", constant = true)]
+#[steel_derive::function(name = "struct?", constant = true, args = "any", raises = "never")]
 pub fn structp(value: &SteelVal) -> bool {
     if let SteelVal::CustomStruct(s) = value {
         s.is_transparent()
@@ -1229,17 +1229,17 @@ pub fn structp(value: &SteelVal) -> bool {
     }
 }
 
-#[steel_derive::function(name = "port?", constant = true)]
+#[steel_derive::function(name = "port?", constant = true, args = "any", raises = "never")]
 pub fn portp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::PortV(..))
 }
 
-#[steel_derive::function(name = "#%private-struct?", constant = true)]
+#[steel_derive::function(name = "#%private-struct?", constant = true, args = "any", raises = "never")]
 pub fn private_structp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::CustomStruct(_))
 }
 
-#[steel_derive::function(name = "error-object?", constant = true)]
+#[steel_derive::function(name = "error-object?", constant = true, args = "any", raises = "never")]
 pub fn error_objectp(value: &SteelVal) -> bool {
     let SteelVal::Custom(val) = value else {
         return false;
@@ -1249,7 +1249,7 @@ pub fn error_objectp(value: &SteelVal) -> bool {
     as_underlying_type::<SteelErr>(val.read().as_ref()).is_some()
 }
 
-#[steel_derive::function(name = "#%function-pointer?")]
+#[steel_derive::function(name = "#%function-pointer?", args = "any", raises = "never")]
 pub fn is_function_pointer(value: &SteelVal) -> bool {
     matches!(value, |SteelVal::FuncV(_)| SteelVal::BoxedFunction(_)
         | SteelVal::MutFunc(_))
@@ -1272,7 +1272,7 @@ pub fn is_function_pointer(value: &SteelVal) -> bool {
 /// > (function? 42)
 /// #false
 /// ```
-#[steel_derive::function(name = "function?", constant = true)]
+#[steel_derive::function(name = "function?", constant = true, args = "any", raises = "never")]
 pub fn functionp(value: &SteelVal) -> bool {
     matches!(
         value,
@@ -1285,7 +1285,7 @@ pub fn functionp(value: &SteelVal) -> bool {
     )
 }
 
-#[steel_derive::function(name = "procedure?", constant = true)]
+#[steel_derive::function(name = "procedure?", constant = true, args = "any", raises = "never")]
 pub fn procedurep(value: &SteelVal) -> bool {
     if let SteelVal::CustomStruct(s) = value {
         return s.maybe_proc().map(|x| procedurep(x)).unwrap_or(false);
@@ -1503,7 +1503,7 @@ pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 /// (eq? (* 6 7) 42) ;; => #t
 /// (eq? (list 10) (list 10)) ;; => #f
 /// ```
-#[steel_derive::function(name = "eq?", returns = "bool")]
+#[steel_derive::function(name = "eq?", returns = "bool", args = "any, any", raises = "never")]
 pub fn eq(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(left.ptr_eq(&right)))
 }
@@ -1518,12 +1518,12 @@ pub fn eq(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 /// (equal? (* 6 7) 42) ;; => #t
 /// (equal? (list 10) (list 10)) ;; => #t
 /// ```
-#[steel_derive::function(name = "equal?", returns = "bool")]
+#[steel_derive::function(name = "equal?", returns = "bool", args = "any, any", raises = "never")]
 pub fn equalp(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(left == right))
 }
 
-#[steel_derive::function(name = "eqv?", returns = "bool")]
+#[steel_derive::function(name = "eqv?", returns = "bool", args = "any, any", raises = "never")]
 pub fn eqv(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(left.ptr_eq(&right)))
 }
@@ -1588,7 +1588,7 @@ fn ord_internal(
 /// > (> 3/2 1.4) ;; => #t
 /// > (> 3 4/2 1) ;; #t
 /// ```
-#[steel_derive::native(name = ">", arity = "AtLeast(1)", returns = "bool")]
+#[steel_derive::native(name = ">", arity = "AtLeast(1)", returns = "bool", args = "number, any...")]
 pub fn greater_than(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| matches!(o, Some(Ordering::Greater)))
 }
@@ -1609,7 +1609,7 @@ pub fn greater_than(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (>= 3/2 1.4) ;; => #t
 /// > (>= 2 4/2 1) ;; #t
 /// ```
-#[steel_derive::native(name = ">=", arity = "AtLeast(1)", returns = "bool")]
+#[steel_derive::native(name = ">=", arity = "AtLeast(1)", returns = "bool", args = "number, any...")]
 pub fn greater_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| {
         matches!(o, Some(Ordering::Greater | Ordering::Equal))
@@ -1632,7 +1632,7 @@ pub fn greater_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (< 2.5 3/2) ;; => #t
 /// > (< 2 5/2 3) ;; #t
 /// ```
-#[steel_derive::native(name = "<", arity = "AtLeast(1)", returns = "bool")]
+#[steel_derive::native(name = "<", arity = "AtLeast(1)", returns = "bool", args = "number, any...")]
 pub fn less_than(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| matches!(o, Some(Ordering::Less)))
 }
@@ -1653,7 +1653,7 @@ pub fn less_than(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (<= 2.5 3/2) ;; => #f
 /// > (<= 2 6/2 3) ;; #t
 /// ```
-#[steel_derive::native(name = "<=", arity = "AtLeast(1)", returns = "bool")]
+#[steel_derive::native(name = "<=", arity = "AtLeast(1)", returns = "bool", args = "number, any...")]
 fn less_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| {
         matches!(o, Some(Ordering::Less | Ordering::Equal))
@@ -1727,7 +1727,7 @@ fn maybe_get_environment_variable(var: String) -> SteelResult<SteelVal, SteelErr
 /// for, for example `"linux"`, `"macos"`, or `"windows"`.
 ///
 /// (current-os!) -> string?
-#[steel_derive::function(name = "current-os!")]
+#[steel_derive::function(name = "current-os!", args = "", raises = "never")]
 fn current_os() -> &'static str {
     std::env::consts::OS
 }
@@ -1736,7 +1736,7 @@ fn current_os() -> &'static str {
 /// example `"x86_64"` or `"aarch64"`.
 ///
 /// (target-arch!) -> string?
-#[steel_derive::function(name = "target-arch!")]
+#[steel_derive::function(name = "target-arch!", args = "", raises = "never")]
 fn target_arch() -> &'static str {
     std::env::consts::ARCH
 }
@@ -1745,7 +1745,7 @@ fn target_arch() -> &'static str {
 /// platform, for example `"lib"` on Linux and macOS, or `""` on Windows.
 ///
 /// (platform-dll-prefix!) -> string?
-#[steel_derive::function(name = "platform-dll-prefix!")]
+#[steel_derive::function(name = "platform-dll-prefix!", args = "", raises = "never")]
 fn platform_dll_prefix() -> &'static str {
     std::env::consts::DLL_PREFIX
 }
@@ -1754,7 +1754,7 @@ fn platform_dll_prefix() -> &'static str {
 /// platform, for example `"so"`, `"dylib"`, or `"dll"`.
 ///
 /// (platform-dll-extension!) -> string?
-#[steel_derive::function(name = "platform-dll-extension!")]
+#[steel_derive::function(name = "platform-dll-extension!", args = "", raises = "never")]
 fn platform_dll_extension() -> &'static str {
     std::env::consts::DLL_EXTENSION
 }
@@ -1763,7 +1763,7 @@ fn platform_dll_extension() -> &'static str {
 /// string, for example `"/"` on Unix or `"\"` on Windows.
 ///
 /// (path-separator) -> string?
-#[steel_derive::function(name = "path-separator")]
+#[steel_derive::function(name = "path-separator", args = "", raises = "never")]
 fn path_separator() -> &'static str {
     std::path::MAIN_SEPARATOR_STR
 }
@@ -1772,7 +1772,7 @@ fn path_separator() -> &'static str {
 /// dynamic libraries (the `dylib-build` feature).
 ///
 /// (feature-dylib-build?) -> bool?
-#[steel_derive::function(name = "feature-dylib-build?")]
+#[steel_derive::function(name = "feature-dylib-build?", args = "", raises = "never")]
 fn feature_dylib_build() -> bool {
     cfg!(feature = "dylib-build")
 }
@@ -1781,7 +1781,7 @@ fn feature_dylib_build() -> bool {
 /// to resolve installed packages and cogs - or `#false` if it is not set.
 ///
 /// (steel-home-location) -> (or string? #false)
-#[steel_derive::function(name = "steel-home-location")]
+#[steel_derive::function(name = "steel-home-location", args = "", raises = "never")]
 fn steel_home_location() -> Option<String> {
     steel_home()
 }
@@ -1848,7 +1848,7 @@ pub fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     }
 }
 
-#[steel_derive::context(name = "#%lookup-doc", arity = "Exact(1)")]
+#[steel_derive::context(name = "#%lookup-doc", arity = "Exact(1)", args = "any", raises = "never")]
 pub fn lookup_doc_ctx(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // Attempt to find the docs for a given value.
     let compiler = ctx.thread.compiler.read();
@@ -2163,7 +2163,7 @@ impl Reader {
     }
 }
 
-#[steel_derive::context(name = "#%intern", arity = "Exact(1)")]
+#[steel_derive::context(name = "#%intern", arity = "Exact(1)", args = "any", raises = "never")]
 pub fn intern_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut guard = ctx.thread.compiler.write();
     let arg = args[0].clone();
@@ -2365,7 +2365,7 @@ pub(crate) fn make_mutable_struct_from_args(ctx: &mut VmCore, args: &[SteelVal])
 /// > (set-box! b 20) ;; => 10
 /// > (unbox b) ;; => 20
 /// ```
-#[steel_derive::context(name = "box", arity = "Exact(1)")]
+#[steel_derive::context(name = "box", arity = "Exact(1)", args = "any", raises = "never")]
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() != 1 {
         return Some(Err(
@@ -2459,7 +2459,7 @@ pub fn set_box(value: &GcMut<SteelVal>, update_to: SteelVal) {
 /// > (set-strong-box! b 20) ;;
 /// > (unbox-strong b) ;; => 20
 /// ```
-#[steel_derive::function(name = "box-strong")]
+#[steel_derive::function(name = "box-strong", args = "any", raises = "never")]
 pub fn box_strong(value: SteelVal) -> SteelVal {
     SteelVal::boxed(value)
 }
@@ -2733,7 +2733,7 @@ fn meta_module() -> BuiltInModule {
 
 /// Returns the command line passed to this process,
 /// including the command name as first argument.
-#[steel_derive::function(name = "command-line")]
+#[steel_derive::function(name = "command-line", args = "", raises = "never")]
 fn command_line() -> SteelList<String> {
     std::env::args().collect()
 }
@@ -2773,7 +2773,7 @@ fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
     Ok(SteelVal::BoolV(false))
 }
 
-#[steel_derive::context(name = "syntax-originating-file", arity = "Exact(1)")]
+#[steel_derive::context(name = "syntax-originating-file", arity = "Exact(1)", args = "any", raises = "never")]
 fn syntax_to_module(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(syntax_to_module_impl(ctx, args))
 }
@@ -2790,7 +2790,7 @@ fn syntax_raw(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(syntax_raw_impl(ctx, args))
 }
 
-#[steel_derive::context(name = "#%path->source-id", arity = "Exact(1)")]
+#[steel_derive::context(name = "#%path->source-id", arity = "Exact(1)", args = "string", raises = "bad-args")]
 fn path_to_source_id(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn path_to_source_id_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         let path = SteelString::from_steelval(&args[0])?;

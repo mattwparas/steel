@@ -587,7 +587,7 @@ fn run_background_job(queued: &mut QueuedJob) {
 // Block until every background compile this thread queued has been
 // installed. For tests and measurements that want compiled code; returns at
 // once when nothing is queued.
-#[steel_derive::context(name = "#%jit-drain", arity = "Exact(0)", returns = "void")]
+#[steel_derive::context(name = "#%jit-drain", arity = "Exact(0)", returns = "void", args = "", raises = "never")]
 pub(crate) fn jit_drain(_ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     wait_for_background_compiles();
     Some(Ok(SteelVal::Void))
@@ -595,7 +595,7 @@ pub(crate) fn jit_drain(_ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<
 
 
 
-#[steel_derive::context(name = "#%jit-compile-2", arity = "AtLeast(1)")]
+#[steel_derive::context(name = "#%jit-compile-2", arity = "AtLeast(1)", args = "any, any...", raises = "never")]
 pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let function = &args[0];
 
@@ -666,7 +666,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "#%jit-compile", arity = "AtLeast(1)")]
+#[steel_derive::context(name = "#%jit-compile", arity = "AtLeast(1)", args = "any, any...", raises = "never")]
 pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let function = &args[0];
     // Provide the name for the function for recursive calls
