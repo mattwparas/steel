@@ -6504,22 +6504,6 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         OpCode::TAILCALL | OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY
     );
 
-    // TEMP-DEBUG
-    {
-        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        if crate::config::config().apply_debug
-            && N.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 4000
-        {
-            eprintln!(
-                "[apply] ip={} tail_call={tail_call} frames={} stack={} sp={} pop={} top={:?} args={:?}",
-                ctx.ip, ctx.thread.stack_frames.len(), ctx.thread.stack.len(),
-                ctx.sp, ctx.pop_count,
-                ctx.thread.stack_frames.last().map(|f| f.function.id),
-                args.len()
-            );
-        }
-    }
-
     let mut arg_iter = args.iter();
     let fun = arg_iter.next().unwrap();
     let lst = arg_iter.next_back().unwrap();

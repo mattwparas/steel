@@ -1,7 +1,7 @@
 use crate::values::{
     closed::{HeapAllocated, HeapVec},
     lock::SpinLock,
-    structs::{StructConstructorRefSpec, StructFunctionType, UserDefinedStruct},
+    structs::{StructConstructorRefSpec, StructFunctionType},
 };
 
 use crate::values::structs::StructStorage;
@@ -135,15 +135,10 @@ impl<'a> FunctionTranslator<'a> {
         self.shadow_stack.last().unwrap().clone()
     }
 
-    // Check the tags, see if they're equal, etc.
-    pub(super) fn value_equals_binop(&mut self) {
-        todo!()
-    }
-
     pub(super) fn char_equals(&mut self, arity: usize) {
         let name = CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
 
-        let args = self
+        let _args = self
             .shadow_stack
             .get(self.shadow_stack.len() - arity..)
             .unwrap()
@@ -421,7 +416,7 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             &[MutRegister(v) | Register(v), Value(StackValue {
-                value,
+                value: _,
                 inferred_type: InferredType::Symbol,
                 ..
             })] => {
@@ -667,21 +662,6 @@ impl<'a> FunctionTranslator<'a> {
         self.ip += 1;
     }
 
-    // Load just the symbols, and eq against each of them, unrolled?
-    pub(super) fn list_contains_constant_symbols_fast_path(
-        &mut self,
-        lhs_value: Value,
-        list: List<SteelVal>,
-    ) {
-        for item in list.iter() {
-            let v = item.clone();
-
-            let SteelVal::SymbolV(sym) = v else { panic!() };
-
-            // self.builder.ins().
-        }
-    }
-
     // If its a constant with small amounts, we can test it via ptr eq fast path
     pub(super) fn list_contains(&mut self) {
         use MaybeStackValue::*;
@@ -694,7 +674,7 @@ impl<'a> FunctionTranslator<'a> {
         match args {
             // List contains the value
             &[Register(reg), Value(StackValue {
-                value,
+                value: _,
                 inferred_type: InferredType::List,
                 ..
             })] => {
@@ -748,6 +728,57 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// `pair?` on a boxed value, as an unboxed bool: a pair, or a list that
+    /// isn't empty. Doesn't consume the value.
+    fn pair_test(&mut self, value: Value) -> Value {
+        let tag = self.get_tag(value);
+
+        let mut switch = Switch::new();
+        let pair_block = self.builder.create_block();
+        let list_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+        self.builder.append_block_param(merge_block, types::I8);
+
+        switch.set_entry(SteelVal::LIST_TAG as _, list_block);
+        switch.set_entry(SteelVal::PAIR_TAG as _, pair_block);
+
+        switch.emit(&mut self.builder, tag, else_block);
+        {
+            // Is a pair
+            self.builder.switch_to_block(pair_block);
+            self.builder.seal_block(pair_block);
+            let true_val = BlockArg::Value(self.builder.ins().iconst(types::I8, 1));
+            self.builder.ins().jump(merge_block, &[true_val]);
+        }
+
+        {
+            // Is a list: a pair unless it's empty
+            self.builder.switch_to_block(list_block);
+            self.builder.seal_block(list_block);
+
+            let value = self.unbox_value_to_pointer(value);
+            let length = self.list_cell_index(value);
+
+            let not_empty =
+                BlockArg::Value(self.builder.ins().icmp_imm_s(IntCC::NotEqual, length, 0));
+
+            self.builder.ins().jump(merge_block, &[not_empty]);
+        }
+
+        {
+            // Neither a list nor a pair
+            self.builder.switch_to_block(else_block);
+            self.builder.seal_block(else_block);
+            let false_val = BlockArg::Value(self.builder.ins().iconst(types::I8, 0));
+            self.builder.ins().jump(merge_block, &[false_val]);
+        }
+
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
+        self.builder.block_params(merge_block)[0]
+    }
+
     pub(super) fn is_pair(&mut self) {
         use MaybeStackValue::*;
 
@@ -787,92 +818,52 @@ impl<'a> FunctionTranslator<'a> {
                 // }
 
                 let value = stack_value.as_steelval(self);
-
-                // Encode this manually:
-                let tag = self.get_tag(value);
-
-                let mut switch = Switch::new();
-                let pair_block = self.builder.create_block();
-                let list_block = self.builder.create_block();
-                let else_block = self.builder.create_block();
-                let merge_block = self.builder.create_block();
-                self.builder.append_block_param(merge_block, types::I8);
-
-                switch.set_entry(SteelVal::LIST_TAG as _, list_block);
-                switch.set_entry(SteelVal::PAIR_TAG as _, pair_block);
-
-                switch.emit(&mut self.builder, tag, else_block);
-                {
-                    // Is a pair
-                    self.builder.switch_to_block(pair_block);
-                    self.builder.seal_block(pair_block);
-                    let true_val = BlockArg::Value(self.builder.ins().iconst(types::I8, 1));
-                    self.builder.ins().jump(merge_block, &[true_val]);
-                }
-
-                {
-                    // Is a list
-                    self.builder.switch_to_block(list_block);
-                    self.builder.seal_block(list_block);
-
-                    let value = self.unbox_value_to_pointer(value);
-
-                    // Its not a pair if its an empty list
-                    let length = self.list_cell_index(value);
-
-                    let not_empty =
-                        BlockArg::Value(self.builder.ins().icmp_imm_s(IntCC::NotEqual, length, 0));
-
-                    self.builder.ins().jump(merge_block, &[not_empty]);
-                }
-
-                {
-                    // Else case, not a list or pair
-                    self.builder.switch_to_block(else_block);
-                    self.builder.seal_block(else_block);
-                    let false_val = BlockArg::Value(self.builder.ins().iconst(types::I8, 0));
-                    self.builder.ins().jump(merge_block, &[false_val]);
-                }
-
-                {
-                    self.builder.switch_to_block(merge_block);
-                    self.builder.seal_block(merge_block);
-                    let result = self.builder.block_params(merge_block)[0];
-                    self.push(result, InferredType::UnboxedBool);
-                }
+                let result = self.pair_test(value);
+                self.push(result, InferredType::UnboxedBool);
 
                 self.drop_tagged_value(value);
 
                 self.ip += 1;
             }
-            MutRegister(p) | Register(p) => {
+            MutRegister(p) | Register(p) if !crate::config::config().jit_inline_pair_p => {
                 let register = self.register_index(p);
+                self.shadow_stack.pop();
+                let res = self.call_helper(PAIR_P, [register]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                self.shadow_stack.pop();
 
-                match self.properties.get(&ValueOrRegister::Register(p)) {
-                    // Elide the call entirely if its a non empty list
-                    // Some(Properties::NonEmptyList) if false => {
-                    //     println!("Found non empty list!");
+                // A register being walked as a cursor is a list, answered by
+                // the cursor: a pair exactly when it isn't at the end. Reading
+                // the slot would materialise it and undo the walk.
+                let is_pair = if let Some(cursor) =
+                    self.properties.cached_lookups.cursors.get(&p).copied()
+                {
+                    let index = self.builder.use_var(cursor.index);
+                    self.builder.ins().icmp_imm_s(IntCC::NotEqual, index, 0)
+                } else {
+                    // Only reads the slot; the register keeps its value.
+                    let value = self.read_from_vm_stack(p);
+                    self.pair_test(value)
+                };
 
-                    //     self.shadow_stack.pop();
-                    //     let res = self.builder.ins().iconst(types::I8, 1);
-                    //     self.push(res, InferredType::UnboxedBool);
-                    //     self.ip += 1;
-                    // }
-                    _ => {
-                        self.shadow_stack.pop();
-                        let res = self.call_helper(PAIR_P, [register]);
+                // So that the arm where it holds knows `car` / `cdr` succeed.
+                self.properties.add_property(
+                    ValueOrRegister::Value(is_pair),
+                    Properties::CheckedPair(ValueOrRegister::Register(p)),
+                );
 
-                        self.push(res, InferredType::Bool);
-                        self.ip += 1;
-                    }
-                }
+                self.push(is_pair, InferredType::UnboxedBool);
+                self.ip += 1;
             }
 
             // Depending on what the constant is, we can do this evaluation here
             // Constant(constant_value) => todo!(),
             _ => {
                 // TODO: Check the inferred type here as well, maybe do unboxed bools
-                let (value, inferred_type) = self.shadow_pop();
+                let (value, _inferred_type) = self.shadow_pop();
                 let res = self.call_helper(PAIR_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
@@ -938,8 +929,8 @@ impl<'a> FunctionTranslator<'a> {
                     }
                 }
             }
-            Constant(constant_value) => {
-                let (value, inferred_type) = self.shadow_pop();
+            Constant(_constant_value) => {
+                let (value, _inferred_type) = self.shadow_pop();
                 let res = self.call_helper(LIST_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
@@ -1028,8 +1019,8 @@ impl<'a> FunctionTranslator<'a> {
                     }
                 }
             }
-            Constant(constant_value) => {
-                let (value, inferred_type) = self.shadow_pop();
+            Constant(_constant_value) => {
+                let (value, _inferred_type) = self.shadow_pop();
                 let res =
                     self.call_helper(STRING_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
@@ -1106,7 +1097,7 @@ impl<'a> FunctionTranslator<'a> {
             // Constant(constant_value) => todo!(),
             _ => {
                 // TODO: Check the inferred type here as well, maybe do unboxed bools
-                let (value, inferred_type) = self.shadow_pop();
+                let (value, _inferred_type) = self.shadow_pop();
                 let res =
                     self.call_helper(EMPTY_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
@@ -1685,8 +1676,8 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             // TODO: We should probably elide this somehow?
-            Constant(constant_value) => {
-                let (value, inferred_type) = self.shadow_pop();
+            Constant(_constant_value) => {
+                let (value, _inferred_type) = self.shadow_pop();
                 let res =
                     self.call_helper(SYMBOL_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
@@ -1759,8 +1750,8 @@ impl<'a> FunctionTranslator<'a> {
                     }
                 }
             }
-            Constant(constant_value) => {
-                let (value, inferred_type) = self.shadow_pop();
+            Constant(_constant_value) => {
+                let (value, _inferred_type) = self.shadow_pop();
                 let res = self.call_helper(VOID_P_VALUE, [value]);
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
@@ -2629,7 +2620,7 @@ impl<'a> FunctionTranslator<'a> {
         ) && matches!(
             self._globals.get(call_ins.payload_size.to_usize()),
             Some(SteelVal::FuncV(f))
-                if *f as usize == crate::steel_vm::primitives::steel_unbox_mutable as usize
+                if *f as usize == crate::steel_vm::primitives::steel_unbox_mutable as *const () as usize
         );
 
         if !calls_unbox || apply_ins.payload_size.to_usize() != 1 {
@@ -3255,7 +3246,6 @@ struct ForkedState {
     vm_context: Value,
     function_context: Option<usize>,
     potentially_could_deopt: bool,
-    tier: JitTier,
     thread_pointer: Option<Value>,
     should_trampoline: Option<Value>,
     sp: Option<Value>,
@@ -3352,7 +3342,6 @@ impl<'a> FunctionTranslator<'a> {
             vm_context: self.vm_context,
             function_context: self.function_context,
             potentially_could_deopt: self.potentially_could_deopt,
-            tier: self.tier,
             thread_pointer: self.thread_pointer,
             should_trampoline: self.should_trampoline,
             sp: self.sp,
@@ -3384,7 +3373,6 @@ impl<'a> FunctionTranslator<'a> {
         self.vm_context = state.vm_context;
         self.function_context = state.function_context;
         self.potentially_could_deopt = state.potentially_could_deopt;
-        self.tier = state.tier;
         self.thread_pointer = state.thread_pointer;
         self.should_trampoline = state.should_trampoline;
         self.sp = state.sp;

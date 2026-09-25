@@ -102,22 +102,6 @@ impl<'t, 'a, const N: usize> GuardedOp<'t, 'a, N> {
         self
     }
 
-    /// The fast path needs operand `i` to carry `tags[i]` where one is given.
-    pub(super) fn require_some(mut self, tags: [Option<u8>; N]) -> Self {
-        let checks: Vec<(Value, u8)> = self
-            .args
-            .iter()
-            .copied()
-            .zip(tags)
-            .filter_map(|(value, tag)| tag.map(|tag| (value, tag)))
-            .collect();
-        if !checks.is_empty() {
-            let tags = self.translator.tags_are(&checks);
-            self.guard = Some(self.and(tags));
-        }
-        self
-    }
-
     /// And whatever else `condition` checks, emitted after the tag checks.
     pub(super) fn and_also(
         mut self,
@@ -155,9 +139,4 @@ impl<'t, 'a, const N: usize> GuardedOp<'t, 'a, N> {
         }
     }
 
-    /// The operands, for building the fast path or fallback outside `emit`.
-    #[allow(dead_code)]
-    pub(super) fn args(&self) -> [Value; N] {
-        self.args
-    }
 }

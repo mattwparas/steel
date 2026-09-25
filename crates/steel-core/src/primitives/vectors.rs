@@ -113,16 +113,7 @@ fn vector_to_string(
             let (start, end) = vec.borrow(|x| bounds_mut(rest, "vector->string", 3, x))?;
 
             vec.borrow(|x| {
-                x.iter()
-                    .skip(start)
-                    .take(end - start)
-                    .map(|x| {
-                        x.char_or_else(throw!(TypeMismatch => "vector->string
-                expected a succession of characters"))
-                    })
-                    .collect::<Result<String>>()
-                    .map(|x| x.into())
-                    .map(SteelVal::StringV)
+                chars_to_string(x[start..end].iter(), end - start, "vector->string")
             })
         }
     }
@@ -146,15 +137,29 @@ fn immutable_vector_to_string(
 ) -> Result<SteelVal> {
     let (start, end) = bounds(rest, "immutable-vector->string", 3, vector)?;
 
-    vector.iter()
-        .skip(start)
-        .take(end - start)
-        .map(|x| {
-            x.char_or_else(throw!(TypeMismatch => "immutable-vector->string expected a succession of characters"))
-        })
-        .collect::<Result<String>>()
-        .map(|x| x.into())
-        .map(SteelVal::StringV)
+    chars_to_string(
+        vector.iter().skip(start).take(end - start),
+        end - start,
+        "immutable-vector->string",
+    )
+}
+
+/// The characters `values` as a string, sized up front: collecting through a
+/// `Result` gives `String` no length hint, so it grew one character at a time.
+/// `count` is the number of values; at least one byte each.
+fn chars_to_string<'a>(
+    values: impl Iterator<Item = &'a SteelVal>,
+    count: usize,
+    name: &str,
+) -> Result<SteelVal> {
+    let mut string = String::with_capacity(count);
+    for value in values {
+        match value {
+            SteelVal::CharV(c) => string.push(*c),
+            _ => stop!(TypeMismatch => "{} expected a succession of characters", name),
+        }
+    }
+    Ok(SteelVal::StringV(string.into()))
 }
 
 /// Returns a new copy of the given vector.

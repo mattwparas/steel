@@ -747,6 +747,32 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 ///
 /// Returns Err when the list is unavailable, in which case the caller drops
 /// them itself.
+/// Whether dropping `value` can reach other values, and so has to go through
+/// the iterative drop queue rather than recursing. Everything else - immediates,
+/// strings, symbols, native functions, bytevectors, bignums - is dropped where
+/// it is, never queued: the queue is a `VecDeque` walked one value at a time,
+/// so queueing one costs a push, a pop and a visit for nothing.
+fn needs_iterative_drop(value: &SteelVal) -> bool {
+    !matches!(
+        value,
+        SteelVal::BoolV(_)
+            | SteelVal::NumV(_)
+            | SteelVal::IntV(_)
+            | SteelVal::CharV(_)
+            | SteelVal::Void
+            | SteelVal::StringV(_)
+            | SteelVal::FuncV(_)
+            | SteelVal::SymbolV(_)
+            | SteelVal::FutureFunc(_)
+            | SteelVal::FutureV(_)
+            | SteelVal::BoxedFunction(_)
+            | SteelVal::MutFunc(_)
+            | SteelVal::BuiltIn(_)
+            | SteelVal::ByteVector(_)
+            | SteelVal::BigNum(_)
+    )
+}
+
 #[cfg(feature = "without-drop-protection")]
 pub fn drop_fields_iteratively(
     _fields: impl Iterator<Item = SteelVal>,
@@ -761,7 +787,7 @@ pub fn drop_fields_iteratively(
     drop_impls::DROP_BUFFER
         .try_with(|drop_buffer| {
             if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                drop_buffer.extend(fields);
+                drop_buffer.extend(fields.filter(needs_iterative_drop));
 
                 IterativeDropHandler::bfs(&mut drop_buffer);
             } else {
@@ -856,7 +882,7 @@ pub(crate) mod drop_impls {
                         // }
 
                         drop_buffer.extend(
-                            self.take_fields(),
+                            self.take_fields().filter(needs_iterative_drop),
                             // core::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
                         );
 
@@ -954,25 +980,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     }
 
     fn push_back(&mut self, value: SteelVal) {
-        match &value {
-            SteelVal::BoolV(_)
-            | SteelVal::NumV(_)
-            | SteelVal::IntV(_)
-            | SteelVal::CharV(_)
-            | SteelVal::Void
-            | SteelVal::StringV(_)
-            | SteelVal::FuncV(_)
-            | SteelVal::SymbolV(_)
-            | SteelVal::FutureFunc(_)
-            | SteelVal::FutureV(_)
-            | SteelVal::BoxedFunction(_)
-            | SteelVal::MutFunc(_)
-            | SteelVal::BuiltIn(_)
-            | SteelVal::ByteVector(_)
-            | SteelVal::BigNum(_) => (),
-            _ => {
-                self.drop_buffer.push_back(value);
-            }
+        if needs_iterative_drop(&value) {
+            self.drop_buffer.push_back(value);
         }
     }
 

@@ -117,72 +117,6 @@ fn polling_module() -> BuiltInModule {
 #[cfg(feature = "dylibs")]
 use crate::steel_vm::ffi::ffi_module;
 
-macro_rules! gen_pred {
-    ($variant:ident) => {{
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            Ok(if let Some(SteelVal::$variant(..)) = args.first() {
-                SteelVal::BoolV(true)
-            } else {
-                SteelVal::BoolV(false)
-            })
-        })
-    }};
-
-    ($variant1:ident, $variant2:ident) => {{
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if let Some(first) = args.first() {
-                match first {
-                    SteelVal::$variant1(..) | SteelVal::$variant2(..) => {
-                        return Ok(SteelVal::BoolV(true));
-                    }
-                    _ => {}
-                }
-            }
-            Ok(SteelVal::BoolV(false))
-        })
-    }};
-
-    // TODO replace this with something better
-    ($variant1:ident, $variant2:ident, $variant3:ident, $variant4:ident, $variant5:ident, $variant6: ident, $variant7: ident) => {{
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if let Some(first) = args.first() {
-                match first {
-                    SteelVal::$variant1(..)
-                    | SteelVal::$variant2(..)
-                    | SteelVal::$variant3(..)
-                    | SteelVal::$variant4(..)
-                    | SteelVal::$variant5(..)
-                    | SteelVal::$variant6(..)
-                    | SteelVal::$variant7(..) => {
-                        return Ok(SteelVal::BoolV(true));
-                    }
-                    _ => {}
-                }
-            }
-            Ok(SteelVal::BoolV(false))
-        })
-    }};
-
-    ($variant1:ident, $variant2:ident, $variant3:ident, $variant4:ident, $variant5:ident, $variant6:ident) => {{
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if let Some(first) = args.first() {
-                match first {
-                    SteelVal::$variant1(..)
-                    | SteelVal::$variant2(..)
-                    | SteelVal::$variant3(..)
-                    | SteelVal::$variant4(..)
-                    | SteelVal::$variant5(..)
-                    | SteelVal::$variant6(..) => {
-                        return Ok(SteelVal::BoolV(true));
-                    }
-                    _ => {}
-                }
-            }
-            Ok(SteelVal::BoolV(false))
-        })
-    }};
-}
-
 pub const CONSTANTS: &[&str] = &[
     "#%prim.+",
     "#%prim.i+",
@@ -1105,6 +1039,22 @@ pub fn atomp(value: &SteelVal) -> bool {
             | SteelVal::BoolV(_)
             | SteelVal::CharV(_)
     )
+}
+
+/// Returns `#t` if the value is an iterator (for internal use).
+///
+/// (%iterator? value) -> bool?
+#[steel_derive::function(name = "%iterator?")]
+pub fn iteratorp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::BoxedIterator(_))
+}
+
+/// Returns `#t` if the value is a syntax object.
+///
+/// (syntax? value) -> bool?
+#[steel_derive::function(name = "syntax?")]
+pub fn syntaxp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::SyntaxObject(_))
 }
 
 /// Returns true if the value is a list.
@@ -2688,7 +2638,7 @@ fn meta_module() -> BuiltInModule {
         .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))
         // Check whether the iterator is done
         .register_value("#%iterator-finished", ITERATOR_FINISHED.with(|x| x.clone()))
-        .register_value("%iterator?", gen_pred!(BoxedIterator))
+        .register_native_fn_definition(ITERATORP_DEFINITION)
         .register_native_fn_definition(GET_ENVIRONMENT_VARIABLE_DEFINITION)
         .register_native_fn_definition(MAYBE_GET_ENVIRONMENT_VARIABLE_DEFINITION)
         // TODO: Maybe just remove this, or provide a steel wrapper in place of this
@@ -2867,7 +2817,7 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("span-file-id", |span: Span| span.source_id.map(|x| x.0))
         .register_native_fn_definition(SYNTAX_RAW_DEFINITION)
         .register_fn("syntax-e", crate::rvals::Syntax::syntax_e)
-        .register_value("syntax?", gen_pred!(SyntaxObject))
+        .register_native_fn_definition(SYNTAXP_DEFINITION)
         .register_native_fn_definition(PATH_TO_SOURCE_ID_DEFINITION)
         .register_fn("#%debug-syntax->exprkind", |value| {
             let expr = TryFromSteelValVisitorForExprKind::root(&value);

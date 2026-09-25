@@ -177,10 +177,6 @@ steel_config! {
     deopt_census: bool = false, "STEEL_DEOPT_CENSUS";
     /// Report native stack use at the trampoline.
     stack_debug: bool = false, "STEEL_STACK_DEBUG";
-    /// Trace `apply` (temporary debugging).
-    apply_debug: bool = false, "STEEL_APPLY_DEBUG";
-    /// Trace self tail calls in the code generator (temporary debugging).
-    debug_tco: bool = false, "STEEL_DEBUG_TCO";
 
     // ---- jit: calls and the stack -----------------------------------------------
 
@@ -239,6 +235,9 @@ steel_config! {
     jit_borrow: bool = true, "STEEL_JIT_BORROW";
     /// Inline type predicates.
     jit_predicate: bool = true, "STEEL_JIT_PREDICATE";
+    /// Inline `pair?` on a local, and let `car` of a local known to be a pair
+    /// or non-empty list skip its checks. Off, the code is what it was before.
+    jit_inline_pair_p: bool = true, "STEEL_JIT_INLINE_PAIR_P";
     /// Inline mutable struct getters.
     jit_getter_proto: bool = true, "STEEL_JIT_GETTER_PROTO";
     /// Read a mutable struct field straight through its box.

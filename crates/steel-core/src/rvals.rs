@@ -2377,7 +2377,10 @@ impl Hash for SteelVal {
         match self {
             Closure(b) => b.hash(state),
             BoolV(b) => b.hash(state),
-            NumV(n) => n.to_string().hash(state),
+            // The bits, with -0.0 folded into 0.0 since the two are equal. It
+            // used to hash `n.to_string()`: an allocation per hash, and "0" vs
+            // "-0" for two equal keys.
+            NumV(n) => (if *n == 0.0 { 0.0f64 } else { *n }).to_bits().hash(state),
             IntV(i) => i.hash(state),
             Rational(f) => f.hash(state),
             CharV(c) => c.hash(state),

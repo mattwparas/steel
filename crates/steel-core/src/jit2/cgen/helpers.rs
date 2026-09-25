@@ -9,8 +9,7 @@
 //!
 //! A `ctx` helper takes the `*mut VmCore` first and gets it implicitly; a `plain`
 //! one takes only what is listed. `ctx_raises` / `plain_raises` mark a helper
-//! that can raise, which changes how it may be called (see [`Helper`]). `hint T` says the result is an
-//! `InferredType::T`. [`KEEPS_STACK`] lists the helpers that never move the
+//! that can raise, which changes how it may be called (see [`Helper`]). [`KEEPS_STACK`] lists the helpers that never move the
 //! vm's value stack.
 //!
 //! Helpers whose names are chosen at run time (by arity, by opcode) are
@@ -85,32 +84,18 @@ macro_rules! register_helper {
     ($map:ident, plain_raises, $($rest:tt)*) => {
         register_helper!($map, plain, $($rest)*)
     };
-    ($map:ident, ctx, $name:literal, $f:ident, ($($p:ty),*), ($($ret:ty)?), ()) => {
+    ($map:ident, ctx, $name:literal, $f:ident, ($($p:ty),*), ($($ret:ty)?)) => {
         $map.add_func($name, abi! { $f as fn(*mut VmCore $(, $p)*) $(-> $ret)? })
     };
-    ($map:ident, ctx, $name:literal, $f:ident, ($($p:ty),*), ($($ret:ty)?), ($hint:ident)) => {
-        $map.add_func_hint(
-            $name,
-            abi! { $f as fn(*mut VmCore $(, $p)*) $(-> $ret)? },
-            InferredType::$hint,
-        )
-    };
-    ($map:ident, plain, $name:literal, $f:ident, ($($p:ty),*), ($($ret:ty)?), ()) => {
+    ($map:ident, plain, $name:literal, $f:ident, ($($p:ty),*), ($($ret:ty)?)) => {
         $map.add_func2($name, abi! { $f as fn($($p),*) $(-> $ret)? })
-    };
-    ($map:ident, plain, $name:literal, $f:ident, ($($p:ty),*), ($($ret:ty)?), ($hint:ident)) => {
-        $map.add_func_hint2(
-            $name,
-            abi! { $f as fn($($p),*) $(-> $ret)? },
-            InferredType::$hint,
-        )
     };
 }
 
 macro_rules! jit_helpers {
     ($(
         $konst:ident = $name:literal => $f:ident : $kind:ident fn($($p:ty),* $(,)?) $(-> $ret:ty)?
-            $(, hint $hint:ident)?;
+;
     )*) => {
         $(
             // Some are only reached by a name built at run time, or not at all
@@ -125,7 +110,7 @@ macro_rules! jit_helpers {
         )*
 
         pub(super) fn register_helpers(map: &mut FunctionMap) {
-            $(register_helper!(map, $kind, $name, $f, ($($p),*), ($($ret)?), ($($hint)?));)*
+            $(register_helper!(map, $kind, $name, $f, ($($p),*), ($($ret)?));)*
         }
     };
 }
@@ -254,44 +239,44 @@ jit_helpers! {
     EQ_P_NO_DROP = "eq?-no-drop" => eq_value_no_drop: plain fn(SteelVal, SteelVal) -> bool;
     PUSH_CONST = "push-const" => push_const_value_c: ctx fn() -> SteelVal;
     PUSH_CONST_INDEX = "push-const-index" => push_const_value_index_c: ctx fn(usize) -> SteelVal;
-    ADD_BINOP = "add-binop" => extern_c_add_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Number;
-    ADD_THREE = "add-three" => extern_c_add_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal, hint Number;
-    ADD_FOUR = "add-four" => extern_c_add_four: ctx_raises fn(SteelVal, SteelVal, SteelVal, SteelVal) -> SteelVal, hint Number;
-    ADD_BINOP_REG = "add-binop-reg" => extern_c_add_two_binop_register: ctx_raises fn(usize, SteelVal) -> SteelVal, hint Number;
-    ADD_BINOP_REG_2 = "add-binop-reg-2" => extern_c_add_two_binop_register_both: ctx_raises fn(usize, usize) -> SteelVal, hint Number;
-    SUB_BINOP = "sub-binop" => extern_c_sub_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Number;
-    SUB_NEGATE = "sub-negate" => extern_c_negate: ctx_raises fn(SteelVal) -> SteelVal, hint Number;
-    SUB_BINOP_INT = "sub-binop-int" => extern_c_sub_two_int: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Number;
-    SUB_BINOP_BOTH_REG = "sub-binop-both-reg" => extern_c_sub_two_both_reg: ctx_raises fn(usize, usize) -> SteelVal, hint Number;
-    SUB_BINOP_INT_REG = "sub-binop-int-reg" => extern_c_sub_two_int_reg: ctx_raises fn(usize, SteelVal) -> SteelVal, hint Number;
-    ADD_BINOP_INT_REG = "add-binop-int-reg" => extern_c_add_two_int_reg: ctx_raises fn(usize, SteelVal) -> SteelVal, hint Number;
-    SUB_BINOP_FLOAT_REG = "sub-binop-float-reg" => extern_c_sub_two_float_reg: ctx_raises fn(usize, SteelVal) -> SteelVal, hint Number;
-    SUB_BINOP_REG = "sub-binop-reg" => extern_c_sub_two_reg: ctx_raises fn(usize, SteelVal) -> SteelVal, hint Number;
-    LT_BINOP = "lt-binop" => extern_c_lt_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Bool;
-    LT_TWO_VALUE_BOOL = "lt-two-value-bool" => extern_c_lt_two_value_bool: ctx_raises fn(SteelVal, SteelVal) -> bool, hint UnboxedBool;
-    LTE_TWO_VALUE_BOOL = "lte-two-value-bool" => extern_c_lte_two_value_bool: ctx_raises fn(SteelVal, SteelVal) -> bool, hint UnboxedBool;
-    GT_TWO_VALUE_BOOL = "gt-two-value-bool" => extern_c_gt_two_value_bool: ctx_raises fn(SteelVal, SteelVal) -> bool, hint UnboxedBool;
-    GTE_TWO_VALUE_BOOL = "gte-two-value-bool" => extern_c_gte_two_value_bool: ctx_raises fn(SteelVal, SteelVal) -> bool, hint UnboxedBool;
-    LTE_BINOP = "lte-binop" => extern_c_lte_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Bool;
-    LTE_BINOP_INT = "lte-binop-int" => extern_c_lte_two_int: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Bool;
-    LTE_REGISTER = "lte-register" => extern_c_lte_register: ctx_raises fn(usize, SteelVal) -> bool, hint UnboxedBool;
-    LTE_REGISTER_INT = "lte-register-int" => extern_c_lte_register_int: ctx_raises fn(usize, SteelVal) -> bool, hint UnboxedBool;
-    GTE_REGISTER_INT = "gte-register-int" => extern_c_gte_register_int: ctx_raises fn(usize, SteelVal) -> bool, hint UnboxedBool;
-    GTE_REGISTER_UNKNOWN = "gte-register-unknown" => extern_c_gte_register_unknown: ctx_raises fn(usize, SteelVal) -> bool, hint UnboxedBool;
-    LT_REGISTER_INT = "lt-register-int" => extern_c_lt_register_int: ctx_raises fn(usize, SteelVal) -> bool, hint UnboxedBool;
-    LT_BINOP_INT = "lt-binop-int" => extern_c_lt_two_int: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Bool;
-    NULL_HANDLER = "null-handler" => extern_c_null_handler: plain fn(SteelVal) -> SteelVal, hint Bool;
-    LT_THREE = "lt-three" => extern_c_lt_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal, hint Bool;
-    LTE_THREE = "lte-three" => extern_c_lte_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal, hint Bool;
-    GT_THREE = "gt-three" => extern_c_gt_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal, hint Bool;
-    GTE_THREE = "gte-three" => extern_c_gte_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal, hint Bool;
-    GT_BINOP = "gt-binop" => extern_c_gt_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Bool;
-    GTE_BINOP = "gte-binop" => extern_c_gte_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Bool;
-    MULT_TWO = "mult-two" => extern_c_mult_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Number;
-    MULT_THREE = "mult-three" => extern_c_mult_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal, hint Number;
-    SUB_THREE = "sub-three" => extern_c_sub_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal, hint Number;
-    DIV_TWO = "div-two" => extern_c_div_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal, hint Number;
-    DIV_ONE = "div-one" => extern_c_div_one: ctx_raises fn(SteelVal) -> SteelVal, hint Number;
+    ADD_BINOP = "add-binop" => extern_c_add_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    ADD_THREE = "add-three" => extern_c_add_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal;
+    ADD_FOUR = "add-four" => extern_c_add_four: ctx_raises fn(SteelVal, SteelVal, SteelVal, SteelVal) -> SteelVal;
+    ADD_BINOP_REG = "add-binop-reg" => extern_c_add_two_binop_register: ctx_raises fn(usize, SteelVal) -> SteelVal;
+    ADD_BINOP_REG_2 = "add-binop-reg-2" => extern_c_add_two_binop_register_both: ctx_raises fn(usize, usize) -> SteelVal;
+    SUB_BINOP = "sub-binop" => extern_c_sub_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    SUB_NEGATE = "sub-negate" => extern_c_negate: ctx_raises fn(SteelVal) -> SteelVal;
+    SUB_BINOP_INT = "sub-binop-int" => extern_c_sub_two_int: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    SUB_BINOP_BOTH_REG = "sub-binop-both-reg" => extern_c_sub_two_both_reg: ctx_raises fn(usize, usize) -> SteelVal;
+    SUB_BINOP_INT_REG = "sub-binop-int-reg" => extern_c_sub_two_int_reg: ctx_raises fn(usize, SteelVal) -> SteelVal;
+    ADD_BINOP_INT_REG = "add-binop-int-reg" => extern_c_add_two_int_reg: ctx_raises fn(usize, SteelVal) -> SteelVal;
+    SUB_BINOP_FLOAT_REG = "sub-binop-float-reg" => extern_c_sub_two_float_reg: ctx_raises fn(usize, SteelVal) -> SteelVal;
+    SUB_BINOP_REG = "sub-binop-reg" => extern_c_sub_two_reg: ctx_raises fn(usize, SteelVal) -> SteelVal;
+    LT_BINOP = "lt-binop" => extern_c_lt_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    LT_TWO_VALUE_BOOL = "lt-two-value-bool" => extern_c_lt_two_value_bool: ctx_raises fn(SteelVal, SteelVal) -> bool;
+    LTE_TWO_VALUE_BOOL = "lte-two-value-bool" => extern_c_lte_two_value_bool: ctx_raises fn(SteelVal, SteelVal) -> bool;
+    GT_TWO_VALUE_BOOL = "gt-two-value-bool" => extern_c_gt_two_value_bool: ctx_raises fn(SteelVal, SteelVal) -> bool;
+    GTE_TWO_VALUE_BOOL = "gte-two-value-bool" => extern_c_gte_two_value_bool: ctx_raises fn(SteelVal, SteelVal) -> bool;
+    LTE_BINOP = "lte-binop" => extern_c_lte_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    LTE_BINOP_INT = "lte-binop-int" => extern_c_lte_two_int: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    LTE_REGISTER = "lte-register" => extern_c_lte_register: ctx_raises fn(usize, SteelVal) -> bool;
+    LTE_REGISTER_INT = "lte-register-int" => extern_c_lte_register_int: ctx_raises fn(usize, SteelVal) -> bool;
+    GTE_REGISTER_INT = "gte-register-int" => extern_c_gte_register_int: ctx_raises fn(usize, SteelVal) -> bool;
+    GTE_REGISTER_UNKNOWN = "gte-register-unknown" => extern_c_gte_register_unknown: ctx_raises fn(usize, SteelVal) -> bool;
+    LT_REGISTER_INT = "lt-register-int" => extern_c_lt_register_int: ctx_raises fn(usize, SteelVal) -> bool;
+    LT_BINOP_INT = "lt-binop-int" => extern_c_lt_two_int: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    NULL_HANDLER = "null-handler" => extern_c_null_handler: plain fn(SteelVal) -> SteelVal;
+    LT_THREE = "lt-three" => extern_c_lt_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal;
+    LTE_THREE = "lte-three" => extern_c_lte_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal;
+    GT_THREE = "gt-three" => extern_c_gt_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal;
+    GTE_THREE = "gte-three" => extern_c_gte_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal;
+    GT_BINOP = "gt-binop" => extern_c_gt_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    GTE_BINOP = "gte-binop" => extern_c_gte_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    MULT_TWO = "mult-two" => extern_c_mult_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    MULT_THREE = "mult-three" => extern_c_mult_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal;
+    SUB_THREE = "sub-three" => extern_c_sub_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal;
+    DIV_TWO = "div-two" => extern_c_div_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    DIV_ONE = "div-one" => extern_c_div_one: ctx_raises fn(SteelVal) -> SteelVal;
     READ_LOCAL_0 = "read-local-0" => read_local_0_value_c: ctx fn() -> SteelVal;
     READ_LOCAL_1 = "read-local-1" => read_local_1_value_c: ctx fn() -> SteelVal;
     READ_LOCAL_2 = "read-local-2" => read_local_2_value_c: ctx fn() -> SteelVal;
@@ -337,3 +322,23 @@ pub(super) const KEEPS_STACK: &[&str] = &[
     CLONE_STD_RC.name,
     RAW_SLOW_INCREMENT_CLOSURE.name,
 ];
+
+/// Helpers that can allocate on the managed heap (boxes and mutable vectors),
+/// and so start a collection. The collector's roots are the vm stack, the frame
+/// stack and the globals - a value compiled code holds only in a register is
+/// not one - so across a call to one of these, nothing else may be pending
+/// off the vm stack. The call sites are checked when the code is generated
+/// (`FunctionTranslator::check_collection_roots`).
+pub(super) const COLLECTS: &[&str] = &[
+    BOX_HANDLER.name,
+    CALL_MAKE_VECTOR_1.name,
+    CALL_MAKE_VECTOR_2.name,
+];
+
+/// The same for helpers named at run time: the per-arity constructor families.
+pub(super) const COLLECTING_FAMILIES: &[&str] =
+    &["call_mutable_vector_constructor_", "call_mutable_struct_constructor_"];
+
+pub(super) fn helper_collects(name: &str) -> bool {
+    COLLECTS.contains(&name) || COLLECTING_FAMILIES.iter().any(|prefix| name.starts_with(prefix))
+}

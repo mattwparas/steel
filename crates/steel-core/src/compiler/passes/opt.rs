@@ -7,7 +7,7 @@ use steel_parser::{
 
 use crate::compiler::program::PRIM_NOT;
 
-use super::VisitorMutRefUnit;
+use super::{VisitorMutRefUnit, VisitorMutUnitRef};
 
 pub struct SingleExprOptimizer;
 
@@ -19,11 +19,7 @@ impl SingleExprOptimizer {
         for expr in exprs {
             FlipNotCondition.visit(expr);
             PruneConstantIfBranches.visit(expr);
-            RemoveLetsBoundToOtherLocalVars {
-                scope: Vec::new(),
-                args: Vec::new(),
-            }
-            .visit(expr);
+            RemoveLetsBoundToOtherLocalVars::for_expr(expr).visit(expr);
         }
     }
 }
@@ -124,6 +120,38 @@ pub struct RemoveLetsBoundToOtherLocalVars {
     // need that to be constant.
     args: Vec<InternedString>,
     scope: Vec<Vec<(InternedString, Option<InternedString>)>>,
+    // Every variable the expression `set!`s. `(let ([a b]) ...)` can only
+    // become `...` with `b` for `a` when neither is ever assigned: a `set!` of
+    // `a` would then assign `b` - the caller's variable, once an inlined callee
+    // that mutates its parameter has been turned into `(let ([param arg]) ..)` -
+    // and a `set!` of `b` would show through the copy. Local names are unique
+    // by this point, so the names alone are precise enough.
+    mutated: rustc_hash::FxHashSet<InternedString>,
+}
+
+impl RemoveLetsBoundToOtherLocalVars {
+    /// The pass for `expr`, knowing what it assigns.
+    pub fn for_expr(expr: &ExprKind) -> Self {
+        struct Assigned(rustc_hash::FxHashSet<InternedString>);
+
+        impl<'a> VisitorMutUnitRef<'a> for Assigned {
+            fn visit_set(&mut self, s: &'a steel_parser::ast::Set) {
+                if let Some(name) = s.variable.atom_identifier() {
+                    self.0.insert(*name);
+                }
+                self.visit(&s.expr);
+            }
+        }
+
+        let mut assigned = Assigned(Default::default());
+        assigned.visit(expr);
+
+        Self {
+            args: Vec::new(),
+            scope: Vec::new(),
+            mutated: assigned.0,
+        }
+    }
 }
 
 impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
@@ -176,7 +204,10 @@ impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
             // )
             self.visit(expr);
             if let Some(left) = ident.atom_identifier() {
-                let rhs = expr.atom_identifier().copied();
+                let rhs = expr
+                    .atom_identifier()
+                    .copied()
+                    .filter(|rhs| !self.mutated.contains(left) && !self.mutated.contains(rhs));
 
                 if let Some(rhs) = rhs {
                     if !self.args.contains(&rhs) {
@@ -225,6 +256,12 @@ impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
         l.bindings.retain(|(ident, expr)| {
             if ident.atom_identifier().is_some() && expr.atom_identifier().is_some() {
                 let rhs = expr.atom_identifier().unwrap();
+                // Kept as a real binding: see `mutated`.
+                if self.mutated.contains(ident.atom_identifier().unwrap())
+                    || self.mutated.contains(rhs)
+                {
+                    return true;
+                }
                 if self.args.contains(rhs) {
                     return false;
                 }
@@ -265,11 +302,7 @@ mod let_var_tests {
         let mut parsed = parsed.unwrap();
 
         for expr in &mut parsed {
-            RemoveLetsBoundToOtherLocalVars {
-                scope: Vec::new(),
-                args: Vec::new(),
-            }
-            .visit(expr);
+            RemoveLetsBoundToOtherLocalVars::for_expr(expr).visit(expr);
         }
 
         parsed.pretty_print();
@@ -389,11 +422,7 @@ mod let_var_tests {
         let mut parsed = parsed.unwrap();
 
         for expr in &mut parsed {
-            RemoveLetsBoundToOtherLocalVars {
-                scope: Vec::new(),
-                args: Vec::new(),
-            }
-            .visit(expr);
+            RemoveLetsBoundToOtherLocalVars::for_expr(expr).visit(expr);
         }
 
         parsed.pretty_print();

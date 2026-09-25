@@ -162,7 +162,6 @@ pub struct JIT {
 pub struct FunctionMap<'a> {
     map: HashMap<&'static str, Box<dyn FunctionToCranelift + Send + Sync + 'static>>,
     map2: HashMap<&'static str, Box<dyn FunctionToCranelift2 + Send + Sync + 'static>>,
-    return_type_hints: HashMap<&'static str, InferredType>,
     builder: &'a mut JITBuilder,
 }
 
@@ -170,7 +169,6 @@ pub struct FunctionMap<'a> {
 struct OwnedFunctionMap {
     map: HashMap<&'static str, Box<dyn FunctionToCranelift + Send + Sync + 'static>>,
     map2: HashMap<&'static str, Box<dyn FunctionToCranelift2 + Send + Sync + 'static>>,
-    return_type_hints: HashMap<&'static str, InferredType>,
 }
 
 impl OwnedFunctionMap {
@@ -202,25 +200,6 @@ impl<'a> FunctionMap<'a> {
         self.map2.insert(name, Box::new(func));
     }
 
-    pub fn add_func_hint(
-        &mut self,
-        name: &'static str,
-        func: impl FunctionToCranelift + Send + Sync + 'static,
-        return_type: InferredType,
-    ) {
-        self.add_func(name, func);
-        self.return_type_hints.insert(name, return_type);
-    }
-
-    pub fn add_func_hint2(
-        &mut self,
-        name: &'static str,
-        func: impl FunctionToCranelift2 + Send + Sync + 'static,
-        return_type: InferredType,
-    ) {
-        self.add_func2(name, func);
-        self.return_type_hints.insert(name, return_type);
-    }
 }
 
 pub trait FunctionToCranelift {
@@ -540,6 +519,13 @@ fn debug_instructions2(value: RootedInstructions) {
 /// handed, or bumps a reference count - none of them push onto the value stack
 /// or re-enter the vm. Getting an entry wrong here leaves generated code using a
 /// dangling buffer pointer, so add to it only after checking the callee.
+/// An opcode with no lowering. Panicking is the refusal: translation panics are
+/// caught and handled like any other failure to compile, so the function just
+/// stays interpreted.
+fn unsupported_opcode(op: OpCode) -> ! {
+    panic!("jit: no lowering for {op:?}; the function stays interpreted")
+}
+
 fn callee_can_move_value_stack(name: &str) -> bool {
     !KEEPS_STACK.contains(&name)
 }
@@ -622,7 +608,6 @@ impl Default for JIT {
             map: HashMap::new(),
             map2: HashMap::new(),
             builder: &mut builder,
-            return_type_hints: HashMap::new(),
         };
 
         register_helpers(&mut map);
@@ -711,7 +696,6 @@ impl Default for JIT {
         let function_map = OwnedFunctionMap {
             map: map.map,
             map2: map.map2,
-            return_type_hints: map.return_type_hints,
         };
 
         let module = JITModule::new(builder);
@@ -895,10 +879,6 @@ fn list_index_offset() -> i32 {
 
 fn list_elements_offset() -> i32 {
     (list_cell_base() + SteelList::<SteelVal>::cell_elements_offset() as i64) as i32
-}
-
-fn list_size_offset() -> i32 {
-    (list_cell_base() + SteelList::<SteelVal>::cell_size_offset() as i64) as i32
 }
 
 /// Where a chunked cell keeps its buffer pointer. Shares bytes with the inline
@@ -1920,23 +1900,34 @@ impl JIT {
             }
             None => SpecMode::None,
         };
-        let spec_compiled = matches!(mode, SpecMode::Generic { .. });
 
-        // Then, translate the AST nodes into Cranelift IR.
-        let translated = self.translate(
-            id,
-            inner_name.clone(),
-            inner_id,
-            arity,
-            stmts,
-            globals,
-            constants,
-            function_index,
-            slot,
-            non_mutable_globals,
-            mode,
-            None,
-        );
+        // Then, translate the AST nodes into Cranelift IR. A panic in
+        // translation (an internal check, like `check_collection_roots`) is a
+        // failure to compile this function like any other: the error path
+        // below still defines the stub a specialized copy needs, so no
+        // declaration is left undefined.
+        let translated = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.translate(
+                id,
+                inner_name.clone(),
+                inner_id,
+                arity,
+                stmts,
+                globals,
+                constants,
+                function_index,
+                slot,
+                non_mutable_globals,
+                mode,
+                None,
+            )
+        })) {
+            Ok(translated) => translated,
+            Err(_) => {
+                self.builder_context = FunctionBuilderContext::new();
+                Err("translate panicked".to_string())
+            }
+        };
 
         // `STEEL_JIT_DUMP_CLIF=<substring>` prints the ir for every function whose
         // name contains it - the only way to read what a loop's back edge really
@@ -1988,12 +1979,14 @@ impl JIT {
 
         if let Some(e) = generic_failure {
             self.module.clear_context(&mut self.ctx);
-            // A compiled specialized copy tail calls back into this one, so this
-            // name has to be defined before anything is finalized. The function
-            // itself is not installed - the error below keeps it interpreted - so
-            // the stub only has to be harmless: it hands the call to the
-            // interpreter from the first instruction.
-            if spec_compiled {
+            // The specialized and frameless copies call back into this one -
+            // including their own stubs, when they failed too - so this name
+            // has to be defined before anything is finalized, or the next
+            // finalize can't resolve it. The function itself is not installed -
+            // the error below keeps it interpreted - so the stub only has to be
+            // harmless: it hands the call to the interpreter from the first
+            // instruction.
+            {
                 if let Err(stub) = self.define_stub(inner_id, StubBody::InterpretFromStart) {
                     log::debug!(target: "jit", "{inner_name}: stub not defined either: {stub}");
                 }
@@ -2591,7 +2584,6 @@ impl JIT {
             exit_types: &mut exit_types,
             typed_returns: HashSet::new(),
             potentially_could_deopt: false,
-            tier: JitTier::Baseline,
             thread_pointer: None,
             should_trampoline: None,
             sp: None,
@@ -3325,9 +3317,6 @@ impl PropertyMap {
         if let Some(props) = self.props.get(&ValueOrRegister::Value(condition_value)) {
             for prop in props {
                 match prop {
-                    Properties::CheckedString(value_or_register) => {
-                        // todo
-                    }
                     Properties::CheckedList(value_or_register) => {
                         if branch {
                             // println!("Adding proper list at branch");
@@ -3339,7 +3328,13 @@ impl PropertyMap {
                         break;
                     }
                     Properties::CheckedPair(value_or_register) => {
-                        // todo
+                        if branch {
+                            self.add_property(
+                                *value_or_register,
+                                Properties::NonEmptyListOrPair,
+                            );
+                        }
+                        break;
                     }
                     Properties::CheckedNull(value_or_register) => {
                         if branch {
@@ -3405,8 +3400,8 @@ enum Properties {
     // this is a conditional check, attached to a boolean or unboxed
     // boolean, stating that its possible that this value may be
     // true or false.
-    CheckedString(ValueOrRegister),
     CheckedList(ValueOrRegister),
+    // `pair?`: where it holds, `car` / `cdr` of the register succeed.
     CheckedPair(ValueOrRegister),
     CheckedNull(ValueOrRegister),
     // `(not (null? x))`: the same test with its arms swapped.
@@ -3420,7 +3415,6 @@ enum Properties {
 
     // Encode the property that this thing
     // is a certain range.
-    ConditionGreaterThan(ValueOrRegister, i64),
     ConditionLessThan(ValueOrRegister, i64),
 
     PositiveInteger,
@@ -3462,7 +3456,7 @@ impl MaybeStackValue {
         }
     }
 
-    fn into_constant_int(self, ctx: &mut FunctionTranslator) -> Option<isize> {
+    fn into_constant_int(self, _ctx: &mut FunctionTranslator) -> Option<isize> {
         match self {
             Self::Constant(ConstantValue::Int(i)) => Some(i),
             _ => None,
@@ -3483,13 +3477,6 @@ impl MaybeStackValue {
             _ => None,
         }
     }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Default)]
-enum JitTier {
-    #[default]
-    Baseline,
-    Tier2,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -3632,7 +3619,6 @@ struct FunctionTranslator<'a> {
 
     potentially_could_deopt: bool,
 
-    tier: JitTier,
 
     thread_pointer: Option<Value>,
 
@@ -4289,7 +4275,7 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::PASS => panic!("Should not hit a pass during jit pass"),
                 OpCode::NDEFS => panic!("Should not get hit during jit pass"),
-                OpCode::PANIC => todo!(),
+                OpCode::PANIC => unsupported_opcode(op),
                 OpCode::SET => {
                     let value = self.shadow_pop();
                     self.value_to_local_map.remove(&value.0);
@@ -4672,7 +4658,7 @@ impl FunctionTranslator<'_> {
                             if let Some(spec) = create_struct_spec(maybe_global) {
                                 // TODO: This is where we inline the calls for struct
                                 // functions
-                                if let Some((value, typ)) =
+                                if let Some((value, _typ)) =
                                     self.inline_struct_call_no_drop(spec, arity, function_index)
                                 {
                                     let value = self.take_struct_result(value);
@@ -5577,7 +5563,7 @@ impl FunctionTranslator<'_> {
 
                     let typ = self.int;
 
-                    let mut sp = |ctx: &mut Self| {
+                    let sp = |ctx: &mut Self| {
                         let register = ctx.register_index(register);
                         let args = [register, value_as_steelval];
                         let result = ctx.call_helper_checked(ADD_BINOP_REG, args);
@@ -6984,6 +6970,36 @@ impl FunctionTranslator<'_> {
                                     );
                                 }
 
+                                // Known to be a pair or a non-empty list (the arm
+                                // where `pair?` held): no error path, just the two
+                                // representations.
+                                Some(Properties::NonEmptyListOrPair)
+                                    if crate::config::config().jit_inline_pair_p =>
+                                {
+                                    self.shadow_stack_pop();
+                                    let (tag, value) = self.read_from_vm_stack_split(reg);
+
+                                    let typ = self.int;
+
+                                    let is_list = self.builder.ins().icmp_imm_s(
+                                        IntCC::Equal,
+                                        tag,
+                                        SteelVal::LIST_TAG as i64,
+                                    );
+
+                                    let res = self.converging_if(
+                                        is_list,
+                                        |ctx| ctx.unchecked_car_unboxed(value),
+                                        |ctx| ctx.inline_pair_car_unboxed(value),
+                                        typ,
+                                    );
+
+                                    self.clone_value(res);
+
+                                    self.push(res, InferredType::Any);
+                                    self.ip += 2;
+                                }
+
                                 Some(Properties::NonNull) => {
                                     self.shadow_stack_pop();
                                     let (tag, value) = self.read_from_vm_stack_split(reg);
@@ -7123,7 +7139,7 @@ impl FunctionTranslator<'_> {
                     // owner and made `puzzle` nondeterministic.
                     let inlined = if inline_setbox_enabled() {
                         self.inline_box_primitive(
-                            crate::steel_vm::primitives::steel_set_box_mutable as usize,
+                            crate::steel_vm::primitives::steel_set_box_mutable as *const () as usize,
                             2,
                         )
                     } else {
@@ -7167,21 +7183,21 @@ impl FunctionTranslator<'_> {
                         }
                     }
                 }
-                OpCode::ADDREGISTER => todo!(),
-                OpCode::SUBREGISTER => todo!(),
-                OpCode::LTEREGISTER => todo!(),
-                OpCode::SUBREGISTER1 => todo!(),
-                OpCode::ALLOC => todo!(),
-                OpCode::READALLOC => todo!(),
-                OpCode::SETALLOC => todo!(),
-                OpCode::DynSuperInstruction => todo!(),
-                OpCode::Arity => todo!(),
-                OpCode::ADDIMMEDIATE => todo!(),
-                OpCode::SUBIMMEDIATE => todo!(),
-                OpCode::LTEIMMEDIATE => todo!(),
-                OpCode::BINOPADD => todo!(),
-                OpCode::BINOPSUB => todo!(),
-                OpCode::LTEIMMEDIATEIF => todo!(),
+                OpCode::ADDREGISTER => unsupported_opcode(op),
+                OpCode::SUBREGISTER => unsupported_opcode(op),
+                OpCode::LTEREGISTER => unsupported_opcode(op),
+                OpCode::SUBREGISTER1 => unsupported_opcode(op),
+                OpCode::ALLOC => unsupported_opcode(op),
+                OpCode::READALLOC => unsupported_opcode(op),
+                OpCode::SETALLOC => unsupported_opcode(op),
+                OpCode::DynSuperInstruction => unsupported_opcode(op),
+                OpCode::Arity => unsupported_opcode(op),
+                OpCode::ADDIMMEDIATE => unsupported_opcode(op),
+                OpCode::SUBIMMEDIATE => unsupported_opcode(op),
+                OpCode::LTEIMMEDIATE => unsupported_opcode(op),
+                OpCode::BINOPADD => unsupported_opcode(op),
+                OpCode::BINOPSUB => unsupported_opcode(op),
+                OpCode::LTEIMMEDIATEIF => unsupported_opcode(op),
 
                 // TODO: This should pretty much be able to be inlined entirely?
                 OpCode::NOT => {
@@ -7252,12 +7268,12 @@ impl FunctionTranslator<'_> {
                         self.ip += 2;
                     }
                 }
-                OpCode::Apply => todo!(),
-                OpCode::LOADINT0POP => todo!(),
-                OpCode::LOADINT2POP => todo!(),
-                OpCode::CGLOCALCONST => todo!(),
-                OpCode::READLOCAL0CALLGLOBAL => todo!(),
-                OpCode::READLOCAL1CALLGLOBAL => todo!(),
+                OpCode::Apply => unsupported_opcode(op),
+                OpCode::LOADINT0POP => unsupported_opcode(op),
+                OpCode::LOADINT2POP => unsupported_opcode(op),
+                OpCode::CGLOCALCONST => unsupported_opcode(op),
+                OpCode::READLOCAL0CALLGLOBAL => unsupported_opcode(op),
+                OpCode::READLOCAL1CALLGLOBAL => unsupported_opcode(op),
                 OpCode::LISTREF => {
                     self.func_ret_val(op, 2, 2, InferredType::Any);
                 }
@@ -7388,14 +7404,11 @@ impl FunctionTranslator<'_> {
                         }
                     }
                 }
-                OpCode::NULLIF => todo!(),
-                OpCode::UNBOXCALL => todo!(),
-                OpCode::UNBOXTAIL => todo!(),
-                OpCode::EQUALCONST => todo!(),
+                OpCode::NULLIF => unsupported_opcode(op),
+                OpCode::UNBOXCALL => unsupported_opcode(op),
+                OpCode::UNBOXTAIL => unsupported_opcode(op),
+                OpCode::EQUALCONST => unsupported_opcode(op),
 
-                _ => {
-                    todo!()
-                }
             }
         }
 
@@ -7925,7 +7938,7 @@ impl FunctionTranslator<'_> {
     /// without pushing it, or `None` (having emitted nothing) when the generic
     /// call has to handle it.
     fn inline_box_primitive(&mut self, target: usize, arity: usize) -> Option<Value> {
-        if target == crate::steel_vm::primitives::steel_unbox_mutable as usize && arity == 1 {
+        if target == crate::steel_vm::primitives::steel_unbox_mutable as *const () as usize && arity == 1 {
             let last = self.shadow_stack.last().copied()?;
             self.shadow_mark_local_type_from_var(last, InferredType::Box);
 
@@ -7946,7 +7959,7 @@ impl FunctionTranslator<'_> {
             return Some(self.unbox_value_checked_register(value, owned));
         }
 
-        if target == crate::steel_vm::primitives::steel_set_box_mutable as usize && arity == 2 {
+        if target == crate::steel_vm::primitives::steel_set_box_mutable as *const () as usize && arity == 2 {
             // Operand order is (box, new-value); the box is the one whose
             // ownership we may have to release, matching the read path.
             let owned = matches!(
@@ -7969,7 +7982,7 @@ impl FunctionTranslator<'_> {
 
     /// Whether `inline_box_primitive` will take this call, without emitting.
     fn box_primitive_inlinable(&self, target: usize, arity: usize) -> bool {
-        if target == crate::steel_vm::primitives::steel_unbox_mutable as usize && arity == 1 {
+        if target == crate::steel_vm::primitives::steel_unbox_mutable as *const () as usize && arity == 1 {
             return matches!(
                 self.shadow_stack.last(),
                 Some(
@@ -7979,7 +7992,7 @@ impl FunctionTranslator<'_> {
                 )
             );
         }
-        target == crate::steel_vm::primitives::steel_set_box_mutable as usize
+        target == crate::steel_vm::primitives::steel_set_box_mutable as *const () as usize
             && arity == 2
             && self.shadow_stack.len() >= 2
     }
@@ -8011,11 +8024,11 @@ impl FunctionTranslator<'_> {
     /// generic tail call handler, which re-looks-up the global, re-matches on
     /// its kind and hands the frame to the interpreter.
     fn inline_mut_func_tail_call(&mut self, target: usize, arity: usize) -> Option<Value> {
-        let name = if target == crate::primitives::lists::steel_cdr as usize
+        let name = if target == crate::primitives::lists::steel_cdr as *const () as usize
             && tail_cdr_enabled()
         {
             "cdr-tail-value"
-        } else if target == crate::primitives::lists::steel_reverse as usize
+        } else if target == crate::primitives::lists::steel_reverse as *const () as usize
             && tail_reverse_enabled()
         {
             "reverse-tail-value"
@@ -8053,9 +8066,9 @@ impl FunctionTranslator<'_> {
         };
 
         let builtin = *b as usize;
-        let make_vector = builtin == crate::primitives::vectors::make_vector as usize;
+        let make_vector = builtin == crate::primitives::vectors::make_vector as *const () as usize;
 
-        let name = if builtin == crate::primitives::vectors::mut_vec_construct as usize {
+        let name = if builtin == crate::primitives::vectors::mut_vec_construct as *const () as usize {
             CallMutableVectorConstructorsDefinitions::arity_to_name(arity)?
         } else if make_vector && arity == 1 {
             "call-make-vector-1"
@@ -8095,7 +8108,7 @@ impl FunctionTranslator<'_> {
     /// condition: the arguments have to be the whole operand stack, because the
     /// allocation can collect and only the vm stack and these are roots.
     fn inline_mutable_vector_tail_call(&mut self, builtin: usize, arity: usize) -> Option<Value> {
-        if builtin != crate::primitives::vectors::mut_vec_construct as usize {
+        if builtin != crate::primitives::vectors::mut_vec_construct as *const () as usize {
             return None;
         }
 
@@ -8123,7 +8136,7 @@ impl FunctionTranslator<'_> {
     /// frame would not be one. In tail position nothing else is live anyway, so
     /// this costs nothing in practice - it is `(define (cons a b) (mpair a b))`.
     fn inline_mutable_struct_tail_call(&mut self, builtin: usize, arity: usize) -> Option<Value> {
-        if builtin != crate::steel_vm::primitives::make_mutable_struct as usize {
+        if builtin != crate::steel_vm::primitives::make_mutable_struct as *const () as usize {
             return None;
         }
 
@@ -8592,69 +8605,6 @@ impl FunctionTranslator<'_> {
         );
     }
 
-    fn drop_tagged_value_old(&mut self, value: Value) {
-        let tag = self.get_tag(value);
-
-        let mask = self
-            .builder
-            .ins()
-            .iconst(types::I64, SteelVal::UNBOXED_MASK as i64);
-        let shifted = self.builder.ins().ushr(mask, tag);
-        let is_unboxed = self.builder.ins().band_imm_u(shifted, 1);
-
-        let unboxed_block = self.builder.create_block();
-        let needs_drop = self.builder.create_block();
-        let merge_block = self.builder.create_block();
-
-        self.builder
-            .ins()
-            .brif(is_unboxed, unboxed_block, &[], needs_drop, &[]);
-
-        // Unboxed, meaning there is nothing to do here
-        self.builder.switch_to_block(unboxed_block);
-        self.builder.seal_block(unboxed_block);
-        self.builder.ins().jump(merge_block, &[]);
-
-        self.builder.switch_to_block(needs_drop);
-        self.builder.seal_block(needs_drop);
-
-        let std_mask = self
-            .builder
-            .ins()
-            .iconst(types::I64, SteelVal::STANDARD_RC_MASK as i64);
-        let std_shifted = self.builder.ins().ushr(std_mask, tag);
-        let is_standard_rc = self.builder.ins().band_imm_u(std_shifted, 1);
-
-        let standard_rc_block = self.builder.create_block();
-        let special_rc_block = self.builder.create_block();
-        let drop_merge = self.builder.create_block();
-
-        self.builder.ins().brif(
-            is_standard_rc,
-            standard_rc_block,
-            &[],
-            special_rc_block,
-            &[],
-        );
-
-        self.builder.switch_to_block(standard_rc_block);
-        self.builder.seal_block(standard_rc_block);
-        self.drop_value(value); // straight RC decrement
-        self.builder.ins().jump(drop_merge, &[]);
-
-        self.builder.switch_to_block(special_rc_block);
-        self.builder.seal_block(special_rc_block);
-        self.drop_biased_rc(value);
-        self.builder.ins().jump(drop_merge, &[]);
-
-        self.builder.switch_to_block(drop_merge);
-        self.builder.seal_block(drop_merge);
-        self.builder.ins().jump(merge_block, &[]);
-
-        self.builder.switch_to_block(merge_block);
-        self.builder.seal_block(merge_block);
-    }
-
     /// Is this object biased to the running thread? BRC packs the owner id into
     /// the high bits of the biased half-word, so read it out and compare.
     ///
@@ -8679,21 +8629,6 @@ impl FunctionTranslator<'_> {
         self.builder
             .ins()
             .icmp(IntCC::Equal, thread_id, obj_thread_id)
-    }
-
-    // We can decide on whether to actually drop the value,
-    // based on whether or not the type needs drop glue at all.
-    //
-    // In the event we've asserted that this type does _not_
-    // need drop glue, then we're good to continue without
-    // emitting drop glue. What that means in this case is that
-    // something like unboxed types don't need drop glue.
-    fn drop_tagged_value_inferred_type(
-        &mut self,
-        tagged_value: Value,
-        inferred_type: InferredType,
-    ) {
-        todo!()
     }
 
     fn drop_biased_rc(&mut self, tagged_value: Value) {
@@ -8882,14 +8817,6 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    fn drop_heap_box_vec(&mut self, value: Value) {
-        if USE_INLINE_DROP_HEAP_BOX {
-            self.inline_weak_decrement(value, "drop-boxed-vec", value);
-        } else {
-            self.call_helper_void(DROP_BOXED_VEC, [value]);
-        }
-    }
-
     fn inline_pair_car_unboxed(&mut self, value: Value) -> Value {
         self.builder.ins().load(
             types::I128,
@@ -8990,12 +8917,6 @@ impl FunctionTranslator<'_> {
         self.builder
             .ins()
             .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0)
-    }
-
-    // First, check the tag:
-    fn unchecked_car(&mut self, value: Value) -> Value {
-        let value = self.unbox_value_to_pointer(value);
-        self.unchecked_car_unboxed(value)
     }
 
     fn checked_car(&mut self, original_value: Value, reg: usize) -> Value {
@@ -9374,21 +9295,6 @@ impl FunctionTranslator<'_> {
         result
     }
 
-    fn call_test_handler(&mut self, test_value: Value) -> Value {
-        let local_callee = self.helper_callee(IF_BRANCH_VALUE);
-
-        let ctx = self.get_ctx();
-
-        // Advance to the next thing
-        // self.ip += 1;
-
-        let arg_values = [ctx, test_value];
-
-        let call = self.builder.ins().call(local_callee, &arg_values);
-        let result = self.builder.inst_results(call)[0];
-        result
-    }
-
     fn translate_tco_jmp(&mut self, payload: usize) {
         self.spill_stack();
 
@@ -9405,10 +9311,6 @@ impl FunctionTranslator<'_> {
     }
 
     fn translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize) {
-        if crate::config::config().debug_tco { // TEMP-DEBUG
-            eprintln!("[selftail fn={} ip={} payload={} shadow={:?} lets={:?}]",
-                self.name, self.ip, payload, self.shadow_stack, self.let_var_stack);
-        }
         self.materialize_borrowed();
         // Which seeded slots are passed a value of their seeded type by
         // construction, read before any of them is popped. An unchanged slot
@@ -9869,37 +9771,6 @@ impl FunctionTranslator<'_> {
         self.truncate_stack(vm_ctx, index, None);
     }
 
-    fn call_function_directly(
-        &mut self,
-        func: Value,
-        arity: usize,
-        name: &str,
-        tail: bool,
-    ) -> Value {
-        let local_callee = self.get_local_callee(name);
-
-        let ctx = self.get_ctx();
-
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
-
-        let mut arg_values = vec![ctx, func, fallback_ip];
-
-        arg_values.extend(self.split_off(arity).into_iter().map(|x| x.0));
-
-        if tail {
-            self.spill_cloned_stack();
-        } else {
-            self.spill_stack();
-        }
-
-        let call = self.builder.ins().call(local_callee, &arg_values);
-        let result = self.builder.inst_results(call)[0];
-        result
-    }
-
     fn call_function(&mut self, arity: usize, name: &str, tail: bool) -> Value {
         let local_callee = self.get_local_callee(name);
 
@@ -9967,7 +9838,7 @@ impl FunctionTranslator<'_> {
 
     fn call_function_with_func_with_args(
         &mut self,
-        arity: usize,
+        _arity: usize,
         name: &str,
         tail: bool,
         func: Value,
@@ -9995,11 +9866,6 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
-    }
-
-    fn test(&mut self) {
-        // self.builder.ins().iconcat(lo, hi)
-        // self.builder.ins()
     }
 
     /// In a specialized copy, a self call whose arguments are proven to have
@@ -10332,7 +10198,7 @@ impl FunctionTranslator<'_> {
             .collect::<Vec<_>>();
 
         let vm_ctx = self.get_ctx();
-        let id = func.id;
+        let _id = func.id;
 
         // TODO: Consider if we need to spill the whole stack here. We could also
         // just call drop, but writing the values to the stack will help us drop
@@ -10506,7 +10372,7 @@ impl FunctionTranslator<'_> {
                 let instr_fat_ptr = ctx.builder.ins().iconcat(data_ptr, len);
 
                 // Not sure if we're gonna need this?
-                let fallback_ip = ctx.ip;
+                let _fallback_ip = ctx.ip;
 
                 ctx.ip += 1;
 
@@ -11048,7 +10914,7 @@ impl FunctionTranslator<'_> {
                         .is_some_and(|ins| ins.payload_size.to_usize() == 2)
                     && matches!(
                         self._globals.get(payload),
-                        Some(SteelVal::FuncV(f)) if *f as usize == steel_eq as usize
+                        Some(SteelVal::FuncV(f)) if *f as usize == steel_eq as *const () as usize
                     )
             }
             _ => false,
@@ -12228,20 +12094,6 @@ impl FunctionTranslator<'_> {
         self.builder.ins().iconcat(ptr, len)
     }
 
-    fn create_i128(&mut self, value: i128) -> Value {
-        let [left, right] = split_big(value);
-        let int = Type::int(64).unwrap();
-
-        // Payload
-        let lhs = self.builder.ins().iconst(int, left);
-
-        // Tag
-        let rhs = self.builder.ins().iconst(int, right);
-
-        // TODO:
-        self.builder.ins().iconcat(rhs, lhs)
-    }
-
     // If this is an unboxed value, then we need to cast the value
     // to the requisite type if its a boolean.
     #[allow(unused)]
@@ -12758,10 +12610,6 @@ impl FunctionTranslator<'_> {
 
     fn check_then_properties(&mut self, condition_value: Value) {
         self.properties.infer_property_bool(condition_value, true);
-    }
-
-    fn vm_pop(&mut self, value: Value) -> Value {
-        self.inline_handle_pop(value)
     }
 
     fn push_to_vm_stack(&mut self, value: Value) {
@@ -14185,164 +14033,6 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    // TODO: Pick up here! Anywhere where we're truncating, we should also keep
-    // track of what has already been moved, and then make sure that those are
-    // not included in the drop calls since we don't need to drop them anymore.
-    fn truncate_stack_write_last(&mut self, vm_ctx: Value, index: Value, new_last: Value) {
-        let thread_pointer = self.get_thread_pointer(vm_ctx);
-
-        // Stack offset:
-        let stack_offset = offset_of!(SteelThread, stack);
-
-        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
-
-        // Current stack length:
-        let stack_length = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
-
-        // let difference = self.builder.ins().isub(stack_length, index);
-        // let new_length = self.builder.ins().iconst(types::, N)
-
-        let new_length = self.builder.ins().iadd_imm_s(index, 1);
-
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            // index,
-            new_length,
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
-
-        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + ptr_offset) as i32,
-        );
-
-        // let size: i64 = std::mem::size_of::<SteelVal>() as _;
-
-        // TODO: Don't use a loop here?
-        // Use the calculated difference if thats what we have to do
-        // let count = self.builder.ins().isub(stack_length, index);
-
-        // {
-        //     let loop_header = self.builder.create_block();
-        //     let loop_body = self.builder.create_block();
-        //     let loop_exit = self.builder.create_block();
-
-        //     self.builder.append_block_param(loop_header, types::I64);
-
-        //     let zero = BlockArg::Value(self.builder.ins().iconst(types::I64, 0));
-        //     self.builder.ins().jump(loop_header, &[zero]);
-
-        //     self.builder.switch_to_block(loop_header);
-        //     let i = self.builder.block_params(loop_header)[0];
-
-        //     let done = self
-        //         .builder
-        //         .ins()
-        //         .icmp(IntCC::SignedGreaterThanOrEqual, i, count);
-        //     self.builder
-        //         .ins()
-        //         .brif(done, loop_exit, &[], loop_body, &[]);
-
-        //     self.builder.switch_to_block(loop_body);
-        //     self.builder.seal_block(loop_body);
-
-        //     let slot_index = self.builder.ins().iadd(index, i);
-        //     let byte_offset = self
-        //         .builder
-        //         .ins()
-        //         .imul_imm_s(slot_index, size_of::<SteelVal>() as i64);
-        //     let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
-        //     let val = self
-        //         .builder
-        //         .ins()
-        //         .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
-        //     self.drop_tagged_value(val);
-
-        //     let i_next = BlockArg::Value(self.builder.ins().iadd_imm_s(i, 1));
-        //     self.builder.ins().jump(loop_header, &[i_next]);
-
-        //     self.builder.seal_block(loop_header);
-
-        //     self.builder.switch_to_block(loop_exit);
-        //     self.builder.seal_block(loop_exit);
-        // }
-
-        // let last_byte_offset = self
-        //     .builder
-        //     .ins()
-        //     .imul_imm_s(index, size_of::<SteelVal>() as i64);
-        // let last_slot_ptr = self.builder.ins().iadd(buf_ptr, last_byte_offset);
-        // self.builder
-        //     .ins()
-        //     .store(MemFlagsData::trusted(), new_last, last_slot_ptr, 0);
-
-        let count = self.builder.ins().isub(stack_length, index);
-
-        {
-            let loop_header = self.builder.create_block();
-            let loop_body = self.builder.create_block();
-            let loop_exit = self.builder.create_block();
-
-            self.builder.append_block_param(loop_header, types::I64);
-
-            let zero = BlockArg::Value(self.builder.ins().iconst(types::I64, 0));
-            self.builder.ins().jump(loop_header, &[zero]);
-
-            self.builder.switch_to_block(loop_header);
-            let i = self.builder.block_params(loop_header)[0];
-
-            let done = self
-                .builder
-                .ins()
-                .icmp(IntCC::SignedGreaterThanOrEqual, i, count);
-            self.builder
-                .ins()
-                .brif(done, loop_exit, &[], loop_body, &[]);
-
-            self.builder.switch_to_block(loop_body);
-            self.builder.seal_block(loop_body);
-
-            let slot_index = self.builder.ins().iadd(index, i);
-            let byte_offset = self
-                .builder
-                .ins()
-                .imul_imm_s(slot_index, size_of::<SteelVal>() as i64);
-            let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
-            let val = self
-                .builder
-                .ins()
-                .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
-            self.drop_tagged_value(val);
-
-            let i_next = BlockArg::Value(self.builder.ins().iadd_imm_s(i, 1));
-            self.builder.ins().jump(loop_header, &[i_next]);
-
-            self.builder.seal_block(loop_header);
-
-            self.builder.switch_to_block(loop_exit);
-            self.builder.seal_block(loop_exit);
-        }
-
-        let last_byte_offset = self
-            .builder
-            .ins()
-            .imul_imm_s(index, size_of::<SteelVal>() as i64);
-        let last_slot_ptr = self.builder.ins().iadd(buf_ptr, last_byte_offset);
-        self.builder
-            .ins()
-            .store(MemFlagsData::trusted(), new_last, last_slot_ptr, 0);
-    }
-
     fn invalidate_buf_ptr(&mut self) {
         if self.properties.cached_lookups.stack_buf_pointer.is_some() {
             log::debug!(target: "bufptr", "INVALIDATE");
@@ -15467,40 +15157,6 @@ impl FunctionTranslator<'_> {
         );
     }
 
-    fn decrement_vm_stack_len(&mut self, n: i64) {
-        if n == 0 {
-            return;
-        }
-
-        self.properties.cached_lookups.stack_length_capacity = self
-            .properties
-            .cached_lookups
-            .stack_length_capacity
-            .saturating_add(n as usize);
-
-        let ctx = self.get_ctx();
-        let thread_pointer = self.get_thread_pointer(ctx);
-
-        let stack_offset = offset_of!(SteelThread, stack);
-        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
-
-        let stack_length = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
-
-        let new_length = self.builder.ins().iadd_imm_s(stack_length, -n);
-
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            new_length,
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
-    }
-
     fn push_to_many_vm_stack_let_var_new(&mut self, values: &[Value]) {
         if values.is_empty() {
             return;
@@ -15584,58 +15240,6 @@ impl FunctionTranslator<'_> {
         );
     }
 
-    fn push_to_many_vm_stack_let_var_new_unchecked(&mut self, values: &[Value]) {
-        let ctx = self.get_ctx();
-        let arity = values.len();
-
-        let thread_pointer = self.get_thread_pointer(ctx);
-
-        // Stack offset:
-        let stack_offset = offset_of!(SteelThread, stack);
-        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
-
-        let stack_length = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
-
-        // Update the new length:
-        let new_length = self.builder.ins().iadd_imm_s(stack_length, arity as i64);
-
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            new_length,
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
-
-        // Write the value(s):
-        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + ptr_offset) as i32,
-        );
-
-        let offset = self.builder.ins().ishl_imm_u(stack_length, 4);
-        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
-
-        let size: i32 = std::mem::size_of::<SteelVal>() as i32;
-
-        for (index, value) in values.iter().enumerate() {
-            self.builder.ins().store(
-                MemFlagsData::trusted(),
-                *value,
-                slot_ptr,
-                index as i32 * size,
-            );
-        }
-    }
-
     fn push_const_index(&mut self, index: usize) -> Value {
         let local_callee = self.helper_callee(PUSH_CONST_INDEX);
 
@@ -15666,15 +15270,6 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
-    }
-
-    // Call a function by name with no return value, implicitly
-    // passes the context
-    fn call_function_no_return(&mut self, name: &str) {
-        let local_callee = self.checked_callee(name, 1);
-        let ctx = self.get_ctx();
-        let arg_values = [ctx];
-        let _ = self.builder.ins().call(local_callee, &arg_values);
     }
 
     fn get_signature(&self, name: &str) -> Signature {
@@ -15784,6 +15379,7 @@ impl FunctionTranslator<'_> {
     }
 
     /// `call_helper_checked` for a helper that returns nothing.
+    #[allow(dead_code)] // the rest of the typed call api; no void helper raises yet
     fn call_helper_void_checked<const N: usize, const CTX: bool>(
         &mut self,
         helper: Helper<N, CTX, false, true>,
@@ -15806,6 +15402,7 @@ impl FunctionTranslator<'_> {
     }
 
     /// `call_helper_unchecked` for a helper that returns nothing.
+    #[allow(dead_code)] // the rest of the typed call api; no void helper raises yet
     fn call_helper_void_unchecked<const N: usize, const CTX: bool>(
         &mut self,
         helper: Helper<N, CTX, false, true>,
@@ -15823,6 +15420,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn emit_helper_call(&mut self, name: &'static str, ctx: bool, args: &[Value]) -> cranelift::codegen::ir::Inst {
+        self.check_collection_roots(name);
         let callee = self.get_local_callee(name);
         if ctx {
             let mut all = Vec::with_capacity(args.len() + 1);
@@ -15837,7 +15435,43 @@ impl FunctionTranslator<'_> {
     /// The callee for a helper called by a name chosen at run time, checked
     /// against its registered signature: a wrong argument count would otherwise
     /// only surface as a verifier failure, or as garbage in a register.
+    /// Before a call to a helper that can collect (`helpers::COLLECTS`): every
+    /// operand still pending has to be where the collector can see it - on the
+    /// vm stack - or be a value it doesn't manage. Spilling here instead would
+    /// be wrong inside one arm of a branch (the arms would disagree about the
+    /// stack), so the lowering has to have spilled already; this checks it.
+    fn check_collection_roots(&self, name: &str) {
+        if !helper_collects(name) {
+            return;
+        }
+        for (depth, entry) in self.shadow_stack.iter().enumerate() {
+            let exposed = match entry {
+                MaybeStackValue::Value(value) => {
+                    !value.spilled
+                        && !value.inferred_type.proven_tag().is_some_and(|tag| {
+                            tag != SteelVal::HEAP_REF_VECTOR_TAG
+                        })
+                }
+                MaybeStackValue::Borrowed(_) => true,
+                MaybeStackValue::Register(_)
+                | MaybeStackValue::MutRegister(_)
+                | MaybeStackValue::Constant(_) => false,
+            };
+            // A lowering bug, not something to compile around: refuse, and the
+            // function stays interpreted (translation panics are caught).
+            assert!(
+                !exposed,
+                "jit: {} calls `{name}`, which can collect, with operand {depth} of {} \
+                 held only in a register: {:?}",
+                self.name,
+                self.shadow_stack.len(),
+                entry
+            );
+        }
+    }
+
     fn checked_callee(&mut self, name: &str, argument_count: usize) -> FuncRef {
+        self.check_collection_roots(name);
         let expected = self.get_signature(name).params.len();
         assert_eq!(
             expected, argument_count,
