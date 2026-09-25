@@ -432,6 +432,11 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         return Ok(());
                     }
 
+                    // Only a well-formed lambda: a list that merely starts with
+                    // `lambda` can be data - a `case` clause `((lambda) ...)` when
+                    // this pass runs with only some of the macros in scope, before
+                    // `case` itself has been expanded. Malformed code is still
+                    // reported, by the lowering that runs after expansion.
                     Some(ExprKind::Atom(
                         ident @ Atom {
                             syn:
@@ -440,7 +445,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                     ..
                                 },
                         },
-                    )) => {
+                    )) if l.args.len() >= 3 => {
                         if let ExprKind::LambdaFunction(mut lambda) =
                             parse_lambda(ident.clone(), core::mem::take(&mut l.args))?
                         {
@@ -464,15 +469,9 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 ty: TokenType::Define,
                                 ..
                             },
-                    })) => {
-                        // self.in_scope_values.define(key);
-                        // todo!()
-
-                        // println!("Getting here: {}", l);
-
-                        if l.args.len() == 1 {
-                            stop!(BadSyntax => "define has neither head nor body"; l.location);
-                        }
+                    })) if l.args.len() > 1 => {
+                        // Only with a head: `(define)` alone can be data, as for
+                        // lambda above.
 
                         match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
@@ -815,6 +814,7 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                                 ..
                             },
                     })) if *i == *QUOTE => return Ok(()),
+                    // Only well-formed: see the same arm in `Expander`.
                     Some(ExprKind::Atom(
                         ident @ Atom {
                             syn:
@@ -823,7 +823,7 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                                     ..
                                 },
                         },
-                    )) => {
+                    )) if l.args.len() >= 3 => {
                         if let ExprKind::LambdaFunction(mut lambda) =
                             parse_lambda(ident.clone(), core::mem::take(&mut l.args))?
                         {
@@ -873,15 +873,8 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                                 ty: TokenType::Define,
                                 ..
                             },
-                    })) => {
-                        // self.in_scope_values.define(key);
-                        // todo!()
-
-                        // println!("Getting here: {}", l);
-
-                        if l.args.len() == 1 {
-                            stop!(BadSyntax => "define has neither head nor body"; l.location);
-                        }
+                    })) if l.args.len() > 1 => {
+                        // Only with a head: see the same arm in `Expander`.
 
                         match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {

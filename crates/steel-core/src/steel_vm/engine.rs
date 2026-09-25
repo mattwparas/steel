@@ -1826,6 +1826,25 @@ impl Engine {
     }
 
     // TODO -> clean up this API a lot
+    /// Compiles and runs an already expanded program, as
+    /// `emit_expanded_ast_without_optimizations` produces it - for tests that
+    /// rewrite that AST (the type inference soundness check).
+    #[cfg(test)]
+    pub(crate) fn compile_and_run_expanded(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        path: Option<PathBuf>,
+    ) -> Result<Vec<SteelVal>> {
+        let program = self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .compile_raw_program(exprs, path)
+        })?;
+
+        self.run_raw_program(program)
+    }
+
     pub fn compile_and_run_raw_program_with_path<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
         exprs: E,

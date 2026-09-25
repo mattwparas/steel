@@ -90,6 +90,10 @@ pub struct SemanticInformation {
     pub read_heap_offset: Option<u32>,
     pub is_shadowed: bool,
     pub is_required_identifier: bool,
+    /// A global defined as a value of a builtin module:
+    /// `(define x (%module-get% %-builtin-module-... 'x))` - from any builtin
+    /// module, where `builtin` is only set for the ones in `MODULE_IDENTIFIERS`.
+    pub from_builtin_module: bool,
 }
 
 #[test]
@@ -119,6 +123,7 @@ impl SemanticInformation {
             read_heap_offset: None,
             is_shadowed: false,
             is_required_identifier: false,
+            from_builtin_module: false,
         }
     }
 
@@ -475,6 +480,8 @@ impl Analysis {
             semantic_info.mark_builtin();
         }
 
+        semantic_info.from_builtin_module = is_a_builtin_module_get(define);
+
         if is_a_require_definition(define) {
             semantic_info.mark_required();
         }
@@ -607,6 +614,7 @@ impl Analysis {
         existing.heap_offset = metadata.heap_offset;
         existing.read_heap_offset = metadata.read_heap_offset;
         existing.is_required_identifier = metadata.is_required_identifier;
+        existing.from_builtin_module = metadata.from_builtin_module;
     }
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
@@ -832,6 +840,8 @@ impl<'a> AnalysisPass<'a> {
             semantic_info.mark_builtin();
         }
 
+        semantic_info.from_builtin_module = is_a_builtin_module_get(define);
+
         if is_a_require_definition(define) {
             semantic_info.mark_required();
         }
@@ -869,6 +879,8 @@ impl<'a> AnalysisPass<'a> {
         if is_a_builtin_definition(define) {
             semantic_info.mark_builtin();
         }
+
+        semantic_info.from_builtin_module = is_a_builtin_module_get(define);
 
         if is_a_require_definition(define) {
             semantic_info.mark_required();
@@ -1797,16 +1809,33 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     global_var.usage_count += 1;
 
                     let global_var_id = global_var.id;
-                    self.info.get_mut(&global_var_id).unwrap().usage_count += 1;
+                    let definition = self.info.get_mut(&global_var_id).unwrap();
+                    definition.usage_count += 1;
+                    // A reference under a prelude name is to a builtin when the
+                    // global it resolves to is one: a builtin definition, or a
+                    // value of any builtin module (what `require-builtin`
+                    // defines). Not by its spelling alone: a program's own
+                    // `car`, or a required user module's, is a global named
+                    // `car` too - and flagging those made `set!` of a program's
+                    // own `car` fail with "cannot mutate module-required
+                    // identifier" in a main program.
+                    // Only ever narrows the spelling rule it replaces (a prelude
+                    // name): also inheriting `builtin` onto references that did
+                    // not have it sent them through the `#%prim.` rewriting, which
+                    // checks shadowing on the reference rather than on the
+                    // definition, and rewrote redefined builtins back to the
+                    // primitive.
+                    let definition_is_builtin = (definition.builtin
+                        || definition.from_builtin_module)
+                        && crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS
+                            .with(|x| x.contains(ident));
 
                     let mut semantic_information =
                         SemanticInformation::new(IdentifierStatus::Global, depth as _, a.syn.span)
                             .with_usage_count(1)
                             .refers_to(global_var_id);
 
-                    if crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS
-                        .with(|x| x.contains(ident))
-                    {
+                    if definition_is_builtin {
                         semantic_information.mark_builtin()
                     }
 
@@ -3731,6 +3760,21 @@ impl<'a> RemoveUnusedDefineImports<'a> {
 
 // This should just be a function on the define, not a method - so that it can be moved
 // into a different crate
+
+/// `(define x (%module-get% %-builtin-module-<any> ...))`: a value of a
+/// builtin module, whether or not that module is in `MODULE_IDENTIFIERS`.
+pub(crate) fn is_a_builtin_module_get(def: &Define) -> bool {
+    if let ExprKind::List(l) = &def.body {
+        if let Some(func) = l.first_ident() {
+            if *func == *UNREADABLE_MODULE_GET || *func == *STANDARD_MODULE_GET {
+                return l
+                    .second_ident()
+                    .is_some_and(|module| module.resolve().starts_with("%-builtin-module-"));
+            }
+        }
+    }
+    false
+}
 
 #[inline(always)]
 pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
@@ -6065,18 +6109,16 @@ const BOOLEAN_PRIMITIVES: &[&str] = &[
     "inexact?", "nan?", "infinite?", "positive?", "negative?", "cdr-null?",
 ];
 
-fn is_boolean_valued(expr: &ExprKind) -> bool {
+fn is_boolean_valued(expr: &ExprKind, bound: &FxHashSet<InternedString>) -> bool {
     let ExprKind::List(l) = expr else {
         return false;
     };
 
-    let Some(op) = l.first().and_then(|x| x.atom_identifier()) else {
+    // The operator arrives either bare or as `#%prim.<name>`; a bare name the
+    // program binds itself is not the builtin.
+    let Some(name) = l.first().and_then(|op| called_primitive(op, bound)) else {
         return false;
     };
-
-    // The operator arrives either bare or as `#%prim.<name>`.
-    let name = op.resolve();
-    let name = name.strip_prefix("#%prim.").unwrap_or(name);
 
     BOOLEAN_PRIMITIVES.contains(&name)
 }
@@ -6119,11 +6161,15 @@ fn reference_count(expr: &ExprKind, var: &InternedString) -> usize {
 /// and suggests it also costs a scope.
 struct SimplifyOrBindings {
     rewritten: usize,
+    bound: FxHashSet<InternedString>,
 }
 
 impl SimplifyOrBindings {
     fn simplify(exprs: &mut Vec<ExprKind>) -> usize {
-        let mut pass = Self { rewritten: 0 };
+        let mut pass = Self {
+            rewritten: 0,
+            bound: bound_names(exprs),
+        };
         for expr in exprs {
             pass.visit(expr);
         }
@@ -6131,7 +6177,10 @@ impl SimplifyOrBindings {
     }
 
     /// The `(let ([z x]) (if z z y))` shape, or `None` if this is not one.
-    fn rewrite(l: &mut crate::parser::ast::Let) -> Option<ExprKind> {
+    fn rewrite(
+        l: &mut crate::parser::ast::Let,
+        bound: &FxHashSet<InternedString>,
+    ) -> Option<ExprKind> {
         if l.bindings.len() != 1 {
             return None;
         }
@@ -6157,7 +6206,7 @@ impl SimplifyOrBindings {
         }
 
         let cheap_to_repeat = matches!(value, ExprKind::Atom(_));
-        if !cheap_to_repeat && !is_boolean_valued(value) {
+        if !cheap_to_repeat && !is_boolean_valued(value, bound) {
             return None;
         }
 
@@ -6203,7 +6252,7 @@ impl VisitorMutRefUnit for SimplifyOrBindings {
                 }
                 self.visit(&mut l.body_expr);
 
-                if let Some(replacement) = Self::rewrite(l) {
+                if let Some(replacement) = Self::rewrite(l, &self.bound) {
                     *expr = replacement;
                     self.rewritten += 1;
                 }
@@ -6229,19 +6278,78 @@ const REORDERABLE_PRIMITIVES: &[&str] = &[
     "number?", "symbol?", "boolean?", "char?", "vector?", "string-length",
 ];
 
-/// The primitive this application calls, if it is one, without its module
-/// prefix - `(#%prim.car x)` is `car`.
-fn called_primitive(expr: &ExprKind) -> Option<&str> {
-    let name = expr.atom_identifier()?.resolve();
-    Some(name.rsplit('.').next().unwrap_or(name))
+/// Every name bound anywhere in `exprs` - `define`s, `let` bindings, lambda
+/// parameters. A bare name in this set is not the builtin of that name: a
+/// program (or a module it requires) can define its own `car`, and in a main
+/// program that `car` is a top level define of the bare name.
+fn bound_names(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
+    fn walk(expr: &ExprKind, out: &mut FxHashSet<InternedString>) {
+        let mut bind = |name: &ExprKind, out: &mut FxHashSet<InternedString>| {
+            if let Some(ident) = name.atom_identifier() {
+                out.insert(*ident);
+            }
+        };
+        match expr {
+            ExprKind::Define(d) => {
+                bind(&d.name, out);
+                walk(&d.body, out);
+            }
+            ExprKind::Let(l) => {
+                for (name, value) in &l.bindings {
+                    bind(name, out);
+                    walk(value, out);
+                }
+                walk(&l.body_expr, out);
+            }
+            ExprKind::LambdaFunction(l) => {
+                for arg in &l.args {
+                    bind(arg, out);
+                }
+                walk(&l.body, out);
+            }
+            ExprKind::If(i) => {
+                walk(&i.test_expr, out);
+                walk(&i.then_expr, out);
+                walk(&i.else_expr, out);
+            }
+            ExprKind::Begin(b) => b.exprs.iter().for_each(|e| walk(e, out)),
+            ExprKind::List(l) => l.args.iter().for_each(|e| walk(e, out)),
+            ExprKind::Set(t) => walk(&t.expr, out),
+            ExprKind::Return(r) => walk(&r.expr, out),
+            _ => {}
+        }
+    }
+    let mut out = FxHashSet::default();
+    exprs.iter().for_each(|e| walk(e, &mut out));
+    out
+}
+
+/// The builtin this application calls, if it is one, without its prefix -
+/// `(#%prim.car x)` is `car`. A bare `car` is the builtin only when nothing in
+/// the program binds that name (`bound`, from [`bound_names`]): matching by
+/// name alone turned a module's own `car` into `#%prim.car`.
+fn called_primitive<'a>(expr: &'a ExprKind, bound: &FxHashSet<InternedString>) -> Option<&'a str> {
+    let ident = expr.atom_identifier()?;
+    let name = ident.resolve();
+    if let Some(builtin) = name.strip_prefix("#%prim.") {
+        return Some(builtin);
+    }
+    if bound.contains(ident) {
+        return None;
+    }
+    Some(name)
 }
 
 /// `(car x)` / `(cdr x)` on a plain variable, with that variable.
-fn list_accessor_on_var<'a>(expr: &'a ExprKind, op: &str) -> Option<&'a InternedString> {
+fn list_accessor_on_var<'a>(
+    expr: &'a ExprKind,
+    op: &str,
+    bound: &FxHashSet<InternedString>,
+) -> Option<&'a InternedString> {
     let ExprKind::List(l) = expr else {
         return None;
     };
-    if l.args.len() != 2 || called_primitive(l.args.first()?) != Some(op) {
+    if l.args.len() != 2 || called_primitive(l.args.first()?, bound) != Some(op) {
         return None;
     }
     l.args[1].atom_identifier()
@@ -6250,12 +6358,12 @@ fn list_accessor_on_var<'a>(expr: &'a ExprKind, op: &str) -> Option<&'a Interned
 /// Nothing here can have an effect, so the arguments of one call can be
 /// evaluated in any order. Raising is the exception: reordering can change
 /// *which* error a bad value produces, not whether one is raised.
-fn is_reorderable(expr: &ExprKind) -> bool {
+fn is_reorderable(expr: &ExprKind, bound: &FxHashSet<InternedString>) -> bool {
     match expr {
         ExprKind::Atom(_) | ExprKind::Quote(_) => true,
-        ExprKind::List(l) => match l.args.first().and_then(called_primitive) {
+        ExprKind::List(l) => match l.args.first().and_then(|op| called_primitive(op, bound)) {
             Some(name) if REORDERABLE_PRIMITIVES.contains(&name) => {
-                l.args[1..].iter().all(is_reorderable)
+                l.args[1..].iter().all(|arg| is_reorderable(arg, bound))
             }
             _ => false,
         },
@@ -6268,6 +6376,7 @@ struct ReplaceCarOf<'a> {
     var: &'a InternedString,
     replacement: &'a ExprKind,
     replaced: usize,
+    bound: &'a FxHashSet<InternedString>,
 }
 
 impl VisitorMutRefUnit for ReplaceCarOf<'_> {
@@ -6275,7 +6384,7 @@ impl VisitorMutRefUnit for ReplaceCarOf<'_> {
     fn visit_quote(&mut self, _quote: &mut crate::parser::ast::Quote) {}
 
     fn visit(&mut self, expr: &mut ExprKind) {
-        if list_accessor_on_var(expr, "car") == Some(self.var) {
+        if list_accessor_on_var(expr, "car", self.bound) == Some(self.var) {
             *expr = self.replacement.clone();
             self.replaced += 1;
             return;
@@ -6326,6 +6435,8 @@ struct HoistCarBeforeCdr {
     // usually still shared, where the `cdr` allocates either way and the
     // binding this adds is the only change.
     enclosing: Vec<InternedString>,
+    // Names the program binds itself: see `called_primitive`.
+    bound: FxHashSet<InternedString>,
 }
 
 impl HoistCarBeforeCdr {
@@ -6335,6 +6446,7 @@ impl HoistCarBeforeCdr {
             in_tail: true,
             tail_only: hoist_tail_only(),
             enclosing: Vec::new(),
+            bound: bound_names(exprs),
         };
         for expr in exprs {
             pass.visit(expr);
@@ -6360,12 +6472,12 @@ impl HoistCarBeforeCdr {
         if callee.atom_identifier().is_none() || l.args.len() < 3 {
             return None;
         }
-        if !l.args[1..].iter().all(is_reorderable) {
+        if !l.args[1..].iter().all(|arg| is_reorderable(arg, &self.bound)) {
             return None;
         }
 
         for (i, arg) in l.args.iter().enumerate().skip(1) {
-            let Some(var) = list_accessor_on_var(arg, "cdr") else {
+            let Some(var) = list_accessor_on_var(arg, "cdr", &self.bound) else {
                 continue;
             };
             let later = &l.args[i + 1..];
@@ -6374,7 +6486,7 @@ impl HoistCarBeforeCdr {
             // moves out with the hoist; one that stays keeps the `cdr` from
             // being the last use, and the rewrite buys nothing.
             let mentions: usize = later.iter().map(|e| reference_count(e, var)).sum();
-            let cars: usize = later.iter().map(|e| count_car_of(e, var)).sum();
+            let cars: usize = later.iter().map(|e| count_car_of(e, var, &self.bound)).sum();
             if cars > 0 && cars == mentions && self.worth_hoisting(self.is_self_call(callee)) {
                 return Some(*var);
             }
@@ -6388,12 +6500,12 @@ impl HoistCarBeforeCdr {
     /// Values are evaluated in order, so a `car` after the `cdr` costs the
     /// same as it does in a call.
     fn candidate_let(&self, l: &crate::parser::ast::Let) -> Option<InternedString> {
-        if !l.bindings.iter().all(|(_, value)| is_reorderable(value)) {
+        if !l.bindings.iter().all(|(_, value)| is_reorderable(value, &self.bound)) {
             return None;
         }
 
         for (i, (_, value)) in l.bindings.iter().enumerate() {
-            let Some(var) = list_accessor_on_var(value, "cdr") else {
+            let Some(var) = list_accessor_on_var(value, "cdr", &self.bound) else {
                 continue;
             };
 
@@ -6405,7 +6517,7 @@ impl HoistCarBeforeCdr {
 
             let later = &l.bindings[i + 1..];
             let mentions: usize = later.iter().map(|(_, v)| reference_count(v, var)).sum();
-            let cars: usize = later.iter().map(|(_, v)| count_car_of(v, var)).sum();
+            let cars: usize = later.iter().map(|(_, v)| count_car_of(v, var, &self.bound)).sum();
             let recurses = self
                 .enclosing
                 .last()
@@ -6438,6 +6550,7 @@ impl HoistCarBeforeCdr {
             var: &var,
             replacement: &binding,
             replaced: 0,
+            bound: &self.bound,
         };
         match expr {
             ExprKind::List(l) => {
@@ -6471,16 +6584,17 @@ impl HoistCarBeforeCdr {
     }
 }
 
-fn count_car_of(expr: &ExprKind, var: &InternedString) -> usize {
+fn count_car_of(expr: &ExprKind, var: &InternedString, bound: &FxHashSet<InternedString>) -> usize {
     struct Counter<'a> {
         var: &'a InternedString,
         count: usize,
+        bound: &'a FxHashSet<InternedString>,
     }
     impl VisitorMutUnitRef<'_> for Counter<'_> {
         fn visit_quote(&mut self, _quote: &crate::parser::ast::Quote) {}
 
         fn visit(&mut self, expr: &ExprKind) {
-            if list_accessor_on_var(expr, "car") == Some(self.var) {
+            if list_accessor_on_var(expr, "car", self.bound) == Some(self.var) {
                 self.count += 1;
                 return;
             }
@@ -6503,7 +6617,7 @@ fn count_car_of(expr: &ExprKind, var: &InternedString) -> usize {
             }
         }
     }
-    let mut counter = Counter { var, count: 0 };
+    let mut counter = Counter { var, count: 0, bound };
     counter.visit(expr);
     counter.count
 }

@@ -613,3 +613,140 @@ mod find_closest_match_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod expansion_tests {
+    use crate::steel_vm::engine::Engine;
+    use std::path::PathBuf;
+
+    /// A main program (not compiled as a module, the way the CLI runs files)
+    /// that requires a module and has a `case` clause whose datum names a
+    /// special form. Expanding the required module's macros walked into the
+    /// still-unexpanded `case` and parsed `(lambda)` as a malformed lambda.
+    #[test]
+    fn case_datum_naming_a_special_form_in_a_program_with_requires() {
+        let dir = std::env::temp_dir().join(format!("steel-case-datum-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mod.scm"), "(provide x) (define x 1)").unwrap();
+        let main = dir.join("main.scm");
+        let src = r#"(require "mod.scm")
+            (define (f e) (case e ((lambda) 1) ((define) 2) (else 3)))
+            (define result (list (f 'lambda) (f 'define) (f 'other)))"#;
+        std::fs::write(&main, src).unwrap();
+
+        let mut engine = Engine::new();
+        engine
+            .compile_and_run_raw_program_with_path(src, main.clone())
+            .unwrap();
+        assert_eq!(engine.extract_value("result").unwrap().to_string(), "(1 2 3)");
+
+        let mut engine = Engine::new();
+        engine
+            .emit_expanded_ast_without_optimizations(src, Some(main))
+            .unwrap();
+
+        // Malformed code is still an error.
+        let mut engine = Engine::new();
+        let bad = r#"(require "mod.scm") (define (g) (lambda))"#;
+        assert!(engine
+            .compile_and_run_raw_program_with_path(bad, dir.join("bad.scm"))
+            .is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A main program using a module's own `car` / `cdr` in a loop. The
+    /// "hoist car before cdr" optimization matched `car` by name and bound
+    /// `(#%prim.car u)` in place of the module's `(car u)` - which rejects the
+    /// module's pairs (browse and conform, run as main programs).
+    #[test]
+    fn a_modules_car_is_not_the_builtin_car() {
+        let dir = std::env::temp_dir().join(format!("steel-own-car-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("vpairs.scm"),
+            "(provide vcons car cdr)
+             (define (vcons a b) (vector a b))
+             (define (car p) (if (vector? p) (vector-ref p 0) (#%prim.car p)))
+             (define (cdr p) (if (vector? p) (vector-ref p 1) (#%prim.cdr p)))",
+        )
+        .unwrap();
+        let src = r#"(require "vpairs.scm")
+            (define lst (vcons 1 (vcons 2 (vcons 3 '()))))
+            (define (sum l)
+              (let loop ([u l] [r 0])
+                (if (null? u) r (loop (cdr u) (+ r (car u))))))
+            (define result (sum lst))"#;
+        let main = dir.join("main.scm");
+        std::fs::write(&main, src).unwrap();
+        let mut engine = Engine::new();
+        let run = engine.compile_and_run_raw_program_with_path(src, main);
+        let _ = std::fs::remove_dir_all(&dir);
+        run.unwrap();
+        assert_eq!(engine.extract_value("result").unwrap().to_string(), "6");
+    }
+
+    /// A reference's `builtin` flag comes from the definition it resolves to,
+    /// not its spelling: in a main program a global named like a prelude
+    /// function (`car`) was flagged builtin, and `set!` of it failed with
+    /// "cannot mutate module-required identifier".
+    #[test]
+    fn set_of_a_programs_own_car_is_allowed() {
+        let mut engine = Engine::new();
+        engine
+            .compile_and_run_raw_program(
+                "(define (car x) 1)
+                 (set! car (lambda (x) 2))
+                 (define result (car 0))",
+            )
+            .unwrap();
+        assert_eq!(engine.extract_value("result").unwrap().to_string(), "2");
+
+        // The real builtins are still protected.
+        let mut engine = Engine::new();
+        assert!(engine.compile_and_run_raw_program("(set! car 1)").is_err());
+        let mut engine = Engine::new();
+        assert!(engine
+            .compile_and_run_raw_program(
+                "(require-builtin steel/time)
+                 (set! current-milliseconds 1)"
+            )
+            .is_err());
+    }
+
+    /// `(or (null? x) y)` may drop its binding only when `null?` is the
+    /// builtin (boolean valued); a program's own `null?` can return anything.
+    /// A guard: `SimplifyOrBindings` matched `null?` by name too, but no
+    /// program was found where that misfired (the call is not a bare `null?`
+    /// by the time it runs).
+    #[test]
+    fn a_programs_own_predicate_is_not_assumed_boolean() {
+        let mut engine = Engine::new();
+        engine
+            .compile_and_run_raw_program(
+                "(define (null? x) 'yes)
+                 (define (f x) (or (null? x) 'no))
+                 (define result (f 1))",
+            )
+            .unwrap();
+        assert_eq!(engine.extract_value("result").unwrap().to_string(), "yes");
+    }
+
+    /// The unoptimized expansion (the language server's) renamed variables
+    /// before turning internal defines into lets, so a reference to a later
+    /// sibling define was left as a free identifier.
+    #[test]
+    fn unoptimized_expansion_renames_forward_references_between_internal_defines() {
+        let src = "(define (outer)
+                     (define (even? n) (if (= n 0) #t (odd? (- n 1))))
+                     (define (odd? n) (if (= n 0) #f (even? (- n 1))))
+                     (even? 10))";
+        let mut engine = Engine::new();
+        let expanded = engine
+            .emit_expanded_ast_without_optimizations(src, None::<PathBuf>)
+            .unwrap();
+        let text = expanded.iter().map(|e| e.to_string()).collect::<String>();
+        // Every call is to a renamed local; no bare `odd?` is left over.
+        assert!(!text.contains("(odd? "), "{text}");
+    }
+}

@@ -5,6 +5,7 @@ pub mod manager;
 pub mod mangle;
 pub mod opt;
 pub mod shadow;
+pub mod types;
 
 use core::ops::ControlFlow;
 

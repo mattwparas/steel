@@ -255,3 +255,209 @@ pub fn check_call<R: ReturnedValue>(returned: &R, before: &ArgMatch, raises: Rai
         }
     }
 }
+
+/// A set of possible kinds of value: what the type inference pass
+/// (`compiler::passes::types`) computes for an expression. Finer than
+/// [`ValueType`] in one way - it is a union, so `int | string` is expressible -
+/// and it adds kinds [`ValueType`] has no name for (procedures, and everything
+/// else lumped into `OTHER`: ports, structs, custom types, ...).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct TypeSet(u32);
+
+impl TypeSet {
+    pub const BOTTOM: TypeSet = TypeSet(0);
+    pub const BOOL: TypeSet = TypeSet(1 << 0);
+    /// A fixnum.
+    pub const INT: TypeSet = TypeSet(1 << 1);
+    pub const FLOAT: TypeSet = TypeSet(1 << 2);
+    /// A bignum, rational, big rational or complex number.
+    pub const OTHER_NUMBER: TypeSet = TypeSet(1 << 3);
+    pub const CHAR: TypeSet = TypeSet(1 << 4);
+    pub const STRING: TypeSet = TypeSet(1 << 5);
+    pub const SYMBOL: TypeSet = TypeSet(1 << 6);
+    /// A proper list, `'()` included.
+    pub const LIST: TypeSet = TypeSet(1 << 7);
+    /// An improper pair.
+    pub const PAIR: TypeSet = TypeSet(1 << 8);
+    pub const VECTOR: TypeSet = TypeSet(1 << 9);
+    pub const MUTABLE_VECTOR: TypeSet = TypeSet(1 << 10);
+    pub const HASHMAP: TypeSet = TypeSet(1 << 11);
+    pub const HASHSET: TypeSet = TypeSet(1 << 12);
+    pub const BYTEVECTOR: TypeSet = TypeSet(1 << 13);
+    pub const VOID: TypeSet = TypeSet(1 << 14);
+    /// A closure or a native function.
+    pub const PROCEDURE: TypeSet = TypeSet(1 << 15);
+    /// Anything else.
+    pub const OTHER: TypeSet = TypeSet(1 << 16);
+
+    pub const NUMBER: TypeSet = TypeSet(Self::INT.0 | Self::FLOAT.0 | Self::OTHER_NUMBER.0);
+    pub const TOP: TypeSet = TypeSet((1 << 17) - 1);
+
+    const NAMES: [(TypeSet, &'static str); 17] = [
+        (Self::BOOL, "bool"),
+        (Self::INT, "int"),
+        (Self::FLOAT, "float"),
+        (Self::OTHER_NUMBER, "number"),
+        (Self::CHAR, "char"),
+        (Self::STRING, "string"),
+        (Self::SYMBOL, "symbol"),
+        (Self::LIST, "list"),
+        (Self::PAIR, "pair"),
+        (Self::VECTOR, "vector"),
+        (Self::MUTABLE_VECTOR, "mutable-vector"),
+        (Self::HASHMAP, "hashmap"),
+        (Self::HASHSET, "hashset"),
+        (Self::BYTEVECTOR, "bytevector"),
+        (Self::VOID, "void"),
+        (Self::PROCEDURE, "procedure"),
+        (Self::OTHER, "other"),
+    ];
+
+    pub fn from_value_type(ty: ValueType) -> TypeSet {
+        match ty {
+            ValueType::Any => Self::TOP,
+            ValueType::Bool => Self::BOOL,
+            ValueType::Int => Self::INT,
+            ValueType::Float => Self::FLOAT,
+            ValueType::Number => Self::NUMBER,
+            ValueType::Char => Self::CHAR,
+            ValueType::String => Self::STRING,
+            ValueType::Symbol => Self::SYMBOL,
+            ValueType::List => Self::LIST,
+            ValueType::Pair => Self::PAIR,
+            ValueType::Vector => Self::VECTOR,
+            ValueType::MutableVector => Self::MUTABLE_VECTOR,
+            ValueType::HashMap => Self::HASHMAP,
+            ValueType::HashSet => Self::HASHSET,
+            ValueType::ByteVector => Self::BYTEVECTOR,
+            ValueType::Void => Self::VOID,
+        }
+    }
+
+    /// The narrowest [`ValueType`] covering every kind in this set.
+    pub fn to_value_type(self) -> ValueType {
+        const EXACT: [(TypeSet, ValueType); 14] = [
+            (TypeSet::BOOL, ValueType::Bool),
+            (TypeSet::INT, ValueType::Int),
+            (TypeSet::FLOAT, ValueType::Float),
+            (TypeSet::CHAR, ValueType::Char),
+            (TypeSet::STRING, ValueType::String),
+            (TypeSet::SYMBOL, ValueType::Symbol),
+            (TypeSet::LIST, ValueType::List),
+            (TypeSet::PAIR, ValueType::Pair),
+            (TypeSet::VECTOR, ValueType::Vector),
+            (TypeSet::MUTABLE_VECTOR, ValueType::MutableVector),
+            (TypeSet::HASHMAP, ValueType::HashMap),
+            (TypeSet::HASHSET, ValueType::HashSet),
+            (TypeSet::BYTEVECTOR, ValueType::ByteVector),
+            (TypeSet::VOID, ValueType::Void),
+        ];
+        if let Some((_, ty)) = EXACT.iter().find(|(set, _)| *set == self) {
+            return *ty;
+        }
+        if !self.is_bottom() && Self::NUMBER.contains(self) {
+            return ValueType::Number;
+        }
+        ValueType::Any
+    }
+
+    /// The kind of `value`: a single-kind set.
+    pub fn of(value: &crate::SteelVal) -> TypeSet {
+        use crate::SteelVal::*;
+        match value {
+            BoolV(_) => Self::BOOL,
+            IntV(_) => Self::INT,
+            NumV(_) => Self::FLOAT,
+            BigNum(_) | Rational(_) | BigRational(_) | Complex(_) => Self::OTHER_NUMBER,
+            CharV(_) => Self::CHAR,
+            StringV(_) => Self::STRING,
+            SymbolV(_) => Self::SYMBOL,
+            ListV(_) => Self::LIST,
+            Pair(_) => Self::PAIR,
+            VectorV(_) => Self::VECTOR,
+            MutableVector(_) => Self::MUTABLE_VECTOR,
+            HashMapV(_) => Self::HASHMAP,
+            HashSetV(_) => Self::HASHSET,
+            ByteVector(_) => Self::BYTEVECTOR,
+            Void => Self::VOID,
+            Closure(_) | FuncV(_) | MutFunc(_) | BuiltIn(_) | BoxedFunction(_)
+            | ContinuationFunction(_) => Self::PROCEDURE,
+            _ => Self::OTHER,
+        }
+    }
+
+    /// Whether `value` is of a kind in this set.
+    pub fn matches(self, value: &crate::SteelVal) -> bool {
+        self.contains(Self::of(value))
+    }
+
+    /// The raw bits, e.g. to pass the set to scheme code.
+    pub fn bits(self) -> u32 {
+        self.0
+    }
+
+    pub fn from_bits(bits: u32) -> TypeSet {
+        TypeSet(bits & Self::TOP.0)
+    }
+
+    pub fn union(self, other: TypeSet) -> TypeSet {
+        TypeSet(self.0 | other.0)
+    }
+
+    pub fn intersect(self, other: TypeSet) -> TypeSet {
+        TypeSet(self.0 & other.0)
+    }
+
+    pub fn without(self, other: TypeSet) -> TypeSet {
+        TypeSet(self.0 & !other.0)
+    }
+
+    pub fn is_bottom(self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn is_top(self) -> bool {
+        self == Self::TOP
+    }
+
+    /// Whether every kind in `other` is in this set.
+    pub fn contains(self, other: TypeSet) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+impl core::fmt::Display for TypeSet {
+    /// `int`, `string | list`, `number` (every numeric kind), `any` (everything)
+    /// or `never` (nothing: the expression cannot produce a value).
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.is_top() {
+            return f.write_str("any");
+        }
+        if self.is_bottom() {
+            return f.write_str("never");
+        }
+        let missing = Self::TOP.without(*self);
+        if missing.0.count_ones() <= 3 {
+            // Mostly everything: say what it is not.
+            return write!(f, "any except {}", missing);
+        }
+        let mut rest = *self;
+        let mut parts = Vec::new();
+        if rest.contains(Self::NUMBER) {
+            parts.push("number");
+            rest = rest.without(Self::NUMBER);
+        }
+        for (kind, name) in Self::NAMES {
+            if rest.contains(kind) {
+                parts.push(if kind == Self::OTHER_NUMBER { "bignum/rational/complex" } else { name });
+            }
+        }
+        f.write_str(&parts.join(" | "))
+    }
+}
+
+impl core::fmt::Debug for TypeSet {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(self, f)
+    }
+}

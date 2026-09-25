@@ -1021,12 +1021,16 @@ impl Compiler {
 
         // expanded_statements.pretty_print();
 
-        self.shadowed_variable_renamer
-            .rename_shadowed_variables(&mut expanded_statements, true);
-
+        // Internal defines become lets before renaming, as in
+        // `lower_expressions_impl`: renaming the `define` form first leaves a
+        // reference to a *later* sibling define (mutual recursion) unrenamed,
+        // so it reads as a free identifier.
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
         let mut expanded_statements = filter_provides(expanded_statements);
+
+        self.shadowed_variable_renamer
+            .rename_shadowed_variables(&mut expanded_statements, true);
 
         let mut analysis = core::mem::take(&mut self.analysis);
         analysis.fresh_from_exprs(&expanded_statements);
@@ -1617,7 +1621,7 @@ impl Compiler {
     // TODO
     // figure out how the symbols will work so that a raw program with symbols
     // can be later pulled in and symbols can be interned correctly
-    fn compile_raw_program(
+    pub(crate) fn compile_raw_program(
         &mut self,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
