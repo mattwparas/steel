@@ -126,8 +126,20 @@ pub struct TypeInfo {
     pub calls: FxHashMap<u32, TypeSet>,
     /// Lambdas, by their syntax object id: what a call of it returns.
     pub returns: FxHashMap<u32, TypeSet>,
+    /// Parameters, by binding site: the type the argument must have had for a
+    /// call to return normally - what the body demands of it, joined over every
+    /// normal exit. A precondition on successful calls, not a guarantee about
+    /// what callers pass (that is `bindings`): usable for display, not for
+    /// trusting a value on function entry.
+    pub required: FxHashMap<SyntaxObjectId, TypeSet>,
+    /// Calls to a known lambda, by the list's syntax object id: that lambda.
+    pub call_targets: FxHashMap<u32, u32>,
     /// How many passes over the program the fixpoint took.
     pub iterations: usize,
+    /// Binding sites known to hold a function (directly, or through the box a
+    /// named `let` / `letrec` expands into), with that lambda's id - whose
+    /// return type is in `returns`.
+    pub functions: FxHashMap<SyntaxObjectId, u32>,
 }
 
 /// Infers types for `exprs`, which `analysis` was computed for.
@@ -163,6 +175,7 @@ pub fn infer_types(
         if current == previous && params == previous_params {
             return TypeInfo {
                 iterations: iteration,
+                functions: facts.functions(),
                 ..current
             };
         }
@@ -172,6 +185,7 @@ pub fn infer_types(
 
     // Did not settle: claim nothing.
     let mut result = previous;
+    result.functions = facts.functions();
     for ty in result
         .bindings
         .values_mut()
@@ -233,6 +247,16 @@ struct Facts {
 }
 
 impl Facts {
+    fn functions(&self) -> FxHashMap<SyntaxObjectId, u32> {
+        self.known
+            .iter()
+            .filter_map(|(id, known)| match known {
+                Known::Lambda(lambda) | Known::BoxedLambda(lambda) => Some((*id, *lambda)),
+                Known::Primitive(_) => None,
+            })
+            .collect()
+    }
+
     fn collect(exprs: &[ExprKind], analysis: &Analysis, primitives: &PrimitiveSignatures) -> Self {
         let mut collector = Collector {
             analysis,
@@ -244,6 +268,8 @@ impl Facts {
             uses: FxHashMap::default(),
             bound_lambdas: FxHashMap::default(),
             applied_lambdas: FxHashSet::default(),
+            binding_names: FxHashMap::default(),
+            unresolved_set_names: FxHashSet::default(),
         };
         for expr in exprs {
             collector.top_level(expr);
@@ -267,6 +293,11 @@ struct Collector<'a> {
     bound_lambdas: FxHashMap<u32, SyntaxObjectId>,
     /// Lambdas that are the operator of a call.
     applied_lambdas: FxHashSet<u32>,
+    /// Every binding site's name, and the names `set!` targets whose binding
+    /// the analysis did not resolve - a `set!` of a global inside a function
+    /// defined *before* the global's `define` has no `refers_to` yet.
+    binding_names: FxHashMap<SyntaxObjectId, crate::parser::interner::InternedString>,
+    unresolved_set_names: FxHashSet<crate::parser::interner::InternedString>,
 }
 
 impl<'a> Collector<'a> {
@@ -294,6 +325,9 @@ impl<'a> Collector<'a> {
     fn bind(&mut self, name: &ExprKind, init: Option<&ExprKind>) {
         let Some(id) = binding_site(name) else { return };
         self.facts.defined.insert(id);
+        if let Some(ident) = name.atom_identifier() {
+            self.binding_names.insert(id, *ident);
+        }
         match init {
             Some(ExprKind::LambdaFunction(lambda)) => {
                 self.facts.known.insert(id, Known::Lambda(lambda.syntax_object_id));
@@ -348,8 +382,15 @@ impl<'a> Collector<'a> {
             }
             ExprKind::Set(set) => {
                 if let ExprKind::Atom(atom) = &set.variable {
-                    if let Some(id) = self.reference(atom) {
-                        self.facts.mutated.insert(id);
+                    match self.reference(atom) {
+                        Some(id) => {
+                            self.facts.mutated.insert(id);
+                        }
+                        None => {
+                            if let Some(name) = atom.ident() {
+                                self.unresolved_set_names.insert(*name);
+                            }
+                        }
                     }
                 }
                 self.expr(&set.expr, Position::Value);
@@ -428,6 +469,14 @@ impl<'a> Collector<'a> {
     }
 
     fn finish(mut self) -> Facts {
+        // A `set!` we could not tie to its binding: every binding of that name
+        // might be the one assigned.
+        for (id, name) in &self.binding_names {
+            if self.unresolved_set_names.contains(name) {
+                self.facts.mutated.insert(*id);
+            }
+        }
+
         // Boxed lambdas: a box whose one and only store is a lambda.
         for (id, stores) in &self.box_stores {
             if let ([Some(lambda)], true) = (stores.as_slice(), self.boxes.contains(id)) {
@@ -688,6 +737,13 @@ impl<'a> Inference<'a> {
                 TypeSet::TOP
             }
             ExprKind::List(list) => {
+                if let Some(ExprKind::List(_) | ExprKind::Atom(_) | ExprKind::LambdaFunction(_)) =
+                    list.args.first()
+                {
+                    if let Callee::Lambda(lambda) = self.callee(&list.args[0]) {
+                        self.current.call_targets.insert(list.syntax_object_id, lambda);
+                    }
+                }
                 let ty = self.call(list, env);
                 self.current.calls.insert(list.syntax_object_id, ty);
                 ty
@@ -740,6 +796,20 @@ impl<'a> Inference<'a> {
         let mut body_env = env.clone();
         let ty = self.infer(&lambda.body, &mut body_env);
         self.current.returns.insert(id, ty);
+
+        // What the body demanded of each parameter by the time it returned: the
+        // environment at the end is the join over every normal exit. An early
+        // `return` would be an exit that join does not see.
+        if !contains_return(&lambda.body) {
+            for arg in &lambda.args {
+                let Some(param) = binding_site(arg) else { continue };
+                if self.facts.mutated.contains(&param) {
+                    continue;
+                }
+                let required = self.lookup(param, &body_env);
+                self.current.required.insert(param, required);
+            }
+        }
     }
 
     fn call(&mut self, list: &crate::parser::ast::List, env: &mut Env) -> TypeSet {
@@ -849,6 +919,205 @@ impl<'a> Inference<'a> {
                 (id, l.union(r))
             })
             .collect()
+    }
+}
+
+/// A type to show at a binding in the source: `span` is the bound name as
+/// written, `label` goes at byte offset `at` - right after the name, or for a
+/// function defined as `(define (f args ...) ...)` after its header.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeHint {
+    pub span: crate::parser::span::Span,
+    pub at: u32,
+    pub label: String,
+    /// An explanation, where the label alone is not self explanatory.
+    pub tooltip: Option<String>,
+}
+
+/// Where a function's return type reads best: after `(f args ...)` when the
+/// name heads such a header, otherwise right after the name.
+fn return_hint_offset(text: &str, name: crate::parser::span::Span) -> u32 {
+    let bytes = text.as_bytes();
+    let start = name.start as usize;
+    if start == 0 || bytes.get(start - 1) != Some(&b'(') {
+        return name.end;
+    }
+    let mut depth = 0usize;
+    for (i, &b) in bytes.iter().enumerate().skip(start - 1) {
+        match b {
+            b'(' | b'[' => depth += 1,
+            b')' | b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return (i + 1) as u32;
+                }
+            }
+            // A header holds names, not strings or comments; give up on those.
+            b'"' | b';' => break,
+            _ => {}
+        }
+    }
+    name.end
+}
+
+/// Inlay hints for the bindings written in `source`: `: type` after a
+/// `define` / `let` name or a parameter, `-> type` after the name of a
+/// function. Only what is worth showing - nothing for `any`, nor for `never`
+/// (a parameter of a function nothing calls). One hint per name: expansion can
+/// bind several things under one written name (a named `let` binds a
+/// placeholder, a box and the lambda, all spelled `loop`), and a function among
+/// them wins.
+pub fn inlay_hints(
+    exprs: &[ExprKind],
+    info: &TypeInfo,
+    source: crate::parser::parser::SourceId,
+    text: &str,
+) -> Vec<TypeHint> {
+    fn sites(expr: &ExprKind, out: &mut Vec<SyntaxObjectIdAndSpan>) {
+        let mut site = |name: &ExprKind, out: &mut Vec<SyntaxObjectIdAndSpan>| {
+            if let ExprKind::Atom(atom) = name {
+                if let Some(ident) = atom.ident() {
+                    out.push((atom.syn.syntax_object_id, atom.syn.span, *ident));
+                }
+            }
+        };
+        match expr {
+            ExprKind::Define(d) => {
+                site(&d.name, out);
+                sites(&d.body, out);
+            }
+            ExprKind::Let(l) => {
+                for (name, value) in &l.bindings {
+                    site(name, out);
+                    sites(value, out);
+                }
+                sites(&l.body_expr, out);
+            }
+            ExprKind::LambdaFunction(l) => {
+                for arg in &l.args {
+                    site(arg, out);
+                }
+                sites(&l.body, out);
+            }
+            ExprKind::If(i) => {
+                sites(&i.test_expr, out);
+                sites(&i.then_expr, out);
+                sites(&i.else_expr, out);
+            }
+            ExprKind::Begin(b) => b.exprs.iter().for_each(|e| sites(e, out)),
+            ExprKind::List(l) => l.args.iter().for_each(|e| sites(e, out)),
+            ExprKind::Set(t) => sites(&t.expr, out),
+            ExprKind::Return(r) => sites(&r.expr, out),
+            _ => {}
+        }
+    }
+    type SyntaxObjectIdAndSpan = (
+        SyntaxObjectId,
+        crate::parser::span::Span,
+        crate::parser::interner::InternedString,
+    );
+
+    // Whether a binding named `bound` labels the name `written` in the source.
+    // Renaming only adds `#` / `_` prefixes and a numeric suffix (`acc` binds as
+    // `##acc6`, a named let's box as `####loop46`); a macro's own binding spanned
+    // at the macro use (`or`'s temporary, at `or`) does not match.
+    fn names_match(bound: &str, written: &str) -> bool {
+        let bound = bound.trim_start_matches(['#', '_']);
+        bound
+            .strip_prefix(written)
+            .is_some_and(|suffix| suffix.chars().all(|c| c.is_ascii_digit() || c == '_'))
+    }
+
+    let mut all = Vec::new();
+    for expr in exprs {
+        sites(expr, &mut all);
+    }
+
+    // Group what expansion bound under each written name.
+    let mut by_span: std::collections::BTreeMap<(u32, u32), Vec<SyntaxObjectId>> =
+        std::collections::BTreeMap::new();
+    let mut spans = FxHashMap::default();
+    for (id, span, name) in all {
+        if span.source_id() != Some(source) || span.end <= span.start {
+            continue;
+        }
+        let Some(written) = text.get(span.start as usize..span.end as usize) else {
+            continue;
+        };
+        if !names_match(name.resolve(), written) {
+            continue;
+        }
+        by_span.entry((span.start, span.end)).or_default().push(id);
+        spans.insert((span.start, span.end), span);
+    }
+
+    let worth_showing = |ty: TypeSet| !ty.is_top() && !ty.is_bottom();
+    let mut hints = Vec::new();
+    for (key, ids) in by_span {
+        let span = spans[&key];
+        let function = ids.iter().find_map(|id| info.functions.get(id));
+        let mut at = span.end;
+        let mut tooltip = None;
+        let label = match function {
+            Some(lambda) => match info.returns.get(lambda) {
+                Some(&ty) if worth_showing(ty) => {
+                    at = return_hint_offset(text, span);
+                    format!("-> {ty}")
+                }
+                _ => continue,
+            },
+            None => {
+                let mut types = ids.iter().filter_map(|id| info.bindings.get(id).copied());
+                let Some(first) = types.next() else { continue };
+                // Several things under one name that disagree: say nothing.
+                if types.any(|ty| ty != first) {
+                    continue;
+                }
+                // A parameter the body demands more of than its callers are
+                // known to pass: `s: string?`.
+                let required = ids
+                    .iter()
+                    .find_map(|id| info.required.get(id).copied())
+                    .filter(|&req| req != first && first.contains(req) && worth_showing(req));
+                if let Some(required) = required {
+                    let shown = required.to_string();
+                    let shown = if shown.contains(' ') { format!("({shown})") } else { shown };
+                    tooltip = Some(format!(
+                        "Expected {required}: every call that returns normally passes one \
+                         (the body needs it). Not checked on entry."
+                    ));
+                    format!(": {shown}?")
+                } else if worth_showing(first) {
+                    format!(": {first}")
+                } else {
+                    continue;
+                }
+            }
+        };
+        hints.push(TypeHint { span, at, label, tooltip });
+    }
+    hints
+}
+
+/// Whether `expr` has an early `return` - outside any nested lambda, whose
+/// returns are its own.
+fn contains_return(expr: &ExprKind) -> bool {
+    match expr {
+        ExprKind::Return(_) => true,
+        ExprKind::LambdaFunction(_) => false,
+        ExprKind::If(i) => {
+            contains_return(&i.test_expr)
+                || contains_return(&i.then_expr)
+                || contains_return(&i.else_expr)
+        }
+        ExprKind::Let(l) => {
+            l.bindings.iter().any(|(_, v)| contains_return(v)) || contains_return(&l.body_expr)
+        }
+        ExprKind::Define(d) => contains_return(&d.body),
+        ExprKind::Begin(b) => b.exprs.iter().any(contains_return),
+        ExprKind::List(l) => l.args.iter().any(contains_return),
+        ExprKind::Set(t) => contains_return(&t.expr),
+        _ => false,
     }
 }
 
@@ -1125,6 +1394,8 @@ mod tests {
         check(
             "(define (m) (let ([v 1]) (set! v \"s\") v))
              (define (sr) (let ([w 1]) (set! w 2)))
+             (define (bump!) (set! counter 5))
+             (define counter '())
              (define (string-length x) \"shadow\")
              (define (u) (string-length \"a\"))",
             &[
@@ -1132,6 +1403,9 @@ mod tests {
                 ("m()", "any"),
                 // `set!` evaluates to the previous value, not void.
                 ("sr()", "any"),
+                // Assigned by a function defined before the global is: the
+                // analysis leaves that `set!` target unresolved.
+                ("counter", "any"),
                 // The user's definition, not the primitive.
                 ("u()", "string"),
             ],
@@ -1170,6 +1444,112 @@ mod tests {
         assert_eq!(types.get("c()").map(String::as_str), Some("any"), "{types:#?}");
         // An actual builtin still narrows.
         assert_eq!(types.get("s()").map(String::as_str), Some("string"), "{types:#?}");
+    }
+
+    /// The hints for a program, as `name label` in source order.
+    fn hints_for(src: &str) -> Vec<String> {
+        let dir = std::env::temp_dir().join(format!("steel-hints-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{:x}.scm", fxhash_str(src)));
+        std::fs::write(&path, src).unwrap();
+        let mut engine = Engine::new();
+        let mut exprs = engine
+            .emit_expanded_ast_without_optimizations(src, Some(path.clone()))
+            .unwrap();
+        let source = engine.get_source_id(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+        inlay_hints(&analysis.exprs, &info, source, src)
+            .into_iter()
+            .map(|hint| {
+                // `name label`, or `name ... label` when it lands after a header.
+                let name = &src[hint.span.start as usize..hint.span.end as usize];
+                if hint.at == hint.span.end {
+                    format!("{name} {}", hint.label)
+                } else {
+                    format!("{} {}", &src[hint.span.start as usize - 1..hint.at as usize], hint.label)
+                }
+            })
+            .collect()
+    }
+
+    fn fxhash_str(s: &str) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        s.hash(&mut h);
+        h.finish()
+    }
+
+    #[test]
+    fn inlay_hints_for_bindings_and_functions() {
+        let hints = hints_for(
+            "(define (f s)
+  (define n (string-length s))
+  (define (helper k) (* k 2))
+  (helper n))
+(define (sum-list xs)
+  (let loop ([xs xs] [acc 0])
+    (if (null? xs) acc (loop (cdr xs) (+ acc (car xs))))))
+(define x 5)
+(define (g a b) (or (string? a) b))",
+        );
+        assert_eq!(
+            hints,
+            vec![
+                "(f s) -> number",
+                // f's body requires a string of s (string-length).
+                "s : string?",
+                "n : int",
+                "(helper k) -> number",
+                "k : int",
+                "(sum-list xs) -> number",
+                // The named let: its return type, not the placeholder `loop`
+                // is bound to before the lambda is stored.
+                "loop -> number",
+                "acc : number",
+                "x : int",
+                // Nothing on `or` (its binding is the macro's, not a name),
+                // and nothing for `g`: it returns #t or `b`, which is `any`.
+            ],
+            "{hints:#?}"
+        );
+    }
+
+    #[test]
+    fn inlay_hints_for_required_parameter_types() {
+        let hints = hints_for(
+            "(define (h s) (string-length s) (string-upcase s))
+(define (g x) (if (string? x) (string-length x) 0))
+(define (both v i) (list (vector-ref v i) (+ i 1)))
+(define (either y) (if (string? y) (string-length y) (vector-length y)))
+(define (helper-user n)
+  (define (helper k) (* k 2))
+  (helper n))",
+        );
+        assert_eq!(
+            hints,
+            vec![
+                "(h s) -> string",
+                // Every normal return went through (string-length s).
+                "s : string?",
+                "(g x) -> int",
+                // Only one branch demands a string: nothing required of x.
+                "(both v i) -> list",
+                "i : int?",
+                // No `args` on vector-length: that branch demands nothing of y,
+                // so the join requires nothing either.
+                "(either y) -> int",
+                "(helper-user n) -> number",
+                "(helper k) -> number",
+                // n is a global function's parameter (any), so the call site
+                // says nothing of k; the body needs a number. (Where the call
+                // site does know more - `k : int` above - that is shown.)
+                "k : number?",
+            ],
+            "{hints:#?}"
+        );
     }
 
     #[test]
@@ -1299,7 +1679,14 @@ mod tests {
     /// variable reference with an inferred type narrower than `any`, every
     /// non-tail call, and every parameter (checked on entry). Tail calls are
     /// left alone so loops keep constant stack.
-    fn instrument(expr: &mut ExprKind, info: &TypeInfo, sites: &mut Vec<Site>, tail: bool) {
+    fn instrument(
+        expr: &mut ExprKind,
+        info: &TypeInfo,
+        lambda_params: &FxHashMap<u32, Vec<SyntaxObjectId>>,
+        sites: &mut Vec<Site>,
+        tail: bool,
+        enclosing: Option<u32>,
+    ) {
         fn wrap(expr: ExprKind, ty: TypeSet, site: usize) -> ExprKind {
             // A control: with the claim deliberately wrong, violations must show up.
             let ty = if std::env::var("TY_SOUND_CORRUPT").is_ok() {
@@ -1328,19 +1715,19 @@ mod tests {
                 }
             }
             ExprKind::If(x) => {
-                instrument(&mut x.test_expr, info, sites, false);
-                instrument(&mut x.then_expr, info, sites, tail);
-                instrument(&mut x.else_expr, info, sites, tail);
+                instrument(&mut x.test_expr, info, lambda_params, sites, false, enclosing);
+                instrument(&mut x.then_expr, info, lambda_params, sites, tail, enclosing);
+                instrument(&mut x.else_expr, info, lambda_params, sites, tail, enclosing);
             }
             ExprKind::Let(x) => {
                 for (_, init) in x.bindings.iter_mut() {
-                    instrument(init, info, sites, false);
+                    instrument(init, info, lambda_params, sites, false, enclosing);
                 }
-                instrument(&mut x.body_expr, info, sites, tail);
+                instrument(&mut x.body_expr, info, lambda_params, sites, tail, enclosing);
             }
-            ExprKind::Define(x) => instrument(&mut x.body, info, sites, false),
+            ExprKind::Define(x) => instrument(&mut x.body, info, lambda_params, sites, false, enclosing),
             ExprKind::LambdaFunction(x) => {
-                instrument(&mut x.body, info, sites, true);
+                instrument(&mut x.body, info, lambda_params, sites, true, Some(x.syntax_object_id));
                 let mut checks = Vec::new();
                 for arg in &x.args {
                     let ExprKind::Atom(atom) = arg else { continue };
@@ -1366,20 +1753,47 @@ mod tests {
             ExprKind::Begin(x) => {
                 let n = x.exprs.len();
                 for (i, e) in x.exprs.iter_mut().enumerate() {
-                    instrument(e, info, sites, tail && i + 1 == n);
+                    instrument(e, info, lambda_params, sites, tail && i + 1 == n, enclosing);
                 }
             }
-            ExprKind::Set(x) => instrument(&mut x.expr, info, sites, false),
+            ExprKind::Set(x) => instrument(&mut x.expr, info, lambda_params, sites, false, enclosing),
             ExprKind::List(list) => {
                 let id = list.syntax_object_id;
                 let span = list.location;
+                let original_args: Vec<ExprKind> = list.args.iter().skip(1).cloned().collect();
                 if let Some((operator, args)) = list.args.split_first_mut() {
                     // A variable in operator position stays as it is.
                     if !matches!(operator, ExprKind::Atom(_)) {
-                        instrument(operator, info, sites, false);
+                        instrument(operator, info, lambda_params, sites, false, enclosing);
                     }
                     for arg in args {
-                        instrument(arg, info, sites, false);
+                        instrument(arg, info, lambda_params, sites, false, enclosing);
+                    }
+                }
+                // What the callee requires of its arguments holds once it has
+                // returned: `(let ([r (f a)]) (check a) r)`. That also takes a
+                // tail call out of tail position - fine except for a lambda
+                // calling itself (a loop), which would then grow the stack.
+                let target = info.call_targets.get(&id).copied();
+                let self_call = target.is_some() && target == enclosing;
+                let mut required_checks = Vec::new();
+                if !self_call {
+                    if let Some(params) = target.and_then(|l| lambda_params.get(&l)) {
+                        for (arg, param) in original_args.iter().zip(params) {
+                            let (ExprKind::Atom(atom), Some(&req)) = (arg, info.required.get(param)) else {
+                                continue;
+                            };
+                            if req.is_top() || atom.ident().is_none() {
+                                continue;
+                            }
+                            let what = format!("required {} of {}", atom.ident().unwrap().resolve(), list.args[0].to_string().chars().take(30).collect::<String>());
+                            let id = site(sites, what, req, atom.syn.span);
+                            let mut reference = arg.clone();
+                            if let ExprKind::Atom(a) = &mut reference {
+                                a.syn.syntax_object_id = crate::parser::parser::SyntaxObjectId::fresh();
+                            }
+                            required_checks.push(wrap(reference, req, id));
+                        }
                     }
                 }
                 if !tail {
@@ -1389,6 +1803,26 @@ mod tests {
                             let site = site(sites, what, ty, span);
                             *expr = wrap(expr.clone(), ty, site);
                         }
+                    }
+                }
+                {
+                    if !required_checks.is_empty() {
+                        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                        let tmp = crate::parser::interner::InternedString::from(format!(
+                            "__req_tmp{}",
+                            N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                        ));
+                        required_checks.push(ExprKind::atom(tmp));
+                        let call = std::mem::take(expr);
+                        let location = crate::parser::parser::SyntaxObject::default(crate::parser::tokens::TokenType::Let);
+                        *expr = ExprKind::Let(Box::new(crate::parser::ast::Let::new(
+                            vec![(ExprKind::atom(tmp), call)],
+                            ExprKind::Begin(Box::new(crate::parser::ast::Begin::new(
+                                required_checks,
+                                location.clone(),
+                            ))),
+                            location,
+                        )));
                     }
                 }
             }
@@ -1405,9 +1839,15 @@ mod tests {
         CHECKS_RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if !TypeSet::from_bits(bits as u32).matches(&value) {
             VIOLATIONS.lock().unwrap().entry(site as usize).or_insert_with(|| {
-                let mut shown = value.to_string();
-                shown.truncate(60);
-                shown
+                // Printing can itself panic (the cycle printer on some boxes);
+                // the kind is always safe.
+                let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut shown = value.to_string();
+                    shown.truncate(60);
+                    shown
+                }))
+                .unwrap_or_else(|_| "<unprintable>".to_string());
+                format!("{} ({})", text, TypeSet::of(&value))
             });
         }
         value
@@ -1441,12 +1881,75 @@ mod tests {
             let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
             let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
 
+            if std::env::var("TY_SOUND_DEBUG").is_ok() {
+                let narrow_required = info.required.values().filter(|t| !t.is_top()).count();
+                let targets_with_required = info
+                    .call_targets
+                    .values()
+                    .filter(|l| info.returns.contains_key(l))
+                    .count();
+                println!(
+                    "    debug: required entries {} (narrower than any: {}), call_targets {} ({} to lambdas with a return), lists recorded {}",
+                    info.required.len(),
+                    narrow_required,
+                    info.call_targets.len(),
+                    targets_with_required,
+                    info.calls.len()
+                );
+            }
             let mut sites = Vec::new();
-            let mut instrumented: Vec<ExprKind> = analysis.exprs.to_vec();
+            // Instrument the analyzed expressions themselves: cloning an AST
+            // gives every syntax object a fresh id, and every lookup into
+            // `info` (keyed by those ids) would silently miss.
+            drop(analysis);
+            let mut instrumented: Vec<ExprKind> = exprs;
             // A control: the expanded program run as it is, with no checks.
             if std::env::var("TY_SOUND_BASELINE").is_err() {
+                let mut lambda_params = FxHashMap::default();
+                fn collect_params(e: &ExprKind, out: &mut FxHashMap<u32, Vec<SyntaxObjectId>>) {
+                    if let ExprKind::LambdaFunction(l) = e {
+                        // Only the fixed parameters line up with arguments; a
+                        // rest parameter collects all the others into a list.
+                        let fixed = l.args.len() - usize::from(l.rest);
+                        let ids = l.args[..fixed].iter().filter_map(binding_site).collect();
+                        out.insert(l.syntax_object_id, ids);
+                    }
+                    match e {
+                        ExprKind::If(i) => {
+                            collect_params(&i.test_expr, out);
+                            collect_params(&i.then_expr, out);
+                            collect_params(&i.else_expr, out);
+                        }
+                        ExprKind::Let(l) => {
+                            l.bindings.iter().for_each(|(_, v)| collect_params(v, out));
+                            collect_params(&l.body_expr, out);
+                        }
+                        ExprKind::Define(d) => collect_params(&d.body, out),
+                        ExprKind::LambdaFunction(l) => collect_params(&l.body, out),
+                        ExprKind::Begin(b) => b.exprs.iter().for_each(|x| collect_params(x, out)),
+                        ExprKind::List(l) => l.args.iter().for_each(|x| collect_params(x, out)),
+                        ExprKind::Set(t) => collect_params(&t.expr, out),
+                        _ => {}
+                    }
+                }
+                for expr in instrumented.iter() {
+                    collect_params(expr, &mut lambda_params);
+                }
+                if std::env::var("TY_SOUND_DEBUG").is_ok() {
+                    for (lambda, params) in &lambda_params {
+                        for p in params {
+                            if let Some(req) = info.required.get(p).filter(|t| !t.is_top()) {
+                                let targeted = info.call_targets.values().filter(|l| *l == lambda).count();
+                                println!("    debug: lambda {lambda} param {p:?} requires {req}; call sites resolving to it: {targeted}");
+                            }
+                        }
+                    }
+                    let known: FxHashSet<u32> = lambda_params.keys().copied().collect();
+                    let missing = info.call_targets.values().filter(|l| !known.contains(l)).count();
+                    println!("    debug: call targets not in lambda_params: {missing} of {}", info.call_targets.len());
+                }
                 for expr in instrumented.iter_mut() {
-                    instrument(expr, &info, &mut sites, false);
+                    instrument(expr, &info, &lambda_params, &mut sites, false, None);
                 }
             }
             if let Ok(dump) = std::env::var("TY_SOUND_DUMP") {
@@ -1462,9 +1965,14 @@ mod tests {
             let result =
                 engine.compile_and_run_expanded(instrumented, Some(std::path::PathBuf::from(file)));
             let violations = std::mem::take(&mut *VIOLATIONS.lock().unwrap());
+            let kinds = |prefix: &str| sites.iter().filter(|s| s.what.starts_with(prefix)).count();
             println!(
-                "{file}: {} checks inserted, {} executed, run {}, {} violations",
+                "{file}: {} checks inserted (ref {} / param {} / call {} / required {}), {} executed, run {}, {} violations",
                 sites.len(),
+                kinds("ref "),
+                kinds("param "),
+                kinds("call "),
+                kinds("required"),
                 CHECKS_RUN.load(std::sync::atomic::Ordering::Relaxed),
                 match &result {
                     Ok(_) => "ok".to_string(),

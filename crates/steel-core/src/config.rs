@@ -245,6 +245,9 @@ steel_config! {
     /// Type the result of a primitive call by the return type its definition
     /// declares, rather than as anything.
     jit_primitive_types: bool = true, "STEEL_JIT_PRIMITIVE_TYPES";
+    /// After a primitive call returns normally, narrow the locals passed to it
+    /// to the argument types its definition declares (`args = "..."`).
+    jit_primitive_arg_types: bool = true, "STEEL_JIT_PRIMITIVE_ARG_TYPES";
     /// Log each generic primitive call site the jit compiles, with the type
     /// its result was given.
     jit_primitive_types_log: bool = false, "STEEL_JIT_PRIMITIVE_TYPES_LOG";

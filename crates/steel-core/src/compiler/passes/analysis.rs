@@ -3919,7 +3919,7 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
             let argument_count = l.args.len() - 1;
             if let Some(func) = l.first_func() {
                 if argument_count != func.args.len() {
-                    println!("-- Static arity mismatch -- Should actually error here");
+                    log::debug!("-- Static arity mismatch -- Should actually error here");
                 } else {
                     unused_arguments = func
                         .args
@@ -4318,8 +4318,6 @@ impl<'a> LowerRestArguments<'a> {
         index: usize,
         value: &ExprKind,
     ) -> Option<()> {
-        println!("plist-get-positional-arg-list start: {} - {}", index, value);
-
         let lst = value.list()?;
 
         let ident = lst.get(1)?.atom_identifier()?;
@@ -5838,8 +5836,7 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
 
                             // println!("{}", define.body);
                         } else {
-                            // log::trace!(target: "lambda-lifting", "Found a pure local function: {}", define.name);
-                            println!("Found a pure local function: {}", define.name);
+                            log::trace!(target: "lambda-lifting", "Found a pure local function: {}", define.name);
                             functions.push((
                                 index,
                                 define.name.atom_identifier().unwrap().to_string(),

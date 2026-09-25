@@ -36,6 +36,7 @@ use steel::{
     rvals::{AsRefSteelVal, FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
 };
+use steel::compiler::passes::types::{infer_types, inlay_hints, PrimitiveSignatures};
 use steel_parser::{
     ast::{Define, ToDoc},
     parser::SyntaxObjectId,
@@ -953,9 +954,9 @@ impl LanguageServer for Backend {
 
     async fn inlay_hint(
         &self,
-        _params: tower_lsp::lsp_types::InlayHintParams,
+        params: tower_lsp::lsp_types::InlayHintParams,
     ) -> Result<Option<Vec<InlayHint>>> {
-        Ok(None)
+        Ok(self.inlay_hints_impl(&params))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -1254,7 +1255,57 @@ struct TextDocumentItem {
     version: i32,
 }
 
+/// The signatures of the builtin functions, for type inference. Built once: the
+/// builtin modules do not change while the server runs.
+static PRIMITIVE_SIGNATURES: Lazy<PrimitiveSignatures> = Lazy::new(|| {
+    ENGINE
+        .read()
+        .map(|engine| PrimitiveSignatures::from_modules(engine.builtin_modules()))
+        .unwrap_or_default()
+});
+
 impl Backend {
+    /// Types of the bindings in the requested range: `: int` after a `define`
+    /// / `let` name or parameter, `-> number` after a function's name.
+    fn inlay_hints_impl(&self, params: &tower_lsp::lsp_types::InlayHintParams) -> Option<Vec<InlayHint>> {
+        let uri = &params.text_document.uri;
+        let rope = self.document_map.get(uri.as_str())?;
+        let mut ast = self.ast_map.get_mut(uri.as_str())?;
+        let source = uri_to_source_id(uri)?;
+
+        let analysis = SemanticAnalysis::new(&mut ast);
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &PRIMITIVE_SIGNATURES);
+
+        // A range reaching past the end of the document (a common client
+        // habit) means "to the end".
+        let start = self.config.position_to_offset(params.range.start, &rope).unwrap_or(0);
+        let end = self
+            .config
+            .position_to_offset(params.range.end, &rope)
+            .unwrap_or(rope.len_bytes());
+
+        Some(
+            inlay_hints(&analysis.exprs, &info, source, &rope.to_string())
+                .into_iter()
+                .filter(|hint| hint.span.start as usize >= start && hint.span.end as usize <= end)
+                .filter_map(|hint| {
+                    // `x: int` reads best attached; `f -> number` spaced out.
+                    let returns = hint.label.starts_with("->");
+                    Some(InlayHint {
+                        position: self.config.offset_to_position(hint.at as usize, &rope)?,
+                        label: InlayHintLabel::String(hint.label),
+                        kind: Some(InlayHintKind::TYPE),
+                        text_edits: None,
+                        tooltip: hint.tooltip.map(InlayHintTooltip::String),
+                        padding_left: Some(returns),
+                        padding_right: None,
+                        data: None,
+                    })
+                })
+                .collect(),
+        )
+    }
+
     async fn find_references_builtin(
         &self,
         analysis: &SemanticAnalysis<'_>,

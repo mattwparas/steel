@@ -125,6 +125,7 @@ test_harness_success! {
     inline_mutated_parameter,
     jit_pair_predicate,
     primitive_edge_cases,
+    jit_primitive_arg_narrowing,
     drop_hash_vector_string,
     jit_loop_specialization,
     jit_varargs,

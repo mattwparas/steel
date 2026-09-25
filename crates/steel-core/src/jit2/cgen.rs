@@ -3744,6 +3744,59 @@ fn try_op_to_name_payload(op: OpCode, payload: usize) -> Option<&'static str> {
 }
 
 impl FunctionTranslator<'_> {
+    /// For a call about to take the top `arity` values: the local each one was
+    /// read from, if it is a plain read of one. Taken before `split_off`, which
+    /// forgets. Not a `MutRegister`: that hands the callee the local's value
+    /// to move out of, so afterwards the slot need not hold the argument.
+    fn argument_origins(&self, arity: usize) -> Vec<Option<usize>> {
+        let len = self.shadow_stack.len();
+        self.shadow_stack[len.saturating_sub(arity)..]
+            .iter()
+            .map(|value| match value {
+                MaybeStackValue::Register(slot) => Some(*slot),
+                MaybeStackValue::Value(v) => self.value_to_local_map.get(&v.value).copied(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// After a call to a native function has returned normally (past its
+    /// `check_deopt`): its `args` declaration says each argument had its
+    /// declared type (see `crate::value_type::ArgTypes`), so a local passed to
+    /// it that was not typed yet is from here on. Only ever fills in a local
+    /// typed `Any` - a more precise type already known is left alone.
+    fn narrow_locals_after_call(
+        &mut self,
+        metadata: Option<crate::steel_vm::builtin::FunctionSignatureMetadata>,
+        origins: &[Option<usize>],
+    ) {
+        let config = crate::config::config();
+        if !config.jit_primitive_arg_types {
+            return;
+        }
+        let Some(metadata) = metadata else { return };
+        let Some(arg_types) = metadata.arg_types else { return };
+        let n = origins.len();
+        if n < arg_types.fixed.len() || (arg_types.rest.is_none() && n > arg_types.fixed.len()) {
+            return;
+        }
+        for (i, origin) in origins.iter().enumerate() {
+            let (Some(slot), Some(declared)) = (origin, arg_types.get(i)) else {
+                continue;
+            };
+            let ty = InferredType::from_value_type(declared);
+            if matches!(ty, InferredType::Any) {
+                continue;
+            }
+            if matches!(self.local_to_value_map.get(slot), None | Some(InferredType::Any)) {
+                if config.jit_primitive_types_log {
+                    eprintln!("[prim-arg] {} arg {i}: local {slot} -> {ty:?}", metadata.name);
+                }
+                self.local_to_value_map.insert(*slot, ty);
+            }
+        }
+    }
+
     fn mark_local_type_from_var(&mut self, last: StackValue, typ: InferredType) {
         if let Some(from_local) = self.value_to_local_map.get(&last.value) {
             self.local_to_value_map.insert(*from_local, typ);
@@ -5074,6 +5127,7 @@ impl FunctionTranslator<'_> {
                                     let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
                                     if let Some(name) = name {
+                                        let origins = self.argument_origins(arity);
                                         // attempt to move forward with it
                                         let additional_args = self.split_off(arity);
 
@@ -5098,6 +5152,10 @@ impl FunctionTranslator<'_> {
                                         self.push(result, primitive_result_type(f));
                                         self.ip += 1;
                                         self.check_deopt();
+                                        self.narrow_locals_after_call(
+                                            crate::steel_vm::builtin::get_function_name(f),
+                                            &origins,
+                                        );
                                     } else {
                                         self.ip -= 1;
                                         self.call_global_impl(payload);
@@ -5113,6 +5171,7 @@ impl FunctionTranslator<'_> {
                             let name = CallPrimitiveMutDefinitions::arity_to_name(arity);
 
                             if let Some(name) = name {
+                                let origins = self.argument_origins(arity);
                                 // attempt to move forward with it
                                 let additional_args = self.split_off(arity);
 
@@ -5139,6 +5198,12 @@ impl FunctionTranslator<'_> {
                                 self.push(result, InferredType::Any);
                                 self.ip += 1;
                                 self.check_deopt();
+                                self.narrow_locals_after_call(
+                                    crate::steel_vm::builtin::get_function_metadata(
+                                        crate::steel_vm::builtin::BuiltInFunctionType::Mutable(f),
+                                    ),
+                                    &origins,
+                                );
                             } else {
                                 self.ip -= 1;
                                 self.potentially_could_deopt = true;
