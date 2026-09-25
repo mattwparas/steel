@@ -1,6 +1,6 @@
-use core::sync::atomic::{AtomicBool, Ordering};
 use crate::values::structs::StructRef;
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashSet;
 
 #[cfg(feature = "sync")]
@@ -595,12 +595,9 @@ impl SteelVal {
 type HeapElement<T> = steel_rc::weak::Arc<SpinLock<HeapAllocated<T>>>;
 
 // reachable is atomic, so a probe doesn't need to take the slot's lock
-fn slot_is_reachable<T: Clone + core::fmt::Debug + PartialEq + Eq>(
-    slot: &HeapElement<T>,
-) -> bool {
+fn slot_is_reachable<T: Clone + core::fmt::Debug + PartialEq + Eq>(slot: &HeapElement<T>) -> bool {
     unsafe { slot.get_value().is_reachable() }
 }
-
 
 #[cfg(feature = "sync")]
 static MARKER: std::sync::LazyLock<ParallelMarker> = std::sync::LazyLock::new(ParallelMarker::new);
@@ -826,7 +823,12 @@ pub fn will_register(
 }
 
 #[cfg(not(feature = "sync"))]
-#[steel_derive::function(name = "will-register", returns = "void", args = "any, any, any", raises = "never")]
+#[steel_derive::function(
+    name = "will-register",
+    returns = "void",
+    args = "any, any, any",
+    raises = "never"
+)]
 pub fn will_register(
     _will: SteelVal,
     _value: SteelVal,
@@ -850,7 +852,12 @@ impl Custom for WeakBox {}
 ///
 /// In other words, a weak box does not keep the value contained alive through
 /// a gc collection.
-#[steel_derive::context(name = "make-weak-box", arity = "Exact(1)", args = "any", raises = "never")]
+#[steel_derive::context(
+    name = "make-weak-box",
+    arity = "Exact(1)",
+    args = "any",
+    raises = "never"
+)]
 pub fn make_weak_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
     let value = args[0].clone();
     if let SteelVal::HeapAllocated(made_box) = ctx.make_box(value) {
@@ -1050,9 +1057,7 @@ fn parallel_mark_counts_each_slot_exactly_once() {
     // and read through that rather than through a lock guard
     let slots: Arc<Vec<HeapElement<SteelVal>>> = Arc::new(
         (0..num_slots)
-            .map(|_| {
-                steel_rc::weak::Arc::new(SpinLock::new(HeapAllocated::new(SteelVal::Void)))
-            })
+            .map(|_| steel_rc::weak::Arc::new(SpinLock::new(HeapAllocated::new(SteelVal::Void))))
             .collect(),
     );
 
@@ -1305,7 +1310,9 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     }
 
     fn mark_all_unreachable(&mut self) {
-        self.elements.iter().for_each(|x| unsafe { x.get_value().reset() });
+        self.elements
+            .iter()
+            .for_each(|x| unsafe { x.get_value().reset() });
     }
 
     // Compact every once in a while
@@ -1359,7 +1366,6 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             assert!(!self.elements[self.cursor].lock().is_reachable());
         }
     }
-
 }
 
 #[cfg(not(feature = "sync"))]
@@ -1572,7 +1578,9 @@ impl<T: HeapAble + 'static> FreeList<T> {
     }
 
     fn mark_all_unreachable(&mut self) {
-        self.elements.iter().for_each(|x| unsafe { x.get_value().reset() });
+        self.elements
+            .iter()
+            .for_each(|x| unsafe { x.get_value().reset() });
     }
 
     // Compact every once in a while
@@ -1626,7 +1634,6 @@ impl<T: HeapAble + 'static> FreeList<T> {
             assert!(!self.elements[self.cursor].read().is_reachable());
         }
     }
-
 }
 
 impl FreeList<HeapVec> {
@@ -1965,7 +1972,8 @@ impl Heap {
                     .len()
                     .saturating_sub(stats.vector_reached_count);
 
-                self.memory_free_list.resize_after_collection(stats.object_count);
+                self.memory_free_list
+                    .resize_after_collection(stats.object_count);
 
                 // A full collection changes what is reachable, so the cheap scan
                 // is worth trying again
@@ -2025,9 +2033,7 @@ impl Heap {
             log::debug!(target: "gc", "Running weak collection because the vector free list is 50% full");
             let reclaimed = self.vector_free_list.weak_collection();
 
-            if reclaimed.saturating_mul(weak_yield_ratio())
-                < self.vector_free_list.elements.len()
-            {
+            if reclaimed.saturating_mul(weak_yield_ratio()) < self.vector_free_list.elements.len() {
                 self.vector_free_list.should_run_weak = false;
             }
         }
@@ -2067,7 +2073,8 @@ impl Heap {
                     .len()
                     .saturating_sub(stats.memory_reached_count);
 
-                self.vector_free_list.resize_after_collection(stats.object_count);
+                self.vector_free_list
+                    .resize_after_collection(stats.object_count);
 
                 self.vector_free_list.should_run_weak = true;
 
@@ -2091,9 +2098,7 @@ impl Heap {
             run_explicit_merge();
             let reclaimed = self.vector_free_list.weak_collection();
 
-            if reclaimed.saturating_mul(weak_yield_ratio())
-                < self.vector_free_list.elements.len()
-            {
+            if reclaimed.saturating_mul(weak_yield_ratio()) < self.vector_free_list.elements.len() {
                 self.vector_free_list.should_run_weak = false;
             }
         }
@@ -2134,7 +2139,8 @@ impl Heap {
                     .len()
                     .saturating_sub(stats.memory_reached_count);
 
-                self.vector_free_list.resize_after_collection(stats.object_count);
+                self.vector_free_list
+                    .resize_after_collection(stats.object_count);
 
                 self.vector_free_list.should_run_weak = true;
 
@@ -2708,7 +2714,6 @@ impl<T: Clone + core::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
     pub(crate) fn reset(&self) {
         self.reachable.store(false, Ordering::Relaxed);
     }
-
 }
 
 pub struct MarkAndSweepContext<'a> {

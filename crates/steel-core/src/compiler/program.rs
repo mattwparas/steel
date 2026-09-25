@@ -1191,8 +1191,12 @@ impl RawProgramWithSymbols {
         }
 
         // Patch through the non mutable symbols now that we
-        // have matched it directly against a symbol map.
+        // have matched it directly against a symbol map. Only the ones no later
+        // compile can `set!` (see `is_closed_global`).
         for x in self.non_mutable_symbols {
+            if !is_closed_global(x.resolve()) {
+                continue;
+            }
             if let Ok(v) = symbol_map.get(&x) {
                 symbol_map.reified_non_mutable.insert(v);
             }
@@ -1271,4 +1275,17 @@ impl Executable {
     pub fn time_stamp(&self) -> &Option<SystemTime> {
         &self.time_stamp
     }
+}
+
+/// A global that only code compiled with its definition can refer to: a module
+/// member, or a function the compiler generated. The reserved `#%prim.` names
+/// count too, since calls through them are compiled as never changing. Whether one of these is ever
+/// `set!` is known once its compile is done. Any other top level name can be
+/// `set!` by a later program, e.g. at the repl.
+pub(crate) fn is_closed_global(name: &str) -> bool {
+    name.starts_with("#%prim.")
+        || name.contains(crate::compiler::modules::MANGLER_SEPARATOR)
+        || name.starts_with("##__lifted_pure_function")
+        || name.starts_with("##lambda-lifting")
+        || (name.starts_with("##") && name.contains("-closure-lifting-"))
 }

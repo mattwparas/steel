@@ -169,7 +169,11 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// > (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 /// ```
-#[native(name = "open-output-file", arity = "AtLeast(1)", args = "string, any...")]
+#[native(
+    name = "open-output-file",
+    arity = "AtLeast(1)",
+    args = "string, any..."
+)]
 pub fn open_output_file(args: &[SteelVal]) -> Result<SteelVal> {
     let path = SteelString::from_steelval(&args[0])?;
     let opts = create_open_options(&args[1..])?;
@@ -306,7 +310,11 @@ pub fn open_input_string(s: &SteelString) -> SteelVal {
 /// Creates an input port from a bytevector, that will return the bytevector contents.
 ///
 /// (open-input-bytevector bytes?) -> input-port?
-#[function(name = "open-input-bytevector", args = "bytevector", raises = "bad-args")]
+#[function(
+    name = "open-input-bytevector",
+    args = "bytevector",
+    raises = "bad-args"
+)]
 pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
     // The port owns a `std::vec::Vec` (it wraps it in a `Cursor`), so this
     // copies out of the bytevector rather than sharing it - same as before.

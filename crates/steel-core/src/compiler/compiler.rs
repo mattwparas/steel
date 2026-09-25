@@ -444,6 +444,10 @@ pub struct Compiler {
     pub(crate) builtin_modules: ModuleContainer,
 
     pub(crate) non_mutable_globals: HashSet<usize>,
+
+    // Prelude names given another value at the top level or by the host.
+    // References to these stay as globals instead of `#%prim.` names.
+    pub(crate) redefined_builtins: FxHashSet<InternedString>,
 }
 
 pub struct SerializableCompiler {
@@ -629,6 +633,7 @@ impl Compiler {
             sources,
             builtin_modules,
             non_mutable_globals: HashSet::new(),
+            redefined_builtins: FxHashSet::default(),
         }
     }
 
@@ -660,6 +665,7 @@ impl Compiler {
             sources,
             builtin_modules,
             non_mutable_globals: HashSet::new(),
+            redefined_builtins: FxHashSet::default(),
         }
     }
 
@@ -691,7 +697,10 @@ impl Compiler {
 
     /// Registers a name in the underlying symbol map and returns the idx that it maps to
     pub fn register(&mut self, name: &str) -> usize {
-        let spur = name.into();
+        let spur: InternedString = name.into();
+        if crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS.with(|x| x.contains(&spur)) {
+            self.redefined_builtins.insert(spur);
+        }
         self.symbol_map.add(&spur)
     }
 
@@ -1044,6 +1053,8 @@ impl Compiler {
                 &mut self.macro_env,
                 &mut self.module_manager,
                 &mut self.mangled_identifiers,
+                &mut self.redefined_builtins,
+                self.symbol_map.map(),
             )
             // TODO: To get this to work, we have to check the macros to make sure those
             // are safe to eliminate. In interactive mode, we'll
@@ -1244,6 +1255,8 @@ impl Compiler {
                 &mut self.macro_env,
                 &mut self.module_manager,
                 &mut self.mangled_identifiers,
+                &mut self.redefined_builtins,
+                self.symbol_map.map(),
             )
             // TODO: To get this to work, we have to check the macros to make sure those
             // are safe to eliminate. In interactive mode, we'll

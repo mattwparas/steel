@@ -2135,8 +2135,14 @@ const _ASSERT_SMALL: () = assert!(core::mem::size_of::<SteelVal>() <= 16);
 fn tmp_cell_sizes() {
     use core::mem::size_of;
     println!("SteelVal                {}", size_of::<SteelVal>());
-    println!("Pair (car+cdr)          {}", size_of::<crate::values::lists::Pair>());
-    println!("RcBox<Pair>             {}", size_of::<steel_rc::RcBox<crate::values::lists::Pair>>());
+    println!(
+        "Pair (car+cdr)          {}",
+        size_of::<crate::values::lists::Pair>()
+    );
+    println!(
+        "RcBox<Pair>             {}",
+        size_of::<steel_rc::RcBox<crate::values::lists::Pair>>()
+    );
     println!("RcWord header           {}", size_of::<steel_rc::RcWord>());
 }
 
@@ -2412,7 +2418,9 @@ impl Hash for SteelVal {
             Pair(p) => (**p).hash(state),
             MutFunc(fun) => fun.hash(state),
             BuiltIn(fun) => fun.hash(state),
-            MutableVector(vec) => vec.borrow(|vec| hash_vector_elements(vec.len(), vec.iter(), state)),
+            MutableVector(vec) => {
+                vec.borrow(|vec| hash_vector_elements(vec.len(), vec.iter(), state))
+            }
             BoxedIterator(iter) => Gc::as_ptr(iter).hash(state),
             SyntaxObject(s) => s.raw.hash(state),
             Boxed(val) => val.read().hash(state),
@@ -2835,7 +2843,13 @@ fn bignum_float_equality(bigint: &Gc<BigInt>, float: f64) -> bool {
 }
 
 #[inline(always)]
-#[steel_derive::function(name = "=", constant = true, returns = "bool", args = "number, number", raises = "bad-args")]
+#[steel_derive::function(
+    name = "=",
+    constant = true,
+    returns = "bool",
+    args = "number, number",
+    raises = "bad-args"
+)]
 pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     let result = match (left, right) {
         (IntV(l), IntV(r)) => l == r,
@@ -3226,4 +3240,3 @@ mod or_else_tests {
         }
     }
 }
-

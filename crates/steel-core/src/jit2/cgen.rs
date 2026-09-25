@@ -609,6 +609,9 @@ impl Default for JIT {
         CallFunctionDefinitions::register(&mut map);
         CallFunctionTailDefinitions::register(&mut map);
         CallGlobalTailFunctionDefinitions::register(&mut map);
+        CallGlobalNativeTailDefinitions::register(&mut map);
+        CallBoxedFunctionDefinitions::register(&mut map);
+        CallBoxedFunctionTailDefinitions::register(&mut map);
         CallSelfTailCallNoArityDefinitions::register(&mut map);
         CallSelfTailCallNoArityLoopDefinitions::register(&mut map);
         ListHandlerDefinitions::register(&mut map);
@@ -4645,7 +4648,11 @@ impl FunctionTranslator<'_> {
                     let maybe_global = self._globals.get(function_index).cloned();
                     if let Some(maybe_global) = maybe_global {
                         match maybe_global {
-                            SteelVal::FuncV(f) if f == steel_memq && arity == 2 => {
+                            SteelVal::FuncV(f)
+                                if f == steel_memq
+                                    && arity == 2
+                                    && self.global_is_closed(function_index) =>
+                            {
                                 let res = self.memq();
 
                                 // Spilling the cloned stack: Coalesce the reads to avoid
@@ -4696,7 +4703,11 @@ impl FunctionTranslator<'_> {
                         if INLINE_STRUCT_FUNCTION_TAIL_CALLS {
                             // TODO: @Matt -> This is the issue, something is
                             // wrong with the way I'm reading this, or doing something.
-                            if let Some(spec) = create_struct_spec(maybe_global) {
+                            // Only for a closed global, since this bakes the struct
+                            // function in (`global_is_closed`).
+                            let spec = create_struct_spec(maybe_global)
+                                .filter(|_| self.global_is_closed(function_index));
+                            if let Some(spec) = spec {
                                 // TODO: This is where we inline the calls for struct
                                 // functions
                                 if let Some((value, _typ)) =
@@ -4733,19 +4744,20 @@ impl FunctionTranslator<'_> {
                         // Then we can do a direct call.
                         //
                         // This bakes this `Gc<ByteCodeLambda>` into the generated code, so
-                        // it is only sound when the global can never hold anything else,
-                        // which the analysis records in `reified_non_mutable`. Whether the
-                        // closure captures anything doesn't matter.
+                        // it is only done when the global can never hold anything else
+                        // (`global_is_closed`). Whether the closure captures anything
+                        // doesn't matter. Any other global is read when the call runs.
                         //
                         // Normally unreachable, since callee globals are usually still unbound
                         // when a caller is compiled at construction time.
                         // A variadic callee is fine here since the tail call builds
                         // its rest list below, unless it was given too few
                         // arguments, which has to raise from the helper path.
-                        if function.super_instructions().is_some()
-                            && Self::rest_arg_plan(&function, arity).is_some()
-                            && self.non_mutable_globals.contains(&function_index)
-                        {
+                        let rest_ok = Self::rest_arg_plan(&function, arity).is_some();
+
+                        if !self.global_is_closed(function_index) {
+                            self.generic_global_tail_call(function_index, arity);
+                        } else if function.super_instructions().is_some() && rest_ok {
                             if function.tier2.is_none() {
                                 self.potentially_could_deopt = true;
                             }
@@ -4753,10 +4765,7 @@ impl FunctionTranslator<'_> {
                             self.inline_global_tail_call(arity, function);
                             self.ip = self.instructions.len() + 1;
                             self.depth -= 1;
-                        } else if late_tail_enabled()
-                            && Self::rest_arg_plan(&function, arity).is_some()
-                            && self.non_mutable_globals.contains(&function_index)
-                        {
+                        } else if late_tail_enabled() && rest_ok {
                             // Not compiled yet. Mutually recursive functions can't
                             // all be compiled before their callers, since the
                             // topological sort has to break every cycle somewhere.
@@ -4800,7 +4809,15 @@ impl FunctionTranslator<'_> {
                         // boxes, so `(#%unbox (getter ...))` and `#%set-box!` are
                         // common here, and the helper would look up the global and
                         // match on its kind again, which we already know here.
-                        if let Some(value) = self.inline_primitive_tail_call(func.as_ref(), arity) {
+                        //
+                        // Only for a closed global. Any other goes to the helpers
+                        // below, which check what it holds when the call runs.
+                        let inlined = if self.global_is_closed(function_index) {
+                            self.inline_primitive_tail_call(func.as_ref(), arity)
+                        } else {
+                            None
+                        };
+                        if let Some(value) = inlined {
                             self.spill_cloned_stack();
                             let real_res = self.inline_handle_pop(value);
                             self.builder.ins().return_(&[real_res]);
@@ -4821,47 +4838,61 @@ impl FunctionTranslator<'_> {
                         // compiled, fixed arity closure, and falls back to the
                         // helper otherwise. It reads the current value every time,
                         // so `set!` is not a concern here.
-                        if func.is_none()
-                            && late_tail_enabled()
-                            && USE_INLINE_LOCAL_TAIL_CALL
-                            && CallFunctionTailDefinitions::arity_to_name(arity).is_some()
-                        {
-                            self.potentially_could_deopt = true;
-                            let name = CallFunctionTailDefinitions::arity_to_name(arity);
-
-                            // The local tail call's ip is one past the `TAILCALL`
-                            // that carries the arity; ours is still on it.
-                            self.ip += 1;
-
-                            // Borrowed, like a register read (see that arm).
-                            let value = self.inline_lookup_global(function_index);
-                            let is_closure = self.is_type(value, SteelVal::CLOSURE_TAG);
-                            let old_stack = self.shadow_stack.clone();
-
-                            self.converging_if_no_value(
-                                is_closure,
-                                |ctx| {
-                                    let closure = ctx.unbox_value_to_pointer(value);
-                                    ctx.increment_ref_count_closure(closure);
-                                    ctx.inline_local_tail_call(arity, closure, value);
-                                },
-                                |ctx| {
-                                    ctx.shadow_stack = old_stack.clone();
-                                    ctx.clone_value(value);
-                                    let v = ctx.call_function_with_func(
-                                        arity,
-                                        name.unwrap(),
-                                        true,
-                                        value,
-                                    );
-                                    ctx.push(v, InferredType::Any);
-                                },
-                            );
-
-                            self.ip = self.instructions.len() + 1;
-                            self.check_deopt();
-                            self.depth -= 1;
+                        // Unbound while this function is being compiled, e.g. a
+                        // callee defined further down the file, or the other
+                        // members of a mutually recursive cycle. There is nothing
+                        // to bake, so read the global when the call runs.
+                        if func.is_none() {
+                            self.generic_global_tail_call(function_index, arity);
                             return false;
+                        }
+
+                        // A native function (a builtin, or a host function from
+                        // `register_fn`) returns its value, so return it from
+                        // here instead of deopting. The helper checks the global
+                        // at run time and deopts if it holds something else.
+                        if matches!(
+                            func,
+                            Some(
+                                SteelVal::FuncV(_)
+                                    | SteelVal::BoxedFunction(_)
+                                    | SteelVal::MutFunc(_)
+                            )
+                        ) {
+                            let result = match &func {
+                                Some(SteelVal::BoxedFunction(f)) => {
+                                    CallBoxedFunctionTailDefinitions::arity_to_name(arity).map(
+                                        |name| {
+                                            let f = self.leak_boxed_function(f);
+                                            self.call_boxed_function(
+                                                arity,
+                                                name,
+                                                f,
+                                                function_index,
+                                                true,
+                                            )
+                                        },
+                                    )
+                                }
+                                _ => CallGlobalNativeTailDefinitions::arity_to_name(arity).map(
+                                    |name| {
+                                        self.call_global_function(arity, name, function_index, true)
+                                    },
+                                ),
+                            };
+
+                            if let Some(v) = result {
+                                self.check_deopt();
+                                let real_res = self.inline_handle_pop(v);
+                                self.builder.ins().return_(&[real_res]);
+
+                                let cold_block = self.builder.create_block();
+                                self.builder.switch_to_block(cold_block);
+
+                                self.depth -= 1;
+                                self.ip = self.instructions.len() + 1;
+                                return false;
+                            }
                         }
 
                         if !matches!(func, Some(SteelVal::FuncV(_))) {
@@ -4903,7 +4934,9 @@ impl FunctionTranslator<'_> {
                     // Recognise struct constructors, predicates and getters here,
                     // like `call_global_impl` does, so they are emitted directly
                     // instead of going through the generic deopt helper.
-                    if INLINE_STRUCT_FUNCTION_CALLS {
+                    // Only for a closed global, since this bakes the struct
+                    // function in (`global_is_closed`).
+                    if INLINE_STRUCT_FUNCTION_CALLS && self.global_is_closed(function_index) {
                         if let Some(spec) = self
                             ._globals
                             .get(function_index)
@@ -5006,10 +5039,9 @@ impl FunctionTranslator<'_> {
                                 false
                             }
                         }).unwrap_or_default()
+                        // This bakes the closure in (`global_is_closed`).
+                        && self.global_is_closed(function_index)
                     {
-                        // TODO: Insert guard for whether this is mutable or not!
-                        // Inline the call to this global, assuming its not mutable
-
                         let func = if let SteelVal::Closure(c) = self._globals.get(payload).unwrap()
                         {
                             c.clone()
@@ -5017,21 +5049,8 @@ impl FunctionTranslator<'_> {
                             panic!();
                         };
 
-                        let id = func.id;
-
+                        let inferred_type = self.return_type_of(func.id);
                         let result = self.call_self_function_experimental(arity, func, None);
-
-                        let inferred_type =
-                            if let Some(ret_types) = self.function_return_types.get(&id) {
-                                if ret_types.len() == 1 {
-                                    ret_types.iter().next().copied().unwrap()
-                                } else {
-                                    InferredType::Any
-                                }
-                            } else {
-                                InferredType::Any
-                            };
-
                         self.push(result, inferred_type);
                     } else if USE_INLINE_CALL_GLOBAL
                         && CallFunctionDefinitions::arity_to_name(arity).is_some()
@@ -8131,7 +8150,11 @@ impl FunctionTranslator<'_> {
     /// stack first, because the allocation can collect and only the vm stack
     /// and the arguments themselves are roots.
     fn inline_builtin_global_call(&mut self, index: usize, arity: usize) -> Option<Value> {
-        if !extra_primitive_tail_calls_enabled() || !tail_vec_enabled() {
+        // This bakes the builtin in (`global_is_closed`).
+        if !extra_primitive_tail_calls_enabled()
+            || !tail_vec_enabled()
+            || !self.global_is_closed(index)
+        {
             return None;
         }
 
@@ -8469,6 +8492,51 @@ impl FunctionTranslator<'_> {
         self.ip = self.instructions.len() + 1;
 
         self.depth -= 1;
+    }
+
+    /// A tail call to global `function_index` that uses whatever it holds when
+    /// the call runs.
+    fn generic_global_tail_call(&mut self, function_index: usize, arity: usize) {
+        self.potentially_could_deopt = true;
+        match CallFunctionTailDefinitions::arity_to_name(arity) {
+            Some(name) if late_tail_enabled() && USE_INLINE_LOCAL_TAIL_CALL => {
+                self.tail_call_global_at_run_time(function_index, arity, name);
+                self.depth -= 1;
+            }
+            _ => self.slow_path_deopt_tail_call(function_index, arity),
+        }
+    }
+
+    /// Read the global when the call runs and tail call it the way a local
+    /// closure is. That path checks for a compiled, fixed arity closure, and
+    /// falls back to the helper otherwise.
+    fn tail_call_global_at_run_time(&mut self, function_index: usize, arity: usize, name: &str) {
+        // The local tail call's ip is one past the `TAILCALL` that carries the
+        // arity; ours is still on it.
+        self.ip += 1;
+
+        // Borrowed, like a register read (see that arm).
+        let value = self.inline_lookup_global(function_index);
+        let is_closure = self.is_type(value, SteelVal::CLOSURE_TAG);
+        let old_stack = self.shadow_stack.clone();
+
+        self.converging_if_no_value(
+            is_closure,
+            |ctx| {
+                let closure = ctx.unbox_value_to_pointer(value);
+                ctx.increment_ref_count_closure(closure);
+                ctx.inline_local_tail_call(arity, closure, value);
+            },
+            |ctx| {
+                ctx.shadow_stack = old_stack.clone();
+                ctx.clone_value(value);
+                let v = ctx.call_function_with_func(arity, name, true, value);
+                ctx.push(v, InferredType::Any);
+            },
+        );
+
+        self.ip = self.instructions.len() + 1;
+        self.check_deopt();
     }
 
     fn check_null_no_drop(&mut self, value: Value) -> Value {
@@ -9237,12 +9305,11 @@ impl FunctionTranslator<'_> {
         // as plain `CALLGLOBAL`. The call site builds the rest list; see
         // `rest_arg_plan`.
         //
-        // Plain `CALLGLOBAL` can also target a global that is `set!`, and this
-        // bakes the closure in, so it needs the same non-mutable guard the
-        // direct tail call relies on.
+        // This bakes the closure in, so it is only done for a global that can
+        // never change (`global_is_closed`).
         if USE_INLINE_CALL_GLOBAL
             && callglobal_direct_enabled()
-            && self.non_mutable_globals.contains(&function_index)
+            && self.global_is_closed(function_index)
         {
             if let Some(SteelVal::Closure(func)) = self._globals.get(function_index).cloned() {
                 // Fixed-arity callees land here too when the analysis could not
@@ -9252,16 +9319,8 @@ impl FunctionTranslator<'_> {
                 if func.super_instructions().is_some()
                     && Self::rest_arg_plan(&func, arity).is_some()
                 {
-                    let id = func.id;
+                    let inferred_type = self.return_type_of(func.id);
                     let result = self.call_self_function_experimental(arity, func, None);
-
-                    let inferred_type = match self.function_return_types.get(&id) {
-                        Some(ret_types) if ret_types.len() == 1 => {
-                            ret_types.iter().next().copied().unwrap()
-                        }
-                        _ => InferredType::Any,
-                    };
-
                     self.push(result, inferred_type);
 
                     // The callee can deopt partway through (e.g. a builtin tail
@@ -9273,7 +9332,8 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if INLINE_STRUCT_FUNCTION_CALLS {
+        // Only for a closed global, since this bakes the struct function in.
+        if INLINE_STRUCT_FUNCTION_CALLS && self.global_is_closed(function_index) {
             let maybe_global = self._globals.get(function_index).cloned();
             if let Some(maybe_global) = maybe_global {
                 if let Some(spec) = create_struct_spec(maybe_global) {
@@ -9286,6 +9346,18 @@ impl FunctionTranslator<'_> {
                         return;
                     }
                 }
+            }
+        }
+
+        // A host function, e.g. from `register_fn`. The helper is given the
+        // function, and only checks that the global still holds it.
+        if let Some(SteelVal::BoxedFunction(func)) = self._globals.get(function_index) {
+            if let Some(helper) = CallBoxedFunctionDefinitions::arity_to_name(arity) {
+                let func = self.leak_boxed_function(func);
+                let result = self.call_boxed_function(arity, helper, func, function_index, false);
+                self.push(result, InferredType::Any);
+                self.check_deopt();
+                return;
             }
         }
 
@@ -10577,6 +10649,60 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    /// Whether global `index` can never hold anything but its current value, so
+    /// a call can bake that value in (`non_mutable_globals`).
+    fn global_is_closed(&self, index: usize) -> bool {
+        self.non_mutable_globals.contains(&index)
+    }
+
+    /// The return type recorded for function `id`, when it has only one.
+    fn return_type_of(&self, id: u32) -> InferredType {
+        match self.function_return_types.get(&id) {
+            Some(ret_types) if ret_types.len() == 1 => ret_types.iter().next().copied().unwrap(),
+            _ => InferredType::Any,
+        }
+    }
+
+    // The address of `func` for generated code to hold, which keeps a
+    // reference to it (see `jit_leak`).
+    fn leak_boxed_function(&self, func: &Gc<crate::values::functions::BoxedDynFunction>) -> i64 {
+        let func = core::mem::ManuallyDrop::new(jit_leak(func));
+        Gc::as_ptr(&func) as i64
+    }
+
+    // call_global_function for a global holding `func`, see
+    // `call_boxed_function_handler`.
+    fn call_boxed_function(
+        &mut self,
+        arity: usize,
+        name: &str,
+        func: i64,
+        function_index: usize,
+        tail: bool,
+    ) -> Value {
+        let local_callee = self.get_local_callee(name);
+
+        let ctx = self.get_ctx();
+        let func = self.builder.ins().iconst(types::I64, func);
+        let lookup_index = self.builder.ins().iconst(types::I64, function_index as i64);
+        let fallback_ip = self.builder.ins().iconst(types::I64, self.ip as i64);
+
+        self.ip += 1;
+
+        let mut arg_values = vec![ctx, func, lookup_index, fallback_ip];
+        let args_off_the_stack = self.split_off(arity);
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
+
+        if tail {
+            self.spill_cloned_stack();
+        } else {
+            self.spill_stack();
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        self.builder.inst_results(call)[0]
     }
 
     // call_global_function without materialising the operand stack

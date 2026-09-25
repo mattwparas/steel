@@ -1,5 +1,4 @@
 use crate::compiler::compiler::Compiler;
-use crate::values::structs::StructRef;
 use crate::compiler::modules::fully_qualified_to_relative;
 use crate::compiler::passes::VisitorMutRefUnit;
 use crate::core::instructions::u24;
@@ -34,13 +33,14 @@ use crate::rvals::{as_underlying_type, AsRefSteelValFromRef};
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive, steel_not};
-use crate::values::closed::HeapVec;
 use crate::values::closed::Heap;
+use crate::values::closed::HeapVec;
 use crate::values::closed::MarkAndSweepContext;
 use crate::values::functions::CaptureVec;
 use crate::values::functions::RootedInstructions;
 use crate::values::functions::SerializedLambda;
 use crate::values::lists::List;
+use crate::values::structs::StructRef;
 use crate::values::structs::UserDefinedStruct;
 use crate::values::transducers::Reducer;
 use crate::{
@@ -2643,8 +2643,11 @@ impl<'a> VmCore<'a> {
                     if trace && n < 20 {
                         eprintln!(
                             "[enter {n}] frames={} stack={} sp={} pop={} ip={}",
-                            self.thread.stack_frames.len(), self.thread.stack.len(), self.sp,
-                            self.pop_count, self.ip
+                            self.thread.stack_frames.len(),
+                            self.thread.stack.len(),
+                            self.sp,
+                            self.pop_count,
+                            self.ip
                         );
                     }
 
@@ -2652,8 +2655,11 @@ impl<'a> VmCore<'a> {
                     if jt {
                         eprintln!(
                             "[in ] frames={} stack={} sp={} pop={} ip={} fn={:?}",
-                            self.thread.stack_frames.len(), self.thread.stack.len(), self.sp,
-                            self.pop_count, self.ip,
+                            self.thread.stack_frames.len(),
+                            self.thread.stack.len(),
+                            self.sp,
+                            self.pop_count,
+                            self.ip,
                             self.thread.stack_frames.last().map(|f| f.function.id)
                         );
                     }
@@ -2663,8 +2669,12 @@ impl<'a> VmCore<'a> {
                     if jt {
                         eprintln!(
                             "[out] frames={} stack={} sp={} pop={} ip={} native={} res={}",
-                            self.thread.stack_frames.len(), self.thread.stack.len(), self.sp,
-                            self.pop_count, self.ip, self.is_native,
+                            self.thread.stack_frames.len(),
+                            self.thread.stack.len(),
+                            self.sp,
+                            self.pop_count,
+                            self.ip,
+                            self.is_native,
                             if self.result.is_some() { "set" } else { "-" }
                         );
                     }
@@ -4641,20 +4651,19 @@ impl<'a> VmCore<'a> {
             );
 
             #[cfg(feature = "jit2")]
-            let mut constructed_lambda =
-                if crate::config::config().jit {
-                    let (lambda, background_job) =
-                        jit::jit_compile_lambda_deferred(self, constructed_lambda, None, None);
-                    // The prototype is interned by value, so the worker gets a
-                    // copy. They share the body, which the install patches and
-                    // instances resolve the entry by.
-                    if let Some(job) = background_job {
-                        jit::submit_background_job(job, &Gc::new(lambda.clone()));
-                    }
-                    lambda
-                } else {
-                    constructed_lambda
-                };
+            let mut constructed_lambda = if crate::config::config().jit {
+                let (lambda, background_job) =
+                    jit::jit_compile_lambda_deferred(self, constructed_lambda, None, None);
+                // The prototype is interned by value, so the worker gets a
+                // copy. They share the body, which the install patches and
+                // instances resolve the entry by.
+                if let Some(job) = background_job {
+                    jit::submit_background_job(job, &Gc::new(lambda.clone()));
+                }
+                lambda
+            } else {
+                constructed_lambda
+            };
 
             self.thread
                 .function_interner
@@ -4895,7 +4904,8 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn call_builtin_func(&mut self, func: BuiltInSignature, payload_size: usize) -> Result<()> {
-        self.call_builtin_func_reporting(func, payload_size).map(|_| ())
+        self.call_builtin_func_reporting(func, payload_size)
+            .map(|_| ())
     }
 
     /// As `call_builtin_func`, reporting whether the builtin produced a value
@@ -5488,7 +5498,13 @@ fn inspect_impl(ctx: &VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "inspect", arity = "Exact(1)", returns = "void", args = "any", raises = "never")]
+#[steel_derive::context(
+    name = "inspect",
+    arity = "Exact(1)",
+    returns = "void",
+    args = "any",
+    raises = "never"
+)]
 pub fn inspect(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     inspect_impl(ctx, args)
 }
@@ -5694,7 +5710,13 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
-#[steel_derive::context(name = "debug-globals", arity = "Exact(0)", returns = "void", args = "", raises = "never")]
+#[steel_derive::context(
+    name = "debug-globals",
+    arity = "Exact(0)",
+    returns = "void",
+    args = "",
+    raises = "never"
+)]
 fn debug_globals(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(debug_global_env(ctx, args))
 }
@@ -5933,7 +5955,12 @@ fn load_expanded_file(path: String) {
     engine.load_from_expanded_file(&path)
 }
 
-#[steel_derive::context(name = "current-module", arity = "Exact(0)", args = "", raises = "never")]
+#[steel_derive::context(
+    name = "current-module",
+    arity = "Exact(0)",
+    args = "",
+    raises = "never"
+)]
 fn get_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -5976,7 +6003,13 @@ fn get_module_relative_context(
     Some(Ok(SteelVal::StringV(relative.to_str().unwrap().into())))
 }
 
-#[steel_derive::context(name = "#%push-module-context", arity = "Exact(1)", returns = "void", args = "any", raises = "never")]
+#[steel_derive::context(
+    name = "#%push-module-context",
+    arity = "Exact(1)",
+    returns = "void",
+    args = "any",
+    raises = "never"
+)]
 fn push_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -5989,7 +6022,13 @@ fn push_module_context(
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "#%pop-module-context", arity = "Exact(0)", returns = "void", args = "", raises = "never")]
+#[steel_derive::context(
+    name = "#%pop-module-context",
+    arity = "Exact(0)",
+    returns = "void",
+    args = "",
+    raises = "never"
+)]
 fn pop_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],

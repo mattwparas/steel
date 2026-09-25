@@ -5926,6 +5926,9 @@ impl<'a> VisitorMutRefUnit for FlattenModuleReferences<'a> {
 struct ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     analysis: &'a Analysis,
     identifiers_to_replace: &'a mut FxHashSet<InternedString>,
+    // Prelude names that have been given another value at the top level.
+    redefined_builtins: &'a FxHashSet<InternedString>,
+    globals: &'a FxHashMap<InternedString, usize>,
     changed: bool,
 }
 
@@ -5933,11 +5936,34 @@ impl<'a> ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     pub fn new(
         analysis: &'a Analysis,
         identifiers_to_replace: &'a mut FxHashSet<InternedString>,
+        redefined_builtins: &'a FxHashSet<InternedString>,
+        globals: &'a FxHashMap<InternedString, usize>,
     ) -> Self {
         Self {
             analysis,
             identifiers_to_replace,
+            redefined_builtins,
+            globals,
             changed: false,
+        }
+    }
+
+    // A free reference to a prelude name, from a program rather than a module.
+    // It is replaced with the reserved name when that is bound and nothing
+    // has redefined the prelude name.
+    fn replace_free_builtin(&mut self, ident: &mut InternedString) {
+        if !crate::config::config().rewrite_program_builtins
+            || self.redefined_builtins.contains(ident)
+            || ident.resolve().starts_with("#%prim.")
+        {
+            return;
+        }
+
+        let reserved = builtin_to_reserved(ident.resolve());
+
+        if self.globals.contains_key(&reserved) {
+            *ident = reserved;
+            self.changed = true;
         }
     }
 }
@@ -5947,6 +5973,24 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
     fn visit_define(&mut self, define: &mut Define) {
         // Don't visit the name!
         self.visit(&mut define.body);
+    }
+
+    #[inline]
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
+
+    fn visit_set(&mut self, s: &mut crate::parser::ast::Set) {
+        // A free `set!` target keeps its name, so code generation still
+        // rejects a `set!` of a builtin.
+        let free_target = s
+            .variable
+            .atom_syntax_object()
+            .and_then(|a| self.analysis.get(a))
+            .is_some_and(|info| info.refers_to.is_none());
+
+        if !free_target {
+            self.visit(&mut s.variable);
+        }
+        self.visit(&mut s.expr);
     }
 
     fn visit_atom(&mut self, a: &mut Atom) {
@@ -5977,6 +6021,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                 // println!("FOUND UNSHADOWED USAGE OF BUILTIN: {}", a);
 
+                let is_free = info.refers_to.is_none();
+
                 if let Some(ident) = a.ident_mut() {
                     if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
                         // let original = *ident;
@@ -5990,6 +6036,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
                         self.changed = true;
 
                         // println!("top level - MUTATED IDENT TO BE: {} -> {}", original, ident);
+                    } else if is_free {
+                        self.replace_free_builtin(ident);
                     }
                 }
             } else {
@@ -6031,6 +6079,27 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
                 }
             }
         }
+    }
+}
+
+fn collect_redefined_builtins(expr: &ExprKind, redefined: &mut FxHashSet<InternedString>) {
+    match expr {
+        ExprKind::Define(define) => {
+            if let Some(name) = define.name.atom_identifier() {
+                if !is_a_builtin_definition(define)
+                    && crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS
+                        .with(|x| x.contains(name))
+                {
+                    redefined.insert(*name);
+                }
+            }
+        }
+        ExprKind::Begin(begin) => {
+            for expr in &begin.exprs {
+                collect_redefined_builtins(expr, redefined);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -8237,12 +8306,24 @@ impl<'a> SemanticAnalysis<'a> {
         macros: &mut FxHashMap<InternedString, SteelMacro>,
         module_manager: &mut ModuleManager,
         table: &mut FxHashSet<InternedString>,
+        redefined_builtins: &mut FxHashSet<InternedString>,
+        globals: &FxHashMap<InternedString, usize>,
     ) -> &mut Self {
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
 
-        let mut replacer =
-            ReplaceBuiltinUsagesWithReservedPrimitiveReferences::new(&self.analysis, table);
+        // Top level defines of prelude names, other than the prelude's own.
+        // This includes forward references, which have no `refers_to` yet.
+        for expr in self.exprs.iter() {
+            collect_redefined_builtins(expr, redefined_builtins);
+        }
+
+        let mut replacer = ReplaceBuiltinUsagesWithReservedPrimitiveReferences::new(
+            &self.analysis,
+            table,
+            redefined_builtins,
+            globals,
+        );
 
         for expr in self.exprs.iter_mut() {
             replacer.visit(expr);

@@ -293,5 +293,3 @@ impl<T: IntoSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> IntoSteel
             .map(SteelVal::ListV)
     }
 }
-
-

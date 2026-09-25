@@ -1023,7 +1023,13 @@ pub fn disconnected_channel() -> SteelVal {
     }
 }
 
-#[steel_derive::context(name = "current-thread-id", arity = "Exact(0)", returns = "int", args = "", raises = "never")]
+#[steel_derive::context(
+    name = "current-thread-id",
+    arity = "Exact(0)",
+    returns = "int",
+    args = "",
+    raises = "never"
+)]
 pub fn engine_id(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(SteelVal::IntV(ctx.thread.id.0 as _)))
 }
@@ -1056,8 +1062,10 @@ pub(crate) fn spawn_native_thread(
 #[steel_derive::context(
     name = "spawn-native-thread",
     arity = "Exact(1)",
-    alias = "spawn-thread"
-, args = "any", raises = "never")]
+    alias = "spawn-thread",
+    args = "any",
+    raises = "never"
+)]
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // We are now in a world in which we have to support safe points
     ctx.thread.safepoints_enabled = true;

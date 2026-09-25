@@ -808,7 +808,6 @@ pub fn drop_fields_iteratively(
         .map_err(|_| ())
 }
 
-
 #[cfg(not(feature = "without-drop-protection"))]
 pub(crate) mod drop_impls {
     // use crate::values::recycler::{Recyclable, Recycle};

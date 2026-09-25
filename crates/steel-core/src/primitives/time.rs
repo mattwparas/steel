@@ -189,7 +189,12 @@ fn sleep_millis(millis: usize) {
 /// Returns the number of milliseconds since the Unix epoch as an integer.
 ///
 /// (current-milliseconds) -> int?
-#[function(name = "current-milliseconds", returns = "number", args = "", raises = "never")]
+#[function(
+    name = "current-milliseconds",
+    returns = "number",
+    args = "",
+    raises = "never"
+)]
 fn current_milliseconds() -> SteelVal {
     use crate::time::{SystemTime, UNIX_EPOCH};
 
@@ -208,7 +213,12 @@ fn current_milliseconds() -> SteelVal {
 /// Returns the number of seconds since the Unix epoch as an integer.
 ///
 /// (current-second) -> int?
-#[function(name = "current-second", returns = "number", args = "", raises = "never")]
+#[function(
+    name = "current-second",
+    returns = "number",
+    args = "",
+    raises = "never"
+)]
 fn current_seconds() -> SteelVal {
     use crate::time::{SystemTime, UNIX_EPOCH};
 

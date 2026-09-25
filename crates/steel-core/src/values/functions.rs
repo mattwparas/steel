@@ -174,7 +174,8 @@ impl JitEntry {
 
     #[inline]
     pub(crate) fn load(&self) -> Option<JitFnPointer> {
-        core::ptr::NonNull::new(self.0.load(core::sync::atomic::Ordering::Acquire)).map(JitFnPointer)
+        core::ptr::NonNull::new(self.0.load(core::sync::atomic::Ordering::Acquire))
+            .map(JitFnPointer)
     }
 
     #[inline]
@@ -199,9 +200,8 @@ impl core::fmt::Debug for JitEntry {
 }
 
 #[cfg(feature = "jit2")]
-const _: () = assert!(
-    core::mem::size_of::<JitEntry>() == core::mem::size_of::<Option<JitFnPointer>>()
-);
+const _: () =
+    assert!(core::mem::size_of::<JitEntry>() == core::mem::size_of::<Option<JitFnPointer>>());
 
 impl Default for ByteCodeLambda {
     fn default() -> Self {
@@ -333,7 +333,6 @@ impl core::ops::Deref for RootedInstructions {
 }
 
 impl ByteCodeLambda {
-
     /// The compiled entry point for this function, if it has one.
     #[cfg(feature = "jit2")]
     #[inline]

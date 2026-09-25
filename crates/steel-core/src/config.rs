@@ -323,6 +323,8 @@ steel_config! {
     substitute_lambdas: bool = true, "STEEL_SUBSTITUTE_LAMBDAS";
     /// Drop the binding `or` expands to where it is dead.
     simplify_or: bool = true, "STEEL_SIMPLIFY_OR";
+    /// Refer to builtins in programs by their `#%prim.` names, as modules do.
+    rewrite_program_builtins: bool = true, "STEEL_REWRITE_PROGRAM_BUILTINS";
     /// Remove the `(let () body)` shells copy propagation leaves.
     flatten_empty_lets: bool = true, "STEEL_FLATTEN_EMPTY_LETS";
     /// Bind `(car x)` before a recursive call passing `(cdr x)`.

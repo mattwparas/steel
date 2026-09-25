@@ -102,6 +102,11 @@ impl Env {
     }
 
     #[inline(always)]
+    pub(crate) fn repl_lookup_idx_ref(&self, idx: usize) -> &SteelVal {
+        &self.bindings_vec[idx]
+    }
+
+    #[inline(always)]
     pub fn repl_maybe_lookup_idx(&self, idx: usize) -> Option<SteelVal> {
         // Look up the bindings using the local copy
         self.bindings_vec.get(idx).cloned()
@@ -188,6 +193,11 @@ impl Env {
     pub fn repl_lookup_idx(&self, idx: usize) -> SteelVal {
         // Look up the bindings using the local copy
         self.bindings.0[idx].clone()
+    }
+
+    #[inline(always)]
+    pub(crate) fn repl_lookup_idx_ref(&self, idx: usize) -> &SteelVal {
+        &self.bindings.0[idx]
     }
 
     #[inline(always)]

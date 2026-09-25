@@ -33,7 +33,6 @@ pub mod git;
 
 pub mod hashes;
 
-use crate::values::structs::StructRef;
 use crate::gc::{Gc, GcMut};
 use crate::rvals::{FromSteelVal, IntoSteelVal, SteelByteVector};
 use crate::rvals::{
@@ -43,6 +42,7 @@ use crate::rvals::{
 use crate::values::closed::{HeapRef, HeapVec};
 use crate::values::lists::List;
 use crate::values::port::SteelPort;
+use crate::values::structs::StructRef;
 use crate::values::structs::UserDefinedStruct;
 use crate::values::Vector;
 use crate::{

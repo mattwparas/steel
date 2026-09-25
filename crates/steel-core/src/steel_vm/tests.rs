@@ -619,43 +619,35 @@ mod expansion_tests {
     use crate::steel_vm::engine::Engine;
     use std::path::PathBuf;
 
-    /// A main program (not compiled as a module, the way the CLI runs files)
+    /// A main program (compiled with `compile_and_run_raw_program`, not as a module)
     /// that requires a module and has a `case` clause whose datum names a
     /// special form. Expanding the required module's macros must not parse
     /// `(lambda)` inside the unexpanded `case` as a malformed lambda.
     #[test]
     fn case_datum_naming_a_special_form_in_a_program_with_requires() {
-        let dir = std::env::temp_dir().join(format!("steel-case-datum-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("mod.scm"), "(provide x) (define x 1)").unwrap();
-        let main = dir.join("main.scm");
-        let src = r#"(require "mod.scm")
+        let engine = || {
+            let mut engine = Engine::new();
+            engine.register_steel_module(
+                "test/case-datum".to_string(),
+                "(provide x) (define x 1)".to_string(),
+            );
+            engine
+        };
+        let src = r#"(require "test/case-datum")
             (define (f e) (case e ((lambda) 1) ((define) 2) (else 3)))
             (define result (list (f 'lambda) (f 'define) (f 'other)))"#;
-        std::fs::write(&main, src).unwrap();
 
-        let mut engine = Engine::new();
-        engine
-            .compile_and_run_raw_program_with_path(src, main.clone())
-            .unwrap();
-        assert_eq!(
-            engine.extract_value("result").unwrap().to_string(),
-            "(1 2 3)"
-        );
+        let mut run = engine();
+        run.compile_and_run_raw_program(src).unwrap();
+        assert_eq!(run.extract_value("result").unwrap().to_string(), "(1 2 3)");
 
-        let mut engine = Engine::new();
-        engine
-            .emit_expanded_ast_without_optimizations(src, Some(main))
+        engine()
+            .emit_expanded_ast_without_optimizations(src, None)
             .unwrap();
 
         // Malformed code is still an error.
-        let mut engine = Engine::new();
-        let bad = r#"(require "mod.scm") (define (g) (lambda))"#;
-        assert!(engine
-            .compile_and_run_raw_program_with_path(bad, dir.join("bad.scm"))
-            .is_err());
-
-        let _ = std::fs::remove_dir_all(&dir);
+        let bad = r#"(require "test/case-datum") (define (g) (lambda))"#;
+        assert!(engine().compile_and_run_raw_program(bad).is_err());
     }
 
     /// A main program using a module's own `car` / `cdr` in a loop. The
@@ -663,28 +655,22 @@ mod expansion_tests {
     /// `(car u)` with `(#%prim.car u)`, which rejects the module's pairs.
     #[test]
     fn a_modules_car_is_not_the_builtin_car() {
-        let dir = std::env::temp_dir().join(format!("steel-own-car-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("vpairs.scm"),
+        let mut engine = Engine::new();
+        engine.register_steel_module(
+            "test/vpairs".to_string(),
             "(provide vcons car cdr)
              (define (vcons a b) (vector a b))
              (define (car p) (if (vector? p) (vector-ref p 0) (#%prim.car p)))
-             (define (cdr p) (if (vector? p) (vector-ref p 1) (#%prim.cdr p)))",
-        )
-        .unwrap();
-        let src = r#"(require "vpairs.scm")
+             (define (cdr p) (if (vector? p) (vector-ref p 1) (#%prim.cdr p)))"
+                .to_string(),
+        );
+        let src = r#"(require "test/vpairs")
             (define lst (vcons 1 (vcons 2 (vcons 3 '()))))
             (define (sum l)
               (let loop ([u l] [r 0])
                 (if (null? u) r (loop (cdr u) (+ r (car u))))))
             (define result (sum lst))"#;
-        let main = dir.join("main.scm");
-        std::fs::write(&main, src).unwrap();
-        let mut engine = Engine::new();
-        let run = engine.compile_and_run_raw_program_with_path(src, main);
-        let _ = std::fs::remove_dir_all(&dir);
-        run.unwrap();
+        engine.compile_and_run_raw_program(src).unwrap();
         assert_eq!(engine.extract_value("result").unwrap().to_string(), "6");
     }
 
@@ -747,5 +733,250 @@ mod expansion_tests {
         let text = expanded.iter().map(|e| e.to_string()).collect::<String>();
         // Every call is to a renamed local; no bare `odd?` is left over.
         assert!(!text.contains("(odd? "), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod builtin_reference_tests {
+    use crate::steel_vm::engine::Engine;
+    use crate::SteelVal;
+
+    fn run(engine: &mut Engine, src: &str) -> String {
+        let values = engine.compile_and_run_raw_program(src.to_string()).unwrap();
+        values.last().unwrap().to_string()
+    }
+
+    #[test]
+    fn program_uses_its_own_car_defined_after_the_use() {
+        let mut engine = Engine::new();
+        let src = "(define (f x) (car x)) (define (car x) 'mine) (f (list 1 2))";
+        assert_eq!(run(&mut engine, src), "mine");
+    }
+
+    #[test]
+    fn earlier_program_redefines_car() {
+        let mut engine = Engine::new();
+        run(&mut engine, "(define (car x) 'mine)");
+        assert_eq!(run(&mut engine, "(car (list 1 2))"), "mine");
+        assert_eq!(
+            run(&mut engine, "((lambda (x) (car x)) (list 1 2))"),
+            "mine"
+        );
+    }
+
+    #[test]
+    fn host_registers_a_value_named_car() {
+        let mut engine = Engine::new();
+        engine.register_value("car", SteelVal::IntV(10));
+        assert_eq!(run(&mut engine, "(+ car 1)"), "11");
+    }
+
+    #[test]
+    fn quoted_builtin_names_stay_symbols() {
+        let mut engine = Engine::new();
+        assert_eq!(run(&mut engine, "(car '(car +))"), "car");
+        assert_eq!(
+            run(&mut engine, "(symbol->string (cadr '(car +)))"),
+            "\"+\""
+        );
+    }
+
+    #[test]
+    fn required_module_provides_car() {
+        let mut engine = Engine::new();
+        engine.register_steel_module(
+            "test/car-module".to_string(),
+            "(provide car) (define (car x) 'module-car)".to_string(),
+        );
+        let src = r#"(require "test/car-module") (car (list 1 2))"#;
+        assert_eq!(run(&mut engine, src), "module-car");
+    }
+
+    #[test]
+    fn builtins_in_a_program_become_primitive_references() {
+        let mut engine = Engine::new();
+        let expanded = engine
+            .emit_fully_expanded_ast_to_string("(define (f x) (+ (car x) 1))", None)
+            .unwrap();
+        assert!(expanded.contains("#%prim.car"), "{expanded}");
+        assert!(expanded.contains("#%prim.+"), "{expanded}");
+    }
+}
+
+#[cfg(test)]
+mod host_function_call_tests {
+    use crate::steel_vm::engine::Engine;
+    use crate::steel_vm::register_fn::RegisterFn;
+
+    fn engine() -> Engine {
+        #[cfg(feature = "jit2")]
+        crate::steel_vm::vm::jit::settle_background_compiles(
+            crate::steel_vm::vm::jit::jit_background_enabled(),
+        );
+        let mut engine = Engine::new();
+        engine.register_fn("host-inc", |x: isize| x + 1);
+        engine
+            .compile_and_run_raw_program(
+                "(define (call-inc x) (+ 0 (host-inc x)))
+                 (define (tail-inc x) (host-inc x))
+                 (define (warm n acc)
+                   (if (= n 0) acc (warm (- n 1) (+ acc (call-inc n) (tail-inc n)))))
+                 (warm 1000 0)",
+            )
+            .unwrap();
+        engine
+    }
+
+    fn run(engine: &mut Engine, src: &str) -> String {
+        let values = engine.compile_and_run_raw_program(src.to_string()).unwrap();
+        values.last().unwrap().to_string()
+    }
+
+    #[test]
+    fn compiled_callers_call_the_host_function() {
+        let mut engine = engine();
+        assert_eq!(run(&mut engine, "(warm 1000 0)"), "1003000");
+    }
+
+    #[test]
+    fn compiled_callers_see_a_host_function_set_later() {
+        let mut engine = engine();
+        run(&mut engine, "(set! host-inc (lambda (x) (* x 10)))");
+        assert_eq!(
+            run(&mut engine, "(list (call-inc 5) (tail-inc 5))"),
+            "(50 50)"
+        );
+        run(&mut engine, "(set! host-inc car)");
+        assert_eq!(
+            run(
+                &mut engine,
+                "(list (call-inc (list 7)) (tail-inc (list 8)))"
+            ),
+            "(7 8)"
+        );
+    }
+
+    #[test]
+    fn host_function_errors_reach_the_handler() {
+        let mut engine = engine();
+        assert_eq!(
+            run(
+                &mut engine,
+                "(list (with-handler (lambda (e) 'caught) (call-inc \"a\"))
+                       (with-handler (lambda (e) 'caught) (tail-inc \"a\"))
+                       (call-inc 1))"
+            ),
+            "(caught caught 2)"
+        );
+        assert!(engine
+            .compile_and_run_raw_program("(tail-inc \"a\")")
+            .is_err());
+    }
+}
+
+#[cfg(test)]
+mod set_after_compile_tests {
+    //! Each `run` is a separate compile, like input at the repl. Callers are
+    //! compiled before a later input `set!`s the global they call. A callee is
+    //! defined in its own input, since the compiler inlines a function into
+    //! callers compiled with it.
+    use crate::steel_vm::engine::Engine;
+
+    fn engine() -> Engine {
+        #[cfg(feature = "jit2")]
+        crate::steel_vm::vm::jit::settle_background_compiles(
+            crate::steel_vm::vm::jit::jit_background_enabled(),
+        );
+        Engine::new()
+    }
+
+    fn run(engine: &mut Engine, src: &str) -> String {
+        let values = engine.compile_and_run_raw_program(src.to_string()).unwrap();
+        values.last().unwrap().to_string()
+    }
+
+    const WARM: &str = "(define (warm n) (if (= n 0) 0 (begin (g 1) (warm (- n 1)))))
+                        (warm 2000)";
+
+    #[test]
+    fn tail_call_to_a_global_set_later() {
+        let mut engine = engine();
+        run(&mut engine, "(define (f x) (+ x 1))");
+        run(&mut engine, "(define (g x) (f x))");
+        run(&mut engine, WARM);
+        run(&mut engine, "(set! f (lambda (x) 0))");
+        assert_eq!(run(&mut engine, "(g 5)"), "0");
+    }
+
+    #[test]
+    fn call_to_a_global_set_later() {
+        let mut engine = engine();
+        run(&mut engine, "(define (f x) (+ x 1))");
+        run(&mut engine, "(define (g x) (+ 100 (f x)))");
+        run(&mut engine, WARM);
+        run(&mut engine, "(set! f (lambda (x) 0))");
+        assert_eq!(run(&mut engine, "(g 5)"), "100");
+    }
+
+    #[test]
+    fn call_to_a_variadic_global_set_later() {
+        let mut engine = engine();
+        run(&mut engine, "(define (f x . rest) (+ x 1))");
+        run(&mut engine, "(define (g x) (+ 100 (f x)))");
+        run(&mut engine, WARM);
+        run(&mut engine, "(set! f (lambda (x . rest) 0))");
+        assert_eq!(run(&mut engine, "(g 5)"), "100");
+    }
+
+    #[test]
+    fn struct_function_set_later() {
+        let mut engine = engine();
+        run(&mut engine, "(struct point (x y)) (define p (point 1 2))");
+        run(
+            &mut engine,
+            "(define (g x) (+ x (point-x p))) (define (h x) (point-x p))",
+        );
+        run(&mut engine, WARM);
+        run(&mut engine, "(h 1) (h 1)");
+        run(&mut engine, "(set! point-x (lambda (p) 40))");
+        assert_eq!(run(&mut engine, "(list (g 2) (h 2))"), "(42 40)");
+    }
+
+    // Past the speculation limit the caller is compiled without the guard.
+    #[test]
+    fn global_set_many_times() {
+        let mut engine = engine();
+        run(&mut engine, "(define (f x) x)");
+        run(&mut engine, "(define (g x) (+ 0 (f x)))");
+        run(&mut engine, WARM);
+        let mut expected = Vec::new();
+        let mut src = String::from("(define results '())");
+        for i in 0..150 {
+            src.push_str(&format!(
+                " (set! f (lambda (x) {i})) (warm 3) (set! results (cons (g 1) results))"
+            ));
+            expected.push(i.to_string());
+        }
+        run(&mut engine, &src);
+        expected.reverse();
+        assert_eq!(
+            run(&mut engine, "results"),
+            format!("({})", expected.join(" "))
+        );
+    }
+
+    // A module's own calls go to its own globals, which nothing outside it can
+    // `set!`; the program's `f` is a separate global.
+    #[test]
+    fn module_calls_are_not_changed_by_a_programs_set() {
+        let mut engine = engine();
+        engine.register_steel_module(
+            "test/set-module".to_string(),
+            "(provide f g) (define (f x) (+ x 1)) (define (g x) (f x))".to_string(),
+        );
+        run(&mut engine, r#"(require "test/set-module")"#);
+        run(&mut engine, WARM);
+        run(&mut engine, "(set! f (lambda (x) 0))");
+        assert_eq!(run(&mut engine, "(list (f 1) (g 1))"), "(0 2)");
     }
 }

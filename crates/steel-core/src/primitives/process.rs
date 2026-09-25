@@ -43,12 +43,24 @@ pub fn process_module() -> BuiltInModule {
     module
 }
 
-#[function(name = "subprocess?", alias = "ChildProcess?", returns = "bool", args = "any", raises = "never")]
+#[function(
+    name = "subprocess?",
+    alias = "ChildProcess?",
+    returns = "bool",
+    args = "any",
+    raises = "never"
+)]
 pub fn is_subprocess(value: &SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(SteelVal::BoolV(ChildProcess::as_ref(value).is_ok()))
 }
 
-#[function(name = "command-builder?", alias = "CommandBuilder?", returns = "bool", args = "any", raises = "never")]
+#[function(
+    name = "command-builder?",
+    alias = "CommandBuilder?",
+    returns = "bool",
+    args = "any",
+    raises = "never"
+)]
 pub fn is_command_builder(value: &SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(SteelVal::BoolV(CommandBuilder::as_ref(value).is_ok()))
 }

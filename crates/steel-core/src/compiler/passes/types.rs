@@ -1397,6 +1397,7 @@ mod tests {
     use super::*;
     use crate::compiler::passes::analysis::SemanticAnalysis;
     use crate::parser::ast::ExprKind;
+    use crate::parser::parser::SourceId;
     use crate::steel_vm::engine::Engine;
     use std::collections::BTreeMap;
     use thin_vec::thin_vec;
@@ -1406,14 +1407,18 @@ mod tests {
     /// more than once), `name()` for what the function bound to it returns,
     /// and `name@line:col` for a narrowed reference.
     fn describe(src: &str) -> BTreeMap<String, String> {
-        describe_at(src, None)
+        describe_at(src, &[])
     }
 
     /// [`describe`] for a program at `path` (so its `require`s resolve).
-    fn describe_at(src: &str, path: Option<std::path::PathBuf>) -> BTreeMap<String, String> {
+    /// `modules` are registered with the engine as `(name, source)`.
+    fn describe_at(src: &str, modules: &[(&str, &str)]) -> BTreeMap<String, String> {
         let mut engine = Engine::new();
+        for (name, source) in modules {
+            engine.register_steel_module(name.to_string(), source.to_string());
+        }
         let mut exprs = engine
-            .emit_expanded_ast_without_optimizations(src, path)
+            .emit_expanded_ast_without_optimizations(src, None)
             .unwrap();
         let analysis = SemanticAnalysis::new(&mut exprs);
         let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
@@ -1667,21 +1672,17 @@ mod tests {
             &[("k()", "any")],
         );
 
-        let dir = std::env::temp_dir().join(format!("steel-types-shadow-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("lists.scm"),
-            "(provide length car) (define (length x) 0) (define (car x) \"mine\")",
-        )
-        .unwrap();
-        let src = "(require \"lists.scm\")
+        let src = "(require \"test/lists\")
              (define (h y) (length y) y)
              (define (c y) (car y))
              (define (s y) (string-length y) y)";
-        let main = dir.join("main.scm");
-        std::fs::write(&main, src).unwrap();
-        let types = describe_at(src, Some(main));
-        let _ = std::fs::remove_dir_all(&dir);
+        let types = describe_at(
+            src,
+            &[(
+                "test/lists",
+                "(provide length car) (define (length x) 0) (define (car x) \"mine\")",
+            )],
+        );
         // The module's `length` takes anything, so there is no narrowing to a list.
         assert_eq!(
             types.get("h()").map(String::as_str),
@@ -1702,18 +1703,19 @@ mod tests {
         );
     }
 
+    /// The expanded program, and the id of its source.
+    fn expand_program(src: &str) -> (Engine, Vec<ExprKind>, SourceId) {
+        let mut engine = Engine::new();
+        let exprs = engine
+            .emit_expanded_ast_without_optimizations(src, None)
+            .unwrap();
+        let source = exprs.last().and_then(|e| e.span().source_id()).unwrap();
+        (engine, exprs, source)
+    }
+
     /// The hints for a program, as `name label` in source order.
     fn hints_for(src: &str) -> Vec<String> {
-        let dir = std::env::temp_dir().join(format!("steel-hints-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(format!("{:x}.scm", fxhash_str(src)));
-        std::fs::write(&path, src).unwrap();
-        let mut engine = Engine::new();
-        let mut exprs = engine
-            .emit_expanded_ast_without_optimizations(src, Some(path.clone()))
-            .unwrap();
-        let source = engine.get_source_id(&path).unwrap();
-        let _ = std::fs::remove_file(&path);
+        let (engine, mut exprs, source) = expand_program(src);
         let analysis = SemanticAnalysis::new(&mut exprs);
         let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
         let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
@@ -1733,13 +1735,6 @@ mod tests {
                 }
             })
             .collect()
-    }
-
-    fn fxhash_str(s: &str) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        s.hash(&mut h);
-        h.finish()
     }
 
     #[test]
@@ -1779,16 +1774,7 @@ mod tests {
 
     /// Hover text at the first occurrence of `needle` (offset into it).
     fn hover_at(src: &str, needle: &str, nth: usize, into: usize) -> Option<String> {
-        let dir = std::env::temp_dir().join(format!("steel-hover-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(format!("{:x}.scm", fxhash_str(src)));
-        std::fs::write(&path, src).unwrap();
-        let mut engine = Engine::new();
-        let mut exprs = engine
-            .emit_expanded_ast_without_optimizations(src, Some(path.clone()))
-            .unwrap();
-        let source = engine.get_source_id(&path).unwrap();
-        let _ = std::fs::remove_file(&path);
+        let (engine, mut exprs, source) = expand_program(src);
         let analysis = SemanticAnalysis::new(&mut exprs);
         let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
         let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);

@@ -1,5 +1,6 @@
 #![allow(improper_ctypes_definitions, unused)]
 
+use crate::values::functions::BoxedDynFunction;
 use crate::values::structs::StructRef;
 use core::{hint::unreachable_unchecked, mem::ManuallyDrop, sync::atomic::AtomicUsize};
 
@@ -63,11 +64,12 @@ fn jit_should_compile(id: u32) -> bool {
     }
 }
 
-/// The set of global indices the compiler proved are never `set!`.
+/// The set of global indices the compiler proved are never `set!`, now or by
+/// a later compile (`is_closed_global`).
 ///
-/// Baking a global's value into generated code (as the direct global tail
-/// call does) is only sound for these. Any other global can later hold a
-/// different function, or a closure instance with different captures.
+/// Generated code can bake these globals' values in. Any other global can
+/// later hold a different function, or a closure instance with different
+/// captures, so code that bakes one checks it first.
 fn non_mutable_globals(ctx: &VmCore) -> std::collections::HashSet<usize> {
     ctx.thread
         .compiler
@@ -4204,6 +4206,222 @@ fn new_callglobal_tail_handler_deopt_test(
     }
 }
 
+// Call of a global that held `func` when the caller was compiled. The caller
+// keeps `func` alive. If the global has been changed since, this is the
+// generic call, or the generic tail call when `TAIL` is set.
+fn call_boxed_function_handler<const TAIL: bool>(
+    ctx: &mut VmCore,
+    func: *const BoxedDynFunction,
+    index: usize,
+    fallback_ip: usize,
+    args: &mut [SteelVal],
+) -> SteelVal {
+    let unchanged = matches!(
+        ctx.thread.global_env.repl_lookup_idx_ref(index),
+        SteelVal::BoxedFunction(f) if core::ptr::eq(f.as_ptr(), func)
+    );
+
+    if !unchanged {
+        return if TAIL {
+            new_callglobal_tail_handler_deopt_test(ctx, index, fallback_ip, args)
+        } else {
+            call_global_function_deopt(ctx, index, fallback_ip, args)
+        };
+    }
+
+    let func = unsafe { &*func };
+    ctx.ip = fallback_ip;
+
+    match ctx.thread.enter_safepoint_once(|_| func.func()(args)) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.is_native = false;
+            ctx.result = Some(Err(e.set_span_if_none(ctx.current_span())));
+            SteelVal::Void
+        }
+    }
+}
+
+macro_rules! make_call_boxed_function {
+    ($definitions:ident, $tail:expr, $(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct $definitions;
+
+        impl $definitions {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
+                $(
+                    #[cfg(target_os = "windows")]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: *const BoxedDynFunction, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: *const BoxedDynFunction, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+            #[cross_platform_fn]
+            fn $name(
+                ctx: *mut VmCore,
+                func: *const BoxedDynFunction,
+                lookup_index: usize,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                unsafe { call_boxed_function_handler::<$tail>(&mut *ctx, func, lookup_index, fallback_ip, &mut [$($typ), *]) }
+            }
+        )*
+    };
+}
+
+make_call_boxed_function!(
+    CallBoxedFunctionDefinitions,
+    false,
+    (call_boxed_function_0,),
+    (call_boxed_function_1, a),
+    (call_boxed_function_2, a, b),
+    (call_boxed_function_3, a, b, c),
+    (call_boxed_function_4, a, b, c, d),
+    (call_boxed_function_5, a, b, c, d, e),
+    (call_boxed_function_6, a, b, c, d, e, f),
+    (call_boxed_function_7, a, b, c, d, e, f, g),
+    (call_boxed_function_8, a, b, c, d, e, f, g, h)
+);
+
+make_call_boxed_function!(
+    CallBoxedFunctionTailDefinitions,
+    true,
+    (call_boxed_function_tail_0,),
+    (call_boxed_function_tail_1, a),
+    (call_boxed_function_tail_2, a, b),
+    (call_boxed_function_tail_3, a, b, c),
+    (call_boxed_function_tail_4, a, b, c, d),
+    (call_boxed_function_tail_5, a, b, c, d, e),
+    (call_boxed_function_tail_6, a, b, c, d, e, f),
+    (call_boxed_function_tail_7, a, b, c, d, e, f, g),
+    (call_boxed_function_tail_8, a, b, c, d, e, f, g, h)
+);
+
+// Tail call of a global that held a native function when the caller was
+// compiled. A native function's value is returned to the caller, which returns
+// it without leaving compiled code. Anything else goes through the deopt handler.
+fn callglobal_native_tail_handler(
+    ctx: &mut VmCore,
+    index: usize,
+    fallback_ip: usize,
+    args: &mut [SteelVal],
+) -> SteelVal {
+    let func = ctx.thread.global_env.repl_lookup_idx(index);
+    ctx.ip = fallback_ip;
+
+    let result = match &func {
+        SteelVal::FuncV(f) => ctx.thread.enter_safepoint_once(|_| f(args)),
+        SteelVal::BoxedFunction(f) => ctx.thread.enter_safepoint_once(|_| f.func()(args)),
+        SteelVal::MutFunc(f) => f(args),
+        _ => return new_callglobal_tail_handler_deopt_test(ctx, index, fallback_ip, args),
+    };
+
+    match result {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.is_native = false;
+            ctx.result = Some(Err(e.set_span_if_none(ctx.current_span())));
+            SteelVal::Void
+        }
+    }
+}
+
+macro_rules! make_call_global_native_tail {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallGlobalNativeTailDefinitions;
+
+        impl CallGlobalNativeTailDefinitions {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
+                $(
+                    #[cfg(target_os = "windows")]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+            #[cross_platform_fn]
+            fn $name(
+                ctx: *mut VmCore,
+                lookup_index: usize,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                unsafe { callglobal_native_tail_handler(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
+            }
+        )*
+    };
+}
+
+make_call_global_native_tail!(
+    (call_global_native_tail_0,),
+    (call_global_native_tail_1, a),
+    (call_global_native_tail_2, a, b),
+    (call_global_native_tail_3, a, b, c),
+    (call_global_native_tail_4, a, b, c, d),
+    (call_global_native_tail_5, a, b, c, d, e),
+    (call_global_native_tail_6, a, b, c, d, e, f),
+    (call_global_native_tail_7, a, b, c, d, e, f, g),
+    (call_global_native_tail_8, a, b, c, d, e, f, g, h)
+);
+
 #[cross_platform_fn]
 fn callglobal_tail_handler_deopt_spilled(
     ctx: *mut VmCore,
@@ -6758,10 +6976,6 @@ fn call_global_function_deopt(
     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
     debug_assert!(ctx.is_native);
 
-    if deopt_census_enabled() {
-        record_deopt(&func, lookup_index, ctx);
-    }
-
     // println!("---> Calling function: {} - {:?}", func, args);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
@@ -6781,6 +6995,11 @@ fn call_global_function_deopt(
             ctx.ip = fallback_ip;
         }
     };
+
+    // Only the calls that leave compiled code. Native functions return here.
+    if deopt_census_enabled() && !ctx.is_native {
+        record_deopt(&func, lookup_index, ctx);
+    }
 
     match handle_global_function_call_with_args(ctx, func, args) {
         Ok(v) => v,

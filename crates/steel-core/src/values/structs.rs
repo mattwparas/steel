@@ -722,9 +722,7 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
             Ok(SteelVal::BoolV(match &args[0] {
-                SteelVal::CustomStruct(my_struct) if my_struct.descriptor() == descriptor => {
-                    true
-                }
+                SteelVal::CustomStruct(my_struct) if my_struct.descriptor() == descriptor => true,
                 _ => false,
             }))
         };
