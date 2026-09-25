@@ -1,19 +1,18 @@
 //! Every `STEEL_*` tuning and debugging switch, in one place.
 //!
-//! Each setting is declared once below - field, type, default, environment
-//! variable, and what it does - and read once, the first time anything asks
-//! for [`config()`]. Code reads the field (`config().jit_frameless`) rather than
-//! the environment.
+//! Each setting is declared once below with its field, type, default, environment
+//! variable and description, and read once, the first time anything asks for
+//! [`config()`]. Code reads the field (`config().jit_frameless`), never the environment.
 //!
 //! Parsing is the same for every setting of a type:
 //! - `bool`: unset means the default; `0`, `false`, `off` or `no` mean off, and
-//!   anything else - including an empty value - means on.
+//!   anything else, including an empty value, means on.
 //! - numbers: parsed after trimming; a value that doesn't parse means the default.
 //! - `Option<String>`: the raw value, when set.
 //! - `Option<Vec<u32>>` / `Option<Vec<String>>`: a comma separated list, when set.
 //!
-//! `STEEL_HOME`, `STEEL_LSP_HOME` and `STEEL_SEARCH_PATHS` are not here: they are
-//! where to find things, read by other crates too, not switches.
+//! `STEEL_HOME`, `STEEL_LSP_HOME` and `STEEL_SEARCH_PATHS` are not here since they
+//! are search paths, and other crates read them too.
 //!
 //! [`describe`] lists every setting with its current value.
 
@@ -51,7 +50,11 @@ impl ConfigValue for String {
 
 impl ConfigValue for Vec<u32> {
     fn parse(raw: &str) -> Option<Self> {
-        Some(raw.split(',').filter_map(|x| x.trim().parse().ok()).collect())
+        Some(
+            raw.split(',')
+                .filter_map(|x| x.trim().parse().ok())
+                .collect(),
+        )
     }
 }
 
@@ -236,14 +239,14 @@ steel_config! {
     /// Inline type predicates.
     jit_predicate: bool = true, "STEEL_JIT_PREDICATE";
     /// Inline `pair?` on a local, and let `car` of a local known to be a pair
-    /// or non-empty list skip its checks. Off, the code is what it was before.
+    /// or non-empty list skip its checks.
     jit_inline_pair_p: bool = true, "STEEL_JIT_INLINE_PAIR_P";
     /// Inline mutable struct getters.
     jit_getter_proto: bool = true, "STEEL_JIT_GETTER_PROTO";
     /// Read a mutable struct field straight through its box.
     jit_fuse_getter_unbox: bool = true, "STEEL_JIT_FUSE_GETTER_UNBOX";
     /// Type the result of a primitive call by the return type its definition
-    /// declares, rather than as anything.
+    /// declares.
     jit_primitive_types: bool = true, "STEEL_JIT_PRIMITIVE_TYPES";
     /// After a primitive call returns normally, narrow the locals passed to it
     /// to the argument types its definition declares (`args = "..."`).

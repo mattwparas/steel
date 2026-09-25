@@ -1,8 +1,8 @@
-//! Guarded fast paths: the commonest shape of a lowering in the jit.
+//! Guarded fast paths, the most common shape of a lowering in the jit.
 //!
-//! Take some operands, check they have the shape the fast path handles (their
-//! tags, plus anything else), run the fast path when they do and a fallback -
-//! usually a runtime helper - when they don't, and merge the two results:
+//! Take some operands and check they have the shape the fast path handles (their
+//! tags, plus any other condition). Run the fast path when they do, otherwise run a
+//! fallback (usually a runtime helper), and merge the two results.
 //!
 //! ```ignore
 //! let result = self
@@ -17,24 +17,23 @@
 //! ```
 //!
 //! A tag check on a value whose tag is already known (`known_tags`, filled in
-//! from inferred types as values are materialised) is a constant, and a guard
-//! that is constant emits only the arm it takes - so the fast path costs no
-//! check at all where the types already prove it, without the lowering having
-//! to ask.
+//! from inferred types as values are materialised) is a constant, and a constant
+//! guard emits only the arm it takes. So where the types already prove the shape,
+//! the fast path has no check.
 //!
 //! The pieces, from smallest:
-//! - `pop_boxed` / `pop_boxed_args::<N>()`: operands off the operand stack as
-//!   boxed values (the right hand side first, as the stack gives them).
+//! - `pop_boxed` / `pop_boxed_args::<N>()`: pop operands as boxed values (the
+//!   right hand side first, as the stack gives them).
 //! - `tags_are(&[(value, TAG), ..])`: the guard for "these values carry these
-//!   tags" - use it wherever a lowering tests tags, rather than and-ing
-//!   `is_type`s by hand, so every guard is built (and folded) the same way.
+//!   tags". Use it wherever a lowering tests tags, instead of and-ing `is_type`s
+//!   by hand, so every guard is built and folded the same way.
 //! - `guarded_op::<N>()` / `guarded_on(args)` ... `.require(tags)`,
 //!   `.and_also(cond)`, `.emit(fast, fallback, typ)`: the whole shape, for a
-//!   lowering that is exactly guard + fast path + fallback. A lowering whose
+//!   lowering that is only guard + fast path + fallback. A lowering whose
 //!   fast path branches again, or whose fallback is shared with an inner
 //!   branch, can use `tags_are` and `converging_if` directly.
 //!
-//! Converting a lowering to these must not change what it emits: check with
+//! Converting a lowering to these should not change what it emits. Check with
 //! the normalised `STEEL_JIT_DUMP_CLIF=` diff (OPT_NOTES.md).
 
 use super::*;
@@ -46,9 +45,8 @@ impl<'a> FunctionTranslator<'a> {
         operand.as_steelval(self)
     }
 
-    /// Pop the top `N` operands as boxed values, in call order - the deepest
-    /// first. They come off the stack last argument first, the order the
-    /// lowerings always used.
+    /// Pop the top `N` operands as boxed values, in call order (deepest first).
+    /// They come off the stack last argument first.
     pub(super) fn pop_boxed_args<const N: usize>(&mut self) -> [Value; N] {
         let mut args = [Value::from_u32(0); N];
         for slot in args.iter_mut().rev() {
@@ -57,7 +55,7 @@ impl<'a> FunctionTranslator<'a> {
         args
     }
 
-    /// Whether each value carries its tag: every check, then their `and`,
+    /// Whether each value carries its tag. Emits every check, then ands them
     /// left to right.
     pub(super) fn tags_are(&mut self, checks: &[(Value, u8)]) -> Value {
         let checks: Vec<Value> = checks
@@ -120,7 +118,7 @@ impl<'t, 'a, const N: usize> GuardedOp<'t, 'a, N> {
     }
 
     /// `fast` when the guard holds, `fallback` otherwise, merged into one value
-    /// of type `typ`. With no guard at all, just `fast`.
+    /// of type `typ`. With no guard, only `fast`.
     pub(super) fn emit(
         self,
         fast: impl Fn(&mut FunctionTranslator<'a>, [Value; N]) -> Value,
@@ -129,14 +127,11 @@ impl<'t, 'a, const N: usize> GuardedOp<'t, 'a, N> {
     ) -> Value {
         let args = self.args;
         match self.guard {
-            Some(guard) => self.translator.converging_if(
-                guard,
-                |t| fast(t, args),
-                |t| fallback(t, args),
-                typ,
-            ),
+            Some(guard) => {
+                self.translator
+                    .converging_if(guard, |t| fast(t, args), |t| fallback(t, args), typ)
+            }
             None => fast(self.translator, args),
         }
     }
-
 }

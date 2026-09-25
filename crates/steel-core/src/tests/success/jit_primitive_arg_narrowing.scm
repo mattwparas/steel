@@ -1,8 +1,8 @@
 ;; The jit narrows a local passed to a primitive to the argument type the
 ;; primitive declares (`args = "..."`), once the call has returned normally.
-;; Loops so the functions get compiled, then used with the narrowed locals.
+;; Loops so the functions get compiled, then uses the narrowed locals.
 
-;; After (length lst), lst is a list: car / cdr / null? on it afterwards.
+;; After (length lst), lst is a list, so use car / cdr / null? on it.
 (define (sum-after-length lst)
   (let ([n (length lst)])
     (let loop ([l lst] [acc n])
@@ -18,7 +18,7 @@
   (let ([a (abs x)])
     (+ a (* x x))))
 
-;; A local reassigned after the call: the narrowing must not outlive it.
+;; A local reassigned after the call, so the narrowing must not outlive it.
 (define (reassigned lst)
   (let ([x lst])
     (length x)

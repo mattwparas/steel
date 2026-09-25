@@ -2,32 +2,31 @@
 //!
 //! Each line of [`jit_helpers!`] below is one helper: the constant jitted code
 //! refers to it by, the symbol it is registered under, the Rust function, and
-//! its signature. From that come the registration (`register_helpers`) and a
-//! typed handle, which `FunctionTranslator::call_helper` takes with exactly as
-//! many arguments as the helper has - a wrong count is a compile error rather
-//! than a verifier failure or a crash in generated code.
+//! its signature. The macro generates the registration (`register_helpers`) and
+//! a typed handle. `FunctionTranslator::call_helper` takes the handle with as
+//! many arguments as the helper has, so a wrong count is a compile error instead
+//! of a verifier failure or a crash in generated code.
 //!
-//! A `ctx` helper takes the `*mut VmCore` first and gets it implicitly; a `plain`
+//! A `ctx` helper takes the `*mut VmCore` first and gets it implicitly. A `plain`
 //! one takes only what is listed. `ctx_raises` / `plain_raises` mark a helper
-//! that can raise, which changes how it may be called (see [`Helper`]). [`KEEPS_STACK`] lists the helpers that never move the
-//! vm's value stack.
+//! that can raise, which changes how it may be called (see [`Helper`]).
+//! [`KEEPS_STACK`] lists the helpers that never move the vm's value stack.
 //!
 //! Helpers whose names are chosen at run time (by arity, by opcode) are
 //! registered with their families and still called by name.
 
 use super::*;
 
-/// A helper declared in [`jit_helpers!`]: `N` arguments not counting the vm
-/// context, `CTX` whether it takes the context first, `RET` whether it returns
-/// a value, `RAISES` whether it can raise an error or otherwise hand control
-/// back to the interpreter (by clearing `VmCore::is_native`).
+/// A helper declared in [`jit_helpers!`]. `N` is the argument count not counting
+/// the vm context, `CTX` whether it takes the context first, `RET` whether it
+/// returns a value, and `RAISES` whether it can raise an error or otherwise hand
+/// control back to the interpreter (by clearing `VmCore::is_native`).
 ///
 /// A raising helper can only be called through `call_helper_checked`, which
-/// leaves native code right after the call if it raised, or
-/// `call_helper_unchecked`, which says the caller checks itself later - so
-/// forgetting the check doesn't compile. Carrying on after one raised runs
-/// native code on a garbage result: an out of range `vector-ref` once came out
-/// as a type error from `+`.
+/// leaves native code right after the call if it raised, or through
+/// `call_helper_unchecked`, where the caller checks later itself. Forgetting the
+/// check doesn't compile. Continuing after a raise runs native code on a garbage
+/// result.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Helper<const N: usize, const CTX: bool, const RET: bool, const RAISES: bool> {
     pub(super) name: &'static str,
@@ -299,7 +298,7 @@ jit_helpers! {
 /// stack buffer pointer survives a call to one. Everything else is assumed to
 /// move it.
 pub(super) const KEEPS_STACK: &[&str] = &[
-    // arithmetic and comparison slow paths - operate on values, not the stack
+    // arithmetic and comparison slow paths, which only operate on values
     ADD_BINOP.name,
     ADD_BINOP_INT_REG.name,
     ADD_THREE.name,
@@ -325,9 +324,9 @@ pub(super) const KEEPS_STACK: &[&str] = &[
 
 /// Helpers that can allocate on the managed heap (boxes and mutable vectors),
 /// and so start a collection. The collector's roots are the vm stack, the frame
-/// stack and the globals - a value compiled code holds only in a register is
-/// not one - so across a call to one of these, nothing else may be pending
-/// off the vm stack. The call sites are checked when the code is generated
+/// stack and the globals. A value compiled code holds only in a register is not
+/// a root, so across a call to one of these, nothing may be pending off the vm
+/// stack. The call sites are checked when the code is generated
 /// (`FunctionTranslator::check_collection_roots`).
 pub(super) const COLLECTS: &[&str] = &[
     BOX_HANDLER.name,
@@ -336,9 +335,14 @@ pub(super) const COLLECTS: &[&str] = &[
 ];
 
 /// The same for helpers named at run time: the per-arity constructor families.
-pub(super) const COLLECTING_FAMILIES: &[&str] =
-    &["call_mutable_vector_constructor_", "call_mutable_struct_constructor_"];
+pub(super) const COLLECTING_FAMILIES: &[&str] = &[
+    "call_mutable_vector_constructor_",
+    "call_mutable_struct_constructor_",
+];
 
 pub(super) fn helper_collects(name: &str) -> bool {
-    COLLECTS.contains(&name) || COLLECTING_FAMILIES.iter().any(|prefix| name.starts_with(prefix))
+    COLLECTS.contains(&name)
+        || COLLECTING_FAMILIES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
 }

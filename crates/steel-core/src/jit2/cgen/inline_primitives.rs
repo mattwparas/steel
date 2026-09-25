@@ -1,8 +1,8 @@
 //! Which primitive calls the jit lowers inline, in one table.
 //!
-//! A call to a primitive - a global bound to a native function - normally goes
+//! A call to a primitive (a global bound to a native function) normally goes
 //! out through a generic helper. The primitives in [`inline_primitives`] have
-//! lowerings of their own; each entry says which function it is, for which
+//! lowerings of their own. Each entry says which function it is, for which
 //! arity, whether it applies in operand position and in tail position (each
 //! behind its own switch), any further shape check, and how it lowers.
 //! `try_inline_primitive` and `try_inline_primitive_tail` are the only
@@ -17,16 +17,18 @@ type ReturnLowering =
 /// How an entry emits its code, given the call's arity. Either way it consumes
 /// its operands off the operand stack.
 pub(super) enum Lowering {
-    /// Pushes the result and steps past the call itself - the operand position
-    /// shape. In tail position the result is popped back off and returned.
+    /// Pushes the result and steps past the call itself, as in operand
+    /// position. In tail position the result is popped back off and returned.
     Pushes(PushLowering),
-    /// Returns the result, or `None` having emitted nothing when this site
-    /// doesn't suit the lowering after all. In operand position it is pushed
+    /// Returns the result, or `None` with nothing emitted when this site
+    /// doesn't suit the lowering. In operand position it is pushed
     /// with `InferredType::Any`.
     Returns(ReturnLowering),
 }
 
-fn pushes(lower: impl for<'a> Fn(&mut FunctionTranslator<'a>, usize) + Send + Sync + 'static) -> Lowering {
+fn pushes(
+    lower: impl for<'a> Fn(&mut FunctionTranslator<'a>, usize) + Send + Sync + 'static,
+) -> Lowering {
     Lowering::Pushes(Box::new(lower))
 }
 
@@ -37,7 +39,7 @@ fn returns(
 }
 
 pub(super) struct PrimitiveInline {
-    /// For reading the table; the dispatch goes by `target`.
+    /// For reading the table. Dispatch uses `target`.
     #[allow(dead_code)]
     pub(super) name: &'static str,
     /// The native function, as a pointer.
@@ -93,14 +95,14 @@ fn bytevector() -> bool {
 }
 
 // Reached from an inlined accessor's `(#%unbox (getter x))`, which is an
-// operand position call - hence the tail call switch in operand position too.
+// operand position call, so the tail call switch also gates operand position.
 fn boxes() -> bool {
     inline_primitive_tail_calls_enabled()
 }
 
-/// An entry for `target` lowered by `lower`: in operand position, not in tail
-/// position, at any arity, with no further shape check - override with the
-/// methods below.
+/// An entry for `target` lowered by `lower`. By default it applies in operand
+/// position, not in tail position, at any arity, with no further shape check.
+/// Override with the methods below.
 fn inline(name: &'static str, target: *const (), lower: Lowering) -> PrimitiveInline {
     PrimitiveInline {
         name,
@@ -158,49 +160,103 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
 
         vec![
             // Type predicates.
-            inline("string?", steel_stringp as *const (), pushes(|t, _| t.is_string())).arity(1),
-            inline("list?", steel_listp as *const (), pushes(|t, _| t.is_list())).arity(1),
-            inline("void?", steel_voidp as *const (), pushes(|t, _| t.is_void())).arity(1),
-            inline("eof-object?", steel_eof_objectp as *const (), pushes(|t, _| t.eof_object()))
-                .arity(1),
-            inline("symbol?", steel_symbolp as *const (), pushes(|t, _| t.is_symbol())).arity(1),
-            // `pair?` and `null?` were 37% of `scheme`'s tail call deopts
-            // between them.
+            inline(
+                "string?",
+                steel_stringp as *const (),
+                pushes(|t, _| t.is_string()),
+            )
+            .arity(1),
+            inline(
+                "list?",
+                steel_listp as *const (),
+                pushes(|t, _| t.is_list()),
+            )
+            .arity(1),
+            inline(
+                "void?",
+                steel_voidp as *const (),
+                pushes(|t, _| t.is_void()),
+            )
+            .arity(1),
+            inline(
+                "eof-object?",
+                steel_eof_objectp as *const (),
+                pushes(|t, _| t.eof_object()),
+            )
+            .arity(1),
+            inline(
+                "symbol?",
+                steel_symbolp as *const (),
+                pushes(|t, _| t.is_symbol()),
+            )
+            .arity(1),
             inline("pair?", steel_pair as *const (), pushes(|t, _| t.is_pair()))
                 .arity(1)
                 .tail(extra_pred),
-            inline("empty?", steel_is_empty as *const (), pushes(|t, _| t.is_empty()))
-                .arity(1)
-                .tail(extra_pred),
+            inline(
+                "empty?",
+                steel_is_empty as *const (),
+                pushes(|t, _| t.is_empty()),
+            )
+            .arity(1)
+            .tail(extra_pred),
             // `null?` in operand position is its own opcode. In tail position
             // the empty list is the case worth inlining; the primitive also
             // answers for empty vectors, which the helper handles.
-            inline("null?", list_vec_null as *const (), returns(|t, _| Some(t.inline_null_predicate())))
-                .arity(1)
-                .operand(never)
-                .tail(extra_pred),
+            inline(
+                "null?",
+                list_vec_null as *const (),
+                returns(|t, _| Some(t.inline_null_predicate())),
+            )
+            .arity(1)
+            .operand(never)
+            .tail(extra_pred),
             // Equality and membership.
-            inline("eq?", steel_eq as *const (), pushes(|t, _| t.eq())).arity(2).tail(extra),
-            inline("char=?", steel_char_equals as *const (), pushes(|t, arity| t.char_equals(arity)))
-                .arity(2),
-            inline("list-contains", steel_list_contains as *const (), pushes(|t, _| t.list_contains()))
-                .arity(2),
-            // Vectors.
-            inline("vector-set!", steel_mut_vec_set as *const (), pushes(|t, _| t.vector_set()))
-                .arity(3)
+            inline("eq?", steel_eq as *const (), pushes(|t, _| t.eq()))
+                .arity(2)
                 .tail(extra),
-            inline("vector-push!", mut_vec_push as *const (), pushes(|t, _| t.vector_push())).arity(2),
+            inline(
+                "char=?",
+                steel_char_equals as *const (),
+                pushes(|t, arity| t.char_equals(arity)),
+            )
+            .arity(2),
+            inline(
+                "list-contains",
+                steel_list_contains as *const (),
+                pushes(|t, _| t.list_contains()),
+            )
+            .arity(2),
+            // Vectors.
+            inline(
+                "vector-set!",
+                steel_mut_vec_set as *const (),
+                pushes(|t, _| t.vector_set()),
+            )
+            .arity(3)
+            .tail(extra),
+            inline(
+                "vector-push!",
+                mut_vec_push as *const (),
+                pushes(|t, _| t.vector_push()),
+            )
+            .arity(2),
             inline(
                 "flat vector",
                 flat_vector_construct as *const (),
                 pushes(|t, arity| t.flat_vector_construct(arity)),
             )
-            .guard(|_, arity| CallFlatVectorConstructorsDefinitions::arity_to_name(arity).is_some()),
+            .guard(|_, arity| {
+                CallFlatVectorConstructorsDefinitions::arity_to_name(arity).is_some()
+            }),
             inline(
                 "mutable-vector",
                 mut_vec_construct as *const (),
                 returns(|t, arity| {
-                    t.inline_mutable_vector_tail_call(mut_vec_construct as *const () as usize, arity)
+                    t.inline_mutable_vector_tail_call(
+                        mut_vec_construct as *const () as usize,
+                        arity,
+                    )
                 }),
             )
             .operand(never)
@@ -221,18 +277,24 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             .arity(3)
             .operand(bytevector)
             .guard(|t, arity| t.byte_vector_shape_ok(arity)),
-            // Integer division. Inlining these only in operand position left
-            // `bv2string`'s `(remainder (quotient x 8) n)` deopting once per
-            // iteration: 99.79% of every tail call deopt in the program.
+            // Integer division, in both operand and tail position.
             divmod_entry("quotient", quotient, DivMode::TruncQuotient),
-            divmod_entry("truncate-quotient", truncate_quotient, DivMode::TruncQuotient),
+            divmod_entry(
+                "truncate-quotient",
+                truncate_quotient,
+                DivMode::TruncQuotient,
+            ),
             divmod_entry("remainder", remainder, DivMode::TruncRemainder),
-            divmod_entry("truncate-remainder", truncate_remainder, DivMode::TruncRemainder),
+            divmod_entry(
+                "truncate-remainder",
+                truncate_remainder,
+                DivMode::TruncRemainder,
+            ),
             divmod_entry("floor-quotient", floor_quotient, DivMode::FloorQuotient),
             divmod_entry("modulo", modulo, DivMode::FloorRemainder),
             divmod_entry("floor-remainder", floor_remainder, DivMode::FloorRemainder),
-            // Boxes: mutable struct fields, so `(#%unbox (getter ...))` and
-            // `#%set-box!` are everywhere.
+            // Boxes. Mutable struct fields are boxes, so `(#%unbox (getter ...))`
+            // and `#%set-box!` are common.
             inline(
                 "#%unbox",
                 steel_unbox_mutable as *const (),
@@ -264,16 +326,21 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
                 "#%make-mutable-struct",
                 make_mutable_struct as *const (),
                 returns(|t, arity| {
-                    t.inline_mutable_struct_tail_call(make_mutable_struct as *const () as usize, arity)
+                    t.inline_mutable_struct_tail_call(
+                        make_mutable_struct as *const () as usize,
+                        arity,
+                    )
                 }),
             )
             .operand(never)
             .tail(extra),
-            // Lists: `cdr` was 28% of the tail call deopts in `scheme`.
+            // Lists.
             inline(
                 "cdr",
                 steel_cdr as *const (),
-                returns(|t, arity| t.inline_mut_func_tail_call(steel_cdr as *const () as usize, arity)),
+                returns(|t, arity| {
+                    t.inline_mut_func_tail_call(steel_cdr as *const () as usize, arity)
+                }),
             )
             .operand(never)
             .tail(extra_cdr),
@@ -299,7 +366,7 @@ fn find(target: usize, arity: usize) -> Option<&'static PrimitiveInline> {
 
 impl FunctionTranslator<'_> {
     /// Lower a call to the primitive `target` in operand position, if it has
-    /// an inline lowering here; `false` (nothing emitted) sends it down the
+    /// an inline lowering here. `false` (nothing emitted) means use the
     /// generic call.
     pub(super) fn try_inline_primitive(&mut self, target: usize, arity: usize) -> bool {
         let Some(entry) = find(target, arity) else {
@@ -323,15 +390,19 @@ impl FunctionTranslator<'_> {
 
     /// The same in tail position: the value to return, or `None` (nothing
     /// emitted) for the generic tail call.
-    pub(super) fn try_inline_primitive_tail(&mut self, target: usize, arity: usize) -> Option<Value> {
+    pub(super) fn try_inline_primitive_tail(
+        &mut self,
+        target: usize,
+        arity: usize,
+    ) -> Option<Value> {
         let entry = find(target, arity)?;
         if !(entry.tail)() || !(entry.guard)(self, arity) {
             return None;
         }
         match &entry.lower {
-            // The operand position lowering, then its result back off the
-            // stack. Its `ip` step doesn't matter: the tail call arm moves
-            // past the end of the function once this returns.
+            // Run the operand position lowering and pop its result. Its `ip`
+            // step doesn't matter, since the tail call arm moves past the end
+            // of the function once this returns.
             Lowering::Pushes(lower) => {
                 lower(self, arity);
                 Some(self.pop_boxed())
@@ -339,5 +410,4 @@ impl FunctionTranslator<'_> {
             Lowering::Returns(lower) => lower(self, arity),
         }
     }
-
 }

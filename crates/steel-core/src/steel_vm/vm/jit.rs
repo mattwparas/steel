@@ -42,7 +42,11 @@ fn jit_should_compile(id: u32) -> bool {
         }
     }
 
-    if config.jit_skip.as_ref().is_some_and(|skip| skip.contains(&id)) {
+    if config
+        .jit_skip
+        .as_ref()
+        .is_some_and(|skip| skip.contains(&id))
+    {
         return false;
     }
 
@@ -59,12 +63,11 @@ fn jit_should_compile(id: u32) -> bool {
     }
 }
 
-
 /// The set of global indices the compiler proved are never `set!`.
 ///
-/// Baking a global's *value* into generated code (as the direct global tail
-/// call does) is only sound for these - anything else can come to hold a
-/// different function, or a different closure instance with different captures.
+/// Baking a global's value into generated code (as the direct global tail
+/// call does) is only sound for these. Any other global can later hold a
+/// different function, or a closure instance with different captures.
 fn non_mutable_globals(ctx: &VmCore) -> std::collections::HashSet<usize> {
     ctx.thread
         .compiler
@@ -73,15 +76,6 @@ fn non_mutable_globals(ctx: &VmCore) -> std::collections::HashSet<usize> {
         .reified_non_mutable
         .clone()
 }
-
-
-
-
-
-
-
-
-
 
 pub(crate) fn jit_compile_lambda(
     ctx: &mut VmCore,
@@ -93,7 +87,7 @@ pub(crate) fn jit_compile_lambda(
 }
 
 /// `jit_compile_lambda`, except that with background compilation on it only
-/// prepares the lambda and returns the compile as a job - to be submitted with
+/// prepares the lambda and returns the compile as a job. Submit the job with
 /// `submit_background_job` once the lambda is in its final `Gc`.
 pub(crate) fn jit_compile_lambda_deferred(
     ctx: &mut VmCore,
@@ -206,11 +200,10 @@ fn jit_compile_lambda_impl(
 
     let non_mutable_globals = non_mutable_globals(ctx);
 
-    // Background compilation: everything the compile reads from the running
-    // VM is captured now, at the moment a synchronous compile would have read
-    // it - so the compile makes the same decisions (the function's own global
-    // is still unbound here, which the self call fast path relies on); only the
-    // install happens later.
+    // For background compilation, capture everything the compile reads from the
+    // VM now, when a synchronous compile would read it, so both make the same
+    // decisions. The function's own global is still unbound here, which the self
+    // call fast path relies on. Only the install happens later.
     if defer {
         let job = BackgroundJob {
             name,
@@ -226,21 +219,20 @@ fn jit_compile_lambda_impl(
         return (func, Some(job));
     }
 
-    // The jit is shared by every engine in the process, so a panic anywhere in
-    // cranelift would otherwise poison it for everyone. Take the lock back rather
-    // than turning one failed compile into a process wide outage.
-    let fn_pointer = lock_jit_for_interpreter(&ctx.thread.jit)
-        .compile_bytecode(
-            name,
-            func.arity,
-            &func.body_exp,
-            &ctx.thread.global_env.roots(),
-            &ctx.thread.constant_map,
-            maybe_index,
-            self_slot.map(|x| &*x),
-            fn_ptr_name,
-            &non_mutable_globals,
-        );
+    // The jit is shared by every engine in the process, so recover the lock if a
+    // panic in cranelift poisoned it, otherwise one failed compile breaks every
+    // engine.
+    let fn_pointer = lock_jit_for_interpreter(&ctx.thread.jit).compile_bytecode(
+        name,
+        func.arity,
+        &func.body_exp,
+        &ctx.thread.global_env.roots(),
+        &ctx.thread.constant_map,
+        maybe_index,
+        self_slot.map(|x| &*x),
+        fn_ptr_name,
+        &non_mutable_globals,
+    );
 
     let fn_pointer = if let Ok(fn_pointer) = fn_pointer {
         fn_pointer
@@ -264,15 +256,12 @@ fn jit_compile_lambda_impl(
 // ---------------------------------------------------------------------------
 // Background compilation (on by default; `STEEL_JIT_BACKGROUND=0` turns it off).
 //
-// Compiling every function as it is defined puts all of compilation on the
-// main thread before the program runs: a one line script spends 0.25s of its
-// 0.32s compiling the prelude. With this on, a definition queues its compile
-// on a single process wide worker thread (the jit is already process wide) and
-// the interpreter carries on running the function interpreted until the
-// compiled code is installed. Full suite: wall time -5% geomean, nothing
-// slower. Use `STEEL_JIT_BACKGROUND=0` when bisecting a miscompile
-// (STEEL_JIT_MAX/ONLY/SKIP) or profiling compiled code: synchronously, which
-// code runs native no longer depends on how fast the worker is.
+// A definition queues its compile on a single process wide worker thread (the
+// jit is already process wide), and the interpreter keeps running the function
+// until the compiled code is installed. This keeps compilation of the prelude
+// off the main thread at startup. Turn it off when bisecting a miscompile
+// (STEEL_JIT_MAX/ONLY/SKIP) or profiling compiled code, so which code runs
+// native doesn't depend on how fast the worker is.
 
 pub(crate) fn jit_background_enabled() -> bool {
     crate::config::config().jit_background
@@ -289,25 +278,23 @@ pub(crate) struct BackgroundJob {
     constants: crate::compiler::constants::ConstantMap,
     non_mutable: std::collections::HashSet<usize>,
     jit: Arc<std::sync::Mutex<crate::jit2::cgen::JIT>>,
-    // Whether the lambda this compiles into is also the one its self calls
-    // go to (a pure function's slot), as opposed to a closure prototype.
+    // Whether the lambda this compiles into is also the target of its self
+    // calls (a pure function's slot). False for a closure prototype.
     self_slot: bool,
 }
 
 struct QueuedJob {
     job: BackgroundJob,
     lambda: Gc<ByteCodeLambda>,
-    // Where the job goes once compiled, to be dropped by the thread that
-    // queued it. Its `Gc`s (the lambda, the closures in `globals`, the
-    // constant map) were cloned there, and under biased reference counting a
-    // decrement from any other thread queues the object for a merge that
-    // takes it off the owner's fast path for good: every later clone and drop
-    // of it is atomic. For a function that was the lambda itself, called
-    // millions of times - tak ran 6% slower before this.
+    // Where the job goes once compiled, so the thread that queued it drops it.
+    // Its `Gc`s (the lambda, the closures in `globals`, the constant map) were
+    // cloned on that thread. Under biased reference counting, a decrement from
+    // another thread queues the object for a merge, after which every clone and
+    // drop of it is atomic. That would slow down calls to the lambda itself.
     returns: crossbeam_channel::Sender<QueuedJob>,
-    // Reference counts the compiled code owes values it baked in, paid by the
-    // same thread for the same reason (`jit_leak`), before `job` - which keeps
-    // those values alive meanwhile - is dropped.
+    // Reference counts the compiled code owes values it baked in (`jit_leak`).
+    // Paid by the queueing thread for the same reason, before `job` is dropped,
+    // since `job` keeps those values alive until then.
     leaks: Vec<crate::jit2::cgen::DeferredLeak>,
 }
 
@@ -364,12 +351,11 @@ pub(crate) fn wait_for_background_compiles() {
 /// With background compilation on, make this thread wait for its queued
 /// compiles after every top level form (`SteelThread::run_executable`).
 ///
-/// For tests. A test program normally finishes long before the worker gets to
-/// it, so it would only ever run interpreted; settled, each form sees the
-/// functions defined before it compiled - what synchronous compilation gives -
-/// while every compile still goes through the worker, the snapshot and the
-/// install. (Installs landing mid-run are what the unsettled stress tests are
-/// for.)
+/// For tests. A test program normally finishes before the worker gets to it, so
+/// it would only run interpreted. When settled, each form sees the functions
+/// defined before it already compiled, like synchronous compilation, while every
+/// compile still goes through the worker, the snapshot and the install. The
+/// unsettled stress tests cover installs that land mid-run.
 pub fn settle_background_compiles(settle: bool) {
     SETTLE_AT_TOP_LEVEL.with(|flag| flag.set(settle));
 }
@@ -383,14 +369,14 @@ pub(crate) fn settle_after_top_level_form() {
 
 /// The globals as the compiler sees them, without copying the environment.
 ///
-/// The compiler only ever looks a global up by an index it read out of this
-/// function's bytecode (a call or push operand, or the function's own slot), and
-/// only cares whether it is a closure, a primitive, a builtin or a struct
-/// function. So: same length - `get` beyond it still means unbound - with those
-/// kinds copied at the indices the bytecode mentions and `Void` everywhere else,
-/// which can only ever send the compiler down a generic path. Cloning the
-/// shared environment itself would be O(1) here, but it is copy on write: the
-/// next `define` would copy the whole thing, once per queued function.
+/// The compiler only looks up a global by an index from this function's bytecode
+/// (a call or push operand, or the function's own slot), and only cares whether
+/// it is a closure, a primitive, a builtin or a struct function. So the snapshot
+/// has the same length (`get` past the end still means unbound), those kinds are
+/// copied at the indices the bytecode mentions, and everything else is `Void`,
+/// which only sends the compiler down a generic path. Cloning the shared
+/// environment is O(1), but it is copy on write, so the next `define` would copy
+/// the whole thing once per queued function.
 fn sparse_globals_snapshot(
     ctx: &VmCore,
     body: &[crate::core::instructions::DenseInstruction],
@@ -422,12 +408,11 @@ fn sparse_globals_snapshot(
     globals
 }
 
-
-// Entry points installed in the background, by body address - the one thing a
-// closure prototype and all of its instances share. Never pruned: the code is
-// never freed either, and a later body at a reused address is only looked up
-// once its own compile has overwritten the slot (a synchronously compiled
-// lambda always carries its entry and never asks).
+// Entry points installed in the background, keyed by body address, which a
+// closure prototype and all of its instances share. Never pruned, since the code
+// is never freed either. A later body at a reused address is only looked up once
+// its own compile has overwritten the slot (a synchronously compiled lambda
+// always carries its entry and never looks it up).
 static BACKGROUND_ENTRIES: std::sync::LazyLock<
     std::sync::RwLock<rustc_hash::FxHashMap<usize, usize>>,
 > = std::sync::LazyLock::new(Default::default);
@@ -462,9 +447,8 @@ pub(crate) fn body_entered_natively(body: &[crate::core::instructions::DenseInst
 }
 
 // Interpreter threads blocked on the jit lock. The mutex is not fair, and the
-// worker drops it and takes it straight back between jobs, so a synchronous
-// compile (capturing closures still compile in line) would otherwise wait out
-// the whole queue - slatex's main thread sat through all 2s of it. The worker
+// worker drops and retakes it between jobs, so a synchronous compile (capturing
+// closures still compile in line) could wait out the whole queue. The worker
 // steps aside while this is non zero, so the wait is at most one compile.
 static INTERPRETER_WAITING_ON_JIT: AtomicUsize = AtomicUsize::new(0);
 
@@ -510,8 +494,8 @@ fn background_queue() -> &'static crossbeam_channel::Sender<QueuedJob> {
 }
 
 /// Queue `lambda`'s compile. `lambda` must be the final, shared `Gc` the
-/// program will call - the compile bakes self calls against it and installs
-/// into it.
+/// program will call, since the compile bakes self calls against it and
+/// installs into it.
 pub(crate) fn submit_background_job(job: BackgroundJob, lambda: &Gc<ByteCodeLambda>) {
     drop_returned_background_jobs();
     let Ok(returns) = BACKGROUND_RETURNS.try_with(|(sender, _)| sender.clone()) else {
@@ -562,19 +546,22 @@ fn run_background_job(queued: &mut QueuedJob) {
     BACKGROUND_ENTRIES
         .write()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(lambda.body_exp.as_ptr() as usize, fn_pointer.0.as_ptr() as usize);
+        .insert(
+            lambda.body_exp.as_ptr() as usize,
+            fn_pointer.0.as_ptr() as usize,
+        );
 
     // The interpreter enters native code by executing this lambda's first
-    // instruction, so that is what switches it over - including a loop already
-    // running interpreted, whose next self tail call jumps back to it. The body
-    // is this lambda's private copy (`jit_compile_lambda_impl` made it) and the
-    // store is a single byte; the readers are interpreter dispatch loops, which
-    // see either the old opcode or the new one.
+    // instruction, so patching it switches the lambda over, including a loop
+    // already running interpreted, whose next self tail call jumps back to it.
+    // The body is this lambda's private copy (`jit_compile_lambda_impl` made it)
+    // and the store is a single byte, so dispatch loops see either the old
+    // opcode or the new one.
     //
-    // Other lambdas can share this body with an empty entry: every instance
-    // of a closure copies its prototype's entry when it is created, so the ones
-    // made before this landed have none. They find it in `BACKGROUND_ENTRIES`
-    // (`resolve_background_entry`) the first time they need it.
+    // Other lambdas can share this body with an empty entry: closure instances
+    // copy their prototype's entry when created, so ones made before this have
+    // none. They find it in `BACKGROUND_ENTRIES` (`resolve_background_entry`)
+    // the first time they need it.
     const _: () = assert!(core::mem::size_of::<OpCode>() == 1);
     let byte = unsafe { core::mem::transmute::<OpCode, u8>(OpCode::DynSuperInstruction) };
     unsafe {
@@ -587,15 +574,24 @@ fn run_background_job(queued: &mut QueuedJob) {
 // Block until every background compile this thread queued has been
 // installed. For tests and measurements that want compiled code; returns at
 // once when nothing is queued.
-#[steel_derive::context(name = "#%jit-drain", arity = "Exact(0)", returns = "void", args = "", raises = "never")]
+#[steel_derive::context(
+    name = "#%jit-drain",
+    arity = "Exact(0)",
+    returns = "void",
+    args = "",
+    raises = "never"
+)]
 pub(crate) fn jit_drain(_ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     wait_for_background_compiles();
     Some(Ok(SteelVal::Void))
 }
 
-
-
-#[steel_derive::context(name = "#%jit-compile-2", arity = "AtLeast(1)", args = "any, any...", raises = "never")]
+#[steel_derive::context(
+    name = "#%jit-compile-2",
+    arity = "AtLeast(1)",
+    args = "any, any...",
+    raises = "never"
+)]
 pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let function = &args[0];
 
@@ -666,7 +662,12 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "#%jit-compile", arity = "AtLeast(1)", args = "any, any...", raises = "never")]
+#[steel_derive::context(
+    name = "#%jit-compile",
+    arity = "AtLeast(1)",
+    args = "any, any...",
+    raises = "never"
+)]
 pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let function = &args[0];
     // Provide the name for the function for recursive calls
@@ -1056,9 +1057,8 @@ fn pop_slow_path_finish(ctx: *mut VmCore, value: SteelVal) {
 
 // Collect the trailing `count` arguments into the list a variadic callee
 // expects in its last slot. This is what `adjust_stack_for_multi_arity` does
-// for the interpreter; a jitted call site that sets the frame up itself calls
-// this instead, once it knows - at compile time - how many arguments are
-// surplus.
+// for the interpreter. A jitted call site that sets up the frame itself calls
+// this instead, once it knows at compile time how many arguments are surplus.
 #[cross_platform_fn]
 fn collect_rest_args(ctx: *mut VmCore, count: usize) {
     let ctx = unsafe { &mut *ctx };
@@ -1069,24 +1069,23 @@ fn collect_rest_args(ctx: *mut VmCore, count: usize) {
 
 // Frameless self calls.
 //
-// A jitted self call to a function's `_frameless` copy pushes no `StackFrame`:
-// the arguments are on the value stack exactly where a framed call would put
-// them, but the frame record itself only exists if something has to leave
-// native code. Then each caller, on seeing its frameless callee come back not
-// native, records the frame that call would have pushed. That happens innermost
-// first, as the native stack unwinds, while the frames have to go on
-// outermost first - so the records collect here, and the framed copy that made
-// the first frameless call (the boundary) splices them onto `stack_frames` in
-// reverse.
+// A jitted self call to a function's `_frameless` copy pushes no `StackFrame`.
+// The arguments are on the value stack where a framed call would put them, and
+// the frame record is only built if something has to leave native code. Then
+// each caller whose frameless callee comes back not native records the frame
+// that call would have pushed. This happens innermost first as the native stack
+// unwinds, but the frames have to go on outermost first. So the records collect
+// here, and the framed copy that made the first frameless call (the boundary)
+// splices them onto `stack_frames` in reverse.
 thread_local! {
     static FRAMELESS_PENDING: core::cell::RefCell<Vec<StackFrame>> =
         const { core::cell::RefCell::new(Vec::new()) };
 }
 
-// Record the frame a frameless call from a jitted caller would have pushed:
-// the callee's `sp`, the caller's return `ip` and instructions, and the
-// closure - which this takes its own reference to, since the frameless call
-// never did.
+// Record the frame a frameless call from a jitted caller would have pushed,
+// with the callee's `sp`, the caller's return `ip` and instructions, and the
+// closure. This takes its own reference to the closure, since the frameless
+// call never did.
 #[cfg(feature = "rooted-instructions")]
 #[cross_platform_fn]
 fn frameless_record_frame(
@@ -1558,12 +1557,11 @@ fn is_empty_value(value: SteelVal) -> SteelVal {
     SteelVal::BoolV(crate::primitives::lists::is_empty(&value))
 }
 
-// `list_cursor_materialize`, consuming the head the cursor walked from - the
-// value in its slot, which is being replaced. A head whose cells nothing else
-// shares is reused the way an in-place `cdr` would: stepped past for free and
-// the target repositioned in place. Cloning from it instead copies the target
-// cell (the head still shares it), which turned primes' free in-place cdrs on
-// a uniquely owned list into a copy per step.
+// `list_cursor_materialize`, consuming the head the cursor walked from (the
+// value in its slot, which is being replaced). A head whose cells nothing else
+// shares is reused like an in-place `cdr`, repositioned onto the target without
+// a copy. Cloning from the head would copy the target cell on every step, since
+// the head still shares it.
 #[cross_platform_fn]
 fn list_cursor_materialize_owned(head: SteelVal, cell: usize, index: usize) -> SteelVal {
     if index == 0 {
@@ -1574,9 +1572,9 @@ fn list_cursor_materialize_owned(head: SteelVal, cell: usize, index: usize) -> S
     debug_assert!(cell != 0, "a non-empty cursor always has a cell");
 
     match head {
-        SteelVal::ListV(list) => SteelVal::ListV(unsafe {
-            list.reposition_from_raw_parts(cell as *const u8, index)
-        }),
+        SteelVal::ListV(list) => {
+            SteelVal::ListV(unsafe { list.reposition_from_raw_parts(cell as *const u8, index) })
+        }
         other => {
             let out = list_cursor_materialize(cell, index);
             drop(other);
@@ -1586,17 +1584,17 @@ fn list_cursor_materialize_owned(head: SteelVal, cell: usize, index: usize) -> S
 }
 
 // Turn a `(cell, index)` cursor that jitted code has been walking in registers
-// back into a real list. Only called when the cursor escapes - is stored,
-// returned, handed to a call, or has to be visible to the interpreter at a
-// deopt - so the cell copy it costs is paid once rather than once per step.
+// back into a real list. Only called when the cursor escapes (is stored,
+// returned, passed to a call, or has to be visible to the interpreter at a
+// deopt), so the cell copy is paid once instead of once per step.
 //
 // The cell is kept alive by the head of the list, which stays in its vm stack
 // slot untouched for as long as a cursor is walking it.
 #[cross_platform_fn]
 fn list_cursor_materialize(cell: usize, index: usize) -> SteelVal {
-    // Index 0 is how a cursor spells the empty list - it walked off the end,
-    // and `cell` is just the last cell it was in. Hand back the real empty list
-    // rather than that cell repositioned: an inline cell has no position 0.
+    // Index 0 means the cursor walked off the end and is the empty list; `cell`
+    // is the last cell it was in. Return a real empty list, since an inline cell
+    // has no position 0 to reposition to.
     if index == 0 {
         return SteelVal::ListV(crate::values::lists::List::new());
     }
@@ -3072,8 +3070,8 @@ fn num_equal_value_bool(ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> bo
 
     match number_equality(&left, &right) {
         Ok(SteelVal::BoolV(b)) => b,
-        // Same as extern_c_lte_register - comparing a number against something
-        // that isn't one is a runtime error, not an unreachable state
+        // Same as extern_c_lte_register. Comparing a number against a
+        // non-number is a runtime error, so report it.
         Ok(other) => {
             guard.is_native = false;
             guard.result = Some(Err(SteelErr::new(
@@ -3092,8 +3090,8 @@ fn num_equal_value_bool(ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> bo
 
 #[cross_platform_fn]
 fn num_equal_int(ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> SteelVal {
-    // The jit only picks this when it has inferred an integer on the right, but
-    // the left is still whatever the program handed us
+    // The jit only picks this when it has inferred an integer on the right.
+    // The left can still be any value.
     assert!(matches!(right, SteelVal::IntV(_) | SteelVal::BigNum(_)));
 
     match number_equality(&left, &right) {
@@ -3171,9 +3169,8 @@ macro_rules! extern_binop {
         fn $name(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
             match $func(&[a, b]) {
                 Ok(v) => v,
-                // Hand the error back the way extern_c_div_one does - unwrapping
-                // here takes the whole process down on something the runtime
-                // would otherwise raise, like a divide by zero
+                // Hand the error back the way extern_c_div_one does, so errors
+                // like a divide by zero raise instead of panicking.
                 Err(e) => {
                     let guard = unsafe { &mut *ctx };
                     guard.is_native = false;
@@ -3562,35 +3559,27 @@ fn extern_c_negate(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
 }
 
 extern_binop!(extern_c_sub_two, subtract_primitive);
-// These used to be hand written as `SteelVal::BoolV(a <= b)`, which answers
-// `#false` for a pair that cannot be ordered at all. `gt`/`gte` next to them
-// already went through the primitive, so `(< 1 "x")` and `(> 1 "x")`
-// disagreed with each other.
+// Go through the primitive so a pair that cannot be ordered raises, the same
+// as `gt`/`gte`. `SteelVal::BoolV(a <= b)` would answer `#false` for it.
 extern_binop!(extern_c_lt_two, lt_primitive);
 extern_binop!(extern_c_lte_two, lte_primitive);
 
 // Bool-returning comparisons on two arbitrary values.
 //
-// The `*-binop` helpers return a boxed `SteelVal`, which is fine when the JIT
-// is going to push the result, but useless as the fallback arm of an inlined
-// comparison: both arms of the branch have to agree on type, and the inlined
-// arm produces an unboxed `i1`.
+// The `*-binop` helpers return a boxed `SteelVal`, which works when the JIT
+// pushes the result. The fallback arm of an inlined comparison needs an unboxed
+// `i1` to match the inlined arm.
 //
-// These must match `ordering_primitive` - the shared body of the `<`, `<=`,
-// `>` and `>=` primitives - exactly, or the same expression answers differently
-// depending on whether the jit picked the inlined comparison. That means
-// raising when the two values cannot be ordered at all, which is what
-// `partial_cmp` returning `None` says.
+// These must match `ordering_primitive` (the shared body of `<`, `<=`, `>` and
+// `>=`), or an expression answers differently depending on whether the jit
+// inlined the comparison. So they raise when `partial_cmp` returns `None`.
 //
-// The rule is *comparability*, deliberately not `realp`. An earlier version of
-// these copied the shape of `extern_c_lte_register`, which rejects anything
-// non-real, and that turned working comparisons in `compiler` into type errors.
-// Strings order against strings here, as they always have; only a genuinely
-// incomparable pair - a number against a string, say - raises.
+// The check is comparability, and does not require `realp` like
+// `extern_c_lte_register` does. Strings order against strings; an incomparable
+// pair, such as a number and a string, raises.
 //
-// (Plain comments, not doc comments: `cross_platform_fn` re-emits the item's
-// attributes after the `extern "C-unwind"`, so a `///` on one of these is a
-// syntax error.)
+// These are plain comments because `cross_platform_fn` re-emits the item's
+// attributes after the `extern "C-unwind"`, so a `///` here is a syntax error.
 #[cross_platform_fn]
 fn extern_c_lt_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
     match a.partial_cmp(&b) {
@@ -3598,10 +3587,7 @@ fn extern_c_lt_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> boo
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
-                format!(
-                    "< expected comparable values, found: {} and {}",
-                    a, b
-                ),
+                format!("< expected comparable values, found: {} and {}", a, b),
             );
 
             unsafe {
@@ -3622,10 +3608,7 @@ fn extern_c_lte_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bo
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
-                format!(
-                    "<= expected comparable values, found: {} and {}",
-                    a, b
-                ),
+                format!("<= expected comparable values, found: {} and {}", a, b),
             );
 
             unsafe {
@@ -3646,10 +3629,7 @@ fn extern_c_gt_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> boo
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
-                format!(
-                    "> expected comparable values, found: {} and {}",
-                    a, b
-                ),
+                format!("> expected comparable values, found: {} and {}", a, b),
             );
 
             unsafe {
@@ -3670,10 +3650,7 @@ fn extern_c_gte_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bo
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
-                format!(
-                    ">= expected comparable values, found: {} and {}",
-                    a, b
-                ),
+                format!(">= expected comparable values, found: {} and {}", a, b),
             );
 
             unsafe {
@@ -3687,9 +3664,9 @@ fn extern_c_gte_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bo
     }
 }
 
-// The three argument orderings, `(< a b c)`. Same story as the two argument
-// ones: written out as `a < b && b < c` they silently answer `#false` for an
-// unorderable pair, so they go through the primitive instead.
+// The three argument orderings, `(< a b c)`. Like the two argument ones, these
+// go through the primitive so an unorderable pair raises instead of answering
+// `#false`.
 #[cross_platform_fn]
 fn extern_c_lt_three(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
     match lt_primitive(&[a, b, c]) {
@@ -4024,9 +4001,8 @@ fn push_global(ctx: *mut VmCore, index: usize) -> SteelVal {
 }
 
 #[inline(always)]
-/// `STEEL_DEOPT_CENSUS=1` tallies what the global tail-call deopt handler is
-/// actually dispatching on, so the biggest symbol in a profile can be traced
-/// back to a callee kind rather than guessed at.
+/// `STEEL_DEOPT_CENSUS=1` tallies what the global tail-call deopt handler
+/// dispatches on, so time spent in it can be traced back to a callee kind.
 pub fn deopt_census_enabled() -> bool {
     crate::config::config().deopt_census
 }
@@ -4056,8 +4032,8 @@ fn record_deopt(func: &SteelVal, index: usize, ctx: &VmCore) {
     let key = match map.get(&format!("@name{index}")) {
         Some(_) => format!("{kind}|{index}"),
         None => {
-            // Resolve the global's source name once, so the census names the
-            // primitive rather than an opaque index.
+            // Resolve the global's source name once, so the census shows the
+            // primitive's name instead of its index.
             let name = ctx
                 .thread
                 .compiler
@@ -4097,7 +4073,12 @@ pub fn dump_deopt_census() {
     kinds.sort_by_key(|x| std::cmp::Reverse(x.1));
     eprintln!("deopt-census: {total} tail-call deopts");
     for (k, v) in kinds {
-        eprintln!("  {:6.2}%  {:12}  {}", 100.0 * v as f64 / total as f64, v, k);
+        eprintln!(
+            "  {:6.2}%  {:12}  {}",
+            100.0 * v as f64 / total as f64,
+            v,
+            k
+        );
     }
     let mut sites: Vec<_> = map
         .iter()
@@ -4144,12 +4125,10 @@ fn new_callglobal_tail_handler_deopt_test(
         let top_before = ctx.thread.stack_frames.last().map(|x| x.function.id);
         match ctx.call_builtin_func_reporting(f, len) {
             Ok(returned_value) => {
-                // Both signals are needed. The frame count alone misses a
-                // tail-position `apply`, which *replaces* the current frame -
-                // the count is unchanged although control moved, and this used
-                // to pop the frame and swallow the result. The builtin's own
-                // answer alone misses `call/cc`, which returns a value *and*
-                // sets up a frame.
+                // Both checks are needed. The frame count alone misses a
+                // tail-position `apply`, which replaces the current frame and
+                // leaves the count unchanged. The builtin's own answer alone
+                // misses `call/cc`, which returns a value and sets up a frame.
                 let produced_value = returned_value
                     && ctx.thread.stack_frames.len() == frames_before
                     && ctx.thread.stack_frames.last().map(|x| x.function.id) == top_before;
@@ -4236,7 +4215,7 @@ fn callglobal_tail_handler_deopt_spilled(
     let func = ctx.thread.global_env.repl_lookup_idx(index);
 
     // These callees get a frame set up and report Void; the rest return a
-    // value. This handler never trampolines, so a jitted callee is no exception.
+    // value. This handler never trampolines, so this includes jitted callees.
     let sets_up_frame = matches!(
         &func,
         SteelVal::Closure(_)
@@ -4433,7 +4412,7 @@ fn handle_global_function_call_with_args(
 
                     // inspect_impl(ctx, &[SteelVal::Closure(closure.clone())]);
 
-                    // An arity mismatch is an ordinary error here, not a bug.
+                    // An arity mismatch is an ordinary error here.
                     ctx.handle_function_call_closure_jit(closure.clone(), arity)?;
 
                     let tramp = ctx.thread.trampoline;
@@ -4807,7 +4786,7 @@ fn list_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
     SteelVal::ListV(remaining)
 }
 
-// Arithmetic or a comparison at an arity the jit has no fixed helper for: the
+// Arithmetic or a comparison at an arity the jit has no fixed helper for. The
 // operands are the top `arity` values of the vm stack. `code` is
 // `variadic_numeric_code` in the jit.
 #[cross_platform_fn]
@@ -5348,12 +5327,11 @@ make_struct_constructors!(
     (call_struct_constructor_8, a, b, c, d, e, f, g, h)
 );
 
-// `#%make-mutable-struct` in tail position, called straight from jitted code.
-// The generic tail call handler re-looked-up the global, matched on its kind and
-// went through the `BuiltIn` calling convention for every `cons` a mutable-pair
-// benchmark makes. The first argument is the struct type descriptor; the rest are
+// `#%make-mutable-struct` in tail position, called directly from jitted code
+// to skip the generic tail call handler's global lookup and `BuiltIn` calling
+// convention. The first argument is the struct type descriptor; the rest are
 // the fields. On an error the frame is handed back to the interpreter at
-// `fallback_ip`, which is what `check_deopt` after the call looks for.
+// `fallback_ip`, which `check_deopt` after the call looks for.
 macro_rules! make_mutable_struct_constructors {
     ($(($name:tt, $($typ:ident),*)),*) => {
 
@@ -5430,14 +5408,13 @@ make_mutable_struct_constructors!(
     (call_mutable_struct_constructor_8, a, b, c, d, e, f, g, h)
 );
 
-// `mutable-vector` in tail position, called straight from jitted code. It is a
-// `BuiltIn`, so every `(vector a b c)` otherwise went out through the generic
-// tail call handler and into the interpreter - 32% of every tail call deopt in
-// the `scheme` benchmark, which represents each environment frame as one.
+// `mutable-vector` in tail position, called directly from jitted code. It is a
+// `BuiltIn`, so otherwise every `(vector a b c)` goes through the generic tail
+// call handler and deopts to the interpreter.
 //
 // The allocation can collect, and the collector's roots are the vm stack plus
-// these arguments; in tail position nothing else in the frame is live, which is
-// what the caller checks before emitting this.
+// these arguments. The caller checks that nothing else in the frame is live in
+// tail position before emitting this.
 macro_rules! make_mutable_vector_constructors {
     ($(($name:tt, $($typ:ident),*)),*) => {
 
@@ -5503,11 +5480,11 @@ make_mutable_vector_constructors!(
     (call_mutable_vector_constructor_8, a, b, c, d, e, f, g, h)
 );
 
-// `cdr` in tail position. `cdr` is a `MutFunc`, which the tail call path had no
-// inline case for at all, so `(loop ... (cdr x))` style tails went through the
-// generic handler into the interpreter. Unlike `cdr_handler_value` this leaves
-// `ip` alone: in tail position the frame is returning, and the only reader of
-// `ip` is the error path, which sets `fallback_ip` itself.
+// `cdr` in tail position. `cdr` is a `MutFunc`, which the tail call path has no
+// inline case for, so `(loop ... (cdr x))` style tails would otherwise go through
+// the generic handler into the interpreter. Unlike `cdr_handler_value` this
+// leaves `ip` alone. In tail position the frame is returning, and the only
+// reader of `ip` is the error path, which sets `fallback_ip` itself.
 #[cross_platform_fn]
 fn cdr_tail_value(ctx: *mut VmCore, fallback_ip: usize, arg: SteelVal) -> SteelVal {
     let mut arg = arg;
@@ -5524,8 +5501,8 @@ fn cdr_tail_value(ctx: *mut VmCore, fallback_ip: usize, arg: SteelVal) -> SteelV
     }
 }
 
-// `reverse` in tail position. Another `MutFunc`, and 54% of `matrix`'s tail
-// call deopts - the accumulate-then-reverse idiom puts it exactly there.
+// `reverse` in tail position. Another `MutFunc`, common in tail position from
+// the accumulate-then-reverse idiom.
 #[cross_platform_fn]
 fn reverse_tail_value(ctx: *mut VmCore, fallback_ip: usize, arg: SteelVal) -> SteelVal {
     let mut arg = arg;
@@ -5544,10 +5521,10 @@ fn reverse_tail_value(ctx: *mut VmCore, fallback_ip: usize, arg: SteelVal) -> St
     out
 }
 
-// `(make-vector n)` / `(make-vector n fill)`, called straight from jitted code
-// rather than through the generic handler - 35% of `matrix`'s deopts. As with
-// the other allocating builtins, the caller guarantees the vm stack and these
-// arguments are the only roots it needs.
+// `(make-vector n)` / `(make-vector n fill)`, called directly from jitted code
+// instead of through the generic handler. As with the other allocating
+// builtins, the caller guarantees the vm stack and these arguments are the only
+// roots it needs.
 #[cross_platform_fn]
 fn call_make_vector_1(ctx: *mut VmCore, fallback_ip: usize, size: SteelVal) -> SteelVal {
     make_vector_checked(ctx, fallback_ip, size, SteelVal::IntV(0))
@@ -5577,8 +5554,8 @@ fn make_vector_checked(
             guard.make_mutable_vector(values)
         }
         other => {
-            // Everything else - a negative length, a non-integer - raises, and
-            // the message is the primitive's own.
+            // Everything else, like a negative length or a non-integer, raises
+            // with the primitive's own message.
             let args = [other, fill];
             match crate::primitives::vectors::make_vector(guard, &args) {
                 Some(Err(e)) => {
@@ -6012,9 +5989,54 @@ make_call_function_tail_deopt!(
     (call_function_tail_deopt_9, a, b, c, d, e, f, g, h, i),
     (call_function_tail_deopt_10, a, b, c, d, e, f, g, h, i, j),
     (call_function_tail_deopt_11, a, b, c, d, e, f, g, h, i, j, k),
-    (call_function_tail_deopt_12, a, b, c, d, e, f, g, h, i, j, k, l),
-    (call_function_tail_deopt_13, a, b, c, d, e, f, g, h, i, j, k, l, m),
-    (call_function_tail_deopt_14, a, b, c, d, e, f, g, h, i, j, k, l, m, n)
+    (
+        call_function_tail_deopt_12,
+        a,
+        b,
+        c,
+        d,
+        e,
+        f,
+        g,
+        h,
+        i,
+        j,
+        k,
+        l
+    ),
+    (
+        call_function_tail_deopt_13,
+        a,
+        b,
+        c,
+        d,
+        e,
+        f,
+        g,
+        h,
+        i,
+        j,
+        k,
+        l,
+        m
+    ),
+    (
+        call_function_tail_deopt_14,
+        a,
+        b,
+        c,
+        d,
+        e,
+        f,
+        g,
+        h,
+        i,
+        j,
+        k,
+        l,
+        m,
+        n
+    )
 );
 
 macro_rules! make_call_global_function_deopt_no_arity {
@@ -6417,8 +6439,8 @@ fn setup_closure_call_arity(
     // println!("CALLING THIS THING");
     let mut ctx = unsafe { &mut *ctx };
 
-    // `STEEL_STACK_DEBUG=1`: how much native stack the jitted frames are using
-    // when they hand off here. Read once - this is the hot trampoline path.
+    // With `STEEL_STACK_DEBUG=1`, report how much native stack the jitted frames
+    // are using when they hand off here.
     if crate::config::config().stack_debug {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         if N.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 200000 == 0 {
@@ -6436,9 +6458,9 @@ fn setup_closure_call_arity(
     // ctx.ip += 1;
 
     ctx.ip = fallback_arity;
-    // An arity mismatch surfaces here: the generated fast path only takes a
-    // closure whose arity matches, and sends everything else through this.
-    // Dropping the error left no frame pushed and the stack misread.
+    // Arity mismatches end up here, since the generated fast path only takes a
+    // closure whose arity matches. The error has to be reported, otherwise no
+    // frame is pushed and the stack is misread.
     if let Err(e) = ctx.handle_function_call_closure_jit((&*closure).clone(), arity) {
         ctx.result = Some(Err(e));
         ctx.is_native = false;
@@ -6477,7 +6499,9 @@ fn call_global_function_deopt_no_arity_spilled(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => false,
+        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => {
+            false
+        }
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -6498,8 +6522,8 @@ fn call_global_function_deopt_no_arity_spilled(
         arity: usize,
     ) -> Result<SteelVal> {
         match stack_func {
-            // These return a value rather than taking a frame, so nothing else
-            // consumes the spilled args - drop them, as list-handler-spilled does.
+            // These return a value instead of taking a frame, so nothing else
+            // consumes the spilled args. Drop them, as list-handler-spilled does.
             SteelVal::FuncV(func) => {
                 let res = ctx
                     .thread
@@ -6533,7 +6557,7 @@ fn call_global_function_deopt_no_arity_spilled(
 
                         // Install the function, so that way we can just trampoline
                         // without needing to spill the stack
-                        // An arity mismatch is an ordinary error here, not a bug.
+                        // An arity mismatch is an ordinary error here.
                         ctx.handle_function_call_closure_jit(closure, arity)?;
 
                         let tramp = ctx.thread.trampoline;
@@ -6607,7 +6631,9 @@ fn call_global_function_deopt_spilled(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => false,
+        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => {
+            false
+        }
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -6628,8 +6654,8 @@ fn call_global_function_deopt_spilled(
         arity: usize,
     ) -> Result<SteelVal> {
         match stack_func {
-            // These return a value rather than taking a frame, so nothing else
-            // consumes the spilled args - drop them, as list-handler-spilled does.
+            // These return a value instead of taking a frame, so nothing else
+            // consumes the spilled args. Drop them, as list-handler-spilled does.
             SteelVal::FuncV(func) => {
                 let res = ctx
                     .thread
@@ -6663,7 +6689,7 @@ fn call_global_function_deopt_spilled(
 
                         // Install the function, so that way we can just trampoline
                         // without needing to spill the stack
-                        // An arity mismatch is an ordinary error here, not a bug.
+                        // An arity mismatch is an ordinary error here.
                         ctx.handle_function_call_closure_jit(closure, arity)?;
 
                         let tramp = ctx.thread.trampoline;
@@ -6781,7 +6807,9 @@ fn call_function_deopt(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => false,
+        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => {
+            false
+        }
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -7738,9 +7766,7 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
                     captures.push(value);
                 }
                 (l, _) => {
-                    crate::core::instructions::pretty_print_dense_instructions(
-                        &ctx.instructions,
-                    );
+                    crate::core::instructions::pretty_print_dense_instructions(&ctx.instructions);
                     panic!(
                         "Something went wrong in closure construction!, found: {:?} @ {}",
                         l, ctx.ip,
@@ -7847,20 +7873,19 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
         ctx.thread.function_interner.spans.insert(closure_id, spans);
 
         #[cfg(feature = "jit2")]
-        let mut constructed_lambda =
-            if crate::config::config().jit
-                && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
-            {
-                let (lambda, background_job) =
-                    jit::jit_compile_lambda_deferred(ctx, constructed_lambda, None, None);
-                // Interned by value, as in `VmCore::handle_new_start_closure`.
-                if let Some(job) = background_job {
-                    jit::submit_background_job(job, &Gc::new(lambda.clone()));
-                }
-                lambda
-            } else {
-                constructed_lambda
-            };
+        let mut constructed_lambda = if crate::config::config().jit
+            && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
+        {
+            let (lambda, background_job) =
+                jit::jit_compile_lambda_deferred(ctx, constructed_lambda, None, None);
+            // Interned by value, as in `VmCore::handle_new_start_closure`.
+            if let Some(job) = background_job {
+                jit::submit_background_job(job, &Gc::new(lambda.clone()));
+            }
+            lambda
+        } else {
+            constructed_lambda
+        };
 
         ctx.thread
             .function_interner

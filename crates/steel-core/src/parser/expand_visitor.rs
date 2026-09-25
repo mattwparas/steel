@@ -432,11 +432,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         return Ok(());
                     }
 
-                    // Only a well-formed lambda: a list that merely starts with
-                    // `lambda` can be data - a `case` clause `((lambda) ...)` when
-                    // this pass runs with only some of the macros in scope, before
-                    // `case` itself has been expanded. Malformed code is still
-                    // reported, by the lowering that runs after expansion.
+                    // Only parse a well-formed lambda. A list starting with `lambda`
+                    // can be data, e.g. a `case` clause `((lambda) ...)` when `case`
+                    // has not been expanded yet. Malformed code is still reported
+                    // by the lowering that runs after expansion.
                     Some(ExprKind::Atom(
                         ident @ Atom {
                             syn:
@@ -470,8 +469,8 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 ..
                             },
                     })) if l.args.len() > 1 => {
-                        // Only with a head: `(define)` alone can be data, as for
-                        // lambda above.
+                        // Requires a head, since `(define)` alone can be data, as
+                        // with lambda above.
 
                         match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {

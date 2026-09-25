@@ -1827,8 +1827,8 @@ impl Engine {
 
     // TODO -> clean up this API a lot
     /// Compiles and runs an already expanded program, as
-    /// `emit_expanded_ast_without_optimizations` produces it - for tests that
-    /// rewrite that AST (the type inference soundness check).
+    /// `emit_expanded_ast_without_optimizations` produces it. Used by tests that
+    /// rewrite that AST, such as the type inference soundness check.
     #[cfg(test)]
     pub(crate) fn compile_and_run_expanded(
         &mut self,

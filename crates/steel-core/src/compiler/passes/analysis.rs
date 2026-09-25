@@ -90,8 +90,8 @@ pub struct SemanticInformation {
     pub read_heap_offset: Option<u32>,
     pub is_shadowed: bool,
     pub is_required_identifier: bool,
-    /// A global defined as a value of a builtin module:
-    /// `(define x (%module-get% %-builtin-module-... 'x))` - from any builtin
+    /// A global defined as a value of a builtin module, as in
+    /// `(define x (%module-get% %-builtin-module-... 'x))`. Set for any builtin
     /// module, where `builtin` is only set for the ones in `MODULE_IDENTIFIERS`.
     pub from_builtin_module: bool,
 }
@@ -1812,19 +1812,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     let definition = self.info.get_mut(&global_var_id).unwrap();
                     definition.usage_count += 1;
                     // A reference under a prelude name is to a builtin when the
-                    // global it resolves to is one: a builtin definition, or a
-                    // value of any builtin module (what `require-builtin`
-                    // defines). Not by its spelling alone: a program's own
-                    // `car`, or a required user module's, is a global named
-                    // `car` too - and flagging those made `set!` of a program's
-                    // own `car` fail with "cannot mutate module-required
-                    // identifier" in a main program.
-                    // Only ever narrows the spelling rule it replaces (a prelude
-                    // name): also inheriting `builtin` onto references that did
-                    // not have it sent them through the `#%prim.` rewriting, which
-                    // checks shadowing on the reference rather than on the
-                    // definition, and rewrote redefined builtins back to the
-                    // primitive.
+                    // global it resolves to is a builtin definition or a value of
+                    // any builtin module (what `require-builtin` defines). A
+                    // program's own `car`, or a required user module's, is also a
+                    // global named `car`, and must stay mutable with `set!`.
+                    // This only narrows the prelude name rule. Setting `builtin`
+                    // on references that lacked it would send them through the
+                    // `#%prim.` rewriting, which checks shadowing on the reference
+                    // and would rewrite redefined builtins back to the primitive.
                     let definition_is_builtin = (definition.builtin
                         || definition.from_builtin_module)
                         && crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS
@@ -2370,8 +2365,8 @@ where
     fn visit_quote(&mut self, _quote: &mut Quote) {}
 }
 
-/// `STEEL_INLINE_FRESH_SNAPSHOTS=0` goes back to snapshotting each function body
-/// before its own callees are inlined into it. On by default.
+/// `STEEL_INLINE_FRESH_SNAPSHOTS=0` snapshots each function body before its own
+/// callees are inlined into it. On by default.
 fn fresh_snapshots_enabled() -> bool {
     crate::config::config().inline_fresh_snapshots
 }
@@ -2385,8 +2380,8 @@ fn known_function_args_enabled() -> bool {
 
 /// Size budget, counting nested lambdas, for inlining a function only because a
 /// call site passes a known function for a parameter it calls. Larger than the
-/// ordinary budget: what it removes is a call through a value on every
-/// iteration of the loop inside, not one call. `STEEL_INLINE_KNOWN_ARGS_SIZE`.
+/// ordinary budget, since it removes a call through a value on every iteration
+/// of the loop inside. `STEEL_INLINE_KNOWN_ARGS_SIZE`.
 fn known_function_args_size() -> usize {
     crate::config::config().inline_known_args_size
 }
@@ -2511,9 +2506,9 @@ impl<'a> VisitorMutRefUnit for RewriteAliasReferences<'a> {
     fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
 }
 
-/// Which of a lambda's parameters its body calls - inside nested lambdas too -
-/// and the size of the body counting those nested lambdas, which the ordinary
-/// estimate leaves out.
+/// Which of a lambda's parameters its body calls, including inside nested
+/// lambdas, and the size of the body counting those nested lambdas, which the
+/// ordinary estimate leaves out.
 struct CalledParams {
     params: Vec<InternedString>,
     called: Vec<bool>,
@@ -2569,8 +2564,8 @@ impl<'a> VisitorMutUnitRef<'a> for CalledParams {
     }
 }
 
-/// Gives every binder inside a copied lambda - its parameters, nested lambda
-/// parameters, let bindings, internal defines - a fresh name, and renames the references to
+/// Gives every binder inside a copied lambda (its parameters, nested lambda
+/// parameters, let bindings, internal defines) a fresh name, and renames the references to
 /// match. Closure lifting finds a local loop's call sites by the loop's local
 /// name across the whole program, so two copies of the same body inlined into
 /// different functions must not share those names. Binders are already unique
@@ -2629,17 +2624,17 @@ fn lift_dead_captures_enabled() -> bool {
 }
 
 /// Closure lifting appends a parameter for each variable the analysis says a
-/// local function captures, and that set is only narrowed to what the function
-/// uses when it has no nested lambdas - otherwise it is every captured variable
-/// in scope. A loop inlined deep inside closures is lifted with a parameter for
-/// each of them, threaded through every iteration unused.
+/// local function captures. That set is only narrowed to what the function
+/// uses when it has no nested lambdas, otherwise it is every captured variable
+/// in scope, so a loop inlined deep inside closures threads many unused
+/// parameters through every iteration.
 ///
 /// This runs once lifting has finished rewriting call sites. A captured
-/// parameter is dead when every use of it is passing it straight through, in a
-/// captured position, to a lifted function whose parameter there is dead too -
-/// which is what a loop calling itself, or a group of mutually recursive local
-/// functions calling one another, does. Dead parameters are removed from the
-/// definitions and the matching arguments from every call.
+/// parameter is dead when every use of it passes it straight through, in a
+/// captured position, to a lifted function whose parameter there is dead too,
+/// as with a loop calling itself or mutually recursive local functions. Dead
+/// parameters are removed from the definitions and the matching arguments from
+/// every call.
 fn eliminate_dead_captured_params(
     lifted: &mut [ExprKind],
     exprs: &mut [ExprKind],
@@ -2659,8 +2654,11 @@ fn eliminate_dead_captured_params(
         let Some(captured) = captures.get(name) else {
             continue;
         };
-        let params: Option<Vec<InternedString>> =
-            l.args.iter().map(|a| a.atom_identifier().copied()).collect();
+        let params: Option<Vec<InternedString>> = l
+            .args
+            .iter()
+            .map(|a| a.atom_identifier().copied())
+            .collect();
         let Some(params) = params else { continue };
         if l.rest || params.len() < captured.len() {
             continue;
@@ -2843,7 +2841,7 @@ fn contains_nested_lambda(expr: &ExprKind) -> bool {
             self.0 = true;
         }
         fn visit_list(&mut self, l: &'a List) {
-            // An applied lambda is a let, not a local function.
+            // An applied lambda is a let, so only look inside it.
             if let Some(ExprKind::LambdaFunction(head)) = l.args.first() {
                 self.visit(&head.body);
                 for expr in &l.args[1..] {
@@ -2908,7 +2906,9 @@ impl SubstituteBindings {
         &mut self,
         binders: impl Iterator<Item = &'b ExprKind>,
     ) -> Vec<(InternedString, InternedString)> {
-        let names: Vec<InternedString> = binders.filter_map(|b| b.atom_identifier().copied()).collect();
+        let names: Vec<InternedString> = binders
+            .filter_map(|b| b.atom_identifier().copied())
+            .collect();
         let saved = self.map.clone();
         self.map.retain(|(from, _)| !names.contains(from));
         saved
@@ -2946,29 +2946,24 @@ impl VisitorMutRefUnit for SubstituteBindings {
 /// site that passes a lambda, and stops substituting that lambda into the calls
 /// of it.
 ///
-/// On by default. `peval` is 20% fewer cycles with it, `matrix` 5%, and it is
-/// what lets `graphs` free its continuation closures - 2.3GB of peak rss down to
-/// 316MB. Everything else in the r7rs set is within a couple of percent. It was
-/// off for a while because `graphs` grew to 23GB with it; that turned out to be
-/// the jit's inline tail call never releasing the frame's locals, not this pass.
+/// On by default.
 fn substitute_lambdas_enabled() -> bool {
     crate::config::config().substitute_lambdas
 }
 
 /// How many call sites of a let-bound lambda are worth substituting it into.
-/// Each one is a copy of the body, and the higher order functions this is for -
-/// `map`, `for-each`, `%member-by` - call their function parameter once.
+/// Each one is a copy of the body, and the higher order functions this is for
+/// (`map`, `for-each`, `%member-by`) call their function parameter once.
 const LAMBDA_SUBSTITUTION_SITES: usize = 2;
 
 /// Counts how a name is used in an expression: how often it is the head of a
 /// call, and how often it appears anywhere else (which means it escapes).
 struct CountUses<'a> {
     name: &'a InternedString,
-    // The lambda's parameter count: a call that does not pass exactly that many
+    // The lambda's parameter count. A call that passes a different number of
     // arguments cannot become an applied lambda, since the lowering to a let
     // binds parameters against arguments pairwise and would leave the rest
-    // free. `call-with-values` calls its consumer with one argument in one
-    // branch and `apply`s it in the other, which is how that surfaced.
+    // free (e.g. `call-with-values` calling its consumer with one argument).
     arity: usize,
     calls: usize,
     other: usize,
@@ -3014,7 +3009,9 @@ struct SubstituteLambdaCalls<'a> {
 
 impl<'a> SubstituteLambdaCalls<'a> {
     fn shadows<'b>(&self, binders: impl Iterator<Item = &'b ExprKind>) -> bool {
-        binders.filter_map(|b| b.atom_identifier()).any(|n| n == self.name)
+        binders
+            .filter_map(|b| b.atom_identifier())
+            .any(|n| n == self.name)
     }
 }
 
@@ -3090,11 +3087,10 @@ impl<'a> VisitorMutRefUnit for SubstituteKnownFunctionBindings<'a> {
             SubstituteBindings { map }.visit(&mut l.body_expr);
         }
 
-        // A lambda bound by the let - which is what inlining a higher order
-        // function with a lambda written at the call site leaves behind - is
-        // substituted into the calls of it, so the body ends up inline rather
-        // than reached through a variable on every iteration. Uses that are not
-        // calls keep the binding alive, since those need the closure itself.
+        // A lambda bound by the let (left by inlining a higher order function
+        // with a lambda written at the call site) is substituted into its calls,
+        // so the body ends up inline instead of called through a variable. Uses
+        // that are not calls keep the binding alive, since they need the closure.
         let mut lambdas = Vec::new();
         for (binder, expr) in l.bindings.iter().filter(|_| substitute_lambdas_enabled()) {
             let (Some(name), ExprKind::LambdaFunction(lambda)) = (binder.atom_identifier(), expr)
@@ -3150,8 +3146,8 @@ impl<'a> VisitorMutRefUnit for SubstituteKnownFunctionBindings<'a> {
 }
 
 /// `FindCallSitesMany`'s replacement over a single definition's body, borrowing
-/// the snapshots gathered so far. Skips the definition's own name: unrolling a
-/// function's recursion stays with the final pass, as before. A replaced call's
+/// the snapshots gathered so far. Skips the definition's own name, since
+/// unrolling a function's recursion is left to the final pass. A replaced call's
 /// new head is a lambda, and like `FindCallSitesMany` it is not visited, so this
 /// does not recurse through what it inserts.
 struct InlineIntoDefinition<'a> {
@@ -3182,13 +3178,12 @@ impl<'a> VisitorMutRefUnit for InlineIntoDefinition<'a> {
                         // A snapshot from this program is only usable once its own
                         // definition has been walked. Until then the map holds the
                         // raw module-map copy, whose ids defeat the forward-only
-                        // guard, so it would inline a function the final pass never
-                        // would - and nucleic miscompiled that way (a lifted closure
-                        // referencing `##v2_8` free). Definitions from modules
-                        // compiled elsewhere are not in this program, so theirs are
-                        // fine to use.
-                        let ordered = self.walked.contains(&name)
-                            || !self.defined_here.contains(&name);
+                        // guard, so it could inline a function the final pass would
+                        // not, leaving free identifiers in lifted closures.
+                        // Definitions from modules compiled elsewhere are not in
+                        // this program, so theirs are fine to use.
+                        let ordered =
+                            self.walked.contains(&name) || !self.defined_here.contains(&name);
                         if ordered {
                             if let Some(func) = self.map.get(&name) {
                                 (func)(self.analysis, l);
@@ -3275,29 +3270,28 @@ struct FunctionSizeEstimator {
 // The share of a body, in percent, that must be primitive calls before it is
 // worth inlining. 0 disables the filter and judges on size alone.
 //
-// 5 measured as a 4-9% geomean win over the r7rs suite against no filter, and
-// cuts compile time with it - the AST for dynamic halves, since what it drops is
-// inlining that was not paying for itself. Useful values sit in roughly 5..15;
-// above that the filter starts rejecting the case-lambda bodies that
-// LowerRestArguments specializes, and wc/cat fall back to the slow path.
+// 5 did best on the r7rs suite and also cuts compile time. Useful values are
+// roughly 5..15. Above that the filter rejects the case-lambda bodies that
+// LowerRestArguments specializes.
 
 impl FunctionSizeEstimator {
-    // The size the inliner judges against. None disqualifies the body outright, so
-    // callers skip it exactly as they would a missing entry
+    // The size the inliner judges against. None disqualifies the body, so
+    // callers skip it as they would a missing entry
     fn inline_size(&self, id: SyntaxObjectId) -> Option<usize> {
         let count = *self.map.get(&id)?;
 
-        // Already pessimized to death by a return expression - leave it alone
-        // rather than letting the density filter speak for it
+        // Already pessimized by a return expression, skip the density filter
         if count == usize::MAX {
             return Some(count);
         }
 
-        // Inline only bodies that are meaningfully made of primitive calls
+        // Inline only bodies with enough primitive calls
         if crate::config::config().inline_prim_density > 0 {
             let prims = self.prim_map.get(&id).copied().unwrap_or(0);
 
-            if prims.saturating_mul(100) < count.saturating_mul(crate::config::config().inline_prim_density) {
+            if prims.saturating_mul(100)
+                < count.saturating_mul(crate::config::config().inline_prim_density)
+            {
                 return None;
             }
         }
@@ -3377,15 +3371,12 @@ impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
             }
         }
 
-        // A lambda applied on the spot is code in this body, not a separate
-        // function: `let`, `or` and `and` are all this shape when sizes are
-        // estimated. Visiting it through `visit_lambda_function` reset the counts
-        // and threw them away, so `(define (string? s) (or (mstring? s)
-        // (#%prim.string? s)))` read as a body with no primitive calls and the
-        // density filter never inlined it. A lambda anywhere else - returned,
-        // passed to `apply` - still counts as its own function, which is what
-        // keeps a closure factory like matrix's `make-row-reduce` from looking
-        // small, and a case-lambda dispatcher from looking large.
+        // A lambda applied on the spot is code in this body. `let`, `or` and `and`
+        // all have this shape when sizes are estimated, so count it here instead
+        // of through `visit_lambda_function`, which resets the counts. A lambda
+        // anywhere else (returned, passed to `apply`) still counts as its own
+        // function, so a closure factory doesn't look small and a case-lambda
+        // dispatcher doesn't look large.
         if let Some(ExprKind::LambdaFunction(head)) = l.args.first() {
             self.count = self.count.saturating_add(1);
             for var in &head.args {
@@ -4520,7 +4511,7 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => {
-                // A binding value is its own expression and can hold the very shape
+                // A binding value is its own expression and can hold the shape
                 // this pass is looking for. Visit those in the enclosing scope, before
                 // this let's own bindings come into view.
                 for (_, value) in l.bindings.iter_mut() {
@@ -4675,12 +4666,11 @@ struct LiftClosuresToGlobalScope<'a> {
     analysis: &'a Analysis,
     lifted_functions: Vec<ExprKind>,
     found_funcs: Vec<InternedString>,
-    // Rewriting a lifted function's call sites happens per let, but lifting
-    // moves code between lets - a function lifted out of a nested let can hold
-    // a call to one lifted out of an enclosing let, and that call site is no
-    // longer anywhere the enclosing let's replacer will visit. Holding on to
-    // every replacer lets the traversal make a final pass over everything it
-    // lifted, whatever order the lets were processed in.
+    // Call sites are rewritten per let, but lifting moves code between lets. A
+    // function lifted out of a nested let can call one lifted out of an
+    // enclosing let, and the enclosing let's replacer won't visit that call.
+    // Keeping every replacer allows a final pass over everything lifted,
+    // whatever order the lets were processed in.
     pending_replacers: Vec<(ReplaceUnboxExpressions, BoxedCallSiteModifier<'a>)>,
     // Each lifted function's name, with the captured variables appended to its
     // parameters (and to every call to it), in order.
@@ -4714,11 +4704,10 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
             let mut found_escape_checkers = Vec::new();
 
-            // The bindings in this let are one letrec group - they are bound to
-            // placeholders and then assigned, so they can see one another. They
-            // get lifted together, so gather the whole group up front: calls
-            // between members must not read as escapes, which is what kept
-            // mutually recursive functions from ever lifting.
+            // The bindings in this let are one letrec group. They are bound to
+            // placeholders and then assigned, so they can see one another, and
+            // they get lifted together. Gather the whole group up front so calls
+            // between members don't count as escapes.
             let group: Vec<InternedString> = if let ExprKind::Begin(b) = &l.body_expr {
                 b.exprs
                     .iter()
@@ -4746,8 +4735,6 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
             } else {
                 Vec::new()
             };
-
-
 
             for (variable, expression) in l.bindings.iter_mut() {
                 if let ExprKind::LambdaFunction(_) = expression {
@@ -4985,27 +4972,25 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                     let modifier: Box<
                                                         dyn FnMut(&Analysis, &mut ExprKind),
                                                     > = Box::new(
-                                                            move |_: &Analysis, expr: &mut ExprKind| {
-                                                                if let ExprKind::List(l) = expr {
-                                                                    for i in &captured_values {
-                                                                        if func_names.contains(i) {
-                                                                            continue;
-                                                                        }
-
-                                                                        // Note: the issue is here I believe.
-                                                                        // If we've now modified a call site
-                                                                        // for a function, then we're going
-                                                                        // to need to make sure that _this_
-                                                                        // function also has this variable
-                                                                        // available to it as well, since it could
-                                                                        // be free w.r.t the enclosing function.
-                                                                        l.args.push(
-                                                                            ExprKind::atom(*i),
-                                                                        );
+                                                        move |_: &Analysis, expr: &mut ExprKind| {
+                                                            if let ExprKind::List(l) = expr {
+                                                                for i in &captured_values {
+                                                                    if func_names.contains(i) {
+                                                                        continue;
                                                                     }
+
+                                                                    // Note: the issue is here I believe.
+                                                                    // If we've now modified a call site
+                                                                    // for a function, then we're going
+                                                                    // to need to make sure that _this_
+                                                                    // function also has this variable
+                                                                    // available to it as well, since it could
+                                                                    // be free w.r.t the enclosing function.
+                                                                    l.args.push(ExprKind::atom(*i));
                                                                 }
-                                                            },
-                                                        );
+                                                            }
+                                                        },
+                                                    );
 
                                                     let find_call_sites =
                                                         MutateCallSitesNonGlobal::new(
@@ -5031,7 +5016,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                 let mut callsite_modifier = callsite_modifier.unwrap();
 
                                 // Rewriting happens once, globally, after the
-                                // whole traversal - appending the captured
+                                // whole traversal, since appending the captured
                                 // arguments is not idempotent.
                                 let _ = (&mut replacer, &mut callsite_modifier);
 
@@ -5069,19 +5054,15 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                     ol.bindings.remove(outer);
                     l.bindings.remove(inner);
                 }
-
-
             }
         }
 
-        // The lifted functions are deliberately not rewritten here. Appending the
-        // captured arguments is not idempotent, so they are rewritten exactly
-        // once, in the single pass over everything lifted - which also reaches
-        // the ones lifted out of other lets.
+        // The lifted functions are not rewritten here. Appending the captured
+        // arguments is not idempotent, so they are rewritten once, in the final
+        // pass over everything lifted, which also reaches other lets.
         self.lifted_functions.append(&mut local_functions);
 
-        // Held for the final pass over everything lifted anywhere - see
-        // `pending_replacers`.
+        // Held for the final pass over everything lifted, see `pending_replacers`.
         self.pending_replacers.append(&mut replacers);
     }
 }
@@ -5142,16 +5123,16 @@ impl VisitorMutRefUnit for ReplaceUnboxExpressions {
 struct CheckIdentifierOnlyOccursInUnboxCallPosition {
     unbox_var: InternedString,
     // Every function being lifted out of the same binding group. A call between
-    // members is not an escape: they all become globals together, so the call
-    // becomes a direct one and there is no box left to outlive the frame. Only a
-    // lambda from outside the group can keep a reference alive.
+    // members is not an escape, since they all become globals together and the
+    // call becomes a direct one. Only a lambda from outside the group can keep a
+    // reference alive.
     group: Vec<InternedString>,
     // The placeholders the group is assigned into. Once the whole group is
     // lifted, a call through one of these is a direct call to a global, so it
     // is safe at any depth. Using one as a value is still an escape.
     group_boxes: Vec<InternedString>,
     escapes: bool,
-    // Set while visiting a nested lambda - a call from inside one escapes.
+    // Set while visiting a nested lambda. A call from inside one escapes.
     inside_lambda: bool,
 }
 
@@ -5208,10 +5189,9 @@ impl CheckIdentifierOnlyOccursInUnboxCallPosition {
 
         for (var, bound) in &expr.bindings {
             // Each function being lifted is itself a lambda, so its body is
-            // checked one level in - only a lambda nested deeper than it can keep
-            // a reference alive past the frame. Every member of the group gets
-            // that treatment, which is what lets mutually recursive functions
-            // lift: a sibling calling this one is not an escape.
+            // checked one level in. Only a lambda nested deeper than it can keep
+            // a reference alive past the frame. Every member of the group is
+            // handled this way, so mutually recursive functions can lift.
             if var
                 .atom_identifier()
                 .is_some_and(|name| self.group.contains(name))
@@ -5248,9 +5228,8 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                 // We've hit something like (unbox <foo>)
                 // but we need to make sure that this only happens in the call
                 // position, meaning if we hit the identifier in any other way,
-                // A bare (unbox x) reached here is the value itself, not a call
-                // through it - it is being returned, bound or stored, so the
-                // reference outlives what we can rewrite.
+                // A bare (unbox x) reached here is used as a value (returned,
+                // bound or stored), so the reference outlives what we can rewrite.
                 if l.first_ident().copied() == Some(*UNBOX)
                     && l.second_ident().copied() == Some(self.unbox_var)
                 {
@@ -5265,12 +5244,11 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                 if let Some(ExprKind::List(il)) = l.first() {
                     if il.first_ident().copied() == Some(*UNBOX) {
                         if il.second_ident().copied() == Some(self.unbox_var) {
-                            // A sibling calling this one is fine: the whole
-                            // group becomes globals together, so the call turns
-                            // into a direct one. That only applies to a genuine
-                            // mutually recursive group - for a lone function,
-                            // a call from a deeper lambda can still outlive the
-                            // frame, which is what this check exists for.
+                            // A sibling calling this one is fine, since the whole
+                            // group becomes globals together and the call becomes
+                            // a direct one. That only applies to a mutually
+                            // recursive group. For a lone function, a call from a
+                            // deeper lambda can still outlive the frame.
                             let mutually_recursive = self.group_boxes.len() > 1
                                 && self.group_boxes.contains(&self.unbox_var);
 
@@ -5317,7 +5295,7 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                 }
 
                 // The assignment that fills in a group member's placeholder is
-                // its definition, not a use of it
+                // its definition, so it doesn't count as a use
                 if l.first_ident().copied() == Some(*SETBOX)
                     && l.second_ident().copied() == Some(self.unbox_var)
                     && l.third_ident()
@@ -6093,17 +6071,53 @@ fn simplify_or_enabled() -> bool {
 
 /// Primitives that answer with `#true` / `#false` and nothing else.
 ///
-/// Only used to decide whether `(or x y)` can drop its binding, so being
-/// conservative here costs a missed rewrite and nothing worse. Anything whose
-/// result is the *value* rather than a boolean - `car`, arithmetic, a user
-/// function - must stay off this list, or `(or (car x) y)` would start
-/// answering `#true` instead of the element.
+/// Only used to decide whether `(or x y)` can drop its binding, so leaving
+/// something out only costs a missed rewrite. Anything that can return a
+/// non-boolean value (`car`, arithmetic, a user function) must stay off this
+/// list, or `(or (car x) y)` would return `#true` instead of the element.
 const BOOLEAN_PRIMITIVES: &[&str] = &[
-    "null?", "empty?", "pair?", "list?", "not", "boolean?", "number?", "int?", "integer?",
-    "float?", "string?", "symbol?", "char?", "vector?", "hash?", "function?", "procedure?",
-    "even?", "odd?", "zero?", "equal?", "eq?", "eqv?", "=", "<", "<=", ">", ">=", "string=?",
-    "string<?", "string>?", "char=?", "bytes?", "bytevector?", "continuation?", "exact?",
-    "inexact?", "nan?", "infinite?", "positive?", "negative?", "cdr-null?",
+    "null?",
+    "empty?",
+    "pair?",
+    "list?",
+    "not",
+    "boolean?",
+    "number?",
+    "int?",
+    "integer?",
+    "float?",
+    "string?",
+    "symbol?",
+    "char?",
+    "vector?",
+    "hash?",
+    "function?",
+    "procedure?",
+    "even?",
+    "odd?",
+    "zero?",
+    "equal?",
+    "eq?",
+    "eqv?",
+    "=",
+    "<",
+    "<=",
+    ">",
+    ">=",
+    "string=?",
+    "string<?",
+    "string>?",
+    "char=?",
+    "bytes?",
+    "bytevector?",
+    "continuation?",
+    "exact?",
+    "inexact?",
+    "nan?",
+    "infinite?",
+    "positive?",
+    "negative?",
+    "cdr-null?",
 ];
 
 fn is_boolean_valued(expr: &ExprKind, bound: &FxHashSet<InternedString>) -> bool {
@@ -6142,20 +6156,17 @@ fn reference_count(expr: &ExprKind, var: &InternedString) -> usize {
 
 /// Drops the binding `or` introduces.
 ///
-/// `(or x y)` expands to `(let ([z x]) (if z z y))` - the binding is there
-/// because `or` yields *x's value*, evaluated once, so `(or 5 #f)` is `5` and
-/// not `#true`. `and` needs no such thing, it is plain `(if x y #f)`.
+/// `(or x y)` expands to `(let ([z x]) (if z z y))`. The binding is there
+/// because `or` returns the value of `x`, evaluated once, so `(or 5 #f)` is `5`.
+/// `and` is plain `(if x y #f)`.
 ///
-/// Two shapes can drop it anyway:
+/// Two shapes can drop it:
 ///   * `x` is a variable or a constant, so re-evaluating it is free and gives
-///     the same answer: `(if x x y)`.
-///   * `x` is a boolean valued primitive, so the value *is* its truth:
+///     the same answer, giving `(if x x y)`.
+///   * `x` is a boolean valued primitive, so its value is its truth, giving
 ///     `(if x #true y)`.
 ///
-/// Worth doing because the binding is not merely a slot - measured against the
-/// equivalent `if`, the bound form cost 20% more instructions and 11% more
-/// cycles in a loop that leaned on it, which is more than a store and a load
-/// and suggests it also costs a scope.
+/// The binding costs more than a slot, since it also opens a scope.
 struct SimplifyOrBindings {
     rewritten: usize,
     bound: FxHashSet<InternedString>,
@@ -6242,8 +6253,8 @@ impl VisitorMutRefUnit for SimplifyOrBindings {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Vector(v) => self.visit_vector(v),
             ExprKind::Let(l) => {
-                // Inside out: a nested `or` is itself one of these, and
-                // rewriting it first can expose the outer one.
+                // Inside out, since rewriting a nested `or` first can expose the
+                // outer one.
                 for (_, value) in l.bindings.iter_mut() {
                     self.visit(value);
                 }
@@ -6269,19 +6280,54 @@ fn hoist_car_enabled() -> bool {
 
 /// Reads of a variable that pure primitives can be reordered around.
 const REORDERABLE_PRIMITIVES: &[&str] = &[
-    "car", "cdr", "cons", "not", "null?", "pair?", "list?", "empty?", "eq?", "eqv?", "equal?",
-    "+", "-", "*", "quotient", "remainder", "modulo", "=", "<", ">", "<=", ">=", "vector-ref",
-    "length", "list-ref", "string-ref", "zero?", "even?", "odd?", "abs", "min", "max", "string?",
-    "number?", "symbol?", "boolean?", "char?", "vector?", "string-length",
+    "car",
+    "cdr",
+    "cons",
+    "not",
+    "null?",
+    "pair?",
+    "list?",
+    "empty?",
+    "eq?",
+    "eqv?",
+    "equal?",
+    "+",
+    "-",
+    "*",
+    "quotient",
+    "remainder",
+    "modulo",
+    "=",
+    "<",
+    ">",
+    "<=",
+    ">=",
+    "vector-ref",
+    "length",
+    "list-ref",
+    "string-ref",
+    "zero?",
+    "even?",
+    "odd?",
+    "abs",
+    "min",
+    "max",
+    "string?",
+    "number?",
+    "symbol?",
+    "boolean?",
+    "char?",
+    "vector?",
+    "string-length",
 ];
 
-/// Every name bound anywhere in `exprs` - `define`s, `let` bindings, lambda
-/// parameters. A bare name in this set is not the builtin of that name: a
-/// program (or a module it requires) can define its own `car`, and in a main
+/// Every name bound anywhere in `exprs` (`define`s, `let` bindings, lambda
+/// parameters). A bare name in this set is not the builtin of that name, since
+/// a program (or a module it requires) can define its own `car`, and in a main
 /// program that `car` is a top level define of the bare name.
 fn bound_names(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
     fn walk(expr: &ExprKind, out: &mut FxHashSet<InternedString>) {
-        let mut bind = |name: &ExprKind, out: &mut FxHashSet<InternedString>| {
+        let bind = |name: &ExprKind, out: &mut FxHashSet<InternedString>| {
             if let Some(ident) = name.atom_identifier() {
                 out.insert(*ident);
             }
@@ -6321,10 +6367,9 @@ fn bound_names(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
     out
 }
 
-/// The builtin this application calls, if it is one, without its prefix -
+/// The builtin this application calls, if it is one, without its prefix, so
 /// `(#%prim.car x)` is `car`. A bare `car` is the builtin only when nothing in
-/// the program binds that name (`bound`, from [`bound_names`]): matching by
-/// name alone turned a module's own `car` into `#%prim.car`.
+/// the program binds that name (`bound`, from [`bound_names`]).
 fn called_primitive<'a>(expr: &'a ExprKind, bound: &FxHashSet<InternedString>) -> Option<&'a str> {
     let ident = expr.atom_identifier()?;
     let name = ident.resolve();
@@ -6353,8 +6398,8 @@ fn list_accessor_on_var<'a>(
 }
 
 /// Nothing here can have an effect, so the arguments of one call can be
-/// evaluated in any order. Raising is the exception: reordering can change
-/// *which* error a bad value produces, not whether one is raised.
+/// evaluated in any order. Reordering can only change which error a bad value
+/// raises.
 fn is_reorderable(expr: &ExprKind, bound: &FxHashSet<InternedString>) -> bool {
     match expr {
         ExprKind::Atom(_) | ExprKind::Quote(_) => true,
@@ -6377,7 +6422,7 @@ struct ReplaceCarOf<'a> {
 }
 
 impl VisitorMutRefUnit for ReplaceCarOf<'_> {
-    // `'(car x)` is a list, not a call.
+    // Skip quoted data like `'(car x)`.
     fn visit_quote(&mut self, _quote: &mut crate::parser::ast::Quote) {}
 
     fn visit(&mut self, expr: &mut ExprKind) {
@@ -6410,29 +6455,26 @@ impl VisitorMutRefUnit for ReplaceCarOf<'_> {
 /// `cdr` becomes `x`'s last use.
 ///
 /// `(loop (cdr l) (+ acc (car l)))` reads `l` after the `cdr`, so the `cdr`
-/// has to build a new list - the original is still needed. Hoisting gives
+/// has to build a new list. Hoisting gives
 /// `(let ([t (car l)]) (loop (cdr l) (+ acc t)))`, where the `cdr` owns the
-/// only remaining reference and can move the position in place. Measured 2x
-/// on a list-summing loop, before the jit's list cursors enter into it, and
-/// it is the shape that lets a cursor carry across the loop.
+/// only remaining reference and can advance in place. This is also the shape
+/// that lets a jit list cursor carry across the loop.
 ///
-/// Only fires where every argument is effect-free, so the reordering is
-/// unobservable apart from which error a non-list would raise.
+/// Only fires where every argument is effect-free, so the reordering can only
+/// change which error a non-list would raise.
 struct HoistCarBeforeCdr {
     rewritten: usize,
     // Whether the expression being visited is in tail position. A tail call
-    // passing `(cdr x)` is a loop step, where the in-place cdr repays the
-    // binding this adds on every iteration; `(cons (car x) (f (cdr x)))` is
-    // not, and there the binding is the only thing that changes.
+    // passing `(cdr x)` is a loop step, where the in-place cdr pays for the
+    // added binding. In `(cons (car x) (f (cdr x)))` the binding is pure cost.
     in_tail: bool,
     tail_only: bool,
-    // The function being defined. Only its own recursive calls are worth
-    // rewriting: a loop owns the list it is walking after its first step, so
-    // the `cdr` can move in place. A list handed to some other function is
-    // usually still shared, where the `cdr` allocates either way and the
-    // binding this adds is the only change.
+    // The function being defined. Only its own recursive calls are rewritten,
+    // since a loop owns the list it is walking after its first step and the
+    // `cdr` can advance in place. A list handed to another function is usually
+    // still shared, so the `cdr` allocates either way.
     enclosing: Vec<InternedString>,
-    // Names the program binds itself: see `called_primitive`.
+    // Names the program binds itself, see `called_primitive`.
     bound: FxHashSet<InternedString>,
 }
 
@@ -6469,7 +6511,10 @@ impl HoistCarBeforeCdr {
         if callee.atom_identifier().is_none() || l.args.len() < 3 {
             return None;
         }
-        if !l.args[1..].iter().all(|arg| is_reorderable(arg, &self.bound)) {
+        if !l.args[1..]
+            .iter()
+            .all(|arg| is_reorderable(arg, &self.bound))
+        {
             return None;
         }
 
@@ -6480,10 +6525,13 @@ impl HoistCarBeforeCdr {
             let later = &l.args[i + 1..];
 
             // Every later mention of the variable has to be a `(car x)` that
-            // moves out with the hoist; one that stays keeps the `cdr` from
-            // being the last use, and the rewrite buys nothing.
+            // moves out with the hoist. Any other mention keeps the `cdr` from
+            // being the last use.
             let mentions: usize = later.iter().map(|e| reference_count(e, var)).sum();
-            let cars: usize = later.iter().map(|e| count_car_of(e, var, &self.bound)).sum();
+            let cars: usize = later
+                .iter()
+                .map(|e| count_car_of(e, var, &self.bound))
+                .sum();
             if cars > 0 && cars == mentions && self.worth_hoisting(self.is_self_call(callee)) {
                 return Some(*var);
             }
@@ -6493,11 +6541,15 @@ impl HoistCarBeforeCdr {
     }
 
     /// The same shape as a `let`'s bindings, which is what a call becomes once
-    /// it is inlined: `(let ([rest (cdr l)] [acc (+ acc (car l))]) ...)`.
+    /// it is inlined, e.g. `(let ([rest (cdr l)] [acc (+ acc (car l))]) ...)`.
     /// Values are evaluated in order, so a `car` after the `cdr` costs the
     /// same as it does in a call.
     fn candidate_let(&self, l: &crate::parser::ast::Let) -> Option<InternedString> {
-        if !l.bindings.iter().all(|(_, value)| is_reorderable(value, &self.bound)) {
+        if !l
+            .bindings
+            .iter()
+            .all(|(_, value)| is_reorderable(value, &self.bound))
+        {
             return None;
         }
 
@@ -6514,7 +6566,10 @@ impl HoistCarBeforeCdr {
 
             let later = &l.bindings[i + 1..];
             let mentions: usize = later.iter().map(|(_, v)| reference_count(v, var)).sum();
-            let cars: usize = later.iter().map(|(_, v)| count_car_of(v, var, &self.bound)).sum();
+            let cars: usize = later
+                .iter()
+                .map(|(_, v)| count_car_of(v, var, &self.bound))
+                .sum();
             let recurses = self
                 .enclosing
                 .last()
@@ -6556,8 +6611,8 @@ impl HoistCarBeforeCdr {
                     replacer.visit(arg);
                 }
             }
-            // An enclosing `let`, not another binding beside them: a `let`
-            // binds in parallel, so its own bindings cannot see each other.
+            // Use an enclosing `let`, since a `let` binds in parallel and its
+            // own bindings cannot see each other.
             ExprKind::Let(l) => {
                 location.set_span(l.location.span);
                 for (_, value) in l.bindings.iter_mut() {
@@ -6574,9 +6629,7 @@ impl HoistCarBeforeCdr {
         ]));
 
         let call = core::mem::replace(expr, ExprKind::empty());
-        *expr = ExprKind::Let(
-            Let::new(vec![(binding, value)], call, location).into(),
-        );
+        *expr = ExprKind::Let(Let::new(vec![(binding, value)], call, location).into());
         true
     }
 }
@@ -6614,7 +6667,11 @@ fn count_car_of(expr: &ExprKind, var: &InternedString, bound: &FxHashSet<Interne
             }
         }
     }
-    let mut counter = Counter { var, count: 0, bound };
+    let mut counter = Counter {
+        var,
+        count: 0,
+        bound,
+    };
     counter.visit(expr);
     counter.count
 }
@@ -6641,7 +6698,7 @@ impl VisitorMutRefUnit for HoistCarBeforeCdr {
         self.in_tail = outer;
     }
 
-    // An `if` hands its position to both arms; the test is not in it.
+    // Both arms of an `if` inherit its position; the test does not.
     fn visit_if(&mut self, f: &mut crate::parser::ast::If) {
         let tail = self.in_tail;
         self.in_tail = false;
@@ -6664,7 +6721,7 @@ impl VisitorMutRefUnit for HoistCarBeforeCdr {
         self.in_tail = tail;
     }
 
-    // A `let`'s body is, its bindings' values are not.
+    // A `let`'s body is; its bindings' values are not.
     fn visit_let(&mut self, l: &mut crate::parser::ast::Let) {
         let tail = self.in_tail;
         for (_, value) in l.bindings.iter_mut() {
@@ -6676,7 +6733,7 @@ impl VisitorMutRefUnit for HoistCarBeforeCdr {
         self.in_tail = tail;
     }
 
-    // Arguments are evaluated before the call, never in its position.
+    // Arguments are evaluated before the call, so they are never in tail position.
     fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
         let tail = self.in_tail;
         for expr in l.args.iter_mut() {
@@ -7004,16 +7061,13 @@ pub enum RequiredIdentifierInformation<'a> {
     Unresolved(InternedString, String, Option<InternedString>),
 }
 
-
 /// Every name that appears as the target of a `set!`, anywhere.
 ///
-/// `non_mutated_globals` used to decide this from `set_bang` on the *define's*
-/// syntax object, but `visit_set` records the flag against `scope_info.id` -
-/// the id the scope map held for that name at the time - and after the id churn
-/// of `refresh_variables` the two need not agree. When they disagree the define
-/// looks unmutated even though it is plainly `set!` elsewhere in the same file.
-/// Collecting the targets by name sidesteps id identity entirely, which is the
-/// same fix already applied to the inliner's `set!` guard.
+/// `set_bang` on the define's syntax object is unreliable here. `visit_set`
+/// records the flag against `scope_info.id` (the id the scope map held for that
+/// name at the time), and after `refresh_variables` regenerates ids the two
+/// need not agree. Collecting the targets by name avoids depending on ids, as
+/// the inliner's `set!` guard does.
 #[derive(Default)]
 struct SetBangTargets {
     names: std::collections::HashSet<InternedString>,
@@ -7028,8 +7082,6 @@ impl<'a> VisitorMutUnitRef<'a> for SetBangTargets {
         self.visit(&s.variable);
     }
 }
-
-
 
 /// Every identifier an expression refers to, ignoring quoted data.
 #[derive(Default)]
@@ -7115,10 +7167,7 @@ fn sort_define_run(run: Vec<ExprKind>) -> Vec<ExprKind> {
     }
 
     let mut slots: Vec<Option<ExprKind>> = run.into_iter().map(Some).collect();
-    order
-        .into_iter()
-        .filter_map(|i| slots[i].take())
-        .collect()
+    order.into_iter().filter_map(|i| slots[i].take()).collect()
 }
 
 impl<'a> SemanticAnalysis<'a> {
@@ -7395,9 +7444,9 @@ impl<'a> SemanticAnalysis<'a> {
         let func = move |analysis: &mut Analysis, call_site: &mut List| {
             // The no-arity opcodes skip the arity check at run time, so only a
             // call passing exactly the declared number of arguments may use
-            // them. Anything else keeps the checked call, and raises. Without
-            // this, `(cons 0 (f 1))` for a two argument `f` ran `f` with the
-            // pending `0` as its first argument, and left the stack a slot off.
+            // them. Anything else keeps the checked call, and raises. Otherwise
+            // `(cons 0 (f 1))` for a two argument `f` would run `f` with the
+            // pending `0` as its first argument, leaving the stack a slot off.
             let declared = call_site
                 .first_ident()
                 .and_then(|name| map.get(name))
@@ -7424,15 +7473,13 @@ impl<'a> SemanticAnalysis<'a> {
     // Inline the function calls n times
     /// Unroll self recursive calls.
     ///
-    /// A self recursive function is a loop, and inlining it into itself is loop
-    /// unrolling: each level removes half the remaining calls along with their
-    /// frame push, prologue and arity work.
+    /// A self recursive function is a loop, and inlining it into itself unrolls
+    /// it. Each level removes half the remaining calls along with their frame
+    /// push, prologue and arity work.
     ///
-    /// The admission conditions are deliberately `inline_handle_define`, the same
-    /// ones the ordinary inliner uses. They used to be a copy here, and had drifted
-    /// - notably it was missing the `assigned` guard that keeps a placeholder which
-    /// is `set!` to its real implementation later from being frozen at its current
-    /// definition.
+    /// Admission uses `inline_handle_define`, the same conditions as the ordinary
+    /// inliner, including the `assigned` guard that keeps a placeholder which is
+    /// `set!` to its real implementation later from being frozen.
     pub fn recursively_inline_function_calls(
         &mut self,
         depth: usize,
@@ -7441,21 +7488,16 @@ impl<'a> SemanticAnalysis<'a> {
         let mut estimator = self.calculate_function_sizes();
 
         // Module level definitions are where user code lives once it has been
-        // required, and they are only reachable through the module map - without
-        // this the pass only ever saw the stdlib helpers that happen to be inlined
-        // into the program already.
+        // required, and they are only reachable through the module map.
         for (_, module) in module_map {
             if let Some(ast) = module.get_compiled_ast() {
                 estimator.visit(ast);
             }
         }
 
-        // Self inlining is loop unrolling for recursion, so it wants a larger
-        // budget than ordinary inlining: the body being duplicated is the same
-        // body, and the win scales with how much per call ceremony it removes.
+        // Self inlining unrolls recursion, so it uses a larger budget than
+        // ordinary inlining. The gain scales with the per call overhead removed.
         let threshold: usize = crate::config::config().inline_recursive_size;
-
-
 
         let mut assigned: FxHashSet<InternedString> = FxHashSet::default();
         {
@@ -7472,12 +7514,11 @@ impl<'a> SemanticAnalysis<'a> {
         let known = Rc::new(known_functions(self.exprs, &assigned, module_map));
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
 
-        let mut handle = |this: &Self,
-                          funcs: &mut HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>>,
-                          d: &Box<Define>| {
-            let _ = this.inline_handle_define(
-                &estimator, threshold, funcs, d, &assigned, &changed, &known,
-            );
+        let handle = |this: &Self,
+                      funcs: &mut HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>>,
+                      d: &Box<Define>| {
+            let _ = this
+                .inline_handle_define(&estimator, threshold, funcs, d, &assigned, &changed, &known);
         };
 
         for (_, module) in module_map {
@@ -7758,7 +7799,7 @@ impl<'a> SemanticAnalysis<'a> {
         module_map: &crate::HashMap<PathBuf, CompiledModule>,
     ) -> Result<(), SteelErr> {
         // A whole program is handed over as one begin, while something typed at the
-        // repl is a bare expression or two - counting through the begin tells those
+        // repl is a bare expression or two. Counting through the begin tells those
         // apart.
         fn top_level_expression_count(exprs: &[ExprKind]) -> usize {
             exprs
@@ -7798,16 +7839,15 @@ impl<'a> SemanticAnalysis<'a> {
 
         // Only inline across the modules _if_ the number of expressions warrants it.
         // Otherwise this is a lot of needless allocation. A unit usually arrives as a
-        // single begin, so the count has to come from inside it - going by the number
-        // of top level expressions alone means this never runs for a whole program.
+        // single begin, so the count has to come from inside it.
         if top_level_expression_count(self.exprs) > 10 {
             for (_, module) in module_map {
                 if let Some(ast) = module.get_compiled_ast() {
                     match ast {
                         ExprKind::Define(d) => {
-                            if let ControlFlow::Break(_) =
-                                self.inline_handle_define(&estimator, threshold, &mut funcs, &d, &assigned, &changed, &known)
-                            {
+                            if let ControlFlow::Break(_) = self.inline_handle_define(
+                                &estimator, threshold, &mut funcs, &d, &assigned, &changed, &known,
+                            ) {
                                 continue;
                             }
                         }
@@ -7815,9 +7855,10 @@ impl<'a> SemanticAnalysis<'a> {
                         ExprKind::Begin(b) => {
                             for expr in b.exprs.iter() {
                                 if let ExprKind::Define(d) = expr {
-                                    if let ControlFlow::Break(_) = self
-                                        .inline_handle_define(&estimator, threshold, &mut funcs, d, &assigned, &changed, &known)
-                                    {
+                                    if let ControlFlow::Break(_) = self.inline_handle_define(
+                                        &estimator, threshold, &mut funcs, d, &assigned, &changed,
+                                        &known,
+                                    ) {
                                         continue;
                                     }
                                 }
@@ -7832,17 +7873,13 @@ impl<'a> SemanticAnalysis<'a> {
 
         // Only inline forwards, as to not run in to any issues with visibility.
         //
-        // Each definition's snapshot is what gets copied into its callers, and it
-        // used to be taken before any call site was replaced - so every copy
-        // carried the body as it was before its own callees were inlined. A
-        // shim's `car` compiled with `mpair-mcar` inlined, while every copy of
-        // `car` spliced elsewhere still called `mpair-mcar`. Definitions arrive
-        // in order, so before snapshotting one, inline what has been gathered so
-        // far into its body in place. It has to be the body itself: a clone gets
-        // fresh syntax object ids, which the analysis knows nothing about, so no
-        // call inside a clone can be recognised. Forward-only means these are the
-        // same call sites the final pass below would replace; they are just
-        // replaced first, and a replaced call's head is a lambda, not a name, so
+        // Each definition's snapshot is what gets copied into its callers, so it
+        // should include its own inlined callees. Definitions arrive in order, so
+        // before snapshotting one, inline what has been gathered so far into its
+        // body in place. It has to be the body itself, since a clone gets fresh
+        // syntax object ids the analysis doesn't know, so no call inside it can
+        // be recognised. Forward-only means these are the same call sites the
+        // final pass below would replace. A replaced call's head is a lambda, so
         // the final pass leaves it alone.
         let refresh = fresh_snapshots_enabled();
 
@@ -7960,7 +7997,6 @@ impl<'a> SemanticAnalysis<'a> {
             defined_here,
         }
         .visit(&mut d.body);
-
     }
 
     fn inline_handle_define(
@@ -7999,11 +8035,11 @@ impl<'a> SemanticAnalysis<'a> {
             let size = estimator.inline_size(SyntaxObjectId(l.syntax_object_id));
 
             // Too big or too call-heavy on its own, but it calls one of its
-            // parameters: `(define (%member-by eq x xs) (let loop ...))`. At a
-            // call site that passes a known function for that parameter, the
-            // inlined copy can have the function substituted in before closure
-            // lifting, so its loop calls the primitive directly instead of
-            // through a value. Only those call sites take it.
+            // parameters, as in `(define (%member-by eq x xs) (let loop ...))`.
+            // At a call site that passes a known function for that parameter,
+            // the inlined copy can have the function substituted in before
+            // closure lifting, so its loop calls it directly. Only those call
+            // sites inline it.
             if !size.is_some_and(|count| count < threshold) && known_function_args_enabled() {
                 let called = CalledParams::of(l);
                 if called.called.iter().any(|c| *c) && called.size < known_function_args_size() {
@@ -8032,10 +8068,10 @@ impl<'a> SemanticAnalysis<'a> {
                                     *c && lst.args.get(i + 1).is_some_and(|arg| {
                                         is_known_function(arg, &known)
                                             // A lambda written at the call site is
-                                            // just as fixed as a named function,
-                                            // and substituting it into the body
-                                            // is what turns `(map (lambda ...) xs)`
-                                            // into a loop with the body inlined.
+                                            // as fixed as a named function, and
+                                            // substituting it turns
+                                            // `(map (lambda ...) xs)` into a loop
+                                            // with the body inlined.
                                             || (substitute_lambdas_enabled()
                                                 && matches!(arg, ExprKind::LambdaFunction(_)))
                                     })
@@ -8057,19 +8093,17 @@ impl<'a> SemanticAnalysis<'a> {
                     let original_id = l.syntax_object_id;
                     let l = l.clone();
 
-                    // Rest-argument functions are inlined too. That is what lets
-                    // LowerRestArguments specialize a case-lambda such as
-                    // read-char at its call site, and it was disabled in c075f584
-                    // while the bugs behind it were still outstanding
+                    // Rest-argument functions are inlined too, so
+                    // LowerRestArguments can specialize a case-lambda such as
+                    // read-char at its call site
                     let changed = Rc::clone(changed);
 
                     // A local function in the body becomes a global when closures
-                    // are lifted, and lifting finds its call sites - and appends
-                    // its captured variables to them - by local name, across the
+                    // are lifted, and lifting finds its call sites (and appends
+                    // its captured variables to them) by local name across the
                     // whole program. Copies that share those names end up sharing
-                    // one lifted function, which only holds while every copy
-                    // captures identically named variables; substituting a known
-                    // function into one copy breaks that. Give each copy its own.
+                    // one lifted function, which breaks once a known function is
+                    // substituted into one copy. Give each copy its own names.
                     let freshen = contains_nested_lambda(&l.body);
 
                     let params = l.args.len();
@@ -8081,10 +8115,10 @@ impl<'a> SemanticAnalysis<'a> {
                             // A call with the wrong number of arguments has to
                             // stay a call, so it raises the arity error when it
                             // runs. Substituting the lambda binds the parameters
-                            // positionally, and a missing one surfaced as a
-                            // FreeIdentifier compile error - rejecting a program
-                            // whose bad call might never even execute. Same rule
-                            // as the known-function-args path above.
+                            // positionally, and a missing one would be a
+                            // FreeIdentifier compile error, even if the bad call
+                            // never runs. Same rule as the known-function-args
+                            // path above.
                             let arity_matches = if rest {
                                 lst.args.len() >= params
                             } else {
@@ -8723,18 +8757,12 @@ impl<'a> SemanticAnalysis<'a> {
         self
     }
 
-    /// `(%plain-let ((eq #%prim.eq?)) body)`, as inlining a call that passes a
-    /// known function leaves it, becomes `body` with `#%prim.eq?` in place of
-    /// `eq`. Run before closure lifting: otherwise a local loop in `body`
-    /// captures `eq`, is lifted with it as an extra argument, and calls it
-    /// through a value on every iteration.
-    /// `(define operation blue-edge-operation)` binds a value, not a lambda, so
-    /// the inliner never treats `operation` as a function: every call to it is a
-    /// call to a global closure, and the jit specializes those against whatever
-    /// the global held when the caller was compiled. When neither name is ever
-    /// `set!` and the target is a primitive or a lambda-defined global, the two
-    /// are the same function for the whole program, so references to the alias
-    /// are rewritten to the target - chains included - before inlining runs.
+    /// `(define operation blue-edge-operation)` binds a value, so the inliner
+    /// never treats `operation` as a function and every call to it goes through
+    /// a global closure. When neither name is ever `set!` and the target is a
+    /// primitive or a lambda-defined global, the two are the same function for
+    /// the whole program, so references to the alias (including chains) are
+    /// rewritten to the target before inlining runs.
     pub fn resolve_function_aliases(
         &mut self,
         module_map: &crate::HashMap<PathBuf, CompiledModule>,
@@ -8796,6 +8824,11 @@ impl<'a> SemanticAnalysis<'a> {
         self
     }
 
+    /// `(%plain-let ((eq #%prim.eq?)) body)`, as inlining a call that passes a
+    /// known function leaves it, becomes `body` with `#%prim.eq?` in place of
+    /// `eq`. Run before closure lifting, otherwise a local loop in `body`
+    /// captures `eq`, is lifted with it as an extra argument, and calls it
+    /// through a value on every iteration.
     pub fn substitute_known_function_bindings(
         &mut self,
         module_map: &crate::HashMap<PathBuf, CompiledModule>,
@@ -9197,8 +9230,8 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     /// Order top level function definitions so a definition follows the ones it
-    /// calls - closures compile as they're constructed, so top down code leaves
-    /// the JIT nothing to specialise at each forward call site. Only runs of
+    /// calls. Closures compile as they're constructed, so with top down code the
+    /// JIT has nothing to specialise at each forward call site. Only runs of
     /// adjacent function definitions move, since defining a lambda has no
     /// effect; anything else ends the run, and a name defined twice never moves.
     pub fn sort_top_level_defines(&mut self) -> &mut Self {
@@ -9256,7 +9289,7 @@ impl<'a> SemanticAnalysis<'a> {
                 }
                 out.extend(sort_define_run(std::mem::take(&mut run)));
 
-                // Top level defines usually arrive inside a `Begin` - same
+                // Top level defines usually arrive inside a `Begin`, same
                 // split as `non_mutated_globals`.
                 if let ExprKind::Begin(b) = &mut expr {
                     let inner = std::mem::take(&mut b.exprs);
@@ -9276,7 +9309,10 @@ impl<'a> SemanticAnalysis<'a> {
         *self.exprs = sort_runs(originals, &definitions, &mut reordered);
 
         if crate::config::config().topo_log {
-            eprintln!("topo: {} top level exprs, reordered={reordered}", self.exprs.len());
+            eprintln!(
+                "topo: {} top level exprs, reordered={reordered}",
+                self.exprs.len()
+            );
         }
 
         if reordered {
@@ -9301,11 +9337,10 @@ impl<'a> SemanticAnalysis<'a> {
             return self;
         }
 
-        // Call sites were rewritten per let as each one was lifted, but a
-        // function lifted out of a nested let can hold a call to one lifted out
-        // of an enclosing let - that call site was not reachable from the
-        // enclosing let by the time it moved. Everything lifted now sits in one
-        // list, so replay every replacer over all of it.
+        // A function lifted out of a nested let can call one lifted out of an
+        // enclosing let, and that call site was not reachable from the enclosing
+        // let once it moved. Everything lifted now sits in one list, so replay
+        // every replacer over all of it.
         {
             let LiftClosuresToGlobalScope {
                 lifted_functions,
@@ -9337,7 +9372,7 @@ impl<'a> SemanticAnalysis<'a> {
             eliminate_dead_captured_params(lifted_functions, self.exprs, lifted_captures);
         }
 
-        // At the front they'd be constructed - and jit compiled - before the
+        // At the front they'd be constructed (and jit compiled) before the
         // requires and defines they call have run.
         if lift_in_place_enabled() {
             let lifted = std::mem::take(&mut lifter.lifted_functions);
@@ -9552,7 +9587,7 @@ impl<'a> SemanticAnalysis<'a> {
         // Such that we can then grab the values
         let mut names = Vec::new();
 
-        // Collect `set!` targets by name first - see `SetBangTargets` for why
+        // Collect `set!` targets by name first. See `SetBangTargets` for why
         // the per-define `set_bang` flag cannot be trusted on its own.
         let mut mutated = SetBangTargets::default();
         for expr in self.exprs.iter() {

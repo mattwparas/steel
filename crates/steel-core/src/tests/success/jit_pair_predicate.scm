@@ -27,7 +27,7 @@
 
 (assert! (equal? (reassigned (cons 1 2)) 'fresh))
 
-;; Walking a list: the tested variable changes every iteration.
+;; Walking a list, where the tested variable changes every iteration.
 (define (count-pairs x n)
   (if (pair? x) (count-pairs (cdr x) (+ n 1)) n))
 

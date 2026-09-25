@@ -1,4 +1,4 @@
-;; vector->string: mutable and immutable, with and without a range.
+;; vector->string on mutable and immutable vectors, with and without a range.
 (assert! (equal? (vector->string (vector #\a #\b #\c)) "abc"))
 (assert! (equal? (vector->string (vector #\a #\b #\c #\d) 1 3) "bc"))
 (assert! (equal? (vector->string (vector #\λ #\x)) "λx"))
@@ -6,8 +6,8 @@
 (assert! (equal? (immutable-vector->string (immutable-vector #\a #\b #\c) 1) "bc"))
 (assert! (equal? (with-handler (lambda (e) 'raised) (vector->string (vector #\a 1))) 'raised))
 
-;; Float keys: equal floats hash alike, -0.0 included (computed, so the
-;; reader can't have folded it).
+;; Equal float keys hash alike, including -0.0 (computed, so the reader
+;; can't have folded it).
 (define negative-zero (* -1.0 0.0))
 (define h (hash 0.0 'zero 1.5 'one-and-a-half 2.0 'two))
 (assert! (equal? (hash-ref h negative-zero) 'zero))

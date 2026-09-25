@@ -864,13 +864,12 @@ struct NativeMacroComponents {
     pub raises: proc_macro2::TokenStream,
 }
 
-
-/// The `crate::value_type::ValueType` a native function returns: the macro's
+/// The `crate::value_type::ValueType` a native function returns. This is the macro's
 /// `returns = "..."` if given, otherwise what its Rust return type guarantees.
 ///
-/// This is a promise the jit optimizes on, so the inference only claims what
-/// the conversion to a `SteelVal` always produces: `usize` becomes a bignum
-/// past `isize::MAX`, so it is a `number`, not an `int` (a fixnum).
+/// The jit optimizes on this, so the inference only claims what the conversion
+/// to a `SteelVal` always produces. `usize` becomes a bignum past `isize::MAX`,
+/// so it is a `number` and not an `int` (a fixnum).
 fn return_type_tokens(
     keyword_map: &HashMap<String, String>,
     output: Option<&ReturnType>,
@@ -917,8 +916,8 @@ fn value_type_tokens(name: &str, what: &str) -> proc_macro2::TokenStream {
     quote! { crate::value_type::ValueType::#variant }
 }
 
-/// How many arguments a function always takes, and whether it can take more:
-/// what `args = "..."` has to line up with.
+/// How many arguments a function always takes, and whether it can take more.
+/// `args = "..."` has to line up with this.
 #[derive(Clone, Copy)]
 struct ArgShape {
     fixed: usize,
@@ -935,13 +934,28 @@ fn arity_shape(arity: &str) -> ArgShape {
         .unwrap_or_else(|| panic!("unable to parse arity {arity:?}"));
     let numbers: Vec<usize> = numbers
         .split(',')
-        .map(|n| n.parse().unwrap_or_else(|_| panic!("unable to parse arity {arity:?}")))
+        .map(|n| {
+            n.parse()
+                .unwrap_or_else(|_| panic!("unable to parse arity {arity:?}"))
+        })
         .collect();
     match (kind, numbers.as_slice()) {
-        ("Exact", [n]) => ArgShape { fixed: *n, more: false },
-        ("AtLeast", [n]) => ArgShape { fixed: *n, more: true },
-        ("AtMost", [_]) => ArgShape { fixed: 0, more: true },
-        ("Range", [a, _]) => ArgShape { fixed: *a, more: true },
+        ("Exact", [n]) => ArgShape {
+            fixed: *n,
+            more: false,
+        },
+        ("AtLeast", [n]) => ArgShape {
+            fixed: *n,
+            more: true,
+        },
+        ("AtMost", [_]) => ArgShape {
+            fixed: 0,
+            more: true,
+        },
+        ("Range", [a, _]) => ArgShape {
+            fixed: *a,
+            more: true,
+        },
         _ => panic!("unable to parse arity {arity:?}"),
     }
 }
@@ -988,7 +1002,9 @@ fn signature_tokens(
     };
     for (i, entry) in entries.iter().enumerate() {
         match entry.strip_suffix("...") {
-            Some(ty) if i == entries.len() - 1 => rest = Some(value_type_tokens(ty.trim(), "argument")),
+            Some(ty) if i == entries.len() - 1 => {
+                rest = Some(value_type_tokens(ty.trim(), "argument"))
+            }
             Some(_) => panic!("`{name}`: only the last of `args` can end in `...`"),
             None => fixed.push(value_type_tokens(entry, "argument")),
         }
@@ -998,7 +1014,11 @@ fn signature_tokens(
         panic!(
             "`{name}`: `args = {args:?}` does not match the arity: expected {} argument type(s){}",
             shape.fixed,
-            if shape.more { " and a last one ending in `...` for the rest" } else { "" }
+            if shape.more {
+                " and a last one ending in `...` for the rest"
+            } else {
+                ""
+            }
         );
     }
 
@@ -1012,8 +1032,8 @@ fn signature_tokens(
     )
 }
 
-/// For a function with `args` (or `raises`): the debug-build check around a
-/// call. The first half runs before the body, on the slice `args` as passed in;
+/// The debug-build check around a call to a function with `args` (or `raises`).
+/// The first half runs before the body, on the slice `args` as passed in, and
 /// the second after it, on the result bound to `__ret`.
 fn call_check_tokens(
     keyword_map: &HashMap<String, String>,
@@ -1040,9 +1060,9 @@ fn call_check_tokens(
     )
 }
 
-/// For a function with an explicit `returns = "..."`: a debug-build check of
-/// what it returned (the value bound to `__ret`) against the declaration.
-/// Inferred types come from the Rust signature, so they need none.
+/// A debug-build check of what a function with an explicit `returns = "..."`
+/// returned (the value bound to `__ret`) against the declaration. Inferred
+/// types come from the Rust signature, so they need no check.
 fn return_check_tokens(
     keyword_map: &HashMap<String, String>,
     steel_name: &str,
@@ -1057,10 +1077,10 @@ fn return_check_tokens(
     }
 }
 
-/// For a `native` / `context` / `native_mut` function with an explicit
-/// `returns = "..."` or `args = "..."`: its body run as a closure of the same
-/// type, with the debug-build checks around it. `return` and `?` in the body
-/// behave as before - they leave the closure.
+/// Runs the body of a `native` / `context` / `native_mut` function with an
+/// explicit `returns = "..."` or `args = "..."` as a closure of the same type,
+/// with the debug-build checks around it. `return` and `?` in the body leave
+/// the closure, as before.
 fn wrap_with_checks(
     mut input: ItemFn,
     args: &Punctuated<Meta, Comma>,
@@ -1070,7 +1090,13 @@ fn wrap_with_checks(
     if !keyword_map.contains_key("returns") && !keyword_map.contains_key("args") {
         if keyword_map.contains_key("raises") {
             // Reported by signature_tokens.
-            signature_tokens(&keyword_map, ArgShape { fixed: 0, more: false });
+            signature_tokens(
+                &keyword_map,
+                ArgShape {
+                    fixed: 0,
+                    more: false,
+                },
+            );
         }
         return input;
     }
@@ -1142,7 +1168,7 @@ fn rust_type_name(ty: &Type) -> &'static str {
                 // Their IntoSteelVal impls always build HashMapV / HashSetV.
                 "HashMap" => "hashmap",
                 "HashSet" => "hashset",
-                // `Result<T>` / `Result<T, E>`: an error never returns.
+                // `Result<T>` / `Result<T, E>`. An error never returns.
                 "Result" => match &last.arguments {
                     syn::PathArguments::AngleBracketed(args) => args
                         .args
@@ -1558,7 +1584,7 @@ pub fn function(
     };
     let (arg_types, raises) = signature_tokens(&keyword_map, shape);
     let (before_check, after_check) = call_check_tokens(&keyword_map, shape, &quote! { args });
-    // What follows the call: the checks, on its result `__ret`. The argument
+    // The checks that follow the call, on its result `__ret`. The argument
     // conversions and the call run in a closure so that a conversion error
     // reaches them too.
     let ret_tail = quote! {
@@ -1975,7 +2001,7 @@ pub fn custom_function(
     };
     let (arg_types, raises) = signature_tokens(&keyword_map, shape);
     let (before_check, after_check) = call_check_tokens(&keyword_map, shape, &quote! { args });
-    // What follows the call: the checks, on its result `__ret`. The argument
+    // The checks that follow the call, on its result `__ret`. The argument
     // conversions and the call run in a closure so that a conversion error
     // reaches them too.
     let ret_tail = quote! {

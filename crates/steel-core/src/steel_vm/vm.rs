@@ -209,9 +209,8 @@ impl PartialEq for StackFrame {
 }
 
 // The jit builds and tears apart RootedInstructions itself, so the layout has to
-// be something we can promise. repr(C) over an explicit pointer and length gives
-// that; a bare *const [DenseInstruction] leaves the order of the halves up to the
-// compiler.
+// be fixed. repr(C) over an explicit pointer and length gives that; a bare
+// *const [DenseInstruction] leaves the order of the halves up to the compiler.
 #[cfg(feature = "rooted-instructions")]
 const _: () = {
     use core::mem::{offset_of, size_of};
@@ -221,8 +220,8 @@ const _: () = {
     assert!(offset_of!(RootedInstructions, len) == 8);
 
     // The jit moves one of these around as a single i128 built with
-    // iconcat(ptr, len) - low half first, which only lines up with the field
-    // order above on a little endian target.
+    // iconcat(ptr, len), low half first. That only matches the field order
+    // above on a little endian target.
     assert!(cfg!(target_endian = "little"));
 };
 
@@ -392,9 +391,9 @@ pub struct SteelThread {
     pub(crate) trampoline: extern "C" fn(*mut VmCore, JitFnPointer) -> SteelVal,
 
     /// Where this thread's native stack was when it first entered the vm loop.
-    /// Jitted frames live on the native stack, so how far the stack pointer has
-    /// travelled from here is how much of it deep recursion has eaten. Zero
-    /// until the first entry.
+    /// Jitted frames live on the native stack, so the distance of the stack
+    /// pointer from here is how much of it recursion has used. Zero until the
+    /// first entry.
     #[cfg(feature = "jit2")]
     pub(crate) native_stack_anchor: usize,
 
@@ -408,10 +407,10 @@ pub struct SteelThread {
 /// How much of the running thread's stack jitted frames may use, as an absolute
 /// address to stay above.
 ///
-/// The margin has to cover the deepest Rust helper a jitted frame can call - a
-/// collection, drop glue for a deep structure, an error path - so a fixed
-/// fraction of a thread whose real size we know beats any constant: a spawned
-/// Rust thread gets 2MB by default, a main thread usually 8MB.
+/// The margin has to cover the deepest Rust helper a jitted frame can call, such
+/// as a collection, drop glue for a deep structure, or an error path. It is
+/// measured from the thread's real stack bounds, since a spawned Rust thread
+/// gets 2MB by default and a main thread usually 8MB.
 #[cfg(feature = "jit2")]
 pub(crate) fn native_stack_limit() -> usize {
     const MARGIN: usize = 1024 * 1024;
@@ -428,10 +427,9 @@ pub(crate) fn native_stack_limit() -> usize {
 
     match stack_bounds() {
         Some((low, _high)) => low + MARGIN,
-        // Bounds unavailable: a conservative budget measured from this entry,
-        // which is near the top of the stack. `usize::MAX` here would make
-        // every call hand off, which is worse than the frame count this
-        // replaced.
+        // Bounds unavailable, so use a conservative budget measured from this
+        // entry, which is near the top of the stack. `usize::MAX` would make
+        // every call hand off to the interpreter.
         None => here.saturating_sub(MARGIN),
     }
 }
@@ -2474,10 +2472,9 @@ impl<'a> VmCore<'a> {
 
         #[cfg(feature = "jit2")]
         {
-            // The shallowest vm entry seen on this thread, not the first: the
-            // first one happens deep inside startup, below where the run loop
-            // later settles, which would make every later frame look like it
-            // had *gained* stack.
+            // Use the shallowest vm entry seen on this thread. The first one
+            // happens deep inside startup, below where the run loop later
+            // settles, so later frames would look like they had gained stack.
             let here = 0u8;
             let here = &here as *const u8 as usize;
             if here > self.thread.native_stack_anchor {
@@ -2681,9 +2678,8 @@ impl<'a> VmCore<'a> {
                     }
 
                     // Only describes this dispatch, so clear it on the way out.
-                    // Leaving it set on the early return below leaks a stale true
-                    // into the enclosing frame, which shifts the stack by one slot
-                    // on a re-entrant call.
+                    // A stale true left by the early return below shifts the
+                    // enclosing frame's stack by one slot on a re-entrant call.
                     let was_native = core::mem::replace(&mut self.is_native, false);
 
                     if let Some(res) = self.result.take() {
@@ -4415,11 +4411,10 @@ impl<'a> VmCore<'a> {
                 let mut fake_lambda = ByteCodeLambda::default();
                 fake_lambda.id = closure_id;
                 fake_lambda.body_exp = constructed_lambda.body_exp.clone();
-                // The jit reads the callee's shape off this for self calls, so
-                // it has to be the real one: with the default arity of 0 no
-                // self call matched and every one went out through the helper
-                // (fib 8.4s -> 13.2s), and a variadic function's self calls
-                // looked fixed arity.
+                // The jit reads the callee's arity off this for self calls, so
+                // it has to be the real one. With the default arity of 0 no self
+                // call matches and each goes through the helper, and a variadic
+                // function's self calls look fixed arity.
                 fake_lambda.arity = constructed_lambda.arity;
                 fake_lambda.is_multi_arity = constructed_lambda.is_multi_arity;
 
@@ -4451,8 +4446,8 @@ impl<'a> VmCore<'a> {
                     *steel_rc::BiasedRc::get_mut_unchecked(&mut slot.0) = constructed_lambda;
                 }
 
-                // Only once the lambda is in its final allocation: the worker
-                // compiles against it and installs into it.
+                // Submit only once the lambda is in its final allocation, since
+                // the worker compiles against it and installs into it.
                 if let Some(job) = background_job {
                     jit::submit_background_job(job, &slot);
                 }
@@ -4651,8 +4646,8 @@ impl<'a> VmCore<'a> {
                     let (lambda, background_job) =
                         jit::jit_compile_lambda_deferred(self, constructed_lambda, None, None);
                     // The prototype is interned by value, so the worker gets a
-                    // copy: they share the body, which is what the install
-                    // patches and what instances resolve the entry by.
+                    // copy. They share the body, which the install patches and
+                    // instances resolve the entry by.
                     if let Some(job) = background_job {
                         jit::submit_background_job(job, &Gc::new(lambda.clone()));
                     }
@@ -4904,13 +4899,11 @@ impl<'a> VmCore<'a> {
     }
 
     /// As `call_builtin_func`, reporting whether the builtin produced a value
-    /// (`true`) or transferred control (`false`) - `apply` and `call/cc` set up
+    /// (`true`) or transferred control (`false`). `apply` and `call/cc` set up
     /// a frame and return nothing.
     ///
-    /// A caller cannot infer this from the frame count: `apply` in tail
-    /// position *replaces* the current frame, so the count is unchanged, and
-    /// the jit's tail call handler used to read that as "returned a value",
-    /// pop the frame and swallow the result.
+    /// This can't be inferred from the frame count, because `apply` in tail
+    /// position replaces the current frame and leaves the count unchanged.
     fn call_builtin_func_reporting(
         &mut self,
         func: BuiltInSignature,

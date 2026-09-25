@@ -152,7 +152,12 @@ fn integerp(value: &SteelVal) -> bool {
 /// > (exact-integer? -42) ;; => #t
 /// > (exact-integer? 4.0) ;; => #f
 /// ```
-#[steel_derive::function(name = "exact-integer?", constant = true, args = "any", raises = "never")]
+#[steel_derive::function(
+    name = "exact-integer?",
+    constant = true,
+    args = "any",
+    raises = "never"
+)]
 fn exact_integerp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::IntV(_) | SteelVal::BigNum(_))
 }
@@ -209,7 +214,13 @@ fn nanp(value: &SteelVal) -> Result<SteelVal> {
 /// > (zero? 0.0) ;; => #t
 /// > (zero? 0.1) ;; => #f
 /// ```
-#[steel_derive::function(name = "zero?", constant = true, returns = "bool", args = "number", raises = "bad-args")]
+#[steel_derive::function(
+    name = "zero?",
+    constant = true,
+    returns = "bool",
+    args = "number",
+    raises = "bad-args"
+)]
 fn zerop(value: &SteelVal) -> Result<SteelVal> {
     match value {
         SteelVal::NumV(x) => x.is_zero().into_steelval(),
@@ -285,7 +296,14 @@ fn negativep(value: &SteelVal) -> Result<SteelVal> {
 /// > (- 10 3 2) ;; => 5
 /// > (- -5) ;; => 5
 /// ```
-#[steel_derive::native(name = "-", constant = true, arity = "AtLeast(1)", returns = "number", args = "number, number...", raises = "bad-args")]
+#[steel_derive::native(
+    name = "-",
+    constant = true,
+    arity = "AtLeast(1)",
+    returns = "number",
+    args = "number, number...",
+    raises = "bad-args"
+)]
 pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("-", args)?;
     match args {
@@ -349,7 +367,14 @@ pub(crate) fn add_primitive_no_check(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (+ 10 3 2) ;; => 15
 /// > (+) ;; => 0
 /// ```
-#[steel_derive::native(name = "+", constant = true, arity = "AtLeast(0)", returns = "number", args = "number...", raises = "bad-args")]
+#[steel_derive::native(
+    name = "+",
+    constant = true,
+    arity = "AtLeast(0)",
+    returns = "number",
+    args = "number...",
+    raises = "bad-args"
+)]
 pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("+", args)?;
     match args {
@@ -378,7 +403,14 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (* 10 3 2) ;; => 60
 /// > (*) ;; => 1
 /// ```
-#[steel_derive::native(name = "*", constant = true, arity = "AtLeast(0)", returns = "number", args = "number...", raises = "bad-args")]
+#[steel_derive::native(
+    name = "*",
+    constant = true,
+    arity = "AtLeast(0)",
+    returns = "number",
+    args = "number...",
+    raises = "bad-args"
+)]
 pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("*", args)?;
     multiply_primitive_impl(args)
@@ -403,7 +435,13 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (truncate/ 5 -2) ;; => (-2 1)
 /// > (truncate/ -5 -2) ;; => (2 -1)
 /// ```
-#[steel_derive::native(name = "truncate/", constant = true, arity = "Exact(2)", returns = "list", args = "number, number")]
+#[steel_derive::native(
+    name = "truncate/",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "list",
+    args = "number, number"
+)]
 pub fn truncate_slash(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
@@ -464,7 +502,13 @@ pub fn truncate_slash(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (truncate-quotient 5 -2) ;; => -2
 /// > (truncate-quotient -5 -2) ;; => 2
 /// ```
-#[steel_derive::native(name = "truncate-quotient", constant = true, arity = "Exact(2)", returns = "number", args = "number, number")]
+#[steel_derive::native(
+    name = "truncate-quotient",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "number",
+    args = "number, number"
+)]
 pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
@@ -518,7 +562,13 @@ pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (truncate-remainder 5 -2) ;; => 1
 /// > (truncate-remainder -5 -2) ;; => -1
 /// ```
-#[steel_derive::native(name = "truncate-remainder", constant = true, arity = "Exact(2)", returns = "number", args = "number, number")]
+#[steel_derive::native(
+    name = "truncate-remainder",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "number",
+    args = "number, number"
+)]
 pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
@@ -570,7 +620,13 @@ pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (floor/ 5 -2) ;; => (-3 -1)
 /// > (floor/ -5 -2) ;; => (2 -1)
 /// ```
-#[steel_derive::native(name = "floor/", constant = true, arity = "Exact(2)", returns = "list", args = "number, number")]
+#[steel_derive::native(
+    name = "floor/",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "list",
+    args = "number, number"
+)]
 pub fn floor_slash(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
@@ -631,7 +687,13 @@ pub fn floor_slash(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (floor-quotient 5 -2) ;; => -3
 /// > (floor-quotient -5 -2) ;; => 2
 /// ```
-#[steel_derive::native(name = "floor-quotient", constant = true, arity = "Exact(2)", returns = "number", args = "number, number")]
+#[steel_derive::native(
+    name = "floor-quotient",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "number",
+    args = "number, number"
+)]
 pub fn floor_quotient(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
@@ -696,7 +758,13 @@ fn float_rem_floor(lhs: f64, rhs: f64) -> f64 {
 /// > (floor-remainder 5 -2) ;; => -1
 /// > (floor-remainder -5 -2) ;; => -1
 /// ```
-#[steel_derive::native(name = "floor-remainder", constant = true, arity = "Exact(2)", returns = "number", args = "number, number")]
+#[steel_derive::native(
+    name = "floor-remainder",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "number",
+    args = "number, number"
+)]
 pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
@@ -751,7 +819,13 @@ pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (euclidean/ 5 -2) ;; => (-2 1)
 /// > (euclidean/ -5 -2) ;; => (3 1)
 /// ```
-#[steel_derive::native(name = "euclidean/", constant = true, arity = "Exact(2)", returns = "list", args = "number, number")]
+#[steel_derive::native(
+    name = "euclidean/",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "list",
+    args = "number, number"
+)]
 pub fn euclidean_slash(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
@@ -807,7 +881,13 @@ pub fn euclidean_slash(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (euclidean-quotient 5 -2) ;; => -2
 /// > (euclidean-quotient -5 -2) ;; => 3
 /// ```
-#[steel_derive::native(name = "euclidean-quotient", constant = true, arity = "Exact(2)", returns = "number", args = "number, number")]
+#[steel_derive::native(
+    name = "euclidean-quotient",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "number",
+    args = "number, number"
+)]
 pub fn euclidean_quotient(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
@@ -861,7 +941,13 @@ pub fn euclidean_quotient(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (euclidean-remainder 5 -2) ;; => 1
 /// > (euclidean-remainder -5 -2) ;; => 1
 /// ```
-#[steel_derive::native(name = "euclidean-remainder", constant = true, arity = "Exact(2)", returns = "number", args = "number, number")]
+#[steel_derive::native(
+    name = "euclidean-remainder",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "number",
+    args = "number, number"
+)]
 pub fn euclidean_remainder(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
@@ -915,7 +1001,13 @@ pub fn euclidean_remainder(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (quotient 5 -2) ;; => -2
 /// > (quotient -5 -2) ;; => 2
 /// ```
-#[steel_derive::native(name = "quotient", constant = true, arity = "Exact(2)", returns = "number", args = "number, number")]
+#[steel_derive::native(
+    name = "quotient",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "number",
+    args = "number, number"
+)]
 pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
     truncate_quotient(args)
 }
@@ -940,7 +1032,13 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (remainder 5 -2) ;; => 1
 /// > (remainder -5 -2) ;; => -1
 /// ```
-#[steel_derive::native(name = "remainder", constant = true, arity = "Exact(2)", returns = "number", args = "number, number")]
+#[steel_derive::native(
+    name = "remainder",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "number",
+    args = "number, number"
+)]
 pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
     truncate_remainder(args)
 }
@@ -965,7 +1063,13 @@ pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (modulo 5 -2) ;; => -1
 /// > (modulo -5 -2) ;; => -1
 /// ```
-#[steel_derive::native(name = "modulo", constant = true, arity = "Exact(2)", returns = "number", args = "number, number")]
+#[steel_derive::native(
+    name = "modulo",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "number",
+    args = "number, number"
+)]
 pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
     floor_remainder(args)
 }
@@ -1133,7 +1237,13 @@ pub fn atan(arg: &SteelVal) -> Result<SteelVal> {
 /// > (/ 1 3.0) ;; => 0.3333333333333333
 /// > (/ 1 3) ;; => 1/3
 /// ```
-#[steel_derive::native(name = "/", constant = true, arity = "AtLeast(1)", returns = "number", args = "number, number...")]
+#[steel_derive::native(
+    name = "/",
+    constant = true,
+    arity = "AtLeast(1)",
+    returns = "number",
+    args = "number, number..."
+)]
 pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("/", args)?;
     let recip = |x: &SteelVal| -> Result<SteelVal> {
@@ -1165,9 +1275,7 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         [x] => recip(x),
         [x, y] => match (x, y) {
             (SteelVal::NumV(a), SteelVal::NumV(b)) => Ok(SteelVal::NumV(a / b)),
-            (SteelVal::IntV(a), SteelVal::IntV(b))
-                if *b != 0 && a.checked_rem(*b) == Some(0) =>
-            {
+            (SteelVal::IntV(a), SteelVal::IntV(b)) if *b != 0 && a.checked_rem(*b) == Some(0) => {
                 match a.checked_div(*b) {
                     Some(res) => Ok(SteelVal::IntV(res)),
                     None => multiply_two(x, &recip(y)?),
@@ -1250,7 +1358,14 @@ fn number_to_float(number: &SteelVal) -> Result<f64> {
 /// > (inexact 1/2) ;; => 0.5
 /// > (inexact 1+2i) ;; => 1+2i
 /// ```
-#[steel_derive::function(name = "inexact", alias = "exact->inexact", constant = true, returns = "number", args = "number", raises = "bad-args")]
+#[steel_derive::function(
+    name = "inexact",
+    alias = "exact->inexact",
+    constant = true,
+    returns = "number",
+    args = "number",
+    raises = "bad-args"
+)]
 fn inexact(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => (*i as f64).into_steelval(),
@@ -1275,7 +1390,13 @@ fn inexact(number: &SteelVal) -> Result<SteelVal> {
 /// > (exact 1.5) ;; => 3/2
 /// > (exact 1.5+2.5i) ;; => 3/2+5/2i
 /// ```
-#[steel_derive::function(name = "exact", alias = "inexact->exact", constant = true, returns = "number", args = "number")]
+#[steel_derive::function(
+    name = "exact",
+    alias = "inexact->exact",
+    constant = true,
+    returns = "number",
+    args = "number"
+)]
 pub fn exact(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(_)
@@ -1323,7 +1444,13 @@ fn finitep_impl(number: &SteelVal) -> Result<bool> {
 /// > (finite? -inf.0) ;; => #f
 /// > (finite? +nan.0) ;; => #f
 /// ```
-#[steel_derive::function(name = "finite?", constant = true, returns = "bool", args = "number", raises = "bad-args")]
+#[steel_derive::function(
+    name = "finite?",
+    constant = true,
+    returns = "bool",
+    args = "number",
+    raises = "bad-args"
+)]
 fn finitep(number: &SteelVal) -> Result<SteelVal> {
     finitep_impl(number).into_steelval()
 }
@@ -1353,7 +1480,13 @@ fn infinitep_impl(number: &SteelVal) -> Result<bool> {
 /// > (infinite? -nan.0) ;; => #f
 /// > (infinite? +inf.0) ;; => #t
 /// ```
-#[steel_derive::function(name = "infinite?", constant = true, returns = "bool", args = "number", raises = "bad-args")]
+#[steel_derive::function(
+    name = "infinite?",
+    constant = true,
+    returns = "bool",
+    args = "number",
+    raises = "bad-args"
+)]
 fn infinitep(number: &SteelVal) -> Result<SteelVal> {
     infinitep_impl(number)?.into_steelval()
 }
@@ -1394,7 +1527,12 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
 /// > (denominator 3/4) ;; => 4
 /// > (denominator 4) ;; => 1
 /// ```
-#[steel_derive::function(name = "denominator", constant = true, returns = "number", args = "number")]
+#[steel_derive::function(
+    name = "denominator",
+    constant = true,
+    returns = "number",
+    args = "number"
+)]
 fn denominator(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(_) | SteelVal::BigNum(_) => 1.into_steelval(),
@@ -1421,7 +1559,12 @@ fn denominator(number: &SteelVal) -> Result<SteelVal> {
 /// > (expt 2.0 0.5) ;; => 1.4142135623730951
 /// > (expt 9 0.5) ;; => 3
 /// ```
-#[steel_derive::function(name = "expt", constant = true, returns = "number", args = "number, number")]
+#[steel_derive::function(
+    name = "expt",
+    constant = true,
+    returns = "number",
+    args = "number, number"
+)]
 fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     match (left, right) {
         (SteelVal::IntV(l), SteelVal::IntV(r)) if *r >= 0 => {
@@ -1599,7 +1742,12 @@ fn exp(left: &SteelVal) -> Result<SteelVal> {
 /// > (numerator 5/2) ;; => 5
 /// > (numerator -2) ;; => -2
 /// ```
-#[steel_derive::function(name = "numerator", constant = true, returns = "number", args = "number")]
+#[steel_derive::function(
+    name = "numerator",
+    constant = true,
+    returns = "number",
+    args = "number"
+)]
 fn numerator(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(x) => x.into_steelval(),
@@ -1671,7 +1819,12 @@ fn ceiling(number: &SteelVal) -> Result<SteelVal> {
 /// > (truncate 42.1) ;; => 42
 /// > (truncate -42.1) ;; => -42
 /// ```
-#[steel_derive::function(name = "truncate", constant = true, returns = "number", args = "number")]
+#[steel_derive::function(
+    name = "truncate",
+    constant = true,
+    returns = "number",
+    args = "number"
+)]
 pub fn truncate(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
         SteelVal::NumV(n) => n.trunc().into_steelval(),
@@ -1768,7 +1921,13 @@ fn round(number: &SteelVal) -> Result<SteelVal> {
 /// > (square -3) ;; => 9
 /// > (square 2.5) ;; => 6.25
 /// ```
-#[steel_derive::function(name = "square", constant = true, returns = "number", args = "number", raises = "bad-args")]
+#[steel_derive::function(
+    name = "square",
+    constant = true,
+    returns = "number",
+    args = "number",
+    raises = "bad-args"
+)]
 fn square(number: &SteelVal) -> Result<SteelVal> {
     if !numberp(number) {
         stop!(TypeMismatch => "square expects a number, found: {:?}", number)
@@ -1788,7 +1947,13 @@ fn square(number: &SteelVal) -> Result<SteelVal> {
 /// > (sqrt 2) ;; => 1.4142135623730951
 /// > (sqrt -1) ;; => 0+1i
 /// ```
-#[steel_derive::function(name = "sqrt", constant = true, returns = "number", args = "number", raises = "bad-args")]
+#[steel_derive::function(
+    name = "sqrt",
+    constant = true,
+    returns = "number",
+    args = "number",
+    raises = "bad-args"
+)]
 fn sqrt(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::NumV(x) => {
@@ -1875,7 +2040,12 @@ fn sqrt(number: &SteelVal) -> Result<SteelVal> {
 ///
 /// - re : real?
 /// - im : real?
-#[steel_derive::function(name = "make-rectangular", constant = true, returns = "number", args = "number, number")]
+#[steel_derive::function(
+    name = "make-rectangular",
+    constant = true,
+    returns = "number",
+    args = "number, number"
+)]
 pub fn make_rectangular(re: &SteelVal, im: &SteelVal) -> Result<SteelVal> {
     ensure_arg_is_real("make-rectangular", re)?;
     ensure_arg_is_real("make-rectangular", im)?;
@@ -1893,7 +2063,12 @@ pub fn make_rectangular(re: &SteelVal, im: &SteelVal) -> Result<SteelVal> {
 ///
 /// - r : real?
 /// - theta : real?
-#[steel_derive::function(name = "make-polar", constant = true, returns = "number", args = "number, number")]
+#[steel_derive::function(
+    name = "make-polar",
+    constant = true,
+    returns = "number",
+    args = "number, number"
+)]
 pub fn make_polar(r: &SteelVal, theta: &SteelVal) -> Result<SteelVal> {
     ensure_arg_is_real("make-polar", r)?;
     ensure_arg_is_real("make-polar", theta)?;
@@ -1920,7 +2095,13 @@ fn ensure_arg_is_real(op: &str, arg: &SteelVal) -> Result<()> {
 /// > (real-part 3+4i) ;; => 3
 /// > (real-part 42) ;; => 42
 /// ```
-#[steel_derive::function(name = "real-part", constant = true, returns = "number", args = "number", raises = "bad-args")]
+#[steel_derive::function(
+    name = "real-part",
+    constant = true,
+    returns = "number",
+    args = "number",
+    raises = "bad-args"
+)]
 pub fn real_part(value: &SteelVal) -> Result<SteelVal> {
     match value {
         val @ SteelVal::IntV(_)
@@ -1942,7 +2123,13 @@ pub fn real_part(value: &SteelVal) -> Result<SteelVal> {
 /// > (imag-part 3+4i) ;; => 4
 /// > (imag-part 42) ;; => 0
 /// ```
-#[steel_derive::function(name = "imag-part", constant = true, returns = "number", args = "number", raises = "bad-args")]
+#[steel_derive::function(
+    name = "imag-part",
+    constant = true,
+    returns = "number",
+    args = "number",
+    raises = "bad-args"
+)]
 pub fn imag_part(value: &SteelVal) -> Result<SteelVal> {
     match value {
         SteelVal::IntV(_)
@@ -1967,7 +2154,13 @@ pub fn imag_part(value: &SteelVal) -> Result<SteelVal> {
 /// > (magnitude 5) ;; => 5
 /// > (magnitude -5) ;; => 5
 /// ```
-#[steel_derive::function(name = "magnitude", constant = true, returns = "number", args = "number", raises = "bad-args")]
+#[steel_derive::function(
+    name = "magnitude",
+    constant = true,
+    returns = "number",
+    args = "number",
+    raises = "bad-args"
+)]
 fn magnitude(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::NumV(x) => x.abs().into_steelval(),
@@ -2036,7 +2229,12 @@ fn atan2(y: &SteelVal, x: &SteelVal) -> Result<SteelVal> {
 /// > (log 100 10) ;; => 2
 /// > (log 27 3) ;; => 3
 /// ```
-#[steel_derive::native(name = "log", arity = "Range(1,2)", returns = "number", args = "number, number...")]
+#[steel_derive::native(
+    name = "log",
+    arity = "Range(1,2)",
+    returns = "number",
+    args = "number, number..."
+)]
 fn log(args: &[SteelVal]) -> Result<SteelVal> {
     let first = &args[0];
     let base = args
@@ -2044,8 +2242,8 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
         .cloned()
         .unwrap_or(SteelVal::NumV(core::f64::consts::E));
 
-    // Checked up front: the `(log 1 base)` shortcut below would otherwise
-    // accept any base at all.
+    // Check types first, otherwise the `(log 1 base)` shortcut below accepts
+    // any base.
     if !numberp(first) || !numberp(&base) {
         stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
     }
@@ -2085,7 +2283,12 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (exact-integer-sqrt 25) ;; => (5 0)
 /// > (exact-integer-sqrt 35) ;; => (5 10)
 /// ```
-#[steel_derive::function(name = "exact-integer-sqrt", constant = true, returns = "list", args = "number")]
+#[steel_derive::function(
+    name = "exact-integer-sqrt",
+    constant = true,
+    returns = "list",
+    args = "number"
+)]
 fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(x) if *x >= 0 => {
@@ -2127,7 +2330,14 @@ where
 /// > (arithmetic-shift 20 1) ;; => 40
 /// > (arithmetic-shift 40 -2) ;; => 10
 /// ```
-#[steel_derive::native(name = "arithmetic-shift", constant = true, arity = "Exact(2)", returns = "int", args = "int, int", raises = "bad-args")]
+#[steel_derive::native(
+    name = "arithmetic-shift",
+    constant = true,
+    arity = "Exact(2)",
+    returns = "int",
+    args = "int, int",
+    raises = "bad-args"
+)]
 pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::IntV(n), SteelVal::IntV(m)) => {
@@ -2152,7 +2362,14 @@ pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (bitwise-xor 1 5) ;; => 4
 /// > (bitwise-xor -32 -1) ;; => 31
 /// ```
-#[steel_derive::native(name = "bitwise-xor", constant = true, arity = "AtLeast(1)", returns = "int", args = "int, int...", raises = "bad-args")]
+#[steel_derive::native(
+    name = "bitwise-xor",
+    constant = true,
+    arity = "AtLeast(1)",
+    returns = "int",
+    args = "int, int...",
+    raises = "bad-args"
+)]
 pub fn bitwise_xor(args: &[SteelVal]) -> Result<SteelVal> {
     let mut accum = if let SteelVal::IntV(i) = &args[0] {
         *i
@@ -2185,7 +2402,14 @@ pub fn bitwise_xor(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (bitwise-ior 1 2) ;; => 3
 /// > (bitwise-ior -32 1) ;; => -31
 /// ```
-#[steel_derive::native(name = "bitwise-ior", constant = true, arity = "AtLeast(1)", returns = "int", args = "int, int...", raises = "bad-args")]
+#[steel_derive::native(
+    name = "bitwise-ior",
+    constant = true,
+    arity = "AtLeast(1)",
+    returns = "int",
+    args = "int, int...",
+    raises = "bad-args"
+)]
 pub fn bitwise_ior(args: &[SteelVal]) -> Result<SteelVal> {
     let mut accum = if let SteelVal::IntV(i) = &args[0] {
         *i
@@ -2218,7 +2442,14 @@ pub fn bitwise_ior(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (bitwise-and 1 2) ;; => 0
 /// > (bitwise-and -32 -1) ;; => -32
 /// ```
-#[steel_derive::native(name = "bitwise-and", constant = true, arity = "AtLeast(1)", returns = "int", args = "int, int...", raises = "bad-args")]
+#[steel_derive::native(
+    name = "bitwise-and",
+    constant = true,
+    arity = "AtLeast(1)",
+    returns = "int",
+    args = "int, int...",
+    raises = "bad-args"
+)]
 pub fn bitwise_and(args: &[SteelVal]) -> Result<SteelVal> {
     let mut accum = if let SteelVal::IntV(i) = &args[0] {
         *i
@@ -2251,7 +2482,13 @@ pub fn bitwise_and(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (bitwise-not 5) ;; => -6
 /// > (bitwise-not -1) ;; => 0
 /// ```
-#[steel_derive::native(name = "bitwise-not", constant = true, arity = "Exact(1)", returns = "number", args = "number")]
+#[steel_derive::native(
+    name = "bitwise-not",
+    constant = true,
+    arity = "Exact(1)",
+    returns = "number",
+    args = "number"
+)]
 pub fn bitwise_not(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
         SteelVal::IntV(i) => Ok(SteelVal::IntV(!i)),
@@ -2320,7 +2557,14 @@ pub fn odd(arg: &SteelVal) -> Result<SteelVal> {
 /// > (f+ 1.1 2.2) ;; => 3.3
 /// > (f+ 3.3 3.3 3.3) ;; => 9.9
 /// ```
-#[steel_derive::native(name = "f+", constant = true, arity = "AtLeast(1)", returns = "float", args = "float, float...", raises = "bad-args")]
+#[steel_derive::native(
+    name = "f+",
+    constant = true,
+    arity = "AtLeast(1)",
+    returns = "float",
+    args = "float, float...",
+    raises = "bad-args"
+)]
 pub fn float_add(args: &[SteelVal]) -> Result<SteelVal> {
     let mut sum = 0.0;
 

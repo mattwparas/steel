@@ -652,11 +652,10 @@ impl BuiltInModuleRepr {
     }
 
     /// Every native function a module exposes gets an entry in the function
-    /// table, however it was registered - the jit looks primitives up there
-    /// (their return types), and printing a function uses it for the name.
-    /// One registered from a `NativeFunctionDefinition` already has an entry
-    /// with its real arity and return type; anything else gets its name, with
-    /// nothing known about the rest.
+    /// table, however it was registered. The jit looks up primitive return types
+    /// there, and printing a function uses it for the name. One registered from
+    /// a `NativeFunctionDefinition` already has an entry with its real arity and
+    /// return type. Anything else gets only its name.
     fn note_function_value(&mut self, name: &str, value: &SteelVal) {
         let key = match value {
             SteelVal::FuncV(f) => BuiltInFunctionType::Reference(*f),
@@ -669,7 +668,7 @@ impl BuiltInModuleRepr {
         }
         match get_function_metadata(key) {
             // Registered elsewhere under its own name (this is an alias or a
-            // re-export): share that entry.
+            // re-export), so share that entry.
             Some(existing) => {
                 self.fn_ptr_table.insert(key, existing);
             }

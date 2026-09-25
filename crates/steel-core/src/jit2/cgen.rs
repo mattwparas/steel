@@ -53,7 +53,7 @@ const INLINE_STRUCT_FUNCTION_TAIL_CALLS: bool = true;
 const USE_INLINE_CALL_FUNC: bool = true;
 /// Inline tail calls to primitives the JIT already knows how to emit, instead
 /// of routing them through `call_global_function_tail_deopt_*`.
-/// `STEEL_JIT_PRIM_TAIL=0` disables, for A/B measurement.
+/// `STEEL_JIT_PRIM_TAIL=0` disables it.
 fn inline_primitive_tail_calls_enabled() -> bool {
     crate::config::config().jit_prim_tail
 }
@@ -64,16 +64,14 @@ fn float_inline_enabled() -> bool {
 }
 
 /// Inline `=` / `<` / `<=` / `>` / `>=` on two arbitrary values when both turn
-/// out to be integers, and `vector-ref` when the vector is not in a register -
-/// cases that previously always went out to a helper.
-/// `STEEL_JIT_GENERIC_INLINE=0` disables, for A/B measurement.
+/// out to be integers, and `vector-ref` when the vector is not in a register.
+/// `STEEL_JIT_GENERIC_INLINE=0` disables it.
 fn generic_inline_enabled() -> bool {
     crate::config::config().jit_generic_inline
 }
 
-/// Whether calls check the remaining native stack instead of counting vm
-/// frames. `STEEL_JIT_STACK_CHECK=0` restores the old 100-frame cap;
-/// `STEEL_JIT_STACK_BUDGET=<mb>` overrides how much stack the check allows.
+/// `STEEL_JIT_CALLGLOBAL_DIRECT=0` disables direct calls to global closures
+/// that are never `set!`.
 fn callglobal_direct_enabled() -> bool {
     crate::config::config().jit_callglobal_direct
 }
@@ -88,6 +86,9 @@ fn rest_args_enabled() -> bool {
     crate::config::config().jit_rest_args
 }
 
+/// Whether calls check the remaining native stack instead of counting vm
+/// frames. `STEEL_JIT_STACK_CHECK=0` restores the old 100-frame cap;
+/// `STEEL_JIT_STACK_BUDGET=<mb>` overrides how much stack the check allows.
 fn native_stack_check_enabled() -> bool {
     crate::config::config().jit_stack_check
 }
@@ -141,20 +142,19 @@ pub struct JIT {
     names: HashMap<u32, String>,
 
     // Names that made it all the way through define_function. `compile` declares a
-    // name before it translates, so a failed compile leaves the declaration behind
-    // with no body - handing that back to get_finalized_function panics.
+    // name before it translates, so a failed compile leaves a declaration with no
+    // body, and passing that to get_finalized_function panics.
     defined: HashSet<String>,
 
     function_return_types: HashMap<u32, HashSet<InferredType>>,
 
     /// Whether the next `translate` may walk lists as cursors. Set around the
     /// specialized-copy compile only, and cleared again when that translation
-    /// bailed - see `FunctionTranslator::cursor_bail`.
+    /// bailed. See `FunctionTranslator::cursor_bail`.
     allow_cursors: bool,
 
-    // perf inject --jit support. None unless STEEL_JIT_DUMP asked for it -
-    // opening it eagerly drops a jit-<pid>.dump into the cwd of every process
-    // that builds a JIT
+    // perf inject --jit support. None unless STEEL_JIT_DUMP is set, since opening
+    // it writes a jit-<pid>.dump into the cwd of every process that builds a JIT
     #[cfg(target_os = "linux")]
     jitdump: Option<wasmtime_jit_debug::perf_jitdump::JitDumpFile>,
 }
@@ -199,7 +199,6 @@ impl<'a> FunctionMap<'a> {
         self.builder.symbol(name, func.as_pointer());
         self.map2.insert(name, Box::new(func));
     }
-
 }
 
 pub trait FunctionToCranelift {
@@ -359,29 +358,26 @@ macro_rules! abi {
 
 mod helpers;
 use helpers::*;
-mod inline_primitives;
 mod guarded;
+mod inline_primitives;
 
 /// How many speculative exits a function may take before speculation stops
 /// being worth it for that function.
 ///
-/// A site that is genuinely polymorphic exits on every call, which is strictly
-/// worse than the generic fallback speculation replaced: a full return to the
-/// interpreter instead of a predictable branch. Past this many exits the
-/// function is recorded and compiled without speculation from then on.
+/// A polymorphic site exits on every call, which is worse than the generic
+/// fallback since each exit is a full return to the interpreter. Past this many
+/// exits the function is recorded and compiled without speculation from then on.
 fn speculation_deopt_limit() -> u64 {
     crate::config::config().jit_deopt_limit
 }
 
-/// Exit counts per jitted function, and the set that has given up on
-/// speculating. Shared across threads because the jit and its code cache are.
-static SPECULATION_DEOPTS: std::sync::Mutex<
-    Option<std::collections::HashMap<usize, u64>>,
-> = std::sync::Mutex::new(None);
+/// Exit counts per jitted function, and the set that no longer speculates.
+/// Shared across threads because the jit and its code cache are.
+static SPECULATION_DEOPTS: std::sync::Mutex<Option<std::collections::HashMap<usize, u64>>> =
+    std::sync::Mutex::new(None);
 
-static SPECULATION_DISABLED: std::sync::Mutex<
-    Option<std::collections::HashSet<usize>>,
-> = std::sync::Mutex::new(None);
+static SPECULATION_DISABLED: std::sync::Mutex<Option<std::collections::HashSet<usize>>> =
+    std::sync::Mutex::new(None);
 
 /// Whether this function should still be compiled with speculation.
 fn should_speculate_for(function_index: Option<usize>) -> bool {
@@ -400,8 +396,8 @@ fn should_speculate_for(function_index: Option<usize>) -> bool {
 }
 
 #[cross_platform_fn]
-// Called from a speculative exit. Counts it, and retires speculation for this
-// function once the exits stop looking like a cold path.
+// Called from a speculative exit. Counts it, and turns off speculation for this
+// function once it passes the limit.
 fn record_speculation_deopt(function_index: i64) {
     let index = function_index as usize;
     let limit = speculation_deopt_limit();
@@ -504,28 +500,15 @@ fn debug_instructions2(value: RootedInstructions) {
     println!("fat pointer instructions: {:?}", value);
 }
 
-/// Caching `SteelThread.stack.buf` across a block. It only moves when the stack
-/// grows, and the jit already invalidates at both of its own growth points; this
-/// adds invalidation around calls, which can grow it from the rust side.
-///
-/// fib reloaded it 27 times for 2.1% of its runtime - the cache field and the
-/// invalidator were both written, the reader was left commented out and never
-/// populated it.
-/// Helpers that provably cannot reallocate `SteelThread.stack`, so a cached
-/// buffer pointer survives a call to them.
-///
-/// Conservative by construction: the answer is "it can move" unless the callee
-/// is on this list. Everything here either does arithmetic on `SteelVal`s it was
-/// handed, or bumps a reference count - none of them push onto the value stack
-/// or re-enter the vm. Getting an entry wrong here leaves generated code using a
-/// dangling buffer pointer, so add to it only after checking the callee.
-/// An opcode with no lowering. Panicking is the refusal: translation panics are
-/// caught and handled like any other failure to compile, so the function just
-/// stays interpreted.
+/// An opcode with no lowering. Translation panics are caught and handled like
+/// any other failure to compile, so the function stays interpreted.
 fn unsupported_opcode(op: OpCode) -> ! {
     panic!("jit: no lowering for {op:?}; the function stays interpreted")
 }
 
+/// Whether a call to `name` can reallocate `SteelThread.stack`. Any callee not in
+/// `KEEPS_STACK` is assumed to, since a cached buffer pointer would dangle
+/// otherwise.
 fn callee_can_move_value_stack(name: &str) -> bool {
     !KEEPS_STACK.contains(&name)
 }
@@ -533,17 +516,17 @@ fn callee_can_move_value_stack(name: &str) -> bool {
 /// Speculate on the int tag and bail to the interpreter when it misses, instead
 /// of merging with a generic slow path.
 ///
-/// The merge is what forces the boxed representation: a `converging_if` joining
-/// an int arm with a "could be anything" arm has to agree on `i128`. Branching to
-/// an exit instead means the fast arm never joins, so it can carry a raw i64 -
-/// which is what makes `InferredType::Int64` producible at all.
-///
-/// Milestone scope: one operation, to answer whether jitted code can hand the
-/// interpreter a state it can resume from.
+/// A `converging_if` joining an int arm with an arm of unknown type has to agree
+/// on the boxed `i128` representation. Branching to an exit instead means the
+/// fast arm never joins, so it can carry a raw i64. This is how
+/// `InferredType::Int64` values get produced.
 fn speculate_int_tag_enabled() -> bool {
     crate::config::config().jit_speculate_int
 }
 
+/// Caching `SteelThread.stack.buf` across a block. It only moves when the stack
+/// grows, and the jit already invalidates at both of its own growth points; this
+/// adds invalidation around calls, which can grow it from the rust side.
 fn stack_buf_cache_enabled() -> bool {
     crate::config::config().jit_buf_ptr_cache
 }
@@ -560,17 +543,15 @@ impl Default for JIT {
 
         flag_builder.set("opt_level", "speed").unwrap();
 
-        // On in release too, so a miscompile gets caught rather than emitted.
-        // Costs real time on compile heavy programs, hence the opt out
+        // On in release too, so a miscompile gets caught before it is emitted.
+        // It is slow on compile heavy programs, so it can be turned off
         if !crate::config::config().jit_verifier {
             flag_builder.set("enable_verifier", "false").unwrap();
         }
 
-        // Required, not a choice: cranelift's x64 backend asserts on tail calls
-        // without them ("the current implementation relies on them being
-        // present"), and the jit emits tail calls. Worth ~3.4% of fib in prologue
-        // cost plus whatever %rbp would buy the allocator, so revisit if that
-        // restriction is ever lifted upstream.
+        // Required because the jit emits tail calls, and cranelift's x64 backend
+        // asserts on tail calls without frame pointers. They cost ~3.4% of fib in
+        // prologue, so revisit if that restriction is lifted upstream.
         flag_builder.set("preserve_frame_pointers", "true").unwrap();
 
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
@@ -585,9 +566,8 @@ impl Default for JIT {
             .jit_memory_size
             .filter(|mib| *mib > 0)
             // Specialized copies roughly double the code a process generates, and
-            // every test in `cargo test` shares one jit. On unix this is reserved
-            // address space, not committed memory; `region` commits it all on
-            // windows, so stay small there.
+            // every test in `cargo test` shares one jit. On unix this only reserves
+            // address space. `region` commits it all on windows, so stay small there.
             .unwrap_or(if cfg!(windows) { 256 } else { 1024 })
             .min(2047);
         builder.memory_provider(Box::new(
@@ -611,14 +591,6 @@ impl Default for JIT {
         };
 
         register_helpers(&mut map);
-
-        
-
-        
-
-        
-
-        
 
         // Value functions:
 
@@ -653,13 +625,8 @@ impl Default for JIT {
 
         // Check if the function at the global location is in fact the right one.
 
-
         // TODO: Add type checked variants as well which can allow
         // passing through unboxed values on the stack
-
-        
-
-        
 
         // map.add_func(
         //     "cdr-mut-reg",
@@ -669,29 +636,7 @@ impl Default for JIT {
         // TODO: Add type checked variants as well which can allow
         // passing through unboxed values on the stack
 
-        
-
-        
-
-        
-
-        
-
-        
-
-        
-
-        
-
         // TODO: Pick up from here!
-
-        
-
-        
-
-        
-
-        
 
         let function_map = OwnedFunctionMap {
             map: map.map,
@@ -719,9 +664,9 @@ impl Default for JIT {
 }
 
 // Where the slice data starts in an `RcBox<[DenseInstruction]>`. Same header as
-// any other `RcBox`, so take it from the type rather than a literal.
+// any other `RcBox`, so take it from the type instead of hardcoding it.
 // The weak counter's offset and width in the box header. `inline_weak_decrement`
-// writes it directly, so both have to track the type - at the wrong offset this
+// writes it directly, so both have to track the type. At the wrong offset this
 // decrements the spinlock instead and the next acquire never completes.
 fn weak_counter_offset() -> i64 {
     steel_rc::weak::weak_offset::<
@@ -735,11 +680,8 @@ fn inline_weak_clone_enabled() -> bool {
     crate::config::config().jit_inline_weak_clone
 }
 
-/// `STEEL_JIT_PRIM_TAIL_EXTRA=0` turns off tail-position inlining of `eq?`,
-/// `vector-set!` and `#%make-mutable-struct`, leaving `#%unbox` / `#%set-box!`.
 /// `STEEL_JIT_BORROW=0` clones every value read out of a container as it is
-/// read, instead of leaving it borrowed for a consumer that doesn't need it
-/// owned.
+/// read, even when the consumer only needs it borrowed.
 pub(super) fn borrow_enabled() -> bool {
     crate::config::config().jit_borrow
 }
@@ -765,9 +707,9 @@ pub(super) fn inline_setbox_enabled() -> bool {
 /// `STEEL_JIT_BYTEVECTOR_STRICT_UNSHARED=1` makes the bytevector lock elision
 /// additionally require the owner's reference count to be exactly one.
 ///
-/// Off by default: a zero shared half-word already proves every reference
-/// belongs to the owner thread, and several references held by one thread
-/// cannot race with each other. The strict form exists to A/B that reasoning.
+/// Off by default. A zero shared half-word already proves every reference
+/// belongs to the owner thread, and references held by one thread cannot race
+/// with each other.
 pub(super) fn byte_vec_strict_unshared() -> bool {
     crate::config::config().jit_bytevector_strict_unshared
 }
@@ -775,10 +717,9 @@ pub(super) fn byte_vec_strict_unshared() -> bool {
 /// `STEEL_JIT_LIST_CURSOR=1` walks lists as an unboxed `(cell, index)` pair in
 /// registers instead of materialising a list per `cdr`.
 ///
-/// Off by default: a prototype. The win only appears once a cursor survives a
-/// loop unmaterialised, and every deopt reachable while one is live has to
-/// materialise it or the interpreter resumes from the head of the list rather
-/// than the current position.
+/// Off by default, this is a prototype. It only helps once a cursor survives a
+/// loop unmaterialised. Every deopt reachable while a cursor is live has to
+/// materialise it, or the interpreter resumes from the head of the list.
 pub(super) fn list_cursor_enabled() -> bool {
     crate::config::config().jit_list_cursor
 }
@@ -790,8 +731,8 @@ pub(super) fn inline_bytevector_enabled() -> bool {
 }
 
 /// `STEEL_JIT_INLINE_DIVMOD=0` sends `quotient` / `remainder` / `modulo` back
-/// out through the generic primitive call instead of inlining the two-fixnum
-/// case.
+/// out through the generic primitive call. Otherwise the two-fixnum case is
+/// inlined.
 pub(super) fn inline_divmod_enabled() -> bool {
     crate::config::config().jit_inline_divmod
 }
@@ -802,15 +743,14 @@ pub(super) fn inline_eq_enabled() -> bool {
     crate::config::config().jit_inline_eq
 }
 
-/// The list predicates, `cdr` and `mutable-vector`, added after the original
-/// `#%unbox` / `#%set-box!` pair. `STEEL_JIT_PRIM_TAIL2=0` disables just these.
+/// Tail-position inlining of the list predicates, `cdr` and `mutable-vector`.
+/// `STEEL_JIT_PRIM_TAIL2=0` disables these, leaving `#%unbox` / `#%set-box!`.
 fn prim_tail2_enabled() -> bool {
     crate::config::config().jit_prim_tail2
 }
 
-/// The three parts of it, so a regression can be attributed to one:
-/// `STEEL_JIT_TAIL_PRED` / `_CDR` / `_VEC` set to 0.
-
+/// Each part can be turned off on its own with `STEEL_JIT_TAIL_PRED` / `_CDR` /
+/// `_VEC` set to 0.
 fn tail_pred_enabled() -> bool {
     prim_tail2_enabled() && crate::config::config().jit_tail_pred
 }
@@ -819,12 +759,10 @@ fn tail_cdr_enabled() -> bool {
     prim_tail2_enabled() && crate::config::config().jit_tail_cdr
 }
 
-/// `reverse` in tail position. This used to be default-off: it makes a
-/// function *return* from jitted code where it used to deopt, which exposed a
-/// pre-existing fault in the tail call handler (a tail-position `apply`
-/// replaces the current frame, and the handler read the unchanged frame count
-/// as "the builtin returned a value", popped the frame and swallowed the
-/// result). Fixed in `new_callglobal_tail_handler_deopt_test`.
+/// `reverse` in tail position. The function returns from jitted code here
+/// instead of deopting, which depends on the tail call handler treating a
+/// tail-position `apply` (which replaces the current frame) correctly. See
+/// `new_callglobal_tail_handler_deopt_test`.
 fn tail_reverse_enabled() -> bool {
     prim_tail2_enabled() && crate::config::config().jit_tail_rev
 }
@@ -833,6 +771,8 @@ fn tail_vec_enabled() -> bool {
     prim_tail2_enabled() && crate::config::config().jit_tail_vec
 }
 
+/// `STEEL_JIT_PRIM_TAIL_EXTRA=0` turns off tail-position inlining of `eq?`,
+/// `vector-set!` and `#%make-mutable-struct`, leaving `#%unbox` / `#%set-box!`.
 fn extra_primitive_tail_calls_enabled() -> bool {
     crate::config::config().jit_prim_tail_extra
 }
@@ -845,30 +785,29 @@ fn weak_counter_type() -> Type {
     }
 }
 
-// Byte offsets from the pointer a `SteelVal::ListV` carries to the cell's
-// fields. That pointer is the `RcBox`, so the cell data starts after the header
-// - derive both rather than hardcoding, the way the heap-box offsets do.
-/// The biased half-word, which generated code adjusts directly. The owner id is
-/// in the high bits and its count in the low bits, so `word +/- 1` moves the
-/// count alone and never disturbs the id.
-/// `SteelVal::Closure` carries the allocation pointer, so a field of the lambda
-/// sits past the reference counting header. Derived, because that header's size
-/// is not a constant of the language.
 /// `SteelVal::Pair` carries the allocation pointer, so `car` and `cdr` sit past
-/// the reference counting header. Derived - that header's size is not a
-/// constant of the language.
+/// the reference counting header. Derived, since the header size is not fixed.
 fn pair_field_offset(field: usize) -> i32 {
     (steel_rc::BiasedRc::<crate::values::lists::Pair>::data_offset() + field) as i32
 }
 
+/// `SteelVal::Closure` carries the allocation pointer, so a field of the lambda
+/// sits past the reference counting header. Derived, since the header size is
+/// not fixed.
 fn closure_field_offset(field: usize) -> i32 {
     (steel_rc::BiasedRc::<ByteCodeLambda>::data_offset() + field) as i32
 }
 
+/// The biased half-word, which generated code adjusts directly. The owner id is
+/// in the high bits and its count in the low bits, so `word +/- 1` only moves
+/// the count.
 fn biased_word_offset() -> i32 {
     steel_rc::biased_offset() as i32
 }
 
+// Byte offsets from the pointer a `SteelVal::ListV` carries to the cell's
+// fields. That pointer is the `RcBox`, so the cell data starts after the header.
+// Both are derived from the types, the way the heap-box offsets are.
 fn list_cell_base() -> i64 {
     steel_rc::BiasedRc::<SteelVal>::data_offset() as i64
 }
@@ -910,7 +849,10 @@ const fn rcbox_slice_data_offset() -> i64 {
 #[derive(Clone, Debug)]
 enum SpecMode {
     None,
-    Generic { spec_id: FuncId, seed: Vec<(usize, SpecType)> },
+    Generic {
+        spec_id: FuncId,
+        seed: Vec<(usize, SpecType)>,
+    },
     Specialized {
         generic_id: FuncId,
         // This copy, for self calls whose arguments are proven to fit the seed.
@@ -922,11 +864,11 @@ enum SpecMode {
     },
 }
 
-/// Frameless self calls: a self recursive function's `_frameless` copy is
+/// Frameless self calls. A self recursive function's `_frameless` copy is
 /// called with its arguments already on the value stack at `sp`, and pushes no
-/// `StackFrame` - no frame record, no `pop_count`, no closure refcount, no
+/// `StackFrame`. There is no frame record, `pop_count`, closure refcount, or
 /// `VmCore` ip/instructions restore on return. Frames are rebuilt only when
-/// something leaves native code: see `frameless_record_frame` in vm/jit.rs.
+/// something leaves native code, see `frameless_record_frame` in vm/jit.rs.
 ///
 /// `STEEL_JIT_FRAMELESS=0` disables.
 fn frameless_enabled() -> bool {
@@ -937,8 +879,8 @@ fn frameless_enabled() -> bool {
 /// and writes, fixnum constants, the inlined arithmetic and comparisons,
 /// branches, let scopes, returns, and calls to itself. Everything else either
 /// reads the frame stack, can hand control to the interpreter mid call, or
-/// calls something that could push a frame of its own - and a real frame
-/// pushed underneath pending frameless ones would come out in the wrong order.
+/// calls something that could push a frame of its own. A real frame pushed
+/// underneath pending frameless ones would come out in the wrong order.
 fn frameless_eligible(stmts: &[DenseInstruction], function_index: Option<usize>) -> bool {
     let Some(me) = function_index else {
         return false;
@@ -993,10 +935,10 @@ fn frameless_eligible(stmts: &[DenseInstruction], function_index: Option<usize>)
 /// Which side of a frameless call a translation is on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum FramelessRole {
-    /// The specialized copy: entered with a real frame, and the first to make a
-    /// frameless call - so it is the one that splices recorded frames back.
+    /// The specialized copy. It is entered with a real frame and makes the first
+    /// frameless call, so it is the one that splices recorded frames back.
     Boundary,
-    /// The `_frameless` copy itself: `(vm_ctx, sp)`, no frame of its own.
+    /// The `_frameless` copy itself. Takes `(vm_ctx, sp)` and has no frame.
     Callee,
 }
 
@@ -1094,9 +1036,10 @@ fn emit_slot_type_checks(
         builder.switch_to_block(next);
 
         if let SpecType::Struct(descriptor) = ty {
-            let payload = builder
-                .ins()
-                .load(types::I64, MemFlagsData::trusted(), frame_base, base + 8);
+            let payload =
+                builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::trusted(), frame_base, base + 8);
             let on_heap = builder.ins().load(
                 types::I64,
                 MemFlagsData::trusted(),
@@ -1207,7 +1150,11 @@ fn loop_type_seed(
         let meta = std::mem::take(&mut skip_meta);
 
         if let Some(slot) = slot_of(ins) {
-            stack.push(if slot < arity { Entry::Slot(slot) } else { Entry::Other });
+            stack.push(if slot < arity {
+                Entry::Slot(slot)
+            } else {
+                Entry::Other
+            });
             idx += 1;
             continue;
         }
@@ -1238,7 +1185,13 @@ fn loop_type_seed(
                 let operands = stack.split_off(stack.len() - payload);
                 let slots: Vec<usize> = operands
                     .iter()
-                    .filter_map(|e| if let Entry::Slot(k) = e { Some(*k) } else { None })
+                    .filter_map(|e| {
+                        if let Entry::Slot(k) = e {
+                            Some(*k)
+                        } else {
+                            None
+                        }
+                    })
                     .collect();
                 let has_float = operands.contains(&Entry::FloatLit);
                 for &k in &slots {
@@ -1350,17 +1303,24 @@ fn loop_type_seed(
     let mut seed = Vec::new();
     for (slot, u) in uses {
         // A guess from usage is only worth a guard when the slot has one type.
-        // `deriv` does `(car a)` after `(pair? a)`, and half its calls pass a
-        // symbol: the list seed cost a failing guard on those and bought nothing.
+        // A slot that is type tested (e.g. `(pair? a)` before `(car a)`) is
+        // expected to see other types, so the guard would often fail.
         if mutated.contains(&slot) || u.type_tested {
             continue;
         }
-        let kinds = u.numeric as usize + u.list as usize + u.vector as usize + (!u.structs.is_empty()) as usize;
+        let kinds = u.numeric as usize
+            + u.list as usize
+            + u.vector as usize
+            + (!u.structs.is_empty()) as usize;
         if kinds != 1 || u.structs.len() > 1 {
             continue;
         }
         let ty = if u.numeric {
-            if floats.contains(&slot) { SpecType::Float } else { SpecType::Fixnum }
+            if floats.contains(&slot) {
+                SpecType::Float
+            } else {
+                SpecType::Fixnum
+            }
         } else if u.list {
             SpecType::List
         } else if u.vector {
@@ -1373,8 +1333,8 @@ fn loop_type_seed(
     seed
 }
 
-/// At the top of a generic copy: tail call into the specialized copy when every
-/// seeded argument slot holds a fixnum. Raw loads, emitted before the
+/// At the top of a generic copy, tail call into the specialized copy when every
+/// seeded argument slot holds a fixnum. These are raw loads emitted before the
 /// translator exists, so none of its caches see them.
 fn emit_spec_entry_guard(
     builder: &mut FunctionBuilder,
@@ -1421,7 +1381,7 @@ fn emit_spec_entry_guard(
 }
 
 /// Whether a reachable exit of `func` returns a value whose type was not
-/// recorded. Unreachable blocks are skipped: the translator parks code after a
+/// recorded. Unreachable blocks are skipped. The translator parks code after a
 /// return in a fresh block with no predecessors, and ends every function with
 /// a `return` in one, so counting those would erase every return type.
 fn has_untyped_exit(
@@ -1489,15 +1449,14 @@ pub(crate) fn take_deferred_leaks() -> Vec<DeferredLeak> {
     DEFERRED_LEAKS.with(|leaks| leaks.borrow_mut().take().unwrap_or_default())
 }
 
-/// A reference to `value` for generated code to hold forever: the caller
+/// A reference to `value` for generated code to hold forever. The caller
 /// consumes the result without dropping it (`into_raw`, a transmute).
 ///
-/// Normally that is just a clone. On the background compile thread it is a
-/// bitwise copy, with the increment queued for the thread that owns `value`:
-/// under biased reference counting an increment from any other thread lands
-/// in the shared count, and once the owner's own count drains the object
-/// merges and every later clone and drop of it is atomic. A list constant
-/// baked that way cost paraffins 10%. The compile job keeps `value` alive
+/// Normally that is a clone. On the background compile thread it is a bitwise
+/// copy, with the increment queued for the thread that owns `value`. Under
+/// biased reference counting an increment from another thread lands in the
+/// shared count, and once the owner's count drains the object merges and every
+/// later clone and drop of it is atomic. The compile job keeps `value` alive
 /// until the owner has paid.
 pub(crate) fn jit_leak<T: Clone + 'static>(value: &T) -> T {
     DEFERRED_LEAKS.with(|leaks| match leaks.borrow_mut().as_mut() {
@@ -1548,11 +1507,11 @@ unsafe fn compile_bytecode(
     Ok(code_fn)
 }
 
-// perf metadata for jitted code, off unless asked for - both write a file named
+// perf metadata for jitted code, off by default since both write a file named
 // after the pid and cost a syscall per compiled function. STEEL_JIT_PERF_MAP
 // appends to /tmp/perf-<pid>.map for perf report, STEEL_JIT_DUMP writes
-// jit-<pid>.dump in the cwd for perf inject --jit. Read once, these are on the
-// compile path.
+// jit-<pid>.dump in the cwd for perf inject --jit. Read once, since these are
+// on the compile path.
 fn perf_map_enabled() -> bool {
     crate::config::config().jit_perf_map
 }
@@ -1562,8 +1521,8 @@ fn jitdump_enabled() -> bool {
     crate::config::config().jit_dump
 }
 
-// None rather than a panic if we can't make the file - a read only working
-// directory is a normal way to run.
+// Returns None if we can't make the file, since a read only working directory
+// is a normal way to run.
 #[cfg(target_os = "linux")]
 fn open_jitdump() -> Option<wasmtime_jit_debug::perf_jitdump::JitDumpFile> {
     use object::elf;
@@ -1737,13 +1696,13 @@ impl JIT {
     ) -> Result<*const u8, String> {
         let id = str::parse::<u32>(&name).unwrap();
 
-        // `STEEL_JIT_LOG` prints candidates by id; this names them, which is
-        // what a `STEEL_JIT_SKIP` bisect needs next.
+        // `STEEL_JIT_LOG` prints candidates by id; this prints their names, for
+        // use with `STEEL_JIT_SKIP` when bisecting.
         if crate::config::config().jit_log {
             eprintln!("jit: compiling id {id} -> {top_level_name:?}");
         }
 
-        // `STEEL_JIT_DUMP_ID=<id>,...`: the bytecode a bisect landed on.
+        // `STEEL_JIT_DUMP_ID=<id>,...` prints the bytecode of those functions.
         if crate::config::config()
             .jit_dump_id
             .as_ref()
@@ -1751,7 +1710,11 @@ impl JIT {
         {
             eprintln!("jit: bytecode for id {id} ({top_level_name:?}):");
             for (i, ins) in instructions.iter().enumerate() {
-                eprintln!("    {i:3}  {:?} {}", ins.op_code, ins.payload_size.to_usize());
+                eprintln!(
+                    "    {i:3}  {:?} {}",
+                    ins.op_code,
+                    ins.payload_size.to_usize()
+                );
             }
         }
 
@@ -1786,11 +1749,11 @@ impl JIT {
             .declare_function(&inner_name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
-        // Loop specialization: declared up front because the generic copy tail
+        // Loop specialization. Declared up front because the generic copy tail
         // calls it. It is always defined once the generic copy is (see
         // `compile_specialized`), so the reference is never left dangling.
         let seed = if loop_specialization_enabled()
-            // For bisecting a specialization problem to one function: comma
+            // For bisecting a specialization problem to one function. Comma
             // separated name substrings to allow (`STEEL_JIT_SPEC_ONLY`) or
             // exclude (`STEEL_JIT_SPEC_SKIP`).
             && crate::config::config().jit_spec_only.as_ref().map_or(true, |parts| {
@@ -1798,8 +1761,7 @@ impl JIT {
             })
             && crate::config::config().jit_spec_skip.as_ref().map_or(true, |parts| {
                 !parts.iter().any(|part| inner_name.contains(part.as_str()))
-            })
-        {
+            }) {
             loop_type_seed(stmts, arity, constants, globals, function_index)
         } else {
             Vec::new()
@@ -1817,18 +1779,19 @@ impl JIT {
                 .map_err(|e| e.to_string())?;
             Some((spec_id, spec_name))
         };
-        // The specialized copy is compiled first, because whether the generic
-        // copy may hand off to it depends on whether it compiled. If it did not,
-        // it is still defined - as a stub - but the generic copy gets no guard,
-        // so nothing ever calls it. (A guard in front of a stub that calls back
-        // into the generic copy never runs an iteration: it loops forever.)
+        // The specialized copy is compiled first, because the generic copy only
+        // hands off to it if it compiled. If it did not, it is still defined as a
+        // stub, but the generic copy gets no guard so nothing calls it. A guard in
+        // front of a stub that calls back into the generic copy loops forever.
         let mut spec_code_size = None;
 
         // Frameless self calls, for a specialized copy whose body is simple
-        // enough - see `frameless_eligible`. The frameless copy comes first: the
-        // specialized copy only calls it if it compiled.
+        // enough (see `frameless_eligible`). The frameless copy comes first since
+        // the specialized copy only calls it if it compiled.
         let frameless = match &spec {
-            Some((_, spec_name)) if frameless_enabled() && frameless_eligible(stmts, function_index) => {
+            Some((_, spec_name))
+                if frameless_enabled() && frameless_eligible(stmts, function_index) =>
+            {
                 let frameless_name = format!("{}_frameless", inner_name);
                 let mut sig = self.module.make_signature();
                 let mut vm_param = AbiParam::new(self.module.target_config().pointer_type());
@@ -1902,10 +1865,9 @@ impl JIT {
         };
 
         // Then, translate the AST nodes into Cranelift IR. A panic in
-        // translation (an internal check, like `check_collection_roots`) is a
-        // failure to compile this function like any other: the error path
-        // below still defines the stub a specialized copy needs, so no
-        // declaration is left undefined.
+        // translation (an internal check, like `check_collection_roots`) is
+        // treated as a failure to compile. The error path below still defines the
+        // stub a specialized copy needs, so no declaration is left undefined.
         let translated = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.translate(
                 id,
@@ -1930,9 +1892,7 @@ impl JIT {
         };
 
         // `STEEL_JIT_DUMP_CLIF=<substring>` prints the ir for every function whose
-        // name contains it - the only way to read what a loop's back edge really
-        // emits. `=1` keeps the original behaviour of printing only a function the
-        // verifier rejected.
+        // name contains it. `=1` prints only a function the verifier rejected.
         if let Some(filter) = &crate::config::config().jit_dump_clif {
             if filter != "1" && inner_name.contains(filter.as_str()) {
                 eprintln!("--- clif for {} ---\n{}", inner_name, self.ctx.func);
@@ -1961,31 +1921,32 @@ impl JIT {
             Err(e) => Some(e),
             Ok(_) => match cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
                 Err(e) => {
-                    // STEEL_JIT_DUMP_CLIF=1 prints the function that failed, which is the
-                    // only practical way to chase a dominance error back to the block
-                    // that defines the offending value.
+                    // STEEL_JIT_DUMP_CLIF=1 prints the function that failed, for
+                    // tracing a dominance error back to the block that defines the value.
                     if crate::config::config().jit_dump_clif.as_deref() == Some("1") {
                         eprintln!("--- clif for failed function ---\n{}", self.ctx.func);
                     }
                     eprintln!("{:#?}", e);
                     Some(format!("errors: {:#?}", e))
                 }
-                Ok(()) => self.module.define_function(inner_id, &mut self.ctx).err().map(|e| {
-                    eprintln!("error in defining function: {}", e);
-                    e.to_string()
-                }),
+                Ok(()) => self
+                    .module
+                    .define_function(inner_id, &mut self.ctx)
+                    .err()
+                    .map(|e| {
+                        eprintln!("error in defining function: {}", e);
+                        e.to_string()
+                    }),
             },
         };
 
         if let Some(e) = generic_failure {
             self.module.clear_context(&mut self.ctx);
-            // The specialized and frameless copies call back into this one -
-            // including their own stubs, when they failed too - so this name
-            // has to be defined before anything is finalized, or the next
-            // finalize can't resolve it. The function itself is not installed -
-            // the error below keeps it interpreted - so the stub only has to be
-            // harmless: it hands the call to the interpreter from the first
-            // instruction.
+            // The specialized and frameless copies (and their stubs) call back
+            // into this one, so this name has to be defined before anything is
+            // finalized, or the next finalize can't resolve it. The error below
+            // keeps the function interpreted, so the stub hands the call to the
+            // interpreter from the first instruction.
             {
                 if let Err(stub) = self.define_stub(inner_id, StubBody::InterpretFromStart) {
                     log::debug!(target: "jit", "{inner_name}: stub not defined either: {stub}");
@@ -2048,7 +2009,7 @@ impl JIT {
             if let Err(e) =
                 jitdump.dump_code_load_record(&inner_name, code_bytes, timestamp, pid, tid)
             {
-                // Give up on the profiling output rather than going down mid compile
+                // Skip the profiling output instead of panicking mid compile
                 log::warn!(target: "jit", "failed to write a jitdump record: {e}; disabling");
                 self.jitdump = None;
             }
@@ -2089,19 +2050,19 @@ impl JIT {
     }
 
     /// Compile the `_frameless` copy of a self recursive function; see
-    /// `frameless_enabled`. Returns the validated type of what it returns when
-    /// it compiled, `None` when it did not - in which case it is defined as a
-    /// stub that nothing calls, because a declared function has to be defined.
+    /// `frameless_enabled`. Returns the validated return type when it compiled,
+    /// and `None` when it did not. In that case it is defined as a stub that
+    /// nothing calls, because a declared function has to be defined.
     /// `STEEL_JIT_DUMP_CLIF=<substring>` for the specialized and frameless
-    /// copies too, which is where the hot code of a typed loop lives.
+    /// copies too.
     fn dump_clif_if_asked(&mut self, name: &str) {
         if let Some(filter) = &crate::config::config().jit_dump_clif {
             if filter != "1" && name.contains(filter.as_str()) {
                 eprintln!("--- clif for {} ---\n{}", name, self.ctx.func);
             }
         }
-        // `STEEL_JIT_DUMP_ASM`: have cranelift keep the disassembly of what it
-        // is about to emit; `dump_asm_if_asked` prints it once defined.
+        // `STEEL_JIT_DUMP_ASM` has cranelift keep the disassembly of what it is
+        // about to emit; `dump_asm_if_asked` prints it once defined.
         if crate::config::config()
             .jit_dump_asm
             .as_ref()
@@ -2135,8 +2096,8 @@ impl JIT {
         seed: Vec<(usize, SpecType)>,
     ) -> Option<Option<InferredType>> {
         // Fixnum (float) seeded functions most likely return fixnums (floats),
-        // and a frameless copy's self calls return what it returns - so assume
-        // it and check, as `compile_specialized` does.
+        // and a frameless copy's self calls return what it returns, so assume it
+        // and check, as `compile_specialized` does.
         let guess = if seed.iter().any(|(_, t)| *t == SpecType::Fixnum) {
             Some(InferredType::Int)
         } else if seed.iter().any(|(_, t)| *t == SpecType::Float) {
@@ -2179,7 +2140,8 @@ impl JIT {
             match translated {
                 Ok(Ok(info))
                     if !info.untyped_non_deopt_exit
-                        && assume.map_or(true, |t| info.returned.iter().all(|r| r.boxed() == t)) =>
+                        && assume
+                            .map_or(true, |t| info.returned.iter().all(|r| r.boxed() == t)) =>
                 {
                     match cranelift::codegen::verify_function(&this.ctx.func, this.module.isa()) {
                         Ok(()) => true,
@@ -2220,11 +2182,9 @@ impl JIT {
             result = None;
         }
         if result.is_none() {
-            if let Err(e) = self.define_stub_with_signature(
-                frameless_id,
-                StubBody::InterpretFromStart,
-                true,
-            ) {
+            if let Err(e) =
+                self.define_stub_with_signature(frameless_id, StubBody::InterpretFromStart, true)
+            {
                 log::debug!(target: "jit", "{name}: frameless stub not defined either: {e}");
             }
         } else if spec_debug_enabled() {
@@ -2235,10 +2195,10 @@ impl JIT {
     }
 
     /// Compile and define the specialized copy, returning its code size. It
-    /// must end up defined no matter what - the generic copy already tail calls
-    /// it - so a failure, including a panic in the translator, defines a stub
-    /// that tail calls straight back into the generic copy instead. A panic that
-    /// escaped would also poison the jit's shared mutex.
+    /// must always end up defined since the generic copy already tail calls it.
+    /// On a failure, including a panic in the translator, it is defined as a stub
+    /// that tail calls back into the generic copy. A panic that escaped would
+    /// also poison the jit's shared mutex.
     #[allow(clippy::too_many_arguments)]
     fn compile_specialized(
         &mut self,
@@ -2287,7 +2247,7 @@ impl JIT {
         let mut translated = translate_with(self, None);
 
         // A cursor the translator could not keep sound spoils the whole
-        // translation, so redo it without cursors rather than patch it.
+        // translation, so redo it without cursors.
         if matches!(&translated, Ok(Ok(info)) if info.cursor_bailed) {
             if spec_debug_enabled() {
                 eprintln!("[spec] {spec_name}: list cursors bailed, retranslating without");
@@ -2300,14 +2260,13 @@ impl JIT {
         }
 
         // A recursive function's direct self calls return whatever this copy
-        // returns, which is circular: in a first translation those results are
-        // untyped, so everything built from them is too, and its returns cannot
-        // suggest the type. Guess from the seed instead - a function specialized
-        // on fixnums most likely returns one - and translate again with direct
-        // self call results assumed to have that type. The assumption is sound
-        // exactly when every return of that translation has the type and nothing
-        // else leaves the function except deopt exits (whose callers check before
-        // using the value), so it is kept only then.
+        // returns, which is circular. In a first translation those results are
+        // untyped, so its returns cannot suggest the type. Guess from the seed
+        // instead (a function specialized on fixnums most likely returns one) and
+        // translate again with direct self call results assumed to have that type.
+        // The assumption is sound when every return of that translation has the
+        // type and nothing else leaves the function except deopt exits (whose
+        // callers check before using the value), so it is kept only then.
         let candidate = match &translated {
             Ok(Ok(info)) if info.direct_self_calls > 0 => {
                 if seed.iter().any(|(_, t)| *t == SpecType::Fixnum) {
@@ -2334,7 +2293,10 @@ impl JIT {
                     && !info.cursor_bailed
                     && info.returned.iter().all(|t| t.boxed() == assumed));
             if spec_debug_enabled() {
-                eprintln!("[spec] {spec_name}: assumed self calls return {assumed:?}: {}", if holds { "kept" } else { "rejected" });
+                eprintln!(
+                    "[spec] {spec_name}: assumed self calls return {assumed:?}: {}",
+                    if holds { "kept" } else { "rejected" }
+                );
             }
             if holds {
                 translated = second;
@@ -2362,7 +2324,10 @@ impl JIT {
                     },
                     Err(e) => {
                         if crate::config::config().jit_dump_clif.as_deref() == Some("1") {
-                            eprintln!("--- clif for failed specialized copy ---\n{}", self.ctx.func);
+                            eprintln!(
+                                "--- clif for failed specialized copy ---\n{}",
+                                self.ctx.func
+                            );
                         }
                         Some(format!("verify: {e:#?}"))
                     }
@@ -2379,8 +2344,8 @@ impl JIT {
             }
             log::debug!(target: "jit", "{spec_name} fell back to a stub: {reason}");
             self.module.clear_context(&mut self.ctx);
-            // Never called - the generic copy gets no guard - but it is declared,
-            // so it has to be defined.
+            // Never called since the generic copy gets no guard, but it is
+            // declared, so it has to be defined.
             if let Err(e) = self.define_stub(spec_id, StubBody::TailCall(generic_id)) {
                 log::debug!(target: "jit", "{spec_name}: stub not defined either: {e}");
             }
@@ -2400,8 +2365,8 @@ impl JIT {
 
     /// Define `func_id` as a tiny function, for a name that must exist but whose
     /// real translation failed. Returns its size. It can still fail to define
-    /// when the code arena is full, and that must not panic: the panic would
-    /// happen with the shared jit locked.
+    /// when the code arena is full, and that must not panic since the shared jit
+    /// is locked.
     fn define_stub(&mut self, func_id: FuncId, body: StubBody) -> Result<usize, String> {
         self.define_stub_with_signature(func_id, body, false)
     }
@@ -2502,21 +2467,26 @@ impl JIT {
             .any(|x| matches!(x.op_code, OpCode::TCOJMP | OpCode::SELFTAILCALLNOARITY));
 
         // vmctx is the first signature param, so it arrives as the entry block's
-        // first block param. cranelift 0.135 dropped the global_value instruction
-        // that used to materialize it.
+        // first block param.
         let vm_context = builder.block_params(entry_block)[0];
 
         // The generic copy of a specialized loop checks its seeded slots on the
         // way in and hands the whole call to the specialized copy, first
-        // iteration included. Checking at the tail call instead ran the first
-        // iteration generically every call - most of the work in a short loop -
-        // and repeated a failing check on every iteration of a loop whose slots
-        // were never fixnums.
+        // iteration included. Checking at the tail call would run the first
+        // iteration generically, and repeat a failing check on every iteration of
+        // a loop whose slots are never fixnums.
         if let SpecMode::Generic { spec_id, seed } = &spec_mode {
-            emit_spec_entry_guard(&mut builder, &mut self.module, vm_context, *spec_id, seed, arity);
+            emit_spec_entry_guard(
+                &mut builder,
+                &mut self.module,
+                vm_context,
+                *spec_id,
+                seed,
+                arity,
+            );
         }
 
-        // Created now, jumped to once the translator exists: a loop that walks
+        // Created now, jumped to once the translator exists. A loop that walks
         // lists as cursors seeds them in the entry block, ahead of the header,
         // so every back edge feeds the header's phis instead of each iteration
         // re-seeding from a slot that no longer holds the current position.
@@ -2600,9 +2570,8 @@ impl JIT {
         };
 
         match &spec_mode {
-            // Guarded: the generic copy only tail calls in with these slots
-            // holding these types, and this copy only loops on itself while
-            // they still do.
+            // The generic copy only tail calls in with these slots holding these
+            // types, and this copy only loops on itself while they still do.
             SpecMode::Specialized { seed, .. } => {
                 for &(i, ty) in seed.iter().filter(|(i, _)| *i < arity as usize) {
                     trans
@@ -2615,10 +2584,16 @@ impl JIT {
         }
 
         // A frameless copy's frame base arrives as its second parameter, and it
-        // is published to `VmCore.sp` for the length of the activation: every
-        // exit, helper and deopt then sees this activation's slots exactly as a
-        // framed one would. The caller puts its own back when this returns.
-        if matches!(frameless, Some(FramelessInfo { role: FramelessRole::Callee, .. })) {
+        // is published to `VmCore.sp` for the length of the activation, so every
+        // exit, helper and deopt sees this activation's slots as a framed one
+        // would. The caller puts its own back when this returns.
+        if matches!(
+            frameless,
+            Some(FramelessInfo {
+                role: FramelessRole::Callee,
+                ..
+            })
+        ) {
             let sp = trans.builder.block_params(entry_block)[1];
             trans.builder.ins().store(
                 MemFlagsData::trusted(),
@@ -2663,7 +2638,7 @@ impl JIT {
 
         trans.builder.seal_block(exit_block);
 
-        // Cold exits last - see `defer_deopt_exit`. After the body's own return,
+        // Cold exits last (see `defer_deopt_exit`). After the body's own return,
         // so the builder is not left positioned inside one of them.
         trans.flush_deopt_exits();
 
@@ -2684,12 +2659,15 @@ impl JIT {
         let cursor_bailed = trans.cursor_bail
             || (trans.cursors_on && (trans.cursor_advances == 0 || trans.cursor_carries == 0));
 
-        // `STEEL_CURSOR_STATS=1`: why a function kept or lost its cursors.
+        // `STEEL_CURSOR_STATS=1` reports why a function kept or lost its cursors.
         if trans.cursors_on && crate::config::config().cursor_stats {
             eprintln!(
                 "[cursor-stats] {} advances={} carries={} copy_reads={} bail={}",
-                trans.name, trans.cursor_advances, trans.cursor_carries,
-                trans.cursor_copy_reads, cursor_bailed
+                trans.name,
+                trans.cursor_advances,
+                trans.cursor_carries,
+                trans.cursor_copy_reads,
+                cursor_bailed
             );
         }
         trans.builder.finalize(frontend_config);
@@ -2712,8 +2690,8 @@ impl JIT {
         // Callers trust a single recorded return type (a call whose callee only
         // ever returned `Bool` is branched on without a tag check), so every
         // other way out has to count. A tail call, the memq shortcut or a
-        // speculative exit returns a value nothing typed; before this, a
-        // function like `(if (p x) #t (g x))` was recorded as returning `Bool`.
+        // speculative exit returns an untyped value, e.g. the `(g x)` in
+        // `(if (p x) #t (g x))`.
         if untyped_exit {
             exit_types.insert(InferredType::Any);
         }
@@ -2743,12 +2721,12 @@ pub enum InferredType {
     // whatever boundary the value escapes through.
     Int64,
 
-    // A boxed value carrying the fixnum tag (`SteelVal::IntV`) - never a
-    // bignum. The arithmetic and comparison fast arms rely on this: they unbox
-    // an `Int` operand without checking its tag, and `known_tags` folds its
-    // tag checks away. So only produce it for values that are fixnums by
-    // construction (today: fixnum constants). An operation that can overflow
-    // into a bignum may only produce `Int` if its overflow path deopts.
+    // A boxed value carrying the fixnum tag (`SteelVal::IntV`), never a bignum.
+    // The arithmetic and comparison fast arms unbox an `Int` operand without
+    // checking its tag, and `known_tags` folds its tag checks away. So only
+    // produce it for values that are fixnums by construction (currently fixnum
+    // constants). An operation that can overflow into a bignum may only produce
+    // `Int` if its overflow path deopts.
     Int,
     // Is just straight up, unboxed, meaning
     // its represented by a u8 on the stack on not
@@ -2805,11 +2783,13 @@ fn primitive_result_type(f: FunctionSignature) -> InferredType {
         return InferredType::Any;
     }
     let metadata = crate::steel_vm::builtin::get_function_name(f);
-    let ty = metadata
-        .as_ref()
-        .map_or(InferredType::Any, |m| InferredType::from_value_type(m.return_type));
+    let ty = metadata.as_ref().map_or(InferredType::Any, |m| {
+        InferredType::from_value_type(m.return_type)
+    });
     if config.jit_primitive_types_log {
-        let name = metadata.as_ref().map_or("<unregistered>", |m| m.name.as_ref());
+        let name = metadata
+            .as_ref()
+            .map_or("<unregistered>", |m| m.name.as_ref());
         eprintln!("[prim-type] {name} -> {ty:?}");
     }
     ty
@@ -2818,8 +2798,8 @@ fn primitive_result_type(f: FunctionSignature) -> InferredType {
 impl InferredType {
     /// The tag every boxed value of this type carries, for types that pin it
     /// down to one. Tag checks on a value with one of these fold away, so the
-    /// type has to be exact wherever it is produced - `Int` is a fixnum, never
-    /// a bignum; `List` a proper list, never a pair.
+    /// type has to be exact wherever it is produced. `Int` is only a fixnum, and
+    /// `List` only a proper list.
     pub(super) fn proven_tag(&self) -> Option<u8> {
         Some(match self {
             InferredType::Int | InferredType::Int64 => SteelVal::INT_TAG,
@@ -2853,27 +2833,24 @@ impl InferredType {
             ValueType::MutableVector => InferredType::MutableVector,
             ValueType::Void => InferredType::Void,
             // No jit type for these yet.
-            ValueType::Vector
-            | ValueType::HashMap
-            | ValueType::HashSet
-            | ValueType::ByteVector => InferredType::Any,
+            ValueType::Vector | ValueType::HashMap | ValueType::HashSet | ValueType::ByteVector => {
+                InferredType::Any
+            }
         }
     }
 
     /// What this value's type becomes once it has been materialized as a
     /// `SteelVal`.
     ///
-    /// The untagged types describe how a value is being *carried*, not what it
-    /// is, so they must not survive materialization - a slot recorded as
-    /// `Int64` after the tagged value was written to it would be tagged a second
-    /// time on the next read.
+    /// The untagged types describe how a value is being carried, so they must
+    /// not survive materialization. A slot recorded as `Int64` after the tagged
+    /// value was written to it would be tagged a second time on the next read.
     /// The `SteelVal` tag a value of this type is guaranteed to carry, for the
     /// types whose producers only ever make that variant. `Number`, `Any` and
     /// the list-or-pair family say nothing about the tag.
     ///
-    /// Not `Bool`, `Char` or `Void`: helpers are typed `Bool` on paths that can
-    /// still return an error marker, `Void` doubles as "moved out", and nothing
-    /// gains enough from folding those checks to be worth auditing every one.
+    /// `Bool`, `Char` and `Void` are left out. Helpers are typed `Bool` on paths
+    /// that can still return an error marker, and `Void` doubles as "moved out".
     fn exact_tag(self) -> Option<u8> {
         match self {
             Self::Int => Some(SteelVal::INT_TAG),
@@ -2886,7 +2863,7 @@ impl InferredType {
         }
     }
 
-    /// Carries no reference: overwriting or popping it needs no drop.
+    /// Carries no reference, so overwriting or popping it needs no drop.
     fn is_immediate(self) -> bool {
         matches!(
             self,
@@ -2910,10 +2887,8 @@ impl InferredType {
 
     fn boxed(self) -> Self {
         match self {
-            // Number, not Int: `Int` is load bearing in the dispatch guards,
-            // which match on it and then assume the operand is a value or a
-            // constant rather than a register. `Number` is what this operation
-            // reported before it carried the result untagged.
+            // Use `Number` here. The dispatch guards match on `Int` and then
+            // assume the operand is a value or a constant, not a register.
             InferredType::Int64 => InferredType::Number,
             InferredType::UnboxedBool => InferredType::Bool,
             other => other,
@@ -2944,8 +2919,8 @@ impl StackValue {
                 let value = ctx.builder.ins().uextend(types::I64, self.value);
                 ctx.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, value)
             }
-            // A bare i64 payload known to fit - the tag is implied by the type,
-            // so it is rebuilt here rather than occupying a register.
+            // A bare i64 payload known to fit. The tag is implied by the type, so
+            // it is rebuilt here instead of occupying a register.
             InferredType::Int64 => {
                 let boxed = ctx.encode_value(SteelVal::INT_TAG as i64, self.value);
                 ctx.known_tags.insert(boxed, SteelVal::INT_TAG);
@@ -3077,10 +3052,10 @@ enum MaybeStackValue {
 
     Constant(ConstantValue),
 
-    // A value read out of something that is still alive - a list in a local, a
-    // box in a struct in a local - without being cloned. Only a few operations
-    // that neither keep nor free their operand, like `eq?`, can use it as is;
-    // before any other operation it is materialized into a `Value`. See
+    // A value read without cloning out of something that is still alive, like a
+    // list in a local or a box in a struct in a local. Only operations that
+    // neither keep nor free their operand, like `eq?`, can use it as is; before
+    // any other operation it is materialized into a `Value`. See
     // `materialize_borrowed`.
     Borrowed(BorrowedValue),
 }
@@ -3102,19 +3077,17 @@ enum ValueOrRegister {
 /// A list being walked as a `(cell, index)` pair in registers instead of as a
 /// `SteelVal` in its stack slot.
 ///
-/// `cdr` is then arithmetic - decrement the index, or follow the link when it
-/// runs out - where materialising a real list would have to copy the cell,
-/// because `im-lists` keeps the cursor *inside* the cell and two cursors
-/// therefore need two cells.
+/// `cdr` is then arithmetic: decrement the index, or follow the link when it
+/// runs out. Materialising a real list would copy the cell, because `im-lists`
+/// keeps the cursor inside the cell, so two cursors need two cells.
 ///
-/// The slot keeps holding the head of the list the whole time, untouched, which
-/// is what keeps every cell the cursor reaches alive. Nothing here owns a
-/// reference.
-/// `cell` is the `RcBox` pointer - the same convention as a `ListV` payload, so
-/// the `list_*_offset()` helpers apply to it directly. The links between cells
-/// and the `im-lists` raw-pointer API both use the *data* pointer instead
-/// (`BiasedRc::into_raw` / `from_raw`), `list_cell_base()` bytes further on;
-/// `cursor_advance` and `emit_cursor_write_back` convert at those two edges.
+/// The slot keeps holding the head of the list the whole time, which keeps
+/// every cell the cursor reaches alive. Nothing here owns a reference.
+/// `cell` is the `RcBox` pointer, the same as a `ListV` payload, so the
+/// `list_*_offset()` helpers apply to it directly. The links between cells and
+/// the `im-lists` raw-pointer API both use the data pointer instead
+/// (`BiasedRc::into_raw` / `from_raw`), `list_cell_base()` bytes further on.
+/// `cursor_advance` and `emit_cursor_write_back` convert between the two.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 struct ListCursor {
     cell: Variable,
@@ -3125,8 +3098,8 @@ struct ListCursor {
 struct CachedLookupMap {
     registers: HashMap<usize, Value>,
 
-    /// Registers currently represented by a cursor rather than by their slot.
-    /// Merged the same way as `registers`: a cursor survives a branch only if
+    /// Registers currently represented by a cursor instead of by their slot.
+    /// Merged the same way as `registers`, so a cursor survives a branch only if
     /// both arms agree on it.
     cursors: HashMap<usize, ListCursor>,
 
@@ -3147,19 +3120,17 @@ struct PropertyMap {
 
     cached_lookups: CachedLookupMap,
 
-    // The builder is past a return or a loop jump: nothing emitted from here
-    // until the next join runs, so this arm has nothing to contribute to it.
+    // The builder is past a return or a loop jump. Nothing emitted from here
+    // until the next join runs, so this arm contributes nothing to it.
     dead: bool,
 }
-
-
 
 impl PropertyMap {
     // Keep only what both branches agree on; anything else is unknown here.
     /// Returns whether the two arms disagreed about a list cursor. A cursor is
-    /// the authoritative copy of its value - the slot behind it is stale - so
-    /// one that survives in only one arm cannot just be dropped here the way a
-    /// cached read can.
+    /// the authoritative copy of its value and the slot behind it is stale, so
+    /// one that survives in only one arm can't be dropped here like a cached
+    /// read can.
     pub fn meet(&mut self, other: &PropertyMap) -> bool {
         // An arm that ended in a return or a loop jump never reaches the join.
         if other.dead {
@@ -3171,14 +3142,28 @@ impl PropertyMap {
         }
 
         let cursor_conflict = self.cached_lookups.cursors != other.cached_lookups.cursors;
-        // `STEEL_CURSOR_TRACE=1`: which join lost a cursor, and from where.
+        // `STEEL_CURSOR_TRACE=1` reports which join lost a cursor, and from where.
         if cursor_conflict && crate::config::config().cursor_trace {
-            let mut a: Vec<_> = self.cached_lookups.cursors.iter().map(|(k, v)| (*k, v.cell.as_u32(), v.index.as_u32())).collect();
-            let mut b: Vec<_> = other.cached_lookups.cursors.iter().map(|(k, v)| (*k, v.cell.as_u32(), v.index.as_u32())).collect();
-            a.sort(); b.sort();
+            let mut a: Vec<_> = self
+                .cached_lookups
+                .cursors
+                .iter()
+                .map(|(k, v)| (*k, v.cell.as_u32(), v.index.as_u32()))
+                .collect();
+            let mut b: Vec<_> = other
+                .cached_lookups
+                .cursors
+                .iter()
+                .map(|(k, v)| (*k, v.cell.as_u32(), v.index.as_u32()))
+                .collect();
+            a.sort();
+            b.sort();
             let bt = std::backtrace::Backtrace::force_capture().to_string();
             let frames: Vec<&str> = bt.lines().filter(|l| l.contains("cgen")).take(6).collect();
-            eprintln!("[cursor] meet conflict self={a:?} other={b:?}\n{}", frames.join("\n"));
+            eprintln!(
+                "[cursor] meet conflict self={a:?} other={b:?}\n{}",
+                frames.join("\n")
+            );
         }
 
         self.props.retain(|key, props| match other.props.get(key) {
@@ -3283,9 +3268,9 @@ impl PropertyMap {
                     }
                 }
                 // The false arm of a `null?` test. Pushed as a second entry it
-                // would leave two properties, and `get` answers nothing for
-                // more than one - so a proper list that is not null never
-                // reached `ProperNonEmptyList`.
+                // would leave two properties, and `get` returns nothing for more
+                // than one, so a non-null proper list would never become
+                // `ProperNonEmptyList`.
                 Properties::NonNull => {
                     let already = exists.iter().any(|p| {
                         matches!(
@@ -3296,7 +3281,10 @@ impl PropertyMap {
                         )
                     });
                     if !already {
-                        match exists.iter_mut().find(|p| matches!(p, Properties::ProperList)) {
+                        match exists
+                            .iter_mut()
+                            .find(|p| matches!(p, Properties::ProperList))
+                        {
                             Some(p) => *p = Properties::ProperNonEmptyList,
                             None => exists.push(prop),
                         }
@@ -3332,10 +3320,7 @@ impl PropertyMap {
                     }
                     Properties::CheckedPair(value_or_register) => {
                         if branch {
-                            self.add_property(
-                                *value_or_register,
-                                Properties::NonEmptyListOrPair,
-                            );
+                            self.add_property(*value_or_register, Properties::NonEmptyListOrPair);
                         }
                         break;
                     }
@@ -3404,10 +3389,10 @@ enum Properties {
     // boolean, stating that its possible that this value may be
     // true or false.
     CheckedList(ValueOrRegister),
-    // `pair?`: where it holds, `car` / `cdr` of the register succeed.
+    // `pair?`. Where it holds, `car` / `cdr` of the register succeed.
     CheckedPair(ValueOrRegister),
     CheckedNull(ValueOrRegister),
-    // `(not (null? x))`: the same test with its arms swapped.
+    // `(not (null? x))`, the same test with its arms swapped.
     CheckedNotNull(ValueOrRegister),
 
     ProperList,
@@ -3438,7 +3423,11 @@ impl MaybeStackValue {
 
     fn into_value(self, ctx: &mut FunctionTranslator) -> StackValue {
         match self {
-            Self::Borrowed(b) => StackValue { value: ctx.materialize(b), inferred_type: InferredType::Any, spilled: false },
+            Self::Borrowed(b) => StackValue {
+                value: ctx.materialize(b),
+                inferred_type: InferredType::Any,
+                spilled: false,
+            },
             Self::Value(_) | Self::Constant(_) => self.as_value(ctx).unwrap(),
             Self::MutRegister(p) => {
                 let (value, inferred_type) = ctx.mut_register_to_value(p);
@@ -3537,7 +3526,7 @@ struct FunctionTranslator<'a> {
     deopt_return_block: Option<Block>,
     /// Set when this translation is one side of a frameless call.
     frameless: Option<FramelessInfo>,
-    /// A frameless copy met something it can't compile without a frame; the
+    /// A frameless copy met something it can't compile without a frame, so the
     /// whole translation is abandoned.
     frameless_bail: bool,
     /// Self calls emitted as frameless calls, so a call arm can tell whether
@@ -3550,10 +3539,15 @@ struct FunctionTranslator<'a> {
 
     // Speculative exits, filled once the body is done. Emitting them inline puts
     // their loads ahead of the fast path they branch away from, and those values
-    // then do not dominate it - cranelift reports that as a non-dominating use.
+    // then do not dominate it, which cranelift rejects.
     /// Queued cold exits, each with the list cursors that were live where it
-    /// was queued - those have to be written back to their slots on the way out.
-    pending_deopt_exits: Vec<(Block, Vec<MaybeStackValue>, usize, HashMap<usize, ListCursor>)>,
+    /// was queued. Those have to be written back to their slots on the way out.
+    pending_deopt_exits: Vec<(
+        Block,
+        Vec<MaybeStackValue>,
+        usize,
+        HashMap<usize, ListCursor>,
+    )>,
 
     /// List cursors are allowed in this translation. Only ever true in a
     /// specialized copy with a loop, where `List`-seeded parameters are known to
@@ -3561,17 +3555,17 @@ struct FunctionTranslator<'a> {
     cursors_on: bool,
 
     /// Something happened while a cursor was live that the translator cannot
-    /// keep sound - branch arms disagreeing about cursors, most likely. The
-    /// caller throws this translation away and redoes it without cursors.
+    /// keep sound, usually branch arms disagreeing about cursors. The caller
+    /// throws this translation away and redoes it without cursors.
     cursor_bail: bool,
-    // How many `cdr`s walked a cursor. None means the cursors bought nothing
-    // and only cost a write-back at each escape and a re-seed per iteration.
+    // How many `cdr`s walked a cursor. None means the cursors did not help and
+    // only cost a write-back at each escape and a re-seed per iteration.
     cursor_advances: usize,
-    // How many cursors crossed a back edge still unmaterialised. That is where
-    // a cursor pays: a walk that is materialised before every call or loop
-    // jump anyway costs a write-back for each in-place `cdr` it replaced.
+    // How many cursors crossed a back edge still unmaterialised. A walk that is
+    // materialised before every call or loop jump anyway costs a write-back for
+    // each in-place `cdr` it replaced.
     cursor_carries: usize,
-    // `(cdr l)` where `l` is read again - what a derived cursor (a second
+    // `(cdr l)` where `l` is read again, which a derived cursor (a second
     // cursor for the result) would cover. Reported by `STEEL_CURSOR_STATS`.
     cursor_copy_reads: usize,
 
@@ -3579,7 +3573,7 @@ struct FunctionTranslator<'a> {
     /// header. Every back edge has to arrive with these variables current.
     header_cursors: HashMap<usize, ListCursor>,
 
-    /// Parameter slots a self tail call is carrying as a cursor: the argument
+    /// Parameter slots a self tail call is carrying as a cursor. The argument
     /// is the slot's own value, so the write is skipped and the slot keeps the
     /// head that keeps the cursor's cells alive.
     carry_skip: HashSet<usize>,
@@ -3609,7 +3603,7 @@ struct FunctionTranslator<'a> {
     function_context: Option<usize>,
 
     /// Global indices the compiler proved are never `set!`. Only such a global
-    /// may have its *value* baked into generated code.
+    /// may have its value baked into generated code.
     non_mutable_globals: &'a HashSet<usize>,
 
     names: &'a HashMap<u32, String>,
@@ -3621,7 +3615,6 @@ struct FunctionTranslator<'a> {
     typed_returns: HashSet<cranelift::codegen::ir::Inst>,
 
     potentially_could_deopt: bool,
-
 
     thread_pointer: Option<Value>,
 
@@ -3645,7 +3638,7 @@ struct FunctionTranslator<'a> {
     known_tags: HashMap<Value, u8>,
     // Loop specialization role of this translation; see `SpecMode`.
     spec_mode: SpecMode,
-    // Returns emitted by deopt exits: they hand the call to the interpreter, so
+    // Returns emitted by deopt exits. They hand the call to the interpreter, so
     // no caller uses their value without checking first.
     deopt_returns: HashSet<cranelift::codegen::ir::Inst>,
     direct_self_calls: usize,
@@ -3744,10 +3737,10 @@ fn try_op_to_name_payload(op: OpCode, payload: usize) -> Option<&'static str> {
 }
 
 impl FunctionTranslator<'_> {
-    /// For a call about to take the top `arity` values: the local each one was
+    /// For a call about to take the top `arity` values, the local each one was
     /// read from, if it is a plain read of one. Taken before `split_off`, which
-    /// forgets. Not a `MutRegister`: that hands the callee the local's value
-    /// to move out of, so afterwards the slot need not hold the argument.
+    /// loses this. A `MutRegister` is excluded, since it hands the callee the
+    /// local's value to move out of, so afterwards the slot may not hold it.
     fn argument_origins(&self, arity: usize) -> Vec<Option<usize>> {
         let len = self.shadow_stack.len();
         self.shadow_stack[len.saturating_sub(arity)..]
@@ -3761,10 +3754,10 @@ impl FunctionTranslator<'_> {
     }
 
     /// After a call to a native function has returned normally (past its
-    /// `check_deopt`): its `args` declaration says each argument had its
-    /// declared type (see `crate::value_type::ArgTypes`), so a local passed to
-    /// it that was not typed yet is from here on. Only ever fills in a local
-    /// typed `Any` - a more precise type already known is left alone.
+    /// `check_deopt`), its `args` declaration says each argument had its
+    /// declared type (see `crate::value_type::ArgTypes`), so an untyped local
+    /// passed to it gets that type from here on. Only fills in a local typed
+    /// `Any`, and leaves a more precise known type alone.
     fn narrow_locals_after_call(
         &mut self,
         metadata: Option<crate::steel_vm::builtin::FunctionSignatureMetadata>,
@@ -3775,7 +3768,9 @@ impl FunctionTranslator<'_> {
             return;
         }
         let Some(metadata) = metadata else { return };
-        let Some(arg_types) = metadata.arg_types else { return };
+        let Some(arg_types) = metadata.arg_types else {
+            return;
+        };
         let n = origins.len();
         if n < arg_types.fixed.len() || (arg_types.rest.is_none() && n > arg_types.fixed.len()) {
             return;
@@ -3788,9 +3783,15 @@ impl FunctionTranslator<'_> {
             if matches!(ty, InferredType::Any) {
                 continue;
             }
-            if matches!(self.local_to_value_map.get(slot), None | Some(InferredType::Any)) {
+            if matches!(
+                self.local_to_value_map.get(slot),
+                None | Some(InferredType::Any)
+            ) {
                 if config.jit_primitive_types_log {
-                    eprintln!("[prim-arg] {} arg {i}: local {slot} -> {ty:?}", metadata.name);
+                    eprintln!(
+                        "[prim-arg] {} arg {i}: local {slot} -> {ty:?}",
+                        metadata.name
+                    );
                 }
                 self.local_to_value_map.insert(*slot, ty);
             }
@@ -3885,8 +3886,8 @@ impl FunctionTranslator<'_> {
             // A call can re-enter the vm, and a call that deopts resumes this
             // frame in the interpreter, which reads the slots. Put every cursor
             // back first. Plain `FuncV` primitives are Rust functions that cannot
-            // do either; their one way out, raising, goes through `check_deopt`,
-            // which writes the cursors back itself.
+            // do either. If they raise, that goes through `check_deopt`, which
+            // writes the cursors back itself.
             if self.cursors_on
                 && !self.properties.cached_lookups.cursors.is_empty()
                 && self.op_may_resume_interpreted(op, payload)
@@ -3910,9 +3911,9 @@ impl FunctionTranslator<'_> {
                     // we have it.
                     self.exit_types.insert(ty);
 
-                    // Decided before the spill: an empty shadow stack means
-                    // nothing but the argument and let slots is left above the
-                    // frame's sp.
+                    // Decided before the spill. An empty shadow stack means
+                    // only the argument and let slots are left above the frame's
+                    // sp.
                     let slots_immediate = self.frame_slots_all_immediate();
                     self.spill_cloned_stack();
                     let real_res = self.inline_handle_pop_with(value, slots_immediate);
@@ -4401,7 +4402,7 @@ impl FunctionTranslator<'_> {
 
                     self.maybe_check_last();
 
-                    // A cursor bound by a let moves with its head: the new slot
+                    // A cursor bound by a let moves with its head. The new slot
                     // takes the head, the old one is left void (it was a move, so
                     // nothing reads it again), and the walk stays in registers.
                     let moved_cursor = match self.shadow_stack.last() {
@@ -4416,8 +4417,12 @@ impl FunctionTranslator<'_> {
                         }
                         _ => None,
                     };
-                    let moved_props = moved_cursor
-                        .and_then(|(j, _)| self.properties.props.get(&ValueOrRegister::Register(j)).cloned());
+                    let moved_props = moved_cursor.and_then(|(j, _)| {
+                        self.properties
+                            .props
+                            .get(&ValueOrRegister::Register(j))
+                            .cloned()
+                    });
 
                     let (last, typ) = match moved_cursor {
                         Some((j, cursor)) => {
@@ -4446,17 +4451,14 @@ impl FunctionTranslator<'_> {
                     };
                     let (typ, fresh_cursor) = typ;
 
-                    // All enclosing scopes, not just this one: `let*` nests, and
-                    // both read paths index with `let_var_stack.iter().sum()`. Using
-                    // `last()` here agrees only while the stack is one deep, so the
-                    // inner binding of a `let*` collided with the outer one.
-                    // The slot `push_to_vm_stack_let_var_new` puts the value in:
-                    // after the arguments, the enclosing let bindings, and any
-                    // pending operands already spilled onto the vm stack below
-                    // this one. Leaving out the spilled operands recorded the
-                    // binding's type against the slot of the operand beneath it -
-                    // e.g. the first half of `(+ (let ...) (let ...))` - so the
-                    // binding lost its type and that operand gained a wrong one.
+                    // Count all enclosing scopes, since `let*` nests and both read
+                    // paths index with `let_var_stack.iter().sum()`.
+                    // This is the slot `push_to_vm_stack_let_var_new` puts the value
+                    // in: after the arguments, the enclosing let bindings, and any
+                    // pending operands already spilled onto the vm stack below this
+                    // one. Without the spilled operands, the binding's type would be
+                    // recorded against the slot of the operand beneath it, e.g. the
+                    // first half of `(+ (let ...) (let ...))`.
                     let spilled_below = self
                         .shadow_stack
                         .iter()
@@ -4478,18 +4480,17 @@ impl FunctionTranslator<'_> {
                                 Properties::ProperList,
                             );
                         }
-                        // Nothing to record, and writing it would only mask a
-                        // better fact established later in the scope.
+                        // Nothing to record, and writing it would mask a better
+                        // fact established later in the scope.
                         InferredType::Any => {
                             self.properties
                                 .remove(&ValueOrRegister::Register(local_index));
                         }
-                        // Carry the binding's type onto the slot. Without this
-                        // only `List` survived, so `immutable_register_to_value`
-                        // reported `Any` for every other let-bound register and
-                        // the arithmetic fast arms re-checked a tag we already
-                        // knew. `LETENDSCOPE` clears these when the scope ends
-                        // and `SETLOCAL` clears them on mutation.
+                        // Carry the binding's type onto the slot, so
+                        // `immutable_register_to_value` can report it and the
+                        // arithmetic fast arms can skip the tag check.
+                        // `LETENDSCOPE` clears these when the scope ends and
+                        // `SETLOCAL` clears them on mutation.
                         typ => {
                             self.properties.set_property(
                                 ValueOrRegister::Register(local_index),
@@ -4498,29 +4499,12 @@ impl FunctionTranslator<'_> {
                         }
                     }
 
-                    // Caching the let var here would let `read_from_vm_stack`
-                    // skip the reload, which is where a lot of the spill/reload
-                    // cost lives. It still MISCOMPILES, so this is opt-in.
-                    //
-                    // What is already ruled out: it is not the loop back-edge, and
-                    // not branch merging - the smallest failing case has no `if` at
-                    // all. `PropertyMap::meet` is the only join and LETENDSCOPE now
-                    // purges the scope's slots.
-                    //
-                    // Smallest reproducer:
-                    //   (let ((q (quotient x y)))
-                    //     (let ((r (- x (* q y))))
-                    //       (+ q r)))
-                    // The trigger is an inner binding whose RHS reads the OUTER let
-                    // var while the body reads it too; make `r` independent of `q`
-                    // and it passes. Note r5rs/r7rs/syntax all pass with this on, so
-                    // the suites do not cover it - use the reproducer.
-                    // Deliberately not cached here. `local_index` counts let vars
+                    // The let var is not cached here. `local_index` counts let vars
                     // only, so it misses operands spilled to the value stack across
-                    // a scope boundary - an inlined call under a pending `+` lands
+                    // a scope boundary. An inlined call under a pending `+` lands
                     // its bindings one slot higher than this computes. The cache is
                     // populated on read instead, where the index comes from the
-                    // bytecode and is always right.
+                    // bytecode.
 
                     // TODO: @mparas - in the event we're using a local value,
                     // we need to check if this is actually spilled or not.
@@ -4529,9 +4513,12 @@ impl FunctionTranslator<'_> {
                     self.push_to_vm_stack_let_var_new(last);
 
                     if let Some(fresh_cursor) = fresh_cursor {
-                        // The head in the slot is not the current position;
+                        // The head in the slot is not the current position, so
                         // nothing may cache it as the value.
-                        self.properties.cached_lookups.registers.remove(&local_index);
+                        self.properties
+                            .cached_lookups
+                            .registers
+                            .remove(&local_index);
                         self.properties
                             .cached_lookups
                             .cursors
@@ -4563,19 +4550,17 @@ impl FunctionTranslator<'_> {
                     let (value, _) = self.shadow_pop();
 
                     // The slot's type is whatever `LetVar` recorded when it was
-                    // bound, and this overwrites the slot. Both maps have to go:
-                    // `local_to_value_map` feeds the dispatch guards and
-                    // `properties` feeds `immutable_register_to_value`. Benign
-                    // while every fast arm still tag-checks, but not once a known
-                    // type is allowed to skip one.
+                    // bound, and this overwrites the slot. Both maps have to be
+                    // cleared, since `local_to_value_map` feeds the dispatch guards
+                    // and `properties` feeds `immutable_register_to_value`, and a
+                    // known type lets a fast arm skip its tag check.
                     let slot = payload as usize;
                     self.local_to_value_map.remove(&slot);
                     self.properties.remove(&ValueOrRegister::Register(slot));
                     self.properties.cached_lookups.registers.remove(&slot);
                     self.properties.cached_lookups.cursors.remove(&slot);
 
-                    let value =
-                        self.call_helper(SET_LOCAL_ANY, [index, value]);
+                    let value = self.call_helper(SET_LOCAL_ANY, [index, value]);
                     self.push(value, InferredType::Any);
                     self.ip += 1;
                 }
@@ -4747,19 +4732,15 @@ impl FunctionTranslator<'_> {
                         // Take this fast path if the super instructions already exists.
                         // Then we can do a direct call.
                         //
-                        // We bake *this particular* `Gc<ByteCodeLambda>` into the generated
-                        // code, so this is only sound when the global can never come to hold
-                        // anything else - which is what the analysis records in
-                        // `reified_non_mutable`. Captures are how this surfaced, but they're
-                        // the wrong test: a `set!` to a different capture-free function breaks
-                        // it just as badly, and a capturing closure in a never-mutated global
-                        // is perfectly fine to bake.
+                        // This bakes this `Gc<ByteCodeLambda>` into the generated code, so
+                        // it is only sound when the global can never hold anything else,
+                        // which the analysis records in `reified_non_mutable`. Whether the
+                        // closure captures anything doesn't matter.
                         //
                         // Normally unreachable, since callee globals are usually still unbound
-                        // when a caller is compiled at construction time; tier-up is the first
-                        // thing to resolve them.
-                        // A variadic callee is fine here - the tail call builds
-                        // its rest list below - unless it was given too few
+                        // when a caller is compiled at construction time.
+                        // A variadic callee is fine here since the tail call builds
+                        // its rest list below, unless it was given too few
                         // arguments, which has to raise from the helper path.
                         if function.super_instructions().is_some()
                             && Self::rest_arg_plan(&function, arity).is_some()
@@ -4776,14 +4757,12 @@ impl FunctionTranslator<'_> {
                             && Self::rest_arg_plan(&function, arity).is_some()
                             && self.non_mutable_globals.contains(&function_index)
                         {
-                            // Not compiled *yet*. Mutually recursive functions
-                            // can't all be compiled before their callers - the
-                            // topological sort has to break every cycle somewhere
-                            // - and without this, the member compiled first went
-                            // through the deopt helper for the rest of the run.
-                            // `inline_global_tail_call` already reads the entry
-                            // point through the lambda at run time, so all it
-                            // needs is a check that there is one by then.
+                            // Not compiled yet. Mutually recursive functions can't
+                            // all be compiled before their callers, since the
+                            // topological sort has to break every cycle somewhere.
+                            // `inline_global_tail_call` reads the entry point
+                            // through the lambda at run time, so check there is one
+                            // by then, and use the deopt helper otherwise.
                             self.potentially_could_deopt = true;
 
                             // Leaked, like every lambda baked into code.
@@ -4794,14 +4773,17 @@ impl FunctionTranslator<'_> {
                                 types::I64,
                                 MemFlagsData::trusted(),
                                 lambda,
-                                closure_field_offset(offset_of!(ByteCodeLambda, super_instructions)),
+                                closure_field_offset(offset_of!(
+                                    ByteCodeLambda,
+                                    super_instructions
+                                )),
                             );
                             let compiled = self.builder.ins().icmp_imm_s(IntCC::NotEqual, entry, 0);
 
                             self.converging_if_no_value(
                                 compiled,
                                 // `depth` is not part of the branch snapshot, so
-                                // only one arm may drop it: the slow path does.
+                                // only one arm may drop it, the slow path.
                                 |ctx| ctx.inline_global_tail_call(arity, function.clone()),
                                 |ctx| ctx.slow_path_deopt_tail_call(function_index, arity),
                             );
@@ -4814,11 +4796,10 @@ impl FunctionTranslator<'_> {
                         return false;
                     } else {
                         // A tail call to a primitive we can emit directly doesn't
-                        // need the generic deopt helper at all. Mutable struct
-                        // fields are boxes, so `(#%unbox (getter ...))` and
-                        // `#%set-box!` land here constantly, and the helper just
-                        // re-looks-up the global and re-matches on its kind -
-                        // both of which we already know right here.
+                        // need the generic deopt helper. Mutable struct fields are
+                        // boxes, so `(#%unbox (getter ...))` and `#%set-box!` are
+                        // common here, and the helper would look up the global and
+                        // match on its kind again, which we already know here.
                         if let Some(value) = self.inline_primitive_tail_call(func.as_ref(), arity) {
                             self.spill_cloned_stack();
                             let real_res = self.inline_handle_pop(value);
@@ -4832,15 +4813,14 @@ impl FunctionTranslator<'_> {
                             return false;
                         }
 
-                        // Unbound while this function is being compiled - a
-                        // callee defined further down the file, which is how
-                        // every cycle of mutually recursive functions looks to
-                        // whichever member is compiled first. Nothing to bake,
-                        // so read the global at run time and tail call it the
-                        // way a local closure is: that path already checks for
-                        // a closure that is compiled and fixed arity, and falls
-                        // back to the helper otherwise. It reads the current
-                        // value every time, so `set!` is no concern here.
+                        // Unbound while this function is being compiled, e.g. a
+                        // callee defined further down the file, or the other
+                        // members of a mutually recursive cycle. There is nothing
+                        // to bake, so read the global at run time and tail call it
+                        // the way a local closure is. That path checks for a
+                        // compiled, fixed arity closure, and falls back to the
+                        // helper otherwise. It reads the current value every time,
+                        // so `set!` is not a concern here.
                         if func.is_none()
                             && late_tail_enabled()
                             && USE_INLINE_LOCAL_TAIL_CALL
@@ -4853,7 +4833,7 @@ impl FunctionTranslator<'_> {
                             // that carries the arity; ours is still on it.
                             self.ip += 1;
 
-                            // Borrowed, like a register read - see that arm.
+                            // Borrowed, like a register read (see that arm).
                             let value = self.inline_lookup_global(function_index);
                             let is_closure = self.is_type(value, SteelVal::CLOSURE_TAG);
                             let old_stack = self.shadow_stack.clone();
@@ -4920,10 +4900,9 @@ impl FunctionTranslator<'_> {
                     // into the value, and then also leak the ref count here and embed it
                     // directly into the generated code, so that we can call the function
                     // without needing to look it up?
-                    // Recognise struct constructors, predicates and getters here
-                    // for the same reason `call_global_impl` does - this opcode
-                    // had no such check, so all of them went out through the
-                    // generic deopt helper even though we can emit them directly.
+                    // Recognise struct constructors, predicates and getters here,
+                    // like `call_global_impl` does, so they are emitted directly
+                    // instead of going through the generic deopt helper.
                     if INLINE_STRUCT_FUNCTION_CALLS {
                         if let Some(spec) = self
                             ._globals
@@ -4934,12 +4913,11 @@ impl FunctionTranslator<'_> {
                             if let Some((value, typ)) =
                                 self.inline_struct_call_no_drop(spec, arity, function_index)
                             {
-                                // `stack_to_ssa` *is* the translation loop, so a
+                                // `stack_to_ssa` is the translation loop, so a
                                 // `return` here would abandon the rest of the
                                 // function body and emit truncated code.
                                 // `inline_struct_call_no_drop` has already
-                                // advanced past the FUNC instruction, so just go
-                                // round again.
+                                // advanced past the FUNC instruction, so continue.
                                 self.push_struct_result(value, typ);
                                 continue;
                             }
@@ -4978,14 +4956,14 @@ impl FunctionTranslator<'_> {
                             // in the function signature wherever possible
                             match self.direct_self_call_target(arity) {
                                 // Proven to fit, and this function has a
-                                // frameless copy: call that, with no frame.
+                                // frameless copy, so call that with no frame.
                                 Some(_) if self.frameless.is_some() => {
                                     let info = self.frameless.unwrap();
                                     let result = self.frameless_self_call(arity, slot, info);
                                     self.push(result, info.result.unwrap_or(InferredType::Any));
                                 }
-                                // Arguments proven to fit this specialized copy:
-                                // call it directly, skipping the generic copy's
+                                // Arguments proven to fit this specialized copy,
+                                // so call it directly, skipping the generic copy's
                                 // guard. Check for a deopt before the result is
                                 // used, since it may carry an assumed type.
                                 Some((target, assumed)) => {
@@ -5017,7 +4995,7 @@ impl FunctionTranslator<'_> {
                     else if USE_INLINE_CALL_GLOBAL
                         && matches!(self._globals.get(payload), Some(SteelVal::Closure(_)))
                         // And, we actually have a super instruction. A variadic
-                        // callee is fine - the call site builds its rest list -
+                        // callee is fine since the call site builds its rest list,
                         // unless it was given too few arguments, which has to
                         // raise from the helper path.
                         && self._globals.get(payload).map(|x| {
@@ -5042,7 +5020,6 @@ impl FunctionTranslator<'_> {
                         let id = func.id;
 
                         let result = self.call_self_function_experimental(arity, func, None);
-
 
                         let inferred_type =
                             if let Some(ret_types) = self.function_return_types.get(&id) {
@@ -5092,11 +5069,16 @@ impl FunctionTranslator<'_> {
                         self.push(v, InferredType::Any)
                     }
 
-                    // A frameless copy can only make frameless calls: anything
+                    // A frameless copy can only make frameless calls. Anything
                     // else pushes a real frame, which would sit underneath the
                     // frames still waiting to be recorded for its callers.
-                    if matches!(self.frameless, Some(FramelessInfo { role: FramelessRole::Callee, .. }))
-                        && self.frameless_calls == frameless_calls_before
+                    if matches!(
+                        self.frameless,
+                        Some(FramelessInfo {
+                            role: FramelessRole::Callee,
+                            ..
+                        })
+                    ) && self.frameless_calls == frameless_calls_before
                     {
                         self.frameless_bail = true;
                     }
@@ -5124,43 +5106,42 @@ impl FunctionTranslator<'_> {
                             // Primitives with a lowering of their own; see
                             // `inline_primitives.rs`.
                             if !self.try_inline_primitive(f as usize, arity) {
-                                    let name = CallPrimitiveDefinitions::arity_to_name(arity);
+                                let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
-                                    if let Some(name) = name {
-                                        let origins = self.argument_origins(arity);
-                                        // attempt to move forward with it
-                                        let additional_args = self.split_off(arity);
+                                if let Some(name) = name {
+                                    let origins = self.argument_origins(arity);
+                                    // attempt to move forward with it
+                                    let additional_args = self.split_off(arity);
 
-                                        let function = self.builder.ins().iconst(
-                                            self.module.target_config().pointer_type(),
-                                            // f as *const fn(&[SteelVal]) -> Result<SteelVal, crate::SteelErr>
-                                            //     as i64,
-                                            f as i64,
-                                        );
+                                    let function = self.builder.ins().iconst(
+                                        self.module.target_config().pointer_type(),
+                                        // f as *const fn(&[SteelVal]) -> Result<SteelVal, crate::SteelErr>
+                                        //     as i64,
+                                        f as i64,
+                                    );
 
-                                        let fallback_ip = self
-                                            .builder
-                                            .ins()
-                                            .iconst(Type::int(64).unwrap(), self.ip as i64);
+                                    let fallback_ip = self
+                                        .builder
+                                        .ins()
+                                        .iconst(Type::int(64).unwrap(), self.ip as i64);
 
-                                        let mut args = vec![function, fallback_ip];
+                                    let mut args = vec![function, fallback_ip];
 
-                                        args.extend(additional_args.into_iter().map(|x| x.0));
+                                    args.extend(additional_args.into_iter().map(|x| x.0));
 
-                                        let result =
-                                            self.call_function_returns_value_args(name, &args);
-                                        self.push(result, primitive_result_type(f));
-                                        self.ip += 1;
-                                        self.check_deopt();
-                                        self.narrow_locals_after_call(
-                                            crate::steel_vm::builtin::get_function_name(f),
-                                            &origins,
-                                        );
-                                    } else {
-                                        self.ip -= 1;
-                                        self.call_global_impl(payload);
-                                    }
+                                    let result = self.call_function_returns_value_args(name, &args);
+                                    self.push(result, primitive_result_type(f));
+                                    self.ip += 1;
+                                    self.check_deopt();
+                                    self.narrow_locals_after_call(
+                                        crate::steel_vm::builtin::get_function_name(f),
+                                        &origins,
+                                    );
+                                } else {
+                                    self.ip -= 1;
+                                    self.call_global_impl(payload);
                                 }
+                            }
                         }
 
                         Some(SteelVal::MutFunc(f)) => {
@@ -5239,11 +5220,10 @@ impl FunctionTranslator<'_> {
                         && self.instructions.get(self.ip + 1).map(|x| x.op_code)
                             == Some(OpCode::UNBOX) =>
                 {
-                    // Borrowed, not cloned: the capture array belongs to the
-                    // closure being run, which outlives this read, and the unbox
-                    // below is told not to release it. Cloning here and not
-                    // dropping leaked a reference to the box on every execution -
-                    // `graphs` grew to 23GB once inlining made this pattern hot.
+                    // Borrowed. The capture array belongs to the closure being
+                    // run, which outlives this read, and the unbox below is told
+                    // not to release it. Cloning here without a drop would leak a
+                    // reference to the box on every execution.
                     let value = self.inline_read_captured(payload, false);
                     // Advance for the read captured, but we can elide the unbox since its not
                     // going to escape - we're just reading the box value. We can probably inline this
@@ -5362,11 +5342,11 @@ impl FunctionTranslator<'_> {
                         self.properties.remove(&ValueOrRegister::Register(i));
                         self.local_to_value_map.remove(&i);
                         // The loop above only reaches slots still referenced from
-                        // the shadow stack. A cached slot that nothing currently
-                        // points at outlives its scope otherwise, and the next let
-                        // to reuse the index reads the previous scope's value.
-                        // Keyed the same way `LetVar` writes it - let_var_stack +
-                        // arity - which is what `payload` already counts in.
+                        // the shadow stack. Otherwise a cached slot that nothing
+                        // points at outlives its scope, and the next let to reuse
+                        // the index reads the previous scope's value. Keyed the same
+                        // way `LetVar` writes it (let_var_stack + arity), which is
+                        // what `payload` already counts in.
                         self.properties.cached_lookups.registers.remove(&i);
                         self.properties.cached_lookups.cursors.remove(&i);
                     }
@@ -5378,10 +5358,9 @@ impl FunctionTranslator<'_> {
                     // self.call_end_scope_handler_new(payload, amt);
                 }
 
-                // Both operands are fixnums by construction (M1's facts), so there is
-                // no tag to check. Arithmetic still has to leave the fixnum range
-                // somewhere: it exits to the interpreter, which produces the bignum.
-                // That is what lets the result stay `Int`.
+                // Both operands are fixnums by construction, so there is no tag to
+                // check. On overflow it exits to the interpreter, which produces the
+                // bignum, so the result can stay `Int`.
                 OpCode::ADD
                 | OpCode::SUB
                 | OpCode::MUL
@@ -5395,12 +5374,11 @@ impl FunctionTranslator<'_> {
                     self.fixnum_binop(op);
                 }
 
-                // Both operands statically floats - a Float seeded register, a
-                // float constant or a float typed result - so the result is a
-                // float too. The arms below typed it `Number`, which is what kept
-                // fibfp's `(- n 1.)` from matching its Float seed: its self calls
-                // were never direct. Known float on one side only isn't enough,
-                // a complex number minus a float is complex.
+                // Both operands are statically floats (a Float seeded register, a
+                // float constant or a float typed result), so the result is a float
+                // too. The arms below would type it `Number`, which doesn't match a
+                // Float seed. A known float on one side only isn't enough, since a
+                // complex number minus a float is complex.
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV
                     if payload == 2 && float_inline_enabled() && self.top_two_are_floats() =>
                 {
@@ -5517,7 +5495,8 @@ impl FunctionTranslator<'_> {
                     let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
 
                     // Checked below, once the result is on the stack for the deopt snapshot.
-                    let result = self.call_helper_unchecked(SUB_BINOP_INT, args.try_into().unwrap());
+                    let result =
+                        self.call_helper_unchecked(SUB_BINOP_INT, args.try_into().unwrap());
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
@@ -5554,12 +5533,11 @@ impl FunctionTranslator<'_> {
                         let value = ctx.encode_integer(rhs_int as i64);
 
                         let args = [register, value];
-                        let result =
-                            ctx.call_helper_checked(ADD_BINOP_INT_REG, args);
+                        let result = ctx.call_helper_checked(ADD_BINOP_INT_REG, args);
 
-                        // The helper reports a type error by flagging the vm rather than
-                        // returning one; without this the jitted code kept going and the
-                        // error surfaced after `with-handler` had already been unwound.
+                        // The helper reports a type error by flagging the vm. Without
+                        // this check the jitted code would keep going and the error
+                        // would surface after `with-handler` had been unwound.
 
                         result
                     };
@@ -5636,9 +5614,9 @@ impl FunctionTranslator<'_> {
                         let args = [register, value_as_steelval];
                         let result = ctx.call_helper_checked(ADD_BINOP_REG, args);
 
-                        // The helper reports a type error by flagging the vm rather than
-                        // returning one; without this the jitted code kept going and the
-                        // error surfaced after `with-handler` had already been unwound.
+                        // The helper reports a type error by flagging the vm. Without
+                        // this check the jitted code would keep going and the error
+                        // would surface after `with-handler` had been unwound.
 
                         result
                     };
@@ -5740,9 +5718,9 @@ impl FunctionTranslator<'_> {
                 // TODO: Specialize this a bit more. If we know that the RHS is some kind
                 // of constant, we can probably encode that a little bit more effectively
                 // in the generated code.
-                // Integer arithmetic is inlined above; floats fell all the way
-                // through to a helper that builds a slice and a `Result` for one
-                // machine instruction. Check both tags and emit the op directly.
+                // Integer arithmetic is inlined above. For floats, check both tags
+                // and emit the op directly instead of calling a helper that builds
+                // a slice and a `Result` for one machine instruction.
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV
                     if payload == 2 && generic_inline_enabled() && float_inline_enabled() =>
                 {
@@ -5784,18 +5762,16 @@ impl FunctionTranslator<'_> {
                         Int(i64),
                     }
 
-                    // Materialized rather than read raw: an untagged payload
-                    // would otherwise be used as though it were a SteelVal.
-                    // `shadow_stack_pop` so a spilled operand is taken off the vm
-                    // stack as well, rather than left there to shift everything
-                    // above it - see the `cons` arm above.
+                    // Materialized, since an untagged payload read raw would be
+                    // used as though it were a SteelVal. `shadow_stack_pop` so a
+                    // spilled operand is taken off the vm stack as well, instead of
+                    // left there to shift everything above it (see the `cons` arm).
                     let rhs_int = match self.shadow_stack_pop().unwrap() {
                         MaybeStackValue::Value(v) => Either::Value(v.as_steelval(self)),
                         MaybeStackValue::Constant(ConstantValue::Int(i)) => Either::Int(i as _),
                         // The guard admits any stack entry whose inferred type is
                         // `Int`, and a let slot bound to an int is a register with
-                        // that type. This used to fall to `panic!()`; it is
-                        // unreachable only while arguments are never typed.
+                        // that type, so registers have to be handled here.
                         MaybeStackValue::Register(r) => {
                             Either::Value(self.immutable_register_to_value(r).0)
                         }
@@ -5845,8 +5821,7 @@ impl FunctionTranslator<'_> {
                             };
 
                             let args = [register_l, rhs_value];
-                            let result =
-                                ctx.call_helper_checked(LT_REGISTER_INT, args);
+                            let result = ctx.call_helper_checked(LT_REGISTER_INT, args);
 
                             result
                         },
@@ -5884,7 +5859,12 @@ impl FunctionTranslator<'_> {
                     }
                     // TODO: This isn't quite right. This doesn not check the input
                     // type properly
-                    self.func_ret_val_named_with_context("lt-binop-int", payload, 2, InferredType::Bool);
+                    self.func_ret_val_named_with_context(
+                        "lt-binop-int",
+                        payload,
+                        2,
+                        InferredType::Bool,
+                    );
                 }
 
                 // When the value is a mutable register, or register, and we're comparing
@@ -5943,8 +5923,7 @@ impl FunctionTranslator<'_> {
                             let register_l =
                                 ctx.builder.ins().iconst(types::I64, register_l as i64);
                             let args = [register_l, rhs_int.value];
-                            let result =
-                                ctx.call_helper_checked(LTE_REGISTER_INT, args);
+                            let result = ctx.call_helper_checked(LTE_REGISTER_INT, args);
 
                             result
                         },
@@ -6021,8 +6000,7 @@ impl FunctionTranslator<'_> {
                             let value = ctx.encode_integer(rhs_int as _);
 
                             let args = [register_l, value];
-                            let result =
-                                ctx.call_helper_checked(LTE_REGISTER_INT, args);
+                            let result = ctx.call_helper_checked(LTE_REGISTER_INT, args);
 
                             result
                         },
@@ -6084,8 +6062,7 @@ impl FunctionTranslator<'_> {
                             let register_l =
                                 ctx.builder.ins().iconst(types::I64, register_l as i64);
                             let args = [register_l, rhs_int.value];
-                            let result =
-                                ctx.call_helper_checked(GTE_REGISTER_INT, args);
+                            let result = ctx.call_helper_checked(GTE_REGISTER_INT, args);
 
                             result
                         },
@@ -6127,10 +6104,13 @@ impl FunctionTranslator<'_> {
 
                     let local_value = self.read_from_vm_stack(register_l);
 
-                    // Both operands: checking the register twice compared an int
-                    // or float register against the raw payload of whatever the
-                    // other operand was - `(>= 1.5 2)` read 2 as a denormal float.
-                    let both_int = self.tags_are(&[(local_value, SteelVal::INT_TAG), (rhs_int.value, SteelVal::INT_TAG)]);
+                    // Check both operands. Checking only the register would compare
+                    // an int or float register against the raw payload of the other
+                    // operand, e.g. `(>= 1.5 2)` would read 2 as a denormal float.
+                    let both_int = self.tags_are(&[
+                        (local_value, SteelVal::INT_TAG),
+                        (rhs_int.value, SteelVal::INT_TAG),
+                    ]);
 
                     let result = self.converging_if(
                         both_int,
@@ -6147,7 +6127,10 @@ impl FunctionTranslator<'_> {
                             res
                         },
                         |ctx| {
-                            let both_float = ctx.tags_are(&[(local_value, SteelVal::FLOAT_TAG), (rhs_int.value, SteelVal::FLOAT_TAG)]);
+                            let both_float = ctx.tags_are(&[
+                                (local_value, SteelVal::FLOAT_TAG),
+                                (rhs_int.value, SteelVal::FLOAT_TAG),
+                            ]);
 
                             ctx.converging_if(
                                 both_float,
@@ -6168,7 +6151,8 @@ impl FunctionTranslator<'_> {
                                     let register_l =
                                         ctx.builder.ins().iconst(types::I64, register_l as i64);
                                     let args = [register_l, rhs_int.value];
-                                    let result = ctx.call_helper_checked(GTE_REGISTER_UNKNOWN, args);
+                                    let result =
+                                        ctx.call_helper_checked(GTE_REGISTER_UNKNOWN, args);
 
                                     result
                                 },
@@ -6235,7 +6219,12 @@ impl FunctionTranslator<'_> {
                             self.shadow_mark_local_type_from_var(arg, InferredType::Number);
                         }
                     }
-                    self.func_ret_val_named_with_context("lte-binop-int", payload, 2, InferredType::Bool);
+                    self.func_ret_val_named_with_context(
+                        "lte-binop-int",
+                        payload,
+                        2,
+                        InferredType::Bool,
+                    );
                 }
 
                 OpCode::NUMEQUAL
@@ -6254,7 +6243,8 @@ impl FunctionTranslator<'_> {
                     let left = self.pop_boxed();
 
                     // Check if the tags are the same, and they're numeric:
-                    let both_int = self.tags_are(&[(left, SteelVal::INT_TAG), (right, SteelVal::INT_TAG)]);
+                    let both_int =
+                        self.tags_are(&[(left, SteelVal::INT_TAG), (right, SteelVal::INT_TAG)]);
 
                     // Just check equality of the unboxed values
 
@@ -6330,12 +6320,13 @@ impl FunctionTranslator<'_> {
                             // Handle the else case here as well
                             // todo!();
 
-                            let register_int =
-                                ctx.register_index(register);
-
+                            let register_int = ctx.register_index(register);
 
                             let last_steelval = last.as_steelval(ctx);
-                            let res = ctx.call_helper_checked(NUM_EQUAL_INT_REGISTER, [register_int, last_steelval]);
+                            let res = ctx.call_helper_checked(
+                                NUM_EQUAL_INT_REGISTER,
+                                [register_int, last_steelval],
+                            );
 
                             // Make sure to check the deopt case here
 
@@ -6395,7 +6386,6 @@ impl FunctionTranslator<'_> {
                             // Handle the else case here as well
                             // todo!();
 
-
                             let last = ctx.encode_integer(int as _);
 
                             let res = ctx.call_helper_checked(NUM_EQUAL_VALUE_BOOL, [value, last]);
@@ -6416,9 +6406,9 @@ impl FunctionTranslator<'_> {
                 // This is where we have to be better; use the registers, use the constants,
                 // and inline the numeric ops since these are likely to be extremely common.
                 // The arms above need one side to be a compile-time constant or a
-                // register, which generic numeric code rarely obliges. Check both
-                // tags instead: when they're both ints the comparison is a single
-                // `icmp`, and everything else still reaches the same helper.
+                // register, which generic numeric code rarely has. Check both tags
+                // instead. When they're both ints the comparison is a single `icmp`,
+                // and everything else still reaches the same helper.
                 OpCode::NUMEQUAL if payload == 2 && generic_inline_enabled() => {
                     let res = self.inline_int_compare_two(IntCC::Equal, "num-equal-value-bool");
                     self.push(res, InferredType::UnboxedBool);
@@ -6443,9 +6433,8 @@ impl FunctionTranslator<'_> {
                 //     // do something inline?
                 //     self.gte()
                 // }
-                // Same story as NUMEQUAL above - the specialised arms all want a
-                // register or a constant, so two ordinary values went out to a
-                // helper every time.
+                // Same as NUMEQUAL above. The specialised arms all want a register
+                // or a constant, so this handles two ordinary values inline.
                 OpCode::LTE | OpCode::GTE | OpCode::LT | OpCode::GT
                     if payload == 2 && generic_inline_enabled() =>
                 {
@@ -6507,7 +6496,10 @@ impl FunctionTranslator<'_> {
                             let register_index = self.register_index(i);
 
                             let v_steelval = v.as_steelval(self);
-                            let res = self.call_helper(EQUAL_BINOP_REGISTER_BOOL, [register_index, v_steelval]);
+                            let res = self.call_helper(
+                                EQUAL_BINOP_REGISTER_BOOL,
+                                [register_index, v_steelval],
+                            );
 
                             self.push(res, InferredType::UnboxedBool);
 
@@ -6579,7 +6571,8 @@ impl FunctionTranslator<'_> {
 
                             let value = v.to_value(self);
 
-                            let res = self.call_helper(EQUAL_BINOP_REGISTER_BOOL, [register_index, value.0]);
+                            let res = self
+                                .call_helper(EQUAL_BINOP_REGISTER_BOOL, [register_index, value.0]);
 
                             // TODO: Somewhere, I'm not calling unboxed bool to_value properly!
                             self.push(res, InferredType::UnboxedBool);
@@ -6608,10 +6601,9 @@ impl FunctionTranslator<'_> {
                     ) =>
                 {
                     let last = self.shadow_stack_pop().unwrap().into_index();
-                    // A cursor answers without being materialised: index 0 is
-                    // how it spells the empty list.
-                    let result = match self.properties.cached_lookups.cursors.get(&last).copied()
-                    {
+                    // A cursor answers without being materialised, since index 0
+                    // means the empty list.
+                    let result = match self.properties.cached_lookups.cursors.get(&last).copied() {
                         Some(cursor) => {
                             let index = self.builder.use_var(cursor.index);
                             self.builder.ins().icmp_imm_s(IntCC::Equal, index, 0)
@@ -6659,11 +6651,11 @@ impl FunctionTranslator<'_> {
                         // Probably could instead just write the value back to the register
                         &[MaybeStackValue::Value(_), MaybeStackValue::MutRegister(l)] => {
                             let register = self.shadow_stack_pop().unwrap().into_index();
-                            // `shadow_stack_pop`, not a bare pop: a spilled operand
-                            // lives on the vm stack, and taking only its ssa value
-                            // leaves that copy behind. Everything above it then
-                            // shifts by a slot - the self tail call below reads its
-                            // arguments off the top and got this one instead.
+                            // Use `shadow_stack_pop` since a spilled operand lives on
+                            // the vm stack, and taking only its ssa value leaves that
+                            // copy behind. Everything above it would then shift by a
+                            // slot, and the self tail call below reads its arguments
+                            // off the top.
                             let value = self
                                 .shadow_stack_pop()
                                 .unwrap()
@@ -6695,7 +6687,10 @@ impl FunctionTranslator<'_> {
 
                             // Just... leave it in place if it mutates the register.
                             // We can lazily have the register move around.
-                            self.call_helper_void(CONS_HANDLER_REGISTER_REGISTER, [value, register]);
+                            self.call_helper_void(
+                                CONS_HANDLER_REGISTER_REGISTER,
+                                [value, register],
+                            );
 
                             let result = MaybeStackValue::MutRegister(l);
 
@@ -6712,8 +6707,8 @@ impl FunctionTranslator<'_> {
                             self.ip += 2;
                         }
 
-                        // Anything else, we'll move on. Not `List`: consing onto
-                        // anything but a list makes a pair.
+                        // Anything else, we'll move on. The result isn't a `List`
+                        // here, since consing onto anything but a list makes a pair.
                         _ => {
                             self.func_ret_val(op, 2, 2, InferredType::ListOrPair);
                         }
@@ -6727,11 +6722,10 @@ impl FunctionTranslator<'_> {
                     }
 
                     match self.shadow_stack.last().unwrap().clone() {
-                        // `(cdr l)` where `l` is still read afterwards: build the
-                        // rest from a copy of the cursor, advanced. One helper
-                        // call, like the plain path - which would first have to
-                        // write the cursor back into the slot - and the cursor
-                        // itself stays live.
+                        // `(cdr l)` where `l` is still read afterwards. Build the
+                        // rest from an advanced copy of the cursor. This is one
+                        // helper call like the plain path, but skips writing the
+                        // cursor back into the slot, and the cursor stays live.
                         MaybeStackValue::Register(reg)
                             if self.cursors_on
                                 && matches!(
@@ -6802,14 +6796,11 @@ impl FunctionTranslator<'_> {
 
                             // let can_skip_bounds_check = false;
 
-                            // Walk it as a cursor instead of building a list.
-                            // Only where the bounds check is already known to be
-                            // unnecessary, so there is nothing here that can
-                            // raise - a cursor must not be live across a deopt.
-                            // Walk it as a cursor instead of building a list -
-                            // only a header cursor that is live here, and only
-                            // where emptiness is ruled out, so there is no raising
-                            // path to take while it is live.
+                            // Walk it as a cursor instead of building a list. Only
+                            // for a header cursor that is live here, and only where
+                            // emptiness is ruled out, so nothing here can raise
+                            // while it is live. A cursor must not be live across a
+                            // deopt.
                             if self.cursors_on
                                 && can_skip_bounds_check
                                 && self.properties.cached_lookups.cursors.contains_key(&reg)
@@ -6933,10 +6924,10 @@ impl FunctionTranslator<'_> {
                     }
 
                     match self.shadow_stack.last().unwrap().clone() {
-                        // A cursor-backed list reads its element in place: the
+                        // A cursor-backed list reads its element in place. The
                         // cell and position are already in registers, and the
                         // head in the slot keeps the cell alive, so the cursor
-                        // survives the read - even a moving one.
+                        // survives the read, even a moving one.
                         MaybeStackValue::MutRegister(reg) | MaybeStackValue::Register(reg)
                             if self.cursors_on
                                 && matches!(
@@ -7006,7 +6997,7 @@ impl FunctionTranslator<'_> {
                                             let value = ctx.converging_if_else_cold(
                                                 is_pair,
                                                 // Inline car for a pair:
-                                                // Unboxed variant: this site reads with
+                                                // Unboxed variant. This site reads with
                                                 // `read_from_vm_stack_split`, so `value` is
                                                 // already the payload. Unboxing again isplits
                                                 // an i64 into i32 halves and uses one as a
@@ -7014,7 +7005,8 @@ impl FunctionTranslator<'_> {
                                                 |ctx| ctx.inline_pair_car_unboxed(value),
                                                 |ctx| {
                                                     let reg = ctx.register_index(reg);
-                                                    let res = ctx.call_helper_checked(CAR_REG, [reg]);
+                                                    let res =
+                                                        ctx.call_helper_checked(CAR_REG, [reg]);
 
                                                     res
                                                 },
@@ -7039,8 +7031,8 @@ impl FunctionTranslator<'_> {
                                 }
 
                                 // Known to be a pair or a non-empty list (the arm
-                                // where `pair?` held): no error path, just the two
-                                // representations.
+                                // where `pair?` held), so there is no error path,
+                                // only the two representations.
                                 Some(Properties::NonEmptyListOrPair)
                                     if crate::config::config().jit_inline_pair_p =>
                                 {
@@ -7153,7 +7145,8 @@ impl FunctionTranslator<'_> {
                                                 |ctx| ctx.inline_pair_car(value),
                                                 |ctx| {
                                                     let reg = ctx.register_index(reg);
-                                                    let res = ctx.call_helper_checked(CAR_REG, [reg]);
+                                                    let res =
+                                                        ctx.call_helper_checked(CAR_REG, [reg]);
 
                                                     res
                                                 },
@@ -7194,20 +7187,18 @@ impl FunctionTranslator<'_> {
                     }
 
                     // `inline_box_primitive` already lowers `#%set-box!` with
-                    // the unshared fast path - strong count of 1 stores without
-                    // the spin lock and without `Weak::upgrade`. The opcode used
-                    // to go out of line to `set-box-handler` -> `set_and_return`
-                    // and pay both on every write, which is what `(set! x ...)`
-                    // on a captured variable compiles to.
+                    // the unshared fast path, where a strong count of 1 stores
+                    // without the spin lock or `Weak::upgrade`. `(set! x ...)` on
+                    // a captured variable compiles to this opcode.
                     //
-                    // Reuse that lowering rather than repeating the operand
-                    // handling: the new value is *stored into the box*, so it
-                    // has to be materialised as owned. A hand written version
-                    // that let a borrowed register through gave the box a second
-                    // owner and made `puzzle` nondeterministic.
+                    // Reuse that lowering for the operand handling. The new value
+                    // is stored into the box, so it has to be materialised as
+                    // owned. Letting a borrowed register through would give the
+                    // box a second owner.
                     let inlined = if inline_setbox_enabled() {
                         self.inline_box_primitive(
-                            crate::steel_vm::primitives::steel_set_box_mutable as *const () as usize,
+                            crate::steel_vm::primitives::steel_set_box_mutable as *const ()
+                                as usize,
                             2,
                         )
                     } else {
@@ -7290,7 +7281,8 @@ impl FunctionTranslator<'_> {
                             _ => None,
                         };
                         if let Some(prop) = flipped {
-                            self.properties.add_property(ValueOrRegister::Value(value), prop);
+                            self.properties
+                                .add_property(ValueOrRegister::Value(value), prop);
                         }
 
                         self.push(value, InferredType::UnboxedBool);
@@ -7373,8 +7365,8 @@ impl FunctionTranslator<'_> {
                                     let index = self.read_from_vm_stack_unboxed(i);
 
                                     let fallback = move |ctx: &mut Self| {
-                                        // An out of range index raises: leave native code before
-                                        // anything uses the result.
+                                        // An out of range index raises, so leave native code
+                                        // before anything uses the result.
                                         ctx.call_helper_checked(
                                             VECTOR_REF_REG_2_UNBOXED_INDEX,
                                             [vector, index],
@@ -7438,22 +7430,21 @@ impl FunctionTranslator<'_> {
                             self.ip += 2;
                         }
 
-                        // Neither operand is a register - both are values or
-                        // constants. The inline sequence does not actually need
-                        // a register, only the two values, so the old fallback
-                        // here was leaving the bounds-checked fast path unused.
+                        // Neither operand is a register, both are values or
+                        // constants. The inline sequence only needs the two
+                        // values, so the bounds-checked fast path still applies.
                         _ if generic_inline_enabled() => {
-                            // `shadow_pop` asserts the operand is not spilled;
-                            // in this general arm either operand may well be,
-                            // and that is fine - `shadow_stack_pop` already
-                            // accounts for the stack slot, and the SSA value
-                            // stays valid to read. Go through `into_value` the
-                            // way the other inline arms do.
+                            // `shadow_pop` asserts the operand is not spilled, but
+                            // in this general arm either operand may be.
+                            // `shadow_stack_pop` accounts for the stack slot, and
+                            // the SSA value stays valid to read. Go through
+                            // `into_value` the way the other inline arms do.
                             let index = self.pop_boxed();
                             let vector_value = self.pop_boxed();
 
                             let fallback = move |ctx: &mut Self| {
-                                let res = ctx.call_helper_checked(VECTOR_REF_VALUE, [vector_value, index]);
+                                let res = ctx
+                                    .call_helper_checked(VECTOR_REF_VALUE, [vector_value, index]);
                                 res
                             };
 
@@ -7476,7 +7467,6 @@ impl FunctionTranslator<'_> {
                 OpCode::UNBOXCALL => unsupported_opcode(op),
                 OpCode::UNBOXTAIL => unsupported_opcode(op),
                 OpCode::EQUALCONST => unsupported_opcode(op),
-
             }
         }
 
@@ -7501,9 +7491,9 @@ impl FunctionTranslator<'_> {
             let args = [register, value];
             let result = ctx.call_helper_checked(SUB_BINOP_FLOAT_REG, args);
 
-            // The helper reports a type error by flagging the vm rather than
-            // returning one; without this the jitted code kept going and the
-            // error surfaced after `with-handler` had already been unwound.
+            // The helper reports a type error by flagging the vm. Without this
+            // check the jitted code would keep going and the error would surface
+            // after `with-handler` had been unwound.
 
             result
         };
@@ -7545,9 +7535,9 @@ impl FunctionTranslator<'_> {
             let args = [register, value];
             let result = ctx.call_helper_checked(SUB_BINOP_INT_REG, args);
 
-            // The helper reports a type error by flagging the vm rather than
-            // returning one; without this the jitted code kept going and the
-            // error surfaced after `with-handler` had already been unwound.
+            // The helper reports a type error by flagging the vm. Without this
+            // check the jitted code would keep going and the error would surface
+            // after `with-handler` had been unwound.
 
             result
         };
@@ -7582,7 +7572,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn sub_register_constant(&mut self) {
-        // Snapshot before the operands come off: on a deopt the interpreter
+        // Snapshot before the operands come off. On a deopt the interpreter
         // re-runs this instruction, so it needs them back on its operand stack.
         // The shadow stack is translator bookkeeping, so restoring the vector is
         // enough to make `spill_stack_for_branch` write the right things.
@@ -7605,30 +7595,29 @@ impl FunctionTranslator<'_> {
 
         let sp = |ctx: &mut Self| {
             let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
-            // The constant this call subtracts, not a literal 1. Reached whenever
-            // the register is not an int, or the fast path overflows - so before
-            // this, `(- 100.0 5)` came back as 99.0 under the JIT.
+            // The constant this call subtracts, which may not be 1. Reached
+            // whenever the register is not an int or the fast path overflows,
+            // e.g. `(- 100.0 5)`.
             let value = ctx.encode_integer(constant_value as _);
             let args = [register, value];
             let result = ctx.call_helper_checked(SUB_BINOP_INT_REG, args);
 
-            // The helper reports a type error by flagging the vm rather than
-            // returning one; without this the jitted code kept going and the
-            // error surfaced after `with-handler` had already been unwound.
+            // The helper reports a type error by flagging the vm. Without this
+            // check the jitted code would keep going and the error would surface
+            // after `with-handler` had been unwound.
 
             result
         };
 
-        // Speculative form: no merge, so the fast arm is free to stay untagged.
+        // Speculative form. There is no merge, so the fast arm can stay untagged.
         if should_speculate_for(self.function_context) {
-            // Uniform shadow stack before a two way branch, the same discipline
-            // every other branch here follows. Without it a value defined on one
-            // side survives in translator state past a later join and is used
-            // there without having been passed through it.
+            // Uniform shadow stack before a two way branch, like every other
+            // branch here. Without it a value defined on one side survives in
+            // translator state past a later join and is used there without having
+            // been passed through it.
             //
-            // It also means the exit below has nothing left to load: everything
-            // is already written back, so the exit only has to set `ip` and
-            // return.
+            // Everything is already written back, so the exit below only has to
+            // set `ip` and return.
             self.spill_stack_for_branch();
 
             let fast_block = self.builder.create_block();
@@ -7664,8 +7653,8 @@ impl FunctionTranslator<'_> {
             self.builder.seal_block(ok_block);
 
             // Untagged. The tag is implied by `Int64`, and `as_steelval` puts it
-            // back at whatever boundary this value escapes through - a spill, a
-            // call, a return, or the deopt exit above. Until then it costs one
+            // back at whatever boundary this value escapes through (a spill, a
+            // call, a return, or the deopt exit above). Until then it uses one
             // register instead of a pair.
             self.push(subbed, InferredType::Int64);
             self.ip += 2;
@@ -7740,7 +7729,10 @@ impl FunctionTranslator<'_> {
         let local_value_r = self.read_from_vm_stack(register_r);
         let local_value_l = self.read_from_vm_stack(register_l);
 
-        let both_int = self.tags_are(&[(local_value_r, SteelVal::INT_TAG), (local_value_l, SteelVal::INT_TAG)]);
+        let both_int = self.tags_are(&[
+            (local_value_r, SteelVal::INT_TAG),
+            (local_value_l, SteelVal::INT_TAG),
+        ]);
 
         // TODO: Adjust all of these things - in the event we're subtracting two
         // integer values, then we need to do
@@ -7749,7 +7741,6 @@ impl FunctionTranslator<'_> {
             let register_r = ctx.builder.ins().iconst(types::I64, register_r as i64);
             let args = [register_l, register_r];
             let result = ctx.call_helper_checked(SUB_BINOP_BOTH_REG, args);
-
 
             result
         };
@@ -7830,7 +7821,7 @@ impl FunctionTranslator<'_> {
                 ctx.spill_stack();
 
                 let arity = args_off_the_stack.len();
-                // Always take the check here too - see the note in the non-tail
+                // Always take the check here too. See the note in the non-tail
                 // call path above.
                 ctx.push_to_many_vm_stack_let_var_new(&args_off_the_stack);
 
@@ -7879,7 +7870,8 @@ impl FunctionTranslator<'_> {
                             ctx.increment_ref_count_closure(closure);
                         }
 
-                        let body_exp_offset = closure_field_offset(offset_of!(ByteCodeLambda, body_exp));
+                        let body_exp_offset =
+                            closure_field_offset(offset_of!(ByteCodeLambda, body_exp));
 
                         let rcbox_ptr = ctx.builder.ins().load(
                             types::I64,
@@ -7902,7 +7894,13 @@ impl FunctionTranslator<'_> {
 
                         let instr_fat_ptr = ctx.builder.ins().iconcat(data_ptr, len);
 
-                        ctx.push_stack_frame(arity as _, closure, instr_fat_ptr, fallback_ip, false);
+                        ctx.push_stack_frame(
+                            arity as _,
+                            closure,
+                            instr_fat_ptr,
+                            fallback_ip,
+                            false,
+                        );
 
                         // TODO: Abstract this to a function:
                         // Attempt to look up a value indirectly:
@@ -7940,8 +7938,11 @@ impl FunctionTranslator<'_> {
                         let arity = ctx.builder.ins().iconst(types::I64, arity as i64);
                         let fallback_ip = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
                         // TODO: Set up the closure for multi arity?
-                        // Part of the call protocol: an arity error is picked up after the merge.
-                        ctx.call_helper_unchecked(SETUP_CLOSURE_ARITY, [closure, arity, fallback_ip])
+                        // Part of the call protocol. An arity error is picked up after the merge.
+                        ctx.call_helper_unchecked(
+                            SETUP_CLOSURE_ARITY,
+                            [closure, arity, fallback_ip],
+                        )
                     },
                     typ,
                 );
@@ -7972,15 +7973,14 @@ impl FunctionTranslator<'_> {
 
     /// Emit a tail call to a primitive inline, when we recognise it.
     ///
-    /// The callee is compared by function pointer rather than by name: the
-    /// global's value is already in hand at the call site, and an identity
-    /// check on the `FuncV` is both cheaper and harder to get wrong than
+    /// The callee is compared by function pointer, since the global's value is
+    /// already known at the call site and comparing the `FuncV` is cheaper than
     /// resolving a symbol.
     ///
     /// Only primitives with an existing inline lowering are handled; anything
-    /// else returns None and takes the generic path. `#%unbox` becomes a real
-    /// inline sequence; `#%set-box!` still calls a native helper, but a direct
-    /// one rather than the deopt trampoline, which skips the global lookup,
+    /// else returns None and takes the generic path. `#%unbox` becomes an
+    /// inline sequence. `#%set-box!` still calls a native helper, but directly
+    /// instead of through the deopt trampoline, which skips the global lookup,
     /// the `SteelVal` kind match and the argument marshalling.
     fn inline_primitive_tail_call(
         &mut self,
@@ -8006,7 +8006,9 @@ impl FunctionTranslator<'_> {
     /// without pushing it, or `None` (having emitted nothing) when the generic
     /// call has to handle it.
     fn inline_box_primitive(&mut self, target: usize, arity: usize) -> Option<Value> {
-        if target == crate::steel_vm::primitives::steel_unbox_mutable as *const () as usize && arity == 1 {
+        if target == crate::steel_vm::primitives::steel_unbox_mutable as *const () as usize
+            && arity == 1
+        {
             let last = self.shadow_stack.last().copied()?;
             self.shadow_mark_local_type_from_var(last, InferredType::Box);
 
@@ -8027,7 +8029,9 @@ impl FunctionTranslator<'_> {
             return Some(self.unbox_value_checked_register(value, owned));
         }
 
-        if target == crate::steel_vm::primitives::steel_set_box_mutable as *const () as usize && arity == 2 {
+        if target == crate::steel_vm::primitives::steel_set_box_mutable as *const () as usize
+            && arity == 2
+        {
             // Operand order is (box, new-value); the box is the one whose
             // ownership we may have to release, matching the read path.
             let owned = matches!(
@@ -8050,7 +8054,9 @@ impl FunctionTranslator<'_> {
 
     /// Whether `inline_box_primitive` will take this call, without emitting.
     fn box_primitive_inlinable(&self, target: usize, arity: usize) -> bool {
-        if target == crate::steel_vm::primitives::steel_unbox_mutable as *const () as usize && arity == 1 {
+        if target == crate::steel_vm::primitives::steel_unbox_mutable as *const () as usize
+            && arity == 1
+        {
             return matches!(
                 self.shadow_stack.last(),
                 Some(
@@ -8065,8 +8071,8 @@ impl FunctionTranslator<'_> {
             && self.shadow_stack.len() >= 2
     }
 
-    /// `null?` in tail position. The empty list is the case worth inlining;
-    /// the primitive also answers for empty vectors, which the helper handles.
+    /// `null?` in tail position. The empty list is inlined; the primitive also
+    /// answers for empty vectors, which the helper handles.
     fn inline_null_predicate(&mut self) -> Value {
         let value = self.pop_boxed();
         let is_list = self.is_type(value, SteelVal::LIST_TAG);
@@ -8088,8 +8094,8 @@ impl FunctionTranslator<'_> {
         )
     }
 
-    /// `cdr` in tail position: a direct call to the primitive instead of the
-    /// generic tail call handler, which re-looks-up the global, re-matches on
+    /// `cdr` in tail position, as a direct call to the primitive instead of the
+    /// generic tail call handler, which looks up the global again, matches on
     /// its kind and hands the frame to the interpreter.
     fn inline_mut_func_tail_call(&mut self, target: usize, arity: usize) -> Option<Value> {
         let name = if target == crate::primitives::lists::steel_cdr as *const () as usize
@@ -8120,8 +8126,8 @@ impl FunctionTranslator<'_> {
         Some(result)
     }
 
-    /// `mutable-vector` called in any other position: the same direct call,
-    /// but anything else the jitted frame is still holding has to reach the vm
+    /// `mutable-vector` called in any other position. The same direct call, but
+    /// anything else the jitted frame is still holding has to reach the vm
     /// stack first, because the allocation can collect and only the vm stack
     /// and the arguments themselves are roots.
     fn inline_builtin_global_call(&mut self, index: usize, arity: usize) -> Option<Value> {
@@ -8136,7 +8142,8 @@ impl FunctionTranslator<'_> {
         let builtin = *b as usize;
         let make_vector = builtin == crate::primitives::vectors::make_vector as *const () as usize;
 
-        let name = if builtin == crate::primitives::vectors::mut_vec_construct as *const () as usize {
+        let name = if builtin == crate::primitives::vectors::mut_vec_construct as *const () as usize
+        {
             CallMutableVectorConstructorsDefinitions::arity_to_name(arity)?
         } else if make_vector && arity == 1 {
             "call-make-vector-1"
@@ -8153,8 +8160,8 @@ impl FunctionTranslator<'_> {
 
         let mut args = Vec::new();
         if make_vector {
-            // It can raise - on a negative length or a non-integer - so it
-            // needs somewhere to hand the frame back to.
+            // It can raise on a negative length or a non-integer, so it needs
+            // somewhere to hand the frame back to.
             args.push(
                 self.builder
                     .ins()
@@ -8172,9 +8179,9 @@ impl FunctionTranslator<'_> {
     }
 
     /// `mutable-vector` in tail position, as a direct call to the allocation.
-    /// Same shape as the mutable struct constructor above, and the same
-    /// condition: the arguments have to be the whole operand stack, because the
-    /// allocation can collect and only the vm stack and these are roots.
+    /// Same shape and condition as the mutable struct constructor above. The
+    /// arguments have to be the whole operand stack, because the allocation can
+    /// collect and only the vm stack and these are roots.
     fn inline_mutable_vector_tail_call(&mut self, builtin: usize, arity: usize) -> Option<Value> {
         if builtin != crate::primitives::vectors::mut_vec_construct as *const () as usize {
             return None;
@@ -8200,9 +8207,9 @@ impl FunctionTranslator<'_> {
     ///
     /// Only when the constructor's arguments are the whole operand stack. The
     /// allocation can run a collection, and the collector's roots are the vm
-    /// stack plus these arguments: an operand still held only in the jitted
-    /// frame would not be one. In tail position nothing else is live anyway, so
-    /// this costs nothing in practice - it is `(define (cons a b) (mpair a b))`.
+    /// stack plus these arguments, so an operand held only in the jitted frame
+    /// would not be a root. In tail position nothing else is usually live, as
+    /// in `(define (cons a b) (mpair a b))`.
     fn inline_mutable_struct_tail_call(&mut self, builtin: usize, arity: usize) -> Option<Value> {
         if builtin != crate::steel_vm::primitives::make_mutable_struct as *const () as usize {
             return None;
@@ -8250,17 +8257,14 @@ impl FunctionTranslator<'_> {
     /// Operands come off with `split_off`, the same way `inline_box_primitive`
     /// takes `#%set-box!`'s. Reading a spilled operand's value out of the shadow
     /// stack by hand and materialising the others afterwards puts the
-    /// definition in a block that no longer dominates the use - cranelift
-    /// rejects it with "uses value from non-dominating inst".
+    /// definition in a block that no longer dominates the use, which cranelift
+    /// rejects.
     fn inline_byte_vector_op(&mut self, function: FunctionSignature, arity: usize) -> Value {
         let base = self.shadow_stack.len() - arity;
 
         // A register is a borrow that stays live in its slot; a spilled value is
         // ours to release.
-        let owned = matches!(
-            self.shadow_stack.get(base),
-            Some(MaybeStackValue::Value(_))
-        );
+        let owned = matches!(self.shadow_stack.get(base), Some(MaybeStackValue::Value(_)));
 
         let args = self
             .split_off(arity)
@@ -8305,22 +8309,19 @@ impl FunctionTranslator<'_> {
 
     /// The four integer division operators, on two fixnums.
     ///
-    /// None of these have an opcode, so every call went out through
+    /// None of these have an opcode, so otherwise every call goes out through
     /// `call_primitive_function_deopt_2`, which publishes the safepoint and
-    /// hands the arguments to the generic primitive. In `bv2string`'s random
-    /// number generator that path was 26% of the run.
+    /// hands the arguments to the generic primitive.
     ///
-    /// The guard is wider than the arithmetic strictly needs. Cranelift's
-    /// `sdiv`/`srem` trap on a zero divisor *and* on `isize::MIN / -1`, and the
-    /// primitive answers those two with something that is not a fixnum anyway -
-    /// an error, and a `BigNum` - so `b == -1` goes out of line rather than
-    /// being special cased here. Within that guard neither the truncating nor
-    /// the flooring form can overflow, so there is no exit on the fast path:
-    /// `q - 1` is bounded because `|q| <= |a| / 2`, and `r + b` is bounded
-    /// because `r` is smaller than `b` and points the other way.
+    /// Cranelift's `sdiv`/`srem` trap on a zero divisor and on
+    /// `isize::MIN / -1`, and the primitive answers those two with an error and
+    /// a `BigNum`, so `b == -1` also goes out of line. Within that guard neither
+    /// the truncating nor the flooring form can overflow, so there is no exit on
+    /// the fast path. `q - 1` is bounded because `|q| <= |a| / 2`, and `r + b` is
+    /// bounded because `r` is smaller than `b` and has the opposite sign.
     ///
-    /// The result is pushed as `Any`, not `Int`: the fallback can return a
-    /// float or a `BigNum`, and both arms have to describe the merge.
+    /// The result is pushed as `Any`, since the fallback can return a float or
+    /// a `BigNum`, and both arms have to describe the merge.
     fn inline_int_divmod(&mut self, mode: DivMode, function: FunctionSignature) -> Value {
         self.guarded_op::<2>()
             .require([SteelVal::INT_TAG, SteelVal::INT_TAG])
@@ -8333,67 +8334,67 @@ impl FunctionTranslator<'_> {
                 ctx.builder.ins().band(not_zero, not_neg_one)
             })
             .emit(
-            |ctx, [lhs, rhs]| {
-                let l = ctx.unbox_value_to_pointer(lhs);
-                let r = ctx.unbox_value_to_pointer(rhs);
+                |ctx, [lhs, rhs]| {
+                    let l = ctx.unbox_value_to_pointer(lhs);
+                    let r = ctx.unbox_value_to_pointer(rhs);
 
-                let res = match mode {
-                    DivMode::TruncQuotient => ctx.builder.ins().sdiv(l, r),
-                    DivMode::TruncRemainder => ctx.builder.ins().srem(l, r),
+                    let res = match mode {
+                        DivMode::TruncQuotient => ctx.builder.ins().sdiv(l, r),
+                        DivMode::TruncRemainder => ctx.builder.ins().srem(l, r),
 
-                    // The floored forms differ from the truncated ones only
-                    // when the remainder is non zero and points the opposite
-                    // way to the divisor - `(r ^ b) < 0` is that sign test
-                    // without materialising either comparison.
-                    DivMode::FloorQuotient | DivMode::FloorRemainder => {
-                        let rem = ctx.builder.ins().srem(l, r);
-                        let rem_nonzero = ctx.builder.ins().icmp_imm_s(IntCC::NotEqual, rem, 0);
-                        let signs = ctx.builder.ins().bxor(rem, r);
-                        let opposite =
-                            ctx.builder.ins().icmp_imm_s(IntCC::SignedLessThan, signs, 0);
-                        let correct = ctx.builder.ins().band(rem_nonzero, opposite);
+                        // The floored forms differ from the truncated ones only
+                        // when the remainder is non zero and has the opposite sign
+                        // to the divisor. `(r ^ b) < 0` is that sign test without
+                        // materialising either comparison.
+                        DivMode::FloorQuotient | DivMode::FloorRemainder => {
+                            let rem = ctx.builder.ins().srem(l, r);
+                            let rem_nonzero = ctx.builder.ins().icmp_imm_s(IntCC::NotEqual, rem, 0);
+                            let signs = ctx.builder.ins().bxor(rem, r);
+                            let opposite =
+                                ctx.builder
+                                    .ins()
+                                    .icmp_imm_s(IntCC::SignedLessThan, signs, 0);
+                            let correct = ctx.builder.ins().band(rem_nonzero, opposite);
 
-                        if let DivMode::FloorQuotient = mode {
-                            let quo = ctx.builder.ins().sdiv(l, r);
-                            let lowered = ctx.builder.ins().iadd_imm_s(quo, -1);
-                            ctx.builder.ins().select(correct, lowered, quo)
-                        } else {
-                            let shifted = ctx.builder.ins().iadd(rem, r);
-                            ctx.builder.ins().select(correct, shifted, rem)
+                            if let DivMode::FloorQuotient = mode {
+                                let quo = ctx.builder.ins().sdiv(l, r);
+                                let lowered = ctx.builder.ins().iadd_imm_s(quo, -1);
+                                ctx.builder.ins().select(correct, lowered, quo)
+                            } else {
+                                let shifted = ctx.builder.ins().iadd(rem, r);
+                                ctx.builder.ins().select(correct, shifted, rem)
+                            }
                         }
-                    }
-                };
+                    };
 
-                ctx.encode_value(discriminant(&SteelVal::IntV(0)) as i64, res)
-            },
-            |ctx, [lhs, rhs]| {
-                let func = ctx.builder.ins().iconst(
-                    ctx.module.target_config().pointer_type(),
-                    function as i64,
-                );
-                let fallback_ip = ctx.builder.ins().iconst(types::I64, ctx.ip as i64);
+                    ctx.encode_value(discriminant(&SteelVal::IntV(0)) as i64, res)
+                },
+                |ctx, [lhs, rhs]| {
+                    let func = ctx
+                        .builder
+                        .ins()
+                        .iconst(ctx.module.target_config().pointer_type(), function as i64);
+                    let fallback_ip = ctx.builder.ins().iconst(types::I64, ctx.ip as i64);
 
-                let res = ctx.call_function_returns_value_args(
-                    "call_primitive_function_deopt_2",
-                    &[func, fallback_ip, lhs, rhs],
-                );
-                ctx.check_deopt();
-                res
-            },
-            types::I128,
-        )
+                    let res = ctx.call_function_returns_value_args(
+                        "call_primitive_function_deopt_2",
+                        &[func, fallback_ip, lhs, rhs],
+                    );
+                    ctx.check_deopt();
+                    res
+                },
+                types::I128,
+            )
     }
 
     /// Inline a two-operand integer comparison, checking both tags at runtime.
     ///
-    /// The existing fast paths for `=`, `<` and friends all require one side to
-    /// be a compile-time constant or a known register. That covers loop
-    /// counters against literals but not generic arithmetic, which then paid a
-    /// full native call per comparison. Here both operands are materialised as
-    /// values, both tags are tested, and the happy path is a single `icmp` on
-    /// the payloads.
+    /// The other fast paths for `=`, `<` and friends require one side to be a
+    /// compile-time constant or a known register. Here both operands are
+    /// materialised as values, both tags are tested, and the fast path is a
+    /// single `icmp` on the payloads.
     ///
-    /// `fallback` must be a helper returning an *unboxed* bool, so both arms of
+    /// `fallback` must be a helper returning an unboxed bool, so both arms of
     /// the branch agree on type and the result can be consumed directly by a
     /// following `if` without boxing.
     fn inline_int_compare_two(&mut self, cc: IntCC, fallback: &str) -> Value {
@@ -8401,7 +8402,7 @@ impl FunctionTranslator<'_> {
             .require([SteelVal::INT_TAG, SteelVal::INT_TAG])
             .emit(
                 |ctx, [lhs, rhs]| {
-                    // Tags already checked, so the payloads are the whole story.
+                    // Tags already checked, so only the payloads need comparing.
                     let l = ctx.unbox_value_to_pointer(lhs);
                     let r = ctx.unbox_value_to_pointer(rhs);
                     ctx.builder.ins().icmp(cc, l, r)
@@ -8581,10 +8582,10 @@ impl FunctionTranslator<'_> {
         );
 
         // The raw counter carries an implicit +1 while the heap still owns the
-        // box, so a previous value of 2 is the last handle to a live box - its
-        // value has to be released now (`Drop for HeapRef`) - and 1 is the last
+        // box. A previous value of 2 is the last handle to a live box, whose
+        // value has to be released now (`Drop for HeapRef`), and 1 is the last
         // handle to one the heap already let go of, whose memory is freed here.
-        // Either way it's the out-of-line drop that knows what to do.
+        // Both cases go to the out-of-line drop.
         let hit_zero = self
             .builder
             .ins()
@@ -8609,8 +8610,8 @@ impl FunctionTranslator<'_> {
     }
 
     fn drop_weak_rc(&mut self, value: Value) {
-        // drop-one takes a whole SteelVal, so it gets the tagged value - not the
-        // unboxed pointer we do the arithmetic on.
+        // drop-one takes a whole SteelVal, so it gets the tagged value instead of
+        // the unboxed pointer we do the arithmetic on.
         let ptr = self.unbox_value_to_pointer(value);
 
         if USE_INLINE_DROP_HEAP_BOX {
@@ -8677,11 +8678,11 @@ impl FunctionTranslator<'_> {
     /// the high bits of the biased half-word, so read it out and compare.
     ///
     /// An unowned object has a zero id, and `VmCore::thread_id` is never zero
-    /// in jitted code, so the unowned case simply fails to match.
+    /// in jitted code, so the unowned case fails to match.
     fn check_value_tl(&mut self, value: Value) -> Value {
         let thread_id = self.get_thread_id();
-        // Not readonly: the owner id now shares this word with the count, which
-        // the increment and decrement paths write.
+        // Not readonly, since the owner id shares this word with the count,
+        // which the increment and decrement paths write.
         let biased = self.builder.ins().load(
             types::I32,
             MemFlagsData::trusted(),
@@ -8728,9 +8729,12 @@ impl FunctionTranslator<'_> {
                 .ins()
                 .iadd_imm_s(biased, -(steel_rc::biased_counter_one() as i64));
 
-            self.builder
-                .ins()
-                .store(MemFlagsData::trusted(), sub_one, value, biased_word_offset());
+            self.builder.ins().store(
+                MemFlagsData::trusted(),
+                sub_one,
+                value,
+                biased_word_offset(),
+            );
 
             let sub_one = self
                 .builder
@@ -8812,9 +8816,12 @@ impl FunctionTranslator<'_> {
                 .ins()
                 .iadd_imm_s(biased, -(steel_rc::biased_counter_one() as i64));
 
-            self.builder
-                .ins()
-                .store(MemFlagsData::trusted(), sub_one, value, biased_word_offset());
+            self.builder.ins().store(
+                MemFlagsData::trusted(),
+                sub_one,
+                value,
+                biased_word_offset(),
+            );
 
             let sub_one = self
                 .builder
@@ -8905,8 +8912,8 @@ impl FunctionTranslator<'_> {
     }
 
     /// This cell's cursor. `index` lives in the chunk arm, sharing bytes with an
-    /// inline element, so an inline cell cannot be read for it - it holds
-    /// exactly one element and its cursor is always 1.
+    /// inline element, so it can't be read from an inline cell. An inline cell
+    /// holds one element and its cursor is always 1.
     fn list_cell_index(&mut self, value: Value) -> Value {
         let is_inline = self.list_is_inline(value);
         self.converging_if(
@@ -8927,10 +8934,12 @@ impl FunctionTranslator<'_> {
     /// Does this cell keep its single element inline? The flag rides in the low
     /// bit of the link to the next cell.
     fn list_is_inline(&mut self, value: Value) -> Value {
-        let link =
-            self.builder
-                .ins()
-                .load(types::I64, MemFlagsData::trusted(), value, list_next_offset());
+        let link = self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            value,
+            list_next_offset(),
+        );
         let flag = self
             .builder
             .ins()
@@ -8960,10 +8969,9 @@ impl FunctionTranslator<'_> {
                     value,
                     list_buffer_offset(),
                 );
-                ctx.builder.ins().iadd_imm_s(
-                    chunk,
-                    SteelList::<SteelVal>::vector_header_size() as i64,
-                )
+                ctx.builder
+                    .ins()
+                    .iadd_imm_s(chunk, SteelList::<SteelVal>::vector_header_size() as i64)
             },
             types::I64,
         );
@@ -9189,7 +9197,7 @@ impl FunctionTranslator<'_> {
     }
 
     // Both arms share a FUNC that is a branch target, so it can't be fused
-    // into the CALLGLOBAL - push the callee and let the FUNC apply it.
+    // into the CALLGLOBAL. Push the callee and let the FUNC apply it.
     fn func_is_join_target(&self, index: usize) -> bool {
         self.join_targets.contains(&index)
             && matches!(
@@ -9213,9 +9221,8 @@ impl FunctionTranslator<'_> {
 
         let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
 
-        // `(vector rte a)` is an argument, not a tail call, so the tail path
-        // above never sees it - and `scheme` builds one environment frame per
-        // closure call that way.
+        // Inline builtins in non-tail position too. A call like `(vector rte a)`
+        // used as an argument never reaches the tail path above.
         if let Some(value) = self.inline_builtin_global_call(function_index, arity) {
             self.push(value, InferredType::Any);
             // Past the `FUNC` that carried the arity; the generic paths below
@@ -9225,10 +9232,10 @@ impl FunctionTranslator<'_> {
         }
 
         // A direct call to a compiled closure. The `CALLGLOBALNOARITY` arm
-        // already does this, but that opcode is only assigned when the analysis
-        // proves a fixed-arity callee - so a variadic one like `map` always
-        // arrives here as plain `CALLGLOBAL`, and never took a direct path at
-        // all. The call site builds the rest list; see `rest_arg_plan`.
+        // does this too, but that opcode is only assigned when the analysis
+        // proves a fixed-arity callee, so a variadic one like `map` arrives here
+        // as plain `CALLGLOBAL`. The call site builds the rest list; see
+        // `rest_arg_plan`.
         //
         // Plain `CALLGLOBAL` can also target a global that is `set!`, and this
         // bakes the closure in, so it needs the same non-mutable guard the
@@ -9257,8 +9264,8 @@ impl FunctionTranslator<'_> {
 
                     self.push(result, inferred_type);
 
-                    // The callee can deopt partway through (a builtin tail call,
-                    // say), leaving the interpreter to finish its frame - so this
+                    // The callee can deopt partway through (e.g. a builtin tail
+                    // call), leaving the interpreter to finish its frame, so this
                     // needs the same exit check as every other call below.
                     self.check_deopt();
                     return;
@@ -9292,8 +9299,8 @@ impl FunctionTranslator<'_> {
 
             let v = self.call_global_function_spilled(arity, name, function_index, false);
 
-            // Only reached when the callee returned a value rather than setting
-            // up a frame - the handler dropped the spilled arguments, so drop
+            // Only reached when the callee returned a value instead of setting
+            // up a frame. The handler dropped the spilled arguments, so drop
             // them from the model too.
             self.check_deopt();
             self.shadow_stack.truncate(self.shadow_stack.len() - arity);
@@ -9401,8 +9408,8 @@ impl FunctionTranslator<'_> {
         };
 
         // List cursors across the back edge. A parameter passed its own value
-        // - `MutRegister(j)` / `Register(j)` at position `j`, which is what an
-        // in-place `(cdr l)` leaves - is carried: its cursor variables are
+        // (`MutRegister(j)` / `Register(j)` at position `j`, which is what an
+        // in-place `(cdr l)` leaves) is carried. Its cursor variables are
         // already the next iteration's, so the argument is replaced by a
         // placeholder nobody reads and its write is skipped. Any other live
         // cursor is materialised first, because the arguments may read it.
@@ -9411,10 +9418,10 @@ impl FunctionTranslator<'_> {
             let n = self.shadow_stack.len();
 
             // The trailing run of self-moves that `amount_dropped` below pops
-            // without reading or writing. A carried slot inside it needs nothing
-            // from us - and must be left as it is: a placeholder would end the
-            // run early, and every self-move below it would then be written
-            // back over its own slot, dropping the value it is storing.
+            // without reading or writing. A carried slot inside it must be left
+            // as it is. A placeholder would end the run early, and every
+            // self-move below it would then be written back over its own slot,
+            // dropping the value it is storing.
             let mut trailing = 0;
             while trailing < payload {
                 let pos = payload - trailing - 1;
@@ -9429,8 +9436,8 @@ impl FunctionTranslator<'_> {
             }
             let first_trailing = payload - trailing;
 
-            // A let slot's cursor handed to parameter `p` - `(let ((x2 (cdr x)))
-            // ... (loop (cdr x2)))` after self-inlining. The head moves from
+            // A let slot's cursor handed to parameter `p`, e.g. `(let ((x2 (cdr
+            // x))) ... (loop (cdr x2)))` after self-inlining. The head moves from
             // the let slot into `p`'s slot and the header cursor takes over the
             // position, so the walk crosses the back edge unmaterialised.
             // Only when no other argument reads either slot.
@@ -9495,7 +9502,7 @@ impl FunctionTranslator<'_> {
             live.sort_unstable();
             for slot in live {
                 if slot < payload && slot >= first_trailing {
-                    // Popped untouched by `amount_dropped`: the slot keeps its
+                    // Popped untouched by `amount_dropped`, so the slot keeps its
                     // head and the cursor its position.
                     self.cursor_carries += 1;
                     continue;
@@ -9506,9 +9513,9 @@ impl FunctionTranslator<'_> {
                         Some(MaybeStackValue::MutRegister(r) | MaybeStackValue::Register(r))
                             if *r == slot
                     );
-                // Nothing among the arguments reads it, and the slot is
-                // about to be overwritten or truncated - either way the head it
-                // walked from is dropped, so there is nothing to write back.
+                // Nothing among the arguments reads it, and the slot is about
+                // to be overwritten or truncated. Either way the head it walked
+                // from is dropped, so there is nothing to write back.
                 let referenced = (0..payload).any(|q| {
                     matches!(
                         self.shadow_stack.get(n - payload + q),
@@ -9575,13 +9582,11 @@ impl FunctionTranslator<'_> {
                 // How many elements did we drop off
                 let payload = payload - amount_dropped;
 
-                // Every remaining argument, not just the first: `.get(i)` is an
-                // `Option` of one element, so iterating it checked position 0
-                // alone. `(loop (cdr x) (- n 1) y)` - an in-place `cdr` left as
-                // `MutRegister(0)`, then a computed value - took the no-drop
-                // write-back, and leaked the list on every iteration.
-                let args_before_drop =
-                    &self.shadow_stack[self.shadow_stack.len() - payload..];
+                // Check every remaining argument. In `(loop (cdr x) (- n 1) y)`
+                // the in-place `cdr` is left as `MutRegister(0)` but the next one
+                // is a computed value, and taking the no-drop write-back there
+                // would leak the list on every iteration.
+                let args_before_drop = &self.shadow_stack[self.shadow_stack.len() - payload..];
 
                 // Aggressive optimization: if the value is moved, we don't need to put a drop
                 // call inlined here
@@ -9612,7 +9617,7 @@ impl FunctionTranslator<'_> {
                     self.inline_call_self_tail_call_no_arity_loop(original_payload as _, &args);
                 }
 
-                // Only now: before the writes, a live `p` would have been
+                // Only after the writes, since before them a live `p` would be
                 // materialised over the head just handed to it.
                 for (p, to) in &handed_over {
                     self.properties.cached_lookups.cursors.insert(*p, *to);
@@ -9655,7 +9660,7 @@ impl FunctionTranslator<'_> {
             let _call = self.builder.ins().call(local_callee, &arg_values);
         }
 
-        // Only now: before the writes, a live `p` would have been
+        // Only after the writes, since before them a live `p` would be
         // materialised over the head just handed to it.
         for (p, to) in &handed_over {
             self.properties.cached_lookups.cursors.insert(*p, *to);
@@ -9699,7 +9704,7 @@ impl FunctionTranslator<'_> {
     }
 
     /// The end of a self tail call, once the arguments are written back. Where
-    /// it goes depends on which copy of the function this is: the generic copy
+    /// it goes depends on which copy of the function this is. The generic copy
     /// moves into the specialized one when the seeded slots hold fixnums, and
     /// the specialized copy moves back out when one might not.
     fn emit_self_tail_jump(&mut self, proven: &[bool]) {
@@ -9711,7 +9716,9 @@ impl FunctionTranslator<'_> {
                 self.emit_loop_jump();
             }
 
-            SpecMode::Specialized { generic_id, seed, .. } => {
+            SpecMode::Specialized {
+                generic_id, seed, ..
+            } => {
                 // Slots the translator can prove still hold their type need no
                 // check; the rest are checked on the values just written.
                 let unproven: Vec<(usize, SpecType)> = seed
@@ -9725,9 +9732,9 @@ impl FunctionTranslator<'_> {
                     return;
                 }
 
-                // Read the tags from memory on purpose: the tail call just wrote
-                // new values into these slots, so the translator's facts about
-                // them are stale.
+                // Read the tags from memory, since the tail call just wrote new
+                // values into these slots and the translator's facts about them
+                // are stale.
                 let ctx = self.get_ctx();
                 let sp = self.get_sp(ctx);
                 let buf_ptr = self.stack_buf_ptr(ctx);
@@ -9738,7 +9745,7 @@ impl FunctionTranslator<'_> {
                 emit_slot_type_checks(&mut self.builder, frame_base, &unproven, generic_block);
                 let pass_block = self.builder.current_block().unwrap();
 
-                // Fill the fallback first and jump back to the top last: the loop
+                // Fill the fallback first and jump back to the top last. The loop
                 // jump leaves the builder in a fresh block that the rest of the
                 // translation continues into, and a block the builder switches
                 // away from while still empty never makes it into the function.
@@ -9749,10 +9756,16 @@ impl FunctionTranslator<'_> {
                     let live = self.properties.cached_lookups.cursors.clone();
                     self.write_back_cursors(&live);
                 }
-                if matches!(self.frameless, Some(FramelessInfo { role: FramelessRole::Callee, .. })) {
+                if matches!(
+                    self.frameless,
+                    Some(FramelessInfo {
+                        role: FramelessRole::Callee,
+                        ..
+                    })
+                ) {
                     // The generic copy expects a frame. The arguments are in
                     // their slots, so start the body over in the interpreter
-                    // instead - which is all a tail call to it would do.
+                    // instead, which is what a tail call to it would do.
                     self.frameless_exit_to_interpreter(0);
                 } else {
                     self.emit_tail_call_into(generic_id);
@@ -9794,8 +9807,8 @@ impl FunctionTranslator<'_> {
     }
 
     /// Everything above the arguments is a let slot holding an immediate, so
-    /// truncating is only a length store - the runtime loop that loads each
-    /// slot's tag to discover there is nothing to drop can go.
+    /// truncating is only a length store, with no runtime loop over the slots'
+    /// tags to find values to drop.
     fn let_slots_all_fixnum(&self) -> bool {
         if !self.shadow_stack.is_empty() {
             return false;
@@ -9940,7 +9953,13 @@ impl FunctionTranslator<'_> {
     /// the seeded types can go straight to this copy. Returns it, with the type
     /// its result is assumed to have.
     fn direct_self_call_target(&self, arity: usize) -> Option<(FuncId, Option<InferredType>)> {
-        let SpecMode::Specialized { self_id, seed, assume_result, .. } = &self.spec_mode else {
+        let SpecMode::Specialized {
+            self_id,
+            seed,
+            assume_result,
+            ..
+        } = &self.spec_mode
+        else {
             return None;
         };
         if arity != self.arity as usize || self.shadow_stack.len() < arity {
@@ -9953,21 +9972,21 @@ impl FunctionTranslator<'_> {
         fits.then_some((*self_id, *assume_result))
     }
 
-    /// How a call of `arity` arguments reaches `func`'s frame: `None` when the
+    /// How a call of `arity` arguments reaches `func`'s frame. `None` when the
     /// arguments already line up, `Some((surplus, declared))` when the callee is
     /// variadic and the trailing `surplus` of them become its rest list.
     ///
-    /// `None` for a variadic callee given too few arguments - that has to raise,
-    /// and the helper path carries the message and span.
+    /// `None` for a variadic callee given too few arguments, since that has to
+    /// raise, and the helper path carries the message and span.
     fn rest_arg_plan(func: &Gc<ByteCodeLambda>, arity: usize) -> Option<Option<(usize, usize)>> {
         if !func.is_multi_arity {
             // Exactly its own arity, or the call has to raise. A `NOARITY` call
-            // site is proven to match, but a plain `CALLGLOBAL` is not - a frame
-            // built from the wrong argument count reads past its own slots.
+            // site is proven to match, but a plain `CALLGLOBAL` is not, and a
+            // frame built from the wrong argument count reads past its own slots.
             return (func.arity() == arity).then_some(None);
         }
 
-        // `STEEL_JIT_REST_ARGS=0`: leave variadic callees to the helper path.
+        // `STEEL_JIT_REST_ARGS=0` leaves variadic callees to the helper path.
         if !rest_args_enabled() {
             return None;
         }
@@ -9992,14 +10011,17 @@ impl FunctionTranslator<'_> {
     }
 
     /// Leave native code for the interpreter to carry on at `resume_ip` in this
-    /// activation. `VmCore.sp` already describes it - a frameless copy keeps it
-    /// current - and whoever called us records our frame.
+    /// activation. `VmCore.sp` already describes it (a frameless copy keeps it
+    /// current), and whoever called us records our frame.
     fn frameless_exit_to_interpreter(&mut self, resume_ip: usize) {
         let vm_ctx = self.get_ctx();
         let ip = self.builder.ins().iconst(types::I64, resume_ip as i64);
-        self.builder
-            .ins()
-            .store(MemFlagsData::trusted(), ip, vm_ctx, offset_of!(VmCore, ip) as i32);
+        self.builder.ins().store(
+            MemFlagsData::trusted(),
+            ip,
+            vm_ctx,
+            offset_of!(VmCore, ip) as i32,
+        );
         let not_native = self.builder.ins().iconst(types::I8, 0);
         self.builder.ins().store(
             MemFlagsData::trusted(),
@@ -10014,12 +10036,12 @@ impl FunctionTranslator<'_> {
 
     /// A self call that pushes no frame; see `frameless_enabled`.
     ///
-    /// The value stack ends up exactly as a framed call leaves it - pending
-    /// operands spilled, then the arguments - so the callee's slots start at the
-    /// same `sp`. What is skipped is the frame record and everything around it.
-    /// If the callee comes back not native, the frame it would have had is
-    /// recorded then (and, at the boundary, spliced onto the frame stack), so
-    /// the interpreter finds exactly what a framed call would have left.
+    /// The value stack ends up as a framed call leaves it (pending operands
+    /// spilled, then the arguments), so the callee's slots start at the same
+    /// `sp`. Only the frame record and the work around it are skipped. If the
+    /// callee comes back not native, the frame it would have had is recorded
+    /// then (and, at the boundary, spliced onto the frame stack), so the
+    /// interpreter finds what a framed call would have left.
     fn frameless_self_call(
         &mut self,
         arity: usize,
@@ -10089,9 +10111,11 @@ impl FunctionTranslator<'_> {
                 );
                 let back_block = ctx.builder.create_block();
                 let exit_block = ctx.builder.create_block();
-                ctx.builder.ins().brif(native, back_block, &[], exit_block, &[]);
+                ctx.builder
+                    .ins()
+                    .brif(native, back_block, &[], exit_block, &[]);
 
-                // Not native: record the frame this call would have pushed.
+                // Not native, so record the frame this call would have pushed.
                 ctx.builder.switch_to_block(exit_block);
                 ctx.builder.seal_block(exit_block);
                 ctx.builder.set_cold_block(exit_block);
@@ -10100,8 +10124,20 @@ impl FunctionTranslator<'_> {
                     let halves = ctx.builder.ins().isplit(fat);
                     (halves.0, halves.1)
                 };
-                let return_ip = ctx.builder.ins().iconst(types::I64, (fallback_ip + 1) as i64);
-                ctx.call_helper_void(FRAMELESS_RECORD_FRAME, [callee_sp, return_ip, closure, instructions_ptr, instructions_len]);
+                let return_ip = ctx
+                    .builder
+                    .ins()
+                    .iconst(types::I64, (fallback_ip + 1) as i64);
+                ctx.call_helper_void(
+                    FRAMELESS_RECORD_FRAME,
+                    [
+                        callee_sp,
+                        return_ip,
+                        closure,
+                        instructions_ptr,
+                        instructions_len,
+                    ],
+                );
                 if info.role == FramelessRole::Boundary {
                     ctx.call_helper_void(FRAMELESS_SPLICE_FRAMES, []);
                 }
@@ -10122,16 +10158,16 @@ impl FunctionTranslator<'_> {
                 res
             },
             |ctx| match info.role {
-                // Out of native stack at the boundary: the ordinary framed hand
-                // off, which is what this call would have been.
+                // Out of native stack at the boundary, so do the ordinary framed
+                // hand off.
                 FramelessRole::Boundary => {
                     let arity_val = ctx.builder.ins().iconst(types::I64, arity as i64);
                     let fallback = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
-                    // Part of the call protocol: an arity error is picked up after the merge.
+                    // Part of the call protocol. An arity error is picked up after the merge.
                     ctx.call_helper_unchecked(SETUP_CLOSURE_ARITY, [closure, arity_val, fallback])
                 }
                 // Inside a frameless copy there is no frame to hand off from, so
-                // let the interpreter redo the call instruction instead - the
+                // let the interpreter redo the call instruction instead. The
                 // arguments are already where it expects them.
                 FramelessRole::Callee => {
                     ctx.frameless_exit_to_interpreter(fallback_ip - 1);
@@ -10275,13 +10311,11 @@ impl FunctionTranslator<'_> {
 
         let instr_fat_ptr = self.rooted_instructions_const(func.body_exp());
 
-        // Deliberately *not* baking `func.super_instructions()` in as a
-        // constant. The callee's compiled body can be replaced later - a tier
-        // upgrade does exactly that - and a baked address would keep calling
-        // whatever was current when this caller happened to be compiled. The
-        // lambda pointer below is stable (its refcount is leaked), so load the
-        // entry point through it at run time instead; it is one dependent load
-        // on a line that is warm anyway, and it always reaches the newest body.
+        // `func.super_instructions()` is not baked in as a constant. The
+        // callee's compiled body can be replaced later (e.g. by a tier upgrade),
+        // and a baked address would keep calling whatever was current when this
+        // caller was compiled. The lambda pointer below is stable (its refcount
+        // is leaked), so load the entry point through it at run time instead.
         jit_leak(&func).into_raw();
         let baked = jit_leak(&func);
         drop(func);
@@ -10372,20 +10406,18 @@ impl FunctionTranslator<'_> {
             .map(|x| x.0)
             .collect::<Vec<_>>();
 
-        // Pinning the vm context to r15 with get_pinned_reg/set_pinned_reg was
-        // implemented and measured: ctx reloads in fib went 99 -> 2 and spill
-        // traffic 18.4% -> 14.9%, but instructions went 1287 -> 1372 and fib was
-        // 17% slower, reproducibly. A reload that hits L1 is already free at this
-        // IPC, while reserving r15 costs the allocator a register in a function
-        // that already uses all five callee-saved ones. See `get_ctx`.
+        // The vm context is not pinned to r15 with get_pinned_reg/set_pinned_reg.
+        // That was slower (fib 17%): a reload that hits L1 is cheap, while
+        // reserving r15 costs the allocator a register in a function that
+        // already uses all five callee-saved ones. See `get_ctx`.
 
         let vm_ctx = self.get_ctx();
 
         // TODO: This is not going to work here. Instead, we need to load
         // the id of the instruction.
-        // See note in inline_call_func: super_instructions is effectively
+        // See note in inline_call_func. super_instructions is effectively
         // readonly for execution purposes (tier upgrades install a still-valid
-        // pointer; a stale None just misses the JIT optimization opportunity).
+        // pointer; a stale None only misses the JIT fast path).
         let super_instruction = self.builder.ins().load(
             types::I64,
             MemFlagsData::trusted().with_readonly(),
@@ -10416,7 +10448,7 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 let body_exp_offset = closure_field_offset(offset_of!(ByteCodeLambda, body_exp));
 
-                // See note in inline_call_func: body_exp's buffer pointer and
+                // See note in inline_call_func. body_exp's buffer pointer and
                 // length are immutable after the lambda is constructed.
                 let rcbox_ptr = ctx.builder.ins().load(
                     types::I64,
@@ -10433,9 +10465,9 @@ impl FunctionTranslator<'_> {
                 );
 
                 let data_ptr = ctx
-                            .builder
-                            .ins()
-                            .iadd_imm_s(rcbox_ptr, rcbox_slice_data_offset());
+                    .builder
+                    .ins()
+                    .iadd_imm_s(rcbox_ptr, rcbox_slice_data_offset());
 
                 let instr_fat_ptr = ctx.builder.ins().iconcat(data_ptr, len);
 
@@ -10649,19 +10681,18 @@ impl FunctionTranslator<'_> {
 
     /// Leave jitted code and let the interpreter re-execute `bytecode_ip`.
     ///
-    /// Everything needed to resume is already tracked: the shadow stack knows
-    /// every live value and the vm stack slot it belongs to, and spilling it
-    /// writes them back as `SteelVal`s - `as_steelval` tags anything being
-    /// carried untagged. So the exit is: materialize, point `ip` at the
-    /// instruction to redo, clear `is_native` so the caller resumes the loop
-    /// rather than taking our return value, and return.
+    /// The shadow stack knows every live value and the vm stack slot it belongs
+    /// to, and spilling it writes them back as `SteelVal`s (`as_steelval` tags
+    /// anything carried untagged). The exit materializes, points `ip` at the
+    /// instruction to redo, clears `is_native` so the caller resumes the loop
+    /// instead of taking our return value, and returns.
     ///
     /// The caller must not have emitted any effect for that instruction yet,
     /// since it is about to happen again.
-    /// `emit_deopt_exit` in its own scope: the exit block emits loads and
+    /// `emit_deopt_exit` in its own scope. The exit block emits loads and
     /// rewrites the caches as it materializes, and none of that may be visible
-    /// to the block we return to - values defined in the exit do not dominate
-    /// it, which cranelift's verifier reports as a non-dominating use.
+    /// to the block we return to, since values defined in the exit do not
+    /// dominate it.
     /// Queue an exit to be emitted after the body, so its loads land after every
     /// block that branches to it.
     fn defer_deopt_exit(&mut self, block: Block, bytecode_ip: usize, stack: Vec<MaybeStackValue>) {
@@ -10675,8 +10706,8 @@ impl FunctionTranslator<'_> {
     fn flush_deopt_exits(&mut self) {
         while let Some((block, stack, bytecode_ip, cursors)) = self.pending_deopt_exits.pop() {
             self.builder.switch_to_block(block);
-            // The cursors live where this exit was queued, not the ones live at
-            // the end of the function.
+            // Use the cursors live where this exit was queued, instead of the
+            // ones live at the end of the function.
             if !cursors.is_empty() {
                 self.write_back_cursors(&cursors);
             }
@@ -10711,9 +10742,12 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
 
         let ip = self.builder.ins().iconst(types::I64, bytecode_ip as i64);
-        self.builder
-            .ins()
-            .store(MemFlagsData::trusted(), ip, ctx, offset_of!(VmCore, ip) as i32);
+        self.builder.ins().store(
+            MemFlagsData::trusted(),
+            ip,
+            ctx,
+            offset_of!(VmCore, ip) as i32,
+        );
 
         let not_native = self.builder.ins().iconst(types::I8, 0);
         self.builder.ins().store(
@@ -10724,7 +10758,7 @@ impl FunctionTranslator<'_> {
         );
 
         // Tell the policy this exit happened. A function that keeps arriving
-        // here is one speculation is not paying for.
+        // here is compiled without speculation from then on.
         if let Some(index) = self.function_context {
             let index = self.builder.ins().iconst(types::I64, index as i64);
             self.call_helper_void(RECORD_SPECULATION_DEOPT, [index]);
@@ -10735,8 +10769,8 @@ impl FunctionTranslator<'_> {
         self.deopt_returns.insert(ret);
     }
 
-    /// Whether `is_native` is already known to be set here: the previous check
-    /// continued into this block and nothing since could have cleared it. Only
+    /// Whether `is_native` is already known to be set here, because the previous
+    /// check continued into this block and nothing since could have cleared it. Only
     /// a call (a helper, or a jitted callee deopting) or a store to the context
     /// changes it.
     fn native_already_checked(&self) -> bool {
@@ -10760,10 +10794,10 @@ impl FunctionTranslator<'_> {
 
         let result = self.check_deopt_ptr_load();
 
-        // The shared deopt block just returns. With a cursor live the
+        // The shared deopt block only returns. With a cursor live the
         // interpreter would resume from a slot still holding the head of the
-        // list, so this exit writes the cursors back first - and needs a block
-        // of its own to do it in, since different sites have different ones.
+        // list, so this exit writes the cursors back first. It needs its own
+        // block for that, since different sites have different cursors.
         if self.cursors_on && !self.properties.cached_lookups.cursors.is_empty() {
             let live = self.properties.cached_lookups.cursors.clone();
             let then_block = self.builder.create_block();
@@ -10857,12 +10891,11 @@ impl FunctionTranslator<'_> {
     // Make the shadow stack uniform before a two way branch.
     //
     // Entries can be lazy references to a vm stack slot, and can be spilled or
-    // not. The two arms don't have to agree about either - a call or a scope end
-    // in one arm moves a slot out and leaves void behind, or spills the pending
-    // entries - and the merge only inherits one arm's bookkeeping, so the other
-    // path reads emptied slots or a stack of the wrong depth. Spilling here runs
-    // in the block that dominates both arms, so there is nothing left to disagree
-    // about.
+    // not. The two arms don't have to agree about either, since a call or a scope
+    // end in one arm moves a slot out and leaves void behind, or spills the
+    // pending entries. The merge only inherits one arm's bookkeeping, so the
+    // other path would read emptied slots or a stack of the wrong depth. Spilling
+    // here runs in the block that dominates both arms, so they can't disagree.
     fn spill_stack_for_branch(&mut self) {
         for index in 0..self.shadow_stack.len() {
             self.shadow_spill(index);
@@ -10882,17 +10915,17 @@ impl FunctionTranslator<'_> {
         let guard = self.shadow_stack.get_mut(index)?;
         let mut spilled = false;
         match guard {
-            MaybeStackValue::Borrowed(_) => unreachable!("borrowed values are materialized before spilling"),
+            MaybeStackValue::Borrowed(_) => {
+                unreachable!("borrowed values are materialized before spilling")
+            }
             MaybeStackValue::Value(stack_value) => {
                 if !stack_value.spilled {
                     stack_value.spilled = true;
                     spilled = true;
                 }
             }
-            // The register's type is the value's type; spilling does not change
-            // it. It used to reset to `Any`, which is how an unchanged fixnum
-            // argument lost its proof whenever a later argument's arithmetic
-            // spilled the stack.
+            // The register's type is the value's type, and spilling does not
+            // change it.
             MaybeStackValue::MutRegister(p) => {
                 let p = *p;
                 let (value, inferred_type) = self.mut_register_to_value(p);
@@ -10961,7 +10994,7 @@ impl FunctionTranslator<'_> {
         }))
     }
 
-    /// Whether a borrowed value can stay borrowed across this instruction: it
+    /// Whether a borrowed value can stay borrowed across this instruction. It
     /// neither runs code nor writes anything that could free what the value was
     /// read from, or it is a consumer that takes borrowed operands itself.
     fn op_keeps_borrows(&self, op: OpCode, payload: usize) -> bool {
@@ -11004,9 +11037,8 @@ impl FunctionTranslator<'_> {
     }
 
     /// Clone a borrowed value unless a slow path already did. The flag is left
-    /// set, so materializing the same value again on the same path - which the
-    /// operand stack's shape should never ask for, but which costs one store to
-    /// make harmless - does not clone it twice.
+    /// set, so materializing the same value again on the same path does not
+    /// clone it twice.
     fn materialize(&mut self, borrowed: BorrowedValue) -> Value {
         let value = borrowed.value;
         let owned = self.builder.use_var(borrowed.owned);
@@ -11017,10 +11049,10 @@ impl FunctionTranslator<'_> {
     }
 
     /// Turn every borrowed value on the operand stack into an owned one. Run
-    /// before any instruction that could run code or write memory, which is
-    /// what keeps borrowing sound: at that point whatever the value was read
-    /// from is still alive and unchanged, so cloning now is the same as having
-    /// cloned when it was read.
+    /// before any instruction that could run code or write memory, which keeps
+    /// borrowing sound. At that point whatever the value was read from is still
+    /// alive and unchanged, so cloning now is the same as having cloned when it
+    /// was read.
     fn materialize_borrowed(&mut self) {
         if !self.has_borrowed() {
             return;
@@ -11091,10 +11123,10 @@ impl FunctionTranslator<'_> {
         self.materialize_borrowed();
         let mut buffered_reads = Vec::new();
 
-        // Types are read before the reads: moving a mutable register out marks
-        // its slot `Void`. Spilling does not change what the value is, and
-        // resetting these to `Any` (as this did) dropped the type of every
-        // operand pending under a call - `n` in `(* n (fact (- n 1)))`.
+        // Types are read before the reads, since moving a mutable register out
+        // marks its slot `Void`. Spilling does not change what the value is, so
+        // operands pending under a call (`n` in `(* n (fact (- n 1)))`) keep
+        // their type.
         let mut register_types = HashMap::new();
         for value in &self.shadow_stack {
             match value {
@@ -11118,7 +11150,9 @@ impl FunctionTranslator<'_> {
             let guard = self.shadow_stack.get_mut(index).unwrap();
             let mut spilled = false;
             match guard {
-                MaybeStackValue::Borrowed(_) => unreachable!("borrowed values are materialized before spilling"),
+                MaybeStackValue::Borrowed(_) => {
+                    unreachable!("borrowed values are materialized before spilling")
+                }
                 MaybeStackValue::Value(stack_value) => {
                     if !stack_value.spilled {
                         stack_value.spilled = true;
@@ -11210,7 +11244,9 @@ impl FunctionTranslator<'_> {
 
         for value in self.shadow_stack.clone() {
             match value {
-                MaybeStackValue::Borrowed(_) => unreachable!("borrowed values are materialized before spilling"),
+                MaybeStackValue::Borrowed(_) => {
+                    unreachable!("borrowed values are materialized before spilling")
+                }
                 MaybeStackValue::Value(stack_value) => {
                     if !stack_value.spilled {
                         let steelval = stack_value.as_steelval(self);
@@ -11256,9 +11292,8 @@ impl FunctionTranslator<'_> {
 
         // A spilled entry lives on the vm stack, and the ssa value it was
         // spilled from is only good while it still dominates. Once a branch has
-        // merged it does not, so read the value back rather than reusing it -
-        // `pop_value_from_vm_stack` both loads it and shortens the stack, which
-        // is what the bare decrement here used to do without the load.
+        // merged it does not, so read the value back instead of reusing it.
+        // `pop_value_from_vm_stack` both loads it and shortens the stack.
         if let Some(MaybeStackValue::Value(stack_value)) = &popped {
             if stack_value.spilled {
                 let inferred_type = stack_value.inferred_type.boxed();
@@ -11282,7 +11317,9 @@ impl FunctionTranslator<'_> {
         let last = self.shadow_stack_pop().unwrap();
 
         match last {
-            MaybeStackValue::Borrowed(_) => unreachable!("shadow_stack_pop materializes borrowed values"),
+            MaybeStackValue::Borrowed(_) => {
+                unreachable!("shadow_stack_pop materializes borrowed values")
+            }
             MaybeStackValue::Value(last) => {
                 assert!(!last.spilled);
 
@@ -11322,7 +11359,7 @@ impl FunctionTranslator<'_> {
     /// `immutable_register_to_value` reads; `local_to_value_map` is what the
     /// dispatch guards read. `LetVar` writes both, so they agree, but a slot can
     /// be present in one and not the other.
-    /// Type of an if-merge's value: the join of every arm reaching it.
+    /// Type of an if-merge's value, the join of every arm reaching it.
     fn merge_type(&mut self, phi: Value, arms: &[InferredType]) -> InferredType {
         let Some((first, rest)) = arms.split_first() else {
             return InferredType::Any;
@@ -11349,7 +11386,7 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    /// What `cdr` of this register gives: a proper list when the register is
+    /// What `cdr` of this register gives. A proper list when the register is
     /// one (`ListV` is always proper), nothing known otherwise.
     fn cdr_result_type(&self, r: usize) -> InferredType {
         match self.properties.get(&ValueOrRegister::Register(r)) {
@@ -11405,8 +11442,8 @@ impl FunctionTranslator<'_> {
                     _ => self.unbox_value_to_pointer(v.value),
                 }
             }
-            // A fixnum owns nothing, so reading the payload is the whole move:
-            // there is no reference to take and no drop the slot still owes.
+            // A fixnum owns nothing, so reading the payload is enough. There is
+            // no reference to take and no drop the slot still owes.
             MaybeStackValue::Register(r) | MaybeStackValue::MutRegister(r) => {
                 self.read_from_vm_stack_split(r).1
             }
@@ -11422,7 +11459,7 @@ impl FunctionTranslator<'_> {
         let deopt_ip = self.ip;
 
         // Facts about the operands that make overflow impossible, read before
-        // the pops: a register already known to be >= some bound, minus a
+        // the pops. A register already known to be >= some bound, minus a
         // non-negative constant; or known < some bound, plus a constant that
         // keeps the bound representable.
         let n = self.shadow_stack.len();
@@ -11436,11 +11473,10 @@ impl FunctionTranslator<'_> {
         };
 
         // The snapshot for the overflow exit is taken after the pops. Popping a
-        // spilled operand reloads it and shortens the vm stack, and that happens
-        // on the fast path before the overflow branch - so a snapshot from before
-        // the pops still called the operand spilled, the exit did not write it
-        // back, and the interpreter re-ran the instruction one operand short.
-        // `(+ 4611686018427387904 (f (- n 1)))` added `n` instead of the constant.
+        // spilled operand reloads it and shortens the vm stack on the fast path
+        // before the overflow branch. A snapshot from before the pops would still
+        // call the operand spilled, so the exit would not write it back and the
+        // interpreter would re-run the instruction one operand short.
         let rhs_entry = self.shadow_stack_pop().unwrap();
         let lhs_entry = self.shadow_stack_pop().unwrap();
         let mut pre_pop_stack = self.shadow_stack.clone();
@@ -11483,12 +11519,16 @@ impl FunctionTranslator<'_> {
                 .is_some_and(|facts| facts.iter().any(|f| pred(f)))
         };
         let cannot_overflow = match (op, lhs_register, rhs_constant) {
-            (OpCode::SUB, Some(r), Some(c)) if c >= 0 => has_fact(&self.properties, r, &|f| {
-                matches!(f, Properties::GreaterThan(bound) if *bound >= 0)
-            }),
-            (OpCode::ADD, Some(r), Some(c)) if c >= 0 => has_fact(&self.properties, r, &|f| {
-                matches!(f, Properties::LessThan(bound) if bound.checked_add(c).is_some())
-            }),
+            (OpCode::SUB, Some(r), Some(c)) if c >= 0 => has_fact(
+                &self.properties,
+                r,
+                &|f| matches!(f, Properties::GreaterThan(bound) if *bound >= 0),
+            ),
+            (OpCode::ADD, Some(r), Some(c)) if c >= 0 => has_fact(
+                &self.properties,
+                r,
+                &|f| matches!(f, Properties::LessThan(bound) if bound.checked_add(c).is_some()),
+            ),
             _ => false,
         };
 
@@ -11506,10 +11546,10 @@ impl FunctionTranslator<'_> {
 
             // No spill before the branch. The overflow side is an exit that
             // never rejoins, and `emit_deopt_exit_scoped` materializes the
-            // pre-pop snapshot inside the exit block itself. Spilling here put
-            // every pending value and register through a store and a reload on
-            // the fast path - three times an iteration in nqueens' `ok?` - and
-            // turned unchanged arguments back into writes at the tail call.
+            // pre-pop snapshot inside the exit block itself. Spilling here would
+            // put every pending value and register through a store and a reload
+            // on the fast path, and turn unchanged arguments back into writes at
+            // the tail call.
             let ok_block = self.builder.create_block();
             let overflow_block = self.builder.create_block();
             self.builder
@@ -11522,7 +11562,7 @@ impl FunctionTranslator<'_> {
             raw
         };
 
-        // Boxed rather than `Int64`: plenty of arms trust `Int` and treat the
+        // Boxed instead of `Int64`, since many arms trust `Int` and treat the
         // value as a whole `SteelVal`, and none of them expect a bare i64.
         let boxed = self.encode_value(SteelVal::INT_TAG as i64, raw);
         self.push(boxed, InferredType::Int);
@@ -11531,26 +11571,25 @@ impl FunctionTranslator<'_> {
 
     /// At a merge, keep only the register types every incoming path agrees on
     /// (joined), and only the value-to-register links both paths share. The
-    /// current state is one path; `locals`/`values` are the other. Before this,
-    /// merges kept whichever path was translated last, so a type established on
-    /// just that path outlived the merge.
+    /// current state is one path; `locals`/`values` are the other.
     pub(super) fn meet_register_maps(
         &mut self,
         locals: &HashMap<usize, InferredType>,
         values: &HashMap<Value, usize>,
     ) {
-        self.local_to_value_map.retain(|slot, t| match locals.get(slot) {
-            Some(other) => {
-                *t = t.join(*other);
-                *t != InferredType::Any
-            }
-            None => false,
-        });
+        self.local_to_value_map
+            .retain(|slot, t| match locals.get(slot) {
+                Some(other) => {
+                    *t = t.join(*other);
+                    *t != InferredType::Any
+                }
+                None => false,
+            });
         self.value_to_local_map
             .retain(|value, slot| values.get(value) == Some(slot));
     }
 
-    /// The slot holds a fixnum: its recorded type is `Int`, which `LetVar`
+    /// The slot holds a fixnum. Its recorded type is `Int`, which `LetVar`
     /// only records for fixnum bindings and `SETLOCAL`/`LETENDSCOPE` clear.
     fn register_is_fixnum(&self, r: usize) -> bool {
         self.register_type(r) == InferredType::Int
@@ -11578,13 +11617,16 @@ impl FunctionTranslator<'_> {
             return None;
         };
         match dfg.insts[inst] {
-            InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } => Some(imm.bits()),
+            InstructionData::UnaryImm {
+                opcode: Opcode::Iconst,
+                imm,
+            } => Some(imm.bits()),
             _ => None,
         }
     }
 
-    /// Statically evaluate a branch condition built from constants - which is
-    /// what a tag check on a `known_tags` value becomes, via `get_tag`.
+    /// Statically evaluate a branch condition built from constants, which is
+    /// what a tag check on a `known_tags` value becomes via `get_tag`.
     pub(super) fn const_bool(&self, v: Value) -> Option<bool> {
         use cranelift::codegen::ir::{InstructionData, Opcode, ValueDef};
         let dfg = &self.builder.func.dfg;
@@ -11592,7 +11634,10 @@ impl FunctionTranslator<'_> {
             return None;
         };
         match dfg.insts[inst] {
-            InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } => Some(imm.bits() != 0),
+            InstructionData::UnaryImm {
+                opcode: Opcode::Iconst,
+                imm,
+            } => Some(imm.bits() != 0),
             // `icmp_imm_s` is sugar for an `iconst` plus an `icmp` in 0.135.
             InstructionData::IntCompare { cond, args, .. } => {
                 let a = self.const_int(args[0])?;
@@ -11603,17 +11648,18 @@ impl FunctionTranslator<'_> {
                     _ => None,
                 }
             }
-            InstructionData::Binary { opcode: Opcode::Band, args } => {
-                Some(self.const_bool(args[0])? && self.const_bool(args[1])?)
-            }
+            InstructionData::Binary {
+                opcode: Opcode::Band,
+                args,
+            } => Some(self.const_bool(args[0])? && self.const_bool(args[1])?),
             _ => None,
         }
     }
 
     pub(super) fn register_type(&self, r: usize) -> InferredType {
-        // Search the facts rather than `properties.get`, which only answers when
-        // a slot has exactly one: a typed register that a comparison has also
-        // given a range fact used to read back as untyped.
+        // Search the facts instead of using `properties.get`, which only answers
+        // when a slot has one fact. A typed register that a comparison also gave
+        // a range fact would read back as untyped.
         if let Some(facts) = self.properties.props.get(&ValueOrRegister::Register(r)) {
             for fact in facts {
                 match fact {
@@ -11688,9 +11734,8 @@ impl FunctionTranslator<'_> {
         for idx in indices_to_get_from_shadow_stack.iter().rev() {
             let value = self.pop_value_from_vm_stack();
 
-            // A spill and reload does not change the value, so its type survives.
-            // `shadow_stack_pop` already kept it on the same reload; this path
-            // used to reset it to `Any`. Spilled values are boxed, hence `boxed`.
+            // A spill and reload does not change the value, so its type survives,
+            // as in `shadow_stack_pop`. Spilled values are boxed, hence `boxed`.
             let inferred_type = args_off_the_stack[*idx].inferred_type.boxed();
             if let Some(tag) = inferred_type.exact_tag() {
                 self.known_tags.insert(value, tag);
@@ -11789,7 +11834,11 @@ impl FunctionTranslator<'_> {
         args = args
             .into_iter()
             .map(|x| match x {
-                MaybeStackValue::Borrowed(b) => MaybeStackValue::Value(StackValue { value: self.materialize(b), inferred_type: InferredType::Any, spilled: false }),
+                MaybeStackValue::Borrowed(b) => MaybeStackValue::Value(StackValue {
+                    value: self.materialize(b),
+                    inferred_type: InferredType::Any,
+                    spilled: false,
+                }),
                 MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
                 MaybeStackValue::MutRegister(p) => {
                     // let (value, _) = self.mut_register_to_value(p);
@@ -11855,7 +11904,7 @@ impl FunctionTranslator<'_> {
         self.maybe_patch_from_stack(&mut args);
 
         args.into_iter()
-            // Materialized above, so the type has to follow - see `boxed`.
+            // Materialized above, so the type has to follow. See `boxed`.
             .map(|x| {
                 let v = x.as_steelval(self);
                 let t = x.inferred_type.boxed();
@@ -11891,7 +11940,11 @@ impl FunctionTranslator<'_> {
         args = args
             .into_iter()
             .map(|x| match x {
-                MaybeStackValue::Borrowed(b) => MaybeStackValue::Value(StackValue { value: self.materialize(b), inferred_type: InferredType::Any, spilled: false }),
+                MaybeStackValue::Borrowed(b) => MaybeStackValue::Value(StackValue {
+                    value: self.materialize(b),
+                    inferred_type: InferredType::Any,
+                    spilled: false,
+                }),
                 MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
                 MaybeStackValue::MutRegister(p) => {
                     let value = coalesced_reads.get(&p).copied().unwrap();
@@ -11947,7 +12000,7 @@ impl FunctionTranslator<'_> {
         self.maybe_patch_from_stack(&mut args);
 
         args.into_iter()
-            // Materialized above, so the type has to follow - see `boxed`.
+            // Materialized above, so the type has to follow. See `boxed`.
             .map(|x| (x.as_steelval(self), x.inferred_type.boxed()))
             .collect()
     }
@@ -11961,7 +12014,7 @@ impl FunctionTranslator<'_> {
     ) {
         let Some(function_name) = try_op_to_name_payload(op, payload) else {
             if let Some(code) = variadic_numeric_code(op) {
-                // No helper at this arity: hand the operands over on the vm
+                // No helper at this arity, so hand the operands over on the vm
                 // stack to one that applies the primitive to a slice.
                 let args = self.split_off(payload);
                 for arg in args {
@@ -11969,8 +12022,7 @@ impl FunctionTranslator<'_> {
                 }
                 let code = self.builder.ins().iconst(types::I64, code as i64);
                 let arity = self.builder.ins().iconst(types::I64, payload as i64);
-                let result =
-                    self.call_helper_checked(VARIADIC_NUMERIC_SPILLED, [code, arity]);
+                let result = self.call_helper_checked(VARIADIC_NUMERIC_SPILLED, [code, arity]);
                 self.push(result, inferred_type.boxed());
                 self.ip += ip_inc;
                 return;
@@ -11993,7 +12045,7 @@ impl FunctionTranslator<'_> {
 
         let result = self.call_function_returns_value_args(function_name, &args);
 
-        // Any of these can raise - if one did, bail out here rather than carrying
+        // Any of these can raise. If one did, bail out here instead of carrying
         // on and popping the frame that holds the handler out from under it
         self.check_deopt();
 
@@ -12141,14 +12193,13 @@ impl FunctionTranslator<'_> {
     // Just... store as a i128, and hope for the best. Don't need to encode
     // it directly as anything really?
     // Build the i128 the jit passes a RootedInstructions around as. Low half is
-    // the pointer, high half the length - same order iconcat(data_ptr, len)
-    // produces elsewhere, and the same order the fields are declared in.
+    // the pointer, high half the length, the same order iconcat(data_ptr, len)
+    // produces elsewhere and the fields are declared in.
     /// Whether a callee runs the same instruction stream we are compiling.
     ///
     /// For a self call the instructions saved into the new frame and the ones
     /// installed into `VmCore` are the same value, so both the load of the
-    /// current stream and the store of the new one are ceremony - fib spent
-    /// ~2.8% of a call window on exactly those four instructions.
+    /// current stream and the store of the new one can be skipped.
     fn callee_shares_our_instructions(&self, callee: RootedInstructions) -> bool {
         core::ptr::eq(callee.ptr, self.instructions.as_ptr())
             && callee.len as usize == self.instructions.len()
@@ -12623,8 +12674,7 @@ impl FunctionTranslator<'_> {
                 // is, and the frame drop releases the heads either way.
                 let mut properties = properties;
                 if self.cursors_on
-                    && self.properties.cached_lookups.cursors
-                        != properties.cached_lookups.cursors
+                    && self.properties.cached_lookups.cursors != properties.cached_lookups.cursors
                     && self.only_returns_from(else_offset.unwrap())
                 {
                     self.properties.cached_lookups.cursors.clear();
@@ -12689,7 +12739,8 @@ impl FunctionTranslator<'_> {
             return Default::default();
         }
 
-        // Raw loads below - a cursor-backed slot holds only its head.
+        // The loads below are raw, and a cursor-backed slot holds only its
+        // head, so materialize the cursors first.
         for (slot, _) in &values {
             self.materialize_cursor(*slot);
         }
@@ -12747,7 +12798,8 @@ impl FunctionTranslator<'_> {
             return Default::default();
         }
 
-        // Raw loads below - a cursor-backed slot holds only its head.
+        // The loads below are raw, and a cursor-backed slot holds only its
+        // head, so materialize the cursors first.
         for (slot, _) in &values {
             self.materialize_cursor(*slot);
         }
@@ -12792,14 +12844,14 @@ impl FunctionTranslator<'_> {
     // don't mess things up.
     /// Seed a cursor for every `List`-seeded parameter. Runs in the entry
     /// block, ahead of the loop header, so the header's phis see the entry
-    /// values and each back edge's values - never a re-seed from a slot that
-    /// is holding only the head of a list the loop has walked past.
+    /// values and each back edge's values. Re-seeding from the slot would only
+    /// see the head of a list the loop has walked past.
     fn seed_header_cursors(&mut self) {
         let SpecMode::Specialized { seed, .. } = self.spec_mode.clone() else {
             return;
         };
 
-        // `STEEL_CURSOR_ONLY=name,...`: seed cursors only in these functions,
+        // `STEEL_CURSOR_ONLY=name,...` seeds cursors only in these functions,
         // to bisect which one breaks a program or costs time. The
         // `closure-lifting-<digits>` gensym differs per run, so it is
         // normalised away before matching.
@@ -12819,7 +12871,10 @@ impl FunctionTranslator<'_> {
                 }
             }
             let me = stable(&self.name);
-            if !only.split(',').any(|o| !o.is_empty() && me.contains(stable(o).as_str())) {
+            if !only
+                .split(',')
+                .any(|o| !o.is_empty() && me.contains(stable(o).as_str()))
+            {
                 return;
             }
         }
@@ -12842,7 +12897,11 @@ impl FunctionTranslator<'_> {
         if crate::config::config().cursor_dump && !self.header_cursors.is_empty() {
             eprintln!("[cursor] bytecode for {}:", self.name);
             for (i, ins) in self.instructions.iter().enumerate() {
-                eprintln!("    {i:3}  {:?} {}", ins.op_code, ins.payload_size.to_usize());
+                eprintln!(
+                    "    {i:3}  {:?} {}",
+                    ins.op_code,
+                    ins.payload_size.to_usize()
+                );
             }
         }
         if crate::config::config().cursor_trace && !self.header_cursors.is_empty() {
@@ -12854,8 +12913,8 @@ impl FunctionTranslator<'_> {
 
     /// Point `cursor` at whatever list is in `slot` right now.
     ///
-    /// A raw load on purpose: here the slot is the truth, and going through
-    /// `read_from_vm_stack` would materialise the very cursor being defined.
+    /// A raw load, since here the slot is the source of truth and going through
+    /// `read_from_vm_stack` would materialise the cursor being defined.
     fn define_cursor_from_slot(&mut self, cursor: ListCursor, slot: usize) {
         let saved = self.properties.cached_lookups.clone();
         let ptr = self.vm_stack_slot_ptr(slot);
@@ -12880,7 +12939,13 @@ impl FunctionTranslator<'_> {
         self.thread_pointer = None;
         self.thread_id = None;
         // A frameless copy's sp is a parameter, which dominates everything.
-        if !matches!(self.frameless, Some(FramelessInfo { role: FramelessRole::Callee, .. })) {
+        if !matches!(
+            self.frameless,
+            Some(FramelessInfo {
+                role: FramelessRole::Callee,
+                ..
+            })
+        ) {
             self.sp = None;
         }
         self.should_trampoline = None;
@@ -12894,15 +12959,16 @@ impl FunctionTranslator<'_> {
     }
 
     /// Store the list `cursor` stands for into `slot`, releasing the head the
-    /// slot was holding. After the store: the cursor's cell is reachable from
-    /// the value just built, so dropping the head first could have freed it.
+    /// slot was holding. The head is released after the store, since the
+    /// cursor's cell is reachable from the value just built and dropping the
+    /// head first could free it.
     fn emit_cursor_write_back(&mut self, slot: usize, cursor: ListCursor) {
         let cell = self.builder.use_var(cursor.cell);
         let idx = self.builder.use_var(cursor.index);
-        // `from_raw_parts` wants the data pointer, not the box pointer.
+        // `from_raw_parts` wants the data pointer instead of the box pointer.
         let data = self.builder.ins().iadd_imm_s(cell, list_cell_base());
 
-        // The slot's head is handed over rather than dropped afterwards, so
+        // The slot's head is handed over instead of dropped afterwards, so
         // cells only it owns can be reused in place.
         let ptr = self.vm_stack_slot_ptr(slot);
         let old = self
@@ -12919,13 +12985,12 @@ impl FunctionTranslator<'_> {
     }
 
     /// Write every given cursor back to its slot without touching the
-    /// translator's state - for an exit, which the hot path does not continue
+    /// translator's state, for an exit, which the hot path does not continue
     /// from. Caches are restored so nothing loaded here leaks into code the
     /// exit block does not dominate.
     fn write_back_cursors(&mut self, cursors: &HashMap<usize, ListCursor>) {
         let saved = self.properties.cached_lookups.clone();
-        let mut live: Vec<(usize, ListCursor)> =
-            cursors.iter().map(|(k, v)| (*k, *v)).collect();
+        let mut live: Vec<(usize, ListCursor)> = cursors.iter().map(|(k, v)| (*k, *v)).collect();
         live.sort_unstable_by_key(|(k, _)| *k);
         for (slot, cursor) in live {
             self.emit_cursor_write_back(slot, cursor);
@@ -12934,7 +12999,7 @@ impl FunctionTranslator<'_> {
     }
 
     /// Put a register that a cursor has been walking back into its slot, and
-    /// stop tracking the cursor - from here on the slot is the truth again.
+    /// stop tracking the cursor. From here on the slot is the source of truth.
     ///
     /// Everything that reads a slot goes through here first, so the rest of
     /// the translator only ever sees an ordinary list.
@@ -12948,7 +13013,7 @@ impl FunctionTranslator<'_> {
         self.properties.cached_lookups.registers.remove(&index);
     }
 
-    /// Whether straight-line code from `ip` does nothing but return: no slot
+    /// Whether straight-line code from `ip` does nothing but return. No slot
     /// is read, and nothing can deopt and resume reading one.
     fn only_returns_from(&self, mut ip: usize) -> bool {
         for _ in 0..16 {
@@ -13005,14 +13070,14 @@ impl FunctionTranslator<'_> {
 
     /// One `cdr`, as arithmetic.
     ///
-    /// Still room in this cell: step the cursor down. Otherwise follow the link
-    /// to the next cell and start at its own position. Off the end, the index
-    /// goes to 0, which is how the empty list is spelled here - matching
+    /// If there is still room in this cell, step the cursor down. Otherwise
+    /// follow the link to the next cell and start at its own position. Off the
+    /// end, the index goes to 0, which means the empty list here, matching
     /// `list_cell_index`, where 0 is what `null?` tests for.
     ///
-    /// No cell is allocated on any of these paths. That is the whole point:
-    /// `im-lists` keeps the cursor inside the cell, so a materialised `cdr` has
-    /// to copy the cell to give the copy its own cursor.
+    /// No cell is allocated on any of these paths. `im-lists` keeps the cursor
+    /// inside the cell, so a materialised `cdr` has to copy the cell to give
+    /// the copy its own cursor.
     fn cursor_advance(&mut self, cursor: ListCursor) {
         self.cursor_advances += 1;
         let index = self.builder.use_var(cursor.index);
@@ -13039,7 +13104,7 @@ impl FunctionTranslator<'_> {
         self.builder.def_var(cursor.index, decremented);
         self.builder.ins().jump(merge_block, &[]);
 
-        // Cell exhausted - is there another?
+        // Cell exhausted. Is there another?
         self.builder.switch_to_block(step_block);
         let cell = self.builder.use_var(cursor.cell);
         let link = self.builder.ins().load(
@@ -13065,7 +13130,7 @@ impl FunctionTranslator<'_> {
         self.builder.def_var(cursor.index, next_index);
         self.builder.ins().jump(merge_block, &[]);
 
-        // Walked off the end: the empty list.
+        // Walked off the end, so this is the empty list.
         self.builder.switch_to_block(end_block);
         let zero = self.builder.ins().iconst(types::I64, 0);
         self.builder.def_var(cursor.index, zero);
@@ -13122,7 +13187,7 @@ impl FunctionTranslator<'_> {
             (index * std::mem::size_of::<SteelVal>()) as i32,
         );
 
-        // Read-through: the index came from the bytecode, so unlike the one
+        // Read-through. The index came from the bytecode, so unlike the one
         // `LetVar` computes it is always the real stack slot. Later reads of the
         // same slot reuse this load until something invalidates it.
         if cache_this_read {
@@ -13225,14 +13290,14 @@ impl FunctionTranslator<'_> {
     */
 
     fn remove_from_vm_stack(&mut self, index: usize) -> Value {
-        // A move out of the slot: the value moved has to be the current one.
+        // A move out of the slot has to move the current value.
         self.materialize_cursor(index);
         self.remove_from_vm_stack_raw(index)
     }
 
     /// Move the slot's value out, leaving void, without looking at a cursor.
-    /// For a cursor that moves with the value: the head is what owns the cells
-    /// it walks.
+    /// For a cursor that moves with the value, since the head owns the cells it
+    /// walks.
     fn remove_from_vm_stack_raw(&mut self, index: usize) -> Value {
         let ctx = self.get_ctx();
         let sp = self.get_sp(ctx);
@@ -13361,7 +13426,7 @@ impl FunctionTranslator<'_> {
             // let offset = self.builder.ins().imul_imm_s(local_offset, size);
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
-            // Carried as a cursor: the slot already holds the value's head.
+            // Carried as a cursor, so the slot already holds the value's head.
             if self.carry_skip.contains(&index) {
                 index += 1;
                 continue;
@@ -13435,38 +13500,37 @@ impl FunctionTranslator<'_> {
 
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
-            if !self.register_is_immediate(index)
-            {
-            match self.properties.get(&ValueOrRegister::Register(index)) {
-                // TODO: Can do even better, read less thing
-                Some(
-                    Properties::NonEmptyListOrPair
-                    | Properties::ProperNonEmptyList
-                    | Properties::ProperList,
-                ) => {
-                    let local_value = self.builder.ins().load(
-                        types::I128,
-                        MemFlagsData::trusted(),
-                        frame_base,
-                        (index * std::mem::size_of::<SteelVal>()) as i32,
-                    );
+            if !self.register_is_immediate(index) {
+                match self.properties.get(&ValueOrRegister::Register(index)) {
+                    // TODO: Can do even better, read less thing
+                    Some(
+                        Properties::NonEmptyListOrPair
+                        | Properties::ProperNonEmptyList
+                        | Properties::ProperList,
+                    ) => {
+                        let local_value = self.builder.ins().load(
+                            types::I128,
+                            MemFlagsData::trusted(),
+                            frame_base,
+                            (index * std::mem::size_of::<SteelVal>()) as i32,
+                        );
 
-                    self.drop_biased_rc(local_value);
+                        self.drop_biased_rc(local_value);
+                    }
+
+                    Some(Properties::InferredType(InferredType::Void)) => {}
+
+                    _ => {
+                        let local_value = self.builder.ins().load(
+                            types::I128,
+                            MemFlagsData::trusted(),
+                            frame_base,
+                            (index * std::mem::size_of::<SteelVal>()) as i32,
+                        );
+
+                        self.drop_tagged_value(local_value);
+                    }
                 }
-
-                Some(Properties::InferredType(InferredType::Void)) => {}
-
-                _ => {
-                    let local_value = self.builder.ins().load(
-                        types::I128,
-                        MemFlagsData::trusted(),
-                        frame_base,
-                        (index * std::mem::size_of::<SteelVal>()) as i32,
-                    );
-
-                    self.drop_tagged_value(local_value);
-                }
-            }
             }
 
             index += 1;
@@ -13505,7 +13569,7 @@ impl FunctionTranslator<'_> {
             // let offset = self.builder.ins().imul_imm_s(local_offset, size);
             // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
-            // Carried as a cursor: the slot already holds the value's head.
+            // Carried as a cursor, so the slot already holds the value's head.
             if self.carry_skip.contains(&index) {
                 index += 1;
                 continue;
@@ -13562,15 +13626,16 @@ impl FunctionTranslator<'_> {
     /// True when the closure takes a fixed argument list.
     ///
     /// A variadic callee needs its trailing arguments collected into a list
-    /// before its frame is set up - `adjust_stack_for_multi_arity` does that,
+    /// before its frame is set up. `adjust_stack_for_multi_arity` does that,
     /// and only the interpreter-side paths call it. The direct paths here set
     /// the frame up themselves, so they hand a variadic callee back to those
     /// paths instead.
     /// Whether a closure only known at run time can take `arity` arguments
-    /// through a frame this code sets up itself: fixed arity (a variadic one
-    /// needs its rest list built) and exactly that many parameters. Anything
-    /// else goes to the helper, which adjusts or raises the arity error - the
-    /// generated frame setup checks neither, so a mismatch read garbage slots.
+    /// through a frame this code sets up itself. It needs fixed arity (a
+    /// variadic one needs its rest list built) and exactly that many
+    /// parameters. Anything else goes to the helper, which adjusts or raises
+    /// the arity error. The generated frame setup checks neither, so a
+    /// mismatch would read garbage slots.
     fn closure_accepts_arity(&mut self, closure: Value, arity: usize) -> Value {
         let multi = self.builder.ins().load(
             types::I8,
@@ -13601,10 +13666,9 @@ impl FunctionTranslator<'_> {
 
         let thread_pointer = self.get_thread_pointer(ctx);
 
-        // Is there room on the native stack for another jitted frame? That is
-        // the question the 100-frame count was standing in for; the limit comes
-        // from the running thread's real stack bounds, so a 2MB spawned thread
-        // and an 8MB main thread each get their own answer.
+        // Is there room on the native stack for another jitted frame? The limit
+        // comes from the running thread's real stack bounds, so a 2MB spawned
+        // thread and an 8MB main thread each get their own answer.
         if native_stack_check_enabled() {
             let limit = self.builder.ins().load(
                 Type::int(64).unwrap(),
@@ -13613,10 +13677,7 @@ impl FunctionTranslator<'_> {
                 offset_of!(SteelThread, native_stack_limit) as i32,
             );
 
-            let sp = self
-                .builder
-                .ins()
-                .get_stack_pointer(Type::int(64).unwrap());
+            let sp = self.builder.ins().get_stack_pointer(Type::int(64).unwrap());
 
             // Stack grows down, so staying native means staying above it.
             return self
@@ -13646,11 +13707,11 @@ impl FunctionTranslator<'_> {
         res
     }
 
-    /// `rest` is `(surplus, declared arity)` when the callee is variadic: the
+    /// `rest` is `(surplus, declared arity)` when the callee is variadic. The
     /// fast path collects that many trailing arguments into the rest list and
     /// then has `declared arity` slots, which is the frame it builds. The
-    /// fallback hands the arguments over untouched - `#%setup-closure-arity`
-    /// does its own adjusting.
+    /// fallback hands the arguments over untouched, since
+    /// `#%setup-closure-arity` does its own adjusting.
     fn inline_call_global_function_to(
         &mut self,
         id: u32,
@@ -13678,9 +13739,8 @@ impl FunctionTranslator<'_> {
         // }
 
         // stack_length_capacity is a compile time model of a runtime quantity and it
-        // can run ahead of the truth. The unchecked push then writes past the end of
-        // the stack buffer and corrupts the allocator, so always take the check - it
-        // costs nothing measurable.
+        // can be wrong. An unchecked push would then write past the end of the
+        // stack buffer and corrupt the allocator, so always take the check.
         self.push_to_many_vm_stack_let_var_new(&args);
 
         // The checked push reserves exactly what it needs, so there is no
@@ -13723,9 +13783,8 @@ impl FunctionTranslator<'_> {
                 let call = ctx.builder.ins().call(jit_func, &[vm_ctx]);
 
                 // No `is_native` test here. A callee that deopts returns void
-                // from every exit, so choosing between its result and void on
-                // `is_native` always picked the result - and every caller runs
-                // `check_deopt` next, which is the test that matters.
+                // from every exit, so the result is already void in that case,
+                // and every caller runs `check_deopt` next.
                 ctx.builder.inst_results(call)[0]
             },
             |ctx| {
@@ -13799,8 +13858,8 @@ impl FunctionTranslator<'_> {
             self.write_to_vm_stack_starting_at(0, &args, true);
         } else if args.len() > self.arity as usize {
             // Grows by more than one slot, so we have to check that the new length
-            // still fits - not that it lands exactly on the capacity. Same comparison
-            // push_to_many_vm_stack_let_var_new uses.
+            // still fits, instead of checking that it lands on the capacity. Same
+            // comparison push_to_many_vm_stack_let_var_new uses.
             let needs_more_capacity =
                 self.builder
                     .ins()
@@ -13879,33 +13938,23 @@ impl FunctionTranslator<'_> {
         // Each branch above releases only the slots it writes over, up to the
         // larger of the old and new argument counts. Past that sit the frame's let
         // bound locals and spilled operands, and shortening the length alone
-        // discards them while they still hold their references: a continuation
-        // closure built inside a `let` and tail called leaked one closure per
-        // iteration, 23GB of them in `graphs`. Starting above what the branches
-        // already dropped keeps this from releasing anything twice.
+        // would discard them while they still hold their references, leaking
+        // them. Starting above what the branches already dropped keeps this from
+        // releasing anything twice.
         //
-        // The loop itself is not free - it runs on every jitted tail call, and
-        // emitting it unconditionally cost earley 10% of its instructions - so
-        // skip it when this frame has nothing above the arguments: no let
-        // bindings open and no operands spilled under them, which is the common
-        // shape.
-        let live_above =
-            self.let_var_stack.iter().sum::<usize>() + self.shadow_stack.len();
+        // The loop runs on every jitted tail call, so skip it when this frame has
+        // nothing above the arguments (no let bindings open and no operands
+        // spilled under them), which is the common case.
+        let live_above = self.let_var_stack.iter().sum::<usize>() + self.shadow_stack.len();
 
         // Nor is there anything to release when every slot above the arguments
-        // holds an immediate - a fixnum, or the void a move read left behind.
-        // `conform`, `browse` and `destruc` free no memory from this loop at all,
-        // so the work there is all tag checks on slots that own nothing.
+        // holds an immediate, like a fixnum or the void a move read left behind.
         let base_slot = args.len().max(self.arity as usize);
-        let all_immediate =
-            (0..live_above).all(|k| self.register_is_immediate(base_slot + k));
+        let all_immediate = (0..live_above).all(|k| self.register_is_immediate(base_slot + k));
 
-        // Unrolling this - emitting `arity + live_above - base_slot` drops at
-        // fixed offsets instead of the loop - was measured and is a wash:
-        // earley -0.45% instructions, conform -0.09%, browse and destruc 0.00%,
-        // with cycles inside the noise floor in both directions. The cost here
-        // is the refcount and free work for values that used to be leaked, not
-        // the loop driving it, so there is nothing to win by driving it better.
+        // Unrolling this into `arity + live_above - base_slot` drops at fixed
+        // offsets doesn't help, since the cost is the refcount and free work
+        // itself.
         if live_above > 0 && !all_immediate {
             let drop_from = self.builder.ins().iadd_imm_s(index, base_slot as i64);
             self.drop_vm_stack_range(vm_ctx, drop_from, old_length);
@@ -14112,7 +14161,7 @@ impl FunctionTranslator<'_> {
     ///
     /// Invalidated by `invalidate_buf_ptr` at the jit's own growth points, by
     /// every call (rust can grow the stack out from under us), and on a control
-    /// flow join where the two sides disagree - see `PropertyMap::meet`.
+    /// flow join where the two sides disagree (see `PropertyMap::meet`).
     fn stack_buf_ptr(&mut self, vm_ctx: Value) -> Value {
         if let Some(buf_pointer) = self.properties.cached_lookups.stack_buf_pointer {
             log::debug!(target: "bufptr", "HIT");
@@ -14259,10 +14308,9 @@ impl FunctionTranslator<'_> {
     }
 
     /// Every argument and let slot of this frame is known to hold an immediate,
-    /// and nothing else is on the value stack above them - so the return can
+    /// and nothing else is on the value stack above them, so the return can
     /// drop the frame's slots with a length store. The generic truncate loads
-    /// and tests each slot's tag first, which for ack's two fixnum arguments was
-    /// three masked compares per slot on every return.
+    /// and tests each slot's tag first.
     fn frame_slots_all_immediate(&self) -> bool {
         if !self.shadow_stack.is_empty() {
             return false;
@@ -14273,9 +14321,15 @@ impl FunctionTranslator<'_> {
 
     fn inline_handle_pop_with(&mut self, value: Value, slots_immediate: bool) -> Value {
         // A frameless copy has no frame to pop and nothing in the VM to
-        // restore: drop its own slots and hand the value back. `pop_count`
+        // restore, so drop its own slots and hand the value back. `pop_count`
         // never counted it.
-        if matches!(self.frameless, Some(FramelessInfo { role: FramelessRole::Callee, .. })) {
+        if matches!(
+            self.frameless,
+            Some(FramelessInfo {
+                role: FramelessRole::Callee,
+                ..
+            })
+        ) {
             let vm_ctx = self.get_ctx();
             let sp = self.get_sp(vm_ctx);
             if slots_immediate {
@@ -14747,11 +14801,9 @@ impl FunctionTranslator<'_> {
     /// Clone a standard RC value.
     ///
     /// Boxes and mutable vectors are `HeapRef`s, whose clone is a single atomic
-    /// increment of a `Weak` counter at a fixed offset - the mirror of the
-    /// decrement `inline_weak_decrement` already emits. Calling out to
-    /// `clone_one` for it cost a whole `SteelVal` round trip per clone: 17% of
-    /// conform, which reads mutable vector records and shim pairs constantly.
-    /// Continuations still take the call.
+    /// increment of a `Weak` counter at a fixed offset, the mirror of the
+    /// decrement `inline_weak_decrement` emits. This avoids a `SteelVal` round
+    /// trip through `clone_one`. Continuations still take the call.
     ///
     /// `Weak::clone` panics if the count passes `i32::MAX`; this does not
     /// check. Reaching that needs two billion live references to one heap
@@ -14819,9 +14871,9 @@ impl FunctionTranslator<'_> {
                     biased_word_offset(),
                 );
 
-                // The count is 18 bits, so saturation is reachable where a
-                // full word never was. Spill to the shared counter rather than
-                // letting it wrap - the two sum to the true count either way.
+                // The count is 18 bits, so it can saturate. Spill to the shared
+                // counter instead of letting it wrap, since the two sum to the
+                // true count either way.
                 let count = ctx
                     .builder
                     .ins()
@@ -15048,8 +15100,8 @@ impl FunctionTranslator<'_> {
                 // Instructions:
 
                 // On a self call the stream we would save is the stream we are
-                // about to install, and it is already a constant - so read it
-                // from `instr_fat_ptr` rather than loading it back out of the vm.
+                // about to install, and it is already a constant, so read it
+                // from `instr_fat_ptr` instead of loading it back out of the vm.
                 let current_instructions = if callee_is_self {
                     instr_fat_ptr
                 } else {
@@ -15403,18 +15455,16 @@ impl FunctionTranslator<'_> {
 
     /// Fetches a pointer to the VM context
     // The vm context stays an ordinary ssa value, which cranelift spills to a
-    // stack slot and reloads after calls (99 times in fib). Pinning it to r15
-    // instead was tried and measured: the reloads dropped to 2, but each read
-    // became a register move rather than a free L1 hit, and reserving r15 cost
-    // the allocator a register in a function that already used all five
-    // callee-saved ones. fib came out 17% slower, reproducibly.
+    // stack slot and reloads after calls. It is not pinned to r15, since the
+    // reloads are cheap L1 hits and reserving r15 costs the allocator a
+    // register in functions that already use all five callee-saved ones.
     fn get_ctx(&mut self) -> Value {
         self.vm_context
     }
 
-    /// Call a helper declared in `helpers.rs`, with exactly its arguments; the
-    /// vm context goes first implicitly if it takes one. Only for helpers that
-    /// can't raise - see `call_helper_checked`.
+    /// Call a helper declared in `helpers.rs` with its arguments. The vm
+    /// context goes first implicitly if it takes one. Only for helpers that
+    /// can't raise; see `call_helper_checked`.
     fn call_helper<const N: usize, const CTX: bool>(
         &mut self,
         helper: Helper<N, CTX, true, false>,
@@ -15458,8 +15508,8 @@ impl FunctionTranslator<'_> {
     }
 
     /// Call a helper that can raise without checking whether it did. The caller
-    /// takes that on: it has to reach a `check_deopt` (or hand control back to
-    /// the interpreter some other way) before anything uses the result.
+    /// has to reach a `check_deopt` (or hand control back to the interpreter
+    /// some other way) before anything uses the result.
     fn call_helper_unchecked<const N: usize, const CTX: bool>(
         &mut self,
         helper: Helper<N, CTX, true, true>,
@@ -15487,7 +15537,12 @@ impl FunctionTranslator<'_> {
         self.get_local_callee(helper.name)
     }
 
-    fn emit_helper_call(&mut self, name: &'static str, ctx: bool, args: &[Value]) -> cranelift::codegen::ir::Inst {
+    fn emit_helper_call(
+        &mut self,
+        name: &'static str,
+        ctx: bool,
+        args: &[Value],
+    ) -> cranelift::codegen::ir::Inst {
         self.check_collection_roots(name);
         let callee = self.get_local_callee(name);
         if ctx {
@@ -15500,14 +15555,11 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    /// The callee for a helper called by a name chosen at run time, checked
-    /// against its registered signature: a wrong argument count would otherwise
-    /// only surface as a verifier failure, or as garbage in a register.
-    /// Before a call to a helper that can collect (`helpers::COLLECTS`): every
-    /// operand still pending has to be where the collector can see it - on the
-    /// vm stack - or be a value it doesn't manage. Spilling here instead would
-    /// be wrong inside one arm of a branch (the arms would disagree about the
-    /// stack), so the lowering has to have spilled already; this checks it.
+    /// Before a call to a helper that can collect (`helpers::COLLECTS`), every
+    /// operand still pending has to be on the vm stack where the collector can
+    /// see it, or be a value it doesn't manage. Spilling here would be wrong
+    /// inside one arm of a branch (the arms would disagree about the stack), so
+    /// the lowering has to have spilled already; this checks it.
     fn check_collection_roots(&self, name: &str) {
         if !helper_collects(name) {
             return;
@@ -15516,17 +15568,18 @@ impl FunctionTranslator<'_> {
             let exposed = match entry {
                 MaybeStackValue::Value(value) => {
                     !value.spilled
-                        && !value.inferred_type.proven_tag().is_some_and(|tag| {
-                            tag != SteelVal::HEAP_REF_VECTOR_TAG
-                        })
+                        && !value
+                            .inferred_type
+                            .proven_tag()
+                            .is_some_and(|tag| tag != SteelVal::HEAP_REF_VECTOR_TAG)
                 }
                 MaybeStackValue::Borrowed(_) => true,
                 MaybeStackValue::Register(_)
                 | MaybeStackValue::MutRegister(_)
                 | MaybeStackValue::Constant(_) => false,
             };
-            // A lowering bug, not something to compile around: refuse, and the
-            // function stays interpreted (translation panics are caught).
+            // A lowering bug. Refuse, and the function stays interpreted
+            // (translation panics are caught).
             assert!(
                 !exposed,
                 "jit: {} calls `{name}`, which can collect, with operand {depth} of {} \
@@ -15538,6 +15591,9 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    /// The callee for a helper called by a name chosen at run time, checked
+    /// against its registered signature. A wrong argument count would otherwise
+    /// only surface as a verifier failure, or as garbage in a register.
     fn checked_callee(&mut self, name: &str, argument_count: usize) -> FuncRef {
         self.check_collection_roots(name);
         let expected = self.get_signature(name).params.len();

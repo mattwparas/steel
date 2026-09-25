@@ -39,12 +39,12 @@ use crate::{
         time::time_module,
         transducers::transducer_module,
         vectors::{
-            flat_vector_construct, immutable_vectors_module,
-            FLAT_VECTORP_DEFINITION, FLAT_VECTOR_CONSTRUCT_DEFINITION,
-            FLAT_VECTOR_TO_LIST_DEFINITION, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
-            LIST_VEC_NULL_DEFINITION, MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION,
-            MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_STRING_DEFINITION,
-            MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
+            flat_vector_construct, immutable_vectors_module, FLAT_VECTORP_DEFINITION,
+            FLAT_VECTOR_CONSTRUCT_DEFINITION, FLAT_VECTOR_TO_LIST_DEFINITION,
+            IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION, LIST_VEC_NULL_DEFINITION,
+            MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION, MUTABLE_VECTOR_POP_DEFINITION,
+            MUTABLE_VECTOR_TO_STRING_DEFINITION, MUT_VECTOR_COPY_DEFINITION,
+            MUT_VEC_APPEND_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
             MUT_VEC_CONSTRUCT_VEC_DEFINITION, MUT_VEC_GET_DEFINITION, MUT_VEC_LENGTH_DEFINITION,
             MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_SWAP_DEFINITION,
             MUT_VEC_TO_LIST_DEFINITION, VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION,
@@ -83,10 +83,10 @@ use crate::{
 };
 
 use crate::gc::Gc;
-use crate::values::structs::StructTypeDescriptor;
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
 };
+use crate::values::structs::StructTypeDescriptor;
 
 use crate::{
     rvals::IntoSteelVal,
@@ -469,7 +469,8 @@ pub fn bootstrap_globals(engine: &mut Engine) {
 
     engine.register_value("#%error", ControlOperations::error());
 
-    engine.register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
+    engine
+        .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
         .register_value(
             "#%make-mutable-struct",
             SteelVal::BuiltIn(make_mutable_struct),
@@ -1155,7 +1156,12 @@ pub fn hashsetp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashSetV(_))
 }
 
-#[steel_derive::function(name = "continuation?", constant = true, args = "any", raises = "never")]
+#[steel_derive::function(
+    name = "continuation?",
+    constant = true,
+    args = "any",
+    raises = "never"
+)]
 pub fn continuationp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ContinuationFunction(_))
 }
@@ -1234,12 +1240,22 @@ pub fn portp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::PortV(..))
 }
 
-#[steel_derive::function(name = "#%private-struct?", constant = true, args = "any", raises = "never")]
+#[steel_derive::function(
+    name = "#%private-struct?",
+    constant = true,
+    args = "any",
+    raises = "never"
+)]
 pub fn private_structp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::CustomStruct(_))
 }
 
-#[steel_derive::function(name = "error-object?", constant = true, args = "any", raises = "never")]
+#[steel_derive::function(
+    name = "error-object?",
+    constant = true,
+    args = "any",
+    raises = "never"
+)]
 pub fn error_objectp(value: &SteelVal) -> bool {
     let SteelVal::Custom(val) = value else {
         return false;
@@ -1438,15 +1454,12 @@ pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 
 /// The shared body of `<`, `<=`, `>` and `>=`.
 ///
-/// Two values that cannot be ordered - a number against a string, say - used to
-/// come back as `#false`, because `partial_cmp` returning `None` was folded in
-/// with "the comparison did not hold". That silently accepted
-/// `(< 1 2 3 "x")`. R7RS says it is an error to pass a non number, and the jit's
-/// own fallback helpers already raise, so the primitive was the odd one out.
+/// Two values that cannot be ordered, such as a number and a string, raise an
+/// error (R7RS), matching the jit's fallback helpers. `partial_cmp` returning
+/// `None` is not treated as "the comparison did not hold".
 ///
-/// Every pair is checked rather than stopping at the first false one, so
-/// `(< 3 2 "x")` raises rather than returning `#false` because the answer was
-/// already decided - which is what guile does.
+/// Every pair is checked, so `(< 3 2 "x")` raises instead of returning `#false`
+/// at the first false pair, as guile does.
 #[inline(always)]
 fn ordering_primitive(
     args: &[SteelVal],
@@ -1588,7 +1601,12 @@ fn ord_internal(
 /// > (> 3/2 1.4) ;; => #t
 /// > (> 3 4/2 1) ;; #t
 /// ```
-#[steel_derive::native(name = ">", arity = "AtLeast(1)", returns = "bool", args = "number, any...")]
+#[steel_derive::native(
+    name = ">",
+    arity = "AtLeast(1)",
+    returns = "bool",
+    args = "number, any..."
+)]
 pub fn greater_than(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| matches!(o, Some(Ordering::Greater)))
 }
@@ -1609,7 +1627,12 @@ pub fn greater_than(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (>= 3/2 1.4) ;; => #t
 /// > (>= 2 4/2 1) ;; #t
 /// ```
-#[steel_derive::native(name = ">=", arity = "AtLeast(1)", returns = "bool", args = "number, any...")]
+#[steel_derive::native(
+    name = ">=",
+    arity = "AtLeast(1)",
+    returns = "bool",
+    args = "number, any..."
+)]
 pub fn greater_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| {
         matches!(o, Some(Ordering::Greater | Ordering::Equal))
@@ -1632,7 +1655,12 @@ pub fn greater_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (< 2.5 3/2) ;; => #t
 /// > (< 2 5/2 3) ;; #t
 /// ```
-#[steel_derive::native(name = "<", arity = "AtLeast(1)", returns = "bool", args = "number, any...")]
+#[steel_derive::native(
+    name = "<",
+    arity = "AtLeast(1)",
+    returns = "bool",
+    args = "number, any..."
+)]
 pub fn less_than(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| matches!(o, Some(Ordering::Less)))
 }
@@ -1653,7 +1681,12 @@ pub fn less_than(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (<= 2.5 3/2) ;; => #f
 /// > (<= 2 6/2 3) ;; #t
 /// ```
-#[steel_derive::native(name = "<=", arity = "AtLeast(1)", returns = "bool", args = "number, any...")]
+#[steel_derive::native(
+    name = "<=",
+    arity = "AtLeast(1)",
+    returns = "bool",
+    args = "number, any..."
+)]
 fn less_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| {
         matches!(o, Some(Ordering::Less | Ordering::Equal))
@@ -1848,7 +1881,12 @@ pub fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     }
 }
 
-#[steel_derive::context(name = "#%lookup-doc", arity = "Exact(1)", args = "any", raises = "never")]
+#[steel_derive::context(
+    name = "#%lookup-doc",
+    arity = "Exact(1)",
+    args = "any",
+    raises = "never"
+)]
 pub fn lookup_doc_ctx(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // Attempt to find the docs for a given value.
     let compiler = ctx.thread.compiler.read();
@@ -2269,21 +2307,20 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
 
 /// Builds a mutable struct, boxing every field.
 ///
-/// The struct macro used to emit one `#%box` per field, so an N field struct
-/// paid N VM dispatches, N safepoint entries and N heap lock acquisitions.
-/// Doing the whole struct here pays those once.
+/// Boxing all the fields here takes one VM dispatch, safepoint entry and heap
+/// lock, where a `#%box` per field would take one each.
 #[steel_derive::context(name = "#%make-mutable-struct", arity = "AtLeast(1)")]
 pub(crate) fn make_mutable_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(make_mutable_struct_from_args(ctx, args))
 }
 
 /// `#%make-mutable-struct` without the `BuiltIn` calling convention, so the jit
-/// can call it directly: `args` is the descriptor followed by the fields. The
+/// can call it directly. `args` is the descriptor followed by the fields. The
 /// fields are handed to the allocator as roots, so a collection triggered while
 /// the boxes are made cannot reclaim them.
-/// `make_mutable_struct_from_args` for a caller that owns the arguments - the
-/// jit's constructor helpers do - so the fields are moved into their boxes
-/// instead of being cloned and then dropped by the caller.
+/// Like `make_mutable_struct_from_args`, for a caller that owns the arguments
+/// (the jit's constructor helpers), so the fields are moved into their boxes
+/// instead of cloned.
 pub(crate) fn make_mutable_struct_from_owned(
     ctx: &mut VmCore,
     mut args: smallvec::SmallVec<[SteelVal; 8]>,
@@ -2317,7 +2354,10 @@ pub(crate) fn make_mutable_struct_from_owned(
     )))
 }
 
-pub(crate) fn make_mutable_struct_from_args(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+pub(crate) fn make_mutable_struct_from_args(
+    ctx: &mut VmCore,
+    args: &[SteelVal],
+) -> Result<SteelVal> {
     let Some((descriptor, fields)) = args.split_first() else {
         stop!(ArityMismatch => "#%make-mutable-struct expects a struct type descriptor");
     };
@@ -2341,7 +2381,6 @@ pub(crate) fn make_mutable_struct_from_args(ctx: &mut VmCore, args: &[SteelVal])
     );
 
     drop(heap_lock);
-
 
     Ok(SteelVal::CustomStruct(StructRef::from_parts(
         descriptor,
@@ -2774,7 +2813,12 @@ fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
     Ok(SteelVal::BoolV(false))
 }
 
-#[steel_derive::context(name = "syntax-originating-file", arity = "Exact(1)", args = "any", raises = "never")]
+#[steel_derive::context(
+    name = "syntax-originating-file",
+    arity = "Exact(1)",
+    args = "any",
+    raises = "never"
+)]
 fn syntax_to_module(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(syntax_to_module_impl(ctx, args))
 }
@@ -2791,7 +2835,12 @@ fn syntax_raw(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(syntax_raw_impl(ctx, args))
 }
 
-#[steel_derive::context(name = "#%path->source-id", arity = "Exact(1)", args = "string", raises = "bad-args")]
+#[steel_derive::context(
+    name = "#%path->source-id",
+    arity = "Exact(1)",
+    args = "string",
+    raises = "bad-args"
+)]
 fn path_to_source_id(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn path_to_source_id_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         let path = SteelString::from_steelval(&args[0])?;

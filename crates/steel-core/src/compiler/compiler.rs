@@ -51,7 +51,6 @@ use crate::stop;
 
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
-
 use super::{
     constants::SerializableConstantMap,
     modules::{steel_search_dirs, CompiledModule, ModuleManager, SourceModuleResolver},
@@ -1022,8 +1021,8 @@ impl Compiler {
         // expanded_statements.pretty_print();
 
         // Internal defines become lets before renaming, as in
-        // `lower_expressions_impl`: renaming the `define` form first leaves a
-        // reference to a *later* sibling define (mutual recursion) unrenamed,
+        // `lower_expressions_impl`. Renaming the `define` form first leaves a
+        // reference to a later sibling define (mutual recursion) unrenamed,
         // so it reads as a free identifier.
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
@@ -1359,9 +1358,8 @@ impl Compiler {
         semantic.refresh_variables_if_changed();
 
         semantic.substitute_known_function_bindings(self.modules());
-        // Substituting a lambda into the calls of it leaves an applied lambda,
-        // which is a let - without lowering it again the code generator would
-        // build a closure at every one of those call sites instead.
+        // Substituting a lambda into its call sites leaves an applied lambda.
+        // Lower it to a let, otherwise code gen builds a closure at each site.
         semantic.replace_anonymous_function_calls_with_plain_lets();
         semantic.refresh_variables_if_changed();
 
@@ -1404,9 +1402,8 @@ impl Compiler {
             semantic.replace_anonymous_function_calls_with_plain_lets();
         }
 
-        // `STEEL_INLINE_RECURSIVE=<depth>` sets how many levels to unroll. Bare
-        // presence keeps the original depth of 2; a number is taken literally, so
-        // `=1` now means one level rather than "on".
+        // `STEEL_INLINE_RECURSIVE=<depth>` sets how many levels to unroll. An empty
+        // value uses depth 2, and a number is used as the depth, so `=1` is one level.
         if let Some(recursive) = &crate::config::config().inline_recursive {
             let depth = match recursive.trim() {
                 "" => 2,
@@ -1446,11 +1443,9 @@ impl Compiler {
         semantic.lower_rest_arguments();
 
         if let Some(inline_more) = &crate::config::config().inline_more {
-            // A comma separated list of size thresholds selects the rounds, so the
-            // schedule can be tuned without a rebuild. "1" takes the default: one
-            // round at 25, which kept most of the [200, 50] win on dynamic for half
-            // the compile time, since the larger bodies mostly buy Cranelift more
-            // code to chew on
+            // A comma separated list of size thresholds selects the rounds.
+            // "1" uses the default of one round at 25. Larger sizes mostly add
+            // compile time.
             let sizes: Vec<usize> = if inline_more == "1" {
                 vec![25]
             } else {
@@ -1484,23 +1479,21 @@ impl Compiler {
         }
 
         // Copy propagation (`RemoveLetsBoundToOtherLocalVars`) strips let
-        // bindings whose RHS was just another local, leaving `(let () body)`
-        // shells behind. Those are not free - each one still emits a
-        // BEGINSCOPE/LETENDSCOPE pair. `FlattenEmptyLets` was written for
-        // exactly this and had no callers.
+        // bindings whose RHS was another local, leaving `(let () body)`
+        // shells behind. Each one still emits a BEGINSCOPE/LETENDSCOPE pair,
+        // so flatten them.
         if crate::config::config().flatten_empty_lets {
             semantic.flatten_empty_lets();
         }
 
         // `or` expands to `(let ([z x]) (if z z y))`; where `x` can be
-        // re-evaluated for free or is boolean valued, that binding is dead
-        // weight. Runs after the inlining passes so it also catches the `or`s
-        // that inlining brought into view.
+        // re-evaluated for free or is boolean valued, the binding can be dropped.
+        // Runs after the inlining passes so it also catches `or`s exposed by inlining.
         semantic.simplify_or_bindings();
 
         // `(loop (cdr l) ... (car l) ...)` reads `l` after the `cdr`, so the
-        // `cdr` cannot move the list's position in place - it has to build a
-        // new one. Binding the `car` first makes the `cdr` the last use.
+        // `cdr` cannot advance the list in place and has to build a new one.
+        // Binding the `car` first makes the `cdr` the last use.
         let hoisted = semantic.hoist_car_before_cdr();
         if crate::config::config().hoist_car_debug && hoisted > 0 {
             eprintln!("[hoist-car] rewrote {hoisted} sites");

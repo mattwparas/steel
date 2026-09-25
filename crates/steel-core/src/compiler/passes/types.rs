@@ -5,36 +5,37 @@
 //! of value it can hold ([`TypeSet`]). Used by the language server for inlay
 //! hints, and meant to feed the jit.
 //!
-//! What it knows comes from:
+//! Types come from:
 //! - literals and quoted data;
-//! - native functions' declared return types, and their `args` declarations:
-//!   a call that returns normally proves its arguments had the declared types,
+//! - native functions' declared return types, and their `args` declarations.
+//!   A call that returns normally proves its arguments had the declared types,
 //!   so an immutable variable passed to one is narrowed from then on;
 //! - type predicates in `if` tests (`string?`, `pair?`, `not`, `and`, ...),
 //!   narrowing the tested variable in each branch;
-//! - user functions: return types from their bodies, and - for functions that
-//!   never escape (a local helper or loop only ever called directly) -
-//!   parameter types from their call sites. Both are solved as a fixpoint, so
-//!   recursive loops get types.
+//! - user functions. Return types come from their bodies, and for functions
+//!   that never escape (a local helper or loop only ever called directly),
+//!   parameter types come from their call sites. Both are solved as a
+//!   fixpoint, so recursive loops get types.
 //!
-//! It is sound in the sense that every value an expression actually produces is
-//! in its set (so an empty set means "cannot return"), under two assumptions:
-//! a call to a native function behaves as its annotations say, and a global
-//! binding is not redefined from outside the program being analyzed. Things it
-//! cannot see are `any`: mutated variables, parameters of functions that
-//! escape (including every global function - it can be called from anywhere),
-//! results of calls to unknown functions.
+//! Every value an expression produces is in its set (so an empty set means
+//! "cannot return"), assuming a call to a native function behaves as its
+//! annotations say and a global binding is not redefined from outside the
+//! program being analyzed. Mutated variables, parameters of functions that
+//! escape (including every global function, since it can be called from
+//! anywhere) and results of calls to unknown functions are `any`.
 
 use crate::compiler::passes::analysis::Analysis;
 use crate::parser::ast::{Atom, ExprKind, LambdaFunction};
 use crate::parser::parser::SyntaxObjectId;
 use crate::parser::tokens::TokenType;
-use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 use crate::rvals::SteelVal;
-use crate::steel_vm::builtin::{get_function_metadata, BuiltInFunctionType, FunctionSignatureMetadata};
+use crate::steel_vm::builtin::{
+    get_function_metadata, BuiltInFunctionType, FunctionSignatureMetadata,
+};
 use crate::steel_vm::engine::ModuleContainer;
 use crate::value_type::TypeSet;
 use rustc_hash::{FxHashMap, FxHashSet};
+use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 /// The signatures of the native functions a program can refer to, by name.
 #[derive(Default)]
@@ -62,7 +63,8 @@ impl PrimitiveSignatures {
     /// `name` may carry the `#%prim.` prefix the expander uses for prelude
     /// functions.
     pub fn get(&self, name: &str) -> Option<&FunctionSignatureMetadata> {
-        self.by_name.get(name.strip_prefix("#%prim.").unwrap_or(name))
+        self.by_name
+            .get(name.strip_prefix("#%prim.").unwrap_or(name))
     }
 }
 
@@ -75,7 +77,7 @@ fn signature_of(value: &SteelVal) -> Option<FunctionSignatureMetadata> {
     })
 }
 
-/// What the type predicates tell each branch of an `if`: the then-branch can
+/// What a type predicate tells each branch of an `if`. The then-branch can
 /// intersect the tested value's type with `holds`, and the else-branch can
 /// remove `excludes` (only the kinds for which the predicate is always true).
 fn predicate(name: &str) -> Option<(TypeSet, TypeSet)> {
@@ -126,19 +128,19 @@ pub struct TypeInfo {
     pub calls: FxHashMap<u32, TypeSet>,
     /// Lambdas, by their syntax object id: what a call of it returns.
     pub returns: FxHashMap<u32, TypeSet>,
-    /// Parameters, by binding site: the type the argument must have had for a
-    /// call to return normally - what the body demands of it, joined over every
-    /// normal exit. A precondition on successful calls, not a guarantee about
-    /// what callers pass (that is `bindings`): usable for display, not for
-    /// trusting a value on function entry.
+    /// Parameters, by binding site, with the type the argument must have had for
+    /// a call to return normally. This is what the body demands of it, joined
+    /// over every normal exit. It says nothing about what callers pass (that is
+    /// `bindings`), so it is only for display and cannot be trusted on function
+    /// entry.
     pub required: FxHashMap<SyntaxObjectId, TypeSet>,
     /// Calls to a known lambda, by the list's syntax object id: that lambda.
     pub call_targets: FxHashMap<u32, u32>,
     /// How many passes over the program the fixpoint took.
     pub iterations: usize,
     /// Binding sites known to hold a function (directly, or through the box a
-    /// named `let` / `letrec` expands into), with that lambda's id - whose
-    /// return type is in `returns`.
+    /// named `let` / `letrec` expands into), with that lambda's id. Its return
+    /// type is in `returns`.
     pub functions: FxHashMap<SyntaxObjectId, u32>,
 }
 
@@ -183,7 +185,7 @@ pub fn infer_types(
         previous_params = params;
     }
 
-    // Did not settle: claim nothing.
+    // Did not settle, so claim nothing.
     let mut result = previous;
     result.functions = facts.functions();
     for ty in result
@@ -205,9 +207,9 @@ enum Known {
     Lambda(u32),
     /// A native function, by name.
     Primitive(InternedName),
-    /// A box whose only `set-box!` stores this lambda: how a named `let` or
-    /// `letrec` expands (`(#%box _)`, `(#%set-box! box (λ ...))`, and calls as
-    /// `((#%unbox box) args ...)`).
+    /// A box whose only `set-box!` stores this lambda. This is how a named `let`
+    /// or `letrec` expands (`(#%box _)`, `(#%set-box! box (λ ...))`, and calls
+    /// as `((#%unbox box) args ...)`).
     BoxedLambda(u32),
 }
 
@@ -224,7 +226,7 @@ enum Position {
     SetBoxTarget,
     /// The value of a `(#%set-box! box x)`, stored into that box.
     BoxStore(SyntaxObjectId),
-    /// Anywhere else: the value escapes.
+    /// Anywhere else, where the value escapes.
     Value,
 }
 
@@ -235,8 +237,8 @@ struct Facts {
     mutated: FxHashSet<SyntaxObjectId>,
     /// Every binding site in the program.
     defined: FxHashSet<SyntaxObjectId>,
-    /// Top-level `define`s: callable from outside, so their parameters are
-    /// never inferred from call sites.
+    /// Top-level `define`s. These are callable from outside, so their
+    /// parameters are never inferred from call sites.
     globals: FxHashSet<SyntaxObjectId>,
     known: FxHashMap<SyntaxObjectId, Known>,
     /// Lambdas by id: (fixed parameter count, has a rest parameter).
@@ -284,7 +286,7 @@ struct Collector<'a> {
     facts: Facts,
     /// Bindings initialized with `(#%box _)`.
     boxes: FxHashSet<SyntaxObjectId>,
-    /// `(#%set-box! b v)`: the lambda stored (None when it is not a lambda).
+    /// The lambda each `(#%set-box! b v)` stores (None when it is not a lambda).
     box_stores: FxHashMap<SyntaxObjectId, Vec<Option<u32>>>,
     /// Bindings initialized with another variable.
     aliases: FxHashMap<SyntaxObjectId, SyntaxObjectId>,
@@ -294,8 +296,8 @@ struct Collector<'a> {
     /// Lambdas that are the operator of a call.
     applied_lambdas: FxHashSet<u32>,
     /// Every binding site's name, and the names `set!` targets whose binding
-    /// the analysis did not resolve - a `set!` of a global inside a function
-    /// defined *before* the global's `define` has no `refers_to` yet.
+    /// the analysis did not resolve. A `set!` of a global inside a function
+    /// defined before the global's `define` has no `refers_to` yet.
     binding_names: FxHashMap<SyntaxObjectId, crate::parser::interner::InternedString>,
     unresolved_set_names: FxHashSet<crate::parser::interner::InternedString>,
 }
@@ -330,7 +332,9 @@ impl<'a> Collector<'a> {
         }
         match init {
             Some(ExprKind::LambdaFunction(lambda)) => {
-                self.facts.known.insert(id, Known::Lambda(lambda.syntax_object_id));
+                self.facts
+                    .known
+                    .insert(id, Known::Lambda(lambda.syntax_object_id));
                 self.bound_lambdas.insert(lambda.syntax_object_id, id);
             }
             Some(ExprKind::Atom(atom)) => match self.reference(atom) {
@@ -469,15 +473,15 @@ impl<'a> Collector<'a> {
     }
 
     fn finish(mut self) -> Facts {
-        // A `set!` we could not tie to its binding: every binding of that name
-        // might be the one assigned.
+        // For a `set!` we could not tie to its binding, every binding of that
+        // name might be the one assigned.
         for (id, name) in &self.binding_names {
             if self.unresolved_set_names.contains(name) {
                 self.facts.mutated.insert(*id);
             }
         }
 
-        // Boxed lambdas: a box whose one and only store is a lambda.
+        // Boxed lambdas, where the box's only store is a lambda.
         for (id, stores) in &self.box_stores {
             if let ([Some(lambda)], true) = (stores.as_slice(), self.boxes.contains(id)) {
                 if !self.facts.mutated.contains(id) {
@@ -508,17 +512,18 @@ impl<'a> Collector<'a> {
             self.facts.known.remove(id);
         }
 
-        // Closed lambdas: every way to reach one is a direct call we can see.
+        // A lambda is closed when every way to reach it is a direct call we can see.
         // A box holding a lambda is closed when it is only ever unboxed to be
         // called (plus its one store).
-        let box_closed = |facts: &Facts, uses: &FxHashMap<SyntaxObjectId, Vec<Position>>, b: &SyntaxObjectId| {
-            matches!(facts.known.get(b), Some(Known::BoxedLambda(_)))
-                && !facts.globals.contains(b)
-                && uses.get(b).map_or(true, |uses| {
-                    uses.iter()
-                        .all(|p| matches!(p, Position::UnboxOperator | Position::SetBoxTarget))
-                })
-        };
+        let box_closed =
+            |facts: &Facts, uses: &FxHashMap<SyntaxObjectId, Vec<Position>>, b: &SyntaxObjectId| {
+                matches!(facts.known.get(b), Some(Known::BoxedLambda(_)))
+                    && !facts.globals.contains(b)
+                    && uses.get(b).map_or(true, |uses| {
+                        uses.iter()
+                            .all(|p| matches!(p, Position::UnboxOperator | Position::SetBoxTarget))
+                    })
+            };
         for (&lambda, binding) in &self.bound_lambdas {
             if self.facts.globals.contains(binding) {
                 continue;
@@ -529,8 +534,8 @@ impl<'a> Collector<'a> {
             }
             let uses = self.uses.get(binding).map(Vec::as_slice).unwrap_or(&[]);
             let closed = match self.facts.known.get(binding) {
-                // Bound to a variable: called directly, or stored into a closed
-                // box that holds it.
+                // Bound to a variable, and only called directly or stored into
+                // a closed box that holds it.
                 Some(Known::Lambda(l)) if *l == lambda => uses.iter().all(|position| match position {
                     Position::Operator => true,
                     Position::BoxStore(b) => {
@@ -581,8 +586,8 @@ fn operator_name(expr: Option<&ExprKind>) -> Option<&str> {
     Some(name.strip_prefix("#%prim.").unwrap_or(name))
 }
 
-/// Narrowed types of variables at a point in the program. Only ever holds
-/// immutable bindings: narrowing a variable that can be reassigned would not
+/// Narrowed types of variables at a point in the program. Only holds immutable
+/// bindings, since narrowing a variable that can be reassigned would not
 /// survive the assignment.
 type Env = FxHashMap<SyntaxObjectId, TypeSet>;
 
@@ -597,7 +602,7 @@ struct Inference<'a> {
     analysis: &'a Analysis,
     primitives: &'a PrimitiveSignatures,
     facts: &'a Facts,
-    /// The last iteration's results: what calls to functions analyzed later
+    /// The last iteration's results, for what calls to functions analyzed later
     /// (or recursively) return.
     previous: &'a TypeInfo,
     previous_params: &'a FxHashMap<u32, Vec<TypeSet>>,
@@ -617,7 +622,8 @@ impl<'a> Inference<'a> {
             .get(&id)
             .or_else(|| self.previous.bindings.get(&id))
             .copied()
-            // Not analyzed yet in any iteration: optimistic, the fixpoint grows it.
+            // Not analyzed yet in any iteration. Start optimistic and let the
+            // fixpoint grow it.
             .unwrap_or(TypeSet::BOTTOM)
     }
 
@@ -629,10 +635,14 @@ impl<'a> Inference<'a> {
     }
 
     /// Records `ty` for binding `id`. A name can be bound more than once
-    /// (a top-level redefinition): it can hold either.
+    /// (a top-level redefinition), and then it can hold either.
     fn bind(&mut self, name: &ExprKind, ty: TypeSet) {
         if let Some(id) = binding_site(name) {
-            let ty = if self.facts.mutated.contains(&id) { TypeSet::TOP } else { ty };
+            let ty = if self.facts.mutated.contains(&id) {
+                TypeSet::TOP
+            } else {
+                ty
+            };
             let entry = self.current.bindings.entry(id).or_insert(TypeSet::BOTTOM);
             *entry = entry.union(ty);
         }
@@ -641,7 +651,9 @@ impl<'a> Inference<'a> {
     /// Narrows an immutable variable in `env`.
     fn narrow(&self, expr: &ExprKind, env: &mut Env, to: impl FnOnce(TypeSet) -> TypeSet) {
         let ExprKind::Atom(atom) = expr else { return };
-        let Some(id) = reference(self.analysis, atom) else { return };
+        let Some(id) = reference(self.analysis, atom) else {
+            return;
+        };
         if self.facts.mutated.contains(&id) || !self.facts.defined.contains(&id) {
             return;
         }
@@ -653,7 +665,9 @@ impl<'a> Inference<'a> {
         match operator {
             ExprKind::LambdaFunction(lambda) => Callee::Lambda(lambda.syntax_object_id),
             ExprKind::Atom(atom) => {
-                let Some(name) = atom.ident() else { return Callee::Unknown };
+                let Some(name) = atom.ident() else {
+                    return Callee::Unknown;
+                };
                 match reference(self.analysis, atom) {
                     Some(id) => match self.facts.known.get(&id) {
                         Some(Known::Lambda(lambda)) => Callee::Lambda(*lambda),
@@ -662,17 +676,21 @@ impl<'a> Inference<'a> {
                             .get(name.resolve())
                             .map_or(Callee::Unknown, Callee::Primitive),
                         // Bound in the program to something we cannot see
-                        // through - even if it shares a builtin's name (a
+                        // through, even if it shares a builtin's name (a
                         // module can provide its own `car`).
                         _ => Callee::Unknown,
                     },
-                    None => self.free_primitive(name.resolve()).map_or(Callee::Unknown, Callee::Primitive),
+                    None => self
+                        .free_primitive(name.resolve())
+                        .map_or(Callee::Unknown, Callee::Primitive),
                 }
             }
             ExprKind::List(list)
                 if operator_name(list.args.first()) == Some("#%unbox") && list.args.len() == 2 =>
             {
-                let ExprKind::Atom(atom) = &list.args[1] else { return Callee::Unknown };
+                let ExprKind::Atom(atom) = &list.args[1] else {
+                    return Callee::Unknown;
+                };
                 match reference(self.analysis, atom).and_then(|id| self.facts.known.get(&id)) {
                     Some(Known::BoxedLambda(lambda)) => Callee::Lambda(*lambda),
                     _ => Callee::Unknown,
@@ -728,7 +746,7 @@ impl<'a> Inference<'a> {
             }
             ExprKind::Set(set) => {
                 self.infer(&set.expr, env);
-                // `set!` evaluates to the variable's previous value - and an
+                // `set!` evaluates to the variable's previous value, and an
                 // assigned variable can hold anything.
                 TypeSet::TOP
             }
@@ -741,7 +759,9 @@ impl<'a> Inference<'a> {
                     list.args.first()
                 {
                     if let Callee::Lambda(lambda) = self.callee(&list.args[0]) {
-                        self.current.call_targets.insert(list.syntax_object_id, lambda);
+                        self.current
+                            .call_targets
+                            .insert(list.syntax_object_id, lambda);
                     }
                 }
                 let ty = self.call(list, env);
@@ -768,7 +788,9 @@ impl<'a> Inference<'a> {
             _ => TypeSet::TOP,
         };
         if atom.ident().is_some() {
-            self.current.references.insert(atom.syn.syntax_object_id, ty);
+            self.current
+                .references
+                .insert(atom.syn.syntax_object_id, ty);
         }
         ty
     }
@@ -791,18 +813,20 @@ impl<'a> Inference<'a> {
             };
             self.bind(arg, ty);
         }
-        // Captured variables keep the narrowing they have here: only immutable
+        // Captured variables keep the narrowing they have here. Only immutable
         // ones are ever narrowed, and they hold the same value in the body.
         let mut body_env = env.clone();
         let ty = self.infer(&lambda.body, &mut body_env);
         self.current.returns.insert(id, ty);
 
-        // What the body demanded of each parameter by the time it returned: the
+        // What the body demanded of each parameter by the time it returned. The
         // environment at the end is the join over every normal exit. An early
         // `return` would be an exit that join does not see.
         if !contains_return(&lambda.body) {
             for arg in &lambda.args {
-                let Some(param) = binding_site(arg) else { continue };
+                let Some(param) = binding_site(arg) else {
+                    continue;
+                };
                 if self.facts.mutated.contains(&param) {
                     continue;
                 }
@@ -883,7 +907,7 @@ impl<'a> Inference<'a> {
                     }
                 }
             }
-            // `(and a b)` expands to `(if a b #f)`: when it is true, both were.
+            // `(and a b)` expands to `(if a b #f)`. When it is true, both were.
             ExprKind::If(if_) if is_false_literal(&if_.else_expr) => {
                 let mut ignored = then_env.clone();
                 self.test(&if_.test_expr, then_env, &mut ignored);
@@ -895,21 +919,21 @@ impl<'a> Inference<'a> {
     }
 
     /// The native function a free identifier (bound nowhere in the program)
-    /// denotes. `#%prim.<name>` is always the builtin; a bare name is the
-    /// builtin only because nothing in the program binds it - the analysis's
+    /// denotes. `#%prim.<name>` is always the builtin. A bare name is the
+    /// builtin only because nothing in the program binds it. The analysis's
     /// own `builtin` flag goes by name alone, and is set for a module's `car`
     /// too.
     fn free_primitive(&self, name: &str) -> Option<&'a FunctionSignatureMetadata> {
         self.primitives.get(name)
     }
 
-    /// Whether `operator` refers to a native function (not a user binding
-    /// that happens to share its name).
+    /// Whether `operator` refers to a native function, and not a user binding
+    /// that happens to share its name.
     fn is_primitive(&self, operator: &ExprKind) -> bool {
         matches!(self.callee(operator), Callee::Primitive(_))
     }
 
-    /// The environment after an `if`: a variable is either branch's type.
+    /// The environment after an `if`, where a variable has either branch's type.
     fn join(&self, left: Env, right: Env) -> Env {
         let ids: FxHashSet<SyntaxObjectId> = left.keys().chain(right.keys()).copied().collect();
         ids.into_iter()
@@ -922,9 +946,9 @@ impl<'a> Inference<'a> {
     }
 }
 
-/// A type to show at a binding in the source: `span` is the bound name as
-/// written, `label` goes at byte offset `at` - right after the name, or for a
-/// function defined as `(define (f args ...) ...)` after its header.
+/// A type to show at a binding in the source. `span` is the bound name as
+/// written, and `label` goes at byte offset `at`, which is right after the name,
+/// or for a function defined as `(define (f args ...) ...)` after its header.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeHint {
     pub span: crate::parser::span::Span,
@@ -934,8 +958,8 @@ pub struct TypeHint {
     pub tooltip: Option<String>,
 }
 
-/// Where a function's return type reads best: after `(f args ...)` when the
-/// name heads such a header, otherwise right after the name.
+/// Where to show a function's return type. This is after `(f args ...)` when
+/// the name heads such a header, otherwise right after the name.
 fn return_hint_offset(text: &str, name: crate::parser::span::Span) -> u32 {
     let bytes = text.as_bytes();
     let start = name.start as usize;
@@ -952,7 +976,7 @@ fn return_hint_offset(text: &str, name: crate::parser::span::Span) -> u32 {
                     return (i + 1) as u32;
                 }
             }
-            // A header holds names, not strings or comments; give up on those.
+            // A header only holds names, so stop at strings or comments.
             b'"' | b';' => break,
             _ => {}
         }
@@ -960,13 +984,13 @@ fn return_hint_offset(text: &str, name: crate::parser::span::Span) -> u32 {
     name.end
 }
 
-/// Inlay hints for the bindings written in `source`: `: type` after a
+/// Inlay hints for the bindings written in `source`. `: type` goes after a
 /// `define` / `let` name or a parameter, `-> type` after the name of a
-/// function. Only what is worth showing - nothing for `any`, nor for `never`
-/// (a parameter of a function nothing calls). One hint per name: expansion can
-/// bind several things under one written name (a named `let` binds a
-/// placeholder, a box and the lambda, all spelled `loop`), and a function among
-/// them wins.
+/// function. There is nothing for `any`, nor for `never` (a parameter of a
+/// function nothing calls). Expansion can bind several things under one written
+/// name (a named `let` binds a placeholder, a box and the lambda, all spelled
+/// `loop`), so there is one hint per name, and a function among them is
+/// preferred.
 pub fn inlay_hints(
     exprs: &[ExprKind],
     info: &TypeInfo,
@@ -974,7 +998,7 @@ pub fn inlay_hints(
     text: &str,
 ) -> Vec<TypeHint> {
     fn sites(expr: &ExprKind, out: &mut Vec<SyntaxObjectIdAndSpan>) {
-        let mut site = |name: &ExprKind, out: &mut Vec<SyntaxObjectIdAndSpan>| {
+        let site = |name: &ExprKind, out: &mut Vec<SyntaxObjectIdAndSpan>| {
             if let ExprKind::Atom(atom) = name {
                 if let Some(ident) = atom.ident() {
                     out.push((atom.syn.syntax_object_id, atom.syn.span, *ident));
@@ -1019,7 +1043,7 @@ pub fn inlay_hints(
 
     // Whether a binding named `bound` labels the name `written` in the source.
     // Renaming only adds `#` / `_` prefixes and a numeric suffix (`acc` binds as
-    // `##acc6`, a named let's box as `####loop46`); a macro's own binding spanned
+    // `##acc6`, a named let's box as `####loop46`). A macro's own binding spanned
     // at the macro use (`or`'s temporary, at `or`) does not match.
     fn names_match(bound: &str, written: &str) -> bool {
         let bound = bound.trim_start_matches(['#', '_']);
@@ -1069,22 +1093,25 @@ pub fn inlay_hints(
             None => {
                 let mut types = ids.iter().filter_map(|id| info.bindings.get(id).copied());
                 let Some(first) = types.next() else { continue };
-                // Several things under one name that disagree: say nothing.
+                // Show nothing when several things under one name disagree.
                 if types.any(|ty| ty != first) {
                     continue;
                 }
                 // A parameter the body demands more of than its callers are
-                // known to pass: `s: string?`.
+                // known to pass, shown as `s: string?`.
                 let required = ids
                     .iter()
                     .find_map(|id| info.required.get(id).copied())
                     .filter(|&req| req != first && first.contains(req) && worth_showing(req));
                 if let Some(required) = required {
                     let shown = required.to_string();
-                    let shown = if shown.contains(' ') { format!("({shown})") } else { shown };
+                    let shown = if shown.contains(' ') {
+                        format!("({shown})")
+                    } else {
+                        shown
+                    };
                     tooltip = Some(format!(
-                        "Expected {required}: every call that returns normally passes one \
-                         (the body needs it). Not checked on entry."
+                        "Expected {required}. Calls that return normally pass one, but it is not checked on entry."
                     ));
                     format!(": {shown}?")
                 } else if worth_showing(first) {
@@ -1094,13 +1121,18 @@ pub fn inlay_hints(
                 }
             }
         };
-        hints.push(TypeHint { span, at, label, tooltip });
+        hints.push(TypeHint {
+            span,
+            at,
+            label,
+            tooltip,
+        });
     }
     hints
 }
 
-/// Whether `expr` has an early `return` - outside any nested lambda, whose
-/// returns are its own.
+/// Whether `expr` has an early `return` outside any nested lambda (whose
+/// returns are its own).
 fn contains_return(expr: &ExprKind) -> bool {
     match expr {
         ExprKind::Return(_) => true,
@@ -1207,7 +1239,9 @@ pub fn hover_type(
                     }
                     if let Some((operator, args)) = l.args.split_first() {
                         match operator {
-                            ExprKind::Atom(_) => self.atom(operator, Role::Operator(l.syntax_object_id)),
+                            ExprKind::Atom(_) => {
+                                self.atom(operator, Role::Operator(l.syntax_object_id))
+                            }
                             _ => self.expr(operator),
                         }
                         args.iter().for_each(|a| self.expr(a));
@@ -1277,7 +1311,7 @@ pub fn hover_type(
     };
 
     if !walk.atoms.is_empty() {
-        // A function among several things under one name wins.
+        // Prefer a function among several things under one name.
         let (atom, role) = walk
             .atoms
             .iter()
@@ -1300,7 +1334,9 @@ pub fn hover_type(
             Role::Binding => {
                 let ty = info.bindings.get(&id).copied().unwrap_or(TypeSet::TOP);
                 match info.required.get(&id).copied() {
-                    Some(req) if req != ty && ty.contains(req) && !req.is_top() && !req.is_bottom() => {
+                    Some(req)
+                        if req != ty && ty.contains(req) && !req.is_top() && !req.is_bottom() =>
+                    {
                         format!("{name}: {ty}, expected {req}")
                     }
                     _ => format!("{name}: {ty}"),
@@ -1330,7 +1366,7 @@ fn number_type(number: &NumberLiteral) -> TypeSet {
     match number {
         NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(_))) => TypeSet::INT,
         NumberLiteral::Real(RealLiteral::Int(IntLiteral::Big(_))) => TypeSet::OTHER_NUMBER,
-        // Normalized: 4/2 is the fixnum 2.
+        // Normalized, so 4/2 is the fixnum 2.
         NumberLiteral::Real(RealLiteral::Rational(..)) => TypeSet::INT.union(TypeSet::OTHER_NUMBER),
         NumberLiteral::Real(RealLiteral::Float(_)) => TypeSet::FLOAT,
         NumberLiteral::Complex(..) | NumberLiteral::Polar(..) => TypeSet::NUMBER,
@@ -1359,11 +1395,11 @@ fn datum_type(expr: &ExprKind) -> TypeSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thin_vec::thin_vec;
     use crate::compiler::passes::analysis::SemanticAnalysis;
     use crate::parser::ast::ExprKind;
     use crate::steel_vm::engine::Engine;
     use std::collections::BTreeMap;
+    use thin_vec::thin_vec;
 
     /// Infers types for `src`, and describes them by the source text of each
     /// name: `name` for a binding (numbered `name#2`... when a name is bound
@@ -1385,7 +1421,8 @@ mod tests {
 
         let text = |atom: &Atom| -> Option<String> {
             let span = atom.syn.span;
-            src.get(span.start as usize..span.end as usize).map(str::to_string)
+            src.get(span.start as usize..span.end as usize)
+                .map(str::to_string)
         };
         let mut out = BTreeMap::new();
         let insert = |out: &mut BTreeMap<String, String>, key: String, value: String| {
@@ -1436,7 +1473,7 @@ mod tests {
 
         for expr in analysis.exprs.iter() {
             walk(expr, &mut |expr| {
-                // Functions: `name()` is the return type of the lambda bound to `name`.
+                // For functions, `name()` is the return type of the lambda bound to `name`.
                 let named_lambda = match expr {
                     ExprKind::Define(d) => Some((&d.name, &d.body)),
                     ExprKind::Let(l) if l.bindings.len() == 1 => {
@@ -1444,8 +1481,11 @@ mod tests {
                     }
                     _ => None,
                 };
-                if let Some((ExprKind::Atom(name), ExprKind::LambdaFunction(lambda))) = named_lambda {
-                    if let (Some(name), Some(ty)) = (text(name), info.returns.get(&lambda.syntax_object_id)) {
+                if let Some((ExprKind::Atom(name), ExprKind::LambdaFunction(lambda))) = named_lambda
+                {
+                    if let (Some(name), Some(ty)) =
+                        (text(name), info.returns.get(&lambda.syntax_object_id))
+                    {
                         insert(&mut out, format!("{name}()"), ty.to_string());
                     }
                 }
@@ -1473,7 +1513,10 @@ mod tests {
         ) {
             if let ExprKind::Atom(atom) = name {
                 if let Some(ident) = atom.ident() {
-                    out.insert(atom.syn.syntax_object_id, (ident.resolve().to_string(), atom.syn.span));
+                    out.insert(
+                        atom.syn.syntax_object_id,
+                        (ident.resolve().to_string(), atom.syn.span),
+                    );
                 }
             }
         }
@@ -1568,7 +1611,7 @@ mod tests {
                 ("x@3:61", "string"),
                 ("r()", "string"),
                 ("x@4:47", "list | pair"),
-                // The else-branch: anything but a pair.
+                // In the else-branch, anything but a pair.
                 ("x@4:50", "any except pair"),
             ],
         );
@@ -1602,19 +1645,19 @@ mod tests {
             &[
                 ("v", "any"),
                 ("m()", "any"),
-                // `set!` evaluates to the previous value, not void.
+                // `set!` evaluates to the previous value (so this is not void).
                 ("sr()", "any"),
-                // Assigned by a function defined before the global is: the
+                // Assigned by a function defined before the global is, so the
                 // analysis leaves that `set!` target unresolved.
                 ("counter", "any"),
-                // The user's definition, not the primitive.
+                // Uses the user's definition instead of the primitive.
                 ("u()", "string"),
             ],
         );
     }
 
     /// A name that is also a builtin's is the builtin only when nothing in
-    /// the program binds it: a user definition, or one provided by a required
+    /// the program binds it. A user definition, or one provided by a required
     /// module, gets none of the builtin's signature.
     #[test]
     fn shadowed_builtins_are_not_builtins() {
@@ -1639,12 +1682,24 @@ mod tests {
         std::fs::write(&main, src).unwrap();
         let types = describe_at(src, Some(main));
         let _ = std::fs::remove_dir_all(&dir);
-        // The module's `length` takes anything: no narrowing to a list.
-        assert_eq!(types.get("h()").map(String::as_str), Some("any"), "{types:#?}");
+        // The module's `length` takes anything, so there is no narrowing to a list.
+        assert_eq!(
+            types.get("h()").map(String::as_str),
+            Some("any"),
+            "{types:#?}"
+        );
         // Nor the builtin `car`'s return type.
-        assert_eq!(types.get("c()").map(String::as_str), Some("any"), "{types:#?}");
+        assert_eq!(
+            types.get("c()").map(String::as_str),
+            Some("any"),
+            "{types:#?}"
+        );
         // An actual builtin still narrows.
-        assert_eq!(types.get("s()").map(String::as_str), Some("string"), "{types:#?}");
+        assert_eq!(
+            types.get("s()").map(String::as_str),
+            Some("string"),
+            "{types:#?}"
+        );
     }
 
     /// The hints for a program, as `name label` in source order.
@@ -1670,7 +1725,11 @@ mod tests {
                 if hint.at == hint.span.end {
                     format!("{name} {}", hint.label)
                 } else {
-                    format!("{} {}", &src[hint.span.start as usize - 1..hint.at as usize], hint.label)
+                    format!(
+                        "{} {}",
+                        &src[hint.span.start as usize - 1..hint.at as usize],
+                        hint.label
+                    )
                 }
             })
             .collect()
@@ -1706,13 +1765,13 @@ mod tests {
                 "(helper k) -> number",
                 "k : int",
                 "(sum-list xs) -> number",
-                // The named let: its return type, not the placeholder `loop`
-                // is bound to before the lambda is stored.
+                // The named let shows its return type, and not the placeholder
+                // `loop` is bound to before the lambda is stored.
                 "loop -> number",
                 "acc : number",
                 "x : int",
-                // Nothing on `or` (its binding is the macro's, not a name),
-                // and nothing for `g`: it returns #t or `b`, which is `any`.
+                // Nothing on `or` (its binding belongs to the macro), and
+                // nothing for `g`, which returns #t or `b` (`any`).
             ],
             "{hints:#?}"
         );
@@ -1734,7 +1793,14 @@ mod tests {
         let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
         let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
         let offset = src.match_indices(needle).nth(nth).unwrap().0 + into;
-        hover_type(&analysis.exprs, &analysis.analysis, &info, source, src, offset)
+        hover_type(
+            &analysis.exprs,
+            &analysis.analysis,
+            &info,
+            source,
+            src,
+            offset,
+        )
     }
 
     #[test]
@@ -1746,9 +1812,12 @@ mod tests {
         // ("x)" occurs as the parameter, in the test, and in the branch.)
         assert_eq!(hover_at(src, "x)", 2, 0).as_deref(), Some("x: string"));
         assert_eq!(hover_at(src, "x)", 1, 0).as_deref(), Some("x: any"));
-        // A function's name: its signature, with the required type.
-        assert_eq!(hover_at(src, "h s", 0, 0).as_deref(), Some("(h s: string?) -> string"));
-        // A call to it: the signature and what this call returns.
+        // A function's name shows its signature, with the required type.
+        assert_eq!(
+            hover_at(src, "h s", 0, 0).as_deref(),
+            Some("(h s: string?) -> string")
+        );
+        // A call to it shows the signature and what this call returns.
         assert_eq!(
             hover_at(src, "(h \"a\")", 0, 1).as_deref(),
             Some("(h s: string?) -> string\n; this call: string")
@@ -1758,9 +1827,15 @@ mod tests {
             hover_at(src, "string-append", 0, 3).as_deref(),
             Some("(string-append ...) -> string")
         );
-        assert_eq!(hover_at(src, "(string-append", 0, 0).as_deref(), Some("-> string"));
-        // A parameter: any, but the body requires a string.
-        assert_eq!(hover_at(src, "s)", 0, 0).as_deref(), Some("s: any, expected string"));
+        assert_eq!(
+            hover_at(src, "(string-append", 0, 0).as_deref(),
+            Some("-> string")
+        );
+        // A parameter is any, but the body requires a string.
+        assert_eq!(
+            hover_at(src, "s)", 0, 0).as_deref(),
+            Some("s: any, expected string")
+        );
     }
 
     #[test]
@@ -1781,17 +1856,17 @@ mod tests {
                 // Every normal return went through (string-length s).
                 "s : string?",
                 "(g x) -> int",
-                // Only one branch demands a string: nothing required of x.
+                // Only one branch demands a string, so nothing is required of x.
                 "(both v i) -> list",
                 "i : int?",
-                // No `args` on vector-length: that branch demands nothing of y,
-                // so the join requires nothing either.
+                // vector-length has no `args`, so that branch demands nothing
+                // of y and the join requires nothing either.
                 "(either y) -> int",
                 "(helper-user n) -> number",
                 "(helper k) -> number",
                 // n is a global function's parameter (any), so the call site
-                // says nothing of k; the body needs a number. (Where the call
-                // site does know more - `k : int` above - that is shown.)
+                // says nothing of k, and the body needs a number. When the call
+                // site knows more, as with `k : int` above, that is shown.
                 "k : number?",
             ],
             "{hints:#?}"
@@ -1831,9 +1906,9 @@ mod tests {
              (define (use) (fact 5))
              (define (rs . xs) xs)",
             &[
-                // Passed to `map`: called from somewhere we cannot see.
+                // Passed to `map`, so called from somewhere we cannot see.
                 ("z", "any"),
-                // Global: callable from outside, whatever `use` passes.
+                // Global, so callable from outside whatever `use` passes.
                 ("n", "any"),
                 ("fact()", "number"),
                 ("use()", "number"),
@@ -1842,10 +1917,13 @@ mod tests {
         );
     }
 
-    /// `TY_FILES=a.scm:b.scm`: robustness and coverage over real programs.
+    /// Checks robustness and coverage over real programs, given as
+    /// `TY_FILES=a.scm:b.scm`.
     #[test]
     fn stats_over_files() {
-        let Ok(files) = std::env::var("TY_FILES") else { return };
+        let Ok(files) = std::env::var("TY_FILES") else {
+            return;
+        };
         if let Ok(dir) = std::env::var("TY_SOUND_CWD") {
             std::env::set_current_dir(dir).unwrap();
         }
@@ -1905,8 +1983,13 @@ mod tests {
                 for (id, ty) in &info.bindings {
                     if ty.is_bottom() {
                         if let Some((name, span)) = names.get(id) {
-                            let line = src.get(..span.start as usize).map(|s| s.matches('\n').count() + 1);
-                            println!("    never: {name} line {line:?} (source {:?})", span.source_id());
+                            let line = src
+                                .get(..span.start as usize)
+                                .map(|s| s.matches('\n').count() + 1);
+                            println!(
+                                "    never: {name} line {line:?} (source {:?})",
+                                span.source_id()
+                            );
                         }
                     }
                 }
@@ -1934,7 +2017,7 @@ mod tests {
         enclosing: Option<u32>,
     ) {
         fn wrap(expr: ExprKind, ty: TypeSet, site: usize) -> ExprKind {
-            // A control: with the claim deliberately wrong, violations must show up.
+            // A control. With the claim deliberately wrong, violations must show up.
             let ty = if std::env::var("TY_SOUND_CORRUPT").is_ok() {
                 ty.without(TypeSet::INT)
             } else {
@@ -1947,7 +2030,7 @@ mod tests {
                 expr,
             ]))
         }
-        let mut site = |sites: &mut Vec<Site>, what: String, ty: TypeSet, span| {
+        let site = |sites: &mut Vec<Site>, what: String, ty: TypeSet, span| {
             sites.push(Site { what, ty, span });
             sites.len() - 1
         };
@@ -1955,31 +2038,80 @@ mod tests {
             ExprKind::Atom(atom) if atom.ident().is_some() => {
                 if let Some(&ty) = info.references.get(&atom.syn.syntax_object_id) {
                     if !ty.is_top() {
-                        let id = site(sites, format!("ref {}", atom.ident().unwrap().resolve()), ty, atom.syn.span);
+                        let id = site(
+                            sites,
+                            format!("ref {}", atom.ident().unwrap().resolve()),
+                            ty,
+                            atom.syn.span,
+                        );
                         *expr = wrap(expr.clone(), ty, id);
                     }
                 }
             }
             ExprKind::If(x) => {
-                instrument(&mut x.test_expr, info, lambda_params, sites, false, enclosing);
-                instrument(&mut x.then_expr, info, lambda_params, sites, tail, enclosing);
-                instrument(&mut x.else_expr, info, lambda_params, sites, tail, enclosing);
+                instrument(
+                    &mut x.test_expr,
+                    info,
+                    lambda_params,
+                    sites,
+                    false,
+                    enclosing,
+                );
+                instrument(
+                    &mut x.then_expr,
+                    info,
+                    lambda_params,
+                    sites,
+                    tail,
+                    enclosing,
+                );
+                instrument(
+                    &mut x.else_expr,
+                    info,
+                    lambda_params,
+                    sites,
+                    tail,
+                    enclosing,
+                );
             }
             ExprKind::Let(x) => {
                 for (_, init) in x.bindings.iter_mut() {
                     instrument(init, info, lambda_params, sites, false, enclosing);
                 }
-                instrument(&mut x.body_expr, info, lambda_params, sites, tail, enclosing);
+                instrument(
+                    &mut x.body_expr,
+                    info,
+                    lambda_params,
+                    sites,
+                    tail,
+                    enclosing,
+                );
             }
-            ExprKind::Define(x) => instrument(&mut x.body, info, lambda_params, sites, false, enclosing),
+            ExprKind::Define(x) => {
+                instrument(&mut x.body, info, lambda_params, sites, false, enclosing)
+            }
             ExprKind::LambdaFunction(x) => {
-                instrument(&mut x.body, info, lambda_params, sites, true, Some(x.syntax_object_id));
+                instrument(
+                    &mut x.body,
+                    info,
+                    lambda_params,
+                    sites,
+                    true,
+                    Some(x.syntax_object_id),
+                );
                 let mut checks = Vec::new();
                 for arg in &x.args {
                     let ExprKind::Atom(atom) = arg else { continue };
-                    let Some(&ty) = info.bindings.get(&atom.syn.syntax_object_id) else { continue };
+                    let Some(&ty) = info.bindings.get(&atom.syn.syntax_object_id) else {
+                        continue;
+                    };
                     if !ty.is_top() {
-                        let id = site(sites, format!("param {}", atom.ident().unwrap().resolve()), ty, atom.syn.span);
+                        let id = site(
+                            sites,
+                            format!("param {}", atom.ident().unwrap().resolve()),
+                            ty,
+                            atom.syn.span,
+                        );
                         let mut reference = arg.clone();
                         if let ExprKind::Atom(a) = &mut reference {
                             a.syn.syntax_object_id = crate::parser::parser::SyntaxObjectId::fresh();
@@ -2002,7 +2134,9 @@ mod tests {
                     instrument(e, info, lambda_params, sites, tail && i + 1 == n, enclosing);
                 }
             }
-            ExprKind::Set(x) => instrument(&mut x.expr, info, lambda_params, sites, false, enclosing),
+            ExprKind::Set(x) => {
+                instrument(&mut x.expr, info, lambda_params, sites, false, enclosing)
+            }
             ExprKind::List(list) => {
                 let id = list.syntax_object_id;
                 let span = list.location;
@@ -2017,26 +2151,38 @@ mod tests {
                     }
                 }
                 // What the callee requires of its arguments holds once it has
-                // returned: `(let ([r (f a)]) (check a) r)`. That also takes a
-                // tail call out of tail position - fine except for a lambda
-                // calling itself (a loop), which would then grow the stack.
+                // returned, so check it after the call with
+                // `(let ([r (f a)]) (check a) r)`. That takes a tail call out of
+                // tail position, so skip it for a lambda calling itself (a
+                // loop), which would then grow the stack.
                 let target = info.call_targets.get(&id).copied();
                 let self_call = target.is_some() && target == enclosing;
                 let mut required_checks = Vec::new();
                 if !self_call {
                     if let Some(params) = target.and_then(|l| lambda_params.get(&l)) {
                         for (arg, param) in original_args.iter().zip(params) {
-                            let (ExprKind::Atom(atom), Some(&req)) = (arg, info.required.get(param)) else {
+                            let (ExprKind::Atom(atom), Some(&req)) =
+                                (arg, info.required.get(param))
+                            else {
                                 continue;
                             };
                             if req.is_top() || atom.ident().is_none() {
                                 continue;
                             }
-                            let what = format!("required {} of {}", atom.ident().unwrap().resolve(), list.args[0].to_string().chars().take(30).collect::<String>());
+                            let what = format!(
+                                "required {} of {}",
+                                atom.ident().unwrap().resolve(),
+                                list.args[0]
+                                    .to_string()
+                                    .chars()
+                                    .take(30)
+                                    .collect::<String>()
+                            );
                             let id = site(sites, what, req, atom.syn.span);
                             let mut reference = arg.clone();
                             if let ExprKind::Atom(a) = &mut reference {
-                                a.syn.syntax_object_id = crate::parser::parser::SyntaxObjectId::fresh();
+                                a.syn.syntax_object_id =
+                                    crate::parser::parser::SyntaxObjectId::fresh();
                             }
                             required_checks.push(wrap(reference, req, id));
                         }
@@ -2045,7 +2191,14 @@ mod tests {
                 if !tail {
                     if let Some(&ty) = info.calls.get(&id) {
                         if !ty.is_top() && !list.args.is_empty() {
-                            let what = format!("call {}", list.args[0].to_string().chars().take(40).collect::<String>());
+                            let what = format!(
+                                "call {}",
+                                list.args[0]
+                                    .to_string()
+                                    .chars()
+                                    .take(40)
+                                    .collect::<String>()
+                            );
                             let site = site(sites, what, ty, span);
                             *expr = wrap(expr.clone(), ty, site);
                         }
@@ -2053,14 +2206,17 @@ mod tests {
                 }
                 {
                     if !required_checks.is_empty() {
-                        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                        static N: std::sync::atomic::AtomicUsize =
+                            std::sync::atomic::AtomicUsize::new(0);
                         let tmp = crate::parser::interner::InternedString::from(format!(
                             "__req_tmp{}",
                             N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                         ));
                         required_checks.push(ExprKind::atom(tmp));
                         let call = std::mem::take(expr);
-                        let location = crate::parser::parser::SyntaxObject::default(crate::parser::tokens::TokenType::Let);
+                        let location = crate::parser::parser::SyntaxObject::default(
+                            crate::parser::tokens::TokenType::Let,
+                        );
                         *expr = ExprKind::Let(Box::new(crate::parser::ast::Let::new(
                             vec![(ExprKind::atom(tmp), call)],
                             ExprKind::Begin(Box::new(crate::parser::ast::Begin::new(
@@ -2084,27 +2240,33 @@ mod tests {
     fn tycheck(bits: isize, site: isize, value: SteelVal) -> SteelVal {
         CHECKS_RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if !TypeSet::from_bits(bits as u32).matches(&value) {
-            VIOLATIONS.lock().unwrap().entry(site as usize).or_insert_with(|| {
-                // Printing can itself panic (the cycle printer on some boxes);
-                // the kind is always safe.
-                let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let mut shown = value.to_string();
-                    shown.truncate(60);
-                    shown
-                }))
-                .unwrap_or_else(|_| "<unprintable>".to_string());
-                format!("{} ({})", text, TypeSet::of(&value))
-            });
+            VIOLATIONS
+                .lock()
+                .unwrap()
+                .entry(site as usize)
+                .or_insert_with(|| {
+                    // Printing can itself panic (the cycle printer on some boxes),
+                    // but the kind is always safe.
+                    let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let mut shown = value.to_string();
+                        shown.truncate(60);
+                        shown
+                    }))
+                    .unwrap_or_else(|_| "<unprintable>".to_string());
+                    format!("{} ({})", text, TypeSet::of(&value))
+                });
         }
         value
     }
 
-    /// `TY_SOUND_FILES=a.scm:b.scm`: runs each program instrumented with a
+    /// Runs each program in `TY_SOUND_FILES=a.scm:b.scm` instrumented with a
     /// check of every inferred type, and fails on any value outside its type.
     #[test]
     fn soundness_check() {
         use crate::steel_vm::register_fn::RegisterFn;
-        let Ok(files) = std::env::var("TY_SOUND_FILES") else { return };
+        let Ok(files) = std::env::var("TY_SOUND_FILES") else {
+            return;
+        };
         // Benchmarks read their inputs relative to where they are run from.
         if let Ok(dir) = std::env::var("TY_SOUND_CWD") {
             std::env::set_current_dir(dir).unwrap();
@@ -2144,17 +2306,17 @@ mod tests {
                 );
             }
             let mut sites = Vec::new();
-            // Instrument the analyzed expressions themselves: cloning an AST
+            // Instrument the analyzed expressions themselves. Cloning an AST
             // gives every syntax object a fresh id, and every lookup into
-            // `info` (keyed by those ids) would silently miss.
+            // `info` (keyed by those ids) would miss.
             drop(analysis);
             let mut instrumented: Vec<ExprKind> = exprs;
-            // A control: the expanded program run as it is, with no checks.
+            // A control, with the expanded program run as it is and no checks.
             if std::env::var("TY_SOUND_BASELINE").is_err() {
                 let mut lambda_params = FxHashMap::default();
                 fn collect_params(e: &ExprKind, out: &mut FxHashMap<u32, Vec<SyntaxObjectId>>) {
                     if let ExprKind::LambdaFunction(l) = e {
-                        // Only the fixed parameters line up with arguments; a
+                        // Only the fixed parameters line up with arguments. A
                         // rest parameter collects all the others into a list.
                         let fixed = l.args.len() - usize::from(l.rest);
                         let ids = l.args[..fixed].iter().filter_map(binding_site).collect();
@@ -2185,21 +2347,32 @@ mod tests {
                     for (lambda, params) in &lambda_params {
                         for p in params {
                             if let Some(req) = info.required.get(p).filter(|t| !t.is_top()) {
-                                let targeted = info.call_targets.values().filter(|l| *l == lambda).count();
+                                let targeted =
+                                    info.call_targets.values().filter(|l| *l == lambda).count();
                                 println!("    debug: lambda {lambda} param {p:?} requires {req}; call sites resolving to it: {targeted}");
                             }
                         }
                     }
                     let known: FxHashSet<u32> = lambda_params.keys().copied().collect();
-                    let missing = info.call_targets.values().filter(|l| !known.contains(l)).count();
-                    println!("    debug: call targets not in lambda_params: {missing} of {}", info.call_targets.len());
+                    let missing = info
+                        .call_targets
+                        .values()
+                        .filter(|l| !known.contains(l))
+                        .count();
+                    println!(
+                        "    debug: call targets not in lambda_params: {missing} of {}",
+                        info.call_targets.len()
+                    );
                 }
                 for expr in instrumented.iter_mut() {
                     instrument(expr, &info, &lambda_params, &mut sites, false, None);
                 }
             }
             if let Ok(dump) = std::env::var("TY_SOUND_DUMP") {
-                let program: String = instrumented.iter().map(|e| e.to_pretty(100) + "\n").collect();
+                let program: String = instrumented
+                    .iter()
+                    .map(|e| e.to_pretty(100) + "\n")
+                    .collect();
                 std::fs::write(dump, &program).unwrap();
             }
 
@@ -2228,8 +2401,13 @@ mod tests {
             );
             for (site, value) in violations {
                 let s = &sites[site];
-                let line = src.get(..s.span.start as usize).map(|p| p.matches('\n').count() + 1);
-                println!("    VIOLATION {} : inferred {} but got {} (line {:?})", s.what, s.ty, value, line);
+                let line = src
+                    .get(..s.span.start as usize)
+                    .map(|p| p.matches('\n').count() + 1);
+                println!(
+                    "    VIOLATION {} : inferred {} but got {} (line {:?})",
+                    s.what, s.ty, value, line
+                );
                 failed = true;
             }
             if result.is_err() {
@@ -2241,7 +2419,9 @@ mod tests {
 
     #[test]
     fn print_expansion() {
-        let Ok(src) = std::env::var("TY_SRC") else { return };
+        let Ok(src) = std::env::var("TY_SRC") else {
+            return;
+        };
         let path = std::env::var("TY_PATH").ok().map(std::path::PathBuf::from);
         let mut engine = Engine::new();
         let mut exprs = engine
@@ -2250,7 +2430,7 @@ mod tests {
         let analysis = SemanticAnalysis::new(&mut exprs);
         for expr in analysis.exprs.iter() {
             println!("{}", expr.to_pretty(80));
-            // With TY_BUILTINS, how analysis classifies each operator.
+            // With TY_BUILTINS, print how analysis classifies each operator.
             if std::env::var("TY_BUILTINS").is_ok() {
                 fn ops(e: &ExprKind, a: &crate::compiler::passes::analysis::Analysis) {
                     if let ExprKind::List(l) = e {
@@ -2280,9 +2460,7 @@ mod tests {
                             if n == "car" || n == "length" {
                                 println!(
                                     "    define {} is {:?} (body: {})",
-                                    n,
-                                    name.syn.syntax_object_id,
-                                    d.body
+                                    n, name.syn.syntax_object_id, d.body
                                 );
                             }
                         }

@@ -1,15 +1,12 @@
 //! What kind of value something is, as far as optimizations are concerned.
 //!
-//! Shared by everything that describes values statically: native function
-//! definitions carry their return type as one of these (filled in by the
-//! `steel_derive` function macros), and the jit turns it into its own
-//! `InferredType` - which additionally tracks how it is holding a value
-//! (unboxed in a register or not), something this deliberately leaves out.
+//! Native function definitions carry their return type as one of these (filled
+//! in by the `steel_derive` function macros), and the jit turns it into its own
+//! `InferredType`, which also tracks whether a value is unboxed in a register.
 //!
-//! A type here is a promise the optimizer relies on, so it has to hold for
-//! every value the function can return, not just the common ones. In
-//! particular [`ValueType::Int`] means a fixnum: a function that can return a
-//! bignum is [`ValueType::Number`].
+//! The optimizer relies on these types, so a type has to hold for every value
+//! the function can return. [`ValueType::Int`] means a fixnum. A function that
+//! can return a bignum is [`ValueType::Number`].
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub enum ValueType {
@@ -17,11 +14,11 @@ pub enum ValueType {
     #[default]
     Any,
     Bool,
-    /// A fixnum (`SteelVal::IntV`) - never a bignum.
+    /// A fixnum (`SteelVal::IntV`). Never a bignum.
     Int,
     /// A float (`SteelVal::NumV`).
     Float,
-    /// Some number: fixnum, bignum, float, rational or complex.
+    /// Any number, whether fixnum, bignum, float, rational or complex.
     Number,
     Char,
     String,
@@ -96,11 +93,10 @@ impl ValueType {
 
 /// The argument types of a native function, from the macros' `args = "..."`.
 ///
-/// The promise is about successful calls: if a call with the right number of
-/// arguments returns normally, argument `i` had type `fixed[i]`, and every
-/// argument past the fixed ones had type `rest`. That is what lets an analysis
-/// learn the type of a variable from a call it was passed to. It says nothing
-/// about which values are accepted - see [`Raises`] for that.
+/// If a call with the right number of arguments returns normally, argument `i`
+/// had type `fixed[i]`, and every argument past the fixed ones had type `rest`.
+/// An analysis can use this to learn the type of a variable from a call it was
+/// passed to. It says nothing about which values are accepted; see [`Raises`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ArgTypes {
     pub fixed: &'static [ValueType],
@@ -153,8 +149,8 @@ pub enum Raises {
     /// Nothing known.
     #[default]
     Maybe,
-    /// Only when some argument is not of its declared type (see [`ArgTypes`]):
-    /// once the argument types are known, the call cannot fail.
+    /// Only when some argument is not of its declared type (see [`ArgTypes`]).
+    /// Once the argument types are known, the call cannot fail.
     BadArgs,
     /// Never.
     Never,
@@ -208,9 +204,8 @@ impl<E> ReturnedValue for Option<Result<crate::SteelVal, E>> {
 }
 
 /// In debug builds the function macros call this on the result of every
-/// function with an explicit `returns = "..."`: the declared type is a promise
-/// the jit optimizes on, and this is what checks it, across the whole test
-/// suite.
+/// function with an explicit `returns = "..."`, to check the declared type the
+/// jit optimizes on.
 #[track_caller]
 pub fn check_return<R: ReturnedValue>(returned: &R, declared: ValueType, name: &str) {
     if let Some(value) = returned.returned_value() {
@@ -222,9 +217,9 @@ pub fn check_return<R: ReturnedValue>(returned: &R, declared: ValueType, name: &
 }
 
 /// In debug builds the function macros call this around every function with
-/// an explicit `args = "..."` or `raises = "..."`: `before` is
-/// [`ArgTypes::check`] of the arguments as they were passed in (the function
-/// may move out of them). Checks the promises [`ArgTypes`] and [`Raises`] make.
+/// an explicit `args = "..."` or `raises = "..."`, to check the promises
+/// [`ArgTypes`] and [`Raises`] make. `before` is [`ArgTypes::check`] of the
+/// arguments as they were passed in (the function may move out of them).
 #[track_caller]
 pub fn check_call<R: ReturnedValue>(returned: &R, before: &ArgMatch, raises: Raises, name: &str) {
     if returned.returned_value().is_some() {
@@ -256,11 +251,11 @@ pub fn check_call<R: ReturnedValue>(returned: &R, before: &ArgMatch, raises: Rai
     }
 }
 
-/// A set of possible kinds of value: what the type inference pass
-/// (`compiler::passes::types`) computes for an expression. Finer than
-/// [`ValueType`] in one way - it is a union, so `int | string` is expressible -
-/// and it adds kinds [`ValueType`] has no name for (procedures, and everything
-/// else lumped into `OTHER`: ports, structs, custom types, ...).
+/// A set of possible kinds of value, which the type inference pass
+/// (`compiler::passes::types`) computes for an expression. Unlike [`ValueType`]
+/// it is a union, so `int | string` is expressible. It also adds kinds
+/// [`ValueType`] has no name for: procedures, and `OTHER` for everything else
+/// (ports, structs, custom types, ...).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct TypeSet(u32);
 
@@ -361,7 +356,7 @@ impl TypeSet {
         ValueType::Any
     }
 
-    /// The kind of `value`: a single-kind set.
+    /// The kind of `value`, as a single-kind set.
     pub fn of(value: &crate::SteelVal) -> TypeSet {
         use crate::SteelVal::*;
         match value {
@@ -380,7 +375,11 @@ impl TypeSet {
             HashSetV(_) => Self::HASHSET,
             ByteVector(_) => Self::BYTEVECTOR,
             Void => Self::VOID,
-            Closure(_) | FuncV(_) | MutFunc(_) | BuiltIn(_) | BoxedFunction(_)
+            Closure(_)
+            | FuncV(_)
+            | MutFunc(_)
+            | BuiltIn(_)
+            | BoxedFunction(_)
             | ContinuationFunction(_) => Self::PROCEDURE,
             _ => Self::OTHER,
         }
@@ -428,7 +427,7 @@ impl TypeSet {
 
 impl core::fmt::Display for TypeSet {
     /// `int`, `string | list`, `number` (every numeric kind), `any` (everything)
-    /// or `never` (nothing: the expression cannot produce a value).
+    /// or `never` (the expression cannot produce a value).
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if self.is_top() {
             return f.write_str("any");
@@ -438,7 +437,7 @@ impl core::fmt::Display for TypeSet {
         }
         let missing = Self::TOP.without(*self);
         if missing.0.count_ones() <= 3 {
-            // Mostly everything: say what it is not.
+            // Mostly everything, so say what it is not.
             return write!(f, "any except {}", missing);
         }
         let mut rest = *self;
@@ -449,7 +448,11 @@ impl core::fmt::Display for TypeSet {
         }
         for (kind, name) in Self::NAMES {
             if rest.contains(kind) {
-                parts.push(if kind == Self::OTHER_NUMBER { "bignum/rational/complex" } else { name });
+                parts.push(if kind == Self::OTHER_NUMBER {
+                    "bignum/rational/complex"
+                } else {
+                    name
+                });
             }
         }
         f.write_str(&parts.join(" | "))

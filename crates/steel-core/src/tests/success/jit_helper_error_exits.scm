@@ -1,7 +1,6 @@
-;; A runtime helper that raises (here: `vector-ref` out of range, reached through
+;; A runtime helper that raises (here `vector-ref` out of range, reached through
 ;; the jit's register fallback) must leave native code before anything uses its
-;; result. The jitted code used to carry on with #<void> and fail later, in `+`,
-;; with the wrong error.
+;; result, so the error comes from `vector-ref` and not a later `+`.
 (define log (vector 0 0))
 
 (define (h v i out)

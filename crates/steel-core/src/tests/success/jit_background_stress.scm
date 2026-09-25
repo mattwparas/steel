@@ -1,9 +1,9 @@
-;; Background compilation (the default): everything runs inside one
-;; top level form, so compiles land while it is running - including into
-;; closures made before their compile landed (their entry is resolved late),
-;; and into code that bakes list and symbol constants. Every result is checked
-;; against a closed form or a second formulation. Synchronously compiled this
-;; is an ordinary JIT test.
+;; Background compilation (the default). Everything runs inside one top level
+;; form, so compiles land while it is running, including into closures made
+;; before their compile landed (their entry is resolved late) and into code that
+;; bakes list and symbol constants. Every result is checked against a closed
+;; form or a second formulation. With synchronous compilation this is an
+;; ordinary JIT test.
 (define (main)
   (define (filler0 x) (let ([a 0]) (set! a (+ a (* x 0) (if (> a 0) 1 2))) (set! a (+ a (* x 1) (if (> a 1) 1 2))) (set! a (+ a (* x 2) (if (> a 2) 1 2))) (set! a (+ a (* x 3) (if (> a 3) 1 2))) (set! a (+ a (* x 4) (if (> a 4) 1 2))) (set! a (+ a (* x 5) (if (> a 5) 1 2))) (set! a (+ a (* x 6) (if (> a 6) 1 2))) (set! a (+ a (* x 7) (if (> a 7) 1 2))) (set! a (+ a (* x 8) (if (> a 8) 1 2))) (set! a (+ a (* x 9) (if (> a 9) 1 2))) (set! a (+ a (* x 10) (if (> a 10) 1 2))) (set! a (+ a (* x 11) (if (> a 11) 1 2))) (set! a (+ a (* x 12) (if (> a 12) 1 2))) (set! a (+ a (* x 13) (if (> a 13) 1 2))) (set! a (+ a (* x 14) (if (> a 14) 1 2))) (set! a (+ a (* x 15) (if (> a 15) 1 2))) (set! a (+ a (* x 16) (if (> a 16) 1 2))) (set! a (+ a (* x 17) (if (> a 17) 1 2))) (set! a (+ a (* x 18) (if (> a 18) 1 2))) (set! a (+ a (* x 19) (if (> a 19) 1 2))) (set! a (+ a (* x 20) (if (> a 20) 1 2))) (set! a (+ a (* x 21) (if (> a 21) 1 2))) (set! a (+ a (* x 22) (if (> a 22) 1 2))) (set! a (+ a (* x 23) (if (> a 23) 1 2))) a))
   (define (filler1 x) (let ([a 0]) (set! a (+ a (* x 0) (if (> a 0) 1 2))) (set! a (+ a (* x 1) (if (> a 1) 1 2))) (set! a (+ a (* x 2) (if (> a 2) 1 2))) (set! a (+ a (* x 3) (if (> a 3) 1 2))) (set! a (+ a (* x 4) (if (> a 4) 1 2))) (set! a (+ a (* x 5) (if (> a 5) 1 2))) (set! a (+ a (* x 6) (if (> a 6) 1 2))) (set! a (+ a (* x 7) (if (> a 7) 1 2))) (set! a (+ a (* x 8) (if (> a 8) 1 2))) (set! a (+ a (* x 9) (if (> a 9) 1 2))) (set! a (+ a (* x 10) (if (> a 10) 1 2))) (set! a (+ a (* x 11) (if (> a 11) 1 2))) (set! a (+ a (* x 12) (if (> a 12) 1 2))) (set! a (+ a (* x 13) (if (> a 13) 1 2))) (set! a (+ a (* x 14) (if (> a 14) 1 2))) (set! a (+ a (* x 15) (if (> a 15) 1 2))) (set! a (+ a (* x 16) (if (> a 16) 1 2))) (set! a (+ a (* x 17) (if (> a 17) 1 2))) (set! a (+ a (* x 18) (if (> a 18) 1 2))) (set! a (+ a (* x 19) (if (> a 19) 1 2))) (set! a (+ a (* x 20) (if (> a 20) 1 2))) (set! a (+ a (* x 21) (if (> a 21) 1 2))) (set! a (+ a (* x 22) (if (> a 22) 1 2))) (set! a (+ a (* x 23) (if (> a 23) 1 2))) a))

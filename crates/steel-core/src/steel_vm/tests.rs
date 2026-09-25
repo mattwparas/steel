@@ -621,8 +621,8 @@ mod expansion_tests {
 
     /// A main program (not compiled as a module, the way the CLI runs files)
     /// that requires a module and has a `case` clause whose datum names a
-    /// special form. Expanding the required module's macros walked into the
-    /// still-unexpanded `case` and parsed `(lambda)` as a malformed lambda.
+    /// special form. Expanding the required module's macros must not parse
+    /// `(lambda)` inside the unexpanded `case` as a malformed lambda.
     #[test]
     fn case_datum_naming_a_special_form_in_a_program_with_requires() {
         let dir = std::env::temp_dir().join(format!("steel-case-datum-{}", std::process::id()));
@@ -638,7 +638,10 @@ mod expansion_tests {
         engine
             .compile_and_run_raw_program_with_path(src, main.clone())
             .unwrap();
-        assert_eq!(engine.extract_value("result").unwrap().to_string(), "(1 2 3)");
+        assert_eq!(
+            engine.extract_value("result").unwrap().to_string(),
+            "(1 2 3)"
+        );
 
         let mut engine = Engine::new();
         engine
@@ -656,9 +659,8 @@ mod expansion_tests {
     }
 
     /// A main program using a module's own `car` / `cdr` in a loop. The
-    /// "hoist car before cdr" optimization matched `car` by name and bound
-    /// `(#%prim.car u)` in place of the module's `(car u)` - which rejects the
-    /// module's pairs (browse and conform, run as main programs).
+    /// "hoist car before cdr" optimization must not replace the module's
+    /// `(car u)` with `(#%prim.car u)`, which rejects the module's pairs.
     #[test]
     fn a_modules_car_is_not_the_builtin_car() {
         let dir = std::env::temp_dir().join(format!("steel-own-car-{}", std::process::id()));
@@ -686,10 +688,9 @@ mod expansion_tests {
         assert_eq!(engine.extract_value("result").unwrap().to_string(), "6");
     }
 
-    /// A reference's `builtin` flag comes from the definition it resolves to,
-    /// not its spelling: in a main program a global named like a prelude
-    /// function (`car`) was flagged builtin, and `set!` of it failed with
-    /// "cannot mutate module-required identifier".
+    /// A reference's `builtin` flag comes from the definition it resolves to.
+    /// A program's own global named like a prelude function (`car`) can be
+    /// `set!` without "cannot mutate module-required identifier".
     #[test]
     fn set_of_a_programs_own_car_is_allowed() {
         let mut engine = Engine::new();
@@ -716,9 +717,7 @@ mod expansion_tests {
 
     /// `(or (null? x) y)` may drop its binding only when `null?` is the
     /// builtin (boolean valued); a program's own `null?` can return anything.
-    /// A guard: `SimplifyOrBindings` matched `null?` by name too, but no
-    /// program was found where that misfired (the call is not a bare `null?`
-    /// by the time it runs).
+    /// Guards `SimplifyOrBindings` against matching `null?` by name.
     #[test]
     fn a_programs_own_predicate_is_not_assumed_boolean() {
         let mut engine = Engine::new();
@@ -732,9 +731,9 @@ mod expansion_tests {
         assert_eq!(engine.extract_value("result").unwrap().to_string(), "yes");
     }
 
-    /// The unoptimized expansion (the language server's) renamed variables
-    /// before turning internal defines into lets, so a reference to a later
-    /// sibling define was left as a free identifier.
+    /// The unoptimized expansion (used by the language server) must turn internal
+    /// defines into lets before renaming, so a reference to a later sibling
+    /// define is renamed too.
     #[test]
     fn unoptimized_expansion_renames_forward_references_between_internal_defines() {
         let src = "(define (outer)
