@@ -36,7 +36,7 @@ use steel::{
     rvals::{AsRefSteelVal, FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
 };
-use steel::compiler::passes::types::{infer_types, inlay_hints, PrimitiveSignatures};
+use steel::compiler::passes::types::{hover_type, infer_types, inlay_hints, PrimitiveSignatures};
 use steel_parser::{
     ast::{Define, ToDoc},
     parser::SyntaxObjectId,
@@ -263,13 +263,16 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let function_or_ident_result = self.hover_impl(&params).await;
+        // Computed first: the documentation lookups below take the same
+        // document's AST.
+        let type_line = self.hover_type_impl(&params);
 
-        if let Some(res) = function_or_ident_result {
-            return Ok(Some(res));
-        }
+        let docs = match self.hover_impl(&params).await {
+            Some(res) => Some(res),
+            None => self.hover_macro_impl(params),
+        };
 
-        Ok(self.hover_macro_impl(params))
+        Ok(with_type_line(type_line, docs))
     }
 
     async fn document_symbol(
@@ -1264,7 +1267,57 @@ static PRIMITIVE_SIGNATURES: Lazy<PrimitiveSignatures> = Lazy::new(|| {
         .unwrap_or_default()
 });
 
+/// A hover showing `type_line` (as Scheme) above whatever documentation was
+/// found.
+fn with_type_line(type_line: Option<String>, docs: Option<Hover>) -> Option<Hover> {
+    let Some(type_line) = type_line else {
+        return docs;
+    };
+    let marked = |m: &MarkedString| match m {
+        MarkedString::String(s) => s.clone(),
+        MarkedString::LanguageString(l) => format!("```{}\n{}\n```", l.language, l.value),
+    };
+    let doc_text = docs.as_ref().map(|hover| match &hover.contents {
+        HoverContents::Scalar(m) => marked(m),
+        HoverContents::Array(ms) => ms.iter().map(marked).collect::<Vec<_>>().join("\n\n"),
+        HoverContents::Markup(m) => m.value.clone(),
+    });
+    let mut value = format!("```scheme\n{type_line}\n```");
+    if let Some(doc) = doc_text {
+        value.push_str("\n\n---\n\n");
+        value.push_str(&doc);
+    }
+    Some(Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value,
+        }),
+        range: docs.and_then(|hover| hover.range),
+    })
+}
+
 impl Backend {
+    /// The inferred type at the hovered position; see `types::hover_type`.
+    fn hover_type_impl(&self, params: &HoverParams) -> Option<String> {
+        let position = &params.text_document_position_params;
+        let uri = &position.text_document.uri;
+        let rope = self.document_map.get(uri.as_str())?;
+        let mut ast = self.ast_map.get_mut(uri.as_str())?;
+        let source = uri_to_source_id(uri)?;
+        let offset = self.config.position_to_offset(position.position, &rope)?;
+
+        let analysis = SemanticAnalysis::new(&mut ast);
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &PRIMITIVE_SIGNATURES);
+        hover_type(
+            &analysis.exprs,
+            &analysis.analysis,
+            &info,
+            source,
+            &rope.to_string(),
+            offset,
+        )
+    }
+
     /// Types of the bindings in the requested range: `: int` after a `define`
     /// / `let` name or parameter, `-> number` after a function's name.
     fn inlay_hints_impl(&self, params: &tower_lsp::lsp_types::InlayHintParams) -> Option<Vec<InlayHint>> {

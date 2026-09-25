@@ -1121,6 +1121,207 @@ fn contains_return(expr: &ExprKind) -> bool {
     }
 }
 
+/// The type to show when hovering at byte `offset` of `source` (whose text is
+/// `text`), as one line of Scheme-ish notation:
+/// - a variable reference: its type at that point, after narrowing
+///   (`x: string` inside `(if (string? x) ...)`);
+/// - a binding (`define` / `let` name, parameter): its type, and what the body
+///   requires of a parameter when that is narrower (`s: any, expected string`);
+/// - a function's name, where it is defined or used: its signature,
+///   `(f s: string? n) -> number`;
+/// - a call's operator, or its opening paren: what the call returns.
+pub fn hover_type(
+    exprs: &[ExprKind],
+    analysis: &Analysis,
+    info: &TypeInfo,
+    source: crate::parser::parser::SourceId,
+    text: &str,
+    offset: usize,
+) -> Option<String> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Role {
+        Binding,
+        Reference,
+        Operator(u32),
+    }
+
+    struct Walk<'a> {
+        source: crate::parser::parser::SourceId,
+        offset: usize,
+        // Atoms under the cursor (expansion can put several at one name).
+        atoms: Vec<(&'a Atom, Role)>,
+        // The innermost call starting exactly at the cursor (its paren).
+        call_at_paren: Option<u32>,
+        lambdas: FxHashMap<u32, &'a LambdaFunction>,
+    }
+
+    impl<'a> Walk<'a> {
+        fn under(&self, span: crate::parser::span::Span) -> bool {
+            span.source_id() == Some(self.source)
+                && (span.start as usize) <= self.offset
+                && self.offset < span.end as usize
+        }
+
+        fn atom(&mut self, expr: &'a ExprKind, role: Role) {
+            if let ExprKind::Atom(atom) = expr {
+                if atom.ident().is_some() && self.under(atom.syn.span) {
+                    self.atoms.push((atom, role));
+                }
+            }
+        }
+
+        fn expr(&mut self, expr: &'a ExprKind) {
+            match expr {
+                ExprKind::Atom(_) => self.atom(expr, Role::Reference),
+                ExprKind::Define(d) => {
+                    self.atom(&d.name, Role::Binding);
+                    self.expr(&d.body);
+                }
+                ExprKind::Let(l) => {
+                    for (name, value) in &l.bindings {
+                        self.atom(name, Role::Binding);
+                        self.expr(value);
+                    }
+                    self.expr(&l.body_expr);
+                }
+                ExprKind::LambdaFunction(l) => {
+                    self.lambdas.insert(l.syntax_object_id, l);
+                    for arg in &l.args {
+                        self.atom(arg, Role::Binding);
+                    }
+                    self.expr(&l.body);
+                }
+                ExprKind::If(i) => {
+                    self.expr(&i.test_expr);
+                    self.expr(&i.then_expr);
+                    self.expr(&i.else_expr);
+                }
+                ExprKind::Begin(b) => b.exprs.iter().for_each(|e| self.expr(e)),
+                ExprKind::Set(t) => self.expr(&t.expr),
+                ExprKind::Return(r) => self.expr(&r.expr),
+                ExprKind::List(l) => {
+                    if l.location.source_id() == Some(self.source)
+                        && l.location.start as usize == self.offset
+                    {
+                        self.call_at_paren = Some(l.syntax_object_id);
+                    }
+                    if let Some((operator, args)) = l.args.split_first() {
+                        match operator {
+                            ExprKind::Atom(_) => self.atom(operator, Role::Operator(l.syntax_object_id)),
+                            _ => self.expr(operator),
+                        }
+                        args.iter().for_each(|a| self.expr(a));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut walk = Walk {
+        source,
+        offset,
+        atoms: Vec::new(),
+        call_at_paren: None,
+        lambdas: FxHashMap::default(),
+    };
+    for expr in exprs {
+        walk.expr(expr);
+    }
+
+    // A name as written, or de-mangled when it is not in this file.
+    let name_of = |atom: &Atom| -> String {
+        let span = atom.syn.span;
+        if span.source_id() == Some(source) {
+            if let Some(written) = text.get(span.start as usize..span.end as usize) {
+                return written.to_string();
+            }
+        }
+        atom.ident()
+            .map(|i| i.resolve().trim_start_matches(['#', '_']).to_string())
+            .unwrap_or_default()
+    };
+
+    let signature = |name: &str, lambda: u32| -> Option<String> {
+        let l = walk.lambdas.get(&lambda)?;
+        let fixed = l.args.len() - usize::from(l.rest);
+        let mut parts = vec![name.to_string()];
+        for (i, arg) in l.args.iter().enumerate() {
+            let ExprKind::Atom(atom) = arg else { continue };
+            let id = atom.syn.syntax_object_id;
+            let ty = info.bindings.get(&id).copied().unwrap_or(TypeSet::TOP);
+            let required = info.required.get(&id).copied();
+            let shown = match required {
+                Some(req) if req != ty && ty.contains(req) && !req.is_top() && !req.is_bottom() => {
+                    format!("{}: {req}?", name_of(atom))
+                }
+                _ if !ty.is_top() && !ty.is_bottom() => format!("{}: {ty}", name_of(atom)),
+                _ => name_of(atom),
+            };
+            if i == fixed {
+                parts.push(".".to_string());
+            }
+            parts.push(shown);
+        }
+        let ret = info.returns.get(&lambda).copied().unwrap_or(TypeSet::TOP);
+        Some(format!("({}) -> {ret}", parts.join(" ")))
+    };
+
+    // The function a binding or reference denotes, if any.
+    let function_of = |atom: &Atom| -> Option<u32> {
+        let id = atom.syn.syntax_object_id;
+        info.functions
+            .get(&id)
+            .or_else(|| reference(analysis, atom).and_then(|b| info.functions.get(&b)))
+            .copied()
+    };
+
+    if !walk.atoms.is_empty() {
+        // A function among several things under one name wins.
+        let (atom, role) = walk
+            .atoms
+            .iter()
+            .find(|(a, _)| function_of(a).is_some())
+            .or(walk.atoms.first())
+            .copied()?;
+        let name = name_of(atom);
+        if let Some(lambda) = function_of(atom) {
+            let sig = signature(&name, lambda)?;
+            return Some(match role {
+                Role::Operator(call) => match info.calls.get(&call) {
+                    Some(ty) => format!("{sig}\n; this call: {ty}"),
+                    None => sig,
+                },
+                _ => sig,
+            });
+        }
+        let id = atom.syn.syntax_object_id;
+        return Some(match role {
+            Role::Binding => {
+                let ty = info.bindings.get(&id).copied().unwrap_or(TypeSet::TOP);
+                match info.required.get(&id).copied() {
+                    Some(req) if req != ty && ty.contains(req) && !req.is_top() && !req.is_bottom() => {
+                        format!("{name}: {ty}, expected {req}")
+                    }
+                    _ => format!("{name}: {ty}"),
+                }
+            }
+            Role::Reference => {
+                let ty = info.references.get(&id).copied().unwrap_or(TypeSet::TOP);
+                format!("{name}: {ty}")
+            }
+            Role::Operator(call) => {
+                let ty = info.calls.get(&call).copied().unwrap_or(TypeSet::TOP);
+                format!("({name} ...) -> {ty}")
+            }
+        });
+    }
+
+    let call = walk.call_at_paren?;
+    let ty = info.calls.get(&call)?;
+    Some(format!("-> {ty}"))
+}
+
 fn is_false_literal(expr: &ExprKind) -> bool {
     matches!(expr, ExprKind::Atom(atom) if matches!(atom.syn.ty, TokenType::BooleanLiteral(false)))
 }
@@ -1515,6 +1716,51 @@ mod tests {
             ],
             "{hints:#?}"
         );
+    }
+
+    /// Hover text at the first occurrence of `needle` (offset into it).
+    fn hover_at(src: &str, needle: &str, nth: usize, into: usize) -> Option<String> {
+        let dir = std::env::temp_dir().join(format!("steel-hover-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{:x}.scm", fxhash_str(src)));
+        std::fs::write(&path, src).unwrap();
+        let mut engine = Engine::new();
+        let mut exprs = engine
+            .emit_expanded_ast_without_optimizations(src, Some(path.clone()))
+            .unwrap();
+        let source = engine.get_source_id(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+        let offset = src.match_indices(needle).nth(nth).unwrap().0 + into;
+        hover_type(&analysis.exprs, &analysis.analysis, &info, source, src, offset)
+    }
+
+    #[test]
+    fn hover_types() {
+        let src = "(define (g x) (if (string? x) (string-length x) 0))
+(define (h s) (string-length s) (string-upcase s))
+(define (use) (string-append (h \"a\") \"b\"))";
+        // A reference narrowed by the branch it is in, and not before it.
+        // ("x)" occurs as the parameter, in the test, and in the branch.)
+        assert_eq!(hover_at(src, "x)", 2, 0).as_deref(), Some("x: string"));
+        assert_eq!(hover_at(src, "x)", 1, 0).as_deref(), Some("x: any"));
+        // A function's name: its signature, with the required type.
+        assert_eq!(hover_at(src, "h s", 0, 0).as_deref(), Some("(h s: string?) -> string"));
+        // A call to it: the signature and what this call returns.
+        assert_eq!(
+            hover_at(src, "(h \"a\")", 0, 1).as_deref(),
+            Some("(h s: string?) -> string\n; this call: string")
+        );
+        // A builtin's call, from its operator or its paren.
+        assert_eq!(
+            hover_at(src, "string-append", 0, 3).as_deref(),
+            Some("(string-append ...) -> string")
+        );
+        assert_eq!(hover_at(src, "(string-append", 0, 0).as_deref(), Some("-> string"));
+        // A parameter: any, but the body requires a string.
+        assert_eq!(hover_at(src, "s)", 0, 0).as_deref(), Some("s: any, expected string"));
     }
 
     #[test]
