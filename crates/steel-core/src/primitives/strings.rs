@@ -220,7 +220,7 @@ fn number_to_string_impl(value: &SteelVal, radix: Option<usize>) -> Result<Steel
 /// > (number->string 255 16) ;; => "ff"
 /// > (number->string 1/2 2) ;; => "1/10"
 /// ```
-#[function(name = "number->string", constant = true)]
+#[function(name = "number->string", constant = true, returns = "string")]
 pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let radix = rest.next();
 
@@ -293,7 +293,7 @@ pub fn string_to_number(
 /// > (string #\λ) ;; => "λ"
 /// > (string) ;; => ""
 /// ```
-#[function(name = "string")]
+#[function(name = "string", returns = "string")]
 pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
     rest.collect::<Result<String>>().map(|x| x.into())
 }
@@ -459,7 +459,7 @@ impl_str_comparison!(
 /// > (string=? "hello" "hello") ;; => #t
 /// > (string=? "hello" "HELLO") ;; => #f
 /// ```
-#[function(name = "string=?", constant = true)]
+#[function(name = "string=?", constant = true, returns = "bool")]
 pub fn string_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
     monotonic!(rest, |s1: &_, s2: &_| s1 == s2)
 }
@@ -475,7 +475,7 @@ pub fn string_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
 /// > (string-ci=? "Straße" "STRASSE" "strasse" "STRAẞE") ;; => #t
 /// > (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύς" "ὀδυσσεύσ") ;; => #t
 /// ```
-#[function(name = "string-ci=?", constant = true)]
+#[function(name = "string-ci=?", constant = true, returns = "bool")]
 pub fn string_ci_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
     let cm = CaseMapper::new();
     monotonic!(
@@ -523,7 +523,7 @@ pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
 /// (substring "hello" 1 4) ;; => "ell"
 /// (substring "hello" 10 15) ;; => error
 /// ```
-#[function(name = "substring", constant = true)]
+#[function(name = "substring", constant = true, returns = "string")]
 pub fn substring(
     value: &SteelString,
     i: usize,
@@ -554,7 +554,7 @@ pub fn substring(
 /// > (make-string 5 #\a) ;; => "aaaaa"
 /// > (make-string 5) ;; => "\0\0\0\0\0"
 /// ```
-#[function(name = "make-string")]
+#[function(name = "make-string", returns = "string")]
 pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> {
     // If the char is there, we want to take it
     let char = c.next().transpose()?;
@@ -580,7 +580,7 @@ pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> 
 /// ```scheme
 /// (string-replace "hello world" "o" "@") ;; => "hell@ w@rld"
 /// ```
-#[function(name = "string-replace")]
+#[function(name = "string-replace", returns = "string")]
 pub fn replace(value: &SteelString, from: &SteelString, to: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::StringV(
         value.replace(from.as_str(), to.as_str()).into(),
@@ -599,7 +599,7 @@ pub fn replace(value: &SteelString, from: &SteelString, to: &SteelString) -> Res
 /// > (to-string 10 20) ;; => "10 20"
 /// > (to-string "hello" "world") ;; => "hello world"
 /// ```
-#[native(name = "to-string", arity = "AtLeast(0)")]
+#[native(name = "to-string", arity = "AtLeast(0)", returns = "string")]
 pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
     let mut error_message = String::new();
 
@@ -616,7 +616,7 @@ pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::StringV(error_message.into()))
 }
 
-#[function(name = "string-push")]
+#[function(name = "string-push", returns = "string")]
 pub fn string_push(value: &mut SteelVal, character_or_string: SteelVal) -> Result<SteelVal> {
     if let SteelVal::StringV(_) = value {
         let SteelVal::StringV(mut s) = core::mem::take(value) else {
@@ -655,7 +655,7 @@ pub fn string_push(value: &mut SteelVal, character_or_string: SteelVal) -> Resul
 /// (string->uninterned-symbol "abc") ;; => 'abc
 /// (string->uninterned-symbol "pea pod") ;; => '|pea pod|
 /// ```
-#[function(name = "string->uninterned-symbol", constant = false)]
+#[function(name = "string->uninterned-symbol", constant = false, returns = "symbol")]
 pub fn string_to_uninterned_symbol(value: SteelString) -> SteelVal {
     match Gc::strong_count(&value.0) {
         1 => SteelVal::SymbolV(value),
@@ -674,7 +674,7 @@ pub fn string_to_uninterned_symbol(value: SteelString) -> SteelVal {
 /// > (string->symbol "abc") ;; => 'abc
 /// > (string->symbol "pea pod") ;; => '|pea pod|
 /// ```
-#[steel_derive::context(name = "string->symbol", arity = "Exact(1)")]
+#[steel_derive::context(name = "string->symbol", arity = "Exact(1)", returns = "symbol")]
 pub fn string_to_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let value = match &args[0] {
         SteelVal::StringV(string) => string.clone(),
@@ -720,7 +720,7 @@ pub fn int_to_string(value: isize) -> String {
 /// > (string->int "100") ;; => 10
 /// > (string->int "not-an-int") ;; error
 /// ```
-#[function(name = "string->int")]
+#[function(name = "string->int", returns = "int")]
 pub fn string_to_int(value: &SteelString) -> Result<SteelVal> {
     let parsed_int = value.parse::<isize>();
     match parsed_int {
@@ -745,7 +745,7 @@ pub fn string_to_int(value: &SteelString) -> Result<SteelVal> {
 /// > (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
 /// > (string->list "one two three" 4 7) ;; => '(#\t #\w #\o)
 /// ```
-#[function(name = "string->list")]
+#[function(name = "string->list", returns = "list")]
 pub fn string_to_list(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
     let i = rest.next().transpose()?;
     let j = rest.next().transpose()?;
@@ -893,7 +893,7 @@ pub fn trim_start_matches(value: &SteelString, pat: &SteelString) -> String {
 /// (split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
 /// (split-whitespace "one\t \ttwo\nthree") ;; '("one" "two" "three")
 /// ```
-#[function(name = "split-whitespace")]
+#[function(name = "split-whitespace", returns = "list")]
 pub fn split_whitespace(value: &SteelString) -> SteelVal {
     let split: List<SteelVal> = value
         .split_whitespace()
@@ -937,7 +937,7 @@ pub fn split_once(value: &SteelString, pat: &SteelString) -> SteelVal {
 /// (split-many "foo|bar|" "|") ;; => '("foo" "bar" "")
 /// (split-many "" "&") ;; => '("")
 /// ```
-#[function(name = "split-many")]
+#[function(name = "split-many", returns = "list")]
 pub fn split_many(value: &SteelString, pat: &SteelString) -> SteelVal {
     let split: List<SteelVal> = value
         .split(pat.as_str())
@@ -1025,7 +1025,7 @@ pub fn utf8_length(value: &SteelString) -> usize {
 /// > (string-append) ;; => ""
 /// > (string-append "foo" "bar") ;; => "foobar"
 /// ```
-#[function(name = "string-append")]
+#[function(name = "string-append", returns = "string")]
 pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVal> {
     rest.0
         .try_fold("".to_string(), |accum, next| Ok(accum + next?.as_str()))
@@ -1048,7 +1048,7 @@ pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVa
 /// > (char=? #\a #\b) ;; => #f
 /// > (char=? #\a #\A) ;; => #f
 /// ```
-#[function(name = "char=?", constant = true)]
+#[function(name = "char=?", constant = true, returns = "bool")]
 pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
 }
@@ -1082,7 +1082,7 @@ pub fn char_equals_binop(l: SteelVal, r: SteelVal) -> Result<SteelVal> {
 /// > (char-ci=? #\ß #\ẞ) ;; => #t
 /// > (char-ci=? #\σ #\Σ #\ς) ;; => #t
 /// ```
-#[function(name = "char-ci=?", constant = true)]
+#[function(name = "char-ci=?", constant = true, returns = "bool")]
 pub fn char_ci_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     let cm = CaseMapper::new();
     monotonic!(
@@ -1259,7 +1259,7 @@ pub fn char_to_integer(ch: char) -> u32 {
 /// > (integer->char #x61) ;; => #\a
 /// > (integer->char 955) ;; => #\λ
 /// ```
-#[function(name = "integer->char")]
+#[function(name = "integer->char", returns = "char")]
 pub fn integer_to_char(int: u32) -> Result<SteelVal> {
     let Some(ch) = char::from_u32(int) else {
         stop!(ConversionError => "integer {} is out of range for a character", int);
@@ -1283,7 +1283,7 @@ pub fn integer_to_char(int: u32) -> Result<SteelVal> {
 /// (string->bytes "αβγ") ;; => #u8(#xCE #xB1 #xCE #xB2 #xCE #xB3)
 /// (string->bytes "one two three" 4 7) ;; => #u8(#x74 #x77 #x6F)
 /// ```
-#[function(name = "string->bytes", alias = "string->utf8")]
+#[function(name = "string->bytes", alias = "string->utf8", returns = "bytevector")]
 pub fn string_to_bytes(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
     let start = rest.next().transpose()?;
     let end = rest.next().transpose()?;
@@ -1313,7 +1313,7 @@ pub fn string_to_bytes(value: &SteelString, mut rest: RestArgsIter<isize>) -> Re
 /// (string->vector "hello") ;; => '#(#\h #\e #\l #\l #\o)
 /// (string->vector "one two three" 4 7) ;; => '#(#\t #\w #\o)
 /// ```
-#[function(name = "string->vector")]
+#[function(name = "string->vector", returns = "vector")]
 pub fn string_to_vector(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
     let start = rest.next().transpose()?;
     let end = rest.next().transpose()?;
@@ -1498,7 +1498,7 @@ fn char_to_number(c: char) -> Option<u32> {
 /// (string-join '("a" "b" "c")) ;; => "abc"
 /// (string-join '("one" "two" "three") ", ") ;; => "one, two, three"
 /// ```
-#[function(name = "string-join")]
+#[function(name = "string-join", returns = "string")]
 fn string_join(
     strings: SteelList<SteelVal>,
     mut rest: RestArgsIter<'_, &SteelString>,

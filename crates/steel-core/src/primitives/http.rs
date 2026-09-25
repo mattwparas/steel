@@ -48,7 +48,7 @@ impl Custom for SteelResponse {}
 /// (http-request-method request) -> string?
 ///
 /// * request : http-request?
-#[steel_derive::function(name = "http-request-method")]
+#[steel_derive::function(name = "http-request-method", returns = "string")]
 pub fn method(value: &SteelVal) -> Result<SteelVal> {
     SteelRequest::as_ref(value)
         .map(|x| x.method.clone())
@@ -60,7 +60,7 @@ pub fn method(value: &SteelVal) -> Result<SteelVal> {
 /// (http-request-path request) -> string?
 ///
 /// * request : http-request?
-#[steel_derive::function(name = "http-request-path")]
+#[steel_derive::function(name = "http-request-path", returns = "string")]
 pub fn path(value: &SteelVal) -> Result<SteelVal> {
     SteelRequest::as_ref(value)
         .map(|x| x.path.clone())
@@ -72,7 +72,7 @@ pub fn path(value: &SteelVal) -> Result<SteelVal> {
 /// (http-request-version request) -> string?
 ///
 /// * request : http-request?
-#[steel_derive::function(name = "http-request-version")]
+#[steel_derive::function(name = "http-request-version", returns = "string")]
 pub fn version(value: &SteelVal) -> Result<SteelVal> {
     SteelRequest::as_ref(value)
         .map(|x| x.version.clone())
@@ -80,7 +80,7 @@ pub fn version(value: &SteelVal) -> Result<SteelVal> {
 }
 
 /// Download file from a URL
-#[steel_derive::function(name = "download-file!")]
+#[steel_derive::function(name = "download-file!", returns = "void")]
 fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
     #[cfg(not(feature = "ureq"))]
     {
@@ -118,7 +118,7 @@ fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
 /// (http-request-body-offset request) -> int?
 ///
 /// * request : http-request?
-#[steel_derive::function(name = "http-request-body-offset")]
+#[steel_derive::function(name = "http-request-body-offset", returns = "int")]
 pub fn body_offset(value: &SteelVal) -> Result<SteelVal> {
     SteelRequest::as_ref(value)
         .map(|x| x.body_offset as isize)
@@ -131,7 +131,7 @@ pub fn body_offset(value: &SteelVal) -> Result<SteelVal> {
 /// (http-request-headers request) -> hash?
 ///
 /// * request : http-request?
-#[steel_derive::function(name = "http-request-headers")]
+#[steel_derive::function(name = "http-request-headers", returns = "hashmap")]
 pub fn headers(value: &SteelVal) -> Result<SteelVal> {
     let req = SteelRequest::as_ref(value)?;
 
@@ -154,7 +154,7 @@ pub fn headers(value: &SteelVal) -> Result<SteelVal> {
 /// (http-response-headers response) -> hash?
 ///
 /// * response : http-response?
-#[steel_derive::function(name = "http-response-headers")]
+#[steel_derive::function(name = "http-response-headers", returns = "hashmap")]
 pub fn resp_headers(value: &SteelVal) -> Result<SteelVal> {
     let resp = SteelResponse::as_ref(value)?;
 

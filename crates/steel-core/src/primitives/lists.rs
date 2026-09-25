@@ -100,7 +100,7 @@ pub fn list_module() -> BuiltInModule {
     module
 }
 
-#[steel_derive::function(name = "#%list-sort")]
+#[steel_derive::function(name = "#%list-sort", returns = "list")]
 pub fn list_sort(value: &List<SteelVal>, func: SteelVal) -> Result<SteelVal> {
     let mut values = value.iter().cloned().collect::<Vec<_>>();
 
@@ -263,7 +263,7 @@ pub fn memq(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(false))
 }
 
-#[steel_derive::function(name = "list-contains")]
+#[steel_derive::function(name = "list-contains", returns = "bool")]
 pub fn list_contains(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
     for item in list.iter() {
         if item == value {
@@ -274,7 +274,7 @@ pub fn list_contains(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal
     Ok(SteelVal::BoolV(false))
 }
 
-#[steel_derive::function(name = "list-chunks", constant = true)]
+#[steel_derive::function(name = "list-chunks", constant = true, returns = "list")]
 pub fn chunks(list: &List<SteelVal>) -> Result<SteelVal> {
     let nodes = list.nodes();
 
@@ -387,7 +387,7 @@ pub fn list_tail(list_or_pair: &SteelVal, pos: usize) -> Result<SteelVal> {
 /// > (list 1 2 3 4 5) ;; => '(1 2 3 4 5)
 /// > (list (list 1 2) (list 3 4)) ;; => '((1 2) (3 4))
 /// ```
-#[steel_derive::native(name = "list", arity = "AtLeast(0)")]
+#[steel_derive::native(name = "list", arity = "AtLeast(0)", returns = "list")]
 pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
 }
@@ -406,7 +406,7 @@ pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (#%const-list 1 2 3 4 5) ;; => '(1 2 3 4 5)
 /// > (#%const-list (#%const-list 1 2) (#%const-list 3 4)) ;; => '((1 2) (3 4))
 /// ```
-#[steel_derive::native_mut(name = "#%const-list", arity = "AtLeast(0)")]
+#[steel_derive::native_mut(name = "#%const-list", arity = "AtLeast(0)", returns = "list")]
 pub fn new_const(args: &mut [SteelVal]) -> Result<SteelVal> {
     // Note: This signature needs to be different than the above list
     // in order to not have issues with function pointer comparison
@@ -532,7 +532,7 @@ macro_rules! debug_unreachable {
 /// > (range 4) ;; => '(0 1 2 3)
 /// > (range 4 10) ;; => '(4 5 6 7 8 9)
 /// ```
-#[steel_derive::native(name = "range", arity = "Range(1,2)")]
+#[steel_derive::native(name = "range", arity = "Range(1,2)", returns = "list")]
 fn range(args: &[SteelVal]) -> Result<SteelVal> {
     let (lower, upper) = match args {
         [SteelVal::IntV(upper)] => (0, *upper),
@@ -579,7 +579,7 @@ fn length(list: &List<SteelVal>) -> usize {
 /// ```scheme
 /// > (reverse (list 1 2 3 4)) ;; '(4 3 2 1)
 /// ```
-#[steel_derive::function(name = "reverse", constant = true)]
+#[steel_derive::function(name = "reverse", constant = true, returns = "list")]
 pub(crate) fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
     let replaced = core::mem::replace(arg, SteelVal::Void);
     if let SteelVal::ListV(l) = replaced {
@@ -659,7 +659,7 @@ pub(crate) unsafe fn unchecked_car(list: &SteelVal) -> SteelVal {
 }
 
 // Optimistic check to see if the rest is null before making an allocation
-#[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)")]
+#[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)", returns = "bool")]
 fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
         SteelVal::ListV(l) => {
@@ -768,7 +768,7 @@ pub(crate) unsafe fn cdr_no_check(arg: &mut SteelVal) -> SteelVal {
 /// 1 │ (rest '())
 ///   │  ^^^^ rest expects a non empty list
 /// ```
-#[steel_derive::function(name = "rest", constant = true, arity = "Exact(1)")]
+#[steel_derive::function(name = "rest", constant = true, arity = "Exact(1)", returns = "list")]
 fn rest(arg: &mut SteelVal) -> Result<SteelVal> {
     if let SteelVal::ListV(mut l) = core::mem::replace(arg, SteelVal::Void) {
         if l.is_empty() {
@@ -797,7 +797,7 @@ fn rest(arg: &mut SteelVal) -> Result<SteelVal> {
 /// > (take '(1 2 3 4) 2) ;; => '(0 1)
 /// > (take (range 0 10) 4) ;; => '(0 1 2 3)
 /// ```
-#[steel_derive::function(name = "take", constant = true)]
+#[steel_derive::function(name = "take", constant = true, returns = "list")]
 fn take(list: &List<SteelVal>, n: isize) -> Result<SteelVal> {
     if n < 0 {
         stop!(Generic => "take expects a positive integer")
@@ -887,7 +887,7 @@ pub fn try_list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
 /// > (list-drop '(1 2 3 4 5) 2) ;; => '(3 4 5)
 /// > (list-drop '() 3) ;; => '()
 /// ```
-#[steel_derive::function(name = "list-drop", constant = true)]
+#[steel_derive::function(name = "list-drop", constant = true, returns = "list")]
 pub fn drop_start(list: &List<SteelVal>, skip: usize) -> Result<SteelVal> {
     let mut list = list.clone();
     for _ in 0..skip {
@@ -933,7 +933,7 @@ where
 }
 
 // Find the arg by index, skipping keyword pairs
-#[steel_derive::function(name = "plist-get-positional-arg-list", constant = true)]
+#[steel_derive::function(name = "plist-get-positional-arg-list", constant = true, returns = "list")]
 pub fn plist_get_positional_list(list: &List<SteelVal>, index: usize) -> Result<SteelVal> {
     let mut iter = list.iter();
     let mut positional_arg_offset = 0;
@@ -1135,7 +1135,7 @@ pub fn list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
 /// ```scheme
 /// (list->string '(#\a #\b #\c)) ;; => "abc"
 /// ```
-#[steel_derive::function(name = "list->string", constant = true)]
+#[steel_derive::function(name = "list->string", constant = true, returns = "string")]
 fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
     list.iter()
         .map(|x| {
@@ -1146,7 +1146,7 @@ fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
         .map(SteelVal::StringV)
 }
 
-#[steel_derive::function(name = "list->vector")]
+#[steel_derive::function(name = "list->vector", returns = "vector")]
 fn list_to_vector(list: &List<SteelVal>) -> SteelVal {
     let args: crate::values::Vector<_> = list.iter().cloned().collect();
 

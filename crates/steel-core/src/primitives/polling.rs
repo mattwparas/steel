@@ -12,7 +12,7 @@ impl Custom for Events {}
 
 static KEY_ID: AtomicUsize = AtomicUsize::new(0);
 
-#[steel_derive::function(name = "fresh-event-id")]
+#[steel_derive::function(name = "fresh-event-id", returns = "number")]
 fn fresh_key() -> Result<SteelVal> {
     KEY_ID
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -24,7 +24,7 @@ pub fn new_poller() -> Result<SteelVal> {
     Poller::new()?.into_steelval()
 }
 
-#[steel_derive::function(name = "add-event-interest-read")]
+#[steel_derive::function(name = "add-event-interest-read", returns = "void")]
 pub fn add_read(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<SteelVal> {
     unsafe {
         Poller::as_ref(poller)?.add(&*(TcpListener::as_ref(socket)?), Event::readable(key))?;
@@ -32,7 +32,7 @@ pub fn add_read(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<Stee
     }
 }
 
-#[steel_derive::function(name = "add-event-interest-write")]
+#[steel_derive::function(name = "add-event-interest-write", returns = "void")]
 pub fn add_write(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<SteelVal> {
     unsafe {
         Poller::as_ref(poller)?.add(&*(TcpListener::as_ref(socket)?), Event::writable(key))?;
@@ -40,7 +40,7 @@ pub fn add_write(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<Ste
     }
 }
 
-#[steel_derive::function(name = "add-event-interest-all")]
+#[steel_derive::function(name = "add-event-interest-all", returns = "void")]
 pub fn add_all(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<SteelVal> {
     unsafe {
         Poller::as_ref(poller)?.add(&*(TcpListener::as_ref(socket)?), Event::all(key))?;
@@ -58,14 +58,14 @@ pub fn clear_events() {
     EVENTS.with(|x| x.borrow_mut().clear());
 }
 
-#[steel_derive::function(name = "poller-wait")]
+#[steel_derive::function(name = "poller-wait", returns = "void")]
 pub fn poller_wait(poller: &SteelVal) -> Result<SteelVal> {
     let poller = Poller::as_ref(poller)?;
     EVENTS.with(|x| poller.wait(&mut x.borrow_mut(), None))?;
     Ok(SteelVal::Void)
 }
 
-#[steel_derive::function(name = "events->list")]
+#[steel_derive::function(name = "events->list", returns = "list")]
 pub fn events() -> Result<SteelVal> {
     Ok(SteelVal::ListV(EVENTS.with(|x| {
         x.borrow()
@@ -75,25 +75,25 @@ pub fn events() -> Result<SteelVal> {
     })))
 }
 
-#[steel_derive::function(name = "modify-event-interest-read!")]
+#[steel_derive::function(name = "modify-event-interest-read!", returns = "void")]
 pub fn modify_read(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<SteelVal> {
     Poller::as_ref(poller)?.modify(&*(TcpListener::as_ref(socket)?), Event::readable(key))?;
     Ok(SteelVal::Void)
 }
 
-#[steel_derive::function(name = "modify-event-interest-write!")]
+#[steel_derive::function(name = "modify-event-interest-write!", returns = "void")]
 pub fn modify_write(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<SteelVal> {
     Poller::as_ref(poller)?.modify(&*(TcpListener::as_ref(socket)?), Event::writable(key))?;
     Ok(SteelVal::Void)
 }
 
-#[steel_derive::function(name = "modify-event-interest-all!")]
+#[steel_derive::function(name = "modify-event-interest-all!", returns = "void")]
 pub fn modify_all(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<SteelVal> {
     Poller::as_ref(poller)?.modify(&*(TcpListener::as_ref(socket)?), Event::all(key))?;
     Ok(SteelVal::Void)
 }
 
-#[steel_derive::function(name = "poller-delete!")]
+#[steel_derive::function(name = "poller-delete!", returns = "void")]
 pub fn delete_interest(poller: &SteelVal, socket: &SteelVal) -> Result<SteelVal> {
     Poller::as_ref(poller)?.delete(&*(TcpListener::as_ref(socket)?))?;
     Ok(SteelVal::Void)

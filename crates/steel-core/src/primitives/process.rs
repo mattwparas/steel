@@ -43,12 +43,12 @@ pub fn process_module() -> BuiltInModule {
     module
 }
 
-#[function(name = "subprocess?", alias = "ChildProcess?")]
+#[function(name = "subprocess?", alias = "ChildProcess?", returns = "bool")]
 pub fn is_subprocess(value: &SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(SteelVal::BoolV(ChildProcess::as_ref(value).is_ok()))
 }
 
-#[function(name = "command-builder?", alias = "CommandBuilder?")]
+#[function(name = "command-builder?", alias = "CommandBuilder?", returns = "bool")]
 pub fn is_command_builder(value: &SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(SteelVal::BoolV(CommandBuilder::as_ref(value).is_ok()))
 }
@@ -514,7 +514,7 @@ pub fn child_stderr(child: &SteelVal) -> Result<SteelVal, SteelErr> {
 /// (subprocess-kill subprocess)
 ///
 /// subprocess : ChildProcess?
-#[function(name = "kill", alias = "subprocess-kill")]
+#[function(name = "kill", alias = "subprocess-kill", returns = "void")]
 pub fn child_kill(child: &SteelVal) -> Result<SteelVal, SteelErr> {
     let mut child = ChildProcess::as_mut_ref(&child)?;
     child.kill()

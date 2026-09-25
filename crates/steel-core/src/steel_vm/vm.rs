@@ -5495,7 +5495,7 @@ fn inspect_impl(ctx: &VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "inspect", arity = "Exact(1)")]
+#[steel_derive::context(name = "inspect", arity = "Exact(1)", returns = "void")]
 pub fn inspect(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     inspect_impl(ctx, args)
 }
@@ -5701,7 +5701,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
-#[steel_derive::context(name = "debug-globals", arity = "Exact(0)")]
+#[steel_derive::context(name = "debug-globals", arity = "Exact(0)", returns = "void")]
 fn debug_globals(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(debug_global_env(ctx, args))
 }
@@ -5983,7 +5983,7 @@ fn get_module_relative_context(
     Some(Ok(SteelVal::StringV(relative.to_str().unwrap().into())))
 }
 
-#[steel_derive::context(name = "#%push-module-context", arity = "Exact(1)")]
+#[steel_derive::context(name = "#%push-module-context", arity = "Exact(1)", returns = "void")]
 fn push_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -5996,7 +5996,7 @@ fn push_module_context(
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "#%pop-module-context", arity = "Exact(0)")]
+#[steel_derive::context(name = "#%pop-module-context", arity = "Exact(0)", returns = "void")]
 fn pop_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -6374,12 +6374,12 @@ fn macro_case_bindings_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<Steel
     ))
 }
 
-#[steel_derive::context(name = "#%macro-case-bindings", arity = "Exact(1)")]
+#[steel_derive::context(name = "#%macro-case-bindings", arity = "Exact(1)", returns = "list")]
 pub(crate) fn macro_case_bindings(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(macro_case_bindings_impl(ctx, args))
 }
 
-#[steel_derive::context(name = "#%match-syntax-case", arity = "Exact(2)")]
+#[steel_derive::context(name = "#%match-syntax-case", arity = "Exact(2)", returns = "list")]
 pub(crate) fn match_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(match_syntax_case_impl(ctx, args))
 }
@@ -6391,7 +6391,7 @@ pub struct CallStackCapture {
     names: HashMap<u32, InternedString>,
 }
 
-#[steel_derive::function(name = "dump-profiler")]
+#[steel_derive::function(name = "dump-profiler", returns = "void")]
 pub fn dump_profiler(value: &SteelVal) -> Result<SteelVal> {
     let capture = CallStackCapture::as_ref(value)?;
 
@@ -6429,7 +6429,7 @@ pub fn make_callstack_profiler() -> Result<SteelVal> {
     .into_steelval()
 }
 
-#[steel_derive::context(name = "callstack-hydrate-names", arity = "Exact(1)")]
+#[steel_derive::context(name = "callstack-hydrate-names", arity = "Exact(1)", returns = "void")]
 pub fn callstack_hydrate_names(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut capture = CallStackCapture::as_mut_ref(&args[0]).unwrap();
 
@@ -6448,7 +6448,7 @@ pub fn callstack_hydrate_names(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Re
 
 impl crate::rvals::Custom for CallStackCapture {}
 
-#[steel_derive::context(name = "#%snapshot-stacks", arity = "Exact(1)")]
+#[steel_derive::context(name = "#%snapshot-stacks", arity = "Exact(1)", returns = "void")]
 pub(crate) fn sample_stacks(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut capture = CallStackCapture::as_mut_ref(&args[0]).unwrap();
 

@@ -809,7 +809,7 @@ pub fn will_execute(_ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Steel
 }
 
 #[cfg(feature = "sync")]
-#[steel_derive::function(name = "will-register")]
+#[steel_derive::function(name = "will-register", returns = "void")]
 pub fn will_register(
     will: SteelVal,
     value: SteelVal,
@@ -821,7 +821,7 @@ pub fn will_register(
 }
 
 #[cfg(not(feature = "sync"))]
-#[steel_derive::function(name = "will-register")]
+#[steel_derive::function(name = "will-register", returns = "void")]
 pub fn will_register(
     _will: SteelVal,
     _value: SteelVal,

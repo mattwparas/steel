@@ -210,7 +210,7 @@ pub fn read_dir_iter_next(iter: &SteelVal) -> Result<SteelVal> {
 /// (read-dir-iter? my-iter) ;; => #true
 /// (read-dir-iter "not an iter") ;; => #false
 /// ```
-#[steel_derive::function(name = "read-dir-iter?")]
+#[steel_derive::function(name = "read-dir-iter?", returns = "bool")]
 pub fn is_read_dir(value: &SteelVal) -> Result<SteelVal> {
     ReadDir::as_ref(value).is_ok().into_steelval()
 }
@@ -225,7 +225,7 @@ pub fn is_read_dir(value: &SteelVal) -> Result<SteelVal> {
 /// (define next (read-dir-iter-next! my-iter))
 /// (read-dir-iter-entry? next) ;; => #true
 /// ```
-#[steel_derive::function(name = "read-dir-iter-entry?")]
+#[steel_derive::function(name = "read-dir-iter-entry?", returns = "bool")]
 pub fn is_read_dir_iter_entry(value: &SteelVal) -> Result<SteelVal> {
     DirEntry::as_ref(value).is_ok().into_steelval()
 }
@@ -245,7 +245,7 @@ pub fn is_read_dir_iter_entry(value: &SteelVal) -> Result<SteelVal> {
 /// (read-dir-entry-is-dir? next) ;; #false - because this is a file
 ///
 /// ```
-#[steel_derive::function(name = "read-dir-entry-is-dir?")]
+#[steel_derive::function(name = "read-dir-entry-is-dir?", returns = "bool")]
 pub fn read_dir_entry_is_dir(value: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(
         DirEntry::as_ref(value)?.file_type()?.is_dir(),
@@ -267,7 +267,7 @@ pub fn read_dir_entry_is_dir(value: &SteelVal) -> Result<SteelVal> {
 /// (read-dir-entry-is-dir? next) ;; #true - because this is a file
 ///
 /// ```
-#[steel_derive::function(name = "read-dir-entry-is-file?")]
+#[steel_derive::function(name = "read-dir-entry-is-file?", returns = "bool")]
 pub fn read_dir_entry_is_file(value: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(
         DirEntry::as_ref(value)?.file_type()?.is_file(),
@@ -275,7 +275,7 @@ pub fn read_dir_entry_is_file(value: &SteelVal) -> Result<SteelVal> {
 }
 
 /// Checks whether the read dir entry is a symlink.
-#[steel_derive::function(name = "read-dir-entry-is-symlink?")]
+#[steel_derive::function(name = "read-dir-entry-is-symlink?", returns = "bool")]
 pub fn read_dir_entry_is_symlink(value: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(
         DirEntry::as_ref(value)?.file_type()?.is_symlink(),
@@ -301,7 +301,7 @@ pub fn read_dir_entry_file_name(value: &SteelVal) -> Result<SteelVal> {
 }
 
 /// Checks if this value is a #<Metadata>
-#[steel_derive::function(name = "fs-metadata?")]
+#[steel_derive::function(name = "fs-metadata?", returns = "bool")]
 pub fn is_fs_metadata(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value).is_ok().into_steelval()
 }
@@ -332,25 +332,25 @@ pub fn fs_metadata_created(value: &SteelVal) -> Result<SteelVal> {
 }
 
 /// Check if this metadata is from a file
-#[steel_derive::function(name = "fs-metadata-is-file?")]
+#[steel_derive::function(name = "fs-metadata-is-file?", returns = "bool")]
 pub fn fs_metadata_is_file(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.is_file().into_steelval()
 }
 
 /// Check if this metadata is from a directory
-#[steel_derive::function(name = "fs-metadata-is-dir?")]
+#[steel_derive::function(name = "fs-metadata-is-dir?", returns = "bool")]
 pub fn fs_metadata_is_dir(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.is_dir().into_steelval()
 }
 
 /// Check if this metadata is from a symlink
-#[steel_derive::function(name = "fs-metadata-is-symlink?")]
+#[steel_derive::function(name = "fs-metadata-is-symlink?", returns = "bool")]
 pub fn fs_metadata_is_symlink(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.is_symlink().into_steelval()
 }
 
 /// Get the length of the file in bytes
-#[steel_derive::function(name = "fs-metadata-len")]
+#[steel_derive::function(name = "fs-metadata-len", returns = "number")]
 pub fn fs_metadata_len(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.len().into_steelval()
 }
@@ -371,7 +371,7 @@ pub fn file_metadata(path: &SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// > (delete-directory! "logs") ;;
 /// ```
-#[steel_derive::function(name = "delete-directory!")]
+#[steel_derive::function(name = "delete-directory!", returns = "void")]
 pub fn delete_directory(directory: &SteelString) -> Result<SteelVal> {
     std::fs::remove_dir_all(directory.as_str())?;
     Ok(SteelVal::Void)
@@ -387,7 +387,7 @@ pub fn delete_directory(directory: &SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// > (create-directory! "logs") ;;
 /// ```
-#[steel_derive::function(name = "create-directory!")]
+#[steel_derive::function(name = "create-directory!", returns = "void")]
 pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
     std::fs::create_dir_all(directory.as_str())?;
 
@@ -407,7 +407,7 @@ pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
 /// > (rename-file-or-directory! "logs" "backup") ;;
 /// ```
 ///
-#[steel_derive::function(name = "rename-file-or-directory!")]
+#[steel_derive::function(name = "rename-file-or-directory!", returns = "void")]
 pub fn rename_file_or_directory(
     source: &SteelString,
     destination: &SteelString,
@@ -428,7 +428,7 @@ pub fn rename_file_or_directory(
 /// ```scheme
 /// > (copy-directory-recursively! "logs" "backup") ;;
 /// ```
-#[steel_derive::function(name = "copy-directory-recursively!")]
+#[steel_derive::function(name = "copy-directory-recursively!", returns = "void")]
 pub fn copy_directory_recursively(
     source: &SteelString,
     destination: &SteelString,
@@ -449,7 +449,7 @@ pub fn copy_directory_recursively(
 /// > (path-exists? "logs") ;; => #true
 /// > (path-exists? "backup/logs") ;; => #false
 /// ```
-#[steel_derive::function(name = "path-exists?")]
+#[steel_derive::function(name = "path-exists?", returns = "bool")]
 pub fn path_exists(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(Path::new(path.as_ref()).exists()))
 }
@@ -465,7 +465,7 @@ pub fn path_exists(path: &SteelString) -> Result<SteelVal> {
 /// > (is-file? "logs") ;; => #false
 /// > (is-file? "logs/today.json") ;; => #true
 /// ```
-#[steel_derive::function(name = "is-file?")]
+#[steel_derive::function(name = "is-file?", returns = "bool")]
 pub fn is_file(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(Path::new(path.as_ref()).is_file()))
 }
@@ -481,7 +481,7 @@ pub fn is_file(path: &SteelString) -> Result<SteelVal> {
 /// > (is-dir? "logs") ;; => #true
 /// > (is-dir? "logs/today.json") ;; => #false
 /// ```
-#[steel_derive::function(name = "is-dir?")]
+#[steel_derive::function(name = "is-dir?", returns = "bool")]
 pub fn is_dir(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(Path::new(path.as_ref()).is_dir()))
 }
@@ -517,7 +517,7 @@ pub fn get_extension(path: &SteelString) -> Result<SteelVal> {
 /// > (file-name "logs") ;; => "logs"
 /// > (file-name "logs/today.json") ;; => "today.json"
 /// ```
-#[steel_derive::function(name = "file-name")]
+#[steel_derive::function(name = "file-name", returns = "string")]
 pub fn file_name(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::StringV(
         Path::new(path.as_str())
@@ -539,7 +539,7 @@ pub fn file_name(path: &SteelString) -> Result<SteelVal> {
 /// > (parent-name "logs") ;; => ""
 /// > (parent-name "logs/today.json") ;; => "logs"
 /// ```
-#[steel_derive::function(name = "parent-name")]
+#[steel_derive::function(name = "parent-name", returns = "string")]
 pub fn parent_name(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::StringV(
         Path::new(path.as_str())
@@ -561,7 +561,7 @@ pub fn parent_name(path: &SteelString) -> Result<SteelVal> {
 /// > (canonicalize-path "logs") ;; => "/Users/me/Desktop/programming/logs"
 /// > (canonicalize-path "logs/today.json") ;; => "/Users/me/Desktop/programming/logs/today.json"
 /// ```
-#[steel_derive::function(name = "canonicalize-path")]
+#[steel_derive::function(name = "canonicalize-path", returns = "string")]
 pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
     let path = path.as_str();
     let canonicalized = if path.len() > 0 && path.starts_with('~') {
@@ -597,7 +597,7 @@ pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
 /// > (read-dir "logs") ;; => '("logs/today.json" "logs/yesterday.json")
 /// > (read-dir "empty_dir") ;; => '()
 /// ```
-#[steel_derive::function(name = "read-dir")]
+#[steel_derive::function(name = "read-dir", returns = "list")]
 pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
     let p = Path::new(path.as_ref());
     let iter = p.read_dir()?;
@@ -619,7 +619,7 @@ pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// > (current-directory) ;; => "/Users/me/Desktop/programming"
 /// ```
-#[steel_derive::function(name = "current-directory")]
+#[steel_derive::function(name = "current-directory", returns = "string")]
 pub fn current_directory() -> Result<SteelVal> {
     let path = current_dir()?;
     Ok(SteelVal::StringV(path.to_str().unwrap_or("").into()))
@@ -636,7 +636,7 @@ pub fn current_directory() -> Result<SteelVal> {
 /// > (change-current-directory! "logs") ;;
 /// > (change-current-directory! "..") ;;
 /// ```
-#[steel_derive::function(name = "change-current-directory!")]
+#[steel_derive::function(name = "change-current-directory!", returns = "void")]
 pub fn change_current_directory(path: &SteelString) -> Result<SteelVal> {
     let path = Path::new(path.as_ref());
 
@@ -654,7 +654,7 @@ pub fn change_current_directory(path: &SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// > (delete-file! "logs/today.json") ;;
 /// ```
-#[steel_derive::function(name = "delete-file!")]
+#[steel_derive::function(name = "delete-file!", returns = "void")]
 pub fn delete_file(file: &SteelString) -> Result<SteelVal> {
     std::fs::remove_file(file.as_str())?;
     Ok(SteelVal::Void)

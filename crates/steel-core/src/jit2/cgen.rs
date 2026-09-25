@@ -2852,8 +2852,11 @@ impl InferredType {
             ValueType::Pair => InferredType::Pair,
             ValueType::MutableVector => InferredType::MutableVector,
             ValueType::Void => InferredType::Void,
-            // No immutable vector type here yet.
-            ValueType::Vector => InferredType::Any,
+            // No jit type for these yet.
+            ValueType::Vector
+            | ValueType::HashMap
+            | ValueType::HashSet
+            | ValueType::ByteVector => InferredType::Any,
         }
     }
 

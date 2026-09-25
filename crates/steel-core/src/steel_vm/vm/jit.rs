@@ -587,7 +587,7 @@ fn run_background_job(queued: &mut QueuedJob) {
 // Block until every background compile this thread queued has been
 // installed. For tests and measurements that want compiled code; returns at
 // once when nothing is queued.
-#[steel_derive::context(name = "#%jit-drain", arity = "Exact(0)")]
+#[steel_derive::context(name = "#%jit-drain", arity = "Exact(0)", returns = "void")]
 pub(crate) fn jit_drain(_ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     wait_for_background_compiles();
     Some(Ok(SteelVal::Void))

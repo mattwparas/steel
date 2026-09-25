@@ -1503,7 +1503,7 @@ pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 /// (eq? (* 6 7) 42) ;; => #t
 /// (eq? (list 10) (list 10)) ;; => #f
 /// ```
-#[steel_derive::function(name = "eq?")]
+#[steel_derive::function(name = "eq?", returns = "bool")]
 pub fn eq(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(left.ptr_eq(&right)))
 }
@@ -1518,7 +1518,7 @@ pub fn eq(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 /// (equal? (* 6 7) 42) ;; => #t
 /// (equal? (list 10) (list 10)) ;; => #t
 /// ```
-#[steel_derive::function(name = "equal?")]
+#[steel_derive::function(name = "equal?", returns = "bool")]
 pub fn equalp(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(left == right))
 }
@@ -1588,7 +1588,7 @@ fn ord_internal(
 /// > (> 3/2 1.4) ;; => #t
 /// > (> 3 4/2 1) ;; #t
 /// ```
-#[steel_derive::native(name = ">", arity = "AtLeast(1)")]
+#[steel_derive::native(name = ">", arity = "AtLeast(1)", returns = "bool")]
 pub fn greater_than(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| matches!(o, Some(Ordering::Greater)))
 }
@@ -1609,7 +1609,7 @@ pub fn greater_than(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (>= 3/2 1.4) ;; => #t
 /// > (>= 2 4/2 1) ;; #t
 /// ```
-#[steel_derive::native(name = ">=", arity = "AtLeast(1)")]
+#[steel_derive::native(name = ">=", arity = "AtLeast(1)", returns = "bool")]
 pub fn greater_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| {
         matches!(o, Some(Ordering::Greater | Ordering::Equal))
@@ -1632,7 +1632,7 @@ pub fn greater_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (< 2.5 3/2) ;; => #t
 /// > (< 2 5/2 3) ;; #t
 /// ```
-#[steel_derive::native(name = "<", arity = "AtLeast(1)")]
+#[steel_derive::native(name = "<", arity = "AtLeast(1)", returns = "bool")]
 pub fn less_than(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| matches!(o, Some(Ordering::Less)))
 }
@@ -1653,7 +1653,7 @@ pub fn less_than(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (<= 2.5 3/2) ;; => #f
 /// > (<= 2 6/2 3) ;; #t
 /// ```
-#[steel_derive::native(name = "<=", arity = "AtLeast(1)")]
+#[steel_derive::native(name = "<=", arity = "AtLeast(1)", returns = "bool")]
 fn less_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
     ord_internal(args, |o| {
         matches!(o, Some(Ordering::Less | Ordering::Equal))
@@ -1705,7 +1705,7 @@ fn constants_module() -> BuiltInModule {
 /// ```scheme
 /// > (env-var "PATH") ;; => "/usr/bin:/bin:..."
 /// ```
-#[steel_derive::function(name = "env-var")]
+#[steel_derive::function(name = "env-var", returns = "string")]
 fn get_environment_variable(var: String) -> Result<SteelVal> {
     std::env::var(var)
         .map(|x| x.into_steelval().unwrap())
@@ -1817,7 +1817,7 @@ fn sandboxed_meta_module() -> BuiltInModule {
 /// Returns the message of an error object.
 ///
 /// (error-object-message error?) -> string?
-#[steel_derive::function(name = "error-object-message")]
+#[steel_derive::function(name = "error-object-message", returns = "string")]
 fn error_object_message(val: &SteelVal) -> Result<SteelVal> {
     let SteelVal::Custom(custom) = val else {
         stop!(TypeMismatch => "error-object-message: expected an error object");
@@ -2502,7 +2502,7 @@ pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
     Some(function_to_ffi_impl(ctx, args))
 }
 
-#[steel_derive::context(name = "module->exports", arity = "Exact(1)")]
+#[steel_derive::context(name = "module->exports", arity = "Exact(1)", returns = "list")]
 fn module_exports(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn module_exports_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         let module = args[0].clone();

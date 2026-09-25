@@ -59,7 +59,7 @@ pub fn hashmap_module() -> BuiltInModule {
 /// (hash-code 10) ;; => 16689870864682149525
 /// (hash-code "hello world") ;; => 12361891819228967546
 /// ```
-#[steel_derive::function(name = "hash-code", constant = false)]
+#[steel_derive::function(name = "hash-code", constant = false, returns = "number")]
 pub fn hash_code(arg: &SteelVal) -> Result<SteelVal> {
     let mut hasher = DefaultHasher::new();
 
@@ -88,7 +88,7 @@ pub fn hash_code(arg: &SteelVal) -> Result<SteelVal> {
 /// > (hash 'a 10 'b 20)
 /// => '#hash((a . 10) (b . 20))
 /// ```
-#[steel_derive::native(name = "hash", arity = "AtLeast(0)")]
+#[steel_derive::native(name = "hash", arity = "AtLeast(0)", returns = "hashmap")]
 pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
     let mut hm = HashMap::new();
 
@@ -143,7 +143,7 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (hash-remove (hash 'a 10 'b 20) 'a)
 /// => '#hash(('b . 20))
 /// ```
-#[function(name = "hash-remove")]
+#[function(name = "hash-remove", returns = "hashmap")]
 pub fn hash_remove(map: &mut SteelVal, key: SteelVal) -> Result<SteelVal> {
     if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
         match Gc::get_mut(m) {
@@ -178,7 +178,7 @@ pub fn hash_remove(map: &mut SteelVal, key: SteelVal) -> Result<SteelVal> {
 /// > (hash-insert (hash 'a 10 'b 20) 'c 30)
 /// => '#hash((a . 10) (b . 20) (c . 30))
 /// ```
-#[function(name = "hash-insert")]
+#[function(name = "hash-insert", returns = "hashmap")]
 pub fn hash_insert(
     map: &mut SteelVal,
     key: &mut SteelVal,
@@ -269,7 +269,7 @@ pub fn hash_length(map: &Gc<HashMap<SteelVal, SteelVal>>) -> usize {
 /// > (hash-contains? (hash 'a 10 'b 20) 'a) ;; => #true
 /// > (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; => #false
 /// ```
-#[function(name = "hash-contains?")]
+#[function(name = "hash-contains?", returns = "bool")]
 pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(map.contains_key(key)))
 }
@@ -307,7 +307,7 @@ pub fn hash_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVa
 /// > (hash-keys->list (hash 'a 10 'b 20))
 /// => '(a b)
 /// ```
-#[function(name = "hash-keys->list")]
+#[function(name = "hash-keys->list", returns = "list")]
 pub fn keys_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     Ok(SteelVal::ListV(hashmap.keys().cloned().collect()))
 }
@@ -324,7 +324,7 @@ pub fn keys_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVa
 /// > (hash-values->list (hash 'a 10 'b 20))
 /// => '(10 20)
 /// ```
-#[steel_derive::function(name = "hash-values->list")]
+#[steel_derive::function(name = "hash-values->list", returns = "list")]
 pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     Ok(SteelVal::ListV(hashmap.values().cloned().collect()))
 }
@@ -340,7 +340,7 @@ pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
 /// ```scheme
 /// > (hash->vector (hash 'a 10 'b 20)) ;; => '#((a . 10) (b . 20))
 /// ```
-#[function(name = "hash->vector")]
+#[function(name = "hash->vector", returns = "vector")]
 pub fn hash_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     vec_construct_iter_normal(
         hashmap
@@ -359,7 +359,7 @@ pub fn hash_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
 /// > (hash-keys->vector (hash 'a 10 'b 20))
 /// => '#(a b)
 /// ```
-#[steel_derive::function(name = "hash-keys->vector")]
+#[steel_derive::function(name = "hash-keys->vector", returns = "vector")]
 pub fn keys_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     vec_construct_iter_normal(hashmap.keys().cloned())
 }
@@ -376,7 +376,7 @@ pub fn keys_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
 /// > (hash-values->vector (hash 'a 10 'b 20))
 /// => '#(10 20)
 /// ```
-#[steel_derive::function(name = "hash-values->vector")]
+#[steel_derive::function(name = "hash-values->vector", returns = "vector")]
 pub fn values_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     vec_construct_iter_normal(hashmap.values().cloned())
 }
@@ -394,7 +394,7 @@ pub fn values_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Ste
 /// > (hash-clear (hash 'a 10 'b 20))
 /// => '#hash()
 /// ```
-#[steel_derive::function(name = "hash-clear")]
+#[steel_derive::function(name = "hash-clear", returns = "hashmap")]
 pub fn clear(hashmap: &mut SteelVal) -> Result<SteelVal> {
     if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = hashmap {
         match Gc::get_mut(m) {
@@ -421,7 +421,7 @@ pub fn clear(hashmap: &mut SteelVal) -> Result<SteelVal> {
 /// > (hash-empty? (hash 'a 10)) ;; => #f
 /// > (hash-emptY? (hash)) ;; => #true
 /// ```
-#[steel_derive::function(name = "hash-empty?")]
+#[steel_derive::function(name = "hash-empty?", returns = "bool")]
 pub fn hm_empty(hm: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(hm.is_empty()))
 }
@@ -437,7 +437,7 @@ pub fn hm_empty(hm: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
 /// ```scheme
 /// > (hash-union (hash 'a 10) (hash 'b 20)) ;; => '#hash((a . 10) (b . 20))
 /// ```
-#[steel_derive::function(name = "hash-union")]
+#[steel_derive::function(name = "hash-union", returns = "hashmap")]
 pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelVal> {
     match (&mut hml, &mut hmr) {
         (

@@ -52,7 +52,7 @@ impl<'a> PrimitiveAsRef<'a> for SteelSymbol<'a> {
 /// > (symbol=? 'x 'x 'x)
 /// => #t
 /// ```
-#[steel_derive::function(name = "symbol=?", constant = false)]
+#[steel_derive::function(name = "symbol=?", constant = false, returns = "bool")]
 pub fn symbol_equals(mut iter: RestArgsIter<SteelSymbol<'_>>) -> Result<SteelVal> {
     let Some(mut prev) = iter.next().transpose()? else {
         stop!(ArityMismatch => "expected at least one argument");
@@ -84,7 +84,7 @@ pub fn symbol_equals(mut iter: RestArgsIter<SteelSymbol<'_>>) -> Result<SteelVal
 /// > (concat-symbols)
 /// => '
 /// ```
-#[steel_derive::native(name = "concat-symbols", arity = "AtLeast(0)")]
+#[steel_derive::native(name = "concat-symbols", arity = "AtLeast(0)", returns = "symbol")]
 fn concat_symbols(args: &[SteelVal]) -> Result<SteelVal> {
     let mut new_symbol = String::new();
 

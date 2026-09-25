@@ -33,7 +33,7 @@ pub struct ThreadHandle {
 }
 
 /// Check if the given thread is finished running.
-#[steel_derive::function(name = "thread-finished?")]
+#[steel_derive::function(name = "thread-finished?", returns = "bool")]
 pub fn thread_finished(handle: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(
         ThreadHandle::as_ref(handle)?
@@ -98,7 +98,7 @@ pub fn mutex_lock(mutex: &SteelVal) -> Result<SteelVal> {
 }
 
 /// Unlock the given mutex.
-#[steel_derive::function(name = "lock-release!")]
+#[steel_derive::function(name = "lock-release!", returns = "void")]
 pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
     MutexGuard::as_ref(mutex)?.unlock();
     Ok(SteelVal::Void)
@@ -124,7 +124,7 @@ pub(crate) fn thread_join_impl(handle: &ThreadHandle) -> Result<SteelVal> {
 /// Suspend the thread. Note, this will _not_ interrupt any native code that is
 /// potentially running in the thread, and will attempt to block at the next
 /// bytecode instruction that is running.
-#[steel_derive::function(name = "thread-suspend")]
+#[steel_derive::function(name = "thread-suspend", returns = "void")]
 pub(crate) fn thread_suspend(handle: &SteelVal) -> Result<SteelVal> {
     ThreadHandle::as_mut_ref(handle)?
         .thread_state_manager
@@ -134,7 +134,7 @@ pub(crate) fn thread_suspend(handle: &SteelVal) -> Result<SteelVal> {
 }
 
 /// Resume a suspended thread. This does nothing if the thread is already joined.
-#[steel_derive::function(name = "thread-resume")]
+#[steel_derive::function(name = "thread-resume", returns = "void")]
 pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
     let handle = ThreadHandle::as_mut_ref(handle)?;
     handle.thread_state_manager.resume();
@@ -145,7 +145,7 @@ pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
 /// Interrupts the thread. Note, this will _not_ interrupt any native code
 /// that is potentially running in the thread, and will attempt to block
 /// at the next bytecode instruction that is running.
-#[steel_derive::function(name = "thread-interrupt")]
+#[steel_derive::function(name = "thread-interrupt", returns = "void")]
 pub(crate) fn thread_interrupt(handle: &SteelVal) -> Result<SteelVal> {
     ThreadHandle::as_mut_ref(handle)?
         .thread_state_manager
@@ -452,7 +452,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     Ok(deserialized)
 }
 
-#[steel_derive::function(name = "serialized->bytes")]
+#[steel_derive::function(name = "serialized->bytes", returns = "bytevector")]
 fn serialized_to_bytes(value: &SteelVal) -> Result<SteelVal> {
     let inner = SerializedValue::as_ref(value)?;
     let bytes = steel_serialize(inner.deref())?;
@@ -866,7 +866,7 @@ impl Channels {
 /// Returns the index of the channel arguments passed in which is ready.
 ///
 /// Using this directly is not recommended.
-#[steel_derive::native(name = "receivers-select", arity = "AtLeast(0)")]
+#[steel_derive::native(name = "receivers-select", arity = "AtLeast(0)", returns = "number")]
 pub fn select(values: &[SteelVal]) -> Result<SteelVal> {
     let mut selector = crossbeam_channel::Select::new();
 
@@ -898,7 +898,7 @@ pub fn channels_receiver(value: &SteelVal) -> Result<SteelVal> {
     Channels::as_ref(value).map(|x| x.receiver())
 }
 
-#[steel_derive::function(name = "channel/send")]
+#[steel_derive::function(name = "channel/send", returns = "void")]
 pub fn channel_send(sender: &SteelVal, value: SteelVal) -> Result<SteelVal> {
     SteelSender::as_ref(sender)?
         .sender
@@ -1023,7 +1023,7 @@ pub fn disconnected_channel() -> SteelVal {
     }
 }
 
-#[steel_derive::context(name = "current-thread-id", arity = "Exact(0)")]
+#[steel_derive::context(name = "current-thread-id", arity = "Exact(0)", returns = "int")]
 pub fn engine_id(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(SteelVal::IntV(ctx.thread.id.0 as _)))
 }
@@ -1195,7 +1195,7 @@ pub(crate) fn get_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Stee
 
 /// Set the value in the the thread local storage. Only this thread will see the updates associated
 /// with this TLS.
-#[steel_derive::context(name = "set-tls!", arity = "Exact(2)")]
+#[steel_derive::context(name = "set-tls!", arity = "Exact(2)", returns = "void")]
 pub(crate) fn set_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if let SteelVal::Custom(c) = &args[0] {
         if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {

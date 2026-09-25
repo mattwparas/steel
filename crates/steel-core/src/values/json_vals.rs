@@ -40,7 +40,7 @@ pub fn string_to_jsexpr(value: &SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// (value->jsexpr-string `(,(hash "foo" #t))) ;; => "[{\"foo\":true}]"
 /// ```
-#[function(name = "value->jsexpr-string")]
+#[function(name = "value->jsexpr-string", returns = "string")]
 pub fn serialize_val_to_string(value: SteelVal) -> Result<SteelVal> {
     let serde_value: Value = value.try_into()?;
     let serialized_value = serde_value.to_string();

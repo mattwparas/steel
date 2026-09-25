@@ -891,15 +891,63 @@ fn return_type_tokens(
         "pair" => "Pair",
         "vector" => "Vector",
         "mutable-vector" => "MutableVector",
+        "hashmap" => "HashMap",
+        "hashset" => "HashSet",
+        "bytevector" => "ByteVector",
         "void" => "Void",
         other => panic!(
             "unknown return type {other:?}: expected one of any, bool, int, float, number, \
-             char, string, symbol, list, pair, vector, mutable-vector, void"
+             char, string, symbol, list, pair, vector, mutable-vector, hashmap, hashset, \
+             bytevector, void"
         ),
     };
     let variant = Ident::new(variant, proc_macro2::Span::call_site());
 
     quote! { crate::value_type::ValueType::#variant }
+}
+
+/// For a function with an explicit `returns = "..."`: a debug-build check of
+/// what it returned (the value bound to `__ret`) against the declaration.
+/// Inferred types come from the Rust signature, so they need none.
+fn return_check_tokens(
+    keyword_map: &HashMap<String, String>,
+    steel_name: &str,
+) -> proc_macro2::TokenStream {
+    if !keyword_map.contains_key("returns") {
+        return quote! {};
+    }
+    let declared = return_type_tokens(keyword_map, None);
+    quote! {
+        #[cfg(debug_assertions)]
+        crate::value_type::check_return(&__ret, #declared, #steel_name);
+    }
+}
+
+/// For a `native` / `context` / `native_mut` function with an explicit
+/// `returns = "..."`: its body run as a closure of the same type, and the result
+/// checked (debug builds) before it is returned. `return` and `?` in the body
+/// behave as before - they leave the closure.
+fn wrap_with_return_check(mut input: ItemFn, args: &Punctuated<Meta, Comma>) -> ItemFn {
+    let keyword_map = parse_key_value_pairs(args);
+    if !keyword_map.contains_key("returns") {
+        return input;
+    }
+    let ReturnType::Type(_, returned) = &input.sig.output else {
+        return input;
+    };
+    let steel_name = keyword_map.get("name").cloned().unwrap_or_default();
+    let check = return_check_tokens(&keyword_map, &steel_name);
+    let block = &input.block;
+    let wrapped: syn::Block = syn::parse_quote! {
+        {
+            #[allow(clippy::redundant_closure_call)]
+            let __ret: #returned = (|| -> #returned #block)();
+            #check
+            __ret
+        }
+    };
+    input.block = Box::new(wrapped);
+    input
 }
 
 fn rust_return_type_name(output: &ReturnType) -> &'static str {
@@ -925,6 +973,9 @@ fn rust_type_name(ty: &Type) -> &'static str {
                 "isize" | "i32" | "i16" | "i8" | "u8" | "u16" => "int",
                 "usize" | "u32" | "u64" | "i64" | "u128" | "i128" => "number",
                 "String" | "str" | "SteelString" => "string",
+                // Their IntoSteelVal impls always build HashMapV / HashSetV.
+                "HashMap" => "hashmap",
+                "HashSet" => "hashset",
                 // `Result<T>` / `Result<T, E>`: an error never returns.
                 "Result" => match &last.arguments {
                     syn::PathArguments::AngleBracketed(args) => args
@@ -1006,6 +1057,7 @@ pub fn native(
     } else {
         arity_code_injection(&input, &args, false)
     };
+    let modified_input = wrap_with_return_check(modified_input, &args);
 
     let NativeMacroComponents {
         doc_field,
@@ -1056,6 +1108,7 @@ pub fn context(
     } else {
         arity_code_injection(&input, &args, true)
     };
+    let modified_input = wrap_with_return_check(modified_input, &args);
 
     let NativeMacroComponents {
         doc_field,
@@ -1104,6 +1157,7 @@ pub fn native_mut(
     } else {
         arity_code_injection(&input, &args, false)
     };
+    let modified_input = wrap_with_return_check(modified_input, &args);
 
     let NativeMacroComponents {
         doc_field,
@@ -1202,6 +1256,15 @@ pub fn function(
                     res.into_steelval().map_err(err_thunk)
                 }
             }
+        }
+    };
+
+    let return_check = return_check_tokens(&keyword_map, &value);
+    let ret_val = quote! {
+        {
+            let __ret = #ret_val;
+            #return_check
+            __ret
         }
     };
 
@@ -1575,6 +1638,15 @@ pub fn custom_function(
                     res.into_steelval().map_err(err_thunk)
                 }
             }
+        }
+    };
+
+    let return_check = return_check_tokens(&keyword_map, &value);
+    let ret_val = quote! {
+        {
+            let __ret = #ret_val;
+            #return_check
+            __ret
         }
     };
 
