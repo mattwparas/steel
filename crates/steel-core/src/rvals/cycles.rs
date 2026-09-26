@@ -787,7 +787,9 @@ pub fn drop_fields_iteratively(
     drop_impls::DROP_BUFFER
         .try_with(|drop_buffer| {
             if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                drop_buffer.extend(fields.filter(needs_iterative_drop));
+                // Not filtered with `needs_iterative_drop`, which was slower here.
+                // The visit is cheap for values that reach nothing else.
+                drop_buffer.extend(fields);
 
                 IterativeDropHandler::bfs(&mut drop_buffer);
             } else {
@@ -881,7 +883,7 @@ pub(crate) mod drop_impls {
                         // }
 
                         drop_buffer.extend(
-                            self.take_fields().filter(needs_iterative_drop),
+                            self.take_fields(),
                             // core::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
                         );
 
