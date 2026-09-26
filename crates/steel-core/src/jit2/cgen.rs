@@ -3592,15 +3592,6 @@ pub fn encode_big(tag: u8, payload: i64) -> i128 {
 // but any other values pushed to the stack do not necessarily have to get pushed on
 // to the stack.
 
-fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
-    try_op_to_name_payload(op, payload).unwrap_or_else(|| {
-        panic!(
-            "couldn't match the name for the op code + payload: {:?}",
-            (op, payload)
-        )
-    })
-}
-
 /// The index `variadic-numeric-spilled` knows each arithmetic and comparison
 /// opcode by. The compiler emits these opcodes for any positive arity, but
 /// there are fixed-arity helpers for only a few.
@@ -3618,54 +3609,67 @@ fn variadic_numeric_code(op: OpCode) -> Option<usize> {
     })
 }
 
-fn try_op_to_name_payload(op: OpCode, payload: usize) -> Option<&'static str> {
-    Some(match (op, payload) {
-        (OpCode::IF, _) => "if-branch-value",
-        (OpCode::CALLGLOBAL, _) => "call-global",
-        (OpCode::PUSHCONST, _) => "push-const",
-        (OpCode::READLOCAL0, _) => "read-local-0",
-        (OpCode::READLOCAL1, _) => "read-local-1",
-        (OpCode::READLOCAL2, _) => "read-local-2",
-        (OpCode::READLOCAL3, _) => "read-local-3",
-        (OpCode::READLOCAL, _) => "read-local-any",
-        (OpCode::READCAPTURED, _) => "read-captured",
-        (OpCode::MOVEREADLOCAL0, _) => "move-read-local-0",
-        (OpCode::MOVEREADLOCAL1, _) => "move-read-local-1",
-        (OpCode::MOVEREADLOCAL2, _) => "move-read-local-2",
-        (OpCode::MOVEREADLOCAL3, _) => "move-read-local-3",
-        (OpCode::MOVEREADLOCAL, _) => "move-read-local-any",
-        (OpCode::ADD, 2) => "add-binop",
-        (OpCode::ADD, 3) => "add-three",
-        (OpCode::ADD, 4) => "add-four",
-        (OpCode::SUB, 2) => "sub-binop",
-        (OpCode::SUB, 3) => "sub-three",
-        (OpCode::SUB, 1) => "sub-negate",
-        (OpCode::LT, 2) => "lt-binop",
-        (OpCode::LT, 3) => "lt-three",
-        (OpCode::LTE, 2) => "lte-binop",
-        (OpCode::LTE, 3) => "lte-three",
-        (OpCode::GT, 2) => "gt-binop",
-        (OpCode::GT, 3) => "gt-three",
-        (OpCode::GTE, 2) => "gte-binop",
-        (OpCode::GTE, 3) => "gte-three",
-        (OpCode::MUL, 2) => "mult-two",
-        (OpCode::MUL, 3) => "mult-three",
-        (OpCode::DIV, 2) => "div-two",
-        (OpCode::DIV, 1) => "div-one",
-        (OpCode::PUSH, _) => "push-global-value",
-        (OpCode::NOT, _) => "not-value",
-        (OpCode::NUMEQUAL, 2) => "num-equal-value-bool",
-        (OpCode::EQUAL2, _) => "equal-binop-bool",
-        (OpCode::EQUAL, _) => "equal-binop-bool",
-        (OpCode::CAR, _) => "car-handler-value",
-        (OpCode::CDR, _) => "cdr-handler-value",
-        (OpCode::CONS, _) => "cons-handler-value",
-        (OpCode::NEWBOX, _) => "box-handler",
-        (OpCode::UNBOX, _) => "unbox-handler",
-        (OpCode::SETBOX, _) => "set-box-handler",
-        (OpCode::LISTREF, _) => "list-ref-value",
-        (OpCode::VECTORREF, _) => "vector-ref-value",
+/// The helper the generic lowering of an opcode calls, by how many operands it
+/// takes and whether it can raise.
+#[derive(Clone, Copy)]
+enum OperandHelper {
+    One(Helper<1, true, true, true>),
+    Two(Helper<2, true, true, true>),
+    Three(Helper<3, true, true, true>),
+    Four(Helper<4, true, true, true>),
+    OneSafe(Helper<1, true, true, false>),
+    TwoSafe(Helper<2, true, true, false>),
+}
 
+/// The helper for `op` applied to `payload` operands, if there is one at that
+/// arity.
+fn operand_helper(op: OpCode, payload: usize) -> Option<OperandHelper> {
+    use OperandHelper::*;
+    Some(match (op, payload) {
+        (OpCode::ADD, 2) => Two(ADD_BINOP),
+        (OpCode::ADD, 3) => Three(ADD_THREE),
+        (OpCode::ADD, 4) => Four(ADD_FOUR),
+        (OpCode::SUB, 1) => One(SUB_NEGATE),
+        (OpCode::SUB, 2) => Two(SUB_BINOP),
+        (OpCode::SUB, 3) => Three(SUB_THREE),
+        (OpCode::MUL, 2) => Two(MULT_TWO),
+        (OpCode::MUL, 3) => Three(MULT_THREE),
+        (OpCode::DIV, 1) => One(DIV_ONE),
+        (OpCode::DIV, 2) => Two(DIV_TWO),
+        (OpCode::LT, 2) => Two(LT_BINOP),
+        (OpCode::LT, 3) => Three(LT_THREE),
+        (OpCode::LTE, 2) => Two(LTE_BINOP),
+        (OpCode::LTE, 3) => Three(LTE_THREE),
+        (OpCode::GT, 2) => Two(GT_BINOP),
+        (OpCode::GT, 3) => Three(GT_THREE),
+        (OpCode::GTE, 2) => Two(GTE_BINOP),
+        (OpCode::GTE, 3) => Three(GTE_THREE),
+        (OpCode::NUMEQUAL, 2) => Two(NUM_EQUAL_VALUE_BOOL),
+        (OpCode::EQUAL | OpCode::EQUAL2, 2) => TwoSafe(EQUAL_BINOP_BOOL),
+        (OpCode::NOT, 1) => OneSafe(NOT_VALUE),
+        (OpCode::CAR, 1) => One(CAR_HANDLER_VALUE),
+        (OpCode::CDR, 1) => One(CDR_HANDLER_VALUE),
+        (OpCode::CONS, 2) => Two(CONS_HANDLER_VALUE),
+        (OpCode::NEWBOX, 1) => OneSafe(BOX_HANDLER),
+        (OpCode::UNBOX, 1) => One(UNBOX_HANDLER),
+        (OpCode::SETBOX, 2) => Two(SET_BOX_HANDLER),
+        (OpCode::LISTREF, 2) => Two(LIST_REF_VALUE),
+        (OpCode::VECTORREF, 2) => Two(VECTOR_REF_VALUE),
+        _ => return None,
+    })
+}
+
+/// The helper that reads a local for `op`.
+fn read_helper(op: OpCode) -> Option<Helper<0, true, true, false>> {
+    Some(match op {
+        OpCode::READLOCAL0 => READ_LOCAL_0,
+        OpCode::READLOCAL1 => READ_LOCAL_1,
+        OpCode::READLOCAL2 => READ_LOCAL_2,
+        OpCode::READLOCAL3 => READ_LOCAL_3,
+        OpCode::MOVEREADLOCAL0 => MOVE_READ_LOCAL_0,
+        OpCode::MOVEREADLOCAL1 => MOVE_READ_LOCAL_1,
+        OpCode::MOVEREADLOCAL2 => MOVE_READ_LOCAL_2,
+        OpCode::MOVEREADLOCAL3 => MOVE_READ_LOCAL_3,
         _ => return None,
     })
 }
@@ -4871,10 +4875,12 @@ impl FunctionTranslator<'_> {
                         // Assuming this worked, we'll want to push this result on to the stack.
                         self.push(result, InferredType::Any);
                     } else {
-                        let name = "call-global-no-arity-spilled";
-
-                        let v =
-                            self.call_global_function_spilled(arity, name, function_index, false);
+                        let v = self.call_global_function_spilled(
+                            arity,
+                            CALL_GLOBAL_NO_ARITY_SPILLED,
+                            function_index,
+                            false,
+                        );
 
                         self.push(v, InferredType::Any)
                     }
@@ -5133,8 +5139,7 @@ impl FunctionTranslator<'_> {
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV
                     if payload == 2 && float_inline_enabled() && self.top_two_are_floats() =>
                 {
-                    let fallback = op_to_name_payload(op, payload);
-                    let res = self.inline_float_binop_two(op, fallback);
+                    let res = self.inline_float_binop_two(op);
                     self.push(res, InferredType::Float);
                     self.ip += 2;
                 }
@@ -5468,8 +5473,7 @@ impl FunctionTranslator<'_> {
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV
                     if payload == 2 && generic_inline_enabled() && float_inline_enabled() =>
                 {
-                    let fallback = op_to_name_payload(op, payload);
-                    let res = self.inline_float_binop_two(op, fallback);
+                    let res = self.inline_float_binop_two(op);
                     self.push(res, InferredType::Number);
                     self.ip += 2;
                 }
@@ -5492,16 +5496,16 @@ impl FunctionTranslator<'_> {
                     self.compare_register_int(cc, fallback);
                 }
 
-                OpCode::LT if payload == 2 && self.top_operand_is_int() => {
+                OpCode::LT | OpCode::LTE if payload == 2 && self.top_operand_is_int() => {
                     self.mark_operands(payload, InferredType::Number);
                     // TODO: This isn't quite right. This doesn not check the input
                     // type properly
-                    self.func_ret_val_named_with_context(
-                        "lt-binop-int",
-                        payload,
-                        2,
-                        InferredType::Bool,
-                    );
+                    let helper = if op == OpCode::LT {
+                        LT_BINOP_INT
+                    } else {
+                        LTE_BINOP_INT
+                    };
+                    self.call_helper_on_operands(helper, InferredType::Bool);
                 }
 
                 // When the value is a mutable register, or register, and we're comparing
@@ -5608,16 +5612,6 @@ impl FunctionTranslator<'_> {
                     self.check_deopt();
 
                     self.ip += 2;
-                }
-
-                OpCode::LTE if payload == 2 && self.top_operand_is_int() => {
-                    self.mark_operands(payload, InferredType::Number);
-                    self.func_ret_val_named_with_context(
-                        "lte-binop-int",
-                        payload,
-                        2,
-                        InferredType::Bool,
-                    );
                 }
 
                 OpCode::NUMEQUAL
@@ -5801,18 +5795,13 @@ impl FunctionTranslator<'_> {
                 // instead. When they're both ints the comparison is a single `icmp`,
                 // and everything else still reaches the same helper.
                 OpCode::NUMEQUAL if payload == 2 && generic_inline_enabled() => {
-                    let res = self.inline_int_compare_two(IntCC::Equal, "num-equal-value-bool");
+                    let res = self.inline_int_compare_two(IntCC::Equal, NUM_EQUAL_VALUE_BOOL);
                     self.push(res, InferredType::UnboxedBool);
                     self.ip += 2;
                 }
 
                 OpCode::NUMEQUAL if payload == 2 && self.top_operand_is_int() => {
-                    self.func_ret_val_named_with_context(
-                        "num-equal-int",
-                        payload,
-                        2,
-                        InferredType::Bool,
-                    );
+                    self.call_helper_on_operands(NUM_EQUAL_INT, InferredType::Bool);
                 }
 
                 // Same as NUMEQUAL above. The specialised arms all want a register
@@ -5823,10 +5812,10 @@ impl FunctionTranslator<'_> {
                     self.mark_operands(payload, InferredType::Number);
 
                     let (cc, fallback) = match op {
-                        OpCode::LT => (IntCC::SignedLessThan, "lt-two-value-bool"),
-                        OpCode::LTE => (IntCC::SignedLessThanOrEqual, "lte-two-value-bool"),
-                        OpCode::GT => (IntCC::SignedGreaterThan, "gt-two-value-bool"),
-                        OpCode::GTE => (IntCC::SignedGreaterThanOrEqual, "gte-two-value-bool"),
+                        OpCode::LT => (IntCC::SignedLessThan, LT_TWO_VALUE_BOOL),
+                        OpCode::LTE => (IntCC::SignedLessThanOrEqual, LTE_TWO_VALUE_BOOL),
+                        OpCode::GT => (IntCC::SignedGreaterThan, GT_TWO_VALUE_BOOL),
+                        OpCode::GTE => (IntCC::SignedGreaterThanOrEqual, GTE_TWO_VALUE_BOOL),
                         _ => unreachable!(),
                     };
 
@@ -5996,7 +5985,11 @@ impl FunctionTranslator<'_> {
                 }
 
                 OpCode::NULL => {
-                    self.func_ret_val_named("null-handler", 1, 2, InferredType::Bool);
+                    let [value] = self.pop_operands::<1>();
+                    let result = self.call_helper(NULL_HANDLER, [value]);
+                    self.check_deopt();
+                    self.push(result, InferredType::Bool);
+                    self.ip += 2;
                 }
 
                 // Cons handler value - lets optimize this
@@ -6133,13 +6126,10 @@ impl FunctionTranslator<'_> {
                             let reg = self.register_index(reg);
 
                             if can_skip_bounds_check {
-                                let func = "cdr-reg-no-check";
-                                let res = self.call_function_returns_value_args(func, &[reg]);
+                                let res = self.call_helper(CDR_REG_NO_CHECK, [reg]);
                                 self.push(res, rest_type);
                             } else {
-                                let func = "cdr-reg";
-                                let res = self.call_function_returns_value_args(func, &[reg]);
-                                self.check_deopt();
+                                let res = self.call_helper_checked(CDR_REG, [reg]);
                                 self.push(res, rest_type);
                             };
 
@@ -6178,25 +6168,21 @@ impl FunctionTranslator<'_> {
                             let ir_reg = self.register_index(reg);
 
                             if can_skip_bounds_check {
-                                let func = "cdr-mut-reg-no-check";
-
                                 self.properties.set_property(
                                     ValueOrRegister::Register(reg),
                                     Properties::ProperList,
                                 );
 
-                                self.call_function_args_no_return(func, &[ir_reg]);
+                                self.call_helper_void(CDR_MUT_REG_NO_CHECK, [ir_reg]);
                                 self.shadow_push(MaybeStackValue::MutRegister(reg));
                             } else {
-                                let func = "cdr-mut-reg";
                                 let rest_type = self.cdr_result_type(reg);
                                 self.properties.props.insert(
                                     ValueOrRegister::Register(reg),
                                     vec![Properties::InferredType(InferredType::Void)],
                                 );
 
-                                let res = self.call_function_returns_value_args(func, &[ir_reg]);
-                                self.check_deopt();
+                                let res = self.call_helper_checked(CDR_MUT_REG, [ir_reg]);
                                 self.push(res, rest_type);
                             };
 
@@ -7448,14 +7434,14 @@ impl FunctionTranslator<'_> {
     /// generic tail call handler, which looks up the global again, matches on
     /// its kind and hands the frame to the interpreter.
     fn inline_mut_func_tail_call(&mut self, target: usize, arity: usize) -> Option<Value> {
-        let name = if target == crate::primitives::lists::steel_cdr as *const () as usize
+        let helper = if target == crate::primitives::lists::steel_cdr as *const () as usize
             && tail_cdr_enabled()
         {
-            "cdr-tail-value"
+            CDR_TAIL_VALUE
         } else if target == crate::primitives::lists::steel_reverse as *const () as usize
             && tail_reverse_enabled()
         {
-            "reverse-tail-value"
+            REVERSE_TAIL_VALUE
         } else {
             return None;
         };
@@ -7467,10 +7453,7 @@ impl FunctionTranslator<'_> {
         let value = self.pop_boxed();
         let fallback_ip = self.i64_const(self.ip as i64);
 
-        let result = self.call_function_returns_value_args(name, &[fallback_ip, value]);
-        self.check_deopt();
-
-        Some(result)
+        Some(self.call_helper_checked(helper, [fallback_ip, value]))
     }
 
     /// `mutable-vector` called in any other position. The same direct call, but
@@ -7493,34 +7476,41 @@ impl FunctionTranslator<'_> {
         let builtin = *b as usize;
         let make_vector = builtin == crate::primitives::vectors::make_vector as *const () as usize;
 
-        let name = if builtin == crate::primitives::vectors::mut_vec_construct as *const () as usize
-        {
-            CallMutableVectorConstructorsDefinitions::arity_to_name(arity)?
-        } else if make_vector && arity == 1 {
-            "call-make-vector-1"
-        } else if make_vector && arity == 2 {
-            "call-make-vector-2"
-        } else {
-            return None;
-        };
+        // The constructor for this many elements, or `None` for `make-vector`.
+        let constructor =
+            if builtin == crate::primitives::vectors::mut_vec_construct as *const () as usize {
+                Some(CallMutableVectorConstructorsDefinitions::arity_to_name(
+                    arity,
+                )?)
+            } else if make_vector && (arity == 1 || arity == 2) {
+                None
+            } else {
+                return None;
+            };
 
         let below = self.shadow_stack.len().checked_sub(arity)?;
         for i in 0..below {
             self.shadow_spill(i);
         }
 
-        let mut args = Vec::new();
-        if make_vector {
-            // It can raise on a negative length or a non-integer, so it needs
-            // somewhere to hand the frame back to.
-            args.push(self.i64_const(self.ip as i64));
-        }
-        args.extend(self.split_off(arity).into_iter().map(|x| x.0));
-
-        let result = self.call_function_returns_value_args(name, &args);
-        if make_vector {
-            self.check_deopt();
-        }
+        let result = match constructor {
+            Some(name) => {
+                let args: Vec<Value> = self.split_off(arity).into_iter().map(|x| x.0).collect();
+                self.call_function_returns_value_args(name, &args)
+            }
+            None => {
+                // It can raise on a negative length or a non-integer, so it needs
+                // somewhere to hand the frame back to.
+                let fallback_ip = self.i64_const(self.ip as i64);
+                if arity == 1 {
+                    let [length] = self.pop_operands();
+                    self.call_helper_checked(CALL_MAKE_VECTOR_1, [fallback_ip, length])
+                } else {
+                    let [length, fill] = self.pop_operands();
+                    self.call_helper_checked(CALL_MAKE_VECTOR_2, [fallback_ip, length, fill])
+                }
+            }
+        };
 
         Some(result)
     }
@@ -7720,10 +7710,9 @@ impl FunctionTranslator<'_> {
                         .iconst(ctx.module.target_config().pointer_type(), function as i64);
                     let fallback_ip = ctx.i64_const(ctx.ip as i64);
 
-                    let res = ctx.call_function_returns_value_args(
-                        "call_primitive_function_deopt_2",
-                        &[func, fallback_ip, lhs, rhs],
-                    );
+                    let name = CallPrimitiveDefinitions::arity_to_name(2).unwrap();
+                    let res =
+                        ctx.call_function_returns_value_args(name, &[func, fallback_ip, lhs, rhs]);
                     ctx.check_deopt();
                     res
                 },
@@ -7741,7 +7730,11 @@ impl FunctionTranslator<'_> {
     /// `fallback` must be a helper returning an unboxed bool, so both arms of
     /// the branch agree on type and the result can be consumed directly by a
     /// following `if` without boxing.
-    fn inline_int_compare_two(&mut self, cc: IntCC, fallback: &str) -> Value {
+    fn inline_int_compare_two(
+        &mut self,
+        cc: IntCC,
+        fallback: Helper<2, true, true, true>,
+    ) -> Value {
         self.guarded_op::<2>()
             .require([SteelVal::INT_TAG, SteelVal::INT_TAG])
             .emit(
@@ -7751,18 +7744,20 @@ impl FunctionTranslator<'_> {
                     let r = ctx.unbox_value_to_pointer(rhs);
                     ctx.builder.ins().icmp(cc, l, r)
                 },
-                |ctx, [lhs, rhs]| {
-                    let vm_ctx = ctx.get_ctx();
-                    let res = ctx
-                        .call_function_returns_value_args_no_context(fallback, &[vm_ctx, lhs, rhs]);
-                    ctx.check_deopt();
-                    res
-                },
+                |ctx, [lhs, rhs]| ctx.call_helper_checked(fallback, [lhs, rhs]),
                 types::I8,
             )
     }
 
-    fn inline_float_binop_two(&mut self, op: OpCode, fallback: &str) -> Value {
+    /// `+`, `-`, `*` or `/` (`op`) of two floats inline, and the two argument
+    /// helper for anything else.
+    fn inline_float_binop_two(&mut self, op: OpCode) -> Value {
+        let fallback = match op {
+            OpCode::ADD => ADD_BINOP,
+            OpCode::SUB => SUB_BINOP,
+            OpCode::MUL => MULT_TWO,
+            _ => DIV_TWO,
+        };
         self.guarded_op::<2>()
             .require([SteelVal::FLOAT_TAG, SteelVal::FLOAT_TAG])
             .emit(
@@ -7777,13 +7772,7 @@ impl FunctionTranslator<'_> {
                     };
                     ctx.encode_float_value(res)
                 },
-                |ctx, [lhs, rhs]| {
-                    let vm_ctx = ctx.get_ctx();
-                    let res = ctx
-                        .call_function_returns_value_args_no_context(fallback, &[vm_ctx, lhs, rhs]);
-                    ctx.check_deopt();
-                    res
-                },
+                |ctx, [lhs, rhs]| ctx.call_helper_checked(fallback, [lhs, rhs]),
                 types::I128,
             )
     }
@@ -7799,10 +7788,13 @@ impl FunctionTranslator<'_> {
 
             self.push(v, InferredType::Any);
         } else {
-            let name = "call-global-tail-spilled";
-
             // TODO: We need to spill the local variables here!
-            let v = self.call_global_function_spilled(arity, name, function_index, true);
+            let v = self.call_global_function_spilled(
+                arity,
+                CALL_GLOBAL_TAIL_SPILLED,
+                function_index,
+                true,
+            );
 
             self.push(v, InferredType::Any)
         }
@@ -7950,7 +7942,12 @@ impl FunctionTranslator<'_> {
     // Weak::drop also frees the allocation at zero, which we can't do from here, so
     // if we're the one taking it to zero we put it back and let the real destructor
     // run. The free list holds a strong ref while the slot is live, so thats cold.
-    fn inline_weak_decrement(&mut self, ptr: Value, drop_fn: &'static str, drop_arg: Value) {
+    fn inline_weak_decrement(
+        &mut self,
+        ptr: Value,
+        drop_fn: Helper<1, false, false, false>,
+        drop_arg: Value,
+    ) {
         let one = self.builder.ins().iconst(weak_counter_type(), 1);
         let offset = self.builder.ins().iadd_imm_s(ptr, weak_counter_offset());
 
@@ -7985,7 +7982,7 @@ impl FunctionTranslator<'_> {
                     offset,
                     one,
                 );
-                ctx.call_function_args_no_context(drop_fn, &[drop_arg]);
+                ctx.call_helper_void(drop_fn, [drop_arg]);
             },
             |_| {},
         );
@@ -7996,7 +7993,7 @@ impl FunctionTranslator<'_> {
         // the unboxed pointer we do the arithmetic on.
         let ptr = self.unbox_value_to_pointer(value);
 
-        self.inline_weak_decrement(ptr, "drop-one", value);
+        self.inline_weak_decrement(ptr, DROP_ONE, value);
     }
 
     fn drop_tagged_value(&mut self, value: Value) {
@@ -8249,7 +8246,7 @@ impl FunctionTranslator<'_> {
     // value is a HeapRef<_>, i.e. the bare Weak pointer, which is what
     // drop-box / drop-boxed-vec take by value.
     fn drop_heap_box(&mut self, value: Value) {
-        self.inline_weak_decrement(value, "drop-box", value);
+        self.inline_weak_decrement(value, DROP_BOX, value);
     }
 
     fn inline_pair_car_unboxed(&mut self, value: Value) -> Value {
@@ -8610,9 +8607,12 @@ impl FunctionTranslator<'_> {
             // Assuming this worked, we'll want to push this result on to the stack.
             self.push(result, InferredType::Any);
         } else {
-            let name = "call-global-spilled";
-
-            let v = self.call_global_function_spilled(arity, name, function_index, false);
+            let v = self.call_global_function_spilled(
+                arity,
+                CALL_GLOBAL_SPILLED,
+                function_index,
+                false,
+            );
 
             // Only reached when the callee returned a value instead of setting
             // up a frame. The handler dropped the spilled arguments, so drop
@@ -9781,6 +9781,25 @@ impl FunctionTranslator<'_> {
         )
     }
 
+    /// The top `N` operands, in call order, taken off the operand stack.
+    fn pop_operands<const N: usize>(&mut self) -> [Value; N] {
+        let args: Vec<Value> = self.split_off(N).into_iter().map(|x| x.0).collect();
+        args.try_into().unwrap()
+    }
+
+    /// Call `helper` on the top `N` operands, and push its result as `typ`,
+    /// past the call.
+    fn call_helper_on_operands<const N: usize>(
+        &mut self,
+        helper: Helper<N, true, true, true>,
+        typ: InferredType,
+    ) {
+        let args = self.pop_operands::<N>();
+        let result = self.call_helper_checked(helper, args);
+        self.push(result, typ);
+        self.ip += 2;
+    }
+
     /// Record that the top `count` operands are numbers, for the locals they
     /// were read from.
     fn mark_operands(&mut self, count: usize, typ: InferredType) {
@@ -9905,11 +9924,11 @@ impl FunctionTranslator<'_> {
     fn call_global_function_spilled(
         &mut self,
         arity: usize,
-        name: &str,
+        helper: Helper<3, true, true, true>,
         function_index: usize,
         tail: bool,
     ) -> Value {
-        let local_callee = self.get_local_callee(name);
+        let local_callee = self.helper_callee(helper);
 
         let ctx = self.get_ctx();
 
@@ -10111,48 +10130,6 @@ impl FunctionTranslator<'_> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
         self.checked_native_block = Some(then_block);
-    }
-
-    // Same as func_ret_val_named, but the helper takes the vm context so it can
-    // report an error rather than panicking
-    fn func_ret_val_named_with_context(
-        &mut self,
-        function_name: &str,
-        payload: usize,
-        ip_inc: usize,
-        inferred_type: InferredType,
-    ) {
-        let args = self.split_off(payload);
-        let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
-
-        let result = self.call_function_returns_value_args(function_name, &args);
-
-        self.check_deopt();
-
-        self.push(result, inferred_type);
-        self.ip += ip_inc;
-    }
-
-    fn func_ret_val_named(
-        &mut self,
-        function_name: &str,
-        payload: usize,
-        ip_inc: usize,
-        inferred_type: InferredType,
-    ) {
-        let args = self.split_off(payload);
-
-        // TODO: Use the type hints! For now we're not going to for the sake
-        // of getting something running
-        let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
-
-        let result = self.call_function_returns_value_args_no_context(function_name, &args);
-
-        self.check_deopt();
-
-        // Check the inferred type, if we know of it
-        self.push(result, inferred_type);
-        self.ip += ip_inc;
     }
 
     // Make the shadow stack uniform before a two way branch.
@@ -11166,7 +11143,7 @@ impl FunctionTranslator<'_> {
         ip_inc: usize,
         inferred_type: InferredType,
     ) {
-        let Some(function_name) = try_op_to_name_payload(op, payload) else {
+        let Some(helper) = operand_helper(op, payload) else {
             if let Some(code) = variadic_numeric_code(op) {
                 // No helper at this arity, so hand the operands over on the vm
                 // stack to one that applies the primitive to a slice.
@@ -11181,17 +11158,35 @@ impl FunctionTranslator<'_> {
                 self.ip += ip_inc;
                 return;
             }
-            op_to_name_payload(op, payload);
-            unreachable!()
+            panic!("no helper for {op:?} with {payload} operands");
         };
 
-        let args = self.split_off(payload);
-
-        // TODO: Use the type hints! For now we're not going to for the sake
-        // of getting something running
-        let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
-
-        let result = self.call_function_returns_value_args(function_name, &args);
+        let result = match helper {
+            OperandHelper::One(h) => {
+                let args = self.pop_operands();
+                self.call_helper_unchecked(h, args)
+            }
+            OperandHelper::Two(h) => {
+                let args = self.pop_operands();
+                self.call_helper_unchecked(h, args)
+            }
+            OperandHelper::Three(h) => {
+                let args = self.pop_operands();
+                self.call_helper_unchecked(h, args)
+            }
+            OperandHelper::Four(h) => {
+                let args = self.pop_operands();
+                self.call_helper_unchecked(h, args)
+            }
+            OperandHelper::OneSafe(h) => {
+                let args = self.pop_operands();
+                self.call_helper(h, args)
+            }
+            OperandHelper::TwoSafe(h) => {
+                let args = self.pop_operands();
+                self.call_helper(h, args)
+            }
+        };
 
         // Any of these can raise. If one did, bail out here instead of carrying
         // on and popping the frame that holds the handler out from under it
@@ -11202,12 +11197,6 @@ impl FunctionTranslator<'_> {
 
         self.ip += ip_inc;
     }
-
-    //             // Attempt to inline the constant, if it is something that can be inlined.
-    //             // Assuming we know the type of it, we can get really fancy here since
-    //             // we _should_ be able to do something with it if there are other types
-    //             // in play - we can avoid the unboxing / boxing of the type if we know
-    //             // what we're dealing with.
 
     fn constant_to_value(&mut self, payload: usize, constant: SteelVal) -> (Value, InferredType) {
         match &constant {
@@ -11286,7 +11275,11 @@ impl FunctionTranslator<'_> {
                     _ => self.push_const_index(payload),
                 }
             }
-            _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),
+            _ => {
+                let helper = read_helper(op1)
+                    .unwrap_or_else(|| panic!("no helper to read a value for {op1:?}"));
+                self.call_helper(helper, [])
+            }
         }
     }
 
@@ -13898,18 +13891,6 @@ impl FunctionTranslator<'_> {
         result
     }
 
-    fn call_function_returns_value(&mut self, name: &str) -> Value {
-        let local_callee = self.checked_callee(name, 1);
-
-        let ctx = self.get_ctx();
-
-        let arg_values = [ctx];
-
-        let call = self.builder.ins().call(local_callee, &arg_values);
-        let result = self.builder.inst_results(call)[0];
-        result
-    }
-
     fn get_signature(&self, name: &str) -> Signature {
         let mut sig = self.intrinsics.get_signature(name, &self.module);
         if cfg!(target_os = "windows") {
@@ -14135,17 +14116,6 @@ impl FunctionTranslator<'_> {
         result
     }
 
-    /// Calls a function by name, with the first argument implicitly as the VM context.
-    /// Does not return a value.
-    fn call_function_args_no_return(&mut self, name: &str, args: &[Value]) {
-        let local_callee = self.checked_callee(name, args.len() + 1);
-        let ctx = self.get_ctx();
-
-        let mut arg_values = vec![ctx];
-        arg_values.extend(args.iter());
-        self.builder.ins().call(local_callee, &arg_values);
-    }
-
     /// Calls a function by name, without implicitly passing a context.
     /// Returns a value.
     fn call_function_returns_value_args_no_context(&mut self, name: &str, args: &[Value]) -> Value {
@@ -14153,14 +14123,6 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &args);
         let result = self.builder.inst_results(call)[0];
         result
-    }
-
-    /// Calls a function by name, without implicitly passing a context.
-    ///
-    /// Does not return a value.
-    fn call_function_args_no_context(&mut self, name: &str, args: &[Value]) {
-        let local_callee = self.checked_callee(name, args.len());
-        let _ = self.builder.ins().call(local_callee, &args);
     }
 
     /// Creates a signature ref for use in calling a function indirectly.

@@ -420,11 +420,7 @@ impl<'a> FunctionTranslator<'a> {
                         // at the pointers.
                         ctx.builder.ins().icmp(IntCC::Equal, lvalue, rvalue)
                     },
-                    |ctx| {
-                        // let left = ctx.register_index(v);
-                        // ctx.call_function_returns_value_args("eq?-reg-1", &[left, right.0])
-                        ctx.builder.ins().iconst(types::I8, 0)
-                    },
+                    |ctx| ctx.builder.ins().iconst(types::I8, 0),
                     types::I8,
                 );
 
@@ -886,9 +882,6 @@ impl<'a> FunctionTranslator<'a> {
 
                     _ => {
                         self.shadow_stack.pop();
-                        // let res = self.call_function_returns_value_args("list?", &[register]);
-                        // self.push(res, InferredType::Bool);
-
                         let value = self.read_from_vm_stack(p);
                         let is_list = self.is_type(value, SteelVal::LIST_TAG);
 
@@ -1346,12 +1339,7 @@ impl<'a> FunctionTranslator<'a> {
             (StackValue { value: lv, .. }, StackValue { value: rv, .. }) => {
                 let both_int = self.tags_are(&[(lv, SteelVal::INT_TAG), (rv, SteelVal::INT_TAG)]);
 
-                let sp = |ctx: &mut Self| {
-                    let function_name = op_to_name_payload(OpCode::ADD, 2);
-                    let args = [lv, rv];
-                    let result = ctx.call_function_returns_value_args(function_name, &args);
-                    result
-                };
+                let sp = |ctx: &mut Self| ctx.call_helper_unchecked(ADD_BINOP, [lv, rv]);
 
                 let typ = self.int;
 
@@ -3018,9 +3006,7 @@ fn slow_path_struct_getter(
         // Assuming this worked, we'll want to push this result on to the stack.
         result
     } else {
-        let name = "call-global-spilled";
-
-        let v = ctx.call_global_function_spilled(arity, name, function_index, false);
+        let v = ctx.call_global_function_spilled(arity, CALL_GLOBAL_SPILLED, function_index, false);
         ctx.check_deopt();
 
         v

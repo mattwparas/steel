@@ -12,8 +12,9 @@
 //! that can raise, which changes how it may be called (see [`Helper`]).
 //! [`KEEPS_STACK`] lists the helpers that never move the vm's value stack.
 //!
-//! Helpers whose names are chosen at run time (by arity, by opcode) are
-//! registered with their families and still called by name.
+//! Helpers that come in one function per arity (`helper_family!` in
+//! `steel_vm/vm/jit.rs`) are registered with their families, and called by the
+//! name their family gives for an arity.
 
 use super::*;
 
