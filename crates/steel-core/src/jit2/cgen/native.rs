@@ -184,10 +184,7 @@ impl<'a> FunctionTranslator<'a> {
                 crate::primitives::strings::char_equals_binop as *const () as i64,
             );
 
-            let fallback_ip = self
-                .builder
-                .ins()
-                .iconst(Type::int(64).unwrap(), self.ip as i64);
+            let fallback_ip = self.i64_const(self.ip as i64);
 
             let mut args = vec![function, fallback_ip];
 
@@ -573,7 +570,7 @@ impl<'a> FunctionTranslator<'a> {
         .iter()
         .fold(0, |mask, tag| mask | (1u64 << tag));
 
-        let mask = self.builder.ins().iconst(types::I64, payload_tags as i64);
+        let mask = self.i64_const(payload_tags as i64);
         let shifted = self.builder.ins().ushr(mask, left_tag);
         let is_payload_tag = self.builder.ins().band_imm_u(shifted, 1);
         let is_payload_tag = self.builder.ins().ireduce(types::I8, is_payload_tag);
@@ -685,7 +682,7 @@ impl<'a> FunctionTranslator<'a> {
                     std::mem::transmute::<crate::values::lists::List<_>, _>(value.clone())
                 };
 
-                let value_ptr = self.builder.ins().iconst(types::I64, as_ptr as i64);
+                let value_ptr = self.i64_const(as_ptr as i64);
 
                 let res = self.call_helper(LIST_CONTAINS_REG_CONSTANT, [left, value_ptr]);
                 self.push(res, InferredType::UnboxedBool);
@@ -779,7 +776,7 @@ impl<'a> FunctionTranslator<'a> {
                 // it will be a pair.
                 // match stack_value.inferred_type {
                 //     InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
-                //         let res = self.builder.ins().iconst(types::I64, 1);
+                //         let res = self.i64_const(1);
 
                 //         let boolean =
                 //             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
@@ -941,7 +938,7 @@ impl<'a> FunctionTranslator<'a> {
                     std::mem::transmute::<crate::values::lists::List<_>, _>(list_value.clone())
                 };
 
-                let value_ptr = self.builder.ins().iconst(types::I64, as_ptr as i64);
+                let value_ptr = self.i64_const(as_ptr as i64);
 
                 let res = self.call_helper(MEMQ_UNCHECKED_LIST, [value, value_ptr]);
 
@@ -1026,7 +1023,7 @@ impl<'a> FunctionTranslator<'a> {
                 // it will be a pair.
                 // match stack_value.inferred_type {
                 //     InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
-                //         let res = self.builder.ins().iconst(types::I64, 1);
+                //         let res = self.i64_const(1);
                 //         let boolean =
                 //             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
                 //         // TODO: Also - we'll need to check the length of the list!
@@ -1084,92 +1081,32 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    pub(super) fn converging_if_no_else_no_value_else_cold(
-        &mut self,
-        test_condition: Value,
-        then: impl Fn(&mut Self),
-        merge: impl Fn(&mut Self),
-    ) {
-        if let Some(taken) = self.const_bool(test_condition) {
-            if taken {
-                then(self);
-            }
-            merge(self);
-            return;
-        }
-        let then_block = self.builder.create_block();
-        self.builder.set_cold_block(then_block);
-
-        let merge_block = self.builder.create_block();
-
-        self.builder
-            .ins()
-            .brif(test_condition, then_block, &[], merge_block, &[]);
-
-        self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
-
-        let skipped = self.snapshot_branch_state();
-        then(self);
-
-        self.builder.ins().jump(merge_block, &[]);
-
-        self.builder.switch_to_block(merge_block);
-        self.builder.seal_block(merge_block);
-
-        // The branch that skipped `then` reaches here with the state from before
-        // it, so only what `then` left in agreement with that survives.
-        self.cursor_bail |= self.properties.meet(&skipped.properties);
-        self.meet_register_maps(&skipped.local_to_value_map, &skipped.value_to_local_map);
-
-        merge(self);
-    }
-
+    /// Emit `then` when `test_condition` holds, then `merge` either way.
     pub(super) fn converging_if_no_else_no_value(
         &mut self,
         test_condition: Value,
         then: impl Fn(&mut Self),
         merge: impl Fn(&mut Self),
     ) {
-        if let Some(taken) = self.const_bool(test_condition) {
-            if taken {
-                then(self);
-            }
-            merge(self);
-            return;
-        }
-        let then_block = self.builder.create_block();
-
-        let merge_block = self.builder.create_block();
-
-        self.builder
-            .ins()
-            .brif(test_condition, then_block, &[], merge_block, &[]);
-
-        self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
-
-        let skipped = self.snapshot_branch_state();
-        then(self);
-
-        self.builder.ins().jump(merge_block, &[]);
-
-        self.builder.switch_to_block(merge_block);
-        self.builder.seal_block(merge_block);
-
-        // The branch that skipped `then` reaches here with the state from before
-        // it, so only what `then` left in agreement with that survives.
-        self.cursor_bail |= self.properties.meet(&skipped.properties);
-        self.meet_register_maps(&skipped.local_to_value_map, &skipped.value_to_local_map);
-
-        merge(self);
+        self.branch_then_merge(test_condition, then, merge, false)
     }
 
-    pub(super) fn converging_if_no_else_no_value_then_cold(
+    /// `converging_if_no_else_no_value`, with `then` laid out as cold.
+    pub(super) fn converging_if_no_else_no_value_cold(
         &mut self,
         test_condition: Value,
         then: impl Fn(&mut Self),
         merge: impl Fn(&mut Self),
+    ) {
+        self.branch_then_merge(test_condition, then, merge, true)
+    }
+
+    fn branch_then_merge(
+        &mut self,
+        test_condition: Value,
+        then: impl Fn(&mut Self),
+        merge: impl Fn(&mut Self),
+        then_cold: bool,
     ) {
         if let Some(taken) = self.const_bool(test_condition) {
             if taken {
@@ -1179,7 +1116,9 @@ impl<'a> FunctionTranslator<'a> {
             return;
         }
         let then_block = self.builder.create_block();
-        self.builder.set_cold_block(then_block);
+        if then_cold {
+            self.builder.set_cold_block(then_block);
+        }
 
         let merge_block = self.builder.create_block();
 
@@ -1248,44 +1187,19 @@ impl<'a> FunctionTranslator<'a> {
         then: impl Fn(&mut Self),
         else_thunk: impl Fn(&mut Self),
     ) {
-        if let Some(taken) = self.const_bool(test_condition) {
-            if taken {
-                then(self)
-            } else {
-                else_thunk(self)
-            }
-            return;
-        }
-        let then_block = self.builder.create_block();
-        let else_block = self.builder.create_block();
-        let merge_block = self.builder.create_block();
-
-        self.builder
-            .ins()
-            .brif(test_condition, then_block, &[], else_block, &[]);
-
-        self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
-
-        let entry = self.snapshot_branch_state();
-        then(self);
-        let then_properties = self.properties.clone();
-        let then_locals = self.local_to_value_map.clone();
-        let then_values = self.value_to_local_map.clone();
-
-        self.builder.ins().jump(merge_block, &[]);
-
-        self.builder.switch_to_block(else_block);
-        self.builder.seal_block(else_block);
-
-        self.restore_branch_state(entry);
-        else_thunk(self);
-        self.builder.ins().jump(merge_block, &[]);
-        self.builder.switch_to_block(merge_block);
-
-        // Only what both arms agree on survives the merge
-        self.cursor_bail |= self.properties.meet(&then_properties);
-        self.meet_register_maps(&then_locals, &then_values);
+        self.converging_branches(
+            test_condition,
+            |ctx| {
+                then(ctx);
+                None
+            },
+            |ctx| {
+                else_thunk(ctx);
+                None
+            },
+            None,
+            false,
+        );
     }
 
     pub(super) fn converging_if_no_value_else_cold(
@@ -1294,47 +1208,19 @@ impl<'a> FunctionTranslator<'a> {
         then: impl Fn(&mut Self),
         else_thunk: impl Fn(&mut Self),
     ) {
-        if let Some(taken) = self.const_bool(test_condition) {
-            if taken {
-                then(self)
-            } else {
-                else_thunk(self)
-            }
-            return;
-        }
-        let then_block = self.builder.create_block();
-        let else_block = self.builder.create_block();
-
-        self.builder.set_cold_block(else_block);
-
-        let merge_block = self.builder.create_block();
-
-        self.builder
-            .ins()
-            .brif(test_condition, then_block, &[], else_block, &[]);
-
-        self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
-
-        let entry = self.snapshot_branch_state();
-        then(self);
-        let then_properties = self.properties.clone();
-        let then_locals = self.local_to_value_map.clone();
-        let then_values = self.value_to_local_map.clone();
-
-        self.builder.ins().jump(merge_block, &[]);
-
-        self.builder.switch_to_block(else_block);
-        self.builder.seal_block(else_block);
-
-        self.restore_branch_state(entry);
-        else_thunk(self);
-        self.builder.ins().jump(merge_block, &[]);
-        self.builder.switch_to_block(merge_block);
-
-        // Only what both arms agree on survives the merge
-        self.cursor_bail |= self.properties.meet(&then_properties);
-        self.meet_register_maps(&then_locals, &then_values);
+        self.converging_branches(
+            test_condition,
+            |ctx| {
+                then(ctx);
+                None
+            },
+            |ctx| {
+                else_thunk(ctx);
+                None
+            },
+            None,
+            true,
+        );
     }
 
     pub(super) fn converging_if(
@@ -1344,47 +1230,14 @@ impl<'a> FunctionTranslator<'a> {
         else_thunk: impl Fn(&mut Self) -> Value,
         typ: Type,
     ) -> Value {
-        if let Some(taken) = self.const_bool(test_condition) {
-            return if taken { then(self) } else { else_thunk(self) };
-        }
-        let then_block = self.builder.create_block();
-        let else_block = self.builder.create_block();
-        let merge_block = self.builder.create_block();
-
-        self.builder.append_block_param(merge_block, typ);
-
-        self.builder
-            .ins()
-            .brif(test_condition, then_block, &[], else_block, &[]);
-
-        self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
-
-        let entry = self.snapshot_branch_state();
-        let res = BlockArg::Value(then(self));
-        let then_properties = self.properties.clone();
-        let then_locals = self.local_to_value_map.clone();
-        let then_values = self.value_to_local_map.clone();
-        let then_state = branch_state_fingerprint(self);
-
-        self.builder.ins().jump(merge_block, &[res]);
-
-        self.builder.switch_to_block(else_block);
-        self.builder.seal_block(else_block);
-
-        self.restore_branch_state(entry);
-        let then_res = BlockArg::Value(else_thunk(self));
-        report_branch_divergence(then_state, branch_state_fingerprint(self));
-        self.builder.ins().jump(merge_block, &[then_res]);
-        self.builder.switch_to_block(merge_block);
-
-        // Only what both arms agree on survives the merge
-        self.cursor_bail |= self.properties.meet(&then_properties);
-        self.meet_register_maps(&then_locals, &then_values);
-
-        let result = self.builder.block_params(merge_block)[0];
-
-        result
+        self.converging_branches(
+            test_condition,
+            |ctx| Some(then(ctx)),
+            |ctx| Some(else_thunk(ctx)),
+            Some(typ),
+            false,
+        )
+        .unwrap()
     }
 
     pub(super) fn converging_if_else_cold(
@@ -1394,6 +1247,27 @@ impl<'a> FunctionTranslator<'a> {
         else_thunk: impl Fn(&mut Self) -> Value,
         typ: Type,
     ) -> Value {
+        self.converging_branches(
+            test_condition,
+            |ctx| Some(then(ctx)),
+            |ctx| Some(else_thunk(ctx)),
+            Some(typ),
+            true,
+        )
+        .unwrap()
+    }
+
+    /// Emit `then` and `else_thunk` on the two sides of `test_condition` and
+    /// join them. With a `result_type` both arms produce a value of that type,
+    /// which is the result; without one they produce nothing.
+    fn converging_branches(
+        &mut self,
+        test_condition: Value,
+        then: impl Fn(&mut Self) -> Option<Value>,
+        else_thunk: impl Fn(&mut Self) -> Option<Value>,
+        result_type: Option<Type>,
+        else_cold: bool,
+    ) -> Option<Value> {
         if let Some(taken) = self.const_bool(test_condition) {
             return if taken { then(self) } else { else_thunk(self) };
         }
@@ -1401,9 +1275,13 @@ impl<'a> FunctionTranslator<'a> {
         let else_block = self.builder.create_block();
         let merge_block = self.builder.create_block();
 
-        self.builder.set_cold_block(else_block);
+        if else_cold {
+            self.builder.set_cold_block(else_block);
+        }
 
-        self.builder.append_block_param(merge_block, typ);
+        if let Some(typ) = result_type {
+            self.builder.append_block_param(merge_block, typ);
+        }
 
         self.builder
             .ins()
@@ -1413,30 +1291,31 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.seal_block(then_block);
 
         let entry = self.snapshot_branch_state();
-        let res = BlockArg::Value(then(self));
+        let then_result: Vec<BlockArg> = then(self).map(BlockArg::Value).into_iter().collect();
         let then_properties = self.properties.clone();
         let then_locals = self.local_to_value_map.clone();
         let then_values = self.value_to_local_map.clone();
-        let then_state = branch_state_fingerprint(self);
+        let then_state = result_type.and_then(|_| branch_state_fingerprint(self));
 
-        self.builder.ins().jump(merge_block, &[res]);
+        self.builder.ins().jump(merge_block, &then_result);
 
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
 
         self.restore_branch_state(entry);
-        let then_res = BlockArg::Value(else_thunk(self));
-        report_branch_divergence(then_state, branch_state_fingerprint(self));
-        self.builder.ins().jump(merge_block, &[then_res]);
+        let else_result: Vec<BlockArg> =
+            else_thunk(self).map(BlockArg::Value).into_iter().collect();
+        if result_type.is_some() {
+            report_branch_divergence(then_state, branch_state_fingerprint(self));
+        }
+        self.builder.ins().jump(merge_block, &else_result);
         self.builder.switch_to_block(merge_block);
 
         // Only what both arms agree on survives the merge
         self.cursor_bail |= self.properties.meet(&then_properties);
         self.meet_register_maps(&then_locals, &then_values);
 
-        let result = self.builder.block_params(merge_block)[0];
-
-        result
+        result_type.map(|_| self.builder.block_params(merge_block)[0])
     }
 
     // TODO: Implement binop add directly. Assume naively that the values are probably integers,
@@ -1572,8 +1451,8 @@ impl<'a> FunctionTranslator<'a> {
         let both_int = self.tags_are(&[(lv, SteelVal::INT_TAG), (rv, SteelVal::INT_TAG)]);
 
         let sp = |ctx: &mut Self| {
-            let register_r = ctx.builder.ins().iconst(types::I64, right as i64);
-            let register_l = ctx.builder.ins().iconst(types::I64, left as i64);
+            let register_r = ctx.i64_const(right as i64);
+            let register_l = ctx.i64_const(left as i64);
 
             let args = [register_l, register_r];
             let result = ctx.call_helper_checked(ADD_BINOP_REG_2, args);
@@ -2305,7 +2184,7 @@ impl<'a> FunctionTranslator<'a> {
                                 .ins()
                                 .uload8(types::I64, MemFlagsData::trusted(), slot, 0)
                         },
-                        |ctx| ctx.builder.ins().iconst(types::I64, -1),
+                        |ctx| ctx.i64_const(-1),
                         types::I64,
                     )
                 });
@@ -2390,9 +2269,9 @@ impl<'a> FunctionTranslator<'a> {
                             ctx.builder
                                 .ins()
                                 .istore8(MemFlagsData::trusted(), val, slot, 0);
-                            ctx.builder.ins().iconst(types::I64, 1)
+                            ctx.i64_const(1)
                         },
-                        |ctx| ctx.builder.ins().iconst(types::I64, 0),
+                        |ctx| ctx.i64_const(0),
                         types::I64,
                     )
                 });
@@ -2655,10 +2534,7 @@ impl<'a> FunctionTranslator<'a> {
                     .map(|x| x.0)
                     .collect::<Vec<_>>();
 
-                let descriptor = self
-                    .builder
-                    .ins()
-                    .iconst(types::I64, spec.descriptor.key() as i64);
+                let descriptor = self.i64_const(spec.descriptor.key() as i64);
 
                 args.insert(0, descriptor);
 
@@ -2925,7 +2801,7 @@ impl<'a> FunctionTranslator<'a> {
                     },
                     // Not a struct at all, so certainly not this one.
                     |ctx| {
-                        let zero = ctx.builder.ins().iconst(types::I64, 0);
+                        let zero = ctx.i64_const(0);
                         ctx.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, zero)
                     },
                     typ,

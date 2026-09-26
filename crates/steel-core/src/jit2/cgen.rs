@@ -3857,8 +3857,7 @@ impl FunctionTranslator<'_> {
                     self.builder.switch_to_block(cold_block);
                     self.properties.dead = true;
 
-                    self.ip = self.instructions.len() + 1;
-                    self.depth -= 1;
+                    self.finish_tail_position();
 
                     return false;
                 }
@@ -3926,8 +3925,7 @@ impl FunctionTranslator<'_> {
 
                             let test_bool = match typ {
                                 InferredType::Bool => {
-                                    let amount_to_shift =
-                                        self.builder.ins().iconst(Type::int(64).unwrap(), 64);
+                                    let amount_to_shift = self.i64_const(64);
                                     let shift_right =
                                         self.builder.ins().sshr(test, amount_to_shift);
 
@@ -3943,8 +3941,7 @@ impl FunctionTranslator<'_> {
                                 }
                                 _ => {
                                     let is_bool = self.is_type(test, SteelVal::BOOL_TAG);
-                                    let amount_to_shift =
-                                        self.builder.ins().iconst(Type::int(64).unwrap(), 64);
+                                    let amount_to_shift = self.i64_const(64);
 
                                     let shift_right =
                                         self.builder.ins().sshr(test, amount_to_shift);
@@ -4169,11 +4166,8 @@ impl FunctionTranslator<'_> {
                     assert_eq!(self.instructions[self.ip - 1].op_code, OpCode::ECLOSURE);
                     assert!(self.ip < self.instructions.len());
 
-                    let ip_value = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
-                    let offset_value = self
-                        .builder
-                        .ins()
-                        .iconst(Type::int(64).unwrap(), offset as i64);
+                    let ip_value = self.i64_const(ip as i64);
+                    let offset_value = self.i64_const(offset as i64);
 
                     // code gen the sclosure creation:
                     let v = self.call_helper(NEW_CLOSURE, [ip_value, offset_value]);
@@ -4195,11 +4189,8 @@ impl FunctionTranslator<'_> {
 
                     self.ip = forward_index;
 
-                    let ip_value = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
-                    let offset_value = self
-                        .builder
-                        .ins()
-                        .iconst(Type::int(64).unwrap(), offset as i64);
+                    let ip_value = self.i64_const(ip as i64);
+                    let offset_value = self.i64_const(offset as i64);
 
                     // code gen the sclosure creation:
                     let v = self.call_helper(PURE_FUNC, [ip_value, offset_value]);
@@ -4466,9 +4457,7 @@ impl FunctionTranslator<'_> {
                     // Figure out why this isn't working quite right!
                     self.translate_tco_jmp(payload);
 
-                    self.ip = self.instructions.len() + 1;
-
-                    self.depth -= 1;
+                    self.finish_tail_position();
 
                     self.check_deopt();
 
@@ -4487,9 +4476,7 @@ impl FunctionTranslator<'_> {
                     //
 
                     // Jump to out of bounds so signal we're done
-                    self.ip = self.instructions.len() + 1;
-
-                    self.depth -= 1;
+                    self.finish_tail_position();
 
                     return false;
                 }
@@ -4596,8 +4583,7 @@ impl FunctionTranslator<'_> {
                             self.generic_global_tail_call(function_index, arity);
                         } else if function.super_instructions().is_some() && rest_ok {
                             self.inline_global_tail_call(arity, function);
-                            self.ip = self.instructions.len() + 1;
-                            self.depth -= 1;
+                            self.finish_tail_position();
                         } else if late_tail_enabled() && rest_ok {
                             // Not compiled yet. Mutually recursive functions can't
                             // all be compiled before their callers, since the
@@ -4606,7 +4592,7 @@ impl FunctionTranslator<'_> {
                             // through the lambda at run time, so check there is one
                             // by then, and use the deopt helper otherwise.
                             // Leaked, like every lambda baked into code.
-                            let lambda = self.builder.ins().iconst(types::I64, unsafe {
+                            let lambda = self.i64_const(unsafe {
                                 std::mem::transmute::<Gc<ByteCodeLambda>, i64>(jit_leak(&function))
                             });
                             let entry = self.builder.ins().load(
@@ -4896,13 +4882,7 @@ impl FunctionTranslator<'_> {
                     // A frameless copy can only make frameless calls. Anything
                     // else pushes a real frame, which would sit underneath the
                     // frames still waiting to be recorded for its callers.
-                    if matches!(
-                        self.frameless,
-                        Some(FramelessInfo {
-                            role: FramelessRole::Callee,
-                            ..
-                        })
-                    ) && self.frameless_calls == frameless_calls_before
+                    if self.is_frameless_callee() && self.frameless_calls == frameless_calls_before
                     {
                         self.frameless_bail = true;
                     }
@@ -4944,10 +4924,7 @@ impl FunctionTranslator<'_> {
                                         f as i64,
                                     );
 
-                                    let fallback_ip = self
-                                        .builder
-                                        .ins()
-                                        .iconst(Type::int(64).unwrap(), self.ip as i64);
+                                    let fallback_ip = self.i64_const(self.ip as i64);
 
                                     let mut args = vec![function, fallback_ip];
 
@@ -4987,10 +4964,7 @@ impl FunctionTranslator<'_> {
                                     f as i64,
                                 );
 
-                                let fallback_ip = self
-                                    .builder
-                                    .ins()
-                                    .iconst(Type::int(64).unwrap(), self.ip as i64);
+                                let fallback_ip = self.i64_const(self.ip as i64);
 
                                 let mut args = vec![function, fallback_ip];
 
@@ -5305,7 +5279,7 @@ impl FunctionTranslator<'_> {
                     let is_int = self.is_type(local_value, SteelVal::INT_TAG);
 
                     let sp = |ctx: &mut Self| {
-                        let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+                        let register = ctx.i64_const(register_index as i64);
 
                         let value = ctx.encode_integer(rhs_int as i64);
 
@@ -5324,7 +5298,7 @@ impl FunctionTranslator<'_> {
                         |ctx| {
                             // If its an int, then we'll do checked subtraction:
                             let lhs = ctx.unbox_value_to_pointer(local_value);
-                            let rhs = ctx.builder.ins().iconst(types::I64, rhs_int as i64);
+                            let rhs = ctx.i64_const(rhs_int as i64);
 
                             let (subbed, overflow_flag) = ctx.builder.ins().sadd_overflow(lhs, rhs);
 
@@ -5586,8 +5560,7 @@ impl FunctionTranslator<'_> {
                             res
                         },
                         |ctx| {
-                            let register_l =
-                                ctx.builder.ins().iconst(types::I64, register_l as i64);
+                            let register_l = ctx.i64_const(register_l as i64);
 
                             let rhs_value = match rhs_int {
                                 Either::Value(value) => value,
@@ -5692,8 +5665,7 @@ impl FunctionTranslator<'_> {
                             res
                         },
                         |ctx| {
-                            let register_l =
-                                ctx.builder.ins().iconst(types::I64, register_l as i64);
+                            let register_l = ctx.i64_const(register_l as i64);
                             let args = [register_l, rhs_int.value];
                             let result = ctx.call_helper_checked(LTE_REGISTER_INT, args);
 
@@ -5763,8 +5735,7 @@ impl FunctionTranslator<'_> {
                             res
                         },
                         |ctx| {
-                            let register_l =
-                                ctx.builder.ins().iconst(types::I64, register_l as i64);
+                            let register_l = ctx.i64_const(register_l as i64);
 
                             let value = ctx.encode_integer(rhs_int as _);
 
@@ -5828,8 +5799,7 @@ impl FunctionTranslator<'_> {
                             res
                         },
                         |ctx| {
-                            let register_l =
-                                ctx.builder.ins().iconst(types::I64, register_l as i64);
+                            let register_l = ctx.i64_const(register_l as i64);
                             let args = [register_l, rhs_int.value];
                             let result = ctx.call_helper_checked(GTE_REGISTER_INT, args);
 
@@ -5917,8 +5887,7 @@ impl FunctionTranslator<'_> {
                                     res
                                 },
                                 |ctx| {
-                                    let register_l =
-                                        ctx.builder.ins().iconst(types::I64, register_l as i64);
+                                    let register_l = ctx.i64_const(register_l as i64);
                                     let args = [register_l, rhs_int.value];
                                     let result =
                                         ctx.call_helper_checked(GTE_REGISTER_UNKNOWN, args);
@@ -5959,7 +5928,7 @@ impl FunctionTranslator<'_> {
                     let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
                     let register_l = self.shadow_stack_pop().unwrap().into_index();
 
-                    let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
+                    let register_l = self.i64_const(register_l as i64);
 
                     let args = [register_l, rhs_int.value];
                     // Checked below, once the result is on the stack for the deopt snapshot.
@@ -6281,7 +6250,7 @@ impl FunctionTranslator<'_> {
 
                             let as_ptr: i64 =
                                 unsafe { std::mem::transmute::<SteelString, _>(jit_leak(&s)) };
-                            let value = self.builder.ins().iconst(types::I64, as_ptr);
+                            let value = self.i64_const(as_ptr);
 
                             // If they're the same type, just compare the bytes. Don't do a lookup.
                             let left_value = self.read_from_vm_stack(i);
@@ -6627,10 +6596,7 @@ impl FunctionTranslator<'_> {
                             self.push_to_vm_stack(arg.0);
                         }
 
-                        let arity_value = self
-                            .builder
-                            .ins()
-                            .iconst(Type::int(64).unwrap(), arity as i64);
+                        let arity_value = self.i64_const(arity as i64);
 
                         let result = self.call_helper(LIST_HANDLER_SPILLED, [arity_value]);
 
@@ -6650,10 +6616,7 @@ impl FunctionTranslator<'_> {
                         self.push_to_vm_stack(arg.0);
                     }
 
-                    let arity_value = self
-                        .builder
-                        .ins()
-                        .iconst(Type::int(64).unwrap(), payload as i64);
+                    let arity_value = self.i64_const(payload as i64);
 
                     let result = self.call_helper(VEC_HANDLER_SPILLED, [arity_value]);
 
@@ -7194,7 +7157,7 @@ impl FunctionTranslator<'_> {
         let is_float = self.is_type(local_value, SteelVal::FLOAT_TAG);
 
         let sp = |ctx: &mut Self| {
-            let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+            let register = ctx.i64_const(register_index as i64);
             let args = [register, value];
             let result = ctx.call_helper_checked(SUB_BINOP_FLOAT_REG, args);
 
@@ -7235,7 +7198,7 @@ impl FunctionTranslator<'_> {
         let is_int = self.is_type(local_value, SteelVal::INT_TAG);
 
         let sp = |ctx: &mut Self| {
-            let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+            let register = ctx.i64_const(register_index as i64);
             let args = [register, value];
             let result = ctx.call_helper_checked(SUB_BINOP_INT_REG, args);
 
@@ -7295,7 +7258,7 @@ impl FunctionTranslator<'_> {
             .icmp_imm_s(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
 
         let sp = |ctx: &mut Self| {
-            let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+            let register = ctx.i64_const(register_index as i64);
             // The constant this call subtracts, which may not be 1. Reached
             // whenever the register is not an int or the fast path overflows,
             // e.g. `(- 100.0 5)`.
@@ -7337,7 +7300,7 @@ impl FunctionTranslator<'_> {
             // The tag is established, so this is a plain checked subtraction on
             // the payload. Overflow still has to go somewhere the interpreter can
             // finish, so it takes the same exit.
-            let rhs = self.builder.ins().iconst(types::I64, constant_value as i64);
+            let rhs = self.i64_const(constant_value as i64);
             let (subbed, overflow_flag) = self.builder.ins().ssub_overflow(local_value, rhs);
 
             let ok_block = self.builder.create_block();
@@ -7379,7 +7342,7 @@ impl FunctionTranslator<'_> {
                     } else {
                         let lhs = local_value;
 
-                        let rhs = ctx.builder.ins().iconst(types::I64, constant_value as i64);
+                        let rhs = ctx.i64_const(constant_value as i64);
 
                         let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
 
@@ -7392,7 +7355,7 @@ impl FunctionTranslator<'_> {
                     }
                 } else {
                     let lhs = local_value;
-                    let rhs = ctx.builder.ins().iconst(types::I64, constant_value as i64);
+                    let rhs = ctx.i64_const(constant_value as i64);
 
                     let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
 
@@ -7433,8 +7396,8 @@ impl FunctionTranslator<'_> {
         // TODO: Adjust all of these things - in the event we're subtracting two
         // integer values, then we need to do
         let sp = |ctx: &mut Self| {
-            let register_l = ctx.builder.ins().iconst(types::I64, register_l as i64);
-            let register_r = ctx.builder.ins().iconst(types::I64, register_r as i64);
+            let register_l = ctx.i64_const(register_l as i64);
+            let register_r = ctx.i64_const(register_r as i64);
             let args = [register_l, register_r];
             let result = ctx.call_helper_checked(SUB_BINOP_BOTH_REG, args);
 
@@ -7613,18 +7576,14 @@ impl FunctionTranslator<'_> {
 
                         let res = ctx.builder.inst_results(call)[0];
 
-                        let is_still_native = ctx.builder.ins().load(
-                            types::I8,
-                            MemFlagsData::trusted(),
-                            vm_ctx,
-                            offset_of!(VmCore, is_native) as i32,
-                        );
+                        let is_still_native =
+                            ctx.load_field(types::I8, vm_ctx, offset_of!(VmCore, is_native));
 
                         ctx.converging_if(is_still_native, |_| res, |ctx| ctx.encode_void(), typ)
                     },
                     |ctx| {
-                        let arity = ctx.builder.ins().iconst(types::I64, arity as i64);
-                        let fallback_ip = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
+                        let arity = ctx.i64_const(arity as i64);
+                        let fallback_ip = ctx.i64_const(fallback_ip as i64);
                         // TODO: Set up the closure for multi arity?
                         // Part of the call protocol. An arity error is picked up after the merge.
                         ctx.call_helper_unchecked(
@@ -7803,10 +7762,7 @@ impl FunctionTranslator<'_> {
         }
 
         let value = self.pop_boxed();
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
 
         let result = self.call_function_returns_value_args(name, &[fallback_ip, value]);
         self.check_deopt();
@@ -7854,11 +7810,7 @@ impl FunctionTranslator<'_> {
         if make_vector {
             // It can raise on a negative length or a non-integer, so it needs
             // somewhere to hand the frame back to.
-            args.push(
-                self.builder
-                    .ins()
-                    .iconst(Type::int(64).unwrap(), self.ip as i64),
-            );
+            args.push(self.i64_const(self.ip as i64));
         }
         args.extend(self.split_off(arity).into_iter().map(|x| x.0));
 
@@ -7913,10 +7865,7 @@ impl FunctionTranslator<'_> {
             return None;
         }
 
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
 
         let mut args = vec![fallback_ip];
         args.extend(self.split_off(arity).into_iter().map(|x| x.0));
@@ -7980,7 +7929,7 @@ impl FunctionTranslator<'_> {
                     .builder
                     .ins()
                     .iconst(ctx.module.target_config().pointer_type(), function as i64);
-                let fallback_ip = ctx.builder.ins().iconst(types::I64, ip as i64);
+                let fallback_ip = ctx.i64_const(ip as i64);
 
                 let name = CallPrimitiveDefinitions::arity_to_name(arity).unwrap();
                 let mut call_args = vec![func, fallback_ip];
@@ -8066,7 +8015,7 @@ impl FunctionTranslator<'_> {
                         .builder
                         .ins()
                         .iconst(ctx.module.target_config().pointer_type(), function as i64);
-                    let fallback_ip = ctx.builder.ins().iconst(types::I64, ctx.ip as i64);
+                    let fallback_ip = ctx.i64_const(ctx.ip as i64);
 
                     let res = ctx.call_function_returns_value_args(
                         "call_primitive_function_deopt_2",
@@ -8157,9 +8106,7 @@ impl FunctionTranslator<'_> {
 
         self.check_deopt();
 
-        self.ip = self.instructions.len() + 1;
-
-        self.depth -= 1;
+        self.finish_tail_position();
     }
 
     /// A tail call to global `function_index` that uses whatever it holds when
@@ -8255,7 +8202,7 @@ impl FunctionTranslator<'_> {
     fn register_index(&mut self, index: usize) -> Value {
         // Helpers that take a register number read the slot themselves.
         self.materialize_cursor(index);
-        self.builder.ins().iconst(types::I64, index as i64)
+        self.i64_const(index as i64)
     }
 
     fn register_index_small(&mut self, index: usize) -> Value {
@@ -8276,10 +8223,7 @@ impl FunctionTranslator<'_> {
         let name = CallPrimitiveFixedDefinitions::arity_to_name(1).unwrap();
         let additional_args = self.split_off(1);
 
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
 
         let function = self.builder.ins().iconst(
             self.module.target_config().pointer_type(),
@@ -8355,10 +8299,7 @@ impl FunctionTranslator<'_> {
     fn drop_tagged_value(&mut self, value: Value) {
         let tag = self.get_tag(value);
 
-        let mask = self
-            .builder
-            .ins()
-            .iconst(types::I64, SteelVal::UNBOXED_MASK as i64);
+        let mask = self.i64_const(SteelVal::UNBOXED_MASK as i64);
         let shifted = self.builder.ins().ushr(mask, tag);
         let is_unboxed = self.builder.ins().band_imm_u(shifted, 1);
 
@@ -8370,10 +8311,7 @@ impl FunctionTranslator<'_> {
                 // since this type is unboxed anyway
             },
             |ctx| {
-                let special_rc_mask = ctx
-                    .builder
-                    .ins()
-                    .iconst(types::I64, SteelVal::SPECIAL_RC_MASK as i64);
+                let special_rc_mask = ctx.i64_const(SteelVal::SPECIAL_RC_MASK as i64);
                 let special_rc_shifted = ctx.builder.ins().ushr(special_rc_mask, tag);
                 let is_special_rc = ctx.builder.ins().band_imm_u(special_rc_shifted, 1);
 
@@ -8383,10 +8321,7 @@ impl FunctionTranslator<'_> {
                         ctx.drop_biased_rc(value);
                     },
                     |ctx| {
-                        let weak_rc_mask = ctx
-                            .builder
-                            .ins()
-                            .iconst(types::I64, SteelVal::WEAK_RC_MASK as i64);
+                        let weak_rc_mask = ctx.i64_const(SteelVal::WEAK_RC_MASK as i64);
                         let weak_rc_shifted = ctx.builder.ins().ushr(weak_rc_mask, tag);
                         let is_weak_rc = ctx.builder.ins().band_imm_u(weak_rc_shifted, 1);
 
@@ -9001,10 +8936,7 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
 
-        let index = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), index as i64);
+        let index = self.i64_const(index as i64);
 
         let arg_values = vec![ctx, index, value];
 
@@ -9050,10 +8982,7 @@ impl FunctionTranslator<'_> {
         let local_callee = self.helper_callee(TCO_JUMP);
 
         let ctx = self.get_ctx();
-        let arity = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), payload as i64);
+        let arity = self.i64_const(payload as i64);
 
         let arg_values = [ctx, arity];
         let _call = self.builder.ins().call(local_callee, &arg_values);
@@ -9402,13 +9331,7 @@ impl FunctionTranslator<'_> {
                     let live = self.properties.cached_lookups.cursors.clone();
                     self.write_back_cursors(&live);
                 }
-                if matches!(
-                    self.frameless,
-                    Some(FramelessInfo {
-                        role: FramelessRole::Callee,
-                        ..
-                    })
-                ) {
+                if self.is_frameless_callee() {
                     // The generic copy expects a frame. The arguments are in
                     // their slots, so start the body over in the interpreter
                     // instead, which is what a tail call to it would do.
@@ -9491,10 +9414,7 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
 
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
 
         let func = self.shadow_pop().0;
 
@@ -9529,10 +9449,7 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
 
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
 
         let mut arg_values = vec![ctx, func, fallback_ip];
 
@@ -9561,10 +9478,7 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
 
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
 
         let mut arg_values = vec![ctx, func, fallback_ip];
 
@@ -9634,11 +9548,10 @@ impl FunctionTranslator<'_> {
     /// The current length of the value stack.
     fn vm_stack_len(&mut self, vm_ctx: Value) -> Value {
         let thread_pointer = self.get_thread_pointer(vm_ctx);
-        self.builder.ins().load(
+        self.load_field(
             types::I64,
-            MemFlagsData::trusted(),
             thread_pointer,
-            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::len_offset()) as i32,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::len_offset()),
         )
     }
 
@@ -9647,20 +9560,10 @@ impl FunctionTranslator<'_> {
     /// current), and whoever called us records our frame.
     fn frameless_exit_to_interpreter(&mut self, resume_ip: usize) {
         let vm_ctx = self.get_ctx();
-        let ip = self.builder.ins().iconst(types::I64, resume_ip as i64);
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            ip,
-            vm_ctx,
-            offset_of!(VmCore, ip) as i32,
-        );
+        let ip = self.i64_const(resume_ip as i64);
+        self.store_field(ip, vm_ctx, offset_of!(VmCore, ip));
         let not_native = self.builder.ins().iconst(types::I8, 0);
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            not_native,
-            vm_ctx,
-            offset_of!(VmCore, is_native) as i32,
-        );
+        self.store_field(not_native, vm_ctx, offset_of!(VmCore, is_native));
         let void = self.encode_void();
         let ret = self.builder.ins().return_(&[void]);
         self.deopt_returns.insert(ret);
@@ -9688,9 +9591,8 @@ impl FunctionTranslator<'_> {
         jit_leak(&func).into_raw();
         let baked = jit_leak(&func);
         drop(func);
-        let closure = self.builder.ins().iconst(types::I64, unsafe {
-            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked)
-        });
+        let closure =
+            self.i64_const(unsafe { std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked) });
 
         // `self.ip` is on the FUNCNOARITY that carries the arity; the call
         // instruction is the one before it.
@@ -9735,12 +9637,7 @@ impl FunctionTranslator<'_> {
                 let call = ctx.builder.ins().call(callee, &[vm_ctx, callee_sp]);
                 let res = ctx.builder.inst_results(call)[0];
 
-                let native = ctx.builder.ins().load(
-                    types::I8,
-                    MemFlagsData::trusted(),
-                    vm_ctx,
-                    offset_of!(VmCore, is_native) as i32,
-                );
+                let native = ctx.load_field(types::I8, vm_ctx, offset_of!(VmCore, is_native));
                 let back_block = ctx.builder.create_block();
                 let exit_block = ctx.builder.create_block();
                 ctx.builder
@@ -9756,10 +9653,7 @@ impl FunctionTranslator<'_> {
                     let halves = ctx.builder.ins().isplit(fat);
                     (halves.0, halves.1)
                 };
-                let return_ip = ctx
-                    .builder
-                    .ins()
-                    .iconst(types::I64, (fallback_ip + 1) as i64);
+                let return_ip = ctx.i64_const((fallback_ip + 1) as i64);
                 ctx.call_helper_void(
                     FRAMELESS_RECORD_FRAME,
                     [
@@ -9780,12 +9674,7 @@ impl FunctionTranslator<'_> {
                 ctx.builder.switch_to_block(back_block);
                 ctx.builder.seal_block(back_block);
                 // The callee published its own frame base; put ours back.
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    own_sp,
-                    vm_ctx,
-                    offset_of!(VmCore, sp) as i32,
-                );
+                ctx.store_field(own_sp, vm_ctx, offset_of!(VmCore, sp));
                 ctx.checked_native_block = Some(back_block);
                 res
             },
@@ -9793,8 +9682,8 @@ impl FunctionTranslator<'_> {
                 // Out of native stack at the boundary, so do the ordinary framed
                 // hand off.
                 FramelessRole::Boundary => {
-                    let arity_val = ctx.builder.ins().iconst(types::I64, arity as i64);
-                    let fallback = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
+                    let arity_val = ctx.i64_const(arity as i64);
+                    let fallback = ctx.i64_const(fallback_ip as i64);
                     // Part of the call protocol. An arity error is picked up after the merge.
                     ctx.call_helper_unchecked(SETUP_CLOSURE_ARITY, [closure, arity_val, fallback])
                 }
@@ -9833,9 +9722,8 @@ impl FunctionTranslator<'_> {
         drop(func);
 
         // Horrendous crimes, but we'll allow it. We'll also leak the instructions...
-        let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
-            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked)
-        });
+        let lookup_index =
+            self.i64_const(unsafe { std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked) });
 
         let fallback_ip = self.ip;
 
@@ -9876,14 +9764,10 @@ impl FunctionTranslator<'_> {
         let baked = jit_leak(&func);
         drop(func);
         // Horrendous crimes, but we'll allow it
-        let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
-            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked)
-        });
+        let lookup_index =
+            self.i64_const(unsafe { std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked) });
 
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
 
         // Advance to the next thing
         self.ip += 1;
@@ -9940,9 +9824,8 @@ impl FunctionTranslator<'_> {
         drop(func);
 
         // Horrendous crimes, but we'll allow it. We'll also leak the instructions...
-        let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
-            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked)
-        });
+        let lookup_index =
+            self.i64_const(unsafe { std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked) });
 
         self.ip += 1;
 
@@ -9951,19 +9834,14 @@ impl FunctionTranslator<'_> {
         // Pass this through
         let offset = self.update_last_stackframe(vm_ctx, lookup_index);
 
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            instr_fat_ptr,
-            vm_ctx,
-            offset_of!(VmCore, instructions) as i32,
-        );
+        self.store_field(instr_fat_ptr, vm_ctx, offset_of!(VmCore, instructions));
 
         self.truncate_stack_with_args(vm_ctx, offset, &args);
 
         // The callee's last slot is its rest list, built from whatever the call
         // site passed beyond its named arguments.
         if let Some((surplus, _)) = rest {
-            let count = self.builder.ins().iconst(types::I64, surplus as i64);
+            let count = self.i64_const(surplus as i64);
             self.call_helper_void(COLLECT_REST_ARGS, [count]);
         }
 
@@ -9972,14 +9850,9 @@ impl FunctionTranslator<'_> {
         // New args now that we've spilled everything
         let args = [vm_ctx];
 
-        let zero = self.builder.ins().iconst(types::I64, 0);
+        let zero = self.i64_const(0);
 
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            zero,
-            vm_ctx,
-            offset_of!(VmCore, ip) as i32,
-        );
+        self.store_field(zero, vm_ctx, offset_of!(VmCore, ip));
 
         let sig_ref = self.create_jit_sig_ref();
         let func_ptr = self.builder.ins().load(
@@ -10080,12 +9953,7 @@ impl FunctionTranslator<'_> {
                 // Pass this through
                 let offset = ctx.update_last_stackframe(vm_ctx, closure);
 
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    instr_fat_ptr,
-                    vm_ctx,
-                    offset_of!(VmCore, instructions) as i32,
-                );
+                ctx.store_field(instr_fat_ptr, vm_ctx, offset_of!(VmCore, instructions));
 
                 ctx.truncate_stack_with_args(vm_ctx, offset, &args);
 
@@ -10094,14 +9962,9 @@ impl FunctionTranslator<'_> {
                 // New args now that we've spilled everything
                 let args = [vm_ctx];
 
-                let zero = ctx.builder.ins().iconst(types::I64, 0);
+                let zero = ctx.i64_const(0);
 
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    zero,
-                    vm_ctx,
-                    offset_of!(VmCore, ip) as i32,
-                );
+                ctx.store_field(zero, vm_ctx, offset_of!(VmCore, ip));
 
                 let sig_ref = ctx.create_jit_sig_ref();
                 ctx.builder
@@ -10158,17 +10021,11 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
 
-        let func = func.map(|func| self.builder.ins().iconst(types::I64, func));
+        let func = func.map(|func| self.i64_const(func));
 
-        let lookup_index = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), function_index as i64);
+        let lookup_index = self.i64_const(function_index as i64);
 
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
 
         // Advance to the next thing
         self.ip += 1;
@@ -10201,8 +10058,43 @@ impl FunctionTranslator<'_> {
         let cold_block = self.builder.create_block();
         self.builder.switch_to_block(cold_block);
 
+        self.finish_tail_position();
+    }
+
+    /// A call in tail position ends this function. Stop translating it, and
+    /// leave the depth it was entered at.
+    fn finish_tail_position(&mut self) {
         self.depth -= 1;
         self.ip = self.instructions.len() + 1;
+    }
+
+    fn is_frameless_callee(&self) -> bool {
+        matches!(
+            self.frameless,
+            Some(FramelessInfo {
+                role: FramelessRole::Callee,
+                ..
+            })
+        )
+    }
+
+    fn i64_const(&mut self, value: i64) -> Value {
+        self.builder.ins().iconst(types::I64, value)
+    }
+
+    /// A trusted load of a `ty` at `offset` into `base`, e.g. a field found
+    /// with `offset_of!`.
+    fn load_field(&mut self, ty: Type, base: Value, offset: usize) -> Value {
+        self.builder
+            .ins()
+            .load(ty, MemFlagsData::trusted(), base, offset as i32)
+    }
+
+    /// A trusted store of `value` at `offset` into `base`.
+    fn store_field(&mut self, value: Value, base: Value, offset: usize) {
+        self.builder
+            .ins()
+            .store(MemFlagsData::trusted(), value, base, offset as i32);
     }
 
     /// Whether global `index` can never hold anything but its current value, so
@@ -10235,14 +10127,8 @@ impl FunctionTranslator<'_> {
     ) -> Value {
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
-        let lookup_index = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), function_index as i64);
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        let lookup_index = self.i64_const(function_index as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
         self.ip += 1;
         let mut arg_values = vec![ctx, lookup_index, fallback_ip];
         let args_off_the_stack = self.split_off(arity);
@@ -10262,20 +10148,11 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
 
-        let lookup_index = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), function_index as i64);
+        let lookup_index = self.i64_const(function_index as i64);
 
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
 
-        let arity_value = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), arity as i64);
+        let arity_value = self.i64_const(arity as i64);
 
         // Advance to the next thing
         self.ip += 1;
@@ -10299,12 +10176,7 @@ impl FunctionTranslator<'_> {
         } else {
             let ctx = self.get_ctx();
             // `Option<ThreadId>` niches into a single u32.
-            let thread_id = self.builder.ins().load(
-                types::I32,
-                MemFlagsData::trusted(),
-                ctx,
-                offset_of!(VmCore, thread_id) as i32,
-            );
+            let thread_id = self.load_field(types::I32, ctx, offset_of!(VmCore, thread_id));
 
             self.thread_id = Some(thread_id);
 
@@ -10314,12 +10186,7 @@ impl FunctionTranslator<'_> {
 
     fn check_deopt_ptr_load(&mut self) -> Value {
         let ctx = self.get_ctx();
-        let is_native = self.builder.ins().load(
-            Type::int(8).unwrap(),
-            MemFlagsData::trusted(),
-            ctx,
-            offset_of!(VmCore, is_native) as i32,
-        );
+        let is_native = self.load_field(Type::int(8).unwrap(), ctx, offset_of!(VmCore, is_native));
 
         is_native
     }
@@ -10386,26 +10253,16 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
 
-        let ip = self.builder.ins().iconst(types::I64, bytecode_ip as i64);
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            ip,
-            ctx,
-            offset_of!(VmCore, ip) as i32,
-        );
+        let ip = self.i64_const(bytecode_ip as i64);
+        self.store_field(ip, ctx, offset_of!(VmCore, ip));
 
         let not_native = self.builder.ins().iconst(types::I8, 0);
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            not_native,
-            ctx,
-            offset_of!(VmCore, is_native) as i32,
-        );
+        self.store_field(not_native, ctx, offset_of!(VmCore, is_native));
 
         // Tell the policy this exit happened. A function that keeps arriving
         // here is compiled without speculation from then on.
         if let Some(index) = self.function_context {
-            let index = self.builder.ins().iconst(types::I64, index as i64);
+            let index = self.i64_const(index as i64);
             self.call_helper_void(RECORD_SPECULATION_DEOPT, [index]);
         }
 
@@ -11059,9 +10916,7 @@ impl FunctionTranslator<'_> {
     /// popped (so a spilled one has been reloaded).
     fn fixnum_payload(&mut self, entry: MaybeStackValue) -> Value {
         match entry {
-            MaybeStackValue::Constant(ConstantValue::Int(i)) => {
-                self.builder.ins().iconst(types::I64, i as i64)
-            }
+            MaybeStackValue::Constant(ConstantValue::Int(i)) => self.i64_const(i as i64),
             MaybeStackValue::Value(v) => {
                 self.value_to_local_map.remove(&v.value);
                 match v.inferred_type {
@@ -11554,8 +11409,8 @@ impl FunctionTranslator<'_> {
                 for arg in args {
                     self.push_to_vm_stack(arg.0);
                 }
-                let code = self.builder.ins().iconst(types::I64, code as i64);
-                let arity = self.builder.ins().iconst(types::I64, payload as i64);
+                let code = self.i64_const(code as i64);
+                let arity = self.i64_const(payload as i64);
                 let result = self.call_helper_checked(VARIADIC_NUMERIC_SPILLED, [code, arity]);
                 self.push(result, inferred_type.boxed());
                 self.ip += ip_inc;
@@ -11603,7 +11458,7 @@ impl FunctionTranslator<'_> {
 
                 let as_ptr: i64 = unsafe { std::mem::transmute::<SteelString, _>(jit_leak(c)) };
 
-                let value = self.builder.ins().iconst(types::I64, as_ptr);
+                let value = self.i64_const(as_ptr);
 
                 // Clone it
                 self.increment_ref_count_closure(value);
@@ -11618,7 +11473,7 @@ impl FunctionTranslator<'_> {
                 let as_ptr: usize =
                     unsafe { std::mem::transmute::<crate::values::lists::List<_>, _>(jit_leak(c)) };
 
-                let value = self.builder.ins().iconst(types::I64, as_ptr as i64);
+                let value = self.i64_const(as_ptr as i64);
 
                 self.increment_ref_count_closure(value);
 
@@ -11649,7 +11504,7 @@ impl FunctionTranslator<'_> {
 
                 match &constant {
                     SteelVal::CharV(c) => {
-                        let res = self.builder.ins().iconst(Type::int(64).unwrap(), *c as i64);
+                        let res = self.i64_const(*c as i64);
                         self.encode_value(SteelVal::CHAR_TAG as _, res)
                     }
 
@@ -11697,12 +11552,12 @@ impl FunctionTranslator<'_> {
     // to the requisite type if its a boolean.
     #[allow(unused)]
     fn encode_value(&mut self, tag: i64, value: Value) -> Value {
-        let tag = self.builder.ins().iconst(Type::int(64).unwrap(), tag);
+        let tag = self.i64_const(tag);
         self.builder.ins().iconcat(tag, value)
     }
 
     fn encode_true(&mut self) -> Value {
-        let res = self.builder.ins().iconst(Type::int(64).unwrap(), 1);
+        let res = self.i64_const(1);
         let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
         boolean
     }
@@ -11725,35 +11580,32 @@ impl FunctionTranslator<'_> {
     }
 
     fn encode_false(&mut self) -> Value {
-        let res = self.builder.ins().iconst(Type::int(64).unwrap(), 0);
+        let res = self.i64_const(0);
         let boolean = self.encode_value(discriminant(&SteelVal::BoolV(false)) as i64, res);
         boolean
     }
 
     fn encode_void(&mut self) -> Value {
-        let res = self.builder.ins().iconst(Type::int(64).unwrap(), 0);
+        let res = self.i64_const(0);
         self.encode_value(discriminant(&SteelVal::Void) as i64, res)
     }
 
     fn encode_integer(&mut self, integer: i64) -> Value {
-        let res = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), integer as i64);
+        let res = self.i64_const(integer as i64);
         let integer = self.encode_value(discriminant(&SteelVal::IntV(0)) as i64, res);
         self.known_tags.insert(integer, SteelVal::INT_TAG);
         integer
     }
 
     fn encode_char(&mut self, c: char) -> Value {
-        let res = self.builder.ins().iconst(Type::int(64).unwrap(), c as i64);
+        let res = self.i64_const(c as i64);
         let integer = self.encode_value(SteelVal::CHAR_TAG as _, res);
         integer
     }
 
     // Remove the tag from a value to get to the underlying type
     fn unbox_value(&mut self, value: Value) -> Value {
-        let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
+        let amount_to_shift = self.i64_const(64);
         let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
         encoded_rhs
     }
@@ -12293,13 +12145,7 @@ impl FunctionTranslator<'_> {
         self.thread_pointer = None;
         self.thread_id = None;
         // A frameless copy's sp is a parameter, which dominates everything.
-        if !matches!(
-            self.frameless,
-            Some(FramelessInfo {
-                role: FramelessRole::Callee,
-                ..
-            })
-        ) {
+        if !self.is_frameless_callee() {
             self.sp = None;
         }
         self.should_trampoline = None;
@@ -12486,7 +12332,7 @@ impl FunctionTranslator<'_> {
 
         // Walked off the end, so this is the empty list.
         self.builder.switch_to_block(end_block);
-        let zero = self.builder.ins().iconst(types::I64, 0);
+        let zero = self.i64_const(0);
         self.builder.def_var(cursor.index, zero);
         self.builder.ins().jump(merge_block, &[]);
 
@@ -12623,11 +12469,10 @@ impl FunctionTranslator<'_> {
 
         let thread_pointer = self.get_thread_pointer(ctx);
 
-        let buf_ptr = self.builder.ins().load(
+        let buf_ptr = self.load_field(
             Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
             thread_pointer,
-            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()),
         );
 
         debug_assert_eq!(std::mem::size_of::<SteelVal>(), 16);
@@ -12946,11 +12791,10 @@ impl FunctionTranslator<'_> {
         // comes from the running thread's real stack bounds, so a 2MB spawned
         // thread and an 8MB main thread each get their own answer.
         if native_stack_check_enabled() {
-            let limit = self.builder.ins().load(
+            let limit = self.load_field(
                 Type::int(64).unwrap(),
-                MemFlagsData::trusted(),
                 thread_pointer,
-                offset_of!(SteelThread, native_stack_limit) as i32,
+                offset_of!(SteelThread, native_stack_limit),
             );
 
             let sp = self.builder.ins().get_stack_pointer(Type::int(64).unwrap());
@@ -13024,7 +12868,7 @@ impl FunctionTranslator<'_> {
 
                 let frame_arity = match rest {
                     Some((surplus, declared)) => {
-                        let count = ctx.builder.ins().iconst(types::I64, surplus as i64);
+                        let count = ctx.i64_const(surplus as i64);
                         ctx.call_helper_void(COLLECT_REST_ARGS, [count]);
                         declared
                     }
@@ -13057,8 +12901,8 @@ impl FunctionTranslator<'_> {
                 ctx.builder.inst_results(call)[0]
             },
             |ctx| {
-                let arity_val = ctx.builder.ins().iconst(types::I64, arity as i64);
-                let fallback_ip_val = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
+                let arity_val = ctx.i64_const(arity as i64);
+                let fallback_ip_val = ctx.i64_const(fallback_ip as i64);
                 // Part of the call protocol: an arity error is picked up after the merge.
                 ctx.call_helper_unchecked(SETUP_CLOSURE_ARITY, [func, arity_val, fallback_ip_val])
             },
@@ -13134,11 +12978,11 @@ impl FunctionTranslator<'_> {
                     .ins()
                     .icmp(IntCC::UnsignedGreaterThan, new_length, stack_capacity);
 
-            self.converging_if_no_else_no_value_then_cold(
+            self.converging_if_no_else_no_value_cold(
                 needs_more_capacity,
                 |ctx| {
                     let amt = args.len() - ctx.arity as usize;
-                    let amt = ctx.builder.ins().iconst(types::I64, amt as i64);
+                    let amt = ctx.i64_const(amt as i64);
                     ctx.call_helper_void(SLOW_STACK_RESERVE_EXACT, [amt]);
                 },
                 |ctx| {
@@ -13315,7 +13159,7 @@ impl FunctionTranslator<'_> {
         );
 
         let count = count
-            .map(|count| self.builder.ins().iconst(types::I64, count as i64))
+            .map(|count| self.i64_const(count as i64))
             .unwrap_or_else(|| self.builder.ins().isub(stack_length, index));
         {
             let loop_header = self.builder.create_block();
@@ -13324,7 +13168,7 @@ impl FunctionTranslator<'_> {
 
             self.builder.append_block_param(loop_header, types::I64);
 
-            let zero = BlockArg::Value(self.builder.ins().iconst(types::I64, 0));
+            let zero = BlockArg::Value(self.i64_const(0));
             self.builder.ins().jump(loop_header, &[zero]);
 
             self.builder.switch_to_block(loop_header);
@@ -13385,11 +13229,10 @@ impl FunctionTranslator<'_> {
 
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
-        let buf_ptr = self.builder.ins().load(
+        let buf_ptr = self.load_field(
             Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
             thread_pointer,
-            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
+            (offset_of!(SteelThread, stack) + steel_vec::Vec::<SteelVal>::buf_offset()),
         );
 
         if stack_buf_cache_enabled() {
@@ -13406,11 +13249,10 @@ impl FunctionTranslator<'_> {
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
         // Env pointer
-        let env_pointer = self.builder.ins().load(
+        let env_pointer = self.load_field(
             types::I64,
-            MemFlagsData::trusted(),
             thread_pointer,
-            offset_of!(SteelThread, global_env) as i32,
+            offset_of!(SteelThread, global_env),
         );
 
         let smaller: u32 = payload.try_into().unwrap();
@@ -13502,12 +13344,7 @@ impl FunctionTranslator<'_> {
     fn sub_one_pop_count(&mut self, vm_ctx: Value) -> Value {
         let sub_one = self.pop_count_sub_one(vm_ctx);
 
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            sub_one,
-            vm_ctx,
-            offset_of!(VmCore, pop_count) as i32,
-        );
+        self.store_field(sub_one, vm_ctx, offset_of!(VmCore, pop_count));
         sub_one
     }
 
@@ -13531,13 +13368,7 @@ impl FunctionTranslator<'_> {
         // A frameless copy has no frame to pop and nothing in the VM to
         // restore, so drop its own slots and hand the value back. `pop_count`
         // never counted it.
-        if matches!(
-            self.frameless,
-            Some(FramelessInfo {
-                role: FramelessRole::Callee,
-                ..
-            })
-        ) {
+        if self.is_frameless_callee() {
             let vm_ctx = self.get_ctx();
             let sp = self.get_sp(vm_ctx);
             if slots_immediate {
@@ -13575,7 +13406,7 @@ impl FunctionTranslator<'_> {
                         .ins()
                         .icmp_imm_s(IntCC::NotEqual, popped_frame.attachments, 0);
 
-                ctx.converging_if_no_else_no_value_else_cold(
+                ctx.converging_if_no_else_no_value_cold(
                     attachment_exists,
                     |ctx| {
                         // If the attachments exist, then we need to:
@@ -13605,18 +13436,12 @@ impl FunctionTranslator<'_> {
                         }
 
                         let ip = ctx.builder.ins().uextend(types::I64, popped_frame.ip);
-                        ctx.builder.ins().store(
-                            MemFlagsData::trusted(),
-                            ip,
-                            vm_ctx,
-                            offset_of!(VmCore, ip) as i32,
-                        );
+                        ctx.store_field(ip, vm_ctx, offset_of!(VmCore, ip));
 
-                        ctx.builder.ins().store(
-                            MemFlagsData::trusted(),
+                        ctx.store_field(
                             popped_frame.instructions,
                             vm_ctx,
-                            offset_of!(VmCore, instructions) as i32,
+                            offset_of!(VmCore, instructions),
                         );
 
                         let sp = ctx.read_last_sp(vm_ctx);
@@ -13626,12 +13451,7 @@ impl FunctionTranslator<'_> {
                         // We don't need to totally encode the function here like this
                         ctx.drop_biased_rc_unboxed_closure(popped_frame.function);
 
-                        ctx.builder.ins().store(
-                            MemFlagsData::trusted(),
-                            sp,
-                            vm_ctx,
-                            offset_of!(VmCore, sp) as i32,
-                        );
+                        ctx.store_field(sp, vm_ctx, offset_of!(VmCore, sp));
                     },
                 );
 
@@ -13683,29 +13503,14 @@ impl FunctionTranslator<'_> {
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
         // Load the stack frame. We're going to use this later.
-        let value = self.builder.ins().load(
-            types::I32,
-            MemFlagsData::trusted(),
-            slot_ptr,
-            offset_of!(StackFrame, sp) as i32,
-        );
+        let value = self.load_field(types::I32, slot_ptr, offset_of!(StackFrame, sp));
 
         //
-        let old_function = self.builder.ins().load(
-            types::I64,
-            MemFlagsData::trusted(),
-            slot_ptr,
-            offset_of!(StackFrame, function) as i32,
-        );
+        let old_function = self.load_field(types::I64, slot_ptr, offset_of!(StackFrame, function));
 
         self.drop_biased_rc_unboxed_closure(old_function);
 
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            function,
-            slot_ptr,
-            offset_of!(StackFrame, function) as i32,
-        );
+        self.store_field(function, slot_ptr, offset_of!(StackFrame, function));
 
         self.builder.ins().uextend(types::I64, value)
     }
@@ -13733,7 +13538,7 @@ impl FunctionTranslator<'_> {
 
         self.converging_if(
             condition,
-            |ctx| ctx.builder.ins().iconst(types::I64, 0),
+            |ctx| ctx.i64_const(0),
             |ctx| {
                 // Last thing
                 let new_length = ctx.builder.ins().iadd_imm_s(stack_length, -1);
@@ -13752,12 +13557,7 @@ impl FunctionTranslator<'_> {
                 let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
 
                 // Load the stack frame. We're going to use this later.
-                let value = ctx.builder.ins().load(
-                    types::I32,
-                    MemFlagsData::trusted(),
-                    slot_ptr,
-                    offset_of!(StackFrame, sp) as i32,
-                );
+                let value = ctx.load_field(types::I32, slot_ptr, offset_of!(StackFrame, sp));
 
                 ctx.builder.ins().uextend(types::I64, value)
             },
@@ -13783,12 +13583,7 @@ impl FunctionTranslator<'_> {
         if let Some(pop) = self.pop_count {
             pop
         } else {
-            let old_pop_count = self.builder.ins().load(
-                types::I64,
-                MemFlagsData::trusted(),
-                vm_ctx,
-                offset_of!(VmCore, pop_count) as i32,
-            );
+            let old_pop_count = self.load_field(types::I64, vm_ctx, offset_of!(VmCore, pop_count));
 
             old_pop_count
         }
@@ -13799,12 +13594,7 @@ impl FunctionTranslator<'_> {
         if let Some(thread_pointer) = self.thread_pointer {
             thread_pointer
         } else {
-            let tp = self.builder.ins().load(
-                Type::int(64).unwrap(),
-                MemFlagsData::trusted(),
-                vm_ctx,
-                offset_of!(VmCore, thread) as i32,
-            );
+            let tp = self.load_field(Type::int(64).unwrap(), vm_ctx, offset_of!(VmCore, thread));
 
             self.thread_pointer = Some(tp);
 
@@ -13818,12 +13608,7 @@ impl FunctionTranslator<'_> {
         if let Some(sp) = self.sp {
             sp
         } else {
-            let sp = self.builder.ins().load(
-                Type::int(64).unwrap(),
-                MemFlagsData::trusted(),
-                vm_ctx,
-                offset_of!(VmCore, sp) as i32,
-            );
+            let sp = self.load_field(Type::int(64).unwrap(), vm_ctx, offset_of!(VmCore, sp));
 
             sp
         }
@@ -13872,35 +13657,18 @@ impl FunctionTranslator<'_> {
         // Load the stack frame. We're going to use this later.
         (
             StackFrameRepr {
-                sp: self.builder.ins().load(
-                    types::I32,
-                    MemFlagsData::trusted(),
-                    slot_ptr,
-                    offset_of!(StackFrame, sp) as i32,
-                ),
-                ip: self.builder.ins().load(
-                    types::I32,
-                    MemFlagsData::trusted(),
-                    slot_ptr,
-                    offset_of!(StackFrame, ip) as i32,
-                ),
-                instructions: self.builder.ins().load(
+                sp: self.load_field(types::I32, slot_ptr, offset_of!(StackFrame, sp)),
+                ip: self.load_field(types::I32, slot_ptr, offset_of!(StackFrame, ip)),
+                instructions: self.load_field(
                     types::I128,
-                    MemFlagsData::trusted(),
                     slot_ptr,
-                    offset_of!(StackFrame, instructions) as i32,
+                    offset_of!(StackFrame, instructions),
                 ),
-                function: self.builder.ins().load(
+                function: self.load_field(types::I64, slot_ptr, offset_of!(StackFrame, function)),
+                attachments: self.load_field(
                     types::I64,
-                    MemFlagsData::trusted(),
                     slot_ptr,
-                    offset_of!(StackFrame, function) as i32,
-                ),
-                attachments: self.builder.ins().load(
-                    types::I64,
-                    MemFlagsData::trusted(),
-                    slot_ptr,
-                    offset_of!(StackFrame, attachments) as i32,
+                    offset_of!(StackFrame, attachments),
                 ),
             },
             sp_offset,
@@ -13919,21 +13687,11 @@ impl FunctionTranslator<'_> {
             should_yield,
             |ctx| {
                 let zero = ctx.builder.ins().iconst(types::I8, 0);
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    zero,
-                    vm_ctx,
-                    offset_of!(VmCore, is_native) as i32,
-                );
+                ctx.store_field(zero, vm_ctx, offset_of!(VmCore, is_native));
             },
             |ctx| {
-                let ip = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    ip,
-                    vm_ctx,
-                    offset_of!(VmCore, ip) as i32,
-                );
+                let ip = ctx.i64_const(fallback_ip as i64);
+                ctx.store_field(ip, vm_ctx, offset_of!(VmCore, ip));
             },
         );
     }
@@ -13943,10 +13701,7 @@ impl FunctionTranslator<'_> {
     fn clone_value(&mut self, value: Value) {
         let tag = self.get_tag(value);
 
-        let mask = self
-            .builder
-            .ins()
-            .iconst(types::I64, SteelVal::UNBOXED_MASK as i64);
+        let mask = self.i64_const(SteelVal::UNBOXED_MASK as i64);
         let shifted = self.builder.ins().ushr(mask, tag);
         let is_unboxed = self.builder.ins().band_imm_u(shifted, 1);
 
@@ -13966,10 +13721,7 @@ impl FunctionTranslator<'_> {
         self.builder.switch_to_block(needs_drop);
         self.builder.seal_block(needs_drop);
 
-        let std_mask = self
-            .builder
-            .ins()
-            .iconst(types::I64, SteelVal::STANDARD_RC_MASK as i64);
+        let std_mask = self.i64_const(SteelVal::STANDARD_RC_MASK as i64);
         let std_shifted = self.builder.ins().ushr(std_mask, tag);
         let is_standard_rc = self.builder.ins().band_imm_u(std_shifted, 1);
 
@@ -14020,10 +13772,7 @@ impl FunctionTranslator<'_> {
         }
 
         let tag = self.get_tag(value);
-        let weak_mask = self
-            .builder
-            .ins()
-            .iconst(types::I64, SteelVal::WEAK_RC_MASK as i64);
+        let weak_mask = self.i64_const(SteelVal::WEAK_RC_MASK as i64);
         let shifted = self.builder.ins().ushr(weak_mask, tag);
         let is_weak = self.builder.ins().band_imm_u(shifted, 1);
 
@@ -14148,12 +13897,7 @@ impl FunctionTranslator<'_> {
         let offset = self.builder.ins().imul_imm_s(last, size);
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
-        let function = self.builder.ins().load(
-            types::I64,
-            MemFlagsData::trusted(),
-            slot_ptr,
-            offset_of!(StackFrame, function) as i32,
-        );
+        let function = self.load_field(types::I64, slot_ptr, offset_of!(StackFrame, function));
 
         let capture_pointer = self.builder.ins().load(
             types::I64,
@@ -14240,7 +13984,7 @@ impl FunctionTranslator<'_> {
 
         // At capacity could be lifted to basic block branching, to avoid the check
         // entirely.
-        self.converging_if_no_else_no_value_then_cold(
+        self.converging_if_no_else_no_value_cold(
             at_capacity,
             // If at capacity, call grow
             |ctx| ctx.call_helper_void(SLOW_GROW_FRAME_STACK, []),
@@ -14276,12 +14020,7 @@ impl FunctionTranslator<'_> {
                 let new_sp = ctx.builder.ins().ireduce(types::I32, new_sp);
 
                 // Stack pointer:
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    new_sp,
-                    slot_ptr,
-                    offset_of!(StackFrame, sp) as i32,
-                );
+                ctx.store_field(new_sp, slot_ptr, offset_of!(StackFrame, sp));
 
                 // Instruction pointer:
 
@@ -14290,12 +14029,7 @@ impl FunctionTranslator<'_> {
                     .ins()
                     .iconst(types::I32, (fallback_ip + 1) as i64);
 
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    ip_plus_one,
-                    slot_ptr,
-                    offset_of!(StackFrame, ip) as i32,
-                );
+                ctx.store_field(ip_plus_one, slot_ptr, offset_of!(StackFrame, ip));
 
                 // Instructions:
 
@@ -14305,12 +14039,7 @@ impl FunctionTranslator<'_> {
                 let current_instructions = if callee_is_self {
                     instr_fat_ptr
                 } else {
-                    ctx.builder.ins().load(
-                        types::I128,
-                        MemFlagsData::trusted(),
-                        vm_ctx,
-                        offset_of!(VmCore, instructions) as i32,
-                    )
+                    ctx.load_field(types::I128, vm_ctx, offset_of!(VmCore, instructions))
                 };
 
                 // TODO: This doesn't work correctly; we need to
@@ -14320,60 +14049,34 @@ impl FunctionTranslator<'_> {
 
                 let instructions = instr_fat_ptr;
 
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
+                ctx.store_field(
                     current_instructions,
                     slot_ptr,
-                    offset_of!(StackFrame, instructions) as i32,
+                    offset_of!(StackFrame, instructions),
                 );
 
                 // Store the instructions back to the VM pointer. A self call is
                 // already running this stream, so the store would write the value
                 // that is there.
                 if !callee_is_self {
-                    ctx.builder.ins().store(
-                        MemFlagsData::trusted(),
-                        instructions,
-                        vm_ctx,
-                        offset_of!(VmCore, instructions) as i32,
-                    );
+                    ctx.store_field(instructions, vm_ctx, offset_of!(VmCore, instructions));
                 }
 
                 // Store the function itself
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    function,
-                    slot_ptr,
-                    offset_of!(StackFrame, function) as i32,
-                );
+                ctx.store_field(function, slot_ptr, offset_of!(StackFrame, function));
 
-                let null_pointer = ctx.builder.ins().iconst(types::I64, 0);
+                let null_pointer = ctx.i64_const(0);
 
                 // Null for the attachments
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    null_pointer,
-                    slot_ptr,
-                    offset_of!(StackFrame, attachments) as i32,
-                );
+                ctx.store_field(null_pointer, slot_ptr, offset_of!(StackFrame, attachments));
 
                 let new_pop_count = ctx.pop_count_add_one(vm_ctx);
 
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    new_pop_count,
-                    vm_ctx,
-                    offset_of!(VmCore, pop_count) as i32,
-                );
+                ctx.store_field(new_pop_count, vm_ctx, offset_of!(VmCore, pop_count));
 
                 // Set ip to 0
-                let zero = ctx.builder.ins().iconst(types::I64, 0);
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    zero,
-                    vm_ctx,
-                    offset_of!(VmCore, ip) as i32,
-                );
+                let zero = ctx.i64_const(0);
+                ctx.store_field(zero, vm_ctx, offset_of!(VmCore, ip));
 
                 // Add one to the length:
                 let new_length = ctx.builder.ins().iadd_imm_s(stack_frame_length, 1);
@@ -14433,7 +14136,7 @@ impl FunctionTranslator<'_> {
 
         self.invalidate_buf_ptr();
 
-        self.converging_if_no_else_no_value_then_cold(
+        self.converging_if_no_else_no_value_cold(
             at_capacity,
             // If at capacity, call grow
             |ctx| ctx.call_helper_void(SLOW_GROW_STACK, []),
@@ -14517,11 +14220,11 @@ impl FunctionTranslator<'_> {
 
         self.invalidate_buf_ptr();
 
-        self.converging_if_no_else_no_value_then_cold(
+        self.converging_if_no_else_no_value_cold(
             at_capacity,
             // If at capacity, call grow
             |ctx| {
-                let amt = ctx.builder.ins().iconst(types::I64, arity as i64);
+                let amt = ctx.i64_const(arity as i64);
                 ctx.call_helper_void(SLOW_STACK_RESERVE_EXACT, [amt])
             },
             |ctx| {
@@ -14557,10 +14260,7 @@ impl FunctionTranslator<'_> {
 
         let ctx = self.get_ctx();
 
-        let value = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), index as i64);
+        let value = self.i64_const(index as i64);
 
         let arg_values = [ctx, value];
 
