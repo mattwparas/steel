@@ -159,6 +159,16 @@
              (flattening)
              (into-list)))
 
+;; `hash->list` for the given keys, in their order.
+(define (option-arguments hm keys)
+  (apply append
+         (map (lambda (k)
+                (list (if (symbol? k)
+                          (list 'quote k)
+                          k)
+                      (hash-ref hm k)))
+              keys)))
+
 (define (mutable-keyword? x)
   (equal? x '#:mutable))
 (define (transparent-keyword? x)
@@ -267,6 +277,20 @@
     (when (and maybe-procedure-field (> maybe-procedure-field (length fields)))
       (error! "struct #:prop:procedure cannot refer to an index that is out of bounds"))
 
+    ;; The options in the order they were written, then the defaults. Hash map
+    ;; order changes from run to run, and so would the compiled code.
+    (define option-keys
+      (let loop ([rest (append options-without-single-keywords
+                               (list '#:mutable #f '#:transparent #f '#:fields #f
+                                     '#:name #f '#:printer #f))]
+                 [keys '()])
+        (cond
+          [(null? rest) (reverse keys)]
+          [(or (contains? (lambda (k) (equal? k (car rest))) keys)
+               (not (hash-contains? options-map (car rest))))
+           (loop (cddr rest) keys)]
+          [else (loop (cddr rest) (cons (car rest) keys))])))
+
     (define struct-options-name (concat-symbols '___ struct-name '-options___))
     (define struct-prop-name (concat-symbols 'struct: struct-name))
     (define struct-predicate (concat-symbols struct-name '?))
@@ -289,7 +313,8 @@
        (define ,predicate-proto-gensym (#%prim.list-ref ,struct-proto-gensym 2))
        (define ,getter-proto-gensym (#%prim.list-ref ,struct-proto-gensym 3))
        (define ,getter-proto-list-gensym (#%prim.list-ref ,struct-proto-gensym 4))
-       (define ,struct-options-name (#%prim.hash ,@(hash->list options-map)))
+       (define ,struct-options-name
+         (#%prim.hash ,@(option-arguments options-map option-keys)))
 
        (define ,struct-prop-name ,struct-prop-name-gensym)
        (#%vtable-update-entry! ,struct-prop-name-gensym ,maybe-procedure-field ,struct-options-name)

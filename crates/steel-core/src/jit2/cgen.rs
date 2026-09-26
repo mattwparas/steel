@@ -554,13 +554,6 @@ impl Default for JIT {
                 .expect("failed to reserve JIT code arena"),
         ));
 
-        for op_code in OPCODES_ARRAY {
-            builder.symbol(
-                format!("{:?}", op_code),
-                crate::steel_vm::vm::jit::C_HANDLERS[op_code as usize] as *const u8,
-            );
-        }
-
         // How to take the if branch - this will return a boolean. 1 = true, 0 = false
 
         let mut map = FunctionMap {
