@@ -3855,6 +3855,32 @@ fn extern_c_lt_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
 }
 
 #[cross_platform_fn]
+fn extern_c_gt_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
+    assert!(matches!(b, SteelVal::IntV(_)));
+    let ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    // Avoid the drop glue. We've already asserted that this is an integer
+    let b = ManuallyDrop::new(b);
+
+    match a.partial_cmp(&*b) {
+        Some(ordering) => ordering == std::cmp::Ordering::Greater,
+        None => {
+            let e = SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!("> expected comparable values, found: {} and {}", a, *b),
+            );
+
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+
+            false
+        }
+    }
+}
+
+#[cross_platform_fn]
 fn extern_c_lt_two_int(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
     assert!(matches!(b, SteelVal::IntV(_)));
     match lt_primitive(&[a, b]) {

@@ -5480,91 +5480,16 @@ impl FunctionTranslator<'_> {
                     self.check_deopt();
                 }
 
-                OpCode::LT if self.int_against_register(payload) => {
-                    self.mark_operands(payload, InferredType::Number);
-
-                    enum Either {
-                        Value(Value),
-                        Int(i64),
-                    }
-
-                    // Materialized, since an untagged payload read raw would be
-                    // used as though it were a SteelVal. `shadow_stack_pop` so a
-                    // spilled operand is taken off the vm stack as well, instead of
-                    // left there to shift everything above it (see the `cons` arm).
-                    let rhs_int = match self.shadow_stack_pop().unwrap() {
-                        MaybeStackValue::Value(v) => Either::Value(v.as_steelval(self)),
-                        MaybeStackValue::Constant(ConstantValue::Int(i)) => Either::Int(i as _),
-                        // The guard admits any stack entry whose inferred type is
-                        // `Int`, and a let slot bound to an int is a register with
-                        // that type, so registers have to be handled here.
-                        MaybeStackValue::Register(r) => {
-                            Either::Value(self.immutable_register_to_value(r).0)
-                        }
-                        MaybeStackValue::MutRegister(r) => {
-                            Either::Value(self.mut_register_to_value(r).0)
-                        }
-                        _ => panic!(),
+                OpCode::LT | OpCode::LTE | OpCode::GT | OpCode::GTE
+                    if self.int_against_register(payload) =>
+                {
+                    let (cc, fallback) = match op {
+                        OpCode::LT => (IntCC::SignedLessThan, LT_REGISTER_INT),
+                        OpCode::LTE => (IntCC::SignedLessThanOrEqual, LTE_REGISTER_INT),
+                        OpCode::GT => (IntCC::SignedGreaterThan, GT_REGISTER_INT),
+                        _ => (IntCC::SignedGreaterThanOrEqual, GTE_REGISTER_INT),
                     };
-
-                    let register_l = self.shadow_stack_pop().unwrap().into_index();
-
-                    // Happy path, lets check the type of the lhs. If its an integer tag, then we can go ahead and do the thing.
-                    // Otherwise, we'll bail and fall through:
-
-                    let local_value = self.read_from_vm_stack(register_l);
-                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
-
-                    let result = self.converging_if(
-                        is_int,
-                        |ctx| {
-                            // Just do less than or equal on the value:
-                            let lhs = ctx.unbox_value_to_pointer(local_value);
-
-                            let res = match rhs_int {
-                                Either::Value(value) => {
-                                    let rhs = ctx.unbox_value_to_pointer(value);
-                                    let res =
-                                        ctx.builder.ins().icmp(IntCC::SignedLessThan, lhs, rhs);
-
-                                    res
-                                }
-                                Either::Int(i) => {
-                                    // Lets encode the property here then?
-                                    ctx.builder.ins().icmp_imm_s(IntCC::SignedLessThan, lhs, i)
-                                }
-                            };
-
-                            res
-                        },
-                        |ctx| {
-                            let register_l = ctx.i64_const(register_l as i64);
-
-                            let rhs_value = match rhs_int {
-                                Either::Value(value) => value,
-                                Either::Int(i) => ctx.encode_integer(i),
-                            };
-
-                            let args = [register_l, rhs_value];
-                            let result = ctx.call_helper_checked(LT_REGISTER_INT, args);
-
-                            result
-                        },
-                        types::I8,
-                    );
-
-                    // Encoding the property here
-                    if let Either::Int(i) = rhs_int {
-                        self.properties.add_property(
-                            ValueOrRegister::Value(result),
-                            Properties::ConditionLessThan(ValueOrRegister::Register(register_l), i),
-                        );
-                    }
-
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::UnboxedBool);
-
-                    self.ip += 2;
+                    self.compare_register_int(cc, fallback);
                 }
 
                 OpCode::LT if payload == 2 && self.top_operand_is_int() => {
@@ -5581,157 +5506,8 @@ impl FunctionTranslator<'_> {
 
                 // When the value is a mutable register, or register, and we're comparing
                 // it to a known constant / etc
-                OpCode::LTE if self.int_against_register(payload) => {
-                    self.mark_operands(payload, InferredType::Number);
-
-                    let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
-
-                    let register_l = self.shadow_stack_pop().unwrap().into_index();
-
-                    // Happy path, lets check the type of the lhs. If its an integer tag,
-                    // then we can go ahead and do the thing.
-                    // Otherwise, we'll bail and fall through:
-
-                    let (tag, local_value) = self.read_from_vm_stack_split(register_l);
-
-                    let is_int =
-                        self.builder
-                            .ins()
-                            .icmp_imm_s(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
-
-                    let result = self.converging_if(
-                        is_int,
-                        |ctx| {
-                            let lhs = local_value;
-                            let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
-
-                            let res =
-                                ctx.builder
-                                    .ins()
-                                    .icmp(IntCC::SignedLessThanOrEqual, lhs, rhs);
-
-                            res
-                        },
-                        |ctx| {
-                            let register_l = ctx.i64_const(register_l as i64);
-                            let args = [register_l, rhs_int.value];
-                            let result = ctx.call_helper_checked(LTE_REGISTER_INT, args);
-
-                            result
-                        },
-                        types::I8,
-                    );
-
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::UnboxedBool);
-
-                    self.ip += 2;
-                }
-
-                OpCode::LTE
-                    if payload == 2
-                        && matches!(
-                            self.shadow_stack.last(),
-                            Some(MaybeStackValue::Constant(ConstantValue::Int(_)))
-                        )
-                        && self.second_operand_is_register() =>
-                {
-                    self.mark_operands(payload, InferredType::Number);
-
-                    let rhs_int = self
-                        .shadow_stack_pop()
-                        .unwrap()
-                        .into_constant_int(self)
-                        .unwrap();
-
-                    let register_l = self.shadow_stack_pop().unwrap().into_index();
-
-                    // Happy path, lets check the type of the lhs. If its an integer tag,
-                    // then we can go ahead and do the thing.
-                    // Otherwise, we'll bail and fall through:
-
-                    let (tag, local_value) = self.read_from_vm_stack_split(register_l);
-
-                    let is_int =
-                        self.builder
-                            .ins()
-                            .icmp_imm_s(IntCC::Equal, tag, SteelVal::INT_TAG as i64);
-
-                    let result = self.converging_if(
-                        is_int,
-                        |ctx| {
-                            let lhs = local_value;
-
-                            let res = ctx.builder.ins().icmp_imm_s(
-                                IntCC::SignedLessThanOrEqual,
-                                lhs,
-                                rhs_int as i64,
-                            );
-
-                            res
-                        },
-                        |ctx| {
-                            let register_l = ctx.i64_const(register_l as i64);
-
-                            let value = ctx.encode_integer(rhs_int as _);
-
-                            let args = [register_l, value];
-                            let result = ctx.call_helper_checked(LTE_REGISTER_INT, args);
-
-                            result
-                        },
-                        types::I8,
-                    );
-
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::UnboxedBool);
-
-                    self.ip += 2;
-                }
 
                 // Inferred type is not int
-                OpCode::GTE if self.int_against_register(payload) => {
-                    self.mark_operands(payload, InferredType::Number);
-
-                    let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
-                    let register_l = self.shadow_stack_pop().unwrap().into_index();
-
-                    // Happy path, lets check the type of the lhs. If its an integer tag,
-                    // then we can go ahead and do the thing.
-                    // Otherwise, we'll bail and fall through:
-
-                    let local_value = self.read_from_vm_stack(register_l);
-                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
-
-                    let result = self.converging_if(
-                        is_int,
-                        |ctx| {
-                            // Just do less than or equal on the value:
-                            let lhs = ctx.unbox_value_to_pointer(local_value);
-                            let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
-
-                            let res =
-                                ctx.builder
-                                    .ins()
-                                    .icmp(IntCC::SignedGreaterThanOrEqual, lhs, rhs);
-
-                            res
-                        },
-                        |ctx| {
-                            let register_l = ctx.i64_const(register_l as i64);
-                            let args = [register_l, rhs_int.value];
-                            let result = ctx.call_helper_checked(GTE_REGISTER_INT, args);
-
-                            result
-                        },
-                        types::I8,
-                    );
-
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::UnboxedBool);
-
-                    self.ip += 2;
-                }
 
                 // TODO: Introduce an abstraction to insert blocks when _both_ types are the same.
                 // Reduce number of type checks, inline comparisons.
@@ -7003,6 +6779,74 @@ impl FunctionTranslator<'_> {
         self.depth -= 1;
 
         return true;
+    }
+
+    /// Compare a local's register (under) with an int operand (on top), as
+    /// guarded by `int_against_register`. When the local holds an int too, the
+    /// two compare inline with `cc`, against an immediate when the operand is a
+    /// constant. Otherwise `fallback` compares them. The result is an unboxed
+    /// bool. A `<` against a constant is recorded for later narrowing.
+    fn compare_register_int(&mut self, cc: IntCC, fallback: Helper<2, true, true, true>) {
+        #[derive(Clone, Copy)]
+        enum Operand {
+            Value(Value),
+            Int(i64),
+        }
+
+        self.mark_operands(2, InferredType::Number);
+
+        // Materialized, since an untagged payload read raw would be used as
+        // though it were a SteelVal. `shadow_stack_pop` so a spilled operand is
+        // taken off the vm stack as well, instead of left there to shift
+        // everything above it (see the `cons` arm).
+        let rhs = match self.shadow_stack_pop().unwrap() {
+            MaybeStackValue::Value(v) => Operand::Value(v.as_steelval(self)),
+            MaybeStackValue::Constant(ConstantValue::Int(i)) => Operand::Int(i as _),
+            // The guard admits any stack entry whose inferred type is `Int`,
+            // and a let slot bound to an int is a register with that type, so
+            // registers have to be handled here.
+            MaybeStackValue::Register(r) => Operand::Value(self.immutable_register_to_value(r).0),
+            MaybeStackValue::MutRegister(r) => Operand::Value(self.mut_register_to_value(r).0),
+            _ => panic!(),
+        };
+
+        let register_l = self.shadow_stack_pop().unwrap().into_index();
+
+        let local_value = self.read_from_vm_stack(register_l);
+        let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+        let result = self.converging_if(
+            is_int,
+            |ctx| {
+                let lhs = ctx.unbox_value_to_pointer(local_value);
+                match rhs {
+                    Operand::Value(value) => {
+                        let rhs = ctx.unbox_value_to_pointer(value);
+                        ctx.builder.ins().icmp(cc, lhs, rhs)
+                    }
+                    Operand::Int(i) => ctx.builder.ins().icmp_imm_s(cc, lhs, i),
+                }
+            },
+            |ctx| {
+                let register_l = ctx.i64_const(register_l as i64);
+                let rhs_value = match rhs {
+                    Operand::Value(value) => value,
+                    Operand::Int(i) => ctx.encode_integer(i),
+                };
+                ctx.call_helper_checked(fallback, [register_l, rhs_value])
+            },
+            types::I8,
+        );
+
+        if let (IntCC::SignedLessThan, Operand::Int(i)) = (cc, rhs) {
+            self.properties.add_property(
+                ValueOrRegister::Value(result),
+                Properties::ConditionLessThan(ValueOrRegister::Register(register_l), i),
+            );
+        }
+
+        self.push(result, InferredType::UnboxedBool);
+        self.ip += 2;
     }
 
     fn sub_register_float(&mut self) {

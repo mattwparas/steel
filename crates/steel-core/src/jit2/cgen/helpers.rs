@@ -263,6 +263,7 @@ jit_helpers! {
     GTE_REGISTER_INT = "gte-register-int" => extern_c_gte_register_int: ctx_raises fn(usize, SteelVal) -> bool;
     GTE_REGISTER_UNKNOWN = "gte-register-unknown" => extern_c_gte_register_unknown: ctx_raises fn(usize, SteelVal) -> bool;
     LT_REGISTER_INT = "lt-register-int" => extern_c_lt_register_int: ctx_raises fn(usize, SteelVal) -> bool;
+    GT_REGISTER_INT = "gt-register-int" => extern_c_gt_register_int: ctx_raises fn(usize, SteelVal) -> bool;
     LT_BINOP_INT = "lt-binop-int" => extern_c_lt_two_int: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
     NULL_HANDLER = "null-handler" => extern_c_null_handler: plain fn(SteelVal) -> SteelVal;
     LT_THREE = "lt-three" => extern_c_lt_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal;
@@ -311,6 +312,9 @@ pub(super) const KEEPS_STACK: &[&str] = &[
     LT_BINOP.name,
     LT_BINOP_INT.name,
     LT_REGISTER_INT.name,
+    LTE_REGISTER_INT.name,
+    GT_REGISTER_INT.name,
+    GTE_REGISTER_INT.name,
     LT_TWO_VALUE_BOOL.name,
     LTE_TWO_VALUE_BOOL.name,
     GT_TWO_VALUE_BOOL.name,
