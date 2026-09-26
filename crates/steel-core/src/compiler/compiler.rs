@@ -443,8 +443,6 @@ pub struct Compiler {
     pub(crate) sources: Sources,
     pub(crate) builtin_modules: ModuleContainer,
 
-    pub(crate) non_mutable_globals: HashSet<usize>,
-
     // Prelude names given another value at the top level or by the host.
     // References to these stay as globals instead of `#%prim.` names.
     pub(crate) redefined_builtins: FxHashSet<InternedString>,
@@ -632,7 +630,6 @@ impl Compiler {
             search_dirs,
             sources,
             builtin_modules,
-            non_mutable_globals: HashSet::new(),
             redefined_builtins: FxHashSet::default(),
         }
     }
@@ -664,7 +661,6 @@ impl Compiler {
             search_dirs,
             sources,
             builtin_modules,
-            non_mutable_globals: HashSet::new(),
             redefined_builtins: FxHashSet::default(),
         }
     }

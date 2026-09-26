@@ -45,12 +45,8 @@ use crate::{
     SteelVal,
 };
 
-// Various optimizations that we've added one by one.
-// Its important that we get this right
-const INLINE_STRUCT_FUNCTION_CALLS: bool = true;
-const INLINE_STRUCT_FUNCTION_TAIL_CALLS: bool = true;
+// Switches for individual optimizations, read from `config.rs`.
 
-const USE_INLINE_CALL_FUNC: bool = true;
 /// Inline tail calls to primitives the JIT already knows how to emit, instead
 /// of routing them through `call_global_function_tail_deopt_*`.
 /// `STEEL_JIT_PRIM_TAIL=0` disables it.
@@ -70,8 +66,8 @@ fn generic_inline_enabled() -> bool {
     crate::config::config().jit_generic_inline
 }
 
-/// `STEEL_JIT_CALLGLOBAL_DIRECT=0` disables direct calls to global closures
-/// that are never `set!`.
+/// `STEEL_JIT_CALLGLOBAL_DIRECT=0` disables direct calls to closed global
+/// closures (`global_is_closed`).
 fn callglobal_direct_enabled() -> bool {
     crate::config::config().jit_callglobal_direct
 }
@@ -98,26 +94,6 @@ fn native_stack_check_enabled() -> bool {
 fn use_inline_global_tail_call() -> bool {
     crate::config::config().jit_inline_tail_call
 }
-
-const USE_INLINE_LOCAL_TAIL_CALL: bool = true;
-
-const USE_EXPERIMENTAL_CALL: bool = true;
-const USE_INLINE_TAIL_CALL: bool = true;
-
-const USE_INLINE_CALL_GLOBAL: bool = true;
-
-const INLINE_READ_CAPTURED: bool = true;
-
-const USE_INLINE_DROP_HEAP_BOX: bool = true;
-
-const INLINE_MUTABLE_VECTOR_OPS: bool = true;
-const INLINE_FLAT_VECTOR_REF: bool = true;
-
-// const USE_INPLACE_WRITES: bool = true;
-
-// Use inline push global; the shared vector implementation
-// is Repr C, so we can look up values directly in this.
-const USE_INLINE_PUSH_GLOBAL: bool = true;
 
 /// The basic JIT class.
 pub struct JIT {
@@ -240,7 +216,6 @@ macro_rules! register_function_pointers_return {
             }
         }
 
-
         #[cfg(not(target_os = "windows"))]
         impl<RET, $($typ),*> FunctionToCranelift for extern "C-unwind" fn(*mut VmCore, $($typ),*) -> RET {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
@@ -290,7 +265,6 @@ macro_rules! register_function_pointers_return {
                 *self as _
             }
         }
-
 
         #[cfg(not(target_os = "windows"))]
         impl<RET, $($typ),*> FunctionToCranelift2 for extern "C-unwind" fn($($typ),*) -> RET {
@@ -622,10 +596,6 @@ impl Default for JIT {
 
         CallPrimitiveFixedDefinitions::register(&mut map);
 
-        // CallRegisterPrimitiveFixedDefinitions::register(&mut map);
-
-        // DebugStackDefinitions::register(&mut map);
-
         // Check if the function at the global location is in fact the right one.
 
         // TODO: Add type checked variants as well which can allow
@@ -634,7 +604,6 @@ impl Default for JIT {
         // map.add_func(
         //     "cdr-mut-reg",
         //     abi! { cdr_handler_mut_reg as fn(*mut VmCore, usize) },
-        // );
 
         // TODO: Add type checked variants as well which can allow
         // passing through unboxed values on the stack
@@ -1492,7 +1461,7 @@ unsafe fn compile_bytecode(
     function_index: Option<usize>,
     slot: Option<&Gc<ByteCodeLambda>>,
     top_level_name: Option<InternedString>,
-    non_mutable_globals: &HashSet<usize>,
+    closed_globals: &HashSet<usize>,
 ) -> Result<JitFnPointer, String> {
     let code_ptr = jit.compile(
         name,
@@ -1503,7 +1472,7 @@ unsafe fn compile_bytecode(
         function_index,
         slot,
         top_level_name,
-        non_mutable_globals,
+        closed_globals,
     )?;
     let code_fn = JitFnPointer(NonNull::new_unchecked(code_ptr.cast_mut()));
 
@@ -1588,7 +1557,7 @@ impl JIT {
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
         top_level_name: Option<InternedString>,
-        non_mutable_globals: &HashSet<usize>,
+        closed_globals: &HashSet<usize>,
     ) -> Result<JitFnPointer, String> {
         unsafe {
             compile_bytecode(
@@ -1601,7 +1570,7 @@ impl JIT {
                 function_index,
                 slot,
                 top_level_name,
-                non_mutable_globals,
+                closed_globals,
             )
         }
     }
@@ -1695,7 +1664,7 @@ impl JIT {
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
         top_level_name: Option<InternedString>,
-        non_mutable_globals: &HashSet<usize>,
+        closed_globals: &HashSet<usize>,
     ) -> Result<*const u8, String> {
         let id = str::parse::<u32>(&name).unwrap();
 
@@ -1729,8 +1698,6 @@ impl JIT {
         };
 
         self.names.insert(id, inner_name.clone());
-
-        // self.ctx.set_disasm(true);
 
         if self.defined.contains(&inner_name) {
             if let Some(data) = self.module.get_name(&inner_name) {
@@ -1819,7 +1786,7 @@ impl JIT {
                     constants,
                     function_index,
                     slot,
-                    non_mutable_globals,
+                    closed_globals,
                     seed.clone(),
                 );
                 self.module.clear_context(&mut self.ctx);
@@ -1847,7 +1814,7 @@ impl JIT {
                     constants,
                     function_index,
                     slot,
-                    non_mutable_globals,
+                    closed_globals,
                     seed.clone(),
                     frameless,
                 );
@@ -1882,7 +1849,7 @@ impl JIT {
                 constants,
                 function_index,
                 slot,
-                non_mutable_globals,
+                closed_globals,
                 mode,
                 None,
             )
@@ -1959,11 +1926,6 @@ impl JIT {
         }
 
         self.defined.insert(inner_name.clone());
-
-        // let asm = self.ctx.compiled_code().map(|x| x.vcode.as_ref()).flatten();
-        // if let Some(asm) = asm {
-        //     println!("{}", asm);
-        // }
 
         // This is for perf
         let code_size = self
@@ -2095,7 +2057,7 @@ impl JIT {
         constants: &ConstantMap,
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
-        non_mutable_globals: &HashSet<usize>,
+        closed_globals: &HashSet<usize>,
         seed: Vec<(usize, SpecType)>,
     ) -> Option<Option<InferredType>> {
         // Fixnum (float) seeded functions most likely return fixnums (floats),
@@ -2135,7 +2097,7 @@ impl JIT {
                     constants,
                     function_index,
                     slot,
-                    non_mutable_globals,
+                    closed_globals,
                     mode,
                     Some(info),
                 )
@@ -2215,7 +2177,7 @@ impl JIT {
         constants: &ConstantMap,
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
-        non_mutable_globals: &HashSet<usize>,
+        closed_globals: &HashSet<usize>,
         seed: Vec<(usize, SpecType)>,
         frameless: Option<FramelessInfo>,
     ) -> (usize, bool) {
@@ -2239,7 +2201,7 @@ impl JIT {
                     constants,
                     function_index,
                     slot,
-                    non_mutable_globals,
+                    closed_globals,
                     mode,
                     frameless,
                 )
@@ -2446,14 +2408,10 @@ impl JIT {
         constants: &ConstantMap,
         function_context: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
-        non_mutable_globals: &HashSet<usize>,
+        closed_globals: &HashSet<usize>,
         spec_mode: SpecMode,
         frameless: Option<FramelessInfo>,
     ) -> Result<TranslateInfo, String> {
-        // println!("----- Compiling function ----");
-
-        // pretty_print_dense_instructions(bytecode);
-
         let int = Type::int(128).unwrap();
 
         // Create the builder to build a function.
@@ -2551,19 +2509,17 @@ impl JIT {
             vm_context,
             slot,
             function_context,
-            non_mutable_globals,
+            closed_globals,
             names: &self.names,
             function_return_types: &self.function_return_types,
             exit_types: &mut exit_types,
             typed_returns: HashSet::new(),
-            potentially_could_deopt: false,
             thread_pointer: None,
             should_trampoline: None,
             sp: None,
             pop_count: None,
             pop_count_plus_one: None,
             pop_count_minus_one: None,
-            compilation_stats: CompilationStats::default(),
             thread_id: None,
             use_lbbv: crate::config::config().lbbv,
             known_tags: HashMap::new(),
@@ -2633,8 +2589,6 @@ impl JIT {
             trans.builder.seal_block(fake_entry_block);
         }
 
-        // trans.builder.switch_to_block(exit_block);
-
         let void = trans.encode_void();
 
         trans.builder.ins().return_(&[void]);
@@ -2674,14 +2628,6 @@ impl JIT {
             );
         }
         trans.builder.finalize(frontend_config);
-
-        /*
-        if !trans.potentially_could_deopt {
-            println!("Found a candidate for tier 2 compilation: {}", trans.name);
-        }
-
-        println!("Stats: {:#?}", trans.compilation_stats);
-        */
 
         let returned = exit_types.clone();
 
@@ -3015,8 +2961,6 @@ impl ConstantValue {
             ConstantValue::Bool(b) if !b => (ctx.encode_false(), InferredType::Bool),
 
             _ => {
-                // let value = ctx.create_i128(encode(self.as_steelval()));
-                // let value = ctx.encode_void();
                 // (value, self.as_typ())
 
                 dbg!(self);
@@ -3222,7 +3166,6 @@ impl PropertyMap {
 
     pub fn add_property(&mut self, value: ValueOrRegister, prop: Properties) {
         if let Some(exists) = self.props.get_mut(&value) {
-            // println!("Adding property: {:?} to exists: {:?}", prop, exists);
             match prop {
                 Properties::NonEmptyListOrPair => {
                     for p in exists.iter() {
@@ -3299,8 +3242,6 @@ impl PropertyMap {
                     exists.push(prop);
                 }
             }
-
-            // println!("Results: {:?}", exists);
         } else {
             self.props.insert(value, vec![prop]);
         }
@@ -3313,7 +3254,6 @@ impl PropertyMap {
                 match prop {
                     Properties::CheckedList(value_or_register) => {
                         if branch {
-                            // println!("Adding proper list at branch");
                             self.add_property(*value_or_register, Properties::ProperList)
                         } else {
                             // Mark as not a list? Is that even worth checking?
@@ -3474,12 +3414,6 @@ impl MaybeStackValue {
     }
 }
 
-#[derive(Default, Clone, Debug)]
-struct CompilationStats {
-    stack_frame_pushes: usize,
-    max_stack_size: usize,
-}
-
 /// A collection of state used for translating from toy-language AST nodes
 /// into Cranelift IR.
 struct FunctionTranslator<'a> {
@@ -3605,9 +3539,10 @@ struct FunctionTranslator<'a> {
     slot: Option<&'a Gc<ByteCodeLambda>>,
     function_context: Option<usize>,
 
-    /// Global indices the compiler proved are never `set!`. Only such a global
-    /// may have its value baked into generated code.
-    non_mutable_globals: &'a HashSet<usize>,
+    /// Global indices that can never hold another value: never `set!` in their
+    /// own compile, and not reachable from a later one (`is_closed_global`).
+    /// Only such a global may have its value baked into generated code.
+    closed_globals: &'a HashSet<usize>,
 
     names: &'a HashMap<u32, String>,
 
@@ -3616,8 +3551,6 @@ struct FunctionTranslator<'a> {
     // The `return` instructions whose value's type went into `exit_types`.
     // Any other reachable exit makes the function's result type unknown.
     typed_returns: HashSet<cranelift::codegen::ir::Inst>,
-
-    potentially_could_deopt: bool,
 
     thread_pointer: Option<Value>,
 
@@ -3631,8 +3564,6 @@ struct FunctionTranslator<'a> {
     pop_count_minus_one: Option<Value>,
 
     thread_id: Option<Value>,
-
-    compilation_stats: CompilationStats,
 
     use_lbbv: bool,
     // The tag an SSA value is known to carry. An SSA value never changes, so the
@@ -3850,9 +3781,6 @@ impl FunctionTranslator<'_> {
     fn stack_to_ssa(&mut self) -> bool {
         self.depth += 1;
         while self.ip < self.instructions.len() {
-            // At every point, we're
-            self.record_stack_size();
-
             if let Some(last) = self.if_bound {
                 if self.ip == last {
                     self.depth -= 1;
@@ -3940,34 +3868,17 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                 }
                 OpCode::PUSH => {
-                    if USE_INLINE_PUSH_GLOBAL {
-                        let result = self.inline_lookup_global(payload);
+                    let result = self.inline_lookup_global(payload);
 
-                        // Clone the resulting value, then move on
-                        self.clone_value(result);
+                    // Clone the resulting value, then move on
+                    self.clone_value(result);
 
-                        // TODO: If we know the type of a global
-                        // and we also know that the value is immutable, then
-                        // we should be able to fuss with it
-                        self.push(result, InferredType::Any);
+                    // TODO: If we know the type of a global
+                    // and we also know that the value is immutable, then
+                    // we should be able to fuss with it
+                    self.push(result, InferredType::Any);
 
-                        self.ip += 1;
-                    } else {
-                        // Let value to push:
-                        let index = self
-                            .builder
-                            .ins()
-                            .iconst(Type::int(64).unwrap(), payload as i64);
-
-                        let function_name = op_to_name_payload(op, payload);
-
-                        let result = self.call_function_returns_value_args(function_name, &[index]);
-
-                        // Check the inferred type, if we know of it
-                        self.push(result, InferredType::Any);
-
-                        self.ip += 1;
-                    }
+                    self.ip += 1;
                 }
 
                 // TODO: Still adjust the ip as needed
@@ -3985,8 +3896,6 @@ impl FunctionTranslator<'_> {
                         let test_bool = self.call_test_handler_register(test.into_index());
 
                         self.translate_if_else_value(test_bool, true_instr, false_instr.to_usize());
-
-                        // self.push(res, InferredType::Any);
                     } else {
                         let last_ref = self
                             .shadow_stack
@@ -4001,8 +3910,6 @@ impl FunctionTranslator<'_> {
                             // Explicitly want the unboxed value here
                             let test_bool = last_ref.unwrap().value;
 
-                            // dbg!(self.builder.func.dfg.value_type(test_bool));
-
                             self.shadow_stack_pop();
 
                             self.translate_if_else_value(
@@ -4010,8 +3917,6 @@ impl FunctionTranslator<'_> {
                                 true_instr,
                                 false_instr.to_usize(),
                             );
-
-                            // self.push(res, InferredType::Any);
                         } else {
                             // TODO: Type inference here! Change which function is called!
                             let (test, typ) = self.shadow_pop();
@@ -4032,8 +3937,6 @@ impl FunctionTranslator<'_> {
                                         .ireduce(Type::int(8).unwrap(), shift_right)
                                 }
                                 InferredType::List => {
-                                    // self.drop_tagged_value(test);
-
                                     self.drop_biased_rc(test);
 
                                     self.builder.ins().iconst(types::I8, 1)
@@ -4073,7 +3976,6 @@ impl FunctionTranslator<'_> {
                     }
                 }
                 OpCode::JMP | OpCode::POPJMP => {
-                    // println!("Jumping from {} -> {}", self.ip, payload);
                     assert!(payload > self.ip);
                     self.ip = payload;
                 }
@@ -4082,8 +3984,6 @@ impl FunctionTranslator<'_> {
                     let arity = payload;
                     let name = CallFunctionDefinitions::arity_to_name(arity);
                     self.ip += 1;
-
-                    self.potentially_could_deopt = true;
 
                     // TODO: @Matt
                     // Lets do a hierarchical check. In the event this is a
@@ -4104,17 +4004,13 @@ impl FunctionTranslator<'_> {
                         //
                         // Then, we'll check that it has a super instruction
                         // and that our depth isn't too large.
-                        Some(MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i))
-                            if USE_INLINE_CALL_FUNC =>
-                        {
+                        Some(MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i)) => {
                             // Check the type:
                             let func = self.read_from_vm_stack(*i);
                             self.inline_call_func(arity, name, func, true, true);
                         }
 
-                        Some(MaybeStackValue::Value(StackValue { value, .. }))
-                            if USE_INLINE_CALL_FUNC =>
-                        {
+                        Some(MaybeStackValue::Value(StackValue { value, .. })) => {
                             self.inline_call_func(arity, name, *value, false, true);
                         }
 
@@ -4137,10 +4033,8 @@ impl FunctionTranslator<'_> {
                     let name = CallFunctionTailDefinitions::arity_to_name(arity);
                     self.ip += 1;
 
-                    self.potentially_could_deopt = true;
-
                     match self.shadow_stack.last().copied() {
-                        Some(MaybeStackValue::MutRegister(i)) if USE_INLINE_LOCAL_TAIL_CALL => {
+                        Some(MaybeStackValue::MutRegister(i)) => {
                             // Remove the register argument
                             self.shadow_stack_pop();
 
@@ -4177,9 +4071,7 @@ impl FunctionTranslator<'_> {
                             self.depth -= 1;
                         }
 
-                        Some(MaybeStackValue::Value(StackValue { value, .. }))
-                            if USE_INLINE_LOCAL_TAIL_CALL =>
-                        {
+                        Some(MaybeStackValue::Value(StackValue { value, .. })) => {
                             // Remove the register argument
                             self.shadow_stack_pop();
 
@@ -4213,7 +4105,7 @@ impl FunctionTranslator<'_> {
                             self.depth -= 1;
                         }
 
-                        Some(MaybeStackValue::Register(i)) if USE_INLINE_LOCAL_TAIL_CALL => {
+                        Some(MaybeStackValue::Register(i)) => {
                             // Remove the register argument
                             self.shadow_stack_pop();
 
@@ -4277,8 +4169,6 @@ impl FunctionTranslator<'_> {
                     assert_eq!(self.instructions[self.ip - 1].op_code, OpCode::ECLOSURE);
                     assert!(self.ip < self.instructions.len());
 
-                    // println!("Instruction after newsclosure: {}", self.ip);
-
                     let ip_value = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
                     let offset_value = self
                         .builder
@@ -4304,8 +4194,6 @@ impl FunctionTranslator<'_> {
                     let forward_index = self.ip + forward_jump;
 
                     self.ip = forward_index;
-
-                    // println!("instruction after {} -> {}", ip, forward_index);
 
                     let ip_value = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
                     let offset_value = self
@@ -4354,7 +4242,6 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::PUSHCONST => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
-                    // let (value, typ) = self.get_const(op, payload);
 
                     let constant = self.constants.get(payload);
 
@@ -4374,7 +4261,6 @@ impl FunctionTranslator<'_> {
                 OpCode::TRUE => {
                     let value = self.encode_true();
                     self.ip += 1;
-                    // self.advance_ip();
                     self.push(value, InferredType::Bool);
                 }
                 OpCode::FALSE => {
@@ -4399,9 +4285,6 @@ impl FunctionTranslator<'_> {
 
                 OpCode::LetVar => {
                     self.ip += 1;
-
-                    // Instrument with calls for profiling in general
-                    // self.call_function_args_no_context("log-let-var", &[]);
 
                     self.maybe_check_last();
 
@@ -4477,7 +4360,6 @@ impl FunctionTranslator<'_> {
 
                     match typ {
                         InferredType::List => {
-                            // println!("Adding proper list at let var: {}", local_index);
                             self.properties.set_property(
                                 ValueOrRegister::Register(local_index),
                                 Properties::ProperList,
@@ -4541,10 +4423,8 @@ impl FunctionTranslator<'_> {
                 | OpCode::MOVEREADLOCAL1
                 | OpCode::MOVEREADLOCAL2
                 | OpCode::MOVEREADLOCAL3 => {
-                    // let (value, inferred_type) = self.read_local_fixed(op, payload);
                     let value = self.spilled_read_local_fixed(op, payload);
                     self.ip += 1;
-                    // self.push(value, inferred_type);
                     self.shadow_push(value);
                 }
                 // Set local is totally fair game and should be adjusted here:
@@ -4585,7 +4465,6 @@ impl FunctionTranslator<'_> {
                     // TODO: Make this act like the self tail call no arity!
                     // Figure out why this isn't working quite right!
                     self.translate_tco_jmp(payload);
-                    // let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
 
                     self.ip = self.instructions.len() + 1;
 
@@ -4604,15 +4483,9 @@ impl FunctionTranslator<'_> {
                 // continuously do that; next iterations will do that. We'll also need to mark which
                 // jump back points are known so that we can keep those across boundaries.
                 OpCode::SELFTAILCALLNOARITY => {
-                    // let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
                     let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
                     //
-                    // TODO: Move back to using loop?
-                    // let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
 
-                    // let _ = self._translate_tco_jmp_no_arity(payload);
-
-                    // self.translate_tco_jmp(payload);
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
 
@@ -4660,73 +4533,37 @@ impl FunctionTranslator<'_> {
                                 // the buf pointer is the same, so we can lift it up.
                                 self.spill_cloned_stack();
 
-                                // Try this out?
-                                let real_res = self.inline_handle_pop(res);
-
-                                // TODO: Deal with this new return value
-                                self.builder.ins().return_(&[real_res]);
-
-                                let cold_block = self.builder.create_block();
-                                self.builder.switch_to_block(cold_block);
-
                                 self.exit_types.insert(InferredType::List);
                                 self.exit_types.insert(InferredType::Bool);
 
-                                self.depth -= 1;
-                                self.ip = self.instructions.len() + 1;
+                                self.return_from_tail_call(res);
                                 return false;
                             }
 
                             SteelVal::MutFunc(f) if f == steel_reverse && arity == 1 => {
-                                // let value = self.shadow_stack.pop().unwrap();
-
-                                // match value {
-                                //     MaybeStackValue::Value(stack_value) => {
-                                //         todo!()
-                                //     },
-
-                                //     // Just leave it in place, spill the cloned stack though
-                                //     MaybeStackValue::MutRegister(_) => {
-                                //     },
-                                //     MaybeStackValue::Register(_) => {
 
                                 //         todo!()
-
-                                //     },
-                                //     MaybeStackValue::Constant(constant_value) => {},
-                                // }
                             }
 
                             _ => {}
                         }
 
-                        if INLINE_STRUCT_FUNCTION_TAIL_CALLS {
-                            // TODO: @Matt -> This is the issue, something is
-                            // wrong with the way I'm reading this, or doing something.
-                            // Only for a closed global, since this bakes the struct
-                            // function in (`global_is_closed`).
-                            let spec = create_struct_spec(maybe_global)
-                                .filter(|_| self.global_is_closed(function_index));
-                            if let Some(spec) = spec {
-                                // TODO: This is where we inline the calls for struct
-                                // functions
-                                if let Some((value, _typ)) =
-                                    self.inline_struct_call_no_drop(spec, arity, function_index)
-                                {
-                                    let value = self.take_struct_result(value);
-                                    self.spill_cloned_stack();
-                                    let real_res = self.inline_handle_pop(value);
-
-                                    // TODO: Deal with this new return value!
-                                    self.builder.ins().return_(&[real_res]);
-
-                                    let cold_block = self.builder.create_block();
-                                    self.builder.switch_to_block(cold_block);
-
-                                    self.depth -= 1;
-                                    self.ip = self.instructions.len() + 1;
-                                    return false;
-                                }
+                        // TODO: @Matt -> This is the issue, something is
+                        // wrong with the way I'm reading this, or doing something.
+                        // Only for a closed global, since this bakes the struct
+                        // function in (`global_is_closed`).
+                        let spec = create_struct_spec(maybe_global)
+                            .filter(|_| self.global_is_closed(function_index));
+                        if let Some(spec) = spec {
+                            // TODO: This is where we inline the calls for struct
+                            // functions
+                            if let Some((value, _typ)) =
+                                self.inline_struct_call_no_drop(spec, arity, function_index)
+                            {
+                                let value = self.take_struct_result(value);
+                                self.spill_cloned_stack();
+                                self.return_from_tail_call(value);
+                                return false;
                             }
                         }
                     }
@@ -4758,10 +4595,6 @@ impl FunctionTranslator<'_> {
                         if !self.global_is_closed(function_index) {
                             self.generic_global_tail_call(function_index, arity);
                         } else if function.super_instructions().is_some() && rest_ok {
-                            if function.tier2.is_none() {
-                                self.potentially_could_deopt = true;
-                            }
-
                             self.inline_global_tail_call(arity, function);
                             self.ip = self.instructions.len() + 1;
                             self.depth -= 1;
@@ -4772,8 +4605,6 @@ impl FunctionTranslator<'_> {
                             // `inline_global_tail_call` reads the entry point
                             // through the lambda at run time, so check there is one
                             // by then, and use the deopt helper otherwise.
-                            self.potentially_could_deopt = true;
-
                             // Leaked, like every lambda baked into code.
                             let lambda = self.builder.ins().iconst(types::I64, unsafe {
                                 std::mem::transmute::<Gc<ByteCodeLambda>, i64>(jit_leak(&function))
@@ -4798,7 +4629,6 @@ impl FunctionTranslator<'_> {
                             );
                             self.ip = self.instructions.len() + 1;
                         } else {
-                            self.potentially_could_deopt = true;
                             self.slow_path_deopt_tail_call(function_index, arity);
                         }
 
@@ -4819,14 +4649,7 @@ impl FunctionTranslator<'_> {
                         };
                         if let Some(value) = inlined {
                             self.spill_cloned_stack();
-                            let real_res = self.inline_handle_pop(value);
-                            self.builder.ins().return_(&[real_res]);
-
-                            let cold_block = self.builder.create_block();
-                            self.builder.switch_to_block(cold_block);
-
-                            self.depth -= 1;
-                            self.ip = self.instructions.len() + 1;
+                            self.return_from_tail_call(value);
                             return false;
                         }
 
@@ -4864,12 +4687,12 @@ impl FunctionTranslator<'_> {
                                     CallBoxedFunctionTailDefinitions::arity_to_name(arity).map(
                                         |name| {
                                             let f = self.leak_boxed_function(f);
-                                            self.call_boxed_function(
+                                            self.call_global_function_with(
                                                 arity,
                                                 name,
-                                                f,
                                                 function_index,
                                                 true,
+                                                Some(f),
                                             )
                                         },
                                     )
@@ -4883,20 +4706,9 @@ impl FunctionTranslator<'_> {
 
                             if let Some(v) = result {
                                 self.check_deopt();
-                                let real_res = self.inline_handle_pop(v);
-                                self.builder.ins().return_(&[real_res]);
-
-                                let cold_block = self.builder.create_block();
-                                self.builder.switch_to_block(cold_block);
-
-                                self.depth -= 1;
-                                self.ip = self.instructions.len() + 1;
+                                self.return_from_tail_call(v);
                                 return false;
                             }
-                        }
-
-                        if !matches!(func, Some(SteelVal::FuncV(_))) {
-                            self.potentially_could_deopt = true;
                         }
 
                         self.slow_path_deopt_tail_call(function_index, arity);
@@ -4936,7 +4748,7 @@ impl FunctionTranslator<'_> {
                     // instead of going through the generic deopt helper.
                     // Only for a closed global, since this bakes the struct
                     // function in (`global_is_closed`).
-                    if INLINE_STRUCT_FUNCTION_CALLS && self.global_is_closed(function_index) {
+                    if self.global_is_closed(function_index) {
                         if let Some(spec) = self
                             ._globals
                             .get(function_index)
@@ -4961,10 +4773,6 @@ impl FunctionTranslator<'_> {
 
                     let self_name = CallSelfNoArityFunctionDefinitions::arity_to_name(arity);
 
-                    // Pessimise the calls here, since in general we're going
-                    // to be calling functions that aren't primitives here.
-                    self.potentially_could_deopt = true;
-
                     // Okay, lets try to install the self call if we have the ability to.
                     //
                     // We're also going to commit some very nasty crimes by just arbitrarily passing
@@ -4981,7 +4789,7 @@ impl FunctionTranslator<'_> {
                             .as_ref()
                             .map(|x| Self::rest_arg_plan(x, arity).is_some())
                             .unwrap_or(false);
-                        if USE_EXPERIMENTAL_CALL && arity_ok {
+                        if arity_ok {
                             let slot = self.slot.unwrap().clone();
 
                             // TODO: Somehow... we'll have to change the calling convention
@@ -5025,8 +4833,7 @@ impl FunctionTranslator<'_> {
                         }
                     }
                     // TODO: inline the call global here!
-                    else if USE_INLINE_CALL_GLOBAL
-                        && matches!(self._globals.get(payload), Some(SteelVal::Closure(_)))
+                    else if matches!(self._globals.get(payload), Some(SteelVal::Closure(_)))
                         // And, we actually have a super instruction. A variadic
                         // callee is fine since the call site builds its rest list,
                         // unless it was given too few arguments, which has to
@@ -5052,9 +4859,7 @@ impl FunctionTranslator<'_> {
                         let inferred_type = self.return_type_of(func.id);
                         let result = self.call_self_function_experimental(arity, func, None);
                         self.push(result, inferred_type);
-                    } else if USE_INLINE_CALL_GLOBAL
-                        && CallFunctionDefinitions::arity_to_name(arity).is_some()
-                    {
+                    } else if CallFunctionDefinitions::arity_to_name(arity).is_some() {
                         // Local name here is important
                         let name = CallFunctionDefinitions::arity_to_name(arity);
 
@@ -5177,9 +4982,6 @@ impl FunctionTranslator<'_> {
 
                                 let function = self.builder.ins().iconst(
                                     self.module.target_config().pointer_type(),
-                                    // f as *const fn(
-                                    //     &mut [SteelVal],
-                                    // )
                                     //     -> Result<SteelVal, crate::SteelErr>
                                     //     as i64,
                                     f as i64,
@@ -5206,15 +5008,11 @@ impl FunctionTranslator<'_> {
                                 );
                             } else {
                                 self.ip -= 1;
-                                self.potentially_could_deopt = true;
                                 self.call_global_impl(payload);
                             }
                         }
 
                         _ => {
-                            self.potentially_could_deopt = true;
-
-                            // println!("code-gen: {:?}", global);
                             self.call_global_impl(payload);
                         }
                     }
@@ -5224,7 +5022,6 @@ impl FunctionTranslator<'_> {
                     if self.func_is_join_target(self.ip + 1) {
                         self.push_global_callee(payload);
                     } else {
-                        self.potentially_could_deopt = true;
                         self.call_global_impl(payload);
                     }
                 }
@@ -5235,9 +5032,8 @@ impl FunctionTranslator<'_> {
                 //
                 // we can
                 OpCode::READCAPTURED
-                    if INLINE_READ_CAPTURED
-                        && self.instructions.get(self.ip + 1).map(|x| x.op_code)
-                            == Some(OpCode::UNBOX) =>
+                    if self.instructions.get(self.ip + 1).map(|x| x.op_code)
+                        == Some(OpCode::UNBOX) =>
                 {
                     // Borrowed. The capture array belongs to the closure being
                     // run, which outlives this read, and the unbox below is told
@@ -5255,30 +5051,11 @@ impl FunctionTranslator<'_> {
                     self.push(res, InferredType::Any);
                 }
 
-                OpCode::READCAPTURED if INLINE_READ_CAPTURED => {
+                OpCode::READCAPTURED => {
                     let res = self.inline_read_captured(payload, true);
 
                     // TODO: Keep track of the inferred type on the capture as well
                     self.push(res, InferredType::Any);
-
-                    self.ip += 1;
-                }
-
-                // TODO: Inline this, and cache the resulting captures values
-                // buffer, since this should be immutable for the duration
-                // of the function, and we can skip the bounds checks, etc.
-                OpCode::READCAPTURED => {
-                    let index = self
-                        .builder
-                        .ins()
-                        .iconst(Type::int(64).unwrap(), payload as i64);
-
-                    let value = self.call_function_returns_value_args(
-                        op_to_name_payload(op, payload),
-                        &[index],
-                    );
-
-                    self.push(value, InferredType::Any);
 
                     self.ip += 1;
                 }
@@ -5299,16 +5076,11 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                 }
                 OpCode::LETENDSCOPE => {
-                    // self.local_count = payload;
                     self.ip += 1;
-
-                    // let last = self.let_var_stack.iter().sum::<usize>() + self.arity as usize;
 
                     let amt = self.let_var_stack.pop().unwrap();
 
                     let mut properties_to_remove = Vec::new();
-
-                    // println!("let end scope amount: {}", amt);
 
                     for index in 0..self.shadow_stack.len() {
                         let v = self.shadow_stack.get_mut(index).unwrap();
@@ -5347,14 +5119,6 @@ impl FunctionTranslator<'_> {
 
                     // If we know exactly how many elements we're dropping:
 
-                    // self.call_end_scope_handler(payload);
-
-                    // for i in payload..payload + amt {
-                    //     let i = i - self.arity as usize;
-                    //     println!("Removing: {}", i);
-                    //     self.properties.cached_lookups.registers.remove(&i);
-                    // }
-
                     self.inline_let_end_scope(payload, amt);
 
                     for i in payload..payload + amt {
@@ -5369,12 +5133,6 @@ impl FunctionTranslator<'_> {
                         self.properties.cached_lookups.registers.remove(&i);
                         self.properties.cached_lookups.cursors.remove(&i);
                     }
-
-                    // for p in properties_to_remove {
-                    //     self.properties.remove(&ValueOrRegister::Register(p));
-                    // }
-
-                    // self.call_end_scope_handler_new(payload, amt);
                 }
 
                 // Both operands are fixnums by construction, so there is no tag to
@@ -5580,9 +5338,6 @@ impl FunctionTranslator<'_> {
                         sp,
                         types::I128,
                     );
-
-                    // let args = [register, value];
-                    // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
@@ -5926,8 +5681,6 @@ impl FunctionTranslator<'_> {
                     let result = self.converging_if(
                         is_int,
                         |ctx| {
-                            // Just do less than or equal on the value:
-                            // let lhs = ctx.unbox_value_to_pointer(local_value);
                             let lhs = local_value;
                             let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
 
@@ -5999,10 +5752,7 @@ impl FunctionTranslator<'_> {
                     let result = self.converging_if(
                         is_int,
                         |ctx| {
-                            // Just do less than or equal on the value:
-                            // let lhs = ctx.unbox_value_to_pointer(local_value);
                             let lhs = local_value;
-                            // let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
 
                             let res = ctx.builder.ins().icmp_imm_s(
                                 IntCC::SignedLessThanOrEqual,
@@ -6447,11 +6197,6 @@ impl FunctionTranslator<'_> {
                     );
                 }
 
-                // OpCode::GTE if payload == 2 => {
-                //     // If we know the concrete type, we might be able to
-                //     // do something inline?
-                //     self.gte()
-                // }
                 // Same as NUMEQUAL above. The specialised arms all want a register
                 // or a constant, so this handles two ordinary values inline.
                 OpCode::LTE | OpCode::GTE | OpCode::LT | OpCode::GT
@@ -6502,8 +6247,6 @@ impl FunctionTranslator<'_> {
                         .shadow_stack
                         .get(self.shadow_stack.len() - 2..)
                         .unwrap();
-
-                    // self.func_ret_val(op, payload, 2, InferredType::Bool);
 
                     match args {
                         &[MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i), MaybeStackValue::Value(v)]
@@ -6607,7 +6350,6 @@ impl FunctionTranslator<'_> {
 
                 // Lets inline equal2
                 OpCode::EQUAL | OpCode::NUMEQUAL => {
-                    // println!("Generating code for equal");
                     self.func_ret_val(op, payload, 2, InferredType::UnboxedBool);
                 }
 
@@ -6661,12 +6403,6 @@ impl FunctionTranslator<'_> {
                         .unwrap();
 
                     match args {
-                        // TODO: Finish this
-                        // &[MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i), MaybeStackValue::MutRegister(l)] =>
-                        // {
-                        //     todo!()
-                        // }
-
                         // Probably could instead just write the value back to the register
                         &[MaybeStackValue::Value(_), MaybeStackValue::MutRegister(l)] => {
                             let register = self.shadow_stack_pop().unwrap().into_index();
@@ -6813,8 +6549,6 @@ impl FunctionTranslator<'_> {
                                 Some(Properties::ProperNonEmptyList)
                             );
 
-                            // let can_skip_bounds_check = false;
-
                             // Walk it as a cursor instead of building a list. Only
                             // for a header cursor that is live here, and only where
                             // emptiness is ruled out, so nothing here can raise
@@ -6841,11 +6575,6 @@ impl FunctionTranslator<'_> {
 
                             if can_skip_bounds_check {
                                 let func = "cdr-mut-reg-no-check";
-                                // println!("Adding inferred type void for register: {}", reg);
-                                // self.properties.props.insert(
-                                //     ValueOrRegister::Register(reg),
-                                //     vec![Properties::InferredType(InferredType::Void)],
-                                // );
 
                                 self.properties.set_property(
                                     ValueOrRegister::Register(reg),
@@ -6857,7 +6586,6 @@ impl FunctionTranslator<'_> {
                             } else {
                                 let func = "cdr-mut-reg";
                                 let rest_type = self.cdr_result_type(reg);
-                                // println!("Adding inferred type void for register: {}", reg);
                                 self.properties.props.insert(
                                     ValueOrRegister::Register(reg),
                                     vec![Properties::InferredType(InferredType::Void)],
@@ -6885,8 +6613,6 @@ impl FunctionTranslator<'_> {
 
                     if let Some(function_name) = ListHandlerDefinitions::arity_to_name(payload) {
                         let args = self.split_off(payload);
-
-                        // println!("Calling list: {:?}", args);
 
                         let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
 
@@ -6974,10 +6700,6 @@ impl FunctionTranslator<'_> {
                             // Don't think we can do this. When checking null?, we also want to check
                             // that the value is a list - if we assert its a list earlier, we can avoid
                             // a lot of checks.
-                            // let can_skip_bounds_check = matches!(
-                            //     self.properties.get(&ValueOrRegister::Register(reg)),
-                            //     Some(Properties::NonEmptyList)
-                            // );
 
                             match self.properties.get(&ValueOrRegister::Register(reg)) {
                                 Some(Properties::NonNull) if self.use_lbbv => {
@@ -6986,13 +6708,10 @@ impl FunctionTranslator<'_> {
                                         Some(MaybeStackValue::MutRegister(_))
                                     );
                                     self.shadow_stack_pop();
-                                    // let value = self.read_from_vm_stack(reg);
 
                                     let (tag, value) = self.read_from_vm_stack_split(reg);
 
                                     let typ = self.int;
-
-                                    // let is_list = self.is_type(value, SteelVal::LIST_TAG);
 
                                     let is_list = self.builder.ins().icmp_imm_s(
                                         IntCC::Equal,
@@ -7135,15 +6854,6 @@ impl FunctionTranslator<'_> {
                                     self.ip += 2;
                                 }
 
-                                // _ if false => {
-                                //     self.shadow_stack.pop();
-                                //     let reg = self.register_index(reg);
-                                //     let res =
-                                //         self.call_function_returns_value_args("car-reg", &[reg]);
-                                //     self.push(res, InferredType::Any);
-                                //     self.ip += 2;
-                                //     self.check_deopt();
-                                // }
                                 _ => {
                                     self.shadow_stack_pop();
                                     let value = self.read_from_vm_stack(reg);
@@ -7287,9 +6997,7 @@ impl FunctionTranslator<'_> {
 
                     if last_ref.map(|x| x.inferred_type) == Some(InferredType::UnboxedBool) {
                         let test = last_ref.unwrap().value;
-                        // let test = self.builder.ins().uextend(types::I64, test);
                         self.shadow_stack_pop();
-                        // let value = self.builder.ins().icmp_imm_s(IntCC::Equal, test, 0);
 
                         let value = self.builder.ins().bxor_imm_u(test, 1);
 
@@ -7317,9 +7025,6 @@ impl FunctionTranslator<'_> {
                                 .ins()
                                 .icmp_imm_s(IntCC::Equal, test_condition, 0);
 
-                        // let  = self.builder.ins().uextend(types::I64, comparison);
-                        // let boolean =
-                        //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
                         self.push(comparison, InferredType::UnboxedBool);
                         self.ip += 2;
                     } else {
@@ -7337,7 +7042,6 @@ impl FunctionTranslator<'_> {
                                 .icmp_imm_s(IntCC::Equal, test_condition, 0);
 
                         let comparison = self.builder.ins().band(comparison, is_bool);
-                        // let res = self.builder.ins().uextend(types::I64, comparison);
 
                         // Make sure to drop this before we're done in the event its not
                         // a boolean.
@@ -7392,11 +7096,7 @@ impl FunctionTranslator<'_> {
                                         )
                                     };
 
-                                    if INLINE_FLAT_VECTOR_REF {
-                                        self.inline_vector_ref(vector_value, index_value, fallback)
-                                    } else {
-                                        fallback(self)
-                                    }
+                                    self.inline_vector_ref(vector_value, index_value, fallback)
                                 }
 
                                 _ => {
@@ -7416,11 +7116,7 @@ impl FunctionTranslator<'_> {
                                         ctx.call_helper_checked(VECTOR_REF_REG_2, [vector, index])
                                     };
 
-                                    if INLINE_FLAT_VECTOR_REF {
-                                        self.inline_vector_ref(vector_value, index_value, fallback)
-                                    } else {
-                                        fallback(self)
-                                    }
+                                    self.inline_vector_ref(vector_value, index_value, fallback)
                                 }
                             };
 
@@ -7439,11 +7135,8 @@ impl FunctionTranslator<'_> {
                                 ctx.call_helper_checked(VECTOR_REF_REG_1, [vector, index_value])
                             };
 
-                            let res = if INLINE_FLAT_VECTOR_REF {
-                                self.inline_vector_ref(vector_value, index_value, fallback)
-                            } else {
-                                fallback(self)
-                            };
+                            let res =
+                                { self.inline_vector_ref(vector_value, index_value, fallback) };
 
                             self.push(res, InferredType::Any);
                             self.ip += 2;
@@ -7467,11 +7160,7 @@ impl FunctionTranslator<'_> {
                                 res
                             };
 
-                            let res = if INLINE_FLAT_VECTOR_REF {
-                                self.inline_vector_ref(vector_value, index, fallback)
-                            } else {
-                                fallback(self)
-                            };
+                            let res = self.inline_vector_ref(vector_value, index, fallback);
 
                             self.push(res, InferredType::Any);
                             self.ip += 2;
@@ -7489,7 +7178,6 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        self.record_stack_size();
         self.depth -= 1;
 
         return true;
@@ -7529,9 +7217,6 @@ impl FunctionTranslator<'_> {
             sp,
             types::I128,
         );
-
-        // let args = [register, value];
-        // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
 
         // Check the inferred type, if we know of it
         self.push(result, InferredType::Float);
@@ -7580,9 +7265,6 @@ impl FunctionTranslator<'_> {
             sp,
             types::I128,
         );
-
-        // let args = [register, value];
-        // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
 
         // Check the inferred type, if we know of it
         self.push(result, InferredType::Number);
@@ -7689,18 +7371,13 @@ impl FunctionTranslator<'_> {
                     .get(&ValueOrRegister::Register(register_index))
                 {
                     if v >= 0 {
-                        // If its an int, then we'll do checked subtraction:
-                        // let lhs = ctx.unbox_value_to_pointer(local_value);
                         let lhs = local_value;
 
                         // Negate it and do an immediate add
                         let subbed = ctx.builder.ins().iadd_imm_s(lhs, -(constant_value as i64));
                         ctx.encode_value(SteelVal::INT_TAG as _, subbed)
                     } else {
-                        // let lhs = ctx.unbox_value_to_pointer(local_value);
                         let lhs = local_value;
-                        // let value = ctx.encode_integer(constant_value as _);
-                        // let rhs = ctx.unbox_value_to_pointer(value);
 
                         let rhs = ctx.builder.ins().iconst(types::I64, constant_value as i64);
 
@@ -7789,13 +7466,6 @@ impl FunctionTranslator<'_> {
         self.ip += 2;
     }
 
-    fn record_stack_size(&mut self) {
-        self.compilation_stats.max_stack_size = self
-            .compilation_stats
-            .max_stack_size
-            .max(self.shadow_stack.len());
-    }
-
     // TODO: We have to include the arity check as well!
     // Otherwise, we're going to have a problem.
     fn inline_call_func(
@@ -7878,7 +7548,6 @@ impl FunctionTranslator<'_> {
 
                 let should_yield = ctx.builder.ins().bxor_imm_u(should_continue, 1);
                 let fallback_ip = ctx.ip - 1;
-                // let fallback_ip = ctx.ip;
                 ctx.update_ip_native_if_yield(vm_ctx, should_yield, fallback_ip + 1);
 
                 let res = ctx.converging_if(
@@ -8469,7 +8138,6 @@ impl FunctionTranslator<'_> {
 
     fn slow_path_deopt_tail_call(&mut self, function_index: usize, arity: usize) {
         let name = CallGlobalTailFunctionDefinitions::arity_to_name(arity);
-        // let name = None;
 
         if let Some(name) = name {
             // TODO: We need to spill the local variables here!
@@ -8497,9 +8165,8 @@ impl FunctionTranslator<'_> {
     /// A tail call to global `function_index` that uses whatever it holds when
     /// the call runs.
     fn generic_global_tail_call(&mut self, function_index: usize, arity: usize) {
-        self.potentially_could_deopt = true;
         match CallFunctionTailDefinitions::arity_to_name(arity) {
-            Some(name) if late_tail_enabled() && USE_INLINE_LOCAL_TAIL_CALL => {
+            Some(name) if late_tail_enabled() => {
                 self.tail_call_global_at_run_time(function_index, arity, name);
                 self.depth -= 1;
             }
@@ -8682,11 +8349,7 @@ impl FunctionTranslator<'_> {
         // the unboxed pointer we do the arithmetic on.
         let ptr = self.unbox_value_to_pointer(value);
 
-        if USE_INLINE_DROP_HEAP_BOX {
-            self.inline_weak_decrement(ptr, "drop-one", value);
-        } else {
-            self.call_helper_void(DROP_ONE, [value]);
-        }
+        self.inline_weak_decrement(ptr, "drop-one", value);
     }
 
     fn drop_tagged_value(&mut self, value: Value) {
@@ -8899,11 +8562,6 @@ impl FunctionTranslator<'_> {
             let yes_drop = self.builder.create_block();
             let merge_block = self.builder.create_block();
 
-            // let updated_count =
-            //     self.builder
-            //         .ins()
-            //         .load(Type::int(32).unwrap(), MemFlagsData::new(), value, 8);
-
             // Then we need to check if its greater than 0:
 
             let should_continue =
@@ -8953,11 +8611,7 @@ impl FunctionTranslator<'_> {
     // value is a HeapRef<_>, i.e. the bare Weak pointer, which is what
     // drop-box / drop-boxed-vec take by value.
     fn drop_heap_box(&mut self, value: Value) {
-        if USE_INLINE_DROP_HEAP_BOX {
-            self.inline_weak_decrement(value, "drop-box", value);
-        } else {
-            self.call_helper_void(DROP_BOX, [value]);
-        }
+        self.inline_weak_decrement(value, "drop-box", value);
     }
 
     fn inline_pair_car_unboxed(&mut self, value: Value) -> Value {
@@ -9064,7 +8718,6 @@ impl FunctionTranslator<'_> {
     }
 
     fn checked_car(&mut self, original_value: Value, reg: usize) -> Value {
-        // let is_list = self.is_type(value, SteelVal::LIST_TAG);
         let value = self.unbox_value_to_pointer(original_value);
 
         let index = self.list_cell_index(value);
@@ -9098,51 +8751,6 @@ impl FunctionTranslator<'_> {
             .ins()
             .icmp_imm_s(IntCC::Equal, tag, check_tag as i64)
     }
-
-    /*
-    fn read_char(&mut self, arity: usize) {
-        let test_stack = self
-            .shadow_stack
-            .get(self.shadow_stack.len() - arity..)
-            .unwrap()
-            .to_vec();
-
-        let shape = test_stack
-            .iter()
-            .map(|x| match x {
-                MaybeStackValue::Value(_) => 0,
-                MaybeStackValue::MutRegister(_) => 2,
-                MaybeStackValue::Register(_) => 1,
-                MaybeStackValue::Constant(_) => 0,
-            })
-            .collect::<Vec<_>>();
-
-        let func = CallRegisterPrimitiveFixedDefinitions::shape_to_name(&shape).unwrap();
-
-        let function = self.builder.ins().iconst(
-            self.module.target_config().pointer_type(),
-            crate::primitives::ports::read_char_single_ref as i64,
-        );
-
-        let fallback_ip = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), self.ip as i64);
-
-        let mut args = vec![function, fallback_ip];
-
-        // dbg!(test_stack);
-        let additional_args = self.split_off_reg(arity);
-        // dbg!(&additional_args);
-        args.extend(additional_args);
-
-        let result = self.call_function_returns_value_args(func, &args);
-        // A char, or the eof object at the end of input.
-        self.push(result, InferredType::Any);
-        self.ip += 1;
-        self.check_deopt();
-    }
-    */
 
     // TODO: Should this advance the ip?
     fn spilled_read_local_fixed(&mut self, op: OpCode, payload: usize) -> MaybeStackValue {
@@ -9198,9 +8806,6 @@ impl FunctionTranslator<'_> {
             // are remaining. So in the let var end scope, check if any of the remaining things on the
             // stack references those things. If they do, spill them then dynamically? Wouldn't mutable
             // references to that already? Maybe not?
-            // println!(
-            //     "Getting here -> Reading a local value, instead of generating a register instruction: {:?}", op
-            // );
 
             // Replace this... with just reading from the vector?
             let value = self.call_func_or_immediate(op, payload);
@@ -9217,8 +8822,6 @@ impl FunctionTranslator<'_> {
                 inferred_type,
                 spilled: false,
             })
-
-            // MaybeStackValue::Register(())
         }
     }
 
@@ -9233,7 +8836,6 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        // if payload < self.arity as _ {
         //
         match op {
             OpCode::READLOCAL => MaybeStackValue::Register(payload),
@@ -9307,10 +8909,7 @@ impl FunctionTranslator<'_> {
         //
         // This bakes the closure in, so it is only done for a global that can
         // never change (`global_is_closed`).
-        if USE_INLINE_CALL_GLOBAL
-            && callglobal_direct_enabled()
-            && self.global_is_closed(function_index)
-        {
+        if callglobal_direct_enabled() && self.global_is_closed(function_index) {
             if let Some(SteelVal::Closure(func)) = self._globals.get(function_index).cloned() {
                 // Fixed-arity callees land here too when the analysis could not
                 // assign `CALLGLOBALNOARITY` (a name without the `##` prefix, or a
@@ -9333,7 +8932,7 @@ impl FunctionTranslator<'_> {
         }
 
         // Only for a closed global, since this bakes the struct function in.
-        if INLINE_STRUCT_FUNCTION_CALLS && self.global_is_closed(function_index) {
+        if self.global_is_closed(function_index) {
             let maybe_global = self._globals.get(function_index).cloned();
             if let Some(maybe_global) = maybe_global {
                 if let Some(spec) = create_struct_spec(maybe_global) {
@@ -9354,7 +8953,13 @@ impl FunctionTranslator<'_> {
         if let Some(SteelVal::BoxedFunction(func)) = self._globals.get(function_index) {
             if let Some(helper) = CallBoxedFunctionDefinitions::arity_to_name(arity) {
                 let func = self.leak_boxed_function(func);
-                let result = self.call_boxed_function(arity, helper, func, function_index, false);
+                let result = self.call_global_function_with(
+                    arity,
+                    helper,
+                    function_index,
+                    false,
+                    Some(func),
+                );
                 self.push(result, InferredType::Any);
                 self.check_deopt();
                 return;
@@ -9429,9 +9034,6 @@ impl FunctionTranslator<'_> {
         let local_callee = self.helper_callee(IF_BRANCH_REGISTER);
 
         let ctx = self.get_ctx();
-
-        // Advance to the next thing
-        // self.ip += 1;
 
         let register = self.register_index(register);
 
@@ -9643,11 +9245,6 @@ impl FunctionTranslator<'_> {
 
             // TODO: Translate this back to being inlined!
             if amount_dropped != 0 {
-                // println!(
-                //     "{} - tail call amount dropped: {}",
-                //     self.name, amount_dropped
-                // );
-
                 // Original payload, is the original amount to call
                 let original_payload = payload;
 
@@ -9700,37 +9297,14 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        // println!("---- Getting to this split off step -----");
-        // println!(
-        //     "{:?}",
-        //     self.shadow_stack.get(self.shadow_stack.len() - payload..)
-        // );
-
         let args_off_the_stack = self.split_off(payload);
 
-        // println!("-----------------------------------------");
+        let args = args_off_the_stack
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
 
-        if USE_INLINE_TAIL_CALL {
-            let args = args_off_the_stack
-                .into_iter()
-                .map(|x| x.0)
-                .collect::<Vec<_>>();
-
-            self.inline_call_self_tail_call_no_arity_loop(payload as _, &args);
-        } else {
-            let name = CallSelfTailCallNoArityLoopDefinitions::arity_to_name(payload).unwrap();
-            let local_callee = self.get_local_callee(name);
-            let ctx = self.get_ctx();
-
-            let arity = self
-                .builder
-                .ins()
-                .iconst(Type::int(16).unwrap(), payload as i64);
-
-            let mut arg_values = vec![ctx, arity];
-            arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
-            let _call = self.builder.ins().call(local_callee, &arg_values);
-        }
+        self.inline_call_self_tail_call_no_arity_loop(payload as _, &args);
 
         // Only after the writes, since before them a live `p` would be
         // materialised over the head just handed to it.
@@ -9859,12 +9433,6 @@ impl FunctionTranslator<'_> {
     fn inline_call_self_tail_call_no_arity_loop(&mut self, arity: i64, args: &[Value]) {
         let vm_ctx = self.get_ctx();
 
-        // Read from VM stack, write back, drop value.
-        // then, truncate
-        // for (i, arg) in args.iter().enumerate() {
-        //     self.write_to_vm_stack(i as _, *arg);
-        // }
-
         self.write_to_vm_stack_starting_at(0, args, true);
 
         let index = self.get_sp(vm_ctx);
@@ -9909,12 +9477,6 @@ impl FunctionTranslator<'_> {
     ) {
         let vm_ctx = self.get_ctx();
 
-        // Read from VM stack, write back, drop value.
-        // then, truncate
-        // for (i, arg) in args.iter().enumerate() {
-        //     self.write_to_vm_stack(i as _, *arg);
-        // }
-
         self.write_to_vm_stack_starting_at(0, args, false);
 
         let index = self.get_sp(vm_ctx);
@@ -9942,8 +9504,6 @@ impl FunctionTranslator<'_> {
         // arg_values.extend(
         //     self.stack
         //         .drain(self.stack.len() - arity..)
-        //         .map(|x| x.value),
-        // );
 
         arg_values.extend(self.split_off(arity).into_iter().map(|x| x.0));
 
@@ -10260,13 +9820,7 @@ impl FunctionTranslator<'_> {
         func: Gc<ByteCodeLambda>,
         target: Option<FuncId>,
     ) -> Value {
-        // let local_callee = self.get_local_callee(name);
-
         let id = func.id;
-
-        /* TODO: Add this back!!
-        let _ = steel_rc::BiasedRc::into_raw(func.body_exp.clone());
-        */
 
         let rest = Self::rest_arg_plan(&func, arity)
             .expect("the caller checks the arity before taking this path");
@@ -10283,17 +9837,10 @@ impl FunctionTranslator<'_> {
             std::mem::transmute::<Gc<ByteCodeLambda>, i64>(baked)
         });
 
-        // let fallback_ip = self
-        //     .builder
-        //     .ins()
-        //     .iconst(Type::int(64).unwrap(), self.ip as i64);
-
         let fallback_ip = self.ip;
 
         // Advance to the next thing
         self.ip += 1;
-
-        // let mut arg_values = vec![ctx, lookup_index, fallback_ip];
 
         let args_off_the_stack = self
             .split_off(arity)
@@ -10411,12 +9958,6 @@ impl FunctionTranslator<'_> {
             offset_of!(VmCore, instructions) as i32,
         );
 
-        // let offset = self.read_last_sp(vm_ctx, None);
-
-        // Then, truncate the stack back to where we were before:
-        // self.truncate_stack(vm_ctx, offset, None);
-        // self.push_to_many_vm_stack_let_var_new(&args);
-
         self.truncate_stack_with_args(vm_ctx, offset, &args);
 
         // The callee's last slot is its rest list, built from whatever the call
@@ -10452,18 +9993,6 @@ impl FunctionTranslator<'_> {
         self.builder
             .ins()
             .return_call_indirect(sig_ref, func_ptr, &args);
-
-        /*
-
-        let sig_ref = self.get_jit_func(id);
-        self.builder.ins().return_call(sig_ref, &args);
-
-        */
-
-        // // Look up the return type of this one:
-        // if let Some(ret_types) = self.function_return_types.get(&id) {
-        //     println!("inline global tail call return types: {:#?}", ret_types);
-        // }
 
         let cold_block = self.builder.create_block();
         self.builder.switch_to_block(cold_block);
@@ -10558,12 +10087,6 @@ impl FunctionTranslator<'_> {
                     offset_of!(VmCore, instructions) as i32,
                 );
 
-                // let offset = ctx.read_last_sp(vm_ctx, None);
-
-                // Then, truncate the stack back to where we were before:
-                // ctx.truncate_stack(vm_ctx, offset, None);
-                // ctx.push_to_many_vm_stack_let_var_new(&args);
-
                 ctx.truncate_stack_with_args(vm_ctx, offset, &args);
 
                 // Implement the body of `new_handle_tail_call_closure` here
@@ -10617,9 +10140,25 @@ impl FunctionTranslator<'_> {
         function_index: usize,
         tail: bool,
     ) -> Value {
+        self.call_global_function_with(arity, name, function_index, tail, None)
+    }
+
+    /// `call_global_function`, passing the helper the address of the function
+    /// the global held at compile time, when there is one (see
+    /// `call_boxed_function_handler`).
+    fn call_global_function_with(
+        &mut self,
+        arity: usize,
+        name: &str,
+        function_index: usize,
+        tail: bool,
+        func: Option<i64>,
+    ) -> Value {
         let local_callee = self.get_local_callee(name);
 
         let ctx = self.get_ctx();
+
+        let func = func.map(|func| self.builder.ins().iconst(types::I64, func));
 
         let lookup_index = self
             .builder
@@ -10634,7 +10173,9 @@ impl FunctionTranslator<'_> {
         // Advance to the next thing
         self.ip += 1;
 
-        let mut arg_values = vec![ctx, lookup_index, fallback_ip];
+        let mut arg_values = vec![ctx];
+        arg_values.extend(func);
+        arg_values.extend([lookup_index, fallback_ip]);
 
         let args_off_the_stack = self.split_off(arity);
 
@@ -10651,10 +10192,23 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    /// Return `value` from the call in tail position that ends this function.
+    /// What is emitted after the return goes into an unreachable block.
+    fn return_from_tail_call(&mut self, value: Value) {
+        let real_res = self.inline_handle_pop(value);
+        self.builder.ins().return_(&[real_res]);
+
+        let cold_block = self.builder.create_block();
+        self.builder.switch_to_block(cold_block);
+
+        self.depth -= 1;
+        self.ip = self.instructions.len() + 1;
+    }
+
     /// Whether global `index` can never hold anything but its current value, so
-    /// a call can bake that value in (`non_mutable_globals`).
+    /// a call can bake that value in (`closed_globals`).
     fn global_is_closed(&self, index: usize) -> bool {
-        self.non_mutable_globals.contains(&index)
+        self.closed_globals.contains(&index)
     }
 
     /// The return type recorded for function `id`, when it has only one.
@@ -10670,39 +10224,6 @@ impl FunctionTranslator<'_> {
     fn leak_boxed_function(&self, func: &Gc<crate::values::functions::BoxedDynFunction>) -> i64 {
         let func = core::mem::ManuallyDrop::new(jit_leak(func));
         Gc::as_ptr(&func) as i64
-    }
-
-    // call_global_function for a global holding `func`, see
-    // `call_boxed_function_handler`.
-    fn call_boxed_function(
-        &mut self,
-        arity: usize,
-        name: &str,
-        func: i64,
-        function_index: usize,
-        tail: bool,
-    ) -> Value {
-        let local_callee = self.get_local_callee(name);
-
-        let ctx = self.get_ctx();
-        let func = self.builder.ins().iconst(types::I64, func);
-        let lookup_index = self.builder.ins().iconst(types::I64, function_index as i64);
-        let fallback_ip = self.builder.ins().iconst(types::I64, self.ip as i64);
-
-        self.ip += 1;
-
-        let mut arg_values = vec![ctx, func, lookup_index, fallback_ip];
-        let args_off_the_stack = self.split_off(arity);
-        arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
-
-        if tail {
-            self.spill_cloned_stack();
-        } else {
-            self.spill_stack();
-        }
-
-        let call = self.builder.ins().call(local_callee, &arg_values);
-        self.builder.inst_results(call)[0]
     }
 
     // call_global_function without materialising the operand stack
@@ -10737,8 +10258,6 @@ impl FunctionTranslator<'_> {
         function_index: usize,
         tail: bool,
     ) -> Value {
-        // println!("--------------------Call global tail spilled---------------------");
-
         let local_callee = self.get_local_callee(name);
 
         let ctx = self.get_ctx();
@@ -11037,7 +10556,6 @@ impl FunctionTranslator<'_> {
                 spilled: false,
             });
         }
-        // assert!(!self.cloned_stack);
         let guard = self.shadow_stack.get_mut(index)?;
         let mut spilled = false;
         match guard {
@@ -11098,7 +10616,6 @@ impl FunctionTranslator<'_> {
         if spilled {
             let value = self.shadow_stack[index].into_value(self);
             let steelval = value.as_steelval(self);
-            // self.push_to_vm_stack_spill(steelval);
 
             self.push_to_vm_stack(steelval);
         }
@@ -11236,12 +10753,6 @@ impl FunctionTranslator<'_> {
     // way we're coalescing the reads from the stack on the
     // spill_cloned_stack side.
     fn spill_stack(&mut self) {
-        /*
-        for arg in 0..self.shadow_stack.len() {
-            self.shadow_spill(arg);
-        }
-        */
-
         self.spill_stack_coalesced();
     }
 
@@ -11304,7 +10815,6 @@ impl FunctionTranslator<'_> {
                 }
                 MaybeStackValue::Register(p) => {
                     let p = *p;
-                    // let (value, _) = self.immutable_register_to_value(p);
                     let value = coalesced_reads.get(&p).copied().unwrap();
 
                     spilled = true;
@@ -11346,9 +10856,6 @@ impl FunctionTranslator<'_> {
     // Spill all of these at one time!
     fn spill_cloned_stack(&mut self) {
         self.materialize_borrowed();
-        // println!("Spilling cloned stack: {:?}", self.shadow_stack);
-        // assert!(!self.cloned_stack);
-        // self.cloned_stack = true;
 
         let mut values_to_spill = Vec::new();
 
@@ -11382,16 +10889,12 @@ impl FunctionTranslator<'_> {
 
                 // TODO: Buffer these reads!
                 MaybeStackValue::MutRegister(p) => {
-                    // Read the value:
-                    // let (value, _) = self.mut_register_to_value(p);
-
                     let value = coalesced_reads.get(&p).unwrap();
 
                     values_to_spill.push(*value);
                 }
                 MaybeStackValue::Register(p) => {
                     let value = coalesced_reads.get(&p).unwrap();
-                    // let (value, _) = self.immutable_register_to_value(p);
                     values_to_spill.push(*value);
                 }
                 MaybeStackValue::Constant(c) => {
@@ -11466,7 +10969,6 @@ impl FunctionTranslator<'_> {
         let value = self.remove_from_vm_stack(p);
 
         let inferred_type = self.register_type(p);
-        // println!("Adding inferred type void for register: {}", p);
 
         // We've removed from the stack, meaning we don't need to emit drop glue for this.
         self.properties.props.insert(
@@ -11814,48 +11316,14 @@ impl FunctionTranslator<'_> {
         (value, inferred_type)
     }
 
-    // fn maybe_shadow_pop(&mut self) -> Option<(Value, InferredType)> {
-    //     let last = self.shadow_stack.pop()?;
-
-    //     Some(match last {
-    //         MaybeStackValue::Value(last) => {
-    //             // What is going on here?
-    //             if last.spilled && self.ip > self.instructions.len() {
-    //                 // dbg!(&self.shadow_stack);
-    //                 // dbg!(self.ip);
-    //                 // dbg!(self.instructions.len());
-    //                 // pretty_print_dense_instructions(&self.instructions);
-    //                 return None;
-    //             }
-
-    //             assert!(!last.spilled);
-
-    //             // Pop it off the stack?
-    //             // self.pop_value_from_vm_stack();
-
-    //             self.value_to_local_map.remove(&last.value);
-    //             (last.as_steelval(self), last.inferred_type)
-    //         }
-
-    //         // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
-    //         MaybeStackValue::MutRegister(p) => self.mut_register_to_value(p),
-    //         MaybeStackValue::Register(p) => self.immutable_register_to_value(p),
-    //         MaybeStackValue::Constant(c) => c.to_value(self),
-    //     })
-    // }
-
     fn maybe_patch_from_stack(&mut self, args_off_the_stack: &mut Vec<StackValue>) {
         let mut indices_to_get_from_shadow_stack = Vec::new();
-
-        // dbg!(&args_off_the_stack);
 
         for (idx, arg) in args_off_the_stack.iter().enumerate() {
             if arg.spilled {
                 indices_to_get_from_shadow_stack.push(idx);
             }
         }
-
-        // dbg!(&indices_to_get_from_shadow_stack);
 
         for idx in indices_to_get_from_shadow_stack.iter().rev() {
             let value = self.pop_value_from_vm_stack();
@@ -11879,58 +11347,6 @@ impl FunctionTranslator<'_> {
     //
     // In the event of single arg, double arg, etc, we can keep the values on the stack.
     //
-    // Dispatch via the usual mechanism to see if this gets the job done
-    // fn shadow_maybe_patch_from_stack(&mut self, args_off_the_stack: &mut Vec<MaybeStackValue>) {
-    //     let mut indices_to_get_from_shadow_stack = Vec::new();
-
-    //     for (idx, arg) in args_off_the_stack.iter().enumerate() {
-    //         if let MaybeStackValue::Value(arg) = arg {
-    //             if arg.spilled {
-    //                 indices_to_get_from_shadow_stack.push(idx);
-    //             }
-    //         }
-    //     }
-
-    //     for idx in indices_to_get_from_shadow_stack.iter().rev() {
-    //         let value = self.pop_value_from_vm_stack();
-
-    //         args_off_the_stack[*idx] = MaybeStackValue::Value(StackValue {
-    //             value,
-    //             inferred_type: InferredType::Any,
-    //             spilled: false,
-    //         });
-    //     }
-    // }
-
-    // fn split_off_reg(&mut self, payload: usize) -> Vec<Value> {
-    //     let mut args = self
-    //         .shadow_stack
-    //         .split_off(self.shadow_stack.len() - payload);
-
-    //     // Patch the args if needed
-    //     for arg in &args {
-    //         if let MaybeStackValue::Value(v) = arg {
-    //             self.value_to_local_map.remove(&v.value);
-    //         }
-    //     }
-
-    //     self.shadow_maybe_patch_from_stack(&mut args);
-
-    //     // dbg!(&args);
-
-    //     args.into_iter()
-    //         .map(|x| match x {
-    //             MaybeStackValue::Value(stack_value) => stack_value.as_steelval(self),
-    //             MaybeStackValue::MutRegister(p) => {
-    //                 self.builder.ins().iconst(Type::int(64).unwrap(), p as i64)
-    //             }
-    //             MaybeStackValue::Register(p) => {
-    //                 self.builder.ins().iconst(Type::int(64).unwrap(), p as i64)
-    //             }
-    //             MaybeStackValue::Constant(constant_value) => constant_value.to_value(self).0,
-    //         })
-    //         .collect()
-    // }
 
     // TODO: We should coalesce register reads in order to avoid subsequent buf pointer
     // loads?
@@ -11955,8 +11371,6 @@ impl FunctionTranslator<'_> {
 
         let coalesced_reads = self.read_multiple_from_stack(buffered_reads);
 
-        // dbg!(&args);
-
         args = args
             .into_iter()
             .map(|x| match x {
@@ -11967,8 +11381,6 @@ impl FunctionTranslator<'_> {
                 }),
                 MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
                 MaybeStackValue::MutRegister(p) => {
-                    // let (value, _) = self.mut_register_to_value(p);
-
                     let value = coalesced_reads.get(&p).copied().unwrap();
 
                     self.properties.cached_lookups.registers.remove(&p);
@@ -11981,8 +11393,6 @@ impl FunctionTranslator<'_> {
                     })
                 }
                 MaybeStackValue::Register(p) => {
-                    // let (value, _) = self.immutable_register_to_value(p);
-
                     let value = coalesced_reads.get(&p).copied().unwrap();
 
                     self.properties.cached_lookups.registers.remove(&p);
@@ -12007,8 +11417,6 @@ impl FunctionTranslator<'_> {
 
         // Patch the args if needed
         for arg in &args {
-            // self.value_to_local_map.remove(&arg.value);
-
             if let MaybeStackValue::Value(v) = arg {
                 self.value_to_local_map.remove(&v.value);
             }
@@ -12157,13 +11565,7 @@ impl FunctionTranslator<'_> {
             unreachable!()
         };
 
-        // dbg!(function_name);
-        // dbg!(&self.shadow_stack);
-
         let args = self.split_off(payload);
-
-        // dbg!(&args);
-        // dbg!(&self.shadow_stack);
 
         // TODO: Use the type hints! For now we're not going to for the sake
         // of getting something running
@@ -12181,39 +11583,11 @@ impl FunctionTranslator<'_> {
         self.ip += ip_inc;
     }
 
-    // fn get_const(&mut self, op1: OpCode, payload: usize) -> (Value, InferredType) {
-    //     match op1 {
-    //         OpCode::LOADINT0 => (
-    //             // self.create_i128(encode(SteelVal::INT_ZERO)),
-    //             self.encode_integer(0),
-    //             InferredType::Int,
-    //         ),
-    //         OpCode::LOADINT1 => (
-    //             // self.create_i128(encode(SteelVal::INT_ONE)),
-    //             self.encode_integer(1),
-    //             InferredType::Int,
-    //         ),
-    //         OpCode::LOADINT2 => (
-    //             // self.create_i128(encode(SteelVal::INT_TWO)),
-    //             self.encode_integer(2),
-    //             InferredType::Int,
-    //         ),
-    //         OpCode::PUSHCONST => {
     //             // Attempt to inline the constant, if it is something that can be inlined.
     //             // Assuming we know the type of it, we can get really fancy here since
     //             // we _should_ be able to do something with it if there are other types
     //             // in play - we can avoid the unboxing / boxing of the type if we know
     //             // what we're dealing with.
-
-    //             let constant = self.constants.get_value(payload);
-    //             self.constant_to_value(payload, constant)
-    //         }
-    //         _ => (
-    //             self.call_function_returns_value(op_to_name_payload(op1, payload)),
-    //             InferredType::Any,
-    //         ),
-    //     }
-    // }
 
     fn constant_to_value(&mut self, payload: usize, constant: SteelVal) -> (Value, InferredType) {
         match &constant {
@@ -12254,33 +11628,15 @@ impl FunctionTranslator<'_> {
                 )
             }
 
-            // SteelVal::BoolV(_) => (self.create_i128(encode(constant)), InferredType::Bool),
-            // SteelVal::IntV(_) => (self.create_i128(encode(constant)), InferredType::Int),
-            // SteelVal::CharV(_) => (self.create_i128(encode(constant)), InferredType::Char),
             _ => (self.push_const_index(payload), InferredType::Any),
         }
     }
 
     fn call_func_or_immediate(&mut self, op1: OpCode, payload: usize) -> Value {
         match op1 {
-            // OpCode::LOADINT0 => self.create_i128(encode(SteelVal::INT_ZERO)),
-            // OpCode::LOADINT1 => self.create_i128(encode(SteelVal::INT_ONE)),
-            // OpCode::LOADINT2 => self.create_i128(encode(SteelVal::INT_TWO)),
-            OpCode::LOADINT0 =>
-            // self.create_i128(encode(SteelVal::INT_ZERO)),
-            {
-                self.encode_integer(0)
-            }
-            OpCode::LOADINT1 =>
-            // self.create_i128(encode(SteelVal::INT_ONE)),
-            {
-                self.encode_integer(1)
-            }
-            OpCode::LOADINT2 =>
-            // self.create_i128(encode(SteelVal::INT_TWO)),
-            {
-                self.encode_integer(2)
-            }
+            OpCode::LOADINT0 => self.encode_integer(0),
+            OpCode::LOADINT1 => self.encode_integer(1),
+            OpCode::LOADINT2 => self.encode_integer(2),
 
             OpCode::PUSHCONST => {
                 // Attempt to inline the constant, if it is something that can be inlined.
@@ -12292,7 +11648,6 @@ impl FunctionTranslator<'_> {
                 let constant = self.constants.get_value(payload);
 
                 match &constant {
-                    // SteelVal::CharV(_) => self.create_i128(encode(constant)),
                     SteelVal::CharV(c) => {
                         let res = self.builder.ins().iconst(Type::int(64).unwrap(), *c as i64);
                         self.encode_value(SteelVal::CHAR_TAG as _, res)
@@ -12309,7 +11664,6 @@ impl FunctionTranslator<'_> {
                     SteelVal::IntV(i) => self.encode_integer(*i as _),
 
                     _ => self.push_const_index(payload),
-                    // _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),
                 }
             }
             _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),
@@ -12404,12 +11758,6 @@ impl FunctionTranslator<'_> {
         encoded_rhs
     }
 
-    // fn unbox_value_to_pointer(&mut self, value: Value) -> Value {
-    //     let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
-    //     let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
-    //     self.builder.ins().ireduce(types::I64, encoded_rhs)
-    // }
-
     fn unbox_value_to_pointer(&mut self, value: Value) -> Value {
         let (_, high) = self.builder.ins().isplit(value);
         high
@@ -12435,11 +11783,6 @@ impl FunctionTranslator<'_> {
         then_start: usize,
         else_start: usize,
     ) -> Value {
-        // println!("Visiting if @ {} - depth: {}", self.ip, self.depth);
-        // println!("Existing if bound: {:?}", self.if_bound);
-
-        // let mut else_offset;
-
         let last_bound = self.if_bound;
         let mut saved_then_bound = None;
 
@@ -12460,26 +11803,10 @@ impl FunctionTranslator<'_> {
 
         let else_offset = Some(self.instructions[else_start - 1].payload_size.to_usize());
 
-        // println!("Then bound: {:?}", self.if_bound);
-        // println!("Else bound: {:?}", else_offset);
-
-        // Have to stop before we get here
-        // self.if_stack.push(else_start);
-
-        // println!("If stack: {:?}", self.if_stack);
-
         let start = self.ip;
         let depth = self.depth;
 
         self.spill_stack_for_branch();
-
-        // if self.visited.insert(self.ip) {
-        // }
-
-        // if !self.visited.insert(self.ip) {
-        //     pretty_print_dense_instructions(&self.instructions);
-        //     panic!("Already visited this if instruction");
-        // }
 
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
@@ -12507,27 +11834,15 @@ impl FunctionTranslator<'_> {
 
         self.builder.switch_to_block(then_block);
 
-        // Update with the proper return value
-        // let mut then_return = self
-        //     .builder
-        //     .ins()
-        //     .iconst(codegen::ir::Type::int(128).unwrap(), 1);
-
-        // println!("if: {} - setting ip to then: {}", start, then_start);
-
         // Set the ip to the right spot:
         self.ip = then_start;
 
         let let_stack = self.let_var_stack.clone();
-        // let local_count = self.local_count;
         let frozen_stack = self.shadow_stack.clone();
 
         let original_val_to_local = self.value_to_local_map.clone();
         let original_local_to_val = self.local_to_value_map.clone();
         let original_properties = self.properties.clone();
-
-        // let cloned_stack = self.cloned_stack;
-        // let tco = self.tco;
 
         self.if_stack.push(start);
 
@@ -12541,47 +11856,11 @@ impl FunctionTranslator<'_> {
 
         assert_eq!(self.depth, depth);
 
-        // println!("---------- then done ----------");
-
-        // let then_ip = self.ip;
-
         let then_out_of_bounds = self.ip > self.instructions.len();
-
-        // println!(
-        //     "ip, instructions len: {} - {}",
-        //     self.ip,
-        //     self.instructions.len()
-        // );
-
-        /*
-
-        TODO: Insert a guard to see where the then expression
-        finishes. If the then expression finishes in bounds,
-        i.e. hits a JMP where the JMP isn't quite the end,
-        then we also want to check the else branch, and see where
-        that finishes.
-
-        We have two cases:
-
-        Then and Else both stop at a JMP. In theory they'll converge
-        onto the same spot. We create a merge block, and then continue
-        generating code from there.
-
-        Then returns, but else does not. Swap back to else, finish
-        generating instructions.
-
-        Same but the opposite.
-
-        Both converge, no need for merge block.
-
-        */
-
-        // println!("Stack after then branch: {:?}", self.stack);
 
         // Unwrap or... must have been a tail call?
 
         let mut then_type = InferredType::Any;
-        // The merge keeps a borrowed then value borrowed, passing its flag on;
         // anything else reaches the merge owned.
         let then_owned = match self.shadow_stack.last().copied() {
             Some(MaybeStackValue::Borrowed(b)) if !then_out_of_bounds => {
@@ -12593,24 +11872,8 @@ impl FunctionTranslator<'_> {
         };
         self.builder.def_var(merge_flag, then_owned);
         let then_return = if then_out_of_bounds {
-            // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
-            // self.create_i128(encode(SteelVal::IntV(12345)))
-
             BlockArg::Value(self.encode_integer(12345))
-            // BlockArg::Value(
-            //     self.maybe_shadow_pop()
-            //         .map(|x| {
-            //             // assert!(!x.spilled);
-            //             let value = x.0;
-            //             self.value_to_local_map.remove(&value);
-            //             value
-            //         })
-            //         // .unwrap(),
-            //         .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
-            // )
         } else {
-            // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
-            // BlockArg::Value(self.shadow_pop().0)
             let (v, t) = self.shadow_pop();
             then_type = t;
             BlockArg::Value(v)
@@ -12626,14 +11889,6 @@ impl FunctionTranslator<'_> {
         self.builder.ins().jump(merge_block, &[then_return]);
 
         self.builder.switch_to_block(else_block);
-
-        // TODO: Update with the proper return value
-        // let mut else_return; = self
-        //     .builder
-        //     .ins()
-        //     .iconst(codegen::ir::Type::int(8).unwrap(), 128);
-
-        // println!("if: {} - Setting ip to else: {}", start, else_start);
 
         self.if_stack.push(else_start - 1);
 
@@ -12712,11 +11967,6 @@ impl FunctionTranslator<'_> {
                 self.builder.switch_to_block(merge_block);
                 self.if_bound = last_bound;
 
-                // dbg!(self.if_bound);
-
-                // dbg!(&self.shadow_stack);
-                // dbg!(&then_stack);
-
                 self.ip = else_offset.unwrap();
 
                 let phi = self.builder.block_params(merge_block)[0];
@@ -12732,8 +11982,6 @@ impl FunctionTranslator<'_> {
 
                 self.if_bound = last_bound;
 
-                // self.create_i128(encode(SteelVal::Void))
-
                 self.encode_void()
             }
             (false, true) => {
@@ -12742,10 +11990,6 @@ impl FunctionTranslator<'_> {
                 // Switch to merge block, continue on.
                 self.builder.switch_to_block(merge_block);
                 self.if_bound = last_bound;
-
-                // dbg!(else_start);
-                // dbg!(saved_then_bound);
-                // dbg!(last_bound);
 
                 self.ip = saved_then_bound.unwrap();
                 self.shadow_stack = then_stack;
@@ -12767,22 +12011,9 @@ impl FunctionTranslator<'_> {
 
                 self.if_bound = last_bound;
 
-                // self.create_i128(encode(SteelVal::Void))
-
                 self.encode_void()
             }
             (false, false) => {
-                // TODO:
-                // if then_stack.len() != self.shadow_stack.len() {
-                //     dbg!(&self.ip);
-                //     pretty_print_dense_instructions(&self.instructions);
-                // }
-                // TODO: Check this out? Why is this the way it is?
-                // assert_eq!(then_stack.len(), self.shadow_stack.len());
-
-                // Pop the values - merge the result of the calls?
-                // println!("Getting here");
-
                 // Switch to merge block, pop off value, return
                 // the value.
 
@@ -12839,7 +12070,6 @@ impl FunctionTranslator<'_> {
 
         self.builder.seal_block(then_block);
         self.builder.seal_block(else_block);
-        // self.builder.seal_block(merge_block);
 
         let popped = self.if_merge_blocks.pop();
         debug_assert_eq!(popped, Some(merge_block));
@@ -12899,7 +12129,6 @@ impl FunctionTranslator<'_> {
                     frame_base,
                     (index * std::mem::size_of::<SteelVal>()) as i32,
                 );
-                // println!("Adding inferred type void for register: {}", index);
 
                 // We've removed from the stack, meaning we don't need to emit drop glue for this.
                 self.properties.props.insert(
@@ -12952,7 +12181,6 @@ impl FunctionTranslator<'_> {
             if !kind {
                 self.clone_value(res);
             } else {
-                // println!("Adding inferred type void for register: {}", index);
                 self.properties.props.insert(
                     ValueOrRegister::Register(index),
                     vec![Properties::InferredType(InferredType::Void)],
@@ -13380,41 +12608,6 @@ impl FunctionTranslator<'_> {
         )
     }
 
-    /*
-    // Note: This value should _not_ be dropped!
-    fn read_from_vm_stack_old(&mut self, index: usize) -> Value {
-        let ctx = self.get_ctx();
-        let sp = self.get_sp(ctx);
-
-        let thread_pointer = self.get_thread_pointer(ctx);
-
-        // Stack offset:
-        let stack_offset = offset_of!(SteelThread, stack);
-
-        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + ptr_offset) as i32,
-        );
-
-        let size: i64 = std::mem::size_of::<SteelVal>() as _;
-        let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
-        let offset = self.builder.ins().imul_imm_s(local_offset, size);
-
-        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
-
-        let local_value = self
-            .builder
-            .ins()
-            .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
-
-        local_value
-    }
-    */
-
     fn remove_from_vm_stack(&mut self, index: usize) -> Value {
         // A move out of the slot has to move the current value.
         self.materialize_cursor(index);
@@ -13429,29 +12622,6 @@ impl FunctionTranslator<'_> {
         let sp = self.get_sp(ctx);
 
         let thread_pointer = self.get_thread_pointer(ctx);
-
-        // Stack offset:
-        // let stack_offset = offset_of!(SteelThread, stack);
-
-        // let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
-
-        // let buf_ptr = self.builder.ins().load(
-        //     Type::int(64).unwrap(),
-        //     MemFlagsData::trusted(),
-        //     thread_pointer,
-        //     (stack_offset + ptr_offset) as i32,
-        // );
-
-        // let size: i64 = std::mem::size_of::<SteelVal>() as _;
-        // let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
-        // let offset = self.builder.ins().imul_imm_s(local_offset, size);
-
-        // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
-
-        // let local_value = self
-        //     .builder
-        //     .ins()
-        //     .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
@@ -13548,10 +12718,6 @@ impl FunctionTranslator<'_> {
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         for value in values {
-            // let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
-            // let offset = self.builder.ins().imul_imm_s(local_offset, size);
-            // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
-
             // Carried as a cursor, so the slot already holds the value's head.
             if self.carry_skip.contains(&index) {
                 index += 1;
@@ -13610,8 +12776,6 @@ impl FunctionTranslator<'_> {
         sp: Value,
         buf_ptr: Value,
     ) {
-        // let size: i64 = std::mem::size_of::<SteelVal>() as _;
-
         if amt == 0 {
             return;
         }
@@ -13621,11 +12785,6 @@ impl FunctionTranslator<'_> {
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         for _ in 0..amt {
-            // let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
-            // let offset = self.builder.ins().imul_imm_s(local_offset, size);
-
-            // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
-
             if !self.register_is_immediate(index) {
                 match self.properties.get(&ValueOrRegister::Register(index)) {
                     // TODO: Can do even better, read less thing
@@ -13684,17 +12843,11 @@ impl FunctionTranslator<'_> {
             (stack_offset + ptr_offset) as i32,
         );
 
-        // let size: i64 = std::mem::size_of::<SteelVal>() as _;
-
         let mut index = index;
         let sp_bytes = self.builder.ins().ishl_imm_u(sp, 4);
         let frame_base = self.builder.ins().iadd(buf_ptr, sp_bytes);
 
         for value in values {
-            // let local_offset = self.builder.ins().iadd_imm_s(sp, index as i64);
-            // let offset = self.builder.ins().imul_imm_s(local_offset, size);
-            // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
-
             // Carried as a cursor, so the slot already holds the value's head.
             if self.carry_skip.contains(&index) {
                 index += 1;
@@ -13746,9 +12899,6 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    // We can probably just cache this per branch, so that subsequent calls
-    // can avoid this load.
-    // ctx.thread.stack_frames.len() < 100
     /// True when the closure takes a fixed argument list.
     ///
     /// A variadic callee needs its trailing arguments collected into a list
@@ -13828,8 +12978,6 @@ impl FunctionTranslator<'_> {
             .ins()
             .icmp_imm_s(IntCC::UnsignedLessThan, stack_frame_length, 100);
 
-        // self.should_trampoline = Some(res);
-
         res
     }
 
@@ -13858,11 +13006,6 @@ impl FunctionTranslator<'_> {
 
         let typ = self.int;
         let arity = args.len();
-
-        // Push each value on to the stack:
-        // for arg in args {
-        //     self.push_to_vm_stack_let_var_new(*arg);
-        // }
 
         // stack_length_capacity is a compile time model of a runtime quantity and it
         // can be wrong. An unchecked push would then write past the end of the
@@ -14155,9 +13298,6 @@ impl FunctionTranslator<'_> {
             (stack_offset + len_offset) as i32,
         );
 
-        // let difference = self.builder.ins().isub(stack_length, index);
-        // let new_length = self.builder.ins().iconst(types::, N)
-
         self.builder.ins().store(
             MemFlagsData::trusted(),
             index,
@@ -14173,58 +13313,6 @@ impl FunctionTranslator<'_> {
             thread_pointer,
             (stack_offset + ptr_offset) as i32,
         );
-
-        // let size: i64 = std::mem::size_of::<SteelVal>() as _;
-
-        // TODO: Don't use a loop here?
-        // Use the calculated difference if thats what we have to do
-        // let count = count
-        //     .map(|count| self.builder.ins().iconst(types::I64, count as i64))
-        //     .unwrap_or_else(|| self.builder.ins().isub(stack_length, index));
-        // {
-        //     let loop_header = self.builder.create_block();
-        //     let loop_body = self.builder.create_block();
-        //     let loop_exit = self.builder.create_block();
-
-        //     self.builder.append_block_param(loop_header, types::I64);
-
-        //     let zero = BlockArg::Value(self.builder.ins().iconst(types::I64, 0));
-        //     self.builder.ins().jump(loop_header, &[zero]);
-
-        //     self.builder.switch_to_block(loop_header);
-        //     let i = self.builder.block_params(loop_header)[0];
-
-        //     let done = self
-        //         .builder
-        //         .ins()
-        //         .icmp(IntCC::SignedGreaterThanOrEqual, i, count);
-        //     self.builder
-        //         .ins()
-        //         .brif(done, loop_exit, &[], loop_body, &[]);
-
-        //     self.builder.switch_to_block(loop_body);
-        //     self.builder.seal_block(loop_body);
-
-        //     let slot_index = self.builder.ins().iadd(index, i);
-        //     let byte_offset = self
-        //         .builder
-        //         .ins()
-        //         .imul_imm_s(slot_index, size_of::<SteelVal>() as i64);
-        //     let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
-        //     let val = self
-        //         .builder
-        //         .ins()
-        //         .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
-        //     self.drop_tagged_value(val);
-
-        //     let i_next = BlockArg::Value(self.builder.ins().iadd_imm_s(i, 1));
-        //     self.builder.ins().jump(loop_header, &[i_next]);
-
-        //     self.builder.seal_block(loop_header);
-
-        //     self.builder.switch_to_block(loop_exit);
-        //     self.builder.seal_block(loop_exit);
-        // }
 
         let count = count
             .map(|count| self.builder.ins().iconst(types::I64, count as i64))
@@ -14348,8 +13436,6 @@ impl FunctionTranslator<'_> {
             test,
             |ctx| ctx.encode_void(),
             |ctx| {
-                // Make sure this is 16
-                // let size = std::mem::size_of::<SteelVal>();
                 let index = ctx.builder.ins().uextend(types::I64, index);
                 let shift_left = ctx.builder.ins().ishl_imm_u(index, 4);
                 let index = ctx.builder.ins().iadd_imm_s(shift_left, header_size as i64);
@@ -14363,8 +13449,6 @@ impl FunctionTranslator<'_> {
     }
 
     fn inline_pop_from_stack(&mut self, vm_ctx: Value) -> Value {
-        // self.call_function_no_return("#%debug-stack-before");
-
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
         // Stack offset:
@@ -14409,8 +13493,6 @@ impl FunctionTranslator<'_> {
             .builder
             .ins()
             .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
-
-        // self.call_function_no_return("#%debug-stack-after");
 
         res
     }
@@ -14537,14 +13619,11 @@ impl FunctionTranslator<'_> {
                             offset_of!(VmCore, instructions) as i32,
                         );
 
-                        // let sp = ctx.read_last_sp(vm_ctx, Some(fat_ptr));
                         let sp = ctx.read_last_sp(vm_ctx);
 
                         // TODO: @Matt
                         // Call drop on the function here!
                         // We don't need to totally encode the function here like this
-                        // let func =
-                        //     ctx.encode_value(SteelVal::CLOSURE_TAG as _, popped_frame.function);
                         ctx.drop_biased_rc_unboxed_closure(popped_frame.function);
 
                         ctx.builder.ins().store(
@@ -15119,7 +14198,6 @@ impl FunctionTranslator<'_> {
         // Lets just see if this is even worth it?
         // We could insert a block before hand and link it in
         // to avoid things?
-        self.compilation_stats.stack_frame_pushes += 1;
 
         let vm_ctx = self.get_ctx();
 
@@ -15137,8 +14215,6 @@ impl FunctionTranslator<'_> {
             thread_pointer,
             (stack_frame_offset + capacity_offset) as i32,
         );
-
-        // self.call_function_args_no_context("#%debug-value", &[stack_capacity]);
 
         let stack_frame_length = self.builder.ins().load(
             Type::int(64).unwrap(),
@@ -15183,8 +14259,6 @@ impl FunctionTranslator<'_> {
                 // such that we can snag values from things
                 let size: i64 = std::mem::size_of::<StackFrame>() as _;
                 let offset = ctx.builder.ins().imul_imm_s(stack_frame_length, size);
-
-                // let offset = ctx.builder.ins().ishl_imm_u(stack_frame_length, 6);
 
                 let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
 
@@ -15243,14 +14317,6 @@ impl FunctionTranslator<'_> {
                 // construct a fat pointer here. So I need something
                 // that is FFI safe in order to construct a fat
                 // pointer to the *const [DenseInstruction]
-
-                // Okay, now load the instructions from the function:
-                // let instructions = ctx.builder.ins().load(
-                //     types::I128,
-                //     MemFlagsData::trusted(),
-                //     function,
-                //     offset_of!(ByteCodeLambda, body_exp) as i32,
-                // );
 
                 let instructions = instr_fat_ptr;
 
@@ -15498,9 +14564,6 @@ impl FunctionTranslator<'_> {
 
         let arg_values = [ctx, value];
 
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result

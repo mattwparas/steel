@@ -70,13 +70,8 @@ fn jit_should_compile(id: u32) -> bool {
 /// Generated code can bake these globals' values in. Any other global can
 /// later hold a different function, or a closure instance with different
 /// captures, so code that bakes one checks it first.
-fn non_mutable_globals(ctx: &VmCore) -> std::collections::HashSet<usize> {
-    ctx.thread
-        .compiler
-        .read()
-        .symbol_map
-        .reified_non_mutable
-        .clone()
+fn closed_globals(ctx: &VmCore) -> std::collections::HashSet<usize> {
+    ctx.thread.compiler.read().symbol_map.closed_globals.clone()
 }
 
 pub(crate) fn jit_compile_lambda(
@@ -200,7 +195,7 @@ fn jit_compile_lambda_impl(
             .copied()
     });
 
-    let non_mutable_globals = non_mutable_globals(ctx);
+    let closed_globals = closed_globals(ctx);
 
     // For background compilation, capture everything the compile reads from the
     // VM now, when a synchronous compile would read it, so both make the same
@@ -214,7 +209,7 @@ fn jit_compile_lambda_impl(
             fn_ptr_name,
             globals: sparse_globals_snapshot(ctx, &func.body_exp, maybe_index),
             constants: ctx.thread.constant_map.clone(),
-            non_mutable: non_mutable_globals,
+            closed_globals,
             jit: Arc::clone(&ctx.thread.jit),
             self_slot: self_slot.is_some(),
         };
@@ -233,7 +228,7 @@ fn jit_compile_lambda_impl(
         maybe_index,
         self_slot.map(|x| &*x),
         fn_ptr_name,
-        &non_mutable_globals,
+        &closed_globals,
     );
 
     let fn_pointer = if let Ok(fn_pointer) = fn_pointer {
@@ -278,7 +273,7 @@ pub(crate) struct BackgroundJob {
     fn_ptr_name: Option<steel_parser::interner::InternedString>,
     globals: Vec<SteelVal>,
     constants: crate::compiler::constants::ConstantMap,
-    non_mutable: std::collections::HashSet<usize>,
+    closed_globals: std::collections::HashSet<usize>,
     jit: Arc<std::sync::Mutex<crate::jit2::cgen::JIT>>,
     // Whether the lambda this compiles into is also the target of its self
     // calls (a pure function's slot). False for a closure prototype.
@@ -535,7 +530,7 @@ fn run_background_job(queued: &mut QueuedJob) {
             job.maybe_index,
             job.self_slot.then_some(&*lambda),
             job.fn_ptr_name,
-            &job.non_mutable,
+            &job.closed_globals,
         );
 
     let Ok(fn_pointer) = compiled else {
@@ -612,7 +607,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     let name = func.id.to_string();
 
                     // let mut inner = func.unwrap();
-                    let non_mutable = non_mutable_globals(ctx);
+                    let closed_globals = closed_globals(ctx);
                     let compiled = ctx
                         .thread
                         .jit
@@ -627,7 +622,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                             None,
                             None,
                             None,
-                            &non_mutable,
+                            &closed_globals,
                         );
                     let fn_pointer = match compiled {
                         Ok(p) => p,
@@ -690,7 +685,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
         let name = func.id.to_string();
 
         // let mut inner = func.unwrap();
-        let non_mutable = non_mutable_globals(ctx);
+        let closed_globals = closed_globals(ctx);
         let compiled = ctx
             .thread
             .jit
@@ -705,7 +700,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
                 function_name,
                 None,
                 None,
-                &non_mutable,
+                &closed_globals,
             );
         let fn_pointer = match compiled {
             Ok(p) => p,

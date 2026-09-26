@@ -1198,7 +1198,7 @@ impl RawProgramWithSymbols {
                 continue;
             }
             if let Ok(v) = symbol_map.get(&x) {
-                symbol_map.reified_non_mutable.insert(v);
+                symbol_map.closed_globals.insert(v);
             }
         }
 

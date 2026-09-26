@@ -229,19 +229,15 @@ impl<'a> FunctionTranslator<'a> {
                     ctx.call_helper_unchecked(VECTOR_SET_REG_3, [vector, index, value])
                 };
 
-                let res = if INLINE_MUTABLE_VECTOR_OPS {
-                    self.inline_mut_vector_set(
-                        vector_value,
-                        index_value,
-                        new_value,
-                        false,
-                        false,
-                        false,
-                        fallback,
-                    )
-                } else {
-                    fallback(self)
-                };
+                let res = self.inline_mut_vector_set(
+                    vector_value,
+                    index_value,
+                    new_value,
+                    false,
+                    false,
+                    false,
+                    fallback,
+                );
 
                 self.push(res, InferredType::Any);
 
@@ -268,19 +264,15 @@ impl<'a> FunctionTranslator<'a> {
                     ctx.call_helper_unchecked(VECTOR_SET_REG_2, [vector, index, new_value])
                 };
 
-                let res = if INLINE_MUTABLE_VECTOR_OPS {
-                    self.inline_mut_vector_set(
-                        vector_value,
-                        index_value,
-                        new_value,
-                        false,
-                        false,
-                        true,
-                        fallback,
-                    )
-                } else {
-                    fallback(self)
-                };
+                let res = self.inline_mut_vector_set(
+                    vector_value,
+                    index_value,
+                    new_value,
+                    false,
+                    false,
+                    true,
+                    fallback,
+                );
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
@@ -301,19 +293,15 @@ impl<'a> FunctionTranslator<'a> {
                     ctx.call_helper_unchecked(VECTOR_SET_REG_1, [vector, index_value, new_value])
                 };
 
-                let res = if INLINE_MUTABLE_VECTOR_OPS {
-                    self.inline_mut_vector_set(
-                        vector_value,
-                        index_value,
-                        new_value,
-                        false,
-                        true,
-                        true,
-                        fallback,
-                    )
-                } else {
-                    fallback(self)
-                };
+                let res = self.inline_mut_vector_set(
+                    vector_value,
+                    index_value,
+                    new_value,
+                    false,
+                    true,
+                    true,
+                    fallback,
+                );
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
@@ -339,11 +327,8 @@ impl<'a> FunctionTranslator<'a> {
                     ctx.call_helper_unchecked(VECTOR_SET_ARGS, args.as_slice().try_into().unwrap())
                 };
 
-                let res = if INLINE_MUTABLE_VECTOR_OPS {
-                    self.inline_mut_vector_set(vector, index, value, true, true, true, fallback)
-                } else {
-                    fallback(self)
-                };
+                let res =
+                    self.inline_mut_vector_set(vector, index, value, true, true, true, fallback);
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
@@ -365,11 +350,8 @@ impl<'a> FunctionTranslator<'a> {
                     ctx.call_helper_unchecked(VECTOR_SET_ARGS, args.as_slice().try_into().unwrap())
                 };
 
-                let res = if INLINE_MUTABLE_VECTOR_OPS {
-                    self.inline_mut_vector_set(vector, index, value, true, true, true, fallback)
-                } else {
-                    fallback(self)
-                };
+                let res =
+                    self.inline_mut_vector_set(vector, index, value, true, true, true, fallback);
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
@@ -2564,11 +2546,7 @@ impl<'a> FunctionTranslator<'a> {
             ctx.call_helper_unchecked(VECTOR_PUSH_ARGS, [vector, value])
         };
 
-        let res = if INLINE_MUTABLE_VECTOR_OPS {
-            self.inline_mut_vector_push(vector, value, fallback)
-        } else {
-            fallback(self)
-        };
+        let res = self.inline_mut_vector_push(vector, value, fallback);
 
         self.push(res, InferredType::Any);
 
@@ -3251,7 +3229,6 @@ struct ForkedState {
     if_merge_flags: Vec<Variable>,
     vm_context: Value,
     function_context: Option<usize>,
-    potentially_could_deopt: bool,
     thread_pointer: Option<Value>,
     should_trampoline: Option<Value>,
     sp: Option<Value>,
@@ -3259,7 +3236,6 @@ struct ForkedState {
     pop_count_plus_one: Option<Value>,
     pop_count_minus_one: Option<Value>,
     thread_id: Option<Value>,
-    compilation_stats: CompilationStats,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -3347,7 +3323,6 @@ impl<'a> FunctionTranslator<'a> {
             if_merge_flags: self.if_merge_flags.clone(),
             vm_context: self.vm_context,
             function_context: self.function_context,
-            potentially_could_deopt: self.potentially_could_deopt,
             thread_pointer: self.thread_pointer,
             should_trampoline: self.should_trampoline,
             sp: self.sp,
@@ -3355,7 +3330,6 @@ impl<'a> FunctionTranslator<'a> {
             pop_count_plus_one: self.pop_count_plus_one,
             pop_count_minus_one: self.pop_count_minus_one,
             thread_id: self.thread_id,
-            compilation_stats: self.compilation_stats.clone(),
         };
 
         // Run the whole show, and then reset back:
@@ -3378,7 +3352,6 @@ impl<'a> FunctionTranslator<'a> {
         self.if_merge_flags = state.if_merge_flags;
         self.vm_context = state.vm_context;
         self.function_context = state.function_context;
-        self.potentially_could_deopt = state.potentially_could_deopt;
         self.thread_pointer = state.thread_pointer;
         self.should_trampoline = state.should_trampoline;
         self.sp = state.sp;
@@ -3386,6 +3359,5 @@ impl<'a> FunctionTranslator<'a> {
         self.pop_count_plus_one = state.pop_count_plus_one;
         self.pop_count_minus_one = state.pop_count_minus_one;
         self.thread_id = state.thread_id;
-        self.compilation_stats = state.compilation_stats;
     }
 }
