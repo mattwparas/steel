@@ -210,10 +210,10 @@ pub static C_HANDLERS: [OpHandlerC; MAX_OPCODE_SIZE] = initialize_handlers();
 // Windows: "sysv64-unwind"
 // Everything else: "C-unwind"
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
 pub type OpHandlerC = extern "sysv64-unwind" fn(*mut VmCore) -> bool;
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
 pub type OpHandlerC = extern "C-unwind" fn(*mut VmCore) -> bool;
 
 const fn initialize_handlers() -> [OpHandlerC; MAX_OPCODE_SIZE] {
@@ -790,12 +790,12 @@ fn cdr_handler_mut_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
 
 macro_rules! extern_c {
     ($func:expr, $name:tt) => {
-        #[cfg(target_os = "windows")]
+        #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
         extern "sysv64-unwind" fn $name(ctx: *mut VmCore) -> bool {
             unsafe { $func(&mut *ctx).is_ok() }
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
         extern "C-unwind" fn $name(ctx: *mut VmCore) -> bool {
             unsafe { $func(&mut *ctx).is_ok() }
         }
@@ -2429,14 +2429,14 @@ macro_rules! make_call_global_function_tail_deopt {
         impl CallGlobalTailFunctionDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
 
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
@@ -2573,14 +2573,14 @@ macro_rules! make_list_handlers {
         impl ListHandlerDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(*mut VmCore, $($typ: SteelVal),*) -> SteelVal
                     );
 
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(*mut VmCore, $($typ: SteelVal),*) -> SteelVal
@@ -2933,14 +2933,14 @@ macro_rules! make_primitive_function_deopt {
         impl CallPrimitiveDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: fn(&[SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
 
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, func: fn(&[SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
@@ -2968,7 +2968,7 @@ macro_rules! make_primitive_function_deopt {
         }
 
         $(
-            #[cfg(target_os  = "windows")]
+            #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
             #[allow(improper_ctypes_definitions)]
             pub(crate) extern "sysv64-unwind" fn $name(
                 ctx: *mut VmCore,
@@ -2993,7 +2993,7 @@ macro_rules! make_primitive_function_deopt {
                 }
             }
 
-            #[cfg(not(target_os  = "windows"))]
+            #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
             #[allow(improper_ctypes_definitions)]
             pub(crate) extern "C-unwind" fn $name(
                 ctx: *mut VmCore,
@@ -3109,7 +3109,7 @@ macro_rules! make_primitive_register_function_fixed_arity_deopt {
         impl CallRegisterPrimitiveFixedDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore,
@@ -3121,7 +3121,7 @@ macro_rules! make_primitive_register_function_fixed_arity_deopt {
                     );
 
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore,
@@ -3538,14 +3538,14 @@ macro_rules! make_primitive_function_fixed_arity_deopt {
         impl CallPrimitiveFixedDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: fn($($typ: SteelVal),*) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
 
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, func: fn($($typ: SteelVal),*) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
@@ -3627,13 +3627,13 @@ macro_rules! make_primitive_mut_function_deopt {
         impl CallPrimitiveMutDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: fn(&mut [SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, func: fn(&mut [SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
@@ -3706,13 +3706,13 @@ macro_rules! make_call_global_function_deopt {
         impl CallGlobalFunctionDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
@@ -3773,14 +3773,14 @@ macro_rules! make_call_function_deopt {
         impl CallFunctionDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
 
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
@@ -3841,14 +3841,14 @@ macro_rules! make_call_function_tail_deopt {
         impl CallFunctionTailDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
 
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
@@ -3909,14 +3909,14 @@ macro_rules! make_call_global_function_deopt_no_arity {
         impl CallGlobalNoArityFunctionDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
 
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
@@ -4807,13 +4807,13 @@ macro_rules! make_self_tail_call_no_arity {
         impl CallSelfTailCallNoArityDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, arity: usize, $($typ: SteelVal),*)
                     );
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, arity: usize, $($typ: SteelVal),*)
@@ -4921,13 +4921,13 @@ macro_rules! make_self_tail_call_no_arity_loop {
         impl CallSelfTailCallNoArityLoopDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, arity: u16, $($typ: SteelVal),*)
                     );
 
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
                     map.add_func(
                         stringify!($name),
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, arity: u16, $($typ: SteelVal),*)

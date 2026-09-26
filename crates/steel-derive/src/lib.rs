@@ -20,11 +20,11 @@ pub fn cross_platform_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
 
     let expanded = quote! {
-        #[cfg(target_os = "windows")]
+        #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
         #[allow(improper_ctypes_definitions)]
         pub extern "sysv64-unwind" #input
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
         #[allow(improper_ctypes_definitions)]
         pub extern "C-unwind" #input
     };
