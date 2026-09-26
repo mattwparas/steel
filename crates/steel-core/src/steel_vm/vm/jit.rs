@@ -4263,89 +4263,111 @@ fn call_boxed_function_handler<const TAIL: bool>(
     }
 }
 
-macro_rules! make_call_boxed_function {
-    ($definitions:ident, $tail:expr, $(($name:tt, $($typ:ident),*)),*) => {
+/// A family of jit helpers that differ only in how many trailing `SteelVal`
+/// arguments they take. Generates `$defs`, whose `register` adds one function
+/// per arity to the jit's symbol map and whose `arity_to_name` finds it, and in
+/// module `$module` those functions, `f0` up to `f16`. Each is registered as
+/// `$prefix` + arity + `$suffix`. `$add` is `add_func` for functions taking the
+/// vm context first, `add_func2` otherwise. The body sees the trailing arguments
+/// as an array bound to `$args`.
+macro_rules! helper_family {
+    (
+        $defs:ident, mod $module:ident,
+        names $prefix:literal $suffix:literal,
+        $add:ident fn $params:tt -> $ret:ty,
+        arities [$($n:tt)*],
+        |$args:ident| $body:expr $(,)?
+    ) => {
+        pub struct $defs;
 
-        pub struct $definitions;
+        impl $defs {
+            const NAMES: &'static [(usize, &'static str)] =
+                &[$(($n, concat!($prefix, $n, $suffix))),*];
 
-        impl $definitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: *const BoxedDynFunction, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: *const BoxedDynFunction, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
+                    helper_family!(@arity register $n {
+                        map, $module, $add, concat!($prefix, $n, $suffix), $params, $ret
+                    });
                 )*
             }
 
             pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
+                Self::NAMES
+                    .iter()
+                    .find(|(arity, _)| *arity == count)
+                    .map(|(_, name)| *name)
             }
         }
 
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                func: *const BoxedDynFunction,
-                lookup_index: usize,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                unsafe { call_boxed_function_handler::<$tail>(&mut *ctx, func, lookup_index, fallback_ip, &mut [$($typ), *]) }
-            }
-        )*
+        mod $module {
+            use super::*;
+            $( helper_family!(@arity emit $n { $params, $ret, $args, $body }); )*
+        }
+    };
+
+    // The argument names for each arity.
+    (@arity $mode:ident 0 $rest:tt) => { helper_family!(@ $mode f0 0 [] $rest); };
+    (@arity $mode:ident 1 $rest:tt) => { helper_family!(@ $mode f1 1 [a] $rest); };
+    (@arity $mode:ident 2 $rest:tt) => { helper_family!(@ $mode f2 2 [a b] $rest); };
+    (@arity $mode:ident 3 $rest:tt) => { helper_family!(@ $mode f3 3 [a b c] $rest); };
+    (@arity $mode:ident 4 $rest:tt) => { helper_family!(@ $mode f4 4 [a b c d] $rest); };
+    (@arity $mode:ident 5 $rest:tt) => { helper_family!(@ $mode f5 5 [a b c d e] $rest); };
+    (@arity $mode:ident 6 $rest:tt) => { helper_family!(@ $mode f6 6 [a b c d e f] $rest); };
+    (@arity $mode:ident 7 $rest:tt) => { helper_family!(@ $mode f7 7 [a b c d e f g] $rest); };
+    (@arity $mode:ident 8 $rest:tt) => { helper_family!(@ $mode f8 8 [a b c d e f g h] $rest); };
+    (@arity $mode:ident 9 $rest:tt) => { helper_family!(@ $mode f9 9 [a b c d e f g h i] $rest); };
+    (@arity $mode:ident 10 $rest:tt) => { helper_family!(@ $mode f10 10 [a b c d e f g h i j] $rest); };
+    (@arity $mode:ident 11 $rest:tt) => { helper_family!(@ $mode f11 11 [a b c d e f g h i j k] $rest); };
+    (@arity $mode:ident 12 $rest:tt) => { helper_family!(@ $mode f12 12 [a b c d e f g h i j k l] $rest); };
+    (@arity $mode:ident 13 $rest:tt) => { helper_family!(@ $mode f13 13 [a b c d e f g h i j k l m] $rest); };
+    (@arity $mode:ident 14 $rest:tt) => { helper_family!(@ $mode f14 14 [a b c d e f g h i j k l m n] $rest); };
+    (@arity $mode:ident 15 $rest:tt) => { helper_family!(@ $mode f15 15 [a b c d e f g h i j k l m n o] $rest); };
+    (@arity $mode:ident 16 $rest:tt) => { helper_family!(@ $mode f16 16 [a b c d e f g h i j k l m n o p] $rest); };
+
+    (@register $f:ident $n:tt [$($arg:ident)*] {
+        $map:ident, $module:ident, $add:ident, $name:expr,
+        ($($pre:ident: $pre_ty:ty),*), $ret:ty
+    }) => {
+        #[cfg(target_os = "windows")]
+        $map.$add(
+            $name,
+            $module::$f as extern "sysv64-unwind" fn($($pre: $pre_ty,)* $($arg: SteelVal),*) -> $ret,
+        );
+        #[cfg(not(target_os = "windows"))]
+        $map.$add(
+            $name,
+            $module::$f as extern "C-unwind" fn($($pre: $pre_ty,)* $($arg: SteelVal),*) -> $ret,
+        );
+    };
+
+    (@emit $f:ident $n:tt [$($arg:ident)*] {
+        ($($pre:ident: $pre_ty:ty),*), $ret:ty, $args:ident, $body:expr
+    }) => {
+        #[steel_derive::cross_platform_fn]
+        fn $f($($pre: $pre_ty,)* $($arg: SteelVal),*) -> $ret {
+            #[allow(unused_mut)]
+            let mut $args: [SteelVal; $n] = [$($arg),*];
+            $body
+        }
     };
 }
 
-make_call_boxed_function!(
-    CallBoxedFunctionDefinitions,
-    false,
-    (call_boxed_function_0,),
-    (call_boxed_function_1, a),
-    (call_boxed_function_2, a, b),
-    (call_boxed_function_3, a, b, c),
-    (call_boxed_function_4, a, b, c, d),
-    (call_boxed_function_5, a, b, c, d, e),
-    (call_boxed_function_6, a, b, c, d, e, f),
-    (call_boxed_function_7, a, b, c, d, e, f, g),
-    (call_boxed_function_8, a, b, c, d, e, f, g, h)
-);
+helper_family! {
+    CallBoxedFunctionDefinitions, mod call_boxed_function,
+    names "call_boxed_function_" "",
+    add_func fn(ctx: *mut VmCore, func: *const BoxedDynFunction, lookup_index: usize, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| unsafe { call_boxed_function_handler::<false>(&mut *ctx, func, lookup_index, fallback_ip, &mut args) }
+}
 
-make_call_boxed_function!(
-    CallBoxedFunctionTailDefinitions,
-    true,
-    (call_boxed_function_tail_0,),
-    (call_boxed_function_tail_1, a),
-    (call_boxed_function_tail_2, a, b),
-    (call_boxed_function_tail_3, a, b, c),
-    (call_boxed_function_tail_4, a, b, c, d),
-    (call_boxed_function_tail_5, a, b, c, d, e),
-    (call_boxed_function_tail_6, a, b, c, d, e, f),
-    (call_boxed_function_tail_7, a, b, c, d, e, f, g),
-    (call_boxed_function_tail_8, a, b, c, d, e, f, g, h)
-);
+helper_family! {
+    CallBoxedFunctionTailDefinitions, mod call_boxed_function_tail,
+    names "call_boxed_function_tail_" "",
+    add_func fn(ctx: *mut VmCore, func: *const BoxedDynFunction, lookup_index: usize, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| unsafe { call_boxed_function_handler::<true>(&mut *ctx, func, lookup_index, fallback_ip, &mut args) }
+}
 
 // Tail call of a global that held a native function when the caller was
 // compiled. A native function's value is returned to the caller, which returns
@@ -4376,72 +4398,13 @@ fn callglobal_native_tail_handler(
     }
 }
 
-macro_rules! make_call_global_native_tail {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallGlobalNativeTailDefinitions;
-
-        impl CallGlobalNativeTailDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
-        }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                lookup_index: usize,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                unsafe { callglobal_native_tail_handler(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
-            }
-        )*
-    };
+helper_family! {
+    CallGlobalNativeTailDefinitions, mod call_global_native_tail,
+    names "call_global_native_tail_" "",
+    add_func fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| unsafe { callglobal_native_tail_handler(&mut *ctx, lookup_index, fallback_ip, &mut args) }
 }
-
-make_call_global_native_tail!(
-    (call_global_native_tail_0,),
-    (call_global_native_tail_1, a),
-    (call_global_native_tail_2, a, b),
-    (call_global_native_tail_3, a, b, c),
-    (call_global_native_tail_4, a, b, c, d),
-    (call_global_native_tail_5, a, b, c, d, e),
-    (call_global_native_tail_6, a, b, c, d, e, f),
-    (call_global_native_tail_7, a, b, c, d, e, f, g),
-    (call_global_native_tail_8, a, b, c, d, e, f, g, h)
-);
 
 #[cross_platform_fn]
 fn callglobal_tail_handler_deopt_spilled(
@@ -4795,224 +4758,21 @@ fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
     let _ = ctx.thread.stack.truncate(rollback_index);
 }
 
-macro_rules! make_call_global_function_tail_deopt {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallGlobalTailFunctionDefinitions;
-
-        impl CallGlobalTailFunctionDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
-        }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                lookup_index: usize,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                unsafe { new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
-            }
-        )*
-    };
+helper_family! {
+    CallGlobalTailFunctionDefinitions, mod call_global_function_tail_deopt,
+    names "call_global_function_tail_deopt_" "",
+    add_func fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8 9 10 11 12 13 14],
+    |args| unsafe { new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut args) }
 }
 
-make_call_global_function_tail_deopt!(
-    (call_global_function_tail_deopt_0,),
-    (call_global_function_tail_deopt_1, a),
-    (call_global_function_tail_deopt_2, a, b),
-    (call_global_function_tail_deopt_3, a, b, c),
-    (call_global_function_tail_deopt_4, a, b, c, d),
-    (call_global_function_tail_deopt_5, a, b, c, d, e),
-    (call_global_function_tail_deopt_6, a, b, c, d, e, f),
-    (call_global_function_tail_deopt_7, a, b, c, d, e, f, g),
-    (call_global_function_tail_deopt_8, a, b, c, d, e, f, g, h),
-    (call_global_function_tail_deopt_9, a, b, c, d, e, f, g, h, i),
-    (
-        call_global_function_tail_deopt_10,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j
-    ),
-    (
-        call_global_function_tail_deopt_11,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k
-    ),
-    (
-        call_global_function_tail_deopt_12,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k,
-        l
-    ),
-    (
-        call_global_function_tail_deopt_13,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k,
-        l,
-        m
-    ),
-    (
-        call_global_function_tail_deopt_14,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k,
-        l,
-        m,
-        n
-    )
-);
-
-macro_rules! make_list_handlers {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct ListHandlerDefinitions;
-
-        impl ListHandlerDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(*mut VmCore, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(*mut VmCore, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
-        }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                _: *mut VmCore,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                SteelVal::ListV(vec![$($typ),*].into())
-            }
-
-        )*
-    };
+helper_family! {
+    ListHandlerDefinitions, mod list_handlers,
+    names "make_list_" "",
+    add_func fn(_ctx: *mut VmCore) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16],
+    |args| SteelVal::ListV(Vec::from(args).into())
 }
-
-make_list_handlers!(
-    (make_list_0,),
-    (make_list_1, a),
-    (make_list_2, a, b),
-    (make_list_3, a, b, c),
-    (make_list_4, a, b, c, d),
-    (make_list_5, a, b, c, d, e),
-    (make_list_6, a, b, c, d, e, f),
-    (make_list_7, a, b, c, d, e, f, g),
-    (make_list_8, a, b, c, d, e, f, g, h),
-    (make_list_9, a, b, c, d, e, f, g, h, i),
-    (make_list_10, a, b, c, d, e, f, g, h, i, j),
-    (make_list_11, a, b, c, d, e, f, g, h, i, j, k),
-    (make_list_12, a, b, c, d, e, f, g, h, i, j, k, l),
-    (make_list_13, a, b, c, d, e, f, g, h, i, j, k, l, m),
-    (make_list_14, a, b, c, d, e, f, g, h, i, j, k, l, m, n),
-    (make_list_15, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o),
-    (make_list_16, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)
-);
 
 #[cross_platform_fn]
 fn list_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
@@ -5248,113 +5008,28 @@ fn check_callable_value_tail(_: *mut VmCore, func: SteelVal) -> bool {
     )
 }
 
-macro_rules! make_primitive_function_deopt {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallPrimitiveDefinitions;
-
-        impl CallPrimitiveDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: fn(&[SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: fn(&[SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
+helper_family! {
+    CallPrimitiveDefinitions, mod call_primitive_function_deopt,
+    names "call_primitive_function_deopt_" "",
+    add_func fn(ctx: *mut VmCore, func: fn(&[SteelVal]) -> Result<SteelVal>, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| {
+        let guard = unsafe { &mut *ctx };
+        match guard
+            .thread
+            .enter_safepoint_once(move |_: &SteelThread| (func)(&args))
+        {
+            Ok(v) => v,
+            Err(e) => unsafe {
+            let guard = &mut *ctx;
+            guard.ip = fallback_ip;
+            guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+            guard.is_native = false;
+            SteelVal::Void
+        },
         }
-
-        $(
-            #[cfg(target_os  = "windows")]
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
-                ctx: *mut VmCore,
-                func: fn(&[SteelVal]) -> Result<SteelVal>,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-
-                let guard = unsafe { &mut *ctx };
-
-                match guard.thread.enter_safepoint_once(move |_: &SteelThread| (func)(&[$($typ),*])) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        unsafe {
-                            let guard = &mut *ctx;
-                            guard.ip = fallback_ip;
-                            guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
-                            guard.is_native = false;
-                            SteelVal::Void
-                        }
-                    }
-                }
-            }
-
-            #[cfg(not(target_os  = "windows"))]
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "C-unwind" fn $name(
-                ctx: *mut VmCore,
-                func: fn(&[SteelVal]) -> Result<SteelVal>,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-
-                let guard = unsafe { &mut *ctx };
-
-                match guard.thread.enter_safepoint_once(move |_: &SteelThread| (func)(&[$($typ),*])) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        unsafe {
-                            let guard = &mut *ctx;
-                            guard.ip = fallback_ip;
-                            guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
-                            guard.is_native = false;
-                            SteelVal::Void
-                        }
-                    }
-                }
-            }
-        )*
-    };
+    }
 }
-
-make_primitive_function_deopt!(
-    (call_primitive_function_deopt_0,),
-    (call_primitive_function_deopt_1, a),
-    (call_primitive_function_deopt_2, a, b),
-    (call_primitive_function_deopt_3, a, b, c),
-    (call_primitive_function_deopt_4, a, b, c, d),
-    (call_primitive_function_deopt_5, a, b, c, d, e),
-    (call_primitive_function_deopt_6, a, b, c, d, e, f),
-    (call_primitive_function_deopt_7, a, b, c, d, e, f, g),
-    (call_primitive_function_deopt_8, a, b, c, d, e, f, g, h)
-);
 
 macro_rules! kind {
     (0) => {
@@ -5496,156 +5171,38 @@ make_primitive_function_fixed_arity_deopt!(
     )
 );
 
-macro_rules! make_struct_constructors {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallStructConstructorsDefinitions;
-
-        impl CallStructConstructorsDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func2(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(type_descriptor: StructTypeDescriptor, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func2(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(type_descriptor: StructTypeDescriptor, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
-        }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                type_descriptor: StructTypeDescriptor,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                SteelVal::CustomStruct(StructRef::from_parts(
-                    type_descriptor,
-                    [$($typ),*].into_iter(),
-                ))
-            }
-
-        )*
-    };
+helper_family! {
+    CallStructConstructorsDefinitions, mod call_struct_constructor,
+    names "call_struct_constructor_" "",
+    add_func2 fn(type_descriptor: StructTypeDescriptor) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| SteelVal::CustomStruct(StructRef::from_parts(type_descriptor, args.into_iter()))
 }
-
-make_struct_constructors!(
-    (call_struct_constructor_0,),
-    (call_struct_constructor_1, a),
-    (call_struct_constructor_2, a, b),
-    (call_struct_constructor_3, a, b, c),
-    (call_struct_constructor_4, a, b, c, d),
-    (call_struct_constructor_5, a, b, c, d, e),
-    (call_struct_constructor_6, a, b, c, d, e, f),
-    (call_struct_constructor_7, a, b, c, d, e, f, g),
-    (call_struct_constructor_8, a, b, c, d, e, f, g, h)
-);
 
 // `#%make-mutable-struct` in tail position, called directly from jitted code
 // to skip the generic tail call handler's global lookup and `BuiltIn` calling
 // convention. The first argument is the struct type descriptor; the rest are
 // the fields. On an error the frame is handed back to the interpreter at
 // `fallback_ip`, which `check_deopt` after the call looks for.
-macro_rules! make_mutable_struct_constructors {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallMutableStructConstructorsDefinitions;
-
-        impl CallMutableStructConstructorsDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            /// `count` includes the descriptor.
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
+helper_family! {
+    CallMutableStructConstructorsDefinitions, mod call_mutable_struct_constructor,
+    names "call_mutable_struct_constructor_" "",
+    add_func fn(ctx: *mut VmCore, fallback_ip: usize) -> SteelVal,
+    arities [1 2 3 4 5 6 7 8],
+    |args| {
+        let guard = unsafe { &mut *ctx };
+        let args: smallvec::SmallVec<[SteelVal; 8]> = args.into_iter().collect();
+        match crate::steel_vm::primitives::make_mutable_struct_from_owned(guard, args) {
+            Ok(v) => v,
+            Err(e) => {
+                guard.ip = fallback_ip;
+                guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+                guard.is_native = false;
+                SteelVal::Void
             }
         }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                let guard = unsafe { &mut *ctx };
-                let args: smallvec::SmallVec<[SteelVal; 8]> = smallvec::smallvec![$($typ),*];
-                match crate::steel_vm::primitives::make_mutable_struct_from_owned(guard, args) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        guard.ip = fallback_ip;
-                        guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
-                        guard.is_native = false;
-                        SteelVal::Void
-                    }
-                }
-            }
-        )*
-    };
+    }
 }
-
-make_mutable_struct_constructors!(
-    (call_mutable_struct_constructor_1, a),
-    (call_mutable_struct_constructor_2, a, b),
-    (call_mutable_struct_constructor_3, a, b, c),
-    (call_mutable_struct_constructor_4, a, b, c, d),
-    (call_mutable_struct_constructor_5, a, b, c, d, e),
-    (call_mutable_struct_constructor_6, a, b, c, d, e, f),
-    (call_mutable_struct_constructor_7, a, b, c, d, e, f, g),
-    (call_mutable_struct_constructor_8, a, b, c, d, e, f, g, h)
-);
 
 // `mutable-vector` in tail position, called directly from jitted code. It is a
 // `BuiltIn`, so otherwise every `(vector a b c)` goes through the generic tail
@@ -5654,70 +5211,16 @@ make_mutable_struct_constructors!(
 // The allocation can collect, and the collector's roots are the vm stack plus
 // these arguments. The caller checks that nothing else in the frame is live in
 // tail position before emitting this.
-macro_rules! make_mutable_vector_constructors {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallMutableVectorConstructorsDefinitions;
-
-        impl CallMutableVectorConstructorsDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
-        }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                let guard = unsafe { &mut *ctx };
-                guard.make_mutable_vector([$($typ),*].into_iter().collect())
-            }
-        )*
-    };
+helper_family! {
+    CallMutableVectorConstructorsDefinitions, mod call_mutable_vector_constructor,
+    names "call_mutable_vector_constructor_" "",
+    add_func fn(ctx: *mut VmCore) -> SteelVal,
+    arities [1 2 3 4 5 6 7 8],
+    |args| {
+        let guard = unsafe { &mut *ctx };
+        guard.make_mutable_vector(args.into_iter().collect())
+    }
 }
-
-make_mutable_vector_constructors!(
-    (call_mutable_vector_constructor_1, a),
-    (call_mutable_vector_constructor_2, a, b),
-    (call_mutable_vector_constructor_3, a, b, c),
-    (call_mutable_vector_constructor_4, a, b, c, d),
-    (call_mutable_vector_constructor_5, a, b, c, d, e),
-    (call_mutable_vector_constructor_6, a, b, c, d, e, f),
-    (call_mutable_vector_constructor_7, a, b, c, d, e, f, g),
-    (call_mutable_vector_constructor_8, a, b, c, d, e, f, g, h)
-);
 
 // `cdr` in tail position. `cdr` is a `MutFunc`, which the tail call path has no
 // inline case for, so `(loop ... (cdr x))` style tails would otherwise go through
@@ -5809,854 +5312,276 @@ fn make_vector_checked(
     }
 }
 
-macro_rules! make_flat_vector_constructors {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallFlatVectorConstructorsDefinitions;
-
-        impl CallFlatVectorConstructorsDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func2(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn($($typ: SteelVal),*) -> SteelVal
-                    );
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func2(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn($($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
+helper_family! {
+    CallFlatVectorConstructorsDefinitions, mod call_flat_vector_constructor,
+    names "call_flat_vector_constructor_" "",
+    add_func2 fn() -> SteelVal,
+    arities [1 2 3 4 5 6 7 8],
+    |args| {
+        let mut vec = steel_vec::Vec::with_capacity(args.len());
+        for arg in args {
+            vec.push(arg);
         }
-
-        $(
-            #[cross_platform_fn]
-            fn $name($($typ: SteelVal),*) -> SteelVal {
-                let mut vec = steel_vec::Vec::with_capacity([$(&$typ),*].len());
-                $(vec.push($typ);)*
-                SteelVal::FlatVector(Gc::new(vec))
-            }
-        )*
-    };
+        SteelVal::FlatVector(Gc::new(vec))
+    }
 }
 
-make_flat_vector_constructors!(
-    (call_flat_vector_constructor_1, a),
-    (call_flat_vector_constructor_2, a, b),
-    (call_flat_vector_constructor_3, a, b, c),
-    (call_flat_vector_constructor_4, a, b, c, d),
-    (call_flat_vector_constructor_5, a, b, c, d, e),
-    (call_flat_vector_constructor_6, a, b, c, d, e, f),
-    (call_flat_vector_constructor_7, a, b, c, d, e, f, g),
-    (call_flat_vector_constructor_8, a, b, c, d, e, f, g, h)
-);
-
-macro_rules! make_primitive_mut_function_deopt {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallPrimitiveMutDefinitions;
-
-        impl CallPrimitiveMutDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: fn(&mut [SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: fn(&mut [SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
-        }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                func: fn(&mut [SteelVal]) -> Result<SteelVal>,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                match (func)(&mut [$($typ),*]) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        unsafe {
-                            let guard = &mut *ctx;
-                            guard.ip = fallback_ip;
-                            guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
-                            guard.is_native = false;
-                            SteelVal::Void
-                        }
-                    }
-                }
-            }
-        )*
-    };
+helper_family! {
+    CallPrimitiveMutDefinitions, mod call_primitive_mut_function_deopt,
+    names "call_primitive_mut_function_deopt_" "",
+    add_func fn(ctx: *mut VmCore, func: fn(&mut [SteelVal]) -> Result<SteelVal>, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| match (func)(&mut args) {
+        Ok(v) => v,
+        Err(e) => unsafe {
+            let guard = &mut *ctx;
+            guard.ip = fallback_ip;
+            guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+            guard.is_native = false;
+            SteelVal::Void
+        },
+    }
 }
 
-make_primitive_mut_function_deopt!(
-    (call_primitive_mut_function_deopt_0,),
-    (call_primitive_mut_function_deopt_1, a),
-    (call_primitive_mut_function_deopt_2, a, b),
-    (call_primitive_mut_function_deopt_3, a, b, c),
-    (call_primitive_mut_function_deopt_4, a, b, c, d),
-    (call_primitive_mut_function_deopt_5, a, b, c, d, e),
-    (call_primitive_mut_function_deopt_6, a, b, c, d, e, f),
-    (call_primitive_mut_function_deopt_7, a, b, c, d, e, f, g),
-    (call_primitive_mut_function_deopt_8, a, b, c, d, e, f, g, h)
-);
-
-macro_rules! make_call_global_function_deopt {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallGlobalFunctionDefinitions;
-
-        impl CallGlobalFunctionDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
-        }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                lookup_index: usize,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
-            }
-        )*
-    };
+helper_family! {
+    CallGlobalFunctionDefinitions, mod call_global_function_deopt,
+    names "call_global_function_deopt_" "",
+    add_func fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut args) }
 }
 
-make_call_global_function_deopt!(
-    (call_global_function_deopt_0,),
-    (call_global_function_deopt_1, a),
-    (call_global_function_deopt_2, a, b),
-    (call_global_function_deopt_3, a, b, c),
-    (call_global_function_deopt_4, a, b, c, d),
-    (call_global_function_deopt_5, a, b, c, d, e),
-    (call_global_function_deopt_6, a, b, c, d, e, f),
-    (call_global_function_deopt_7, a, b, c, d, e, f, g),
-    (call_global_function_deopt_8, a, b, c, d, e, f, g, h)
-);
-
-macro_rules! make_call_function_deopt {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallFunctionDefinitions;
-
-        impl CallFunctionDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
-        }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                func: SteelVal,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut [$($typ), *]) }
-            }
-        )*
-    };
+helper_family! {
+    CallFunctionDefinitions, mod call_function_deopt,
+    names "call_function_deopt_" "",
+    add_func fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15],
+    |args| unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut args) }
 }
 
-make_call_function_deopt!(
-    (call_function_deopt_0,),
-    (call_function_deopt_1, a),
-    (call_function_deopt_2, a, b),
-    (call_function_deopt_3, a, b, c),
-    (call_function_deopt_4, a, b, c, d),
-    (call_function_deopt_5, a, b, c, d, e),
-    (call_function_deopt_6, a, b, c, d, e, f),
-    (call_function_deopt_7, a, b, c, d, e, f, g),
-    (call_function_deopt_8, a, b, c, d, e, f, g, h),
-    (call_function_deopt_9, a, b, c, d, e, f, g, h, i),
-    (call_function_deopt_10, a, b, c, d, e, f, g, h, i, j),
-    (call_function_deopt_11, a, b, c, d, e, f, g, h, i, j, k),
-    (call_function_deopt_12, a, b, c, d, e, f, g, h, i, j, k, l),
-    (
-        call_function_deopt_13,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k,
-        l,
-        m
-    ),
-    (
-        call_function_deopt_14,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k,
-        l,
-        m,
-        n
-    ),
-    (
-        call_function_deopt_15,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k,
-        l,
-        m,
-        n,
-        o
-    ),
-    (
-        call_function_deopt_16,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k,
-        l,
-        m,
-        n,
-        o
-    )
-);
-
-macro_rules! make_call_function_tail_deopt {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallFunctionTailDefinitions;
-
-        impl CallFunctionTailDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
-        }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                func: SteelVal,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                unsafe { call_function_tail_deopt(&mut *ctx, func, fallback_ip, &mut [$($typ), *]) }
-            }
-        )*
-    };
+helper_family! {
+    CallFunctionTailDefinitions, mod call_function_tail_deopt,
+    names "call_function_tail_deopt_" "",
+    add_func fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8 9 10 11 12 13 14],
+    |args| unsafe { call_function_tail_deopt(&mut *ctx, func, fallback_ip, &mut args) }
 }
 
-make_call_function_tail_deopt!(
-    (call_function_tail_deopt_0,),
-    (call_function_tail_deopt_1, a),
-    (call_function_tail_deopt_2, a, b),
-    (call_function_tail_deopt_3, a, b, c),
-    (call_function_tail_deopt_4, a, b, c, d),
-    (call_function_tail_deopt_5, a, b, c, d, e),
-    (call_function_tail_deopt_6, a, b, c, d, e, f),
-    (call_function_tail_deopt_7, a, b, c, d, e, f, g),
-    (call_function_tail_deopt_8, a, b, c, d, e, f, g, h),
-    (call_function_tail_deopt_9, a, b, c, d, e, f, g, h, i),
-    (call_function_tail_deopt_10, a, b, c, d, e, f, g, h, i, j),
-    (call_function_tail_deopt_11, a, b, c, d, e, f, g, h, i, j, k),
-    (
-        call_function_tail_deopt_12,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k,
-        l
-    ),
-    (
-        call_function_tail_deopt_13,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k,
-        l,
-        m
-    ),
-    (
-        call_function_tail_deopt_14,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h,
-        i,
-        j,
-        k,
-        l,
-        m,
-        n
-    )
-);
+// `call_global_function_deopt_N_no_arity`: call global `lookup_index` with
+// `args`, whatever it holds.
+fn call_global_function_deopt_no_arity<const N: usize>(
+    ctx: &mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    args: [SteelVal; N],
+) -> SteelVal {
+    debug_assert!(ctx.is_native);
 
-macro_rules! make_call_global_function_deopt_no_arity {
-    ($(($name:tt, $($typ:ident),*)),*) => {
+    let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
 
-        pub struct CallGlobalNoArityFunctionDefinitions;
-
-        impl CallGlobalNoArityFunctionDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let should_yield = match &func {
+        SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => {
+            false
         }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                lookup_index: usize,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                let ctx = unsafe { &mut *ctx };
-                debug_assert!(ctx.is_native);
-
-                let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-
-                // Deopt -> Meaning, check the return value if we're done - so we just
-                // will eventually check the stashed error.
-                let should_yield = match &func {
-                    SteelVal::Closure(c) if c.0.super_instructions().is_some() && should_trampoline(ctx) => false,
-                    SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) | SteelVal::CustomStruct(_) => true,
-                    _ => false,
-                };
-
-                debug_assert!(ctx.is_native);
-
-                if should_yield {
-                    ctx.ip = fallback_ip;
-                    ctx.is_native = false;
-                } else {
-                    ctx.ip = fallback_ip;
-                }
-
-
-                fn inner_handle_global_function_call_with_args_no_arity(
-                    ctx: &mut VmCore,
-                    stack_func: SteelVal,
-                    $($typ: SteelVal),*
-                ) -> Result<SteelVal> {
-                    match stack_func {
-                        SteelVal::FuncV(func) => {
-                            let args = [$($typ),*];
-                            ctx.thread
-                                .enter_safepoint_once(|_| func(&args))
-                                .map_err(|x| x.set_span_if_none(ctx.current_span()))
-                        },
-                        SteelVal::BoxedFunction(func) => {
-                            let args = [$($typ),*];
-                            ctx.thread
-                                .enter_safepoint_once(|_| func.func()(&args))
-                                .map_err(|x| x.set_span_if_none(ctx.current_span()))
-                        }
-                        SteelVal::MutFunc(func) => {
-                            let mut args = [$($typ),*];
-                            func(&mut args).map_err(|x| x.set_span_if_none(ctx.current_span()))
-                        }
-                        SteelVal::Closure(closure) => {
-                            // TODO: Consider reserving the amount?
-                            $(
-                                ctx.thread.stack.push($typ);
-                            )*
-
-                            if should_trampoline(ctx) {
-                                if let Some(func) = closure.0.super_instructions() {
-                                    #[cfg(debug_assertions)]
-                                    let pop_count = ctx.pop_count;
-
-                                    #[cfg(debug_assertions)]
-                                    let depth = ctx.thread.stack_frames.len();
-
-                                    // println!("Calling function from context @ ip: {}", ctx.ip);
-
-                                    // if let Some(last) = ctx.thread.stack_frames.last().map(|x| x.function.clone()) {
-                                        // inspect(ctx, &[SteelVal::Closure(last)]);
-                                    // }
-
-
-                                    // Install the function, so that way we can just trampoline
-                                    // without needing to spill the stack
-                                    ctx.handle_function_call_closure_jit_no_arity(closure.clone())
-                                        .unwrap();
-
-                                    let tramp = ctx.thread.trampoline;
-
-                                    let res = (tramp)(ctx, func);
-
-                                    if ctx.is_native {
-                                        // if ctx.pop_count != pop_count {
-
-                                            // println!("Just called");
-                                            // inspect(ctx, &[SteelVal::Closure(closure)]);
-
-
-                                            // println!("{}", ctx.ip);
-                                            // println!("{:?}", ctx.instructions[ctx.ip]);
-                                        // }
-
-                                        #[cfg(debug_assertions)]
-                                        {
-                                            debug_assert_eq!(ctx.pop_count, pop_count);
-                                            debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
-                                        }
-
-                                        // Don't deopt?
-                                        // Ok(ctx.thread.stack.pop().unwrap())
-                                        Ok(res)
-                                    } else {
-                                        Ok(SteelVal::Void)
-                                    }
-                                } else {
-                                    // We're going to de-opt in this case - unless we intend to do some fun inlining business
-                                    ctx.handle_function_call_closure_jit_no_arity(closure)?;
-                                    Ok(SteelVal::Void)
-                                }
-                            } else {
-                                ctx.handle_function_call_closure_jit_no_arity(closure)?;
-                                Ok(SteelVal::Void)
-                            }
-                        }
-
-                        // This is probably no good here anyway
-                        SteelVal::ContinuationFunction(cc) => {
-                            $(
-                                ctx.thread.stack.push($typ);
-                            )*
-                            ctx.call_continuation(cc)?;
-                            Ok(SteelVal::Void)
-                        }
-                        SteelVal::BuiltIn(f) => {
-                            // let args: [SteelVal; _] = [$($typ),*];
-                            // let len = args.len();
-
-                            let mut len = 0;
-
-                            $(
-                                ctx.thread.stack.push($typ);
-                                len += 1;
-                            )*;
-
-                            // for arg in args {
-                            //     ctx.thread.stack.push(arg);
-                            // }
-
-                            ctx.call_builtin_func(f, len)?;
-                            Ok(SteelVal::Void)
-                        }
-                        SteelVal::CustomStruct(s) => {
-                            // let args: [SteelVal; _] = [$($typ),*];
-                            // let len = args.len();
-
-                            let mut len = 0;
-
-                            $(
-                                ctx.thread
-                                    .stack
-                                    .push($typ);
-
-                                len += 1;
-                            )*;
-
-
-                            // for val in args {
-                            //     ctx.thread
-                            //         .stack
-                            //         .push(val);
-                            // }
-
-                            ctx.call_custom_struct(&s, len)?;
-
-                            Ok(SteelVal::Void)
-                        }
-                        _ => {
-                            cold();
-                            stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
-                        }
-                    }
-                }
-
-
-                match inner_handle_global_function_call_with_args_no_arity(ctx, func, $($typ),*) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        ctx.is_native = false;
-                        ctx.result = Some(Err(e));
-                        return SteelVal::Void;
-                    }
-                }
-            }
-        )*
+        SteelVal::Closure(_)
+        | SteelVal::ContinuationFunction(_)
+        | SteelVal::BuiltIn(_)
+        | SteelVal::CustomStruct(_) => true,
+        _ => false,
     };
+
+    debug_assert!(ctx.is_native);
+
+    ctx.ip = fallback_ip;
+    if should_yield {
+        ctx.is_native = false;
+    }
+
+    match call_global_no_arity_with_args(ctx, func, args) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.is_native = false;
+            ctx.result = Some(Err(e));
+            SteelVal::Void
+        }
+    }
 }
 
-make_call_global_function_deopt_no_arity!(
-    (call_global_function_deopt_0_no_arity,),
-    (call_global_function_deopt_1_no_arity, a),
-    (call_global_function_deopt_2_no_arity, a, b),
-    (call_global_function_deopt_3_no_arity, a, b, c),
-    (call_global_function_deopt_4_no_arity, a, b, c, d),
-    (call_global_function_deopt_5_no_arity, a, b, c, d, e),
-    (call_global_function_deopt_6_no_arity, a, b, c, d, e, f),
-    (call_global_function_deopt_7_no_arity, a, b, c, d, e, f, g),
-    (
-        call_global_function_deopt_8_no_arity,
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-        g,
-        h
-    )
-);
-
-macro_rules! make_call_self_function_deopt_no_arity {
-    ($(($name:tt, $($typ:ident),*)),*) => {
-
-        pub struct CallSelfNoArityFunctionDefinitions;
-
-        impl CallSelfNoArityFunctionDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: Gc<ByteCodeLambda>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore,  func: Gc<ByteCodeLambda>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
+fn call_global_no_arity_with_args<const N: usize>(
+    ctx: &mut VmCore,
+    stack_func: SteelVal,
+    mut args: [SteelVal; N],
+) -> Result<SteelVal> {
+    match stack_func {
+        SteelVal::FuncV(func) => ctx
+            .thread
+            .enter_safepoint_once(|_| func(&args))
+            .map_err(|x| x.set_span_if_none(ctx.current_span())),
+        SteelVal::BoxedFunction(func) => ctx
+            .thread
+            .enter_safepoint_once(|_| func.func()(&args))
+            .map_err(|x| x.set_span_if_none(ctx.current_span())),
+        SteelVal::MutFunc(func) => {
+            func(&mut args).map_err(|x| x.set_span_if_none(ctx.current_span()))
         }
+        SteelVal::Closure(closure) => {
+            // TODO: Consider reserving the amount?
+            for arg in args {
+                ctx.thread.stack.push(arg);
+            }
 
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                func: Gc<ByteCodeLambda>,
-                fallback_ip: usize,
-                $($typ: SteelVal),*
-            ) -> SteelVal {
-                let ctx = unsafe { &mut *ctx };
-                let func = ManuallyDrop::new(func);
+            if should_trampoline(ctx) {
+                if let Some(func) = closure.0.super_instructions() {
+                    #[cfg(debug_assertions)]
+                    let pop_count = ctx.pop_count;
 
-                // Make it exist
-                let func = (&*func).clone();
+                    #[cfg(debug_assertions)]
+                    let depth = ctx.thread.stack_frames.len();
 
-                let should_yield = !should_trampoline(ctx);
+                    // Install the function, so that way we can just trampoline
+                    // without needing to spill the stack
+                    ctx.handle_function_call_closure_jit_no_arity(closure.clone())
+                        .unwrap();
 
-                debug_assert!(ctx.is_native);
+                    let tramp = ctx.thread.trampoline;
 
-                if should_yield {
-                    ctx.ip = fallback_ip;
-                    ctx.is_native = false;
-                } else {
-                    ctx.ip = fallback_ip;
-                }
+                    let res = (tramp)(ctx, func);
 
-
-                fn inner_handle_global_function_call_with_args_no_arity(
-                    ctx: &mut VmCore,
-                    closure: Gc<ByteCodeLambda>,
-                    should_yield: bool,
-                    $($typ: SteelVal),*
-                ) -> Result<SteelVal> {
-                    // TODO: Consider reserving the amount?
-                    $(
-                        ctx.thread.stack.push($typ);
-                    )*
-
-                    if !should_yield {
-                        if let Some(func) = closure.0.super_instructions() {
-                            #[cfg(debug_assertions)]
-                            let pop_count = ctx.pop_count;
-
-                            #[cfg(debug_assertions)]
-                            let depth = ctx.thread.stack_frames.len();
-
-                            // Install the function, so that way we can just trampoline
-                            // without needing to spill the stack
-                            ctx.handle_function_call_closure_jit_no_arity(closure)
-                                .unwrap();
-
-                            let tramp = ctx.thread.trampoline;
-
-                            let res = (tramp)(ctx, func);
-
-                            if ctx.is_native {
-                                #[cfg(debug_assertions)]
-                                {
-                                    debug_assert_eq!(ctx.pop_count, pop_count);
-                                    debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
-                                }
-
-                                // Don't deopt?
-                                // Ok(ctx.thread.stack.pop().unwrap())
-
-                                Ok(res)
-                            } else {
-                                Ok(SteelVal::Void)
-                            }
-                        } else {
-                            // We're going to de-opt in this case - unless we intend to do some fun inlining business
-                            ctx.handle_function_call_closure_jit_no_arity(closure)?;
-                            Ok(SteelVal::Void)
+                    if ctx.is_native {
+                        #[cfg(debug_assertions)]
+                        {
+                            debug_assert_eq!(ctx.pop_count, pop_count);
+                            debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
                         }
+
+                        Ok(res)
                     } else {
-                        ctx.handle_function_call_closure_jit_no_arity(closure)?;
                         Ok(SteelVal::Void)
                     }
+                } else {
+                    // We're going to de-opt in this case - unless we intend to do some fun inlining business
+                    ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                    Ok(SteelVal::Void)
+                }
+            } else {
+                ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                Ok(SteelVal::Void)
+            }
+        }
+
+        // This is probably no good here anyway
+        SteelVal::ContinuationFunction(cc) => {
+            for arg in args {
+                ctx.thread.stack.push(arg);
+            }
+            ctx.call_continuation(cc)?;
+            Ok(SteelVal::Void)
+        }
+        SteelVal::BuiltIn(f) => {
+            for arg in args {
+                ctx.thread.stack.push(arg);
+            }
+            ctx.call_builtin_func(f, N)?;
+            Ok(SteelVal::Void)
+        }
+        SteelVal::CustomStruct(s) => {
+            for arg in args {
+                ctx.thread.stack.push(arg);
+            }
+            ctx.call_custom_struct(&s, N)?;
+            Ok(SteelVal::Void)
+        }
+        _ => {
+            cold();
+            stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
+        }
+    }
+}
+
+helper_family! {
+    CallGlobalNoArityFunctionDefinitions, mod call_global_function_deopt_no_arity,
+    names "call_global_function_deopt_" "_no_arity",
+    add_func fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| call_global_function_deopt_no_arity(unsafe { &mut *ctx }, lookup_index, fallback_ip, args)
+}
+
+// `call_self_function_deopt_N_no_arity`: call `func`, the function being run,
+// with `args`.
+fn call_self_function_deopt_no_arity<const N: usize>(
+    ctx: &mut VmCore,
+    func: Gc<ByteCodeLambda>,
+    fallback_ip: usize,
+    args: [SteelVal; N],
+) -> SteelVal {
+    let func = ManuallyDrop::new(func);
+
+    // Make it exist
+    let closure = (&*func).clone();
+
+    let should_yield = !should_trampoline(ctx);
+
+    debug_assert!(ctx.is_native);
+
+    ctx.ip = fallback_ip;
+    if should_yield {
+        ctx.is_native = false;
+    }
+
+    // TODO: Consider reserving the amount?
+    for arg in args {
+        ctx.thread.stack.push(arg);
+    }
+
+    let result: Result<SteelVal> = if !should_yield {
+        if let Some(func) = closure.0.super_instructions() {
+            #[cfg(debug_assertions)]
+            let pop_count = ctx.pop_count;
+
+            #[cfg(debug_assertions)]
+            let depth = ctx.thread.stack_frames.len();
+
+            // Install the function, so that way we can just trampoline
+            // without needing to spill the stack
+            ctx.handle_function_call_closure_jit_no_arity(closure)
+                .unwrap();
+
+            let tramp = ctx.thread.trampoline;
+
+            let res = (tramp)(ctx, func);
+
+            if ctx.is_native {
+                #[cfg(debug_assertions)]
+                {
+                    debug_assert_eq!(ctx.pop_count, pop_count);
+                    debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
                 }
 
-                inner_handle_global_function_call_with_args_no_arity(ctx, func, should_yield, $($typ),*).unwrap()
-
+                Ok(res)
+            } else {
+                Ok(SteelVal::Void)
             }
-        )*
+        } else {
+            // We're going to de-opt in this case - unless we intend to do some fun inlining business
+            ctx.handle_function_call_closure_jit_no_arity(closure)
+                .map(|_| SteelVal::Void)
+        }
+    } else {
+        ctx.handle_function_call_closure_jit_no_arity(closure)
+            .map(|_| SteelVal::Void)
     };
+
+    result.unwrap()
+}
+
+helper_family! {
+    CallSelfNoArityFunctionDefinitions, mod call_self_function_deopt_no_arity,
+    names "call_self_function_deopt_" "_no_arity",
+    add_func fn(ctx: *mut VmCore, func: Gc<ByteCodeLambda>, fallback_ip: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| call_self_function_deopt_no_arity(unsafe { &mut *ctx }, func, fallback_ip, args)
 }
 
 #[cross_platform_fn]
@@ -6706,17 +5631,6 @@ fn setup_closure_call_arity(
     }
     SteelVal::Void
 }
-make_call_self_function_deopt_no_arity!(
-    (call_self_function_deopt_0_no_arity,),
-    (call_self_function_deopt_1_no_arity, a),
-    (call_self_function_deopt_2_no_arity, a, b),
-    (call_self_function_deopt_3_no_arity, a, b, c),
-    (call_self_function_deopt_4_no_arity, a, b, c, d),
-    (call_self_function_deopt_5_no_arity, a, b, c, d, e),
-    (call_self_function_deopt_6_no_arity, a, b, c, d, e, f),
-    (call_self_function_deopt_7_no_arity, a, b, c, d, e, f, g),
-    (call_self_function_deopt_8_no_arity, a, b, c, d, e, f, g, h)
-);
 
 fn drop_spilled_args(ctx: &mut VmCore, arity: usize) {
     let len = ctx.thread.stack.len();
@@ -7424,263 +6338,34 @@ fn self_tail_call_handler_loop(ctx: *mut VmCore, arity: usize) {
 //     ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
 // }
 
-macro_rules! make_self_tail_call_no_arity {
-    ($(($name:tt, $(($typ:ident = $i:expr)),*)),*) => {
-
-        pub struct CallSelfTailCallNoArityDefinitions;
-
-        #[allow(unused)]
-        impl CallSelfTailCallNoArityDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, arity: usize, $($typ: SteelVal),*)
-                    );
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, arity: usize, $($typ: SteelVal),*)
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
+helper_family! {
+    CallSelfTailCallNoArityDefinitions, mod self_tail_call_no_arity,
+    names "self_tail_call_no_arity_" "",
+    add_func fn(ctx: *mut VmCore, arity: usize) -> (),
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| {
+        let this = unsafe { &mut *ctx };
+        this.ip = 0;
+        for (i, arg) in args.into_iter().enumerate() {
+            this.thread.stack[this.sp + i] = arg;
         }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                arity: usize,
-                $($typ: SteelVal),*
-            ) {
-                let this = unsafe { &mut *ctx };
-                this.ip = 0;
-                // this.is_native = false;
-
-                $(
-                    this.thread.stack[this.sp + $i] = $typ;
-                )*
-
-                this.thread.stack.truncate(this.sp + arity);
-            }
-        )*
-    };
+        this.thread.stack.truncate(this.sp + arity);
+    }
 }
 
-make_self_tail_call_no_arity!(
-    (self_tail_call_no_arity_0,),
-    (self_tail_call_no_arity_1, (a = 0)),
-    (self_tail_call_no_arity_2, (a = 0), (b = 1)),
-    (self_tail_call_no_arity_3, (a = 0), (b = 1), (c = 2)),
-    (
-        self_tail_call_no_arity_4,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3)
-    ),
-    (
-        self_tail_call_no_arity_5,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3),
-        (e = 4)
-    ),
-    (
-        self_tail_call_no_arity_6,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3),
-        (e = 4),
-        (f = 5)
-    ),
-    (
-        self_tail_call_no_arity_7,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3),
-        (e = 4),
-        (f = 5),
-        (g = 6)
-    ),
-    (
-        self_tail_call_no_arity_8,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3),
-        (e = 4),
-        (f = 5),
-        (g = 6),
-        (h = 7)
-    )
-);
-
-macro_rules! make_self_tail_call_no_arity_loop {
-    ($(($name:tt, $(($typ:ident = $i:expr)),*)),*) => {
-
-        pub struct CallSelfTailCallNoArityLoopDefinitions;
-
-        impl CallSelfTailCallNoArityLoopDefinitions {
-            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
-                $(
-                    #[cfg(target_os = "windows")]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, arity: u16, $($typ: SteelVal),*)
-                    );
-
-                    #[cfg(not(target_os = "windows"))]
-                    map.add_func(
-                        stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, arity: u16, $($typ: SteelVal),*)
-                    );
-                )*
-            }
-
-            pub fn arity_to_name(count: usize) -> Option<&'static str> {
-                $(
-                    {
-                        $(
-                            let $typ = 0usize;
-                        )*
-
-                        let arr: &[usize] = &[$($typ),*];
-
-                        if count == arr.len() {
-                            return Some(stringify!($name));
-                        }
-                    }
-                )*
-
-                None
-            }
+helper_family! {
+    CallSelfTailCallNoArityLoopDefinitions, mod self_tail_call_no_arity_loop,
+    names "self_tail_call_no_arity_loop_" "",
+    add_func fn(ctx: *mut VmCore, arity: u16) -> (),
+    arities [0 1 2 3 4 5 6 7 8 9 10],
+    |args| {
+        let this = unsafe { &mut *ctx };
+        for (i, arg) in args.into_iter().enumerate() {
+            this.thread.stack[this.sp + i] = arg;
         }
-
-        $(
-            #[cross_platform_fn]
-            fn $name(
-                ctx: *mut VmCore,
-                arity: u16,
-                $($typ: SteelVal),*
-            ) {
-                let this = unsafe { &mut *ctx };
-                // this.ip = 0;
-                // this.is_native = false;
-
-                // TODO: if arity is the same, then we don't
-                // need to pass arity through. We can just
-                // do it implicitly from the number of arguments and
-                // it is a constant?
-                $(
-                    this.thread.stack[this.sp + $i] = $typ;
-                )*
-
-                this.thread.stack.truncate(this.sp + arity as usize);
-            }
-        )*
-    };
+        this.thread.stack.truncate(this.sp + arity as usize);
+    }
 }
-
-make_self_tail_call_no_arity_loop!(
-    (self_tail_call_no_arity_loop_0,),
-    (self_tail_call_no_arity_loop_1, (a = 0)),
-    (self_tail_call_no_arity_loop_2, (a = 0), (b = 1)),
-    (self_tail_call_no_arity_loop_3, (a = 0), (b = 1), (c = 2)),
-    (
-        self_tail_call_no_arity_loop_4,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3)
-    ),
-    (
-        self_tail_call_no_arity_loop_5,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3),
-        (e = 4)
-    ),
-    (
-        self_tail_call_no_arity_loop_6,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3),
-        (e = 4),
-        (f = 5)
-    ),
-    (
-        self_tail_call_no_arity_loop_7,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3),
-        (e = 4),
-        (f = 5),
-        (g = 6)
-    ),
-    (
-        self_tail_call_no_arity_loop_8,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3),
-        (e = 4),
-        (f = 5),
-        (g = 6),
-        (h = 7)
-    ),
-    (
-        self_tail_call_no_arity_loop_9,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3),
-        (e = 4),
-        (f = 5),
-        (g = 6),
-        (h = 7),
-        (i = 8)
-    ),
-    (
-        self_tail_call_no_arity_loop_10,
-        (a = 0),
-        (b = 1),
-        (c = 2),
-        (d = 3),
-        (e = 4),
-        (f = 5),
-        (g = 6),
-        (h = 7),
-        (i = 8),
-        (j = 9)
-    )
-);
 
 #[inline(always)]
 fn tcojmp_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
