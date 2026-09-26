@@ -31,3 +31,4 @@ std = []
 
 [dev-dependencies]
 pretty_assertions = "1.4" # Only used by unit tests.
+proptest = "1.1.0" # Only used by property tests.

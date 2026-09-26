@@ -4000,6 +4000,7 @@ dependencies = [
  "ordered-float 5.1.0",
  "pretty",
  "pretty_assertions",
+ "proptest",
  "rustc-hash",
  "serde",
  "smallvec",

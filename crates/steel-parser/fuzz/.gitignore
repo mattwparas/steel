@@ -1,0 +1,6 @@
+# afl working directories, corpora it grows, and its logs
+out*/
+in2/
+log*.txt
+target/
+Cargo.lock

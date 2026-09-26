@@ -34,6 +34,10 @@ impl LexerState {
         self.token_start
     }
 
+    pub fn at(&self) -> u32 {
+        self.at
+    }
+
     // Put the cursor back so the token starting here is lexed again.
     pub fn rewind_to(&mut self, at: u32) {
         self.at = at;

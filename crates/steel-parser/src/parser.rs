@@ -319,6 +319,13 @@ pub struct Parser<'a> {
     datum_comment_base: usize,
     // Tokens handed to the parse - reparsing shows up here
     tokens_lexed: usize,
+    // Set when the lexer reported an error that ends before the end of the input.
+    // It calls a malformed identifier an eof error but then carries on past it, so
+    // that one is final however much more input arrives.
+    lexical_error_is_final: bool,
+    // A `#!` line that has no newline yet. It is only a shebang if it turns out to
+    // be a whole line, so nothing here can be lexed until the rest arrives.
+    shebang_incomplete: bool,
 }
 
 // Whether more input could still change this token - `,` into `,@`, `1` into
@@ -346,6 +353,9 @@ struct Awaiting {
     span: Span,
     saved_quote_context: bool,
     top_level: bool,
+    // `#;` base for the read this prefix runs, and for the read that owns it
+    nested_base: usize,
+    owner_base: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -370,6 +380,7 @@ enum Level {
         current_frame: Frame,
         last: Span,
         awaiting: Option<Awaiting>,
+        datum_comment_base: usize,
     },
     TopPrefix(Awaiting),
 }
@@ -435,11 +446,19 @@ impl<'a> Parser<'a> {
         self.tokens_lexed
     }
 
+    /// Whether more input could still turn the error this parser just returned
+    /// into a datum.
+    pub fn needs_more_input(&self, err: &ParseError) -> bool {
+        matches!(err, ParseError::UnexpectedEOF(_, _)) && !self.lexical_error_is_final
+    }
+
     pub fn new_incremental(input: &'a str, source_id: Option<SourceId>, more_to_come: bool) -> Self {
         let mut parser = Self::new_flat(input, source_id);
         parser.incremental = true;
         parser.more_to_come = more_to_come;
         parser.input_len = input.len() as u32;
+        parser.shebang_incomplete =
+            more_to_come && input.starts_with("#!") && !input.contains('\n');
         parser
     }
 
@@ -453,7 +472,12 @@ impl<'a> Parser<'a> {
         more_to_come: bool,
     ) -> Self {
         let mut parser = Self::new_incremental(input, source_id, more_to_come);
-        parser.tokenizer = OwnedTokenStream::resume(input, false, source_id, state.lexer);
+
+        // Starting over from the top, so strip a shebang line the way a fresh
+        // parse would rather than lexing it as code.
+        if state.lexer.at() != 0 {
+            parser.tokenizer = OwnedTokenStream::resume(input, false, source_id, state.lexer);
+        }
 
         if let Some(parse) = state.parse {
             let parse = *parse;
@@ -529,6 +553,8 @@ impl<'a> Parser<'a> {
             datum_comments: Vec::new(),
             datum_comment_base: 0,
             tokens_lexed: 0,
+            lexical_error_is_final: false,
+            shebang_incomplete: false,
         }
     }
 
@@ -559,6 +585,8 @@ impl<'a> Parser<'a> {
             datum_comments: Vec::new(),
             datum_comment_base: 0,
             tokens_lexed: 0,
+            lexical_error_is_final: false,
+            shebang_incomplete: false,
         }
     }
 
@@ -588,6 +616,8 @@ impl<'a> Parser<'a> {
             datum_comments: Vec::new(),
             datum_comment_base: 0,
             tokens_lexed: 0,
+            lexical_error_is_final: false,
+            shebang_incomplete: false,
         }
     }
 
@@ -614,6 +644,8 @@ impl<'a> Parser<'a> {
             datum_comments: Vec::new(),
             datum_comment_base: 0,
             tokens_lexed: 0,
+            lexical_error_is_final: false,
+            shebang_incomplete: false,
         }
     }
 
@@ -774,7 +806,11 @@ impl<'a> Parser<'a> {
                 current_frame,
                 last,
                 awaiting,
-            }) => (stack, current_frame, last, awaiting),
+                datum_comment_base,
+            }) => {
+                self.datum_comment_base = datum_comment_base;
+                (stack, current_frame, last, awaiting)
+            }
             Some(Level::TopPrefix(_)) => unreachable!("handled before entering"),
             None => {
                 self.quote_stack = Vec::new();
@@ -867,6 +903,8 @@ impl<'a> Parser<'a> {
                         span: token.span,
                         saved_quote_context,
                         top_level: false,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -891,6 +929,8 @@ impl<'a> Parser<'a> {
                         span: token.span,
                         saved_quote_context,
                         top_level: false,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -915,6 +955,8 @@ impl<'a> Parser<'a> {
                         span: token.span,
                         saved_quote_context,
                         top_level: false,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -939,6 +981,8 @@ impl<'a> Parser<'a> {
                         span: token.span,
                         saved_quote_context,
                         top_level: false,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -970,6 +1014,8 @@ impl<'a> Parser<'a> {
                         span: token.span,
                         saved_quote_context,
                         top_level: false,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -996,6 +1042,8 @@ impl<'a> Parser<'a> {
                         span: token.span,
                         saved_quote_context,
                         top_level: false,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1023,6 +1071,8 @@ impl<'a> Parser<'a> {
                         span: token.span,
                         saved_quote_context,
                         top_level: false,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1050,6 +1100,8 @@ impl<'a> Parser<'a> {
                         span: token.span,
                         saved_quote_context,
                         top_level: false,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1362,8 +1414,7 @@ impl<'a> Parser<'a> {
     ) -> ParseError {
         let resumable = self.incremental
             && !self.resume_blocked
-            && matches!(err, ParseError::UnexpectedEOF(_, _))
-;
+            && self.needs_more_input(&err);
 
         if resumable {
             self.levels.push(Level::Frames {
@@ -1371,6 +1422,7 @@ impl<'a> Parser<'a> {
                 current_frame,
                 last,
                 awaiting,
+                datum_comment_base: self.datum_comment_base,
             });
 
             return err;
@@ -1391,7 +1443,7 @@ impl<'a> Parser<'a> {
     fn suspend_top_prefix(&mut self, err: ParseError, awaiting: Awaiting) -> ParseError {
         let resumable = self.incremental
             && !self.resume_blocked
-            && matches!(err, ParseError::UnexpectedEOF(_, _));
+            && self.needs_more_input(&err);
 
         if resumable {
             self.levels.push(Level::TopPrefix(awaiting));
@@ -1414,10 +1466,12 @@ impl<'a> Parser<'a> {
             span,
             saved_quote_context,
             top_level,
+            nested_base,
+            owner_base: _,
         } = awaiting;
 
         let outer_base = self.datum_comment_base;
-        self.datum_comment_base = self.datum_comments.len();
+        self.datum_comment_base = nested_base;
 
         let inner = self.next().unwrap_or(Err(ParseError::UnexpectedEOF(
             span,
@@ -1506,6 +1560,12 @@ impl<'a> Parser<'a> {
     }
 
     fn next_token(&mut self) -> Option<Result<Token<'a, InternedString>>> {
+        if self.shebang_incomplete {
+            // Whether this is a shebang depends on bytes that have not arrived
+            self.resume_at = Some(0);
+            return None;
+        }
+
         let Some(res) = self.tokenizer.next() else {
             return None;
         };
@@ -1517,16 +1577,24 @@ impl<'a> Parser<'a> {
             // input that may never come.
             let touches_end = match &res {
                 Ok(token) => token.span.end >= self.input_len && can_continue(&token.ty),
-                Err(err) => err.span.end >= self.input_len,
+                // An error running up against the end may just be a token cut in
+                // half - `#\` before its character, say. One that ends earlier is
+                // final: the lexer rejected that text and carried on past it.
+                Err(err) => err.span.end >= self.input_len
             };
 
+            if res.is_err() && !touches_end {
+                self.lexical_error_is_final = true;
+            }
+
             if touches_end {
+                // Back to the start of the token. An error span can cover just the
+                // part the lexer objected to, so it is not a safe resume point.
                 self.resume_at = Some(match &res {
                     Ok(token) => token.span.start,
                     Err(_) => self.tokenizer.state().token_start(),
                 });
 
-    
                 return None;
             }
         }
@@ -1666,6 +1734,8 @@ impl<'a> Parser<'a> {
                         span: res.span,
                         saved_quote_context,
                         top_level: true,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1684,6 +1754,8 @@ impl<'a> Parser<'a> {
                         span: res.span,
                         saved_quote_context,
                         top_level: true,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1702,6 +1774,8 @@ impl<'a> Parser<'a> {
                         span: res.span,
                         saved_quote_context,
                         top_level: true,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1720,6 +1794,8 @@ impl<'a> Parser<'a> {
                         span: res.span,
                         saved_quote_context,
                         top_level: true,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1745,6 +1821,8 @@ impl<'a> Parser<'a> {
                         span: res.span,
                         saved_quote_context,
                         top_level: true,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1765,6 +1843,8 @@ impl<'a> Parser<'a> {
                         span: res.span,
                         saved_quote_context,
                         top_level: true,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1785,6 +1865,8 @@ impl<'a> Parser<'a> {
                         span: res.span,
                         saved_quote_context,
                         top_level: true,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1805,6 +1887,8 @@ impl<'a> Parser<'a> {
                         span: res.span,
                         saved_quote_context,
                         top_level: true,
+                        nested_base: self.datum_comments.len(),
+                        owner_base: self.datum_comment_base,
                     };
 
                     match self.await_prefix(awaiting) {
@@ -1877,6 +1961,7 @@ impl<'a> Parser<'a> {
             Some(Level::TopPrefix(awaiting)) => {
                 let awaiting = *awaiting;
                 self.levels.pop();
+                self.datum_comment_base = awaiting.owner_base;
 
                 Some(
                     self.await_prefix(awaiting)
@@ -1896,7 +1981,7 @@ impl<'a> Parser<'a> {
         if let Some(result) = resumed {
             match result {
                 // The datum a `#;` applies to - drop it and read the next
-                Ok(_) if !self.datum_comments.is_empty() => {
+                Ok(_) if self.datum_comments.len() > self.datum_comment_base => {
                     self.datum_comments.pop();
                 }
                 other => return Some(other),

@@ -1,0 +1,34 @@
+[package]
+name = "steel-parser-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Its own workspace, so the parent one does not try to build it without the afl
+# instrumentation.
+[workspace]
+
+[dependencies]
+afl = "0.15"
+steel-parser = { path = ".." }
+
+[profile.release]
+# The parser states a number of its invariants as `debug_assert!`, which are worth
+# checking while fuzzing.
+debug-assertions = true
+overflow-checks = true
+# A panic has to look like a crash to afl.
+panic = "abort"
+debug = 1
+
+[[bin]]
+name = "parse"
+path = "src/bin/parse.rs"
+
+[[bin]]
+name = "chunked"
+path = "src/bin/chunked.rs"
+
+[[bin]]
+name = "lex"
+path = "src/bin/lex.rs"

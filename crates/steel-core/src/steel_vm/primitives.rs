@@ -2070,7 +2070,7 @@ fn attempt_parse(port: &mut SteelPortRepr, at_eof: bool) -> Result<Attempt> {
 
             match result {
                 Some(Ok(expr)) => Outcome::Parsed(expr, offset),
-                Some(Err(steel_parser::parser::ParseError::UnexpectedEOF(_, _))) => {
+                Some(Err(err)) if parser.needs_more_input(&err) => {
                     Outcome::Incomplete(parser.take_state().map(Box::new))
                 }
                 Some(Err(err)) => Outcome::Bad(err, pending.len()),
