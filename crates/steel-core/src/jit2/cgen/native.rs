@@ -2508,121 +2508,26 @@ impl<'a> FunctionTranslator<'a> {
         let args = self.shadow_stack.get(self.shadow_stack.len() - arity..)?;
 
         match spec.typ {
-            // TODO: We need to include the arity checks properly! The constructor / spec should be able to include
-            // it and then we can make this happen properly with avoiding the checks for the arity!
             StructFunctionType::Constructor
                 if CallStructConstructorsDefinitions::arity_to_name(arity).is_some() =>
             {
-                // Fetch the name, then split off the args, and then do the thing.
-                let name = CallStructConstructorsDefinitions::arity_to_name(arity).unwrap();
-
-                let mut args = self
-                    .split_off(arity)
-                    .into_iter()
-                    .map(|x| x.0)
-                    .collect::<Vec<_>>();
-
-                let descriptor = self.i64_const(spec.descriptor.key() as i64);
-
-                args.insert(0, descriptor);
-
-                let res = self.call_function_returns_value_args_no_context(name, &args);
-
-                self.ip += 1;
-
-                Some((res, InferredType::Any))
+                Some(self.call_struct_constructor(&spec, arity))
             }
-            // crate::values::structs::StructFunctionType::Predicate => todo!(),
-            // crate::values::structs::StructFunctionType::GetterProto => todo!(),
-
-            // TODO: Check the type descriptor, and if the type descriptor
-            // matches, then we continue on.
             StructFunctionType::GetterProtoVec(i)
                 if matches!(
                     args,
                     &[MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_)]
                 ) =>
             {
-                let struct_arg_index = self.shadow_stack.last().unwrap().into_index();
-                // Reference to the struct pointer on the stack itself
-                let struct_ref = self.read_from_vm_stack(struct_arg_index);
-
-                // Check the inferred type:
-                let maybe_inferred_type = self
-                    .properties
-                    .get(&ValueOrRegister::Register(struct_arg_index));
-
-                // Only fast path on immutable registers?
-                // if matches!(self.shadow_stack.last(), Some(MaybeStackValue::Register(_))) {
-                if let Some(Properties::InferredType(InferredType::Struct(desc))) =
-                    maybe_inferred_type
-                {
-                    if spec.descriptor == desc {
-                        let last_kind = self.shadow_stack.pop().unwrap();
-                        let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
-                        let res = fast_path_struct_matches(i, struct_ref_ptr, self, None, None);
-
-                        match last_kind {
-                            // Move the value out, call drop on it
-                            MaybeStackValue::MutRegister(i) => {
-                                let void = self.encode_void();
-                                self.write_to_vm_stack(i, void);
-
-                                self.properties.props.insert(
-                                    ValueOrRegister::Register(i),
-                                    vec![Properties::InferredType(InferredType::Void)],
-                                );
-                            }
-                            // Otherwise, we're fine?
-                            MaybeStackValue::Register(_) => {
-                                // Add the property
-                                self.properties.add_property(
-                                    ValueOrRegister::Register(struct_arg_index),
-                                    Properties::InferredType(InferredType::Struct(spec.descriptor)),
-                                );
-                            }
-                            _ => unreachable!(),
-                        }
-
-                        return Some((res, InferredType::Any));
-                    }
-                }
-                // }
-
-                let is_struct = self.is_type(struct_ref, SteelVal::STRUCT_TAG);
-                let typ = self.int;
-
-                // Take the operand out of its register up front so both arms start
-                // from the same stack. Otherwise the slow arm would do it in its
-                // call's split_off and the fast arm not at all
-                if let Some(MaybeStackValue::MutRegister(p)) = self.shadow_stack.last().copied() {
-                    let (value, inferred_type) = self.mut_register_to_value(p);
-                    *self.shadow_stack.last_mut().unwrap() = MaybeStackValue::Value(StackValue {
-                        value,
-                        inferred_type,
-                        spilled: false,
-                    });
-                }
-
-                let old_ip = self.ip;
-                let stack = self.shadow_stack.clone();
-
-                let res = self.converging_if(
-                    is_struct,
-                    |ctx| {
-                        inline_struct_getter(&spec, arity, function_index, i, struct_ref, typ, ctx)
-                    },
-                    // TODO: This should share the same branch with the false code?
-                    // Basically, we're raising an error
-                    move |ctx| {
-                        ctx.ip = old_ip;
-                        ctx.shadow_stack = stack.clone();
-                        slow_path_struct_getter(arity, function_index, ctx)
-                    },
-                    typ,
-                );
-
-                Some((res, InferredType::Any))
+                Some(self.inline_struct_getter_call(
+                    &spec,
+                    arity,
+                    function_index,
+                    i,
+                    None,
+                    None,
+                    None,
+                ))
             }
             // A `#:mutable` struct's accessors are generated as closures over a
             // box, `(lambda (this) (#%unbox (getter-proto this 0)))`. After the
@@ -2659,96 +2564,19 @@ impl<'a> FunctionTranslator<'a> {
                 .then(|| self.builder.declare_var(types::I8));
                 self.pending_borrow = borrow;
 
-                // Saved before the index operand is dropped, since every slow arm
-                // has to re-enter the real two argument call.
-                let old_ip = self.ip;
-                let stack = self.shadow_stack.clone();
-
                 // The index is a compile time constant, so nothing is lost by
                 // never materialising it.
                 self.shadow_stack.pop();
 
-                let struct_arg_index = self.shadow_stack.last().unwrap().into_index();
-                let struct_ref = self.read_from_vm_stack(struct_arg_index);
-
-                let maybe_inferred_type = self
-                    .properties
-                    .get(&ValueOrRegister::Register(struct_arg_index));
-
-                if let Some(Properties::InferredType(InferredType::Struct(desc))) =
-                    maybe_inferred_type
-                {
-                    if spec.descriptor == desc {
-                        let last_kind = self.shadow_stack.pop().unwrap();
-                        let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
-                        let res = fast_path_struct_matches(i, struct_ref_ptr, self, fuse, borrow);
-
-                        match last_kind {
-                            MaybeStackValue::MutRegister(r) => {
-                                let void = self.encode_void();
-                                self.write_to_vm_stack(r, void);
-
-                                self.properties.props.insert(
-                                    ValueOrRegister::Register(r),
-                                    vec![Properties::InferredType(InferredType::Void)],
-                                );
-                            }
-                            MaybeStackValue::Register(_) => {
-                                self.properties.add_property(
-                                    ValueOrRegister::Register(struct_arg_index),
-                                    Properties::InferredType(InferredType::Struct(spec.descriptor)),
-                                );
-                            }
-                            _ => unreachable!(),
-                        }
-
-                        return Some((res, InferredType::Any));
-                    }
-                }
-
-                let is_struct = self.is_type(struct_ref, SteelVal::STRUCT_TAG);
-                let typ = self.int;
-
-                // Take the operand out of its register up front so both arms
-                // start from the same stack.
-                if let Some(MaybeStackValue::MutRegister(p)) = self.shadow_stack.last().copied() {
-                    let (value, inferred_type) = self.mut_register_to_value(p);
-                    *self.shadow_stack.last_mut().unwrap() = MaybeStackValue::Value(StackValue {
-                        value,
-                        inferred_type,
-                        spilled: false,
-                    });
-                }
-
-                let inner_stack = stack.clone();
-
-                let res = self.converging_if(
-                    is_struct,
-                    |ctx| {
-                        inline_struct_getter_proto(
-                            &spec,
-                            function_index,
-                            i,
-                            struct_ref,
-                            typ,
-                            &inner_stack,
-                            old_ip,
-                            fuse,
-                            borrow,
-                            ctx,
-                        )
-                    },
-                    move |ctx| {
-                        ctx.ip = old_ip;
-                        ctx.shadow_stack = stack.clone();
-                        let value =
-                            slow_path_struct_getter(GETTER_PROTO_ARITY, function_index, ctx);
-                        finish_slow_getter(value, fuse, borrow, ctx)
-                    },
-                    typ,
-                );
-
-                Some((res, InferredType::Any))
+                Some(self.inline_struct_getter_call(
+                    &spec,
+                    GETTER_PROTO_ARITY,
+                    function_index,
+                    i,
+                    Some(index_operand),
+                    fuse,
+                    borrow,
+                ))
             }
             // A struct predicate is a tag check and a descriptor compare, with no
             // field access, no allocation, and at the correct arity no error
@@ -2762,48 +2590,180 @@ impl<'a> FunctionTranslator<'a> {
                 if predicate_inlining_enabled()
                     && matches!(args, &[MaybeStackValue::Register(_)]) =>
             {
-                let operand_index = self.shadow_stack.last().unwrap().into_index();
-                let value = self.read_from_vm_stack(operand_index);
-                self.shadow_stack_pop();
-
-                let is_struct = self.is_type(value, SteelVal::STRUCT_TAG);
-                let typ = self.int;
-                let descriptor = spec.descriptor.key();
-
-                let res = self.converging_if(
-                    is_struct,
-                    |ctx| {
-                        let ptr = ctx.unbox_value_to_pointer(value);
-                        let on_heap = ctx.builder.ins().load(
-                            types::I64,
-                            MemFlagsData::trusted(),
-                            ptr,
-                            StructStorage::header_offset() as i32,
-                        );
-                        let matches =
-                            ctx.builder
-                                .ins()
-                                .icmp_imm_s(IntCC::Equal, on_heap, descriptor as i64);
-                        let widened = ctx.builder.ins().uextend(types::I64, matches);
-                        ctx.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, widened)
-                    },
-                    // Not a struct at all, so certainly not this one.
-                    |ctx| {
-                        let zero = ctx.i64_const(0);
-                        ctx.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, zero)
-                    },
-                    typ,
-                );
-
-                self.ip += 1;
-
-                Some((res, InferredType::Bool))
+                Some(self.inline_struct_predicate(&spec))
             }
 
-            _ => {
-                return None;
+            _ => None,
+        }
+    }
+
+    /// Structs are always built by the helper, which takes the descriptor and
+    /// the fields.
+    fn call_struct_constructor(
+        &mut self,
+        spec: &StructConstructorRefSpec,
+        arity: usize,
+    ) -> (Value, InferredType) {
+        let name = CallStructConstructorsDefinitions::arity_to_name(arity).unwrap();
+
+        let mut args = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        let descriptor = self.i64_const(spec.descriptor.key() as i64);
+
+        args.insert(0, descriptor);
+
+        let res = self.call_function_returns_value_args_no_context(name, &args);
+
+        self.ip += 1;
+
+        (res, InferredType::Any)
+    }
+
+    /// A struct predicate on a register operand.
+    fn inline_struct_predicate(
+        &mut self,
+        spec: &StructConstructorRefSpec,
+    ) -> (Value, InferredType) {
+        let operand_index = self.shadow_stack.last().unwrap().into_index();
+        let value = self.read_from_vm_stack(operand_index);
+        self.shadow_stack_pop();
+
+        let is_struct = self.is_type(value, SteelVal::STRUCT_TAG);
+        let typ = self.int;
+        let descriptor = spec.descriptor.key();
+
+        let res = self.converging_if(
+            is_struct,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(value);
+                let on_heap = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlagsData::trusted(),
+                    ptr,
+                    StructStorage::header_offset() as i32,
+                );
+                let matches =
+                    ctx.builder
+                        .ins()
+                        .icmp_imm_s(IntCC::Equal, on_heap, descriptor as i64);
+                let widened = ctx.builder.ins().uextend(types::I64, matches);
+                ctx.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, widened)
+            },
+            // Not a struct at all, so certainly not this one.
+            |ctx| {
+                let zero = ctx.i64_const(0);
+                ctx.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, zero)
+            },
+            typ,
+        );
+
+        self.ip += 1;
+
+        (res, InferredType::Bool)
+    }
+    /// A struct field read with the struct in a register. The operands the
+    /// getter doesn't need, like the prototype's literal index, are already
+    /// popped and passed as `dropped`, so a slow arm can put them back.
+    #[allow(clippy::too_many_arguments)]
+    fn inline_struct_getter_call(
+        &mut self,
+        spec: &StructConstructorRefSpec,
+        slow_arity: usize,
+        function_index: usize,
+        i: usize,
+        dropped: Option<MaybeStackValue>,
+        fuse: Option<usize>,
+        borrow: Option<Variable>,
+    ) -> (Value, InferredType) {
+        let struct_arg_index = self.shadow_stack.last().unwrap().into_index();
+        let struct_ref = self.read_from_vm_stack(struct_arg_index);
+
+        let maybe_inferred_type = self
+            .properties
+            .get(&ValueOrRegister::Register(struct_arg_index));
+
+        if let Some(Properties::InferredType(InferredType::Struct(desc))) = maybe_inferred_type {
+            if spec.descriptor == desc {
+                let last_kind = self.shadow_stack.pop().unwrap();
+                let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
+                let res = fast_path_struct_matches(i, struct_ref_ptr, self, fuse, borrow);
+
+                match last_kind {
+                    // The read was a move, so the register gives up the struct.
+                    MaybeStackValue::MutRegister(r) => {
+                        let void = self.encode_void();
+                        self.write_to_vm_stack(r, void);
+
+                        self.properties.props.insert(
+                            ValueOrRegister::Register(r),
+                            vec![Properties::InferredType(InferredType::Void)],
+                        );
+                    }
+                    MaybeStackValue::Register(_) => {
+                        self.properties.add_property(
+                            ValueOrRegister::Register(struct_arg_index),
+                            Properties::InferredType(InferredType::Struct(spec.descriptor)),
+                        );
+                    }
+                    _ => unreachable!(),
+                }
+
+                return (res, InferredType::Any);
             }
         }
+
+        let is_struct = self.is_type(struct_ref, SteelVal::STRUCT_TAG);
+        let typ = self.int;
+
+        // Take the operand out of its register up front so every arm starts
+        // from the same stack. Otherwise a slow arm would move it again, out of
+        // a register that already holds void.
+        if let Some(MaybeStackValue::MutRegister(p)) = self.shadow_stack.last().copied() {
+            let (value, inferred_type) = self.mut_register_to_value(p);
+            *self.shadow_stack.last_mut().unwrap() = MaybeStackValue::Value(StackValue {
+                value,
+                inferred_type,
+                spilled: false,
+            });
+        }
+
+        // What every slow arm restores to re-enter the real call.
+        let old_ip = self.ip;
+        let mut stack = self.shadow_stack.clone();
+        stack.extend(dropped);
+        let inner_stack = stack.clone();
+
+        let res = self.converging_if(
+            is_struct,
+            |ctx| {
+                inline_struct_getter(
+                    spec,
+                    slow_arity,
+                    function_index,
+                    i,
+                    struct_ref,
+                    typ,
+                    &inner_stack,
+                    old_ip,
+                    fuse,
+                    borrow,
+                    ctx,
+                )
+            },
+            move |ctx| {
+                ctx.ip = old_ip;
+                ctx.shadow_stack = stack.clone();
+                let value = slow_path_struct_getter(slow_arity, function_index, ctx);
+                finish_slow_getter(value, fuse, borrow, ctx)
+            },
+            typ,
+        );
+
+        (res, InferredType::Any)
     }
 }
 
@@ -2827,13 +2787,13 @@ fn getter_proto_inlining_enabled() -> bool {
     crate::config::config().jit_getter_proto
 }
 
-/// `inline_struct_getter`, but for the two argument prototype. Its slow arm has
-/// to re-enter a call whose index operand this pass already dropped, so it
-/// restores the saved operand stack instead of pushing back the one value it
-/// popped.
+/// Checks the descriptor, then reads field `i`. The slow arm restores the
+/// saved operand stack, since the call may have had operands the getter
+/// already dropped.
 #[allow(clippy::too_many_arguments)]
-fn inline_struct_getter_proto(
+fn inline_struct_getter(
     spec: &StructConstructorRefSpec,
+    slow_arity: usize,
     function_index: usize,
     i: usize,
     struct_ref: Value,
@@ -2868,57 +2828,16 @@ fn inline_struct_getter_proto(
         struct_matches,
         |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx, fuse, borrow),
         move |ctx| {
+            // call_global_function takes self.ip as the deopt fallback and then
+            // advances one, so this has to enter on the call itself, the same
+            // as the outer slow path does
             ctx.ip = old_ip;
             ctx.shadow_stack = saved.clone();
-            let value = slow_path_struct_getter(GETTER_PROTO_ARITY, function_index, ctx);
+            let value = slow_path_struct_getter(slow_arity, function_index, ctx);
             finish_slow_getter(value, fuse, borrow, ctx)
         },
         typ,
     )
-}
-
-fn inline_struct_getter(
-    spec: &StructConstructorRefSpec,
-    arity: usize,
-    function_index: usize,
-    i: usize,
-    struct_ref: Value,
-    typ: Type,
-    ctx: &mut FunctionTranslator,
-) -> Value {
-    // Check the descriptor first
-    let descriptor = spec.descriptor.key();
-
-    let struct_ref_ptr = ctx.unbox_value_to_pointer(struct_ref);
-
-    let descriptor_on_stack = ctx.builder.ins().load(
-        types::I64,
-        MemFlagsData::trusted(),
-        struct_ref_ptr,
-        StructStorage::header_offset() as i32,
-    );
-
-    let struct_matches =
-        ctx.builder
-            .ins()
-            .icmp_imm_s(IntCC::Equal, descriptor_on_stack, descriptor as i64);
-
-    let last = ctx.shadow_stack.pop().unwrap();
-
-    let res = ctx.converging_if(
-        struct_matches,
-        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx, None, None),
-        |ctx| {
-            // call_global_function takes self.ip as the deopt fallback and then
-            // advances one, so this has to enter on the call itself, the same
-            // as the outer slow path does
-            ctx.shadow_stack.push(last);
-            slow_path_struct_getter(arity, function_index, ctx)
-        },
-        typ,
-    );
-
-    res
 }
 
 fn fast_path_struct_matches(

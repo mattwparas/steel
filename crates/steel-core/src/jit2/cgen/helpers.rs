@@ -149,7 +149,6 @@ jit_helpers! {
     NOT_VALUE = "not-value" => not_handler_raw_value: ctx fn(SteelVal) -> SteelVal;
     CALL_GLOBAL = "call-global" => callglobal_handler_deopt_c: ctx fn() -> u8;
     CALL_GLOBAL_TAIL_SPILLED = "call-global-tail-spilled" => callglobal_tail_handler_deopt_spilled: ctx_raises fn(usize, usize, usize) -> SteelVal;
-    CALL_GLOBAL_NO_ARITY_SPILLED = "call-global-no-arity-spilled" => call_global_function_deopt_no_arity_spilled: ctx_raises fn(usize, usize, usize) -> SteelVal;
     CALL_GLOBAL_SPILLED = "call-global-spilled" => call_global_function_deopt_spilled: ctx_raises fn(usize, usize, usize) -> SteelVal;
     LIST_HANDLER_SPILLED = "list-handler-spilled" => list_handler_c: ctx fn(usize) -> SteelVal;
     VARIADIC_NUMERIC_SPILLED = "variadic-numeric-spilled" => variadic_numeric_spilled: ctx_raises fn(usize, usize) -> SteelVal;
@@ -290,8 +289,6 @@ jit_helpers! {
     MOVE_READ_LOCAL_2 = "move-read-local-2" => move_read_local_2_value_c: ctx fn() -> SteelVal;
     MOVE_READ_LOCAL_3 = "move-read-local-3" => move_read_local_3_value_c: ctx fn() -> SteelVal;
     MOVE_READ_LOCAL_ANY = "move-read-local-any" => move_read_local_any_value_c: ctx fn(usize) -> SteelVal;
-    SELF_TAIL_CALL = "self-tail-call" => self_tail_call_handler: ctx_raises fn(usize);
-    SELF_TAIL_CALL_LOOP = "self-tail-call-loop" => self_tail_call_handler_loop: ctx fn(usize);
     TCO_JUMP = "tco-jump" => tcojmp_handler: ctx_raises fn(usize);
     SET_HANDLER = "set-handler" => set_handler_c: ctx fn(usize, SteelVal) -> SteelVal;
 }

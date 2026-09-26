@@ -591,8 +591,6 @@ impl Default for JIT {
         CallGlobalNativeTailDefinitions::register(&mut map);
         CallBoxedFunctionDefinitions::register(&mut map);
         CallBoxedFunctionTailDefinitions::register(&mut map);
-        CallSelfTailCallNoArityDefinitions::register(&mut map);
-        CallSelfTailCallNoArityLoopDefinitions::register(&mut map);
         ListHandlerDefinitions::register(&mut map);
 
         // Primitive calls:

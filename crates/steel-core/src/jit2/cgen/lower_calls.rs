@@ -551,7 +551,7 @@ impl FunctionTranslator<'_> {
         } else {
             let v = self.call_global_function_spilled(
                 arity,
-                CALL_GLOBAL_NO_ARITY_SPILLED,
+                CALL_GLOBAL_SPILLED,
                 function_index,
                 false,
             );
