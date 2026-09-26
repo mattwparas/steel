@@ -5232,11 +5232,7 @@ impl FunctionTranslator<'_> {
                     self.ip += 2;
                 }
 
-                OpCode::SUB
-                    if payload == 2
-                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
-                            == Some(InferredType::Int) =>
-                {
+                OpCode::SUB if payload == 2 && self.top_operand_is_int() => {
                     // Call the func
 
                     let args = self.split_off(payload);
@@ -5484,26 +5480,8 @@ impl FunctionTranslator<'_> {
                     self.check_deopt();
                 }
 
-                OpCode::LT
-                    if payload == 2
-                        // Okay this could be an int, or not an int
-                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
-                            == Some(InferredType::Int)
-                        && matches!(
-                            self.shadow_stack.get(self.shadow_stack.len() - 2),
-                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
-                        ) =>
-                {
-                    if payload == 2 {
-                        for arg in self
-                            .shadow_stack
-                            .get(self.shadow_stack.len() - payload..)
-                            .unwrap()
-                            .to_vec()
-                        {
-                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
-                        }
-                    }
+                OpCode::LT if self.int_against_register(payload) => {
+                    self.mark_operands(payload, InferredType::Number);
 
                     enum Either {
                         Value(Value),
@@ -5589,21 +5567,8 @@ impl FunctionTranslator<'_> {
                     self.ip += 2;
                 }
 
-                OpCode::LT
-                    if payload == 2
-                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
-                            == Some(InferredType::Int) =>
-                {
-                    if payload == 2 {
-                        for arg in self
-                            .shadow_stack
-                            .get(self.shadow_stack.len() - payload..)
-                            .unwrap()
-                            .to_vec()
-                        {
-                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
-                        }
-                    }
+                OpCode::LT if payload == 2 && self.top_operand_is_int() => {
+                    self.mark_operands(payload, InferredType::Number);
                     // TODO: This isn't quite right. This doesn not check the input
                     // type properly
                     self.func_ret_val_named_with_context(
@@ -5616,25 +5581,8 @@ impl FunctionTranslator<'_> {
 
                 // When the value is a mutable register, or register, and we're comparing
                 // it to a known constant / etc
-                OpCode::LTE
-                    if payload == 2
-                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
-                            == Some(InferredType::Int)
-                        && matches!(
-                            self.shadow_stack.get(self.shadow_stack.len() - 2),
-                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
-                        ) =>
-                {
-                    if payload == 2 {
-                        for arg in self
-                            .shadow_stack
-                            .get(self.shadow_stack.len() - payload..)
-                            .unwrap()
-                            .to_vec()
-                        {
-                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
-                        }
-                    }
+                OpCode::LTE if self.int_against_register(payload) => {
+                    self.mark_operands(payload, InferredType::Number);
 
                     let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
 
@@ -5686,21 +5634,9 @@ impl FunctionTranslator<'_> {
                             self.shadow_stack.last(),
                             Some(MaybeStackValue::Constant(ConstantValue::Int(_)))
                         )
-                        && matches!(
-                            self.shadow_stack.get(self.shadow_stack.len() - 2),
-                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
-                        ) =>
+                        && self.second_operand_is_register() =>
                 {
-                    if payload == 2 {
-                        for arg in self
-                            .shadow_stack
-                            .get(self.shadow_stack.len() - payload..)
-                            .unwrap()
-                            .to_vec()
-                        {
-                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
-                        }
-                    }
+                    self.mark_operands(payload, InferredType::Number);
 
                     let rhs_int = self
                         .shadow_stack_pop()
@@ -5754,25 +5690,8 @@ impl FunctionTranslator<'_> {
                 }
 
                 // Inferred type is not int
-                OpCode::GTE
-                    if payload == 2
-                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
-                            == Some(InferredType::Int)
-                        && matches!(
-                            self.shadow_stack.get(self.shadow_stack.len() - 2),
-                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
-                        ) =>
-                {
-                    if payload == 2 {
-                        for arg in self
-                            .shadow_stack
-                            .get(self.shadow_stack.len() - payload..)
-                            .unwrap()
-                            .to_vec()
-                        {
-                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
-                        }
-                    }
+                OpCode::GTE if self.int_against_register(payload) => {
+                    self.mark_operands(payload, InferredType::Number);
 
                     let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
                     let register_l = self.shadow_stack_pop().unwrap().into_index();
@@ -5816,23 +5735,8 @@ impl FunctionTranslator<'_> {
 
                 // TODO: Introduce an abstraction to insert blocks when _both_ types are the same.
                 // Reduce number of type checks, inline comparisons.
-                OpCode::GTE
-                    if payload == 2
-                        && matches!(
-                            self.shadow_stack.get(self.shadow_stack.len() - 2),
-                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
-                        ) =>
-                {
-                    if payload == 2 {
-                        for arg in self
-                            .shadow_stack
-                            .get(self.shadow_stack.len() - payload..)
-                            .unwrap()
-                            .to_vec()
-                        {
-                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
-                        }
-                    }
+                OpCode::GTE if payload == 2 && self.second_operand_is_register() => {
+                    self.mark_operands(payload, InferredType::Number);
 
                     let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
                     let register_l = self.shadow_stack_pop().unwrap().into_index();
@@ -5909,21 +5813,9 @@ impl FunctionTranslator<'_> {
                 OpCode::LTE
                     if payload == 2
                         && matches!(self.shadow_stack.last(), Some(MaybeStackValue::Value(_)))
-                        && matches!(
-                            self.shadow_stack.get(self.shadow_stack.len() - 2),
-                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
-                        ) =>
+                        && self.second_operand_is_register() =>
                 {
-                    if payload == 2 {
-                        for arg in self
-                            .shadow_stack
-                            .get(self.shadow_stack.len() - payload..)
-                            .unwrap()
-                            .to_vec()
-                        {
-                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
-                        }
-                    }
+                    self.mark_operands(payload, InferredType::Number);
 
                     let rhs_int = self.shadow_stack_pop().unwrap().into_value(self);
                     let register_l = self.shadow_stack_pop().unwrap().into_index();
@@ -5942,21 +5834,8 @@ impl FunctionTranslator<'_> {
                     self.ip += 2;
                 }
 
-                OpCode::LTE
-                    if payload == 2
-                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
-                            == Some(InferredType::Int) =>
-                {
-                    if payload == 2 {
-                        for arg in self
-                            .shadow_stack
-                            .get(self.shadow_stack.len() - payload..)
-                            .unwrap()
-                            .to_vec()
-                        {
-                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
-                        }
-                    }
+                OpCode::LTE if payload == 2 && self.top_operand_is_int() => {
+                    self.mark_operands(payload, InferredType::Number);
                     self.func_ret_val_named_with_context(
                         "lte-binop-int",
                         payload,
@@ -6024,8 +5903,7 @@ impl FunctionTranslator<'_> {
                                 MaybeStackValue::Value(_),
                             ])
                         )
-                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
-                            == Some(InferredType::Int) =>
+                        && self.top_operand_is_int() =>
                 {
                     // Lets assume, for now, that we'll happy path the case where they're both
                     // ints. We would need to implement something more sophisticated for checking
@@ -6087,8 +5965,7 @@ impl FunctionTranslator<'_> {
                                 MaybeStackValue::Constant(ConstantValue::Int(_)),
                             ])
                         )
-                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
-                            == Some(InferredType::Int) =>
+                        && self.top_operand_is_int() =>
                 {
                     // Lets assume, for now, that we'll happy path the case where they're both
                     // ints. We would need to implement something more sophisticated for checking
@@ -6153,11 +6030,7 @@ impl FunctionTranslator<'_> {
                     self.ip += 2;
                 }
 
-                OpCode::NUMEQUAL
-                    if payload == 2
-                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
-                            == Some(InferredType::Int) =>
-                {
+                OpCode::NUMEQUAL if payload == 2 && self.top_operand_is_int() => {
                     self.func_ret_val_named_with_context(
                         "num-equal-int",
                         payload,
@@ -6171,14 +6044,7 @@ impl FunctionTranslator<'_> {
                 OpCode::LTE | OpCode::GTE | OpCode::LT | OpCode::GT
                     if payload == 2 && generic_inline_enabled() =>
                 {
-                    for arg in self
-                        .shadow_stack
-                        .get(self.shadow_stack.len() - payload..)
-                        .unwrap()
-                        .to_vec()
-                    {
-                        self.shadow_mark_local_type_from_var(arg, InferredType::Number);
-                    }
+                    self.mark_operands(payload, InferredType::Number);
 
                     let (cc, fallback) = match op {
                         OpCode::LT => (IntCC::SignedLessThan, "lt-two-value-bool"),
@@ -6195,14 +6061,7 @@ impl FunctionTranslator<'_> {
 
                 OpCode::LTE | OpCode::GTE | OpCode::LT | OpCode::GT => {
                     if payload == 2 {
-                        for arg in self
-                            .shadow_stack
-                            .get(self.shadow_stack.len() - payload..)
-                            .unwrap()
-                            .to_vec()
-                        {
-                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
-                        }
+                        self.mark_operands(payload, InferredType::Number);
                     }
 
                     self.func_ret_val(op, payload, 2, InferredType::Bool);
@@ -10078,6 +9937,68 @@ impl FunctionTranslator<'_> {
         )
     }
 
+    /// Record that the top `count` operands are numbers, for the locals they
+    /// were read from.
+    fn mark_operands(&mut self, count: usize, typ: InferredType) {
+        for arg in self
+            .shadow_stack
+            .get(self.shadow_stack.len() - count..)
+            .unwrap()
+            .to_vec()
+        {
+            self.shadow_mark_local_type_from_var(arg, typ);
+        }
+    }
+
+    fn top_operand_is_int(&self) -> bool {
+        self.shadow_stack.last().and_then(|x| self.inferred_type(x)) == Some(InferredType::Int)
+    }
+
+    fn second_operand_is_register(&self) -> bool {
+        matches!(
+            self.shadow_stack.get(self.shadow_stack.len() - 2),
+            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
+        )
+    }
+
+    /// Two operands: an int on top, and a local's register under it.
+    fn int_against_register(&self, payload: usize) -> bool {
+        payload == 2 && self.top_operand_is_int() && self.second_operand_is_register()
+    }
+
+    /// `SteelThread.stack_frames.len()`.
+    fn stack_frames_len(&mut self, thread_pointer: Value) -> Value {
+        self.load_field(
+            types::I64,
+            thread_pointer,
+            offset_of!(SteelThread, stack_frames) + steel_vec::Vec::<StackFrame>::len_offset(),
+        )
+    }
+
+    fn set_stack_frames_len(&mut self, thread_pointer: Value, length: Value) {
+        self.store_field(
+            length,
+            thread_pointer,
+            offset_of!(SteelThread, stack_frames) + steel_vec::Vec::<StackFrame>::len_offset(),
+        );
+    }
+
+    /// The buffer behind `SteelThread.stack_frames`.
+    fn stack_frames_buf(&mut self, thread_pointer: Value) -> Value {
+        self.load_field(
+            types::I64,
+            thread_pointer,
+            offset_of!(SteelThread, stack_frames) + steel_vec::Vec::<StackFrame>::buf_offset(),
+        )
+    }
+
+    /// The frame at `index` in the stack frame buffer `buf`.
+    fn stack_frame_at(&mut self, buf: Value, index: Value) -> Value {
+        let size = std::mem::size_of::<StackFrame>() as i64;
+        let offset = self.builder.ins().imul_imm_s(index, size);
+        self.builder.ins().iadd(buf, offset)
+    }
+
     fn i64_const(&mut self, value: i64) -> Value {
         self.builder.ins().iconst(types::I64, value)
     }
@@ -12806,16 +12727,7 @@ impl FunctionTranslator<'_> {
                 .icmp(IntCC::UnsignedGreaterThan, sp, limit);
         }
 
-        // Stack frame offset:
-        let stack_frame_offset = offset_of!(SteelThread, stack_frames);
-        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
-
-        let stack_frame_length = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_frame_offset + len_offset) as i32,
-        );
+        let stack_frame_length = self.stack_frames_len(thread_pointer);
 
         let res = self
             .builder
@@ -13475,37 +13387,13 @@ impl FunctionTranslator<'_> {
     fn update_last_stackframe(&mut self, vm_ctx: Value, function: Value) -> Value {
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
-        // Stack offset:
-        let stack_offset = offset_of!(SteelThread, stack_frames);
-        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+        let stack_length = self.stack_frames_len(thread_pointer);
+        let last = self.builder.ins().iadd_imm_s(stack_length, -1);
+        let buf_ptr = self.stack_frames_buf(thread_pointer);
+        let slot_ptr = self.stack_frame_at(buf_ptr, last);
 
-        let stack_length = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
-
-        // Last thing
-        let new_length = self.builder.ins().iadd_imm_s(stack_length, -1);
-
-        let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + ptr_offset) as i32,
-        );
-
-        let size: i64 = std::mem::size_of::<StackFrame>() as _;
-        let offset = self.builder.ins().imul_imm_s(new_length, size);
-        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
-
-        // Load the stack frame. We're going to use this later.
         let value = self.load_field(types::I32, slot_ptr, offset_of!(StackFrame, sp));
 
-        //
         let old_function = self.load_field(types::I64, slot_ptr, offset_of!(StackFrame, function));
 
         self.drop_biased_rc_unboxed_closure(old_function);
@@ -13523,16 +13411,7 @@ impl FunctionTranslator<'_> {
     fn read_last_sp(&mut self, vm_ctx: Value) -> Value {
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
-        // Stack offset:
-        let stack_offset = offset_of!(SteelThread, stack_frames);
-        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
-
-        let stack_length = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
+        let stack_length = self.stack_frames_len(thread_pointer);
 
         let condition = self.builder.ins().icmp_imm_s(IntCC::Equal, stack_length, 0);
 
@@ -13540,23 +13419,10 @@ impl FunctionTranslator<'_> {
             condition,
             |ctx| ctx.i64_const(0),
             |ctx| {
-                // Last thing
-                let new_length = ctx.builder.ins().iadd_imm_s(stack_length, -1);
+                let last = ctx.builder.ins().iadd_imm_s(stack_length, -1);
+                let buf_ptr = ctx.stack_frames_buf(thread_pointer);
+                let slot_ptr = ctx.stack_frame_at(buf_ptr, last);
 
-                let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
-
-                let buf_ptr = ctx.builder.ins().load(
-                    Type::int(64).unwrap(),
-                    MemFlagsData::trusted(),
-                    thread_pointer,
-                    (stack_offset + ptr_offset) as i32,
-                );
-
-                let size: i64 = std::mem::size_of::<StackFrame>() as _;
-                let offset = ctx.builder.ins().imul_imm_s(new_length, size);
-                let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
-
-                // Load the stack frame. We're going to use this later.
                 let value = ctx.load_field(types::I32, slot_ptr, offset_of!(StackFrame, sp));
 
                 ctx.builder.ins().uextend(types::I64, value)
@@ -13618,39 +13484,12 @@ impl FunctionTranslator<'_> {
     fn inline_pop_from_stack_frames(&mut self, vm_ctx: Value) -> (StackFrameRepr, (Value, Value)) {
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
-        // Stack offset:
-        let stack_offset = offset_of!(SteelThread, stack_frames);
-
-        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
-
-        let stack_length = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
-
+        let stack_length = self.stack_frames_len(thread_pointer);
         let new_length = self.builder.ins().iadd_imm_s(stack_length, -1);
+        self.set_stack_frames_len(thread_pointer, new_length);
 
-        self.builder.ins().store(
-            MemFlagsData::trusted(),
-            new_length,
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
-
-        let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + ptr_offset) as i32,
-        );
-
-        let size: i64 = std::mem::size_of::<StackFrame>() as _;
-        let offset = self.builder.ins().imul_imm_s(new_length, size);
-        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+        let buf_ptr = self.stack_frames_buf(thread_pointer);
+        let slot_ptr = self.stack_frame_at(buf_ptr, new_length);
 
         let sp_offset = (buf_ptr, new_length);
 
@@ -13870,32 +13709,10 @@ impl FunctionTranslator<'_> {
         let vm_ctx = self.get_ctx();
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
-        // Stack offset:
-        let stack_offset = offset_of!(SteelThread, stack_frames);
-        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
-
-        let stack_length = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + len_offset) as i32,
-        );
-
-        let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
-
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_offset + ptr_offset) as i32,
-        );
-
-        let size: i64 = std::mem::size_of::<StackFrame>() as _;
-
+        let stack_length = self.stack_frames_len(thread_pointer);
+        let buf_ptr = self.stack_frames_buf(thread_pointer);
         let last = self.builder.ins().iadd_imm_s(stack_length, -1);
-
-        let offset = self.builder.ins().imul_imm_s(last, size);
-        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+        let slot_ptr = self.stack_frame_at(buf_ptr, last);
 
         let function = self.load_field(types::I64, slot_ptr, offset_of!(StackFrame, function));
 
@@ -13947,25 +13764,12 @@ impl FunctionTranslator<'_> {
 
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
-        // Stack frame offset:
-        let stack_frame_offset = offset_of!(SteelThread, stack_frames);
-
-        let capacity_offset = steel_vec::Vec::<StackFrame>::capacity_offset();
-        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
-
-        let stack_capacity = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
+        let stack_capacity = self.load_field(
+            types::I64,
             thread_pointer,
-            (stack_frame_offset + capacity_offset) as i32,
+            offset_of!(SteelThread, stack_frames) + steel_vec::Vec::<StackFrame>::capacity_offset(),
         );
-
-        let stack_frame_length = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlagsData::trusted(),
-            thread_pointer,
-            (stack_frame_offset + len_offset) as i32,
-        );
+        let stack_frame_length = self.stack_frames_len(thread_pointer);
 
         // Stack values, for figuring out where we have to put the sp
         let stack_offset = offset_of!(SteelThread, stack);
@@ -13989,22 +13793,9 @@ impl FunctionTranslator<'_> {
             // If at capacity, call grow
             |ctx| ctx.call_helper_void(SLOW_GROW_FRAME_STACK, []),
             |ctx| {
-                // Write the value:
-                let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
-
-                let buf_ptr = ctx.builder.ins().load(
-                    Type::int(64).unwrap(),
-                    MemFlagsData::trusted(),
-                    thread_pointer,
-                    (stack_frame_offset + ptr_offset) as i32,
-                );
-
-                // Okay so here, now we're going to move things around
-                // such that we can snag values from things
-                let size: i64 = std::mem::size_of::<StackFrame>() as _;
-                let offset = ctx.builder.ins().imul_imm_s(stack_frame_length, size);
-
-                let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
+                // Write the new frame after the last one.
+                let buf_ptr = ctx.stack_frames_buf(thread_pointer);
+                let slot_ptr = ctx.stack_frame_at(buf_ptr, stack_frame_length);
 
                 let sp_offset = offset_of!(VmCore, sp);
 
@@ -14080,13 +13871,7 @@ impl FunctionTranslator<'_> {
 
                 // Add one to the length:
                 let new_length = ctx.builder.ins().iadd_imm_s(stack_frame_length, 1);
-
-                ctx.builder.ins().store(
-                    MemFlagsData::trusted(),
-                    new_length,
-                    thread_pointer,
-                    (stack_frame_offset + len_offset) as i32,
-                );
+                ctx.set_stack_frames_len(thread_pointer, new_length);
             },
         );
     }
