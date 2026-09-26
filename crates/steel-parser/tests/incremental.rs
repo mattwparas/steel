@@ -1,14 +1,15 @@
 use steel_parser::parser::{Parser, ParserState, SourceId};
 
-// `syntax_object_id` comes from a global counter, so it differs run to run and
-// says nothing about whether the parse matched.
-fn normalize(s: String) -> String {
+// `syntax_object_id` and the interner ids come from global counters, so they vary
+// between runs. Values get compared through `Display`, which resolves them.
+fn strip(s: String, prefix: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s.as_str();
-    while let Some(i) = rest.find("syntax_object_id: ") {
+    while let Some(i) = rest.find(prefix) {
         out.push_str(&rest[..i]);
-        out.push_str("syntax_object_id: _");
-        rest = &rest[i + "syntax_object_id: ".len()..];
+        out.push_str(prefix);
+        out.push('_');
+        rest = &rest[i + prefix.len()..];
         let digits = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
         rest = &rest[digits..];
     }
@@ -16,9 +17,18 @@ fn normalize(s: String) -> String {
     out
 }
 
+fn normalize(s: String) -> String {
+    strip(strip(s, "syntax_object_id: "), "InternedNumber(")
+}
+
+// Display carries the values, Debug the spans
+fn render(expr: &steel_parser::ast::ExprKind) -> String {
+    format!("{} | {}", expr, normalize(format!("{:?}", expr)))
+}
+
 fn show(r: Option<steel_parser::parser::Result<steel_parser::ast::ExprKind>>) -> String {
     match r {
-        Some(Ok(e)) => normalize(format!("{:?}", e)),
+        Some(Ok(e)) => render(&e),
         Some(Err(e)) => normalize(format!("ERR({:?})", e)),
         None => "NONE".to_string(),
     }
@@ -50,7 +60,7 @@ fn incremental(input: &str, chunk: usize) -> String {
         };
 
         match parser.next() {
-            Some(Ok(expr)) => return normalize(format!("{:?}", expr)),
+            Some(Ok(expr)) => return render(&expr),
             other => {
                 if !more {
                     return show(other);
@@ -101,6 +111,8 @@ const CORPUS: &[&str] = &[
     "(a ' b)",
     "#; (ignored) (kept)",
     "(define data '(1 2 3))",
+    "#;#;(a) (b) (kept)",
+    "#;(a b c) (kept)",
 ];
 
 // A bigger synthetic datum, to exercise many suspends in one parse.
@@ -111,6 +123,100 @@ fn deep_input() -> String {
     }
     s.push(')');
     s
+}
+
+// Total tokens handed to the parse when reading `input` a byte at a time. Stays
+// close to the token count if the parse resumes, grows quadratically if it has to
+// start over on every chunk.
+fn tokens_lexed(input: &str) -> usize {
+    let mut fed = 0usize;
+    let mut state: Option<ParserState> = None;
+    let mut total = 0;
+
+    loop {
+        fed = usize::min(fed + 1, input.len());
+        while fed < input.len() && !input.is_char_boundary(fed) {
+            fed += 1;
+        }
+
+        let visible = &input[..fed];
+        let more = fed < input.len();
+
+        let mut parser = match state.take() {
+            Some(st) => Parser::resume(visible, SourceId::none(), st, more),
+            None => Parser::new_incremental(visible, SourceId::none(), more),
+        };
+
+        let done = matches!(parser.next(), Some(Ok(_))) || !more;
+        if !done {
+            state = parser.take_state();
+        }
+        total += parser.tokens_lexed();
+
+        if done {
+            return total;
+        }
+    }
+}
+
+// One shot lexes each token once, so this is the rework factor
+fn rework(input: &str) -> f64 {
+    let mut once = Parser::new_flat(input, SourceId::none());
+    while once.next().is_some() {}
+    let baseline = once.tokens_lexed().max(1);
+
+    tokens_lexed(input) as f64 / baseline as f64
+}
+
+// Rework shows up clearly on a long datum
+fn long(prefix: &str, suffix: &str) -> String {
+    let mut s = String::from(prefix);
+    s.push('(');
+    for i in 0..60 {
+        s.push_str(&format!("(item {}) ", i));
+    }
+    s.push(')');
+    s.push_str(suffix);
+    s
+}
+
+#[test]
+fn a_long_datum_is_not_reparsed() {
+    for shape in [
+        long("", ""),                   // plain
+        long("'", ""),                  // prefix outside any list
+        long("`", ""),                  // quasiquote outside any list
+        long("''", ""),                 // stacked prefixes
+        long("(define data '", ")"),    // prefix inside a list
+        long("#;(skipped) ", ""),       // after a datum comment
+    ] {
+        let factor = rework(&shape);
+        assert!(
+            factor < 3.0,
+            "reparsed {:.1}x for {:?}...",
+            factor,
+            &shape[..shape.len().min(24)]
+        );
+    }
+}
+
+#[test]
+fn short_datums_resume_too() {
+    for input in [
+        "(a b c)",
+        "(a (b (c (d))))",
+        "#(1 2 3)",
+        "(define data '(1 2 3))",
+        "(a `(b ,c ,@d) e)",
+        "(a #,@b)",
+        "(a . 'b)",
+        "'(1 2 3)",
+        "(a ''b)",
+        "#;(ignored) (kept)",
+        "#;#;(a) (b) (kept)",
+    ] {
+        assert!(rework(input) < 3.0, "reparsed {:?}", input);
+    }
 }
 
 #[test]
