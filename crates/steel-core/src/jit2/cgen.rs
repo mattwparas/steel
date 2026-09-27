@@ -3701,12 +3701,23 @@ impl FunctionTranslator<'_> {
         metadata: Option<crate::steel_vm::builtin::FunctionSignatureMetadata>,
         origins: &[Option<usize>],
     ) {
+        let Some(metadata) = metadata else { return };
+        self.narrow_locals_after_call_to(&metadata.name, metadata.arg_types, origins);
+    }
+
+    /// [`Self::narrow_locals_after_call`], for a function named `name` whose
+    /// arguments are declared `arg_types`.
+    fn narrow_locals_after_call_to(
+        &mut self,
+        name: &str,
+        arg_types: Option<crate::value_type::ArgTypes>,
+        origins: &[Option<usize>],
+    ) {
         let config = crate::config::config();
         if !config.jit_primitive_arg_types {
             return;
         }
-        let Some(metadata) = metadata else { return };
-        let Some(arg_types) = metadata.arg_types else {
+        let Some(arg_types) = arg_types else {
             return;
         };
         let n = origins.len();
@@ -3729,10 +3740,7 @@ impl FunctionTranslator<'_> {
                 None | Some(InferredType::Any)
             ) {
                 if config.jit_primitive_types_log {
-                    eprintln!(
-                        "[prim-arg] {} arg {i}: local {slot} -> {ty:?}",
-                        metadata.name
-                    );
+                    eprintln!("[prim-arg] {name} arg {i}: local {slot} -> {ty:?}");
                 }
                 self.local_to_value_map.insert(*slot, ty);
             }
@@ -6306,18 +6314,44 @@ impl FunctionTranslator<'_> {
 
         // A host function, e.g. from `register_fn`. The helper is given the
         // function, and only checks that the global still holds it.
-        if let Some(SteelVal::BoxedFunction(func)) = self._globals.get(function_index) {
+        if let Some(SteelVal::BoxedFunction(func)) = self._globals.get(function_index).cloned() {
             if let Some(helper) = CallBoxedFunctionDefinitions::arity_to_name(arity) {
-                let func = self.leak_boxed_function(func);
+                // The signature describes this function. Otherwise the helper
+                // calls whatever the global holds now, unless it is closed.
+                let signature = func
+                    .signature
+                    .filter(|_| self.global_is_closed(function_index));
+                let origins = self.argument_origins(arity);
+                let leaked = self.leak_boxed_function(&func);
                 let result = self.call_global_function_with(
                     arity,
                     helper,
                     function_index,
                     false,
-                    Some(func),
+                    Some(leaked),
                 );
-                self.push(result, InferredType::Any);
+                let config = crate::config::config();
+                let ty = match signature {
+                    Some(signature) if config.jit_primitive_types => {
+                        InferredType::from_value_type(signature.return_type)
+                    }
+                    _ => InferredType::Any,
+                };
+                if config.jit_primitive_types_log {
+                    eprintln!(
+                        "[host-type] {} -> {ty:?}",
+                        func.name().unwrap_or("<unnamed>")
+                    );
+                }
+                self.push(result, ty);
                 self.check_deopt();
+                if let Some(signature) = signature {
+                    self.narrow_locals_after_call_to(
+                        func.name().unwrap_or("<unnamed>"),
+                        Some(signature.arg_types),
+                        &origins,
+                    );
+                }
                 return;
             }
         }

@@ -163,7 +163,10 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
 
             let res = func();
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         // self.register_value(name, SteelVal::FuncV(f))
@@ -208,7 +211,10 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
             let res = func(&input);
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -254,7 +260,10 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
 
             let res = func(&mut input);
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -303,7 +312,10 @@ impl<
 
             let res = func(&mut input.as_mut());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -355,7 +367,10 @@ impl<
 
             let res = func(&mut input.as_mut(), &mut area);
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -407,7 +422,10 @@ impl<
 
             let res = func(&mut input.as_mut(), &mut area);
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -470,7 +488,10 @@ impl<
 
             let res = func(&mut input, area, &mut frame.as_mut(), &mut ctx.as_mut());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -539,7 +560,10 @@ impl<
 
             let res = func(&mut input, area, &mut frame.as_mut(), &mut ctx.as_mut());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -605,7 +629,10 @@ impl<
 
             let res = func(&mut input, &area, &mut ctx.as_mut());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -670,7 +697,10 @@ impl<
 
             let res = func(&input, area, ctx.as_ro());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -737,7 +767,10 @@ impl<
                 F::from_steelval(&args[2])?,
             );
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -779,7 +812,10 @@ impl<
                 F::from_steelval(&args[2])?,
             );
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -833,7 +869,10 @@ impl<
 
             let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -871,7 +910,10 @@ impl<
 
             let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -925,7 +967,10 @@ impl<
 
             let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -961,7 +1006,10 @@ impl<
 
             let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -1464,7 +1512,10 @@ impl<
 
             let res = func(&mut input, &area, &mut ctx.as_mut());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -1529,7 +1580,10 @@ impl<
 
             let res = func(&input, area, ctx.as_ro());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -1596,7 +1650,10 @@ impl<
                 F::from_steelval(&args[2])?,
             );
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -1641,7 +1698,10 @@ impl<
                 })?,
             );
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -2075,7 +2135,10 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
 
             let res = func();
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -2118,7 +2181,10 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
             let res = func(&input);
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -2152,7 +2218,10 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
             let res = func(&input);
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         todo!("Resolve using RC's here")
@@ -2197,7 +2266,10 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
 
             let res = func(&mut input);
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -2246,7 +2318,10 @@ impl<
 
             let res = func(&mut input.as_mut());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -2290,7 +2365,10 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
 
             let res = func(input.as_ro());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -2340,7 +2418,10 @@ impl<
 
             let res = func(input.as_ro(), arg);
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -2386,7 +2467,10 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
 
             let res = func(input.as_ro());
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -2458,7 +2542,10 @@ impl<
 
             let res = func(&one, &two);
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -2517,7 +2604,10 @@ impl<
                 &input,
             );
 
-            res.into_steelval()
+            let res = res.into_steelval();
+            #[cfg(debug_assertions)]
+            crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+            res
         };
 
         self.register_value(
@@ -2817,7 +2907,10 @@ macro_rules! impl_register_fn_self {
                                     err
                               })?,)*);
 
-                    res.into_steelval()
+                    let res = res.into_steelval();
+                    #[cfg(debug_assertions)]
+                    crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+                    res
                 };
 
                 self.register_value_inner(
@@ -2868,7 +2961,10 @@ macro_rules! impl_register_fn_self {
                             err
                         })?,)*);
 
-                    res.into_steelval()
+                    let res = res.into_steelval();
+                    #[cfg(debug_assertions)]
+                    crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+                    res
                 };
 
                 self.register_value_inner(
@@ -2920,7 +3016,10 @@ macro_rules! impl_register_fn_self {
                             err
                         })?,)*);
 
-                    res.into_steelval()
+                    let res = res.into_steelval();
+                    #[cfg(debug_assertions)]
+                    crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+                    res
                 };
 
                 self.register_value_inner(
@@ -2954,7 +3053,10 @@ macro_rules! impl_register_fn_self {
                     e
                  })?,)*);
 
-                 res.into_steelval()
+                 let res = res.into_steelval();
+                 #[cfg(debug_assertions)]
+                 crate::value_type::check_return(&res, <RET as IntoSteelVal>::RETURN_TYPE, &name);
+                 res
              };
 
              self.register_value_inner(

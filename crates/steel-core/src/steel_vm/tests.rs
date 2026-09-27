@@ -875,6 +875,97 @@ mod host_function_call_tests {
 }
 
 #[cfg(test)]
+mod typed_host_call_tests {
+    //! Host functions called from module code, where the globals are closed,
+    //! so the jit types results and arguments from their signatures.
+    use crate::steel_vm::builtin::BuiltInModule;
+    use crate::steel_vm::engine::Engine;
+    use crate::steel_vm::register_fn::RegisterFn;
+
+    fn engine() -> Engine {
+        #[cfg(feature = "jit2")]
+        crate::steel_vm::vm::jit::settle_background_compiles(
+            crate::steel_vm::vm::jit::jit_background_enabled(),
+        );
+        let mut engine = Engine::new();
+        let mut module = BuiltInModule::new("host/typed");
+        module.register_fn("host-inc", |x: isize| x + 1);
+        module.register_fn("host-scale", |x: f64, k: isize| x * k as f64);
+        module.register_fn("host-len", |s: String| s.len() as isize);
+        module.register_fn("host-halve", |x: isize| -> Result<isize, String> {
+            if x % 2 == 0 {
+                Ok(x / 2)
+            } else {
+                Err("odd".to_string())
+            }
+        });
+        engine.register_module(module);
+        engine.register_steel_module(
+            "typed-user".to_string(),
+            "(require-builtin host/typed)
+             (provide sum-incs narrowed floats halves lengths)
+             (define (sum-incs n acc)
+               (if (= n 0) acc (sum-incs (- n 1) (+ acc (host-inc n)))))
+             ;; A normal return means x converted to an int.
+             (define (narrowed x) (host-inc x) (+ x x))
+             (define (floats n acc)
+               (if (= n 0) acc (floats (- n 1) (+ acc (host-scale 0.5 n)))))
+             (define (halves n acc)
+               (if (= n 0) acc (halves (- n 2) (+ acc (host-halve n)))))
+             (define (lengths xs acc)
+               (if (null? xs) acc (lengths (cdr xs) (+ acc (host-len (car xs))))))"
+                .to_string(),
+        );
+        engine
+            .compile_and_run_raw_program(
+                "(require \"typed-user\")
+                 (define (warm k)
+                   (when (> k 0)
+                     (sum-incs 100 0) (narrowed k) (floats 100 0.0) (halves 100 0)
+                     (lengths (list \"a\" 'bc \"def\") 0)
+                     (warm (- k 1))))
+                 (warm 200)",
+            )
+            .unwrap();
+        engine
+    }
+
+    fn run(engine: &mut Engine, src: &str) -> String {
+        let values = engine.compile_and_run_raw_program(src.to_string()).unwrap();
+        values.last().unwrap().to_string()
+    }
+
+    #[test]
+    fn typed_results_and_arguments() {
+        let mut engine = engine();
+        assert_eq!(
+            run(
+                &mut engine,
+                "(list (sum-incs 1000 0) (narrowed 21) (floats 4 0.0) (halves 10 0)
+                       (lengths (list \"ab\" 'cde) 0))"
+            ),
+            "(501500 42 5.0 15 5)"
+        );
+    }
+
+    #[test]
+    fn failed_host_calls_narrow_nothing() {
+        let mut engine = engine();
+        assert_eq!(
+            run(
+                &mut engine,
+                "(list (with-handler (lambda (e) 'caught) (narrowed \"a\"))
+                       (with-handler (lambda (e) 'caught) (narrowed 1.5))
+                       (with-handler (lambda (e) 'caught) (halves 9 0))
+                       (with-handler (lambda (e) 'caught) (lengths (list 1) 0))
+                       (narrowed 4))"
+            ),
+            "(caught caught caught caught 8)"
+        );
+    }
+}
+
+#[cfg(test)]
 mod set_after_compile_tests {
     //! Each `run` is a separate compile, like input at the repl. Callers are
     //! compiled before a later input `set!`s the global they call. A callee is
