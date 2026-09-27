@@ -1,6 +1,7 @@
 mod common;
 
 use common::*;
+use steel_language_server::backend::OffsetEncoding;
 use tower_lsp::lsp_types::*;
 
 fn flat_symbols(response: Option<DocumentSymbolResponse>) -> Vec<SymbolInformation> {
@@ -19,8 +20,8 @@ mod goto_definition_tests {
   (+ x 1))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         let location = server
             .definition_location(&uri, find_nth(source, "x", 1))
@@ -38,8 +39,8 @@ mod goto_definition_tests {
 (define result (add-one 10))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         let location = server
             .definition_location(&uri, find_nth(source, "add-one", 1))
@@ -57,8 +58,8 @@ mod goto_definition_tests {
   (+ total total))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("value.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("value.scm", source);
 
         let location = server
             .definition_location(&uri, find_nth(source, "total", 1))
@@ -76,8 +77,8 @@ mod goto_definition_tests {
     (+ total other)))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("let.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("let.scm", source);
 
         let location = server
             .definition_location(&uri, find_nth(source, "total", 1))
@@ -104,11 +105,11 @@ mod goto_definition_tests {
 (define total counter)
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let lib = server.write("lib.scm", lib_source);
         server.index_workspace();
 
-        let app = server.open("app.scm", app_source).await;
+        let app = server.open("app.scm", app_source);
 
         let location = server
             .definition_location(&app, find(app_source, "greet"))
@@ -138,11 +139,11 @@ mod goto_definition_tests {
   (greet "world"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let lib = server.write("lib.scm", lib_source);
         server.index_workspace();
 
-        let app = server.open("only-in.scm", app_source).await;
+        let app = server.open("only-in.scm", app_source);
 
         let location = server
             .definition_location(&app, find_nth(app_source, "greet", 1))
@@ -165,11 +166,11 @@ mod goto_definition_tests {
   (lib.greet "world"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let lib = server.write("lib.scm", lib_source);
         server.index_workspace();
 
-        let app = server.open("prefix-in.scm", app_source).await;
+        let app = server.open("prefix-in.scm", app_source);
 
         let location = server
             .definition_location(&app, find(app_source, "lib.greet"))
@@ -189,11 +190,11 @@ mod goto_definition_tests {
   (twice (displayln "hi")))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("macro.scm", source);
         server.index_workspace();
 
-        let uri = server.open("macro.scm", source).await;
+        let uri = server.open("macro.scm", source);
 
         // macros land on the define-syntax keyword, not on the macro name
         let location = server
@@ -218,12 +219,12 @@ mod goto_definition_tests {
   (my-macro 1))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let lib = server.write("lib.scm", lib_source);
         server.write("imported.scm", app_source);
         server.index_workspace();
 
-        let uri = server.open("imported.scm", app_source).await;
+        let uri = server.open("imported.scm", app_source);
 
         let location = server
             .definition_location(&uri, find(app_source, "my-macro"))
@@ -239,8 +240,8 @@ mod goto_definition_tests {
   (map (lambda (y) (* y 2)) xs))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("builtin.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("builtin.scm", source);
 
         assert_eq!(
             server.goto_definition(&uri, find(source, "map")).await,
@@ -256,8 +257,8 @@ mod goto_definition_tests {
 (define result (add-one 10))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         // the blank line between the two top level forms
         assert_eq!(server.goto_definition(&uri, position(2, 0)).await, None);
@@ -265,12 +266,8 @@ mod goto_definition_tests {
 
     #[tokio::test]
     async fn definition_in_an_unopened_document_is_not_reported() {
-        let source = r#"(define (add-one x)
-  (+ x 1))
-"#;
-
-        let mut server = TestServer::new().await;
-        let uri = server.write("never-opened.scm", source);
+        let server = TestServer::new();
+        let uri = server.unopened("never-opened.scm");
 
         assert_eq!(server.goto_definition(&uri, position(0, 10)).await, None);
     }
@@ -285,8 +282,8 @@ mod find_references_tests {
   (+ x 1))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         let locations = server
             .references(&uri, find_nth(source, "x", 1), true)
@@ -313,8 +310,8 @@ mod find_references_tests {
   (add-one result))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         let locations = server
             .references(&uri, find_nth(source, "add-one", 1), true)
@@ -342,8 +339,8 @@ mod find_references_tests {
   (add-one result))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         let locations = server
             .references(&uri, find_nth(source, "add-one", 1), false)
@@ -367,8 +364,8 @@ mod find_references_tests {
     (+ total other total)))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("let.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("let.scm", source);
 
         let locations = server
             .references(&uri, find_nth(source, "total", 1), true)
@@ -406,12 +403,12 @@ mod find_references_tests {
   (greet "world"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let lib = server.write("lib.scm", lib_source);
         server.write("app.scm", app_source);
         server.index_workspace();
 
-        let app = server.open("app.scm", app_source).await;
+        let app = server.open("app.scm", app_source);
 
         let locations = server
             .references(&app, find(app_source, "greet"), true)
@@ -440,12 +437,12 @@ mod find_references_tests {
   (greet "world"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let lib = server.write("lib.scm", lib_source);
         server.write("only-in.scm", app_source);
         server.index_workspace();
 
-        let app = server.open("only-in.scm", app_source).await;
+        let app = server.open("only-in.scm", app_source);
 
         let locations = server
             .references(&app, find_nth(app_source, "greet", 1), true)
@@ -479,12 +476,12 @@ mod find_references_tests {
   (greet "world"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let lib = server.write("lib.scm", lib_source);
         server.write("app.scm", app_source);
         server.index_workspace();
 
-        let app = server.open("app.scm", app_source).await;
+        let app = server.open("app.scm", app_source);
 
         let locations = server
             .references(&app, find(app_source, "greet"), true)
@@ -511,11 +508,11 @@ mod find_references_tests {
   (map (lambda (y) (+ y 1)) xs))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("lib.scm", lib_source);
         server.index_workspace();
 
-        let uri = server.open("builtin.scm", source).await;
+        let uri = server.open("builtin.scm", source);
 
         // the information.builtin branch re-analyzes every loaded module, so make sure it
         // terminates and doesn't surface anything from the stdlib
@@ -549,8 +546,8 @@ mod find_references_tests {
   (map (lambda (y) (- y 1)) xs))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("builtin.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("builtin.scm", source);
 
         let locations = server
             .references(&uri, find(source, "map"), true)
@@ -568,12 +565,8 @@ mod find_references_tests {
 
     #[tokio::test]
     async fn references_in_an_unopened_document_are_not_reported() {
-        let source = r#"(define (add-one x)
-  (+ x 1))
-"#;
-
-        let mut server = TestServer::new().await;
-        let uri = server.write("never-opened.scm", source);
+        let server = TestServer::new();
+        let uri = server.unopened("never-opened.scm");
 
         assert_eq!(server.references(&uri, position(0, 10), true).await, None);
     }
@@ -598,13 +591,13 @@ mod workspace_tests {
   (greet "world"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("lib.scm", lib_source);
         server.write("app.scm", app_source);
         server.index_workspace();
 
-        let lib = server.open("lib.scm", lib_source).await;
-        let app = server.open("app.scm", app_source).await;
+        let lib = server.open("lib.scm", lib_source);
+        let app = server.open("app.scm", app_source);
 
         let expected = vec![
             Location::new(app.clone(), range_of(app_source, "greet")),
@@ -632,12 +625,12 @@ mod workspace_tests {
   (string-append "hello " name))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let outside = server.write_outside("outside-lib.scm", lib_source);
         server.index_path(&outside);
 
         let app_source = require_by_path(&outside);
-        let app = server.open("app.scm", &app_source).await;
+        let app = server.open("app.scm", &app_source);
 
         let location = server
             .definition_location(&app, call_site(&app_source))
@@ -655,12 +648,12 @@ mod workspace_tests {
   (string-append "hello " name))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let outside = server.write_outside("outside-lib.scm", lib_source);
         server.index_path(&outside);
 
         let app_source = require_by_path(&outside);
-        let app = server.open("app.scm", &app_source).await;
+        let app = server.open("app.scm", &app_source);
 
         let locations = server
             .references(&app, call_site(&app_source), true)
@@ -683,15 +676,15 @@ mod workspace_tests {
   (string-append "hello " name))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let outside = server.write_outside("outside-lib.scm", lib_source);
         server.index_path(&outside);
 
         let app_source = require_by_path(&outside);
-        let app = server.open("app.scm", &app_source).await;
+        let app = server.open("app.scm", &app_source);
 
         // opening it puts it in the vfs, which is what lifts the filter
-        server.did_open(outside.clone(), lib_source).await;
+        server.did_open(outside.clone(), lib_source);
 
         let locations = server
             .references(&app, call_site(&app_source), true)
@@ -754,14 +747,14 @@ mod require_graph_tests {
   (list (left-call) (right-call)))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("base.scm", base);
         server.write("left.scm", left);
         server.write("right.scm", right);
         server.write("diamond.scm", top);
         server.index_workspace();
 
-        let uri = server.open("base.scm", base).await;
+        let uri = server.open("base.scm", base);
 
         let locations = server
             .references(&uri, find_nth(base, "base-fn", 1), true)
@@ -796,13 +789,13 @@ mod require_graph_tests {
   (deep-fn 1))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         let deep_uri = server.write("deep.scm", deep);
         server.write("middle.scm", middle);
         server.write("top.scm", top);
         server.index_workspace();
 
-        let uri = server.open("top.scm", top).await;
+        let uri = server.open("top.scm", top);
 
         let location = server.definition_location(&uri, find(top, "deep-fn")).await;
 
@@ -827,13 +820,13 @@ mod require_graph_tests {
   (deep-fn 1))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("deep.scm", deep);
         server.write("middle.scm", middle);
         server.write("top.scm", top);
         server.index_workspace();
 
-        let uri = server.open("top.scm", top).await;
+        let uri = server.open("top.scm", top);
 
         let locations = server
             .references(&uri, find(top, "deep-fn"), true)
@@ -864,8 +857,8 @@ mod document_symbol_tests {
   (add-one result))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         let symbols = flat_symbols(server.document_symbol(&uri).await);
 
@@ -895,8 +888,8 @@ mod document_symbol_tests {
   (+ outer-star second-star))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("shapes.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("shapes.scm", source);
 
         let symbols = flat_symbols(server.document_symbol(&uri).await);
         let names: Vec<_> = symbols.iter().map(|x| x.name.as_str()).collect();
@@ -937,8 +930,8 @@ mod document_symbol_tests {
     (+ y plain-let-binding)))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("shapes.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("shapes.scm", source);
 
         let names: Vec<_> = flat_symbols(server.document_symbol(&uri).await)
             .into_iter()
@@ -951,12 +944,8 @@ mod document_symbol_tests {
 
     #[tokio::test]
     async fn document_symbols_in_an_unopened_document_are_not_reported() {
-        let source = r#"(define (add-one x)
-  (+ x 1))
-"#;
-
-        let mut server = TestServer::new().await;
-        let uri = server.write("never-opened.scm", source);
+        let server = TestServer::new();
+        let uri = server.unopened("never-opened.scm");
 
         assert!(server.document_symbol(&uri).await.is_none());
     }
@@ -971,8 +960,8 @@ mod hover_tests {
   (map (lambda (y) (* y 2)) xs))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("builtin.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("builtin.scm", source);
 
         let hover = server
             .hover(&uri, find(source, "map"))
@@ -997,8 +986,8 @@ mod hover_tests {
   (add-one 1))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("documented.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("documented.scm", source);
 
         let hover = server
             .hover(&uri, find_nth(source, "add-one", 1))
@@ -1025,11 +1014,11 @@ mod hover_tests {
   (twice 1))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("documented.scm", source);
         server.index_workspace();
 
-        let uri = server.open("documented.scm", source).await;
+        let uri = server.open("documented.scm", source);
 
         // macros aren't identifiers in the analysis, so this goes through the separate
         // hover_macro_impl fallback rather than hover_impl
@@ -1056,11 +1045,11 @@ mod hover_tests {
   (greet "world"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("lib.scm", lib_source);
         server.index_workspace();
 
-        let app = server.open("app.scm", app_source).await;
+        let app = server.open("app.scm", app_source);
 
         let hover = server
             .hover(&app, find(app_source, "greet"))
@@ -1098,12 +1087,12 @@ mod hover_tests {
   (shout "hi"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("macro-lib.scm", lib_source);
         server.write("macro-app.scm", app_source);
         server.index_workspace();
 
-        let uri = server.open("macro-app.scm", app_source).await;
+        let uri = server.open("macro-app.scm", app_source);
 
         let hover = server
             .hover(&uri, find(app_source, "shout"))
@@ -1128,11 +1117,11 @@ mod hover_tests {
   (undocumented 1 2))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("plain-lib.scm", lib_source);
         server.index_workspace();
 
-        let uri = server.open("plain-app.scm", app_source).await;
+        let uri = server.open("plain-app.scm", app_source);
 
         let hover = server
             .hover(&uri, find(app_source, "undocumented"))
@@ -1156,8 +1145,8 @@ mod hover_tests {
   (+ x 1))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         assert!(server.hover(&uri, find_nth(source, "x", 1)).await.is_none());
     }
@@ -1181,8 +1170,8 @@ mod completion_tests {
 (define gamma 3)
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("complete.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("complete.scm", source);
 
         // inside (+ alpha 1), right before alpha
         let labels = completion_labels(&mut server, &uri, position(1, 5)).await;
@@ -1219,8 +1208,8 @@ mod completion_tests {
 (define gamma 3)
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("complete.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("complete.scm", source);
 
         // immediately after the a of alpha, which follows a space
         let labels = completion_labels(&mut server, &uri, position(1, 6)).await;
@@ -1243,8 +1232,8 @@ mod completion_tests {
 (define gamma 3)
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("scopes.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("scopes.scm", source);
 
         // ( is the trigger character, so it must not be taken for the first letter of what
         // the user is typing. line 2 is `    (+ alpha local-binding)))`
@@ -1267,8 +1256,8 @@ mod completion_tests {
 (define gamma 3)
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("scopes.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("scopes.scm", source);
 
         let labels = completion_labels(&mut server, &uri, position(2, 5)).await;
 
@@ -1296,8 +1285,8 @@ mod completion_tests {
 (define gamma 3)
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("scopes.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("scopes.scm", source);
 
         let labels = completion_labels(&mut server, &uri, position(2, 5)).await;
 
@@ -1313,12 +1302,8 @@ mod completion_tests {
 
     #[tokio::test]
     async fn completion_in_an_unopened_document_is_not_reported() {
-        let source = r#"(define (outer alpha)
-  (+ alpha 1))
-"#;
-
-        let mut server = TestServer::new().await;
-        let uri = server.write("never-opened.scm", source);
+        let server = TestServer::new();
+        let uri = server.unopened("never-opened.scm");
 
         assert!(server.completion(&uri, position(1, 5)).await.is_none());
     }
@@ -1346,8 +1331,8 @@ mod rename_tests {
   (+ x 1))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         let position = find_nth(source, "x", 1);
 
@@ -1383,8 +1368,8 @@ mod rename_tests {
     (+ total other total)))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("let.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("let.scm", source);
 
         let edit = server
             .rename(&uri, find_nth(source, "total", 1), "sum")
@@ -1410,8 +1395,8 @@ mod rename_tests {
   (+ x 1))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         // renaming a top level define would have to touch every requiring file, which we
         // don't attempt
@@ -1432,7 +1417,7 @@ mod rename_tests {
   (map (lambda (y) (* y 2)) xs))
 "#;
 
-        let uri = server.open("builtin.scm", builtin).await;
+        let uri = server.open("builtin.scm", builtin);
 
         let error = server
             .prepare_rename(&uri, find(builtin, "map"))
@@ -1456,8 +1441,8 @@ mod diagnostics_tests {
   (undefined-function 10))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("free.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("free.scm", source);
 
         let diagnostics = server.diagnostics(&uri);
 
@@ -1484,8 +1469,8 @@ mod diagnostics_tests {
 (car)
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("arity.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("arity.scm", source);
 
         let messages: Vec<_> = server
             .diagnostics(&uri)
@@ -1518,8 +1503,8 @@ mod diagnostics_tests {
         (car)))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("arities.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("arities.scm", source);
 
         let mut diagnostics = server.diagnostics(&uri);
         diagnostics.sort_by_key(|d| d.range.start.line);
@@ -1570,8 +1555,8 @@ mod diagnostics_tests {
         (car '(1))))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("in-arity.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("in-arity.scm", source);
 
         assert_eq!(server.diagnostics(&uri), vec![]);
     }
@@ -1589,11 +1574,11 @@ mod diagnostics_tests {
   (greet "a" "b"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("arity-lib.scm", lib_source);
         server.index_workspace();
 
-        let uri = server.open("arity-app.scm", app_source).await;
+        let uri = server.open("arity-app.scm", app_source);
 
         // the arity has to be resolved out of the other module's ast to be known here
         let diagnostics = server.diagnostics(&uri);
@@ -1626,8 +1611,8 @@ mod diagnostics_tests {
   (add 1))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("contracted.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("contracted.scm", source);
 
         let messages: Vec<_> = server
             .diagnostics(&uri)
@@ -1649,8 +1634,8 @@ mod diagnostics_tests {
         let source = r#"(define (f x)
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("broken.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("broken.scm", source);
 
         let diagnostics = server.diagnostics(&uri);
 
@@ -1674,8 +1659,8 @@ mod diagnostics_tests {
   (add-one result))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("single.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("single.scm", source);
 
         assert_eq!(server.diagnostics(&uri), vec![]);
     }
@@ -1689,12 +1674,12 @@ mod diagnostics_tests {
   (+ x 1))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("fixup.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("fixup.scm", source);
 
         assert!(!server.diagnostics(&uri).is_empty());
 
-        server.did_change(uri.clone(), fixed).await;
+        server.did_change(uri.clone(), fixed);
 
         assert_eq!(server.diagnostics(&uri), vec![]);
     }
@@ -1712,8 +1697,8 @@ mod document_sync_tests {
 (renamed 1)
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("change.scm", original).await;
+        let mut server = TestServer::new();
+        let uri = server.open("change.scm", original);
 
         assert_eq!(
             flat_symbols(server.document_symbol(&uri).await)
@@ -1723,7 +1708,7 @@ mod document_sync_tests {
             vec!["f"]
         );
 
-        server.did_change(uri.clone(), updated).await;
+        server.did_change(uri.clone(), updated);
 
         assert_eq!(
             flat_symbols(server.document_symbol(&uri).await)
@@ -1760,15 +1745,15 @@ mod document_sync_tests {
   (greet "world"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("lib.scm", lib_source);
         server.write("app.scm", app_source);
         server.index_workspace();
 
-        let lib = server.open("lib.scm", lib_source).await;
-        server.open("app.scm", app_source).await;
+        let lib = server.open("lib.scm", lib_source);
+        server.open("app.scm", app_source);
 
-        server.did_change(lib.clone(), lib_edited).await;
+        server.did_change(lib.clone(), lib_edited);
 
         // the edited buffer's own analysis moves with it
         let symbols = flat_symbols(server.document_symbol(&lib).await);
@@ -1803,18 +1788,18 @@ mod document_sync_tests {
   (greet "world"))
 "#;
 
-        let mut server = TestServer::new().await;
+        let mut server = TestServer::new();
         server.write("lib.scm", lib_source);
         server.write("app.scm", app_source);
         server.index_workspace();
 
-        let lib = server.open("lib.scm", lib_source).await;
-        let app = server.open("app.scm", app_source).await;
+        let lib = server.open("lib.scm", lib_source);
+        let app = server.open("app.scm", app_source);
 
-        server.did_change(lib.clone(), lib_edited).await;
+        server.did_change(lib.clone(), lib_edited);
 
         // re-analyze the consumer, the way switching tabs would
-        server.did_change(app.clone(), app_source).await;
+        server.did_change(app.clone(), app_source);
 
         let location = server
             .definition_location(&app, find(app_source, "greet"))
@@ -1829,15 +1814,15 @@ mod offset_encoding_tests {
     use super::*;
 
     #[tokio::test]
-    async fn positions_are_utf16_code_units_by_default() {
+    async fn positions_are_utf16_code_units() {
         // grüße and naïve-name take a different number of bytes, utf16 code units and
         // characters, which is what the conversions have to get right
         let source = r#"(define (grüße naïve-name)
   (list naïve-name naïve-name))
 "#;
 
-        let mut server = TestServer::new().await;
-        let uri = server.open("unicode.scm", source).await;
+        let mut server = TestServer::new();
+        let uri = server.open("unicode.scm", source);
 
         // `(define (grüße ` is 15 code units, and naïve-name is 10
         let declaration = Range::new(Position::new(0, 15), Position::new(0, 25));
@@ -1864,15 +1849,15 @@ mod offset_encoding_tests {
     }
 
     #[tokio::test]
-    async fn positions_are_bytes_when_utf8_is_negotiated() {
+    async fn positions_are_bytes_in_utf8() {
         // grüße and naïve-name take a different number of bytes, utf16 code units and
         // characters, which is what the conversions have to get right
         let source = r#"(define (grüße naïve-name)
   (list naïve-name naïve-name))
 "#;
 
-        let mut server = TestServer::with_encodings(&[PositionEncodingKind::UTF8]).await;
-        let uri = server.open("unicode.scm", source).await;
+        let mut server = TestServer::with_encoding(OffsetEncoding::Utf8);
+        let uri = server.open("unicode.scm", source);
 
         // same source, but now ü and ï count as two each
         let declaration = Range::new(Position::new(0, 17), Position::new(0, 28));

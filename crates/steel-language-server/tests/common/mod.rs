@@ -1,17 +1,18 @@
+// Harness for driving the language server backend the way an editor would, minus the
+// JSON-RPC layer. Tests call Backend's inherent methods, so what's under test is our
+// analysis and span conversion rather than tower-lsp's plumbing.
+
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use dashmap::{DashMap, DashSet};
-use futures::StreamExt;
-use serde::de::DeserializeOwned;
-use steel_language_server::backend::{visible_globals, Backend, Config, ENGINE};
-use tower::{Service, ServiceExt};
-use tower_lsp::jsonrpc::Request;
+use steel_language_server::backend::{visible_globals, Backend, Config, OffsetEncoding, ENGINE};
 use tower_lsp::lsp_types::*;
 use tower_lsp::LspService;
 
+// point the lint engine at a scratch directory so we never pick up the developer's real
+// lint configuration
 fn isolate_lsp_home() {
     static LSP_HOME: OnceLock<PathBuf> = OnceLock::new();
 
@@ -24,33 +25,37 @@ fn isolate_lsp_home() {
 }
 
 pub struct TestServer {
+    // only here to own the Backend - a Client can't be built any other way, and nothing
+    // the tests call ever touches it
     service: LspService<Backend>,
     root: PathBuf,
-    published: Arc<Mutex<HashMap<Url, Vec<Diagnostic>>>>,
-    next_id: AtomicI64,
+    diagnostics: HashMap<Url, Vec<Diagnostic>>,
+    // the engine keeps compiled modules keyed by these paths, which is fine as long as
+    // every test gets a directory of its own
     _workspace: tempfile::TempDir,
+    // a second directory, deliberately not under the workspace root
     outside: tempfile::TempDir,
 }
 
 impl TestServer {
-    pub async fn new() -> Self {
-        Self::with_encodings(&[]).await
+    pub fn new() -> Self {
+        Self::with_encoding(OffsetEncoding::Utf16)
     }
 
-    pub async fn with_encodings(encodings: &[PositionEncodingKind]) -> Self {
+    pub fn with_encoding(encoding: OffsetEncoding) -> Self {
         isolate_lsp_home();
 
         let workspace = tempfile::tempdir().expect("unable to create a temp workspace");
 
+        // canonicalize matters on macos, where the temp dir is a symlink into /private.
+        // url round trips have to agree with the paths the engine records or nothing
+        // resolves
         let root = workspace
             .path()
             .canonicalize()
             .expect("unable to canonicalize the temp workspace");
 
-        let published: Arc<Mutex<HashMap<Url, Vec<Diagnostic>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-
-        let (service, socket) = LspService::build(|client| Backend {
+        let (service, _socket) = LspService::build(|client| Backend {
             config: Config::new(),
             client,
             vfs: DashMap::new(),
@@ -66,70 +71,21 @@ impl TestServer {
         })
         .finish();
 
-        {
-            let published = published.clone();
-            tokio::spawn(async move {
-                let mut socket = socket;
-                while let Some(request) = socket.next().await {
-                    if request.method() != "textDocument/publishDiagnostics" {
-                        continue;
-                    }
-
-                    if let Some(params) = request.params() {
-                        if let Ok(params) =
-                            serde_json::from_value::<PublishDiagnosticsParams>(params.clone())
-                        {
-                            published
-                                .lock()
-                                .unwrap()
-                                .insert(params.uri, params.diagnostics);
-                        }
-                    }
-                }
-            });
-        }
-
-        let mut server = TestServer {
+        let server = TestServer {
             service,
             root,
-            published,
-            next_id: AtomicI64::new(1),
+            diagnostics: HashMap::new(),
             _workspace: workspace,
             outside: tempfile::tempdir().expect("unable to create the out of workspace directory"),
         };
 
-        server.initialize(encodings).await;
+        server.backend().config.encoding.store(encoding);
 
         server
     }
 
-    async fn initialize(&mut self, encodings: &[PositionEncodingKind]) {
-        let general = if encodings.is_empty() {
-            None
-        } else {
-            Some(GeneralClientCapabilities {
-                position_encodings: Some(encodings.to_vec()),
-                ..Default::default()
-            })
-        };
-
-        #[allow(deprecated)]
-        let params = InitializeParams {
-            root_uri: Some(self.root_uri()),
-            capabilities: ClientCapabilities {
-                general,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let _: InitializeResult = self.request("initialize", params).await.unwrap();
-
-        self.notify("initialized", InitializedParams {}).await;
-    }
-
-    pub fn root_uri(&self) -> Url {
-        Url::from_file_path(&self.root).unwrap()
+    fn backend(&self) -> &Backend {
+        self.service.inner()
     }
 
     pub fn write(&self, name: &str, contents: &str) -> Url {
@@ -144,6 +100,14 @@ impl TestServer {
         Url::from_file_path(&path).unwrap()
     }
 
+    // A uri under the workspace root for a file that is never written or opened. The
+    // queries bail on the document maps before they reach the filesystem.
+    pub fn unopened(&self, name: &str) -> Url {
+        Url::from_file_path(self.root.join(name)).unwrap()
+    }
+
+    // Writes a fixture file outside the workspace root, the way a library in $STEEL_HOME
+    // or a sibling checkout would sit. We treat those differently from files we own.
     pub fn write_outside(&self, name: &str, contents: &str) -> Url {
         let path = self.outside.path().canonicalize().unwrap().join(name);
 
@@ -152,12 +116,15 @@ impl TestServer {
         Url::from_file_path(&path).unwrap()
     }
 
+    // Requires a single file into the engine, without treating it as part of the workspace.
     pub fn index_path(&self, uri: &Url) {
         let path = uri.to_file_path().unwrap();
         let mut guard = ENGINE.write().unwrap();
         let _ = guard.emit_expanded_ast(&format!(r"(require {:?})", path), None);
     }
 
+    // Mirrors the indexing the binary does on startup - every .scm file under the root
+    // gets required so the engine knows about its module.
     pub fn index_workspace(&self) {
         let mut paths: Vec<PathBuf> = Vec::new();
 
@@ -171,6 +138,7 @@ impl TestServer {
             paths.push(path.to_path_buf());
         }
 
+        // deterministic order, so a failure is reproducible
         paths.sort();
 
         for path in paths {
@@ -179,60 +147,38 @@ impl TestServer {
         }
     }
 
-    pub async fn open(&mut self, name: &str, contents: &str) -> Url {
+    pub fn open(&mut self, name: &str, contents: &str) -> Url {
         let uri = self.write(name, contents);
-        self.did_open(uri.clone(), contents).await;
+        self.did_open(uri.clone(), contents);
         uri
     }
 
-    pub async fn did_open(&mut self, uri: Url, contents: &str) {
-        self.notify(
-            "textDocument/didOpen",
-            DidOpenTextDocumentParams {
-                text_document: TextDocumentItem {
-                    uri,
-                    language_id: "scheme".to_string(),
-                    version: 1,
-                    text: contents.to_string(),
-                },
-            },
-        )
-        .await;
+    pub fn did_open(&mut self, uri: Url, contents: &str) {
+        let diagnostics = self.backend().analyze(&uri, contents.to_string());
+        self.diagnostics.insert(uri, diagnostics);
     }
 
-    pub async fn did_change(&mut self, uri: Url, contents: &str) {
-        self.notify(
-            "textDocument/didChange",
-            DidChangeTextDocumentParams {
-                text_document: VersionedTextDocumentIdentifier { uri, version: 2 },
-                content_changes: vec![TextDocumentContentChangeEvent {
-                    range: None,
-                    range_length: None,
-                    text: contents.to_string(),
-                }],
-            },
-        )
-        .await;
+    pub fn did_change(&mut self, uri: Url, contents: &str) {
+        self.did_open(uri, contents);
+    }
+
+    // The diagnostics from the last time this document was opened or changed.
+    pub fn diagnostics(&self, uri: &Url) -> Vec<Diagnostic> {
+        self.diagnostics.get(uri).cloned().unwrap_or_default()
     }
 
     pub async fn goto_definition(
-        &mut self,
+        &self,
         uri: &Url,
         position: Position,
     ) -> Option<GotoDefinitionResponse> {
-        self.request(
-            "textDocument/definition",
-            GotoDefinitionParams {
-                text_document_position_params: text_document_position(uri, position),
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            },
-        )
-        .await
-        .unwrap()
+        self.backend()
+            .goto_definition_impl(uri.clone(), position)
+            .await
     }
 
-    pub async fn definition_location(&mut self, uri: &Url, position: Position) -> Location {
+    // Narrows goto definition down to a single location, failing the test otherwise.
+    pub async fn definition_location(&self, uri: &Url, position: Position) -> Location {
         match self.goto_definition(uri, position).await {
             Some(GotoDefinitionResponse::Scalar(location)) => location,
             Some(GotoDefinitionResponse::Array(mut locations)) if locations.len() == 1 => {
@@ -243,175 +189,57 @@ impl TestServer {
     }
 
     pub async fn references(
-        &mut self,
+        &self,
         uri: &Url,
         position: Position,
         include_declaration: bool,
     ) -> Option<Vec<Location>> {
-        self.request(
-            "textDocument/references",
-            ReferenceParams {
-                text_document_position: text_document_position(uri, position),
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-                context: ReferenceContext {
-                    include_declaration,
-                },
-            },
-        )
-        .await
-        .unwrap()
+        self.backend()
+            .references_impl(uri.clone(), position, include_declaration)
+            .await
     }
 
-    pub async fn hover(&mut self, uri: &Url, position: Position) -> Option<Hover> {
-        self.request(
-            "textDocument/hover",
-            HoverParams {
-                text_document_position_params: text_document_position(uri, position),
-                work_done_progress_params: Default::default(),
-            },
-        )
-        .await
-        .unwrap()
+    pub async fn hover(&self, uri: &Url, position: Position) -> Option<Hover> {
+        self.backend().hover_impl(uri.clone(), position).await
     }
 
-    pub async fn document_symbol(&mut self, uri: &Url) -> Option<DocumentSymbolResponse> {
-        self.request(
-            "textDocument/documentSymbol",
-            DocumentSymbolParams {
-                text_document: TextDocumentIdentifier { uri: uri.clone() },
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            },
-        )
-        .await
-        .unwrap()
+    pub async fn document_symbol(&self, uri: &Url) -> Option<DocumentSymbolResponse> {
+        self.backend().document_symbol_impl(uri.clone()).await
     }
 
-    pub async fn completion(
-        &mut self,
-        uri: &Url,
-        position: Position,
-    ) -> Option<CompletionResponse> {
-        self.request(
-            "textDocument/completion",
-            CompletionParams {
-                text_document_position: text_document_position(uri, position),
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-                context: None,
-            },
-        )
-        .await
-        .unwrap()
+    pub async fn completion(&self, uri: &Url, position: Position) -> Option<CompletionResponse> {
+        self.backend().completion_impl(uri.clone(), position).await
     }
 
     pub async fn prepare_rename(
-        &mut self,
+        &self,
         uri: &Url,
         position: Position,
     ) -> Result<Option<PrepareRenameResponse>, tower_lsp::jsonrpc::Error> {
-        self.request(
-            "textDocument/prepareRename",
-            text_document_position(uri, position),
-        )
-        .await
+        self.backend()
+            .prepare_rename_impl(uri.clone(), position)
+            .await
     }
 
     pub async fn rename(
-        &mut self,
+        &self,
         uri: &Url,
         position: Position,
         new_name: &str,
     ) -> Option<WorkspaceEdit> {
-        self.request(
-            "textDocument/rename",
-            RenameParams {
-                text_document_position: text_document_position(uri, position),
-                new_name: new_name.to_string(),
-                work_done_progress_params: Default::default(),
-            },
-        )
-        .await
-        .unwrap()
-    }
-
-    pub fn diagnostics(&self, uri: &Url) -> Vec<Diagnostic> {
-        self.published
-            .lock()
-            .unwrap()
-            .get(uri)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    async fn request<P, R>(
-        &mut self,
-        method: &'static str,
-        params: P,
-    ) -> Result<R, tower_lsp::jsonrpc::Error>
-    where
-        P: serde::Serialize,
-        R: DeserializeOwned,
-    {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-
-        let request = Request::build(method)
-            .id(id)
-            .params(serde_json::to_value(params).unwrap())
-            .finish();
-
-        let response = ServiceExt::<Request>::ready(&mut self.service)
+        self.backend()
+            .rename_impl(uri.clone(), position, new_name.to_string())
             .await
-            .expect("the language server has exited")
-            .call(request)
-            .await
-            .expect("the language server has exited")
-            .unwrap_or_else(|| panic!("no response for {}", method));
-
-        let (_, result) = response.into_parts();
-
-        result.map(|value| {
-            serde_json::from_value(value)
-                .unwrap_or_else(|e| panic!("could not decode the {} response: {}", method, e))
-        })
-    }
-
-    async fn notify<P: serde::Serialize>(&mut self, method: &'static str, params: P) {
-        let request = Request::build(method)
-            .params(serde_json::to_value(params).unwrap())
-            .finish();
-
-        let response = ServiceExt::<Request>::ready(&mut self.service)
-            .await
-            .expect("the language server has exited")
-            .call(request)
-            .await
-            .expect("the language server has exited");
-
-        assert!(
-            response.is_none(),
-            "notifications should not produce a response"
-        );
-
-        // Just try to make sure all the messages make it through
-        for _ in 0..10 {
-            tokio::task::yield_now().await;
-        }
     }
 }
 
-fn text_document_position(uri: &Url, position: Position) -> TextDocumentPositionParams {
-    TextDocumentPositionParams {
-        text_document: TextDocumentIdentifier { uri: uri.clone() },
-        position,
-    }
-}
-
+// Zero based (line, character).
 pub fn position(line: u32, character: u32) -> Position {
     Position::new(line, character)
 }
 
+// The position of the first character of the nth (zero indexed) occurrence of `needle`.
+// Keeps the tests readable, and honest when a fixture gets reformatted.
 pub fn find_nth(text: &str, needle: &str, n: usize) -> Position {
     let offset = text
         .match_indices(needle)
@@ -422,10 +250,12 @@ pub fn find_nth(text: &str, needle: &str, n: usize) -> Position {
     offset_to_position(text, offset)
 }
 
+// find_nth, for the first occurrence.
 pub fn find(text: &str, needle: &str) -> Position {
     find_nth(text, needle, 0)
 }
 
+// The range covering the nth (zero indexed) occurrence of `needle`.
 pub fn range_of_nth(text: &str, needle: &str, n: usize) -> Range {
     let start = find_nth(text, needle, n);
 
@@ -435,6 +265,7 @@ pub fn range_of_nth(text: &str, needle: &str, n: usize) -> Range {
     )
 }
 
+// The range covering the first occurrence of `needle`.
 pub fn range_of(text: &str, needle: &str) -> Range {
     range_of_nth(text, needle, 0)
 }
@@ -443,9 +274,13 @@ fn offset_to_position(text: &str, offset: usize) -> Position {
     let line = text[..offset].matches('\n').count() as u32;
     let line_start = text[..offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
 
+    // the fixtures using these helpers are ascii, so byte and character offsets agree
     Position::new(line, (offset - line_start) as u32)
 }
 
+// Sorts locations so a test can compare them without depending on discovery order.
+// Deliberately does not dedupe - emitting the same location twice is a bug we want to
+// catch.
 pub fn sorted(mut locations: Vec<Location>) -> Vec<Location> {
     locations.sort_by(|a, b| {
         a.uri
@@ -457,12 +292,18 @@ pub fn sorted(mut locations: Vec<Location>) -> Vec<Location> {
     locations
 }
 
+// sorted with duplicates collapsed. For the cases where we know the same location comes
+// back more than once, so the test still pins down what was found. See
+// references_does_not_report_duplicate_locations.
 pub fn deduped(locations: Vec<Location>) -> Vec<Location> {
     let mut locations = sorted(locations);
     locations.dedup();
     locations
 }
 
+// Reduces locations to (file name, range), sorted and deduped. Use this instead of deduped
+// when the locations can live in different directories - sorting whole uris would depend on
+// the random temp directory names.
 pub fn by_file(locations: Vec<Location>) -> Vec<(String, Range)> {
     let mut named: Vec<(String, Range)> = locations
         .into_iter()
@@ -478,6 +319,7 @@ pub fn by_file(locations: Vec<Location>) -> Vec<(String, Range)> {
     named
 }
 
+// The last path segment of a file uri.
 pub fn file_name(uri: &Url) -> String {
     uri.path_segments()
         .and_then(|mut segments| segments.next_back())

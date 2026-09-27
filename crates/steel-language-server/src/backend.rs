@@ -258,150 +258,18 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let function_or_ident_result = self.hover_impl(&params).await;
+        let position = params.text_document_position_params;
 
-        if let Some(res) = function_or_ident_result {
-            return Ok(Some(res));
-        }
-
-        Ok(self.hover_macro_impl(params))
+        Ok(self
+            .hover_impl(position.text_document.uri, position.position)
+            .await)
     }
 
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let symbols = async {
-            let uri = params.text_document.uri;
-            let mut ast = self.raw_ast_map.get_mut(uri.as_str())?;
-            let mut rope = self.document_map.get(uri.as_str())?.clone();
-
-            let analysis = SemanticAnalysis::new(&mut ast);
-
-            let top_level_defs: Vec<SymbolInformation> = {
-                let definitions = analysis.find_top_level_definitions();
-
-                definitions
-                    .iter()
-                    .map(|(name, kind, span)| {
-                        let container_name = span.source_id.and_then(|source_id| {
-                            let contexts = analysis
-                                .find_contexts_with_offset(span.start() as usize, source_id);
-
-                            if contexts.is_empty() {
-                                return None;
-                            }
-
-                            match &contexts.first().unwrap() {
-                                SemanticInformationType::Variable(v) => {
-                                    Some("variable".to_string())
-                                }
-                                SemanticInformationType::Function(f) => match f.aliases_to {
-                                    Some(function_name_id) => {
-                                        match kind {
-                                            ExprKind::LambdaFunction(symbol) => None, // if symbol.syntax_object_id == function_name_id.0 => None,
-                                            _ => {
-                                                let mut id_to_str = HashMap::new();
-                                                id_to_str.insert(function_name_id, None);
-                                                analysis.syntax_object_ids_to_identifiers(
-                                                    &mut id_to_str,
-                                                );
-
-                                                match id_to_str.get(&function_name_id) {
-                                                    Some(Some(name)) => Some(name.to_string()),
-                                                    _ => Some("lambda function".to_string()),
-                                                }
-                                            }
-                                        }
-                                    }
-                                    _ => Some("lambda function".to_string()),
-                                },
-                                SemanticInformationType::CallSite(c) => Some("call".to_string()),
-                                SemanticInformationType::Let(l) => Some("let".to_string()),
-                            }
-                        });
-
-                        #[allow(deprecated)]
-                        SymbolInformation {
-                            name: name.resolve().into(),
-                            kind: match kind {
-                                ExprKind::LambdaFunction(_) => SymbolKind::FUNCTION,
-                                _ => SymbolKind::CONSTANT,
-                            },
-                            tags: None,
-                            deprecated: None,
-                            location: Location {
-                                uri: uri.clone(),
-                                range: self.config.span_to_range(span, &rope).unwrap(),
-                            },
-                            container_name,
-                        }
-                    })
-                    .collect()
-            };
-
-            let let_bindings: Vec<SymbolInformation> = {
-                let definitions = analysis.find_let_bindings();
-
-                definitions
-                    .iter()
-                    .map(|(name, span)| {
-                        let container_name = span.source_id.and_then(|source_id| {
-                            let contexts = analysis
-                                .find_contexts_with_offset(span.start() as usize, source_id);
-
-                            if contexts.is_empty() {
-                                return None;
-                            }
-
-                            match &contexts.first().unwrap() {
-                                SemanticInformationType::Variable(v) => {
-                                    Some("variable".to_string())
-                                }
-                                SemanticInformationType::Function(f) => match f.aliases_to {
-                                    Some(function_name_id) => {
-                                        let mut id_to_str = HashMap::new();
-                                        id_to_str.insert(function_name_id, None);
-                                        analysis.syntax_object_ids_to_identifiers(&mut id_to_str);
-
-                                        match id_to_str.get(&function_name_id) {
-                                            Some(Some(name)) => Some(name.to_string()),
-                                            _ => Some("function".to_string()),
-                                        }
-                                    }
-                                    _ => Some("function".to_string()),
-                                },
-                                SemanticInformationType::CallSite(c) => Some("call".to_string()),
-                                SemanticInformationType::Let(l) => Some("let".to_string()),
-                            }
-                        });
-
-                        #[allow(deprecated)]
-                        SymbolInformation {
-                            name: name.to_string(),
-                            kind: SymbolKind::VARIABLE,
-                            tags: None,
-                            deprecated: None,
-                            location: Location {
-                                uri: uri.clone(),
-                                range: self.config.span_to_range(span, &rope).unwrap(),
-                            },
-                            container_name,
-                        }
-                    })
-                    .collect()
-            };
-
-            let result = top_level_defs
-                .into_iter()
-                .chain(let_bindings.into_iter())
-                .collect::<Vec<_>>();
-
-            Some(DocumentSymbolResponse::Flat(result))
-        }
-        .await;
-
-        Ok(symbols)
+        Ok(self.document_symbol_impl(params.text_document.uri).await)
     }
 
     // TODO: For macros (and otherwise for find references to)
@@ -412,525 +280,26 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let mut found_offset = None;
-        let uri = params.text_document_position_params.text_document.uri;
-        // TODO: In order for this to work, we'll have to both
-        // expose a span -> URI function, as well as figure out how to
-        // decide if a definition refers to an import. I think deciding
-        // if something is a module import should be like:
-        let definition = async {
-            let mut ast = self.ast_map.get_mut(uri.as_str())?;
-            let mut rope = self.document_map.get(uri.as_str())?.clone();
+        let position = params.text_document_position_params;
 
-            let position = params.text_document_position_params.position;
-            let offset = self.config.position_to_offset(position, &rope)?;
-
-            found_offset = Some(offset);
-
-            let analysis = SemanticAnalysis::new(&mut ast);
-
-            let (_syntax_object_id, information) =
-                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
-
-            let refers_to = information.refers_to?;
-
-            let maybe_definition = analysis.get_identifier(refers_to)?;
-
-            let mut resulting_span = maybe_definition.span;
-
-            // log::debug!("Refers to information: {:?}", &maybe_definition);
-
-            let mut resolver = |mut interned: InternedString,
-                                name: String,
-                                original|
-             -> Option<()> {
-                let maybe_renamed = interned;
-
-                if let Some(original) = original {
-                    if interned != original {
-                        interned = original;
-                    }
-                }
-
-                let mut module_prefix_path_to_check =
-                    name.trim_end_matches(if maybe_renamed == interned {
-                        interned.resolve()
-                    } else {
-                        maybe_renamed.resolve()
-                    });
-
-                resulting_span = {
-                    let guard = ENGINE.read().ok()?;
-
-                    let modules = guard.modules();
-
-                    let module = modules
-                        .values()
-                        .find(|x| x.prefix() == module_prefix_path_to_check)?;
-
-                    let module_ast = module.get_ast();
-
-                    let top_level_define = query_top_level_define(module_ast, interned.resolve())
-                        .or_else(|| {
-                        query_top_level_define_on_condition(
-                            module_ast,
-                            interned.resolve(),
-                            |name, target| target.ends_with(name),
-                        )
-                    })?;
-
-                    top_level_define.name.atom_syntax_object().map(|x| x.span)?
-                };
-
-                Some(())
-            };
-
-            if maybe_definition.is_required_identifier {
-                match analysis.resolve_required_identifier(refers_to)? {
-                    RequiredIdentifierInformation::Resolved(
-                        resolved,
-                        mut interned,
-                        name,
-                        original,
-                    ) => {
-                        if let Some(original) = original {
-                            if interned != original {
-                                // Just call the unresolved
-                                // todo!()
-
-                                resolver(interned, name, Some(original))?;
-                            } else {
-                                resulting_span = resolved.span;
-                            }
-                        } else {
-                            resulting_span = resolved.span;
-                        }
-                    }
-
-                    RequiredIdentifierInformation::Unresolved(mut interned, name, original) => {
-                        resolver(interned, name, original)?;
-                    }
-                }
-
-                // log::debug!("Found new definition: {:?}", maybe_definition);
-            }
-
-            let location = source_id_to_uri(resulting_span.source_id()?)?;
-
-            if location != uri {
-                // log::debug!("Jumping to definition that is not yet in the document map!");
-
-                let expression = ENGINE
-                    .read()
-                    .ok()?
-                    .get_source(&resulting_span.source_id()?)?;
-
-                rope = self
-                    .document_map
-                    .get(location.as_str())
-                    .map(|x| x.clone())
-                    .unwrap_or_else(|| Rope::from_str(&expression));
-
-                self.document_map.insert(location.to_string(), rope.clone());
-            }
-
-            let range = self.config.span_to_range(&resulting_span, &rope)?;
-            Some(GotoDefinitionResponse::Scalar(Location::new(
-                location, range,
-            )))
-        }
-        .await;
-
-        // Attempt a fallback with the new goto definition stuff!
-        if definition.is_none() {
-            let raw_ast = self.raw_ast_map.get(uri.as_str());
-            if let Some(rope) = self
-                .document_map
-                .get(uri.as_str())
-                .map(|x| x.value().clone())
-            {
-                if let Some(raw_ast) = raw_ast {
-                    if let Some(offset) = found_offset {
-                        let ident = find_identifier_at_position(&raw_ast, offset as _);
-                        if let Some(ident) = ident {
-                            eprintln!("Unable to find a definition for: {}", ident.resolve());
-                            // Check if this is a macro invocation:
-                            let path = PathBuf::from(uri.path());
-                            {
-                                let mut guard = ENGINE.write().unwrap();
-                                let macro_env_before: HashSet<InternedString> =
-                                    guard.in_scope_macros().keys().copied().collect();
-
-                                // TODO: Add span to the macro definition!
-                                let mut introduced_macros: HashMap<InternedString, SteelMacro> =
-                                    HashMap::new();
-
-                                // Re run the analysis
-                                if let Err(e) =
-                                    guard.emit_expanded_ast(&format!("(require: {:?})", path), None)
-                                {
-                                    eprintln!("Unable to load module: {:?}", e);
-                                }
-
-                                guard.in_scope_macros_mut().retain(|key, value| {
-                                    if macro_env_before.contains(key) {
-                                        return true;
-                                    } else {
-                                        // FIXME: Try to avoid this clone!
-                                        introduced_macros.insert(*key, value.clone());
-                                        false
-                                    }
-                                });
-                            }
-
-                            // Look at the macros that are in scope, just see what matches,
-                            // grab the span for it.
-
-                            let modules = { ENGINE.read().unwrap().modules().clone() };
-
-                            if let Some(found_mod) = modules.get(&path) {
-                                let macros = found_mod.get_macros();
-
-                                let found = macros.get(&ident);
-
-                                if let Some(found) = found {
-                                    let location = found.span();
-
-                                    if let Some(range) = self.config.span_to_range(&location, &rope)
-                                    {
-                                        return Ok(Some(GotoDefinitionResponse::Scalar(
-                                            Location::new(uri, range),
-                                        )));
-                                    }
-                                } else {
-                                    for req in found_mod.get_requires() {
-                                        let path = req.path.get_path();
-
-                                        if !path.exists() {
-                                            continue;
-                                        }
-
-                                        let mut found_ident = ident;
-
-                                        if let Some(prefix) = &req.prefix {
-                                            if let Some(stripped) =
-                                                found_ident.resolve().strip_prefix(prefix)
-                                            {
-                                                found_ident = stripped.into();
-                                            }
-                                        }
-
-                                        if !req.idents_to_import.is_empty() {
-                                            let mut found = false;
-                                            // TODO: Handle prefix!
-                                            for idents_to_import in &req.idents_to_import {
-                                                match idents_to_import {
-                                                    MaybeRenamed::Normal(expr_kind) => {
-                                                        if expr_kind.atom_identifier().copied()
-                                                            == Some(found_ident)
-                                                        {
-                                                            found = true;
-                                                            break;
-                                                        }
-                                                    }
-                                                    MaybeRenamed::Renamed(
-                                                        expr_kind,
-                                                        expr_kind1,
-                                                    ) => {
-                                                        if expr_kind1.atom_identifier().copied()
-                                                            == Some(found_ident)
-                                                        {
-                                                            found = true;
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            if !found {
-                                                continue;
-                                            } else {
-                                                // Use the found ident
-                                                let found_mod = modules.get(path.as_ref()).unwrap();
-                                                let macros = found_mod.get_macros();
-                                                if let Some(found) = macros.get(&found_ident) {
-                                                    let location = found.span();
-
-                                                    let mut locations = vec![];
-
-                                                    self.spans_to_locations(
-                                                        &ENGINE.read().unwrap(),
-                                                        vec![location],
-                                                        &mut locations,
-                                                    );
-
-                                                    return Ok(locations
-                                                        .into_iter()
-                                                        .next()
-                                                        .map(GotoDefinitionResponse::Scalar));
-                                                }
-                                            }
-                                        } else {
-                                            // Just check the macros anyway
-                                            let found_mod = modules.get(path.as_ref()).unwrap();
-                                            let macros = found_mod.get_macros();
-                                            if let Some(found) = macros.get(&found_ident) {
-                                                let location = found.span();
-
-                                                let mut locations = vec![];
-
-                                                self.spans_to_locations(
-                                                    &ENGINE.read().unwrap(),
-                                                    vec![location],
-                                                    &mut locations,
-                                                );
-
-                                                return Ok(locations
-                                                    .into_iter()
-                                                    .next()
-                                                    .map(GotoDefinitionResponse::Scalar));
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                eprintln!("Unable to find module: {:?}", path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(definition)
+        Ok(self
+            .goto_definition_impl(position.text_document.uri, position.position)
+            .await)
     }
 
     // Finding references:
     // Go over every file, and then iterate over each module
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let mut found_locations = Vec::new();
+        let include_declaration = params.context.include_declaration;
+        let position = params.text_document_position;
 
-        let definition = async {
-            let uri = params.text_document_position.text_document.uri.clone();
-
-            let mut ast = self.ast_map.get_mut(uri.as_str())?;
-            let mut rope = self.document_map.get(uri.as_str())?.clone();
-
-            let position = params.text_document_position.position;
-            let offset = self.config.position_to_offset(position, &rope)?;
-
-            let analysis = SemanticAnalysis::new(&mut ast);
-
-            let (syntax_object_id, information) =
-                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
-
-            // If this is a built in, lets just bail
-            if information.builtin {
-                if let Some(mut l) = self
-                    .find_references_builtin(&analysis, *syntax_object_id, information)
-                    .await
-                {
-                    found_locations.append(&mut l);
-                }
-            }
-
-            // Either refers to something, or is the existing definition
-            let refers_to = information.refers_to.unwrap_or_else(|| {
-                eprintln!("Unable to find a refers to for this identifier");
-                *syntax_object_id
-            });
-
-            {
-                let mut spans = Vec::new();
-                for (_, info) in analysis.analysis.identifier_info() {
-                    if let Some(found_refers_to) = info.refers_to {
-                        if found_refers_to == refers_to {
-                            spans.push(info.span);
-                        }
-                    }
-                }
-
-                self.spans_to_locations(&ENGINE.read().unwrap(), spans, &mut found_locations)
-            }
-
-            // Find all the locations which refer to it
-
-            let maybe_definition = analysis.get_identifier(refers_to)?;
-
-            let mut identifier = None;
-            let mut resulting_span = maybe_definition.span;
-
-            let mut module_path = None;
-
-            for expr in analysis.exprs.iter() {
-                match expr {
-                    ExprKind::Define(d) => {
-                        if d.name_id() == Some(refers_to) {
-                            identifier = d
-                                .name
-                                .atom_syntax_object()
-                                .and_then(|x| x.ty.identifier().cloned());
-                        }
-                    }
-                    ExprKind::Begin(b) => {
-                        for expr in &b.exprs {
-                            if let ExprKind::Define(d) = expr {
-                                if d.name_id() == Some(refers_to) {
-                                    identifier = d
-                                        .name
-                                        .atom_syntax_object()
-                                        .and_then(|x| x.ty.identifier().cloned());
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            let mut resolver = |mut interned: InternedString,
-                                name: String,
-                                original|
-             -> Option<()> {
-                let maybe_renamed = interned;
-
-                if let Some(original) = original {
-                    if interned != original {
-                        interned = original;
-                    }
-                }
-
-                let mut module_prefix_path_to_check =
-                    name.trim_end_matches(if maybe_renamed == interned {
-                        interned.resolve()
-                    } else {
-                        maybe_renamed.resolve()
-                    });
-
-                resulting_span = {
-                    let guard = ENGINE.read().ok()?;
-
-                    let modules = guard.modules();
-
-                    let module = modules
-                        .values()
-                        .find(|x| x.prefix() == module_prefix_path_to_check)?;
-
-                    module_path = Some(module.name().to_owned());
-
-                    let module_ast = module.get_ast();
-
-                    let top_level_define = query_top_level_define(module_ast, interned.resolve())
-                        .or_else(|| {
-                        query_top_level_define_on_condition(
-                            module_ast,
-                            interned.resolve(),
-                            |name, target| target.ends_with(name),
-                        )
-                    })?;
-
-                    let syntax = top_level_define.name.atom_syntax_object()?;
-
-                    identifier = syntax.ty.identifier().cloned();
-
-                    syntax.span
-                };
-
-                Some(())
-            };
-
-            if maybe_definition.is_required_identifier {
-                match analysis.resolve_required_identifier(refers_to)? {
-                    RequiredIdentifierInformation::Resolved(
-                        resolved,
-                        mut interned,
-                        name,
-                        original,
-                    ) => {
-                        if let Some(original) = original {
-                            if interned != original {
-                                resolver(interned, name, Some(original))?;
-                            } else {
-                                resulting_span = resolved.span;
-
-                                identifier = Some(original);
-                            }
-                        } else {
-                            resulting_span = resolved.span;
-
-                            identifier = Some(name.into());
-                        }
-                    }
-
-                    RequiredIdentifierInformation::Unresolved(mut interned, name, original) => {
-                        resolver(interned, name, original)?;
-                    }
-                }
-            }
-
-            let location = source_id_to_uri(resulting_span.source_id()?)?;
-
-            if location != uri {
-                let expression = ENGINE
-                    .read()
-                    .ok()?
-                    .get_source(&resulting_span.source_id()?)?;
-
-                rope = self
-                    .document_map
-                    .get(location.as_str())
-                    .map(|x| x.clone())
-                    .unwrap_or_else(|| Rope::from_str(&expression));
-
-                self.document_map.insert(location.to_string(), rope.clone());
-            }
-
-            // Include the declaration and the location isn't
-            if params.context.include_declaration {
-                let mut definition_span = vec![resulting_span];
-                self.spans_to_locations(
-                    &ENGINE.read().unwrap(),
-                    definition_span,
-                    &mut found_locations,
-                );
-            }
-
-            Some((identifier, module_path))
-        }
-        .await;
-
-        // Now that we have the definition, we should also check for where this came from.
-        // We'll walk through the modules, look at what they require, and find
-        // the ASTs that we have to analyze to find references to this identifier.
-        if let Some((Some(identifier), module_path)) = definition {
-            // If we have an identifier and its from another module,
-            // then we should calculate the reverse dependencies. That way we can
-            // at least attempt to build a reverse index for find references.
-            if let Some(module_path) = module_path {
-                let mut external_module_refs =
-                    self.find_references_external_module(identifier, module_path);
-                found_locations.append(&mut external_module_refs);
-            } else {
-                let module_path = params
-                    .text_document_position
-                    .text_document
-                    .uri
-                    .clone()
-                    .to_file_path();
-                if let Ok(module_path) = module_path {
-                    let mut external_module_refs =
-                        self.find_references_external_module(identifier, module_path);
-                    found_locations.append(&mut external_module_refs);
-                }
-            }
-        }
-
-        // TODO: Dedupe the found locations
-        if !found_locations.is_empty() {
-            return Ok(Some(found_locations));
-        }
-
-        Ok(None)
+        Ok(self
+            .references_impl(
+                position.text_document.uri,
+                position.position,
+                include_declaration,
+            )
+            .await)
     }
 
     async fn semantic_tokens_full(
@@ -955,222 +324,28 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = params.text_document_position.text_document.uri;
-        let position = params.text_document_position.position;
-        let mut filter_character = None;
+        let position = params.text_document_position;
 
-        let completions = || -> Option<Vec<CompletionItem>> {
-            let rope = self.document_map.get(&uri.to_string())?;
-            let mut ast = self.ast_map.get_mut(&uri.to_string())?;
-
-            let offset = self.config.position_to_offset(position, &rope)?;
-
-            if offset > 0 {
-                let previously_typed = rope.get_char(offset - 1);
-
-                if previously_typed.is_some() && previously_typed != Some('(') {
-                    if offset > 2 {
-                        let prior = rope.get_char(offset - 2);
-
-                        if prior.is_some() && prior.map(char::is_whitespace)? {
-                            filter_character = previously_typed;
-                        }
-                    } else {
-                        filter_character = previously_typed;
-                    }
-                }
-            }
-
-            let filter_interned_string = |interned_string: &InternedString| {
-                filter_interned_string_with_char(interned_string, filter_character)
-            };
-
-            let analysis = SemanticAnalysis::new(&mut ast);
-
-            // Finds the scoped contexts that we're currently inside of by the span
-            let contexts = analysis.find_contexts_with_offset(offset, uri_to_source_id(&uri)?);
-
-            let now = std::time::Instant::now();
-
-            let mut completions: HashSet<String> =
-                HashSet::with_capacity(contexts.len() + self.defined_globals.len());
-
-            for context in contexts {
-                match context {
-                    steel::compiler::passes::analysis::SemanticInformationType::Function(info) => {
-                        completions.extend(
-                            info.arguments()
-                                .iter()
-                                .map(|x| &x.0)
-                                .filter_map(filter_interned_string)
-                                .chain(
-                                    info.captured_vars()
-                                        .iter()
-                                        .map(|x| &x.0)
-                                        .filter_map(filter_interned_string),
-                                ),
-                        );
-                    }
-                    steel::compiler::passes::analysis::SemanticInformationType::Let(info) => {
-                        completions.extend(info.arguments.keys().filter_map(filter_interned_string))
-                    }
-                    _ => {}
-                }
-            }
-
-            // A bit sillys
-            completions.extend(
-                analysis
-                    .find_global_defs()
-                    .into_iter()
-                    .filter_map(|x| filter_interned_string(&x.0)),
-            );
-
-            completions.extend(self.defined_globals.iter().filter_map(|x| {
-                if let Some(c) = filter_character {
-                    if !x.starts_with(c) {
-                        return None;
-                    }
-                }
-
-                Some(x.clone())
-            }));
-
-            // TODO: Build completions from macros that have been introduced into this scope
-            completions.extend(
-                ENGINE
-                    .read()
-                    .ok()?
-                    .in_scope_macros()
-                    .keys()
-                    .filter_map(|x| {
-                        if let Some(c) = filter_character {
-                            if !x.resolve().starts_with(c) {
-                                return None;
-                            }
-                        }
-
-                        Some(x.resolve().to_string())
-                    })
-                    .collect::<Vec<_>>(),
-            );
-
-            completions.extend(self.globals_set.iter().map(|x| x.resolve().to_owned()));
-
-            let mut ret = Vec::with_capacity(completions.len());
-            for var in completions {
-                ret.push(CompletionItem {
-                    label: var.clone(),
-                    insert_text: Some(var.clone()),
-                    kind: Some(CompletionItemKind::VARIABLE),
-                    detail: Some(var),
-                    ..Default::default()
-                });
-            }
-
-            // log::debug!("Time to calculate completions: {:?}", now.elapsed());
-
-            Some(ret)
-        }();
-
-        Ok(completions.map(CompletionResponse::Array))
+        Ok(self
+            .completion_impl(position.text_document.uri, position.position)
+            .await)
     }
 
     async fn prepare_rename(
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
-        let uri = params.text_document.uri;
-        let position = params.position;
-
-        let Some((identifier, range)) = || -> Option<_> {
-            let rope = self.document_map.get(uri.as_str())?;
-            let mut ast = self.lowered_ast_map.get_mut(uri.as_str())?;
-
-            let offset = self.config.position_to_offset(position, &rope)?;
-            let semantic = SemanticAnalysis::new(&mut ast);
-            let (_, identifier) =
-                semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
-
-            let range = self.config.span_to_range(&identifier.span, &rope)?;
-            Some((identifier.clone(), range))
-        }() else {
-            return Ok(None);
-        };
-
-        if identifier.builtin {
-            return Err(jsonrpc::Error::invalid_params("cannot rename builtin"));
-        }
-
-        if !matches!(
-            identifier.kind,
-            IdentifierStatus::Local
-                | IdentifierStatus::LetVar
-                | IdentifierStatus::LocallyDefinedFunction
-        ) {
-            return Err(jsonrpc::Error::invalid_params(format!(
-                "cannot rename symbol of kind {:?}",
-                identifier.kind
-            )));
-        }
-
-        Ok(Some(PrepareRenameResponse::Range(range)))
+        self.prepare_rename_impl(params.text_document.uri, params.position)
+            .await
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let uri = params.text_document_position.text_document.uri;
-        let position = params.text_document_position.position;
+        let new_name = params.new_name;
+        let position = params.text_document_position;
 
-        let changes = || -> Option<Vec<TextEdit>> {
-            let rope = self.document_map.get(uri.as_str())?;
-            let mut ast = self.lowered_ast_map.get_mut(uri.as_str())?;
-
-            let offset = self.config.position_to_offset(position, &rope)?;
-            let semantic = SemanticAnalysis::new(&mut ast);
-            let (syntax_object_id, semantic_information) =
-                semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
-
-            // it should probaby not be possible to rename builtins ...
-            if semantic_information.builtin {
-                return None;
-            }
-
-            let syntax_object_id = semantic.analysis.resolve_reference(*syntax_object_id);
-            let semantic_information = semantic.get_identifier(syntax_object_id).unwrap();
-
-            // it might make sense to be able to rename other things as well,
-            // but i think this is at least good start
-            if !matches!(
-                semantic_information.kind,
-                IdentifierStatus::Local
-                    | IdentifierStatus::LetVar
-                    | IdentifierStatus::LocallyDefinedFunction,
-            ) {
-                return None;
-            }
-
-            let identifier_info = semantic.analysis.identifier_info();
-            let identifiers = identifier_info
-                .iter()
-                .filter(|(&id, _)| semantic.analysis.resolve_reference(id) == syntax_object_id)
-                .filter(|(_, info)| info.kind == semantic_information.kind)
-                .map(|(_, information)| (information.span.start, information.span.end))
-                .filter_map(|(start, end)| {
-                    self.config
-                        .span_to_range(&Span::new(start, end, None), &rope)
-                })
-                .map(|range| TextEdit::new(range, params.new_name.clone()))
-                .collect::<Vec<_>>();
-
-            Some(identifiers)
-        }();
-
-        let Some(changes) = changes else {
-            return Ok(None);
-        };
-
-        let changes = HashMap::from_iter([(uri, changes)]);
-        Ok(Some(WorkspaceEdit::new(changes)))
+        Ok(self
+            .rename_impl(position.text_document.uri, position.position, new_name)
+            .await)
     }
 
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
@@ -1497,14 +672,11 @@ fn fetch_stdlib_doc(ident: &str) -> Option<SteelString> {
 }
 
 impl Backend {
-    fn hover_macro_impl(&self, params: HoverParams) -> Option<Hover> {
-        let uri = params.text_document_position_params.text_document.uri;
-
+    fn hover_macro_impl(&self, uri: &Url, position: Position) -> Option<Hover> {
         let raw_ast = self.raw_ast_map.get(uri.as_str())?;
         let ast = self.ast_map.get(uri.as_str())?;
         let rope = self.document_map.get(uri.as_str())?;
 
-        let position = params.text_document_position_params.position;
         let offset = self.config.position_to_offset(position, &rope)?;
 
         // Just check if this is a top level identifier, and if so, grab the definition
@@ -1629,17 +801,17 @@ impl Backend {
         None
     }
 
-    async fn hover_impl(&self, params: &HoverParams) -> Option<Hover> {
-        let uri = params
-            .text_document_position_params
-            .text_document
-            .uri
-            .clone();
+    pub async fn hover_impl(&self, uri: Url, position: Position) -> Option<Hover> {
+        if let Some(hover) = self.hover_identifier_impl(&uri, position).await {
+            return Some(hover);
+        }
 
+        self.hover_macro_impl(&uri, position)
+    }
+
+    async fn hover_identifier_impl(&self, uri: &Url, position: Position) -> Option<Hover> {
         let mut ast = self.ast_map.get_mut(uri.as_str())?;
         let rope = self.document_map.get(uri.as_str())?;
-
-        let position = params.text_document_position_params.position;
         let offset = self.config.position_to_offset(position, &rope)?;
 
         let analysis = SemanticAnalysis::new(&mut ast);
@@ -1840,17 +1012,24 @@ impl Backend {
 
     // Just do incremental?
     async fn on_change(&self, params: TextDocumentItem) {
+        let diagnostics = self.analyze(&params.uri, params.text);
+
+        self.client
+            .publish_diagnostics(params.uri, diagnostics, Some(params.version))
+            .await;
+    }
+
+    // Applies a document to the backend's state and hands back whatever is wrong with it.
+    pub fn analyze(&self, uri: &Url, text: String) -> Vec<Diagnostic> {
         let now = std::time::Instant::now();
 
         // Ensure this document is marked as open from the perspective of the LSP
-        let rope = ropey::Rope::from_str(&params.text);
-        self.document_map
-            .insert(params.uri.to_string(), rope.clone());
+        let rope = ropey::Rope::from_str(&text);
+        self.document_map.insert(uri.to_string(), rope.clone());
 
-        self.vfs
-            .insert(params.uri.clone(), FileState { opened: true });
+        self.vfs.insert(uri.clone(), FileState { opened: true });
 
-        let expression = params.text;
+        let expression = text;
 
         let diagnostics = {
             let raw_program = Engine::emit_ast(&expression);
@@ -1866,10 +1045,8 @@ impl Backend {
                 let mut introduced_macros: HashMap<InternedString, SteelMacro> = HashMap::new();
 
                 let now = std::time::Instant::now();
-                let expressions = guard.emit_expanded_ast_without_optimizations(
-                    &expression,
-                    params.uri.to_file_path().ok(),
-                );
+                let expressions = guard
+                    .emit_expanded_ast_without_optimizations(&expression, uri.to_file_path().ok());
                 eprintln!("on change time: {:?}", now.elapsed());
 
                 guard.in_scope_macros_mut().retain(|key, value| {
@@ -1888,37 +1065,23 @@ impl Backend {
             let mut ast = match program {
                 Ok(ast) => ast,
                 Err(e) => {
-                    // drop(engine_guard);
+                    let range = e
+                        .span()
+                        .and_then(|span| self.config.span_to_range(&span, &rope));
 
-                    self.client
-                        .log_message(MessageType::INFO, e.to_string())
-                        .await;
-
-                    if let Some(span) = e.span() {
-                        let diagnostics = || {
-                            let range = self.config.span_to_range(&span, &rope)?;
-                            let diag =
-                                create_diagnostic(range, DiagnosticSeverity::ERROR, e.to_string());
-
-                            Some(vec![diag])
-                        };
-
-                        if let Some(diagnostics) = diagnostics() {
-                            self.client
-                                .publish_diagnostics(
-                                    params.uri.clone(),
-                                    diagnostics,
-                                    Some(params.version),
-                                )
-                                .await;
-                        }
-                    }
-
-                    return;
+                    return range
+                        .map(|range| {
+                            vec![create_diagnostic(
+                                range,
+                                DiagnosticSeverity::ERROR,
+                                e.to_string(),
+                            )]
+                        })
+                        .unwrap_or_default();
                 }
             };
 
-            let id = uri_to_source_id(&params.uri);
+            let id = uri_to_source_id(uri);
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
@@ -1926,7 +1089,7 @@ impl Backend {
                 let mut context = DiagnosticContext {
                     engine: &ENGINE.read().unwrap(),
                     analysis: &analysis,
-                    uri: &params.uri,
+                    uri,
                     source_id: id,
                     rope: rope.clone(),
                     config: &self.config,
@@ -1960,10 +1123,10 @@ impl Backend {
                 free_identifiers_and_unused
             };
 
-            self.ast_map.insert(params.uri.to_string(), ast);
+            self.ast_map.insert(uri.to_string(), ast);
 
             if let Ok(raw_ast) = raw_program {
-                self.raw_ast_map.insert(params.uri.to_string(), raw_ast);
+                self.raw_ast_map.insert(uri.to_string(), raw_ast);
             }
 
             // the ast that is parsed for the `ast_map` is parsed with the `.without_lowering`
@@ -1973,18 +1136,15 @@ impl Backend {
             if let Ok(lowered_ast) =
                 Parser::new(&expression, id).collect::<std::result::Result<Vec<_>, _>>()
             {
-                self.lowered_ast_map
-                    .insert(params.uri.to_string(), lowered_ast);
+                self.lowered_ast_map.insert(uri.to_string(), lowered_ast);
             }
 
             diagnostics
         };
 
-        self.client
-            .publish_diagnostics(params.uri.clone(), diagnostics, Some(params.version))
-            .await;
-
         // log::debug!("On change time taken: {:?}", now.elapsed());
+
+        diagnostics
     }
 }
 
@@ -2307,6 +1467,881 @@ impl Config {
         let start = self.offset_to_position(span.start as usize, rope)?;
         let end = self.offset_to_position(span.end as usize, rope)?;
         Some(Range::new(start, end))
+    }
+}
+
+impl Backend {
+    pub async fn document_symbol_impl(&self, uri: Url) -> Option<DocumentSymbolResponse> {
+        let symbols = async {
+            let mut ast = self.raw_ast_map.get_mut(uri.as_str())?;
+            let mut rope = self.document_map.get(uri.as_str())?.clone();
+
+            let analysis = SemanticAnalysis::new(&mut ast);
+
+            let top_level_defs: Vec<SymbolInformation> = {
+                let definitions = analysis.find_top_level_definitions();
+
+                definitions
+                    .iter()
+                    .map(|(name, kind, span)| {
+                        let container_name = span.source_id.and_then(|source_id| {
+                            let contexts = analysis
+                                .find_contexts_with_offset(span.start() as usize, source_id);
+
+                            if contexts.is_empty() {
+                                return None;
+                            }
+
+                            match &contexts.first().unwrap() {
+                                SemanticInformationType::Variable(v) => {
+                                    Some("variable".to_string())
+                                }
+                                SemanticInformationType::Function(f) => match f.aliases_to {
+                                    Some(function_name_id) => {
+                                        match kind {
+                                            ExprKind::LambdaFunction(symbol) => None, // if symbol.syntax_object_id == function_name_id.0 => None,
+                                            _ => {
+                                                let mut id_to_str = HashMap::new();
+                                                id_to_str.insert(function_name_id, None);
+                                                analysis.syntax_object_ids_to_identifiers(
+                                                    &mut id_to_str,
+                                                );
+
+                                                match id_to_str.get(&function_name_id) {
+                                                    Some(Some(name)) => Some(name.to_string()),
+                                                    _ => Some("lambda function".to_string()),
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => Some("lambda function".to_string()),
+                                },
+                                SemanticInformationType::CallSite(c) => Some("call".to_string()),
+                                SemanticInformationType::Let(l) => Some("let".to_string()),
+                            }
+                        });
+
+                        #[allow(deprecated)]
+                        SymbolInformation {
+                            name: name.resolve().into(),
+                            kind: match kind {
+                                ExprKind::LambdaFunction(_) => SymbolKind::FUNCTION,
+                                _ => SymbolKind::CONSTANT,
+                            },
+                            tags: None,
+                            deprecated: None,
+                            location: Location {
+                                uri: uri.clone(),
+                                range: self.config.span_to_range(span, &rope).unwrap(),
+                            },
+                            container_name,
+                        }
+                    })
+                    .collect()
+            };
+
+            let let_bindings: Vec<SymbolInformation> = {
+                let definitions = analysis.find_let_bindings();
+
+                definitions
+                    .iter()
+                    .map(|(name, span)| {
+                        let container_name = span.source_id.and_then(|source_id| {
+                            let contexts = analysis
+                                .find_contexts_with_offset(span.start() as usize, source_id);
+
+                            if contexts.is_empty() {
+                                return None;
+                            }
+
+                            match &contexts.first().unwrap() {
+                                SemanticInformationType::Variable(v) => {
+                                    Some("variable".to_string())
+                                }
+                                SemanticInformationType::Function(f) => match f.aliases_to {
+                                    Some(function_name_id) => {
+                                        let mut id_to_str = HashMap::new();
+                                        id_to_str.insert(function_name_id, None);
+                                        analysis.syntax_object_ids_to_identifiers(&mut id_to_str);
+
+                                        match id_to_str.get(&function_name_id) {
+                                            Some(Some(name)) => Some(name.to_string()),
+                                            _ => Some("function".to_string()),
+                                        }
+                                    }
+                                    _ => Some("function".to_string()),
+                                },
+                                SemanticInformationType::CallSite(c) => Some("call".to_string()),
+                                SemanticInformationType::Let(l) => Some("let".to_string()),
+                            }
+                        });
+
+                        #[allow(deprecated)]
+                        SymbolInformation {
+                            name: name.to_string(),
+                            kind: SymbolKind::VARIABLE,
+                            tags: None,
+                            deprecated: None,
+                            location: Location {
+                                uri: uri.clone(),
+                                range: self.config.span_to_range(span, &rope).unwrap(),
+                            },
+                            container_name,
+                        }
+                    })
+                    .collect()
+            };
+
+            let result = top_level_defs
+                .into_iter()
+                .chain(let_bindings.into_iter())
+                .collect::<Vec<_>>();
+
+            Some(DocumentSymbolResponse::Flat(result))
+        }
+        .await;
+
+        symbols
+    }
+
+    pub async fn goto_definition_impl(
+        &self,
+        uri: Url,
+        position: Position,
+    ) -> Option<GotoDefinitionResponse> {
+        let mut found_offset = None;
+        // TODO: In order for this to work, we'll have to both
+        // expose a span -> URI function, as well as figure out how to
+        // decide if a definition refers to an import. I think deciding
+        // if something is a module import should be like:
+        let definition = async {
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let mut rope = self.document_map.get(uri.as_str())?.clone();
+
+            let offset = self.config.position_to_offset(position, &rope)?;
+
+            found_offset = Some(offset);
+
+            let analysis = SemanticAnalysis::new(&mut ast);
+
+            let (_syntax_object_id, information) =
+                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            let refers_to = information.refers_to?;
+
+            let maybe_definition = analysis.get_identifier(refers_to)?;
+
+            let mut resulting_span = maybe_definition.span;
+
+            // log::debug!("Refers to information: {:?}", &maybe_definition);
+
+            let mut resolver = |mut interned: InternedString,
+                                name: String,
+                                original|
+             -> Option<()> {
+                let maybe_renamed = interned;
+
+                if let Some(original) = original {
+                    if interned != original {
+                        interned = original;
+                    }
+                }
+
+                let mut module_prefix_path_to_check =
+                    name.trim_end_matches(if maybe_renamed == interned {
+                        interned.resolve()
+                    } else {
+                        maybe_renamed.resolve()
+                    });
+
+                resulting_span = {
+                    let guard = ENGINE.read().ok()?;
+
+                    let modules = guard.modules();
+
+                    let module = modules
+                        .values()
+                        .find(|x| x.prefix() == module_prefix_path_to_check)?;
+
+                    let module_ast = module.get_ast();
+
+                    let top_level_define = query_top_level_define(module_ast, interned.resolve())
+                        .or_else(|| {
+                        query_top_level_define_on_condition(
+                            module_ast,
+                            interned.resolve(),
+                            |name, target| target.ends_with(name),
+                        )
+                    })?;
+
+                    top_level_define.name.atom_syntax_object().map(|x| x.span)?
+                };
+
+                Some(())
+            };
+
+            if maybe_definition.is_required_identifier {
+                match analysis.resolve_required_identifier(refers_to)? {
+                    RequiredIdentifierInformation::Resolved(
+                        resolved,
+                        mut interned,
+                        name,
+                        original,
+                    ) => {
+                        if let Some(original) = original {
+                            if interned != original {
+                                // Just call the unresolved
+                                // todo!()
+
+                                resolver(interned, name, Some(original))?;
+                            } else {
+                                resulting_span = resolved.span;
+                            }
+                        } else {
+                            resulting_span = resolved.span;
+                        }
+                    }
+
+                    RequiredIdentifierInformation::Unresolved(mut interned, name, original) => {
+                        resolver(interned, name, original)?;
+                    }
+                }
+
+                // log::debug!("Found new definition: {:?}", maybe_definition);
+            }
+
+            let location = source_id_to_uri(resulting_span.source_id()?)?;
+
+            if location != uri {
+                // log::debug!("Jumping to definition that is not yet in the document map!");
+
+                let expression = ENGINE
+                    .read()
+                    .ok()?
+                    .get_source(&resulting_span.source_id()?)?;
+
+                rope = self
+                    .document_map
+                    .get(location.as_str())
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| Rope::from_str(&expression));
+
+                self.document_map.insert(location.to_string(), rope.clone());
+            }
+
+            let range = self.config.span_to_range(&resulting_span, &rope)?;
+            Some(GotoDefinitionResponse::Scalar(Location::new(
+                location, range,
+            )))
+        }
+        .await;
+
+        // Attempt a fallback with the new goto definition stuff!
+        if definition.is_none() {
+            let raw_ast = self.raw_ast_map.get(uri.as_str());
+            if let Some(rope) = self
+                .document_map
+                .get(uri.as_str())
+                .map(|x| x.value().clone())
+            {
+                if let Some(raw_ast) = raw_ast {
+                    if let Some(offset) = found_offset {
+                        let ident = find_identifier_at_position(&raw_ast, offset as _);
+                        if let Some(ident) = ident {
+                            eprintln!("Unable to find a definition for: {}", ident.resolve());
+                            // Check if this is a macro invocation:
+                            let path = PathBuf::from(uri.path());
+                            {
+                                let mut guard = ENGINE.write().unwrap();
+                                let macro_env_before: HashSet<InternedString> =
+                                    guard.in_scope_macros().keys().copied().collect();
+
+                                // TODO: Add span to the macro definition!
+                                let mut introduced_macros: HashMap<InternedString, SteelMacro> =
+                                    HashMap::new();
+
+                                // Re run the analysis
+                                if let Err(e) =
+                                    guard.emit_expanded_ast(&format!("(require: {:?})", path), None)
+                                {
+                                    eprintln!("Unable to load module: {:?}", e);
+                                }
+
+                                guard.in_scope_macros_mut().retain(|key, value| {
+                                    if macro_env_before.contains(key) {
+                                        return true;
+                                    } else {
+                                        // FIXME: Try to avoid this clone!
+                                        introduced_macros.insert(*key, value.clone());
+                                        false
+                                    }
+                                });
+                            }
+
+                            // Look at the macros that are in scope, just see what matches,
+                            // grab the span for it.
+
+                            let modules = { ENGINE.read().unwrap().modules().clone() };
+
+                            if let Some(found_mod) = modules.get(&path) {
+                                let macros = found_mod.get_macros();
+
+                                let found = macros.get(&ident);
+
+                                if let Some(found) = found {
+                                    let location = found.span();
+
+                                    if let Some(range) = self.config.span_to_range(&location, &rope)
+                                    {
+                                        return Some(GotoDefinitionResponse::Scalar(
+                                            Location::new(uri, range),
+                                        ));
+                                    }
+                                } else {
+                                    for req in found_mod.get_requires() {
+                                        let path = req.path.get_path();
+
+                                        if !path.exists() {
+                                            continue;
+                                        }
+
+                                        let mut found_ident = ident;
+
+                                        if let Some(prefix) = &req.prefix {
+                                            if let Some(stripped) =
+                                                found_ident.resolve().strip_prefix(prefix)
+                                            {
+                                                found_ident = stripped.into();
+                                            }
+                                        }
+
+                                        if !req.idents_to_import.is_empty() {
+                                            let mut found = false;
+                                            // TODO: Handle prefix!
+                                            for idents_to_import in &req.idents_to_import {
+                                                match idents_to_import {
+                                                    MaybeRenamed::Normal(expr_kind) => {
+                                                        if expr_kind.atom_identifier().copied()
+                                                            == Some(found_ident)
+                                                        {
+                                                            found = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                    MaybeRenamed::Renamed(
+                                                        expr_kind,
+                                                        expr_kind1,
+                                                    ) => {
+                                                        if expr_kind1.atom_identifier().copied()
+                                                            == Some(found_ident)
+                                                        {
+                                                            found = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            if !found {
+                                                continue;
+                                            } else {
+                                                // Use the found ident
+                                                let found_mod = modules.get(path.as_ref()).unwrap();
+                                                let macros = found_mod.get_macros();
+                                                if let Some(found) = macros.get(&found_ident) {
+                                                    let location = found.span();
+
+                                                    let mut locations = vec![];
+
+                                                    self.spans_to_locations(
+                                                        &ENGINE.read().unwrap(),
+                                                        vec![location],
+                                                        &mut locations,
+                                                    );
+
+                                                    return locations
+                                                        .into_iter()
+                                                        .next()
+                                                        .map(GotoDefinitionResponse::Scalar);
+                                                }
+                                            }
+                                        } else {
+                                            // Just check the macros anyway
+                                            let found_mod = modules.get(path.as_ref()).unwrap();
+                                            let macros = found_mod.get_macros();
+                                            if let Some(found) = macros.get(&found_ident) {
+                                                let location = found.span();
+
+                                                let mut locations = vec![];
+
+                                                self.spans_to_locations(
+                                                    &ENGINE.read().unwrap(),
+                                                    vec![location],
+                                                    &mut locations,
+                                                );
+
+                                                return locations
+                                                    .into_iter()
+                                                    .next()
+                                                    .map(GotoDefinitionResponse::Scalar);
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                eprintln!("Unable to find module: {:?}", path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        definition
+    }
+
+    pub async fn references_impl(
+        &self,
+        uri: Url,
+        position: Position,
+        include_declaration: bool,
+    ) -> Option<Vec<Location>> {
+        let mut found_locations = Vec::new();
+
+        let definition = async {
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let mut rope = self.document_map.get(uri.as_str())?.clone();
+
+            let offset = self.config.position_to_offset(position, &rope)?;
+
+            let analysis = SemanticAnalysis::new(&mut ast);
+
+            let (syntax_object_id, information) =
+                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            // If this is a built in, lets just bail
+            if information.builtin {
+                if let Some(mut l) = self
+                    .find_references_builtin(&analysis, *syntax_object_id, information)
+                    .await
+                {
+                    found_locations.append(&mut l);
+                }
+            }
+
+            // Either refers to something, or is the existing definition
+            let refers_to = information.refers_to.unwrap_or_else(|| {
+                eprintln!("Unable to find a refers to for this identifier");
+                *syntax_object_id
+            });
+
+            {
+                let mut spans = Vec::new();
+                for (_, info) in analysis.analysis.identifier_info() {
+                    if let Some(found_refers_to) = info.refers_to {
+                        if found_refers_to == refers_to {
+                            spans.push(info.span);
+                        }
+                    }
+                }
+
+                self.spans_to_locations(&ENGINE.read().unwrap(), spans, &mut found_locations)
+            }
+
+            // Find all the locations which refer to it
+
+            let maybe_definition = analysis.get_identifier(refers_to)?;
+
+            let mut identifier = None;
+            let mut resulting_span = maybe_definition.span;
+
+            let mut module_path = None;
+
+            for expr in analysis.exprs.iter() {
+                match expr {
+                    ExprKind::Define(d) => {
+                        if d.name_id() == Some(refers_to) {
+                            identifier = d
+                                .name
+                                .atom_syntax_object()
+                                .and_then(|x| x.ty.identifier().cloned());
+                        }
+                    }
+                    ExprKind::Begin(b) => {
+                        for expr in &b.exprs {
+                            if let ExprKind::Define(d) = expr {
+                                if d.name_id() == Some(refers_to) {
+                                    identifier = d
+                                        .name
+                                        .atom_syntax_object()
+                                        .and_then(|x| x.ty.identifier().cloned());
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut resolver = |mut interned: InternedString,
+                                name: String,
+                                original|
+             -> Option<()> {
+                let maybe_renamed = interned;
+
+                if let Some(original) = original {
+                    if interned != original {
+                        interned = original;
+                    }
+                }
+
+                let mut module_prefix_path_to_check =
+                    name.trim_end_matches(if maybe_renamed == interned {
+                        interned.resolve()
+                    } else {
+                        maybe_renamed.resolve()
+                    });
+
+                resulting_span = {
+                    let guard = ENGINE.read().ok()?;
+
+                    let modules = guard.modules();
+
+                    let module = modules
+                        .values()
+                        .find(|x| x.prefix() == module_prefix_path_to_check)?;
+
+                    module_path = Some(module.name().to_owned());
+
+                    let module_ast = module.get_ast();
+
+                    let top_level_define = query_top_level_define(module_ast, interned.resolve())
+                        .or_else(|| {
+                        query_top_level_define_on_condition(
+                            module_ast,
+                            interned.resolve(),
+                            |name, target| target.ends_with(name),
+                        )
+                    })?;
+
+                    let syntax = top_level_define.name.atom_syntax_object()?;
+
+                    identifier = syntax.ty.identifier().cloned();
+
+                    syntax.span
+                };
+
+                Some(())
+            };
+
+            if maybe_definition.is_required_identifier {
+                match analysis.resolve_required_identifier(refers_to)? {
+                    RequiredIdentifierInformation::Resolved(
+                        resolved,
+                        mut interned,
+                        name,
+                        original,
+                    ) => {
+                        if let Some(original) = original {
+                            if interned != original {
+                                resolver(interned, name, Some(original))?;
+                            } else {
+                                resulting_span = resolved.span;
+
+                                identifier = Some(original);
+                            }
+                        } else {
+                            resulting_span = resolved.span;
+
+                            identifier = Some(name.into());
+                        }
+                    }
+
+                    RequiredIdentifierInformation::Unresolved(mut interned, name, original) => {
+                        resolver(interned, name, original)?;
+                    }
+                }
+            }
+
+            let location = source_id_to_uri(resulting_span.source_id()?)?;
+
+            if location != uri {
+                let expression = ENGINE
+                    .read()
+                    .ok()?
+                    .get_source(&resulting_span.source_id()?)?;
+
+                rope = self
+                    .document_map
+                    .get(location.as_str())
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| Rope::from_str(&expression));
+
+                self.document_map.insert(location.to_string(), rope.clone());
+            }
+
+            // Include the declaration and the location isn't
+            if include_declaration {
+                let mut definition_span = vec![resulting_span];
+                self.spans_to_locations(
+                    &ENGINE.read().unwrap(),
+                    definition_span,
+                    &mut found_locations,
+                );
+            }
+
+            Some((identifier, module_path))
+        }
+        .await;
+
+        // Now that we have the definition, we should also check for where this came from.
+        // We'll walk through the modules, look at what they require, and find
+        // the ASTs that we have to analyze to find references to this identifier.
+        if let Some((Some(identifier), module_path)) = definition {
+            // If we have an identifier and its from another module,
+            // then we should calculate the reverse dependencies. That way we can
+            // at least attempt to build a reverse index for find references.
+            if let Some(module_path) = module_path {
+                let mut external_module_refs =
+                    self.find_references_external_module(identifier, module_path);
+                found_locations.append(&mut external_module_refs);
+            } else {
+                let module_path = uri.to_file_path();
+                if let Ok(module_path) = module_path {
+                    let mut external_module_refs =
+                        self.find_references_external_module(identifier, module_path);
+                    found_locations.append(&mut external_module_refs);
+                }
+            }
+        }
+
+        // TODO: Dedupe the found locations
+        if !found_locations.is_empty() {
+            return Some(found_locations);
+        }
+
+        None
+    }
+
+    pub async fn completion_impl(
+        &self,
+        uri: Url,
+        position: Position,
+    ) -> Option<CompletionResponse> {
+        let mut filter_character = None;
+
+        let completions = || -> Option<Vec<CompletionItem>> {
+            let rope = self.document_map.get(&uri.to_string())?;
+            let mut ast = self.ast_map.get_mut(&uri.to_string())?;
+
+            let offset = self.config.position_to_offset(position, &rope)?;
+
+            if offset > 0 {
+                let previously_typed = rope.get_char(offset - 1);
+
+                if previously_typed.is_some() && previously_typed != Some('(') {
+                    if offset > 2 {
+                        let prior = rope.get_char(offset - 2);
+
+                        if prior.is_some() && prior.map(char::is_whitespace)? {
+                            filter_character = previously_typed;
+                        }
+                    } else {
+                        filter_character = previously_typed;
+                    }
+                }
+            }
+
+            let filter_interned_string = |interned_string: &InternedString| {
+                filter_interned_string_with_char(interned_string, filter_character)
+            };
+
+            let analysis = SemanticAnalysis::new(&mut ast);
+
+            // Finds the scoped contexts that we're currently inside of by the span
+            let contexts = analysis.find_contexts_with_offset(offset, uri_to_source_id(&uri)?);
+
+            let now = std::time::Instant::now();
+
+            let mut completions: HashSet<String> =
+                HashSet::with_capacity(contexts.len() + self.defined_globals.len());
+
+            for context in contexts {
+                match context {
+                    steel::compiler::passes::analysis::SemanticInformationType::Function(info) => {
+                        completions.extend(
+                            info.arguments()
+                                .iter()
+                                .map(|x| &x.0)
+                                .filter_map(filter_interned_string)
+                                .chain(
+                                    info.captured_vars()
+                                        .iter()
+                                        .map(|x| &x.0)
+                                        .filter_map(filter_interned_string),
+                                ),
+                        );
+                    }
+                    steel::compiler::passes::analysis::SemanticInformationType::Let(info) => {
+                        completions.extend(info.arguments.keys().filter_map(filter_interned_string))
+                    }
+                    _ => {}
+                }
+            }
+
+            // A bit sillys
+            completions.extend(
+                analysis
+                    .find_global_defs()
+                    .into_iter()
+                    .filter_map(|x| filter_interned_string(&x.0)),
+            );
+
+            completions.extend(self.defined_globals.iter().filter_map(|x| {
+                if let Some(c) = filter_character {
+                    if !x.starts_with(c) {
+                        return None;
+                    }
+                }
+
+                Some(x.clone())
+            }));
+
+            // TODO: Build completions from macros that have been introduced into this scope
+            completions.extend(
+                ENGINE
+                    .read()
+                    .ok()?
+                    .in_scope_macros()
+                    .keys()
+                    .filter_map(|x| {
+                        if let Some(c) = filter_character {
+                            if !x.resolve().starts_with(c) {
+                                return None;
+                            }
+                        }
+
+                        Some(x.resolve().to_string())
+                    })
+                    .collect::<Vec<_>>(),
+            );
+
+            completions.extend(self.globals_set.iter().map(|x| x.resolve().to_owned()));
+
+            let mut ret = Vec::with_capacity(completions.len());
+            for var in completions {
+                ret.push(CompletionItem {
+                    label: var.clone(),
+                    insert_text: Some(var.clone()),
+                    kind: Some(CompletionItemKind::VARIABLE),
+                    detail: Some(var),
+                    ..Default::default()
+                });
+            }
+
+            // log::debug!("Time to calculate completions: {:?}", now.elapsed());
+
+            Some(ret)
+        }();
+
+        completions.map(CompletionResponse::Array)
+    }
+
+    pub async fn prepare_rename_impl(
+        &self,
+        uri: Url,
+        position: Position,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let Some((identifier, range)) = || -> Option<_> {
+            let rope = self.document_map.get(uri.as_str())?;
+            let mut ast = self.lowered_ast_map.get_mut(uri.as_str())?;
+
+            let offset = self.config.position_to_offset(position, &rope)?;
+            let semantic = SemanticAnalysis::new(&mut ast);
+            let (_, identifier) =
+                semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            let range = self.config.span_to_range(&identifier.span, &rope)?;
+            Some((identifier.clone(), range))
+        }() else {
+            return Ok(None);
+        };
+
+        if identifier.builtin {
+            return Err(jsonrpc::Error::invalid_params("cannot rename builtin"));
+        }
+
+        if !matches!(
+            identifier.kind,
+            IdentifierStatus::Local
+                | IdentifierStatus::LetVar
+                | IdentifierStatus::LocallyDefinedFunction
+        ) {
+            return Err(jsonrpc::Error::invalid_params(format!(
+                "cannot rename symbol of kind {:?}",
+                identifier.kind
+            )));
+        }
+
+        Ok(Some(PrepareRenameResponse::Range(range)))
+    }
+
+    pub async fn rename_impl(
+        &self,
+        uri: Url,
+        position: Position,
+        new_name: String,
+    ) -> Option<WorkspaceEdit> {
+        let changes = || -> Option<Vec<TextEdit>> {
+            let rope = self.document_map.get(uri.as_str())?;
+            let mut ast = self.lowered_ast_map.get_mut(uri.as_str())?;
+
+            let offset = self.config.position_to_offset(position, &rope)?;
+            let semantic = SemanticAnalysis::new(&mut ast);
+            let (syntax_object_id, semantic_information) =
+                semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            // it should probaby not be possible to rename builtins ...
+            if semantic_information.builtin {
+                return None;
+            }
+
+            let syntax_object_id = semantic.analysis.resolve_reference(*syntax_object_id);
+            let semantic_information = semantic.get_identifier(syntax_object_id).unwrap();
+
+            // it might make sense to be able to rename other things as well,
+            // but i think this is at least good start
+            if !matches!(
+                semantic_information.kind,
+                IdentifierStatus::Local
+                    | IdentifierStatus::LetVar
+                    | IdentifierStatus::LocallyDefinedFunction,
+            ) {
+                return None;
+            }
+
+            let identifier_info = semantic.analysis.identifier_info();
+            let identifiers = identifier_info
+                .iter()
+                .filter(|(&id, _)| semantic.analysis.resolve_reference(id) == syntax_object_id)
+                .filter(|(_, info)| info.kind == semantic_information.kind)
+                .map(|(_, information)| (information.span.start, information.span.end))
+                .filter_map(|(start, end)| {
+                    self.config
+                        .span_to_range(&Span::new(start, end, None), &rope)
+                })
+                .map(|range| TextEdit::new(range, new_name.clone()))
+                .collect::<Vec<_>>();
+
+            Some(identifiers)
+        }();
+
+        let Some(changes) = changes else {
+            return None;
+        };
+
+        let changes = HashMap::from_iter([(uri, changes)]);
+        Some(WorkspaceEdit::new(changes))
     }
 }
 
