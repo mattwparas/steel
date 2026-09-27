@@ -24,15 +24,10 @@ fn isolate_lsp_home() {
 }
 
 pub struct TestServer {
-    // only here to own the Backend - a Client can't be built any other way, and nothing
-    // the tests call ever touches it
     service: LspService<Backend>,
+    temp: tempfile::TempDir,
     root: PathBuf,
     diagnostics: HashMap<Url, Vec<Diagnostic>>,
-    // the engine keeps compiled modules keyed by path, so every test needs its own dir
-    _workspace: tempfile::TempDir,
-    // a second directory, deliberately not under the workspace root
-    outside: tempfile::TempDir,
 }
 
 impl TestServer {
@@ -43,13 +38,17 @@ impl TestServer {
     pub fn with_encoding(encoding: OffsetEncoding) -> Self {
         isolate_lsp_home();
 
-        let workspace = tempfile::tempdir().expect("unable to create a temp workspace");
+        let temp = tempfile::tempdir().expect("unable to create a temp directory");
+
+        // the workspace is a subdirectory so that write_outside has somewhere to put files
+        // that are not under the root
+        let root = temp.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
 
         // canonicalize matters on macos, where the temp dir is a symlink into /private.
         // url round trips have to agree with the paths the engine records or nothing
         // resolves
-        let root = workspace
-            .path()
+        let root = root
             .canonicalize()
             .expect("unable to canonicalize the temp workspace");
 
@@ -72,9 +71,8 @@ impl TestServer {
         let server = TestServer {
             service,
             root,
+            temp,
             diagnostics: HashMap::new(),
-            _workspace: workspace,
-            outside: tempfile::tempdir().expect("unable to create the out of workspace directory"),
         };
 
         server.backend().config.encoding.store(encoding);
@@ -105,8 +103,10 @@ impl TestServer {
     }
 
     pub fn write_outside(&self, name: &str, contents: &str) -> Url {
-        let path = self.outside.path().canonicalize().unwrap().join(name);
+        let dir = self.temp.path().canonicalize().unwrap().join("outside");
+        std::fs::create_dir_all(&dir).unwrap();
 
+        let path = dir.join(name);
         std::fs::write(&path, contents).unwrap();
 
         Url::from_file_path(&path).unwrap()
