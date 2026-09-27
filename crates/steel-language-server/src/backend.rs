@@ -15,7 +15,9 @@ use once_cell::sync::Lazy;
 use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use steel::compiler::passes::types::{hover_type, infer_types, inlay_hints, PrimitiveSignatures};
+use steel::compiler::passes::types::{
+    hover_type, infer_types, inlay_hints, written_call_failures, PrimitiveSignatures,
+};
 use steel::{
     compiler::{
         modules::{steel_home, MaybeRenamed, MANGLER_PREFIX, MODULE_PREFIX},
@@ -2036,6 +2038,23 @@ impl Backend {
                 let mut static_arity_checking = StaticArityChecker.diagnose(&mut context);
 
                 free_identifiers_and_unused.append(&mut static_arity_checking);
+
+                // Calls to builtins that raise whenever they run.
+                if let Some(source) = id {
+                    let info =
+                        infer_types(&analysis.exprs, &analysis.analysis, &PRIMITIVE_SIGNATURES);
+                    let text = rope.to_string();
+                    free_identifiers_and_unused.extend(
+                        written_call_failures(&info, source, &text).filter_map(|failure| {
+                            let range = self.config.span_to_range(&failure.span, &rope)?;
+                            Some(create_diagnostic(
+                                range,
+                                DiagnosticSeverity::ERROR,
+                                failure.message(),
+                            ))
+                        }),
+                    );
+                }
 
                 let now = std::time::Instant::now();
 

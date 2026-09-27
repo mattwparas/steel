@@ -142,6 +142,24 @@ pub struct TypeInfo {
     /// named `let` / `letrec` expands into), with that lambda's id. Its return
     /// type is in `returns`.
     pub functions: FxHashMap<SyntaxObjectId, u32>,
+    /// Calls to native functions that cannot return normally, in program order.
+    pub failures: Vec<CallFailure>,
+}
+
+/// A call to a native function with an argument that can only hold kinds of
+/// value the function does not accept, so the call raises whenever it runs.
+#[derive(Clone, PartialEq, Debug)]
+pub struct CallFailure {
+    /// The function, as the source names it.
+    pub function: String,
+    /// The operator's span.
+    pub operator: crate::parser::span::Span,
+    /// Which argument, from 0, and its span.
+    pub argument: usize,
+    pub span: crate::parser::span::Span,
+    /// What the function accepts there, and what the argument can hold.
+    pub expected: TypeSet,
+    pub found: TypeSet,
 }
 
 /// Infers types for `exprs`, which `analysis` was computed for.
@@ -188,6 +206,7 @@ pub fn infer_types(
     // Did not settle, so claim nothing.
     let mut result = previous;
     result.functions = facts.functions();
+    result.failures.clear();
     for ty in result
         .bindings
         .values_mut()
@@ -856,9 +875,25 @@ impl<'a> Inference<'a> {
                         for (i, arg) in args.iter().enumerate() {
                             let Some(ty) = declared.get(i) else { continue };
                             let ty = TypeSet::from_value_type(ty);
-                            if !ty.is_top() {
-                                self.narrow(arg, env, |current| current.intersect(ty));
+                            if ty.is_top() {
+                                continue;
                             }
+                            // An argument that cannot produce a value never
+                            // reaches the call.
+                            let found = arg_types[i];
+                            if !found.is_bottom() && found.intersect(ty).is_bottom() {
+                                self.current.failures.push(CallFailure {
+                                    function: operator_name(Some(operator))
+                                        .unwrap_or_default()
+                                        .to_string(),
+                                    operator: operator.span(),
+                                    argument: i,
+                                    span: arg.span(),
+                                    expected: ty,
+                                    found,
+                                });
+                            }
+                            self.narrow(arg, env, |current| current.intersect(ty));
                         }
                     }
                 }
@@ -1151,6 +1186,40 @@ fn contains_return(expr: &ExprKind) -> bool {
         ExprKind::Set(t) => contains_return(&t.expr),
         _ => false,
     }
+}
+
+impl CallFailure {
+    pub fn message(&self) -> String {
+        format!(
+            "`{}` always raises here: argument {} is always {}, but it must be {}",
+            self.function,
+            self.argument + 1,
+            self.found,
+            self.expected
+        )
+    }
+}
+
+/// The failures in `source` whose call is written out in `text`, the source's
+/// text. A macro can expand into a call that its own tests keep from running,
+/// so calls a macro wrote are left out.
+pub fn written_call_failures<'a>(
+    info: &'a TypeInfo,
+    source: crate::parser::parser::SourceId,
+    text: &'a str,
+) -> impl Iterator<Item = &'a CallFailure> + 'a {
+    let mut seen = FxHashSet::default();
+    info.failures.iter().filter(move |failure| {
+        let written = |span: crate::parser::span::Span| {
+            span.source_id() == Some(source)
+                && text.get(span.start as usize..span.end as usize).is_some()
+        };
+        written(failure.operator)
+            && written(failure.span)
+            && text.get(failure.operator.start as usize..failure.operator.end as usize)
+                == Some(failure.function.as_str())
+            && seen.insert((failure.span.start, failure.argument))
+    })
 }
 
 /// The type to show when hovering at byte `offset` of `source` (whose text is
@@ -1737,6 +1806,67 @@ mod tests {
             .collect()
     }
 
+    fn failures_for(src: &str) -> Vec<String> {
+        let (engine, mut exprs, source) = expand_program(src);
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+        written_call_failures(&info, source, src)
+            .map(|failure| {
+                format!(
+                    "{} {}",
+                    &src[failure.span.start as usize..failure.span.end as usize],
+                    failure.message()
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn calls_that_always_raise() {
+        let failures = failures_for(
+            "(define x 10)
+(define (f) (string-length x))
+(define (g) (+ 1 \"a\"))
+(define (h v)
+  (if (string? v)
+      (+ v 1)
+      0))
+(define (k)
+  (let ([s 10])
+    (string-append s \"x\")))",
+        );
+        assert_eq!(
+            failures,
+            vec![
+                "x `string-length` always raises here: argument 1 is always int, but it must be string",
+                "\"a\" `+` always raises here: argument 2 is always string, but it must be number",
+                "v `+` always raises here: argument 1 is always string, but it must be number",
+                "s `string-append` always raises here: argument 1 is always int, but it must be string",
+            ]
+        );
+    }
+
+    #[test]
+    fn calls_that_might_succeed_are_not_reported() {
+        let failures = failures_for(
+            "(define (a x) (string-length x))
+(define (b x)
+  (if (int? x)
+      (+ x 1)
+      (string-length x)))
+(define y 1)
+(set! y \"s\")
+(define (c) (string-length y))
+(define (d) (string-length (error \"no\")))
+(define (e z) (+ (if z 1 \"s\") 1))
+(define (f)
+  (define (string-length s) 0)
+  (string-length 5))",
+        );
+        assert_eq!(failures, Vec::<String>::new());
+    }
+
     #[test]
     fn inlay_hints_for_bindings_and_functions() {
         let hints = hints_for(
@@ -1941,6 +2071,9 @@ mod tests {
             let start = std::time::Instant::now();
             let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
             let elapsed = start.elapsed();
+            for failure in &info.failures {
+                println!("{file}: always raises: {} at {:?}", failure.message(), failure.span);
+            }
             let count = |map: &mut dyn Iterator<Item = TypeSet>| {
                 let (mut top, mut never, mut known) = (0, 0, 0);
                 for ty in map {
