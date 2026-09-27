@@ -14,7 +14,7 @@ use cranelift_module::{FuncId, Linkage, Module};
 use std::collections::HashSet;
 use std::{collections::HashMap, mem::ManuallyDrop};
 use steel_derive::cross_platform_fn;
-use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
+use steel_gen::OpCode;
 use steel_parser::interner::InternedString;
 
 use crate::{
@@ -4843,7 +4843,7 @@ impl FunctionTranslator<'_> {
     fn inline_call_func(
         &mut self,
         arity: usize,
-        name: Option<&str>,
+        name: &str,
         func: Value,
         should_clone: bool,
         should_pop_func: bool,
@@ -5009,16 +5009,10 @@ impl FunctionTranslator<'_> {
                 ctx.shadow_stack = old_stack.clone();
                 ctx.value_to_local_map = old_map.clone();
 
-                if let Some(name) = name {
-                    let v = if should_pop_func {
-                        ctx.call_function(arity, name, false)
-                    } else {
-                        ctx.call_function_with_func(arity, name, false, func)
-                    };
-
-                    v
+                if should_pop_func {
+                    ctx.call_function(arity, name, false)
                 } else {
-                    todo!("Implement spilled function call (arity {})", arity);
+                    ctx.call_function_with_func(arity, name, false, func)
                 }
             },
             typ,
@@ -5554,7 +5548,7 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 let closure = ctx.unbox_value_to_pointer(value);
                 ctx.increment_ref_count_closure(closure);
-                ctx.inline_local_tail_call(arity, closure, value);
+                ctx.inline_local_tail_call(arity, name, closure, value);
             },
             |ctx| {
                 ctx.shadow_stack = old_stack.clone();
@@ -6335,15 +6329,9 @@ impl FunctionTranslator<'_> {
             );
 
             // Only reached when the callee returned a value instead of setting
-            // up a frame. The handler dropped the spilled arguments, so drop
-            // them from the model too.
+            // up a frame.
             self.check_deopt();
-            self.shadow_stack.truncate(self.shadow_stack.len() - arity);
-            self.properties.cached_lookups.stack_length_capacity = self
-                .properties
-                .cached_lookups
-                .stack_length_capacity
-                .saturating_add(arity);
+            self.forget_spilled_args(arity);
 
             self.push(v, InferredType::Any);
             return;
@@ -7294,7 +7282,13 @@ impl FunctionTranslator<'_> {
         self.builder.switch_to_block(cold_block);
     }
 
-    fn inline_local_tail_call(&mut self, arity: usize, closure: Value, original: Value) {
+    fn inline_local_tail_call(
+        &mut self,
+        arity: usize,
+        name: &str,
+        closure: Value,
+        original: Value,
+    ) {
         // First things first, we first get the args off. Worst case, we'll spill
         // these back on to the args
         let args = self
@@ -7398,23 +7392,14 @@ impl FunctionTranslator<'_> {
                 ctx.builder.switch_to_block(cold_block);
             },
             |ctx| {
-                let name = CallFunctionTailDefinitions::arity_to_name(arity);
-
-                if let Some(name) = name {
-                    let v = ctx.call_function_with_func_with_args(
-                        arity,
-                        name,
-                        true,
-                        original,
-                        args.clone(),
-                    );
-                    ctx.push(v, InferredType::Any);
-                } else {
-                    todo!(
-                        "Implement spilled function call bail out case (arity {})",
-                        arity
-                    );
-                }
+                let v = ctx.call_function_with_func_with_args(
+                    arity,
+                    name,
+                    true,
+                    original,
+                    args.clone(),
+                );
+                ctx.push(v, InferredType::Any);
             },
         );
     }
@@ -7672,6 +7657,45 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    /// After a spilled call returns a value, its arguments are gone from the vm
+    /// stack: the handler dropped them, or the callee's frame took them.
+    fn forget_spilled_args(&mut self, arity: usize) {
+        self.shadow_stack.truncate(self.shadow_stack.len() - arity);
+        self.properties.cached_lookups.stack_length_capacity = self
+            .properties
+            .cached_lookups
+            .stack_length_capacity
+            .saturating_add(arity);
+    }
+
+    /// Call the function under `arity` arguments, for more arguments than the
+    /// per arity helpers take. They are spilled to the vm stack, where the
+    /// helper finds them.
+    fn call_function_spilled(
+        &mut self,
+        arity: usize,
+        helper: Helper<3, true, true, true>,
+        tail: bool,
+    ) -> Value {
+        let local_callee = self.helper_callee(helper);
+        let ctx = self.get_ctx();
+        let fallback_ip = self.i64_const(self.ip as i64);
+        let func = self.shadow_pop().0;
+        let arity_value = self.i64_const(arity as i64);
+
+        if tail {
+            self.spill_cloned_stack();
+        } else {
+            self.spill_stack();
+        }
+
+        let call = self
+            .builder
+            .ins()
+            .call(local_callee, &[ctx, func, fallback_ip, arity_value]);
+        self.builder.inst_results(call)[0]
     }
 
     fn get_thread_id(&mut self) -> Value {

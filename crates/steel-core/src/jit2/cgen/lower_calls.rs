@@ -9,8 +9,17 @@ impl FunctionTranslator<'_> {
     /// `FUNC` / `FUNCNOARITY`: call the function under the arguments.
     pub(super) fn lower_func(&mut self, payload: usize) {
         let arity = payload;
-        let name = CallFunctionDefinitions::arity_to_name(arity);
         self.ip += 1;
+
+        let Some(name) = CallFunctionDefinitions::arity_to_name(arity) else {
+            let v = self.call_function_spilled(arity, CALL_FUNCTION_SPILLED, false);
+            // Only reached when the callee returned a value instead of setting
+            // up a frame.
+            self.check_deopt();
+            self.forget_spilled_args(arity);
+            self.push(v, InferredType::Any);
+            return;
+        };
 
         // TODO: @Matt
         // Lets do a hierarchical check. In the event this is a
@@ -42,12 +51,8 @@ impl FunctionTranslator<'_> {
             }
 
             _ => {
-                if let Some(name) = name {
-                    let v = self.call_function(arity, name, false);
-                    self.push(v, InferredType::Any);
-                } else {
-                    todo!("Implement spilled function call (arity {})", arity);
-                }
+                let v = self.call_function(arity, name, false);
+                self.push(v, InferredType::Any);
             }
         }
 
@@ -59,8 +64,16 @@ impl FunctionTranslator<'_> {
     /// Ends this function's translation.
     pub(super) fn lower_tail_call(&mut self, payload: usize) {
         let arity = payload;
-        let name = CallFunctionTailDefinitions::arity_to_name(arity);
         self.ip += 1;
+
+        let Some(name) = CallFunctionTailDefinitions::arity_to_name(arity) else {
+            let v = self.call_function_spilled(arity, CALL_FUNCTION_TAIL_SPILLED, true);
+            self.push(v, InferredType::Any);
+            self.ip = self.instructions.len() + 1;
+            self.check_deopt();
+            self.depth -= 1;
+            return;
+        };
 
         match self.shadow_stack.last().copied() {
             Some(MaybeStackValue::MutRegister(i)) => {
@@ -79,21 +92,14 @@ impl FunctionTranslator<'_> {
                     is_closure,
                     |ctx| {
                         let closure = ctx.unbox_value_to_pointer(value);
-                        ctx.inline_local_tail_call(arity, closure, value);
+                        ctx.inline_local_tail_call(arity, name, closure, value);
                     },
                     |ctx| {
                         ctx.shadow_stack = old_stack.clone();
 
                         // Lets call the function:
-                        if let Some(name) = name {
-                            let v = ctx.call_function_with_func(arity, name, true, value);
-                            ctx.push(v, InferredType::Any);
-                        } else {
-                            todo!(
-                                "Implement spilled function call bail out case (arity {})",
-                                arity
-                            );
-                        }
+                        let v = ctx.call_function_with_func(arity, name, true, value);
+                        ctx.push(v, InferredType::Any);
                     },
                 );
 
@@ -115,21 +121,14 @@ impl FunctionTranslator<'_> {
                     is_closure,
                     |ctx| {
                         let closure = ctx.unbox_value_to_pointer(value);
-                        ctx.inline_local_tail_call(arity, closure, value);
+                        ctx.inline_local_tail_call(arity, name, closure, value);
                     },
                     |ctx| {
                         ctx.shadow_stack = old_stack.clone();
 
                         // Lets call the function:
-                        if let Some(name) = name {
-                            let v = ctx.call_function_with_func(arity, name, true, value);
-                            ctx.push(v, InferredType::Any);
-                        } else {
-                            todo!(
-                                "Implement spilled function call bail out case (arity {})",
-                                arity
-                            );
-                        }
+                        let v = ctx.call_function_with_func(arity, name, true, value);
+                        ctx.push(v, InferredType::Any);
                     },
                 );
 
@@ -155,21 +154,14 @@ impl FunctionTranslator<'_> {
                     |ctx| {
                         let closure = ctx.unbox_value_to_pointer(value);
                         ctx.increment_ref_count_closure(closure);
-                        ctx.inline_local_tail_call(arity, closure, value);
+                        ctx.inline_local_tail_call(arity, name, closure, value);
                     },
                     |ctx| {
                         ctx.shadow_stack = old_stack.clone();
                         ctx.clone_value(value);
                         // Lets call the function:
-                        if let Some(name) = name {
-                            let v = ctx.call_function_with_func(arity, name, true, value);
-                            ctx.push(v, InferredType::Any);
-                        } else {
-                            todo!(
-                                "Implement spilled function call bail out case (arity {})",
-                                arity
-                            );
-                        }
+                        let v = ctx.call_function_with_func(arity, name, true, value);
+                        ctx.push(v, InferredType::Any);
                     },
                 );
 
@@ -179,12 +171,8 @@ impl FunctionTranslator<'_> {
             }
 
             _ => {
-                if let Some(name) = name {
-                    let v = self.call_function(arity, name, true);
-                    self.push(v, InferredType::Any);
-                } else {
-                    todo!("Implement spilled function call (arity {})", arity);
-                }
+                let v = self.call_function(arity, name, true);
+                self.push(v, InferredType::Any);
 
                 self.ip = self.instructions.len() + 1;
 
@@ -523,10 +511,7 @@ impl FunctionTranslator<'_> {
             let inferred_type = self.return_type_of(func.id);
             let result = self.call_self_function_experimental(arity, func, None);
             self.push(result, inferred_type);
-        } else if CallFunctionDefinitions::arity_to_name(arity).is_some() {
-            // Local name here is important
-            let name = CallFunctionDefinitions::arity_to_name(arity);
-
+        } else if let Some(name) = CallFunctionDefinitions::arity_to_name(arity) {
             let value = self.inline_lookup_global(payload);
 
             self.clone_value(value);
@@ -556,6 +541,10 @@ impl FunctionTranslator<'_> {
                 false,
             );
 
+            // Only reached when the callee returned a value instead of setting
+            // up a frame.
+            self.check_deopt();
+            self.forget_spilled_args(arity);
             self.push(v, InferredType::Any)
         }
 

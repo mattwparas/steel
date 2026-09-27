@@ -296,6 +296,27 @@ fn call_function_deopt(
     stash_error(ctx, result)
 }
 
+// `call_function_deopt_N` for more arguments than those take, which are
+// already spilled to the stack.
+#[cross_platform_fn]
+fn call_function_deopt_spilled(
+    ctx: *mut VmCore,
+    func: SteelVal,
+    fallback_ip: usize,
+    arity: usize,
+) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+    debug_assert!(ctx.is_native);
+
+    ctx.ip = fallback_ip - 1;
+    if leaves_native(ctx, &func) {
+        ctx.is_native = false;
+    }
+
+    let result = call_spilled::<false>(ctx, func, arity);
+    stash_error(ctx, result)
+}
+
 helper_family! {
     CallFunctionDefinitions, mod call_function_deopt,
     names "call_function_deopt_" "",

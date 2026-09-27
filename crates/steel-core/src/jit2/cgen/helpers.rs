@@ -146,6 +146,8 @@ jit_helpers! {
     NOT_VALUE = "not-value" => not_handler_raw_value: ctx fn(SteelVal) -> SteelVal;
     CALL_GLOBAL_TAIL_SPILLED = "call-global-tail-spilled" => callglobal_tail_handler_deopt_spilled: ctx_raises fn(usize, usize, usize) -> SteelVal;
     CALL_GLOBAL_SPILLED = "call-global-spilled" => call_global_function_deopt_spilled: ctx_raises fn(usize, usize, usize) -> SteelVal;
+    CALL_FUNCTION_SPILLED = "call-function-spilled" => call_function_deopt_spilled: ctx_raises fn(SteelVal, usize, usize) -> SteelVal;
+    CALL_FUNCTION_TAIL_SPILLED = "call-function-tail-spilled" => call_function_tail_deopt_spilled: ctx_raises fn(SteelVal, usize, usize) -> SteelVal;
     LIST_HANDLER_SPILLED = "list-handler-spilled" => list_handler_c: ctx fn(usize) -> SteelVal;
     VARIADIC_NUMERIC_SPILLED = "variadic-numeric-spilled" => variadic_numeric_spilled: ctx_raises fn(usize, usize) -> SteelVal;
     VEC_HANDLER_SPILLED = "vec-handler-spilled" => vec_handler_c: ctx fn(usize) -> SteelVal;

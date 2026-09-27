@@ -142,6 +142,26 @@ fn call_function_tail_deopt(
     finish_tail_call(ctx, took_frame, result)
 }
 
+// `call_function_tail_deopt_N` for more arguments than those take, which are
+// already spilled to the stack.
+#[cross_platform_fn]
+fn call_function_tail_deopt_spilled(
+    ctx: *mut VmCore,
+    func: SteelVal,
+    fallback_ip: usize,
+    arity: usize,
+) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+    debug_assert!(ctx.is_native);
+
+    ctx.ip = fallback_ip - 1;
+    ctx.is_native = false;
+
+    let took_frame = takes_frame(&func);
+    let result = call_spilled::<true>(ctx, func, arity);
+    finish_tail_call(ctx, took_frame, result)
+}
+
 helper_family! {
     CallFunctionTailDefinitions, mod call_function_tail_deopt,
     names "call_function_tail_deopt_" "",
