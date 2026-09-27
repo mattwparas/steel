@@ -14,8 +14,8 @@ fn flat_symbols(response: Option<DocumentSymbolResponse>) -> Vec<SymbolInformati
 mod goto_definition_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn definition_of_a_function_argument() {
+    #[test]
+    fn definition_of_a_function_argument() {
         let source = r#"(define (add-one x)
   (+ x 1))
 "#;
@@ -23,16 +23,14 @@ mod goto_definition_tests {
         let mut server = TestServer::new();
         let uri = server.open("single.scm", source);
 
-        let location = server
-            .definition_location(&uri, find_nth(source, "x", 1))
-            .await;
+        let location = server.definition_location(&uri, find_nth(source, "x", 1));
 
         assert_eq!(location.uri, uri);
         assert_eq!(location.range, range_of_nth(source, "x", 0));
     }
 
-    #[tokio::test]
-    async fn definition_of_a_top_level_define_from_a_call_site() {
+    #[test]
+    fn definition_of_a_top_level_define_from_a_call_site() {
         let source = r#"(define (add-one x)
   (+ x 1))
 
@@ -42,16 +40,14 @@ mod goto_definition_tests {
         let mut server = TestServer::new();
         let uri = server.open("single.scm", source);
 
-        let location = server
-            .definition_location(&uri, find_nth(source, "add-one", 1))
-            .await;
+        let location = server.definition_location(&uri, find_nth(source, "add-one", 1));
 
         assert_eq!(location.uri, uri);
         assert_eq!(location.range, range_of_nth(source, "add-one", 0));
     }
 
-    #[tokio::test]
-    async fn definition_of_a_top_level_value() {
+    #[test]
+    fn definition_of_a_top_level_value() {
         let source = r#"(define total 10)
 
 (define (double)
@@ -61,16 +57,14 @@ mod goto_definition_tests {
         let mut server = TestServer::new();
         let uri = server.open("value.scm", source);
 
-        let location = server
-            .definition_location(&uri, find_nth(source, "total", 1))
-            .await;
+        let location = server.definition_location(&uri, find_nth(source, "total", 1));
 
         assert_eq!(location.uri, uri);
         assert_eq!(location.range, range_of_nth(source, "total", 0));
     }
 
-    #[tokio::test]
-    async fn definition_of_a_let_binding() {
+    #[test]
+    fn definition_of_a_let_binding() {
         let source = r#"(define (compute)
   (let ([total 10]
         [other 20])
@@ -80,16 +74,14 @@ mod goto_definition_tests {
         let mut server = TestServer::new();
         let uri = server.open("let.scm", source);
 
-        let location = server
-            .definition_location(&uri, find_nth(source, "total", 1))
-            .await;
+        let location = server.definition_location(&uri, find_nth(source, "total", 1));
 
         assert_eq!(location.uri, uri);
         assert_eq!(location.range, range_of_nth(source, "total", 0));
     }
 
-    #[tokio::test]
-    async fn definition_crosses_into_a_required_file() {
+    #[test]
+    fn definition_crosses_into_a_required_file() {
         let lib_source = r#"(provide greet counter)
 
 (define (greet name)
@@ -111,23 +103,19 @@ mod goto_definition_tests {
 
         let app = server.open("app.scm", app_source);
 
-        let location = server
-            .definition_location(&app, find(app_source, "greet"))
-            .await;
+        let location = server.definition_location(&app, find(app_source, "greet"));
 
         assert_eq!(location.uri, lib);
         assert_eq!(location.range, range_of_nth(lib_source, "greet", 1));
 
-        let location = server
-            .definition_location(&app, find(app_source, "counter"))
-            .await;
+        let location = server.definition_location(&app, find(app_source, "counter"));
 
         assert_eq!(location.uri, lib);
         assert_eq!(location.range, range_of_nth(lib_source, "counter", 1));
     }
 
-    #[tokio::test]
-    async fn definition_resolves_through_only_in() {
+    #[test]
+    fn definition_resolves_through_only_in() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -145,16 +133,14 @@ mod goto_definition_tests {
 
         let app = server.open("only-in.scm", app_source);
 
-        let location = server
-            .definition_location(&app, find_nth(app_source, "greet", 1))
-            .await;
+        let location = server.definition_location(&app, find_nth(app_source, "greet", 1));
 
         assert_eq!(location.uri, lib);
         assert_eq!(location.range, range_of_nth(lib_source, "greet", 1));
     }
 
-    #[tokio::test]
-    async fn definition_resolves_through_prefix_in() {
+    #[test]
+    fn definition_resolves_through_prefix_in() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -172,16 +158,14 @@ mod goto_definition_tests {
 
         let app = server.open("prefix-in.scm", app_source);
 
-        let location = server
-            .definition_location(&app, find(app_source, "lib.greet"))
-            .await;
+        let location = server.definition_location(&app, find(app_source, "lib.greet"));
 
         assert_eq!(location.uri, lib);
         assert_eq!(location.range, range_of_nth(lib_source, "greet", 1));
     }
 
-    #[tokio::test]
-    async fn definition_of_a_macro_in_the_same_file() {
+    #[test]
+    fn definition_of_a_macro_in_the_same_file() {
         let source = r#"(define-syntax twice
   (syntax-rules ()
     [(_ e) (begin e e)]))
@@ -197,16 +181,14 @@ mod goto_definition_tests {
         let uri = server.open("macro.scm", source);
 
         // macros land on the define-syntax keyword, not on the macro name
-        let location = server
-            .definition_location(&uri, find_nth(source, "twice", 1))
-            .await;
+        let location = server.definition_location(&uri, find_nth(source, "twice", 1));
 
         assert_eq!(location.uri, uri);
         assert_eq!(location.range, range_of(source, "define-syntax"));
     }
 
-    #[tokio::test]
-    async fn definition_of_a_macro_from_a_required_file() {
+    #[test]
+    fn definition_of_a_macro_from_a_required_file() {
         let lib_source = r#"(provide my-macro)
 
 (define-syntax my-macro
@@ -226,16 +208,14 @@ mod goto_definition_tests {
 
         let uri = server.open("imported.scm", app_source);
 
-        let location = server
-            .definition_location(&uri, find(app_source, "my-macro"))
-            .await;
+        let location = server.definition_location(&uri, find(app_source, "my-macro"));
 
         assert_eq!(location.uri, lib);
         assert_eq!(location.range, range_of(lib_source, "define-syntax"));
     }
 
-    #[tokio::test]
-    async fn definition_of_a_builtin_is_not_reported() {
+    #[test]
+    fn definition_of_a_builtin_is_not_reported() {
         let source = r#"(define (double xs)
   (map (lambda (y) (* y 2)) xs))
 "#;
@@ -243,14 +223,11 @@ mod goto_definition_tests {
         let mut server = TestServer::new();
         let uri = server.open("builtin.scm", source);
 
-        assert_eq!(
-            server.goto_definition(&uri, find(source, "map")).await,
-            None
-        );
+        assert_eq!(server.goto_definition(&uri, find(source, "map")), None);
     }
 
-    #[tokio::test]
-    async fn definition_at_a_position_with_no_identifier_is_not_reported() {
+    #[test]
+    fn definition_at_a_position_with_no_identifier_is_not_reported() {
         let source = r#"(define (add-one x)
   (+ x 1))
 
@@ -261,23 +238,23 @@ mod goto_definition_tests {
         let uri = server.open("single.scm", source);
 
         // the blank line between the two top level forms
-        assert_eq!(server.goto_definition(&uri, position(2, 0)).await, None);
+        assert_eq!(server.goto_definition(&uri, position(2, 0)), None);
     }
 
-    #[tokio::test]
-    async fn definition_in_an_unopened_document_is_not_reported() {
+    #[test]
+    fn definition_in_an_unopened_document_is_not_reported() {
         let server = TestServer::new();
         let uri = server.unopened("never-opened.scm");
 
-        assert_eq!(server.goto_definition(&uri, position(0, 10)).await, None);
+        assert_eq!(server.goto_definition(&uri, position(0, 10)), None);
     }
 }
 
 mod find_references_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn references_to_a_function_argument() {
+    #[test]
+    fn references_to_a_function_argument() {
         let source = r#"(define (add-one x)
   (+ x 1))
 "#;
@@ -287,7 +264,6 @@ mod find_references_tests {
 
         let locations = server
             .references(&uri, find_nth(source, "x", 1), true)
-            .await
             .expect("expected references to the argument");
 
         assert_eq!(
@@ -299,8 +275,8 @@ mod find_references_tests {
         );
     }
 
-    #[tokio::test]
-    async fn references_to_a_top_level_define() {
+    #[test]
+    fn references_to_a_top_level_define() {
         let source = r#"(define (add-one x)
   (+ x 1))
 
@@ -315,7 +291,6 @@ mod find_references_tests {
 
         let locations = server
             .references(&uri, find_nth(source, "add-one", 1), true)
-            .await
             .expect("expected references to the define");
 
         assert_eq!(
@@ -328,8 +303,8 @@ mod find_references_tests {
         );
     }
 
-    #[tokio::test]
-    async fn references_can_exclude_the_declaration() {
+    #[test]
+    fn references_can_exclude_the_declaration() {
         let source = r#"(define (add-one x)
   (+ x 1))
 
@@ -344,7 +319,6 @@ mod find_references_tests {
 
         let locations = server
             .references(&uri, find_nth(source, "add-one", 1), false)
-            .await
             .expect("expected references to the define");
 
         assert_eq!(
@@ -356,8 +330,8 @@ mod find_references_tests {
         );
     }
 
-    #[tokio::test]
-    async fn references_to_a_let_binding() {
+    #[test]
+    fn references_to_a_let_binding() {
         let source = r#"(define (compute)
   (let ([total 10]
         [other 20])
@@ -369,7 +343,6 @@ mod find_references_tests {
 
         let locations = server
             .references(&uri, find_nth(source, "total", 1), true)
-            .await
             .expect("expected references to the let binding");
 
         assert_eq!(
@@ -383,14 +356,13 @@ mod find_references_tests {
 
         let locations = server
             .references(&uri, find_nth(source, "other", 1), true)
-            .await
             .expect("expected references to the other let binding");
 
         assert_eq!(locations.len(), 2);
     }
 
-    #[tokio::test]
-    async fn references_reach_across_files() {
+    #[test]
+    fn references_reach_across_files() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -411,7 +383,6 @@ mod find_references_tests {
 
         let locations = server
             .references(&app, find(app_source, "greet"), true)
-            .await
             .expect("expected references across the module boundary");
 
         assert_eq!(
@@ -423,8 +394,8 @@ mod find_references_tests {
         );
     }
 
-    #[tokio::test]
-    async fn references_reach_across_files_through_only_in() {
+    #[test]
+    fn references_reach_across_files_through_only_in() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -445,7 +416,6 @@ mod find_references_tests {
 
         let locations = server
             .references(&app, find_nth(app_source, "greet", 1), true)
-            .await
             .expect("expected references across the module boundary");
 
         assert_eq!(
@@ -460,9 +430,9 @@ mod find_references_tests {
     // TODO: @matt - once a file is indexed as a module, a use inside it is found twice -
     // once by the analysis of the open document, and again when the reverse dependency
     // walk re-analyzes that same file.
-    #[tokio::test]
+    #[test]
     #[ignore = "references reports the same location twice for an indexed requiring file"]
-    async fn references_does_not_report_duplicate_locations() {
+    fn references_does_not_report_duplicate_locations() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -483,7 +453,6 @@ mod find_references_tests {
 
         let locations = server
             .references(&app, find(app_source, "greet"), true)
-            .await
             .expect("expected references across the module boundary");
 
         assert_eq!(
@@ -495,8 +464,8 @@ mod find_references_tests {
         );
     }
 
-    #[tokio::test]
-    async fn references_to_a_builtin_stay_inside_the_workspace() {
+    #[test]
+    fn references_to_a_builtin_stay_inside_the_workspace() {
         let lib_source = r#"(provide scale)
 
 (define (scale xs)
@@ -514,7 +483,6 @@ mod find_references_tests {
 
         let locations = server
             .references(&uri, find(source, "map"), true)
-            .await
             .expect("expected at least the clicked occurrence");
 
         assert!(
@@ -530,9 +498,9 @@ mod find_references_tests {
     }
 
     // TODO: @matt - this is broken
-    #[tokio::test]
+    #[test]
     #[ignore = "references to a builtin only return the occurrence under the cursor"]
-    async fn references_to_a_builtin_find_every_use_in_the_file() {
+    fn references_to_a_builtin_find_every_use_in_the_file() {
         let source = r#"(define (run xs)
   (map (lambda (y) (+ y 1)) xs))
 
@@ -545,7 +513,6 @@ mod find_references_tests {
 
         let locations = server
             .references(&uri, find(source, "map"), true)
-            .await
             .expect("expected references to the builtin");
 
         assert_eq!(
@@ -557,12 +524,12 @@ mod find_references_tests {
         );
     }
 
-    #[tokio::test]
-    async fn references_in_an_unopened_document_are_not_reported() {
+    #[test]
+    fn references_in_an_unopened_document_are_not_reported() {
         let server = TestServer::new();
         let uri = server.unopened("never-opened.scm");
 
-        assert_eq!(server.references(&uri, position(0, 10), true).await, None);
+        assert_eq!(server.references(&uri, position(0, 10), true), None);
     }
 }
 
@@ -571,8 +538,8 @@ mod find_references_tests {
 mod workspace_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn references_work_with_both_files_open() {
+    #[test]
+    fn references_work_with_both_files_open() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -599,19 +566,17 @@ mod workspace_tests {
 
         let from_app = server
             .references(&app, find(app_source, "greet"), true)
-            .await
             .expect("expected references from the consumer");
         assert_eq!(deduped(from_app), expected);
 
         let from_lib = server
             .references(&lib, find_nth(lib_source, "greet", 1), true)
-            .await
             .expect("expected references from the definition");
         assert_eq!(deduped(from_lib), expected);
     }
 
-    #[tokio::test]
-    async fn definition_reaches_a_file_outside_the_workspace() {
+    #[test]
+    fn definition_reaches_a_file_outside_the_workspace() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -625,16 +590,14 @@ mod workspace_tests {
         let app_source = require_by_path(&outside);
         let app = server.open("app.scm", &app_source);
 
-        let location = server
-            .definition_location(&app, call_site(&app_source))
-            .await;
+        let location = server.definition_location(&app, call_site(&app_source));
 
         assert_eq!(location.uri, outside);
         assert_eq!(location.range, range_of_nth(lib_source, "greet", 1));
     }
 
-    #[tokio::test]
-    async fn references_skip_closed_files_outside_the_workspace() {
+    #[test]
+    fn references_skip_closed_files_outside_the_workspace() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -650,7 +613,6 @@ mod workspace_tests {
 
         let locations = server
             .references(&app, call_site(&app_source), true)
-            .await
             .expect("expected at least the local use");
 
         // the declaration is outside the workspace in a file the editor never opened, so
@@ -661,8 +623,8 @@ mod workspace_tests {
         );
     }
 
-    #[tokio::test]
-    async fn references_include_files_outside_the_workspace_once_they_are_open() {
+    #[test]
+    fn references_include_files_outside_the_workspace_once_they_are_open() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -681,7 +643,6 @@ mod workspace_tests {
 
         let locations = server
             .references(&app, call_site(&app_source), true)
-            .await
             .expect("expected references once the library is open");
 
         assert_eq!(
@@ -716,8 +677,8 @@ mod workspace_tests {
 mod require_graph_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn references_span_a_diamond_require_graph() {
+    #[test]
+    fn references_span_a_diamond_require_graph() {
         let base = r#"(provide base-fn)
 
 (define (base-fn x) x)
@@ -750,7 +711,6 @@ mod require_graph_tests {
 
         let locations = server
             .references(&uri, find_nth(base, "base-fn", 1), true)
-            .await
             .expect("expected references from both branches of the diamond");
 
         assert_eq!(
@@ -764,9 +724,9 @@ mod require_graph_tests {
     }
 
     // TODO: Resolution isn't going deep enough
-    #[tokio::test]
+    #[test]
     #[ignore = "definitions are not resolved through a re-providing intermediate module"]
-    async fn definition_follows_a_transitive_re_provide() {
+    fn definition_follows_a_transitive_re_provide() {
         let deep = r#"(provide deep-fn)
 
 (define (deep-fn x) (+ x 1))
@@ -788,16 +748,16 @@ mod require_graph_tests {
 
         let uri = server.open("top.scm", top);
 
-        let location = server.definition_location(&uri, find(top, "deep-fn")).await;
+        let location = server.definition_location(&uri, find(top, "deep-fn"));
 
         assert_eq!(location.uri, deep_uri);
         assert_eq!(location.range, range_of_nth(deep, "deep-fn", 1));
     }
 
     // TODO: Resolution isn't going deep enough
-    #[tokio::test]
+    #[test]
     #[ignore = "references are not resolved through a re-providing intermediate module"]
-    async fn references_follow_a_transitive_re_provide() {
+    fn references_follow_a_transitive_re_provide() {
         let deep = r#"(provide deep-fn)
 
 (define (deep-fn x) (+ x 1))
@@ -821,7 +781,6 @@ mod require_graph_tests {
 
         let locations = server
             .references(&uri, find(top, "deep-fn"), true)
-            .await
             .expect("expected references through the intermediate module");
 
         assert_eq!(
@@ -837,8 +796,8 @@ mod require_graph_tests {
 mod document_symbol_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn document_symbols_list_top_level_definitions() {
+    #[test]
+    fn document_symbols_list_top_level_definitions() {
         let source = r#"(define (add-one x)
   (+ x 1))
 
@@ -851,7 +810,7 @@ mod document_symbol_tests {
         let mut server = TestServer::new();
         let uri = server.open("single.scm", source);
 
-        let symbols = flat_symbols(server.document_symbol(&uri).await);
+        let symbols = flat_symbols(server.document_symbol(&uri));
 
         let names: Vec<_> = symbols.iter().map(|x| x.name.as_str()).collect();
         assert_eq!(names, vec!["add-one", "result", "combine"]);
@@ -868,8 +827,8 @@ mod document_symbol_tests {
         assert!(symbols.iter().all(|symbol| symbol.location.uri == uri));
     }
 
-    #[tokio::test]
-    async fn document_symbols_include_let_star_bindings() {
+    #[test]
+    fn document_symbols_include_let_star_bindings() {
         let source = r#"(define (with-let-star z)
   (let* ([inner-star 1])
     (+ z inner-star)))
@@ -882,7 +841,7 @@ mod document_symbol_tests {
         let mut server = TestServer::new();
         let uri = server.open("shapes.scm", source);
 
-        let symbols = flat_symbols(server.document_symbol(&uri).await);
+        let symbols = flat_symbols(server.document_symbol(&uri));
         let names: Vec<_> = symbols.iter().map(|x| x.name.as_str()).collect();
 
         assert_eq!(
@@ -909,8 +868,8 @@ mod document_symbol_tests {
         );
     }
 
-    #[tokio::test]
-    async fn document_symbols_leave_out_plain_lets_and_nested_defines() {
+    #[test]
+    fn document_symbols_leave_out_plain_lets_and_nested_defines() {
         let source = r#"(define (outer x)
   (define nested-define 2)
   (+ x nested-define))
@@ -923,7 +882,7 @@ mod document_symbol_tests {
         let mut server = TestServer::new();
         let uri = server.open("shapes.scm", source);
 
-        let names: Vec<_> = flat_symbols(server.document_symbol(&uri).await)
+        let names: Vec<_> = flat_symbols(server.document_symbol(&uri))
             .into_iter()
             .map(|symbol| symbol.name)
             .collect();
@@ -932,20 +891,20 @@ mod document_symbol_tests {
         assert_eq!(names, vec!["outer", "with-let"]);
     }
 
-    #[tokio::test]
-    async fn document_symbols_in_an_unopened_document_are_not_reported() {
+    #[test]
+    fn document_symbols_in_an_unopened_document_are_not_reported() {
         let server = TestServer::new();
         let uri = server.unopened("never-opened.scm");
 
-        assert!(server.document_symbol(&uri).await.is_none());
+        assert!(server.document_symbol(&uri).is_none());
     }
 }
 
 mod hover_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn hover_shows_builtin_documentation() {
+    #[test]
+    fn hover_shows_builtin_documentation() {
         let source = r#"(define (double xs)
   (map (lambda (y) (* y 2)) xs))
 "#;
@@ -955,7 +914,6 @@ mod hover_tests {
 
         let hover = server
             .hover(&uri, find(source, "map"))
-            .await
             .expect("expected documentation for a builtin");
 
         assert!(
@@ -965,8 +923,8 @@ mod hover_tests {
         );
     }
 
-    #[tokio::test]
-    async fn hover_shows_the_doc_comment_of_a_define_in_the_same_file() {
+    #[test]
+    fn hover_shows_the_doc_comment_of_a_define_in_the_same_file() {
         let source = r#";;@doc
 ;; Increments its argument.
 (define (add-one x)
@@ -981,19 +939,17 @@ mod hover_tests {
 
         let hover = server
             .hover(&uri, find_nth(source, "add-one", 1))
-            .await
             .expect("expected documentation at the call site");
         assert_eq!(hover_text(&hover), "Increments its argument.");
 
         let hover = server
             .hover(&uri, find_nth(source, "add-one", 0))
-            .await
             .expect("expected documentation on the definition");
         assert_eq!(hover_text(&hover), "Increments its argument.");
     }
 
-    #[tokio::test]
-    async fn hover_shows_the_doc_comment_of_a_macro() {
+    #[test]
+    fn hover_shows_the_doc_comment_of_a_macro() {
         let source = r#";;@doc
 ;; Evaluates its argument two times.
 (define-syntax twice
@@ -1014,14 +970,13 @@ mod hover_tests {
         // hover_macro_impl fallback rather than hover_impl
         let hover = server
             .hover(&uri, find_nth(source, "twice", 1))
-            .await
             .expect("expected documentation for the macro");
 
         assert_eq!(hover_text(&hover), "Evaluates its argument two times.");
     }
 
-    #[tokio::test]
-    async fn hover_shows_the_doc_comment_of_a_required_function() {
+    #[test]
+    fn hover_shows_the_doc_comment_of_a_required_function() {
         let lib_source = r#"(provide greet)
 
 ;;@doc
@@ -1043,7 +998,6 @@ mod hover_tests {
 
         let hover = server
             .hover(&app, find(app_source, "greet"))
-            .await
             .expect("expected documentation for the required function");
 
         let text = hover_text(&hover);
@@ -1060,8 +1014,8 @@ mod hover_tests {
         );
     }
 
-    #[tokio::test]
-    async fn hover_shows_the_doc_comment_of_an_imported_macro() {
+    #[test]
+    fn hover_shows_the_doc_comment_of_an_imported_macro() {
         let lib_source = r#"(provide shout)
 
 ;;@doc
@@ -1085,14 +1039,13 @@ mod hover_tests {
 
         let hover = server
             .hover(&uri, find(app_source, "shout"))
-            .await
             .expect("expected documentation for the imported macro");
 
         assert_eq!(hover_text(&hover), "Appends an exclamation mark.");
     }
 
-    #[tokio::test]
-    async fn hover_renders_the_signature_of_an_undocumented_required_function() {
+    #[test]
+    fn hover_renders_the_signature_of_an_undocumented_required_function() {
         let lib_source = r#"(provide undocumented)
 
 (define (undocumented a b)
@@ -1114,7 +1067,6 @@ mod hover_tests {
 
         let hover = server
             .hover(&uri, find(app_source, "undocumented"))
-            .await
             .expect("expected a signature for the undocumented function");
 
         assert_eq!(
@@ -1127,8 +1079,8 @@ mod hover_tests {
         );
     }
 
-    #[tokio::test]
-    async fn hover_on_an_undocumented_local_is_not_reported() {
+    #[test]
+    fn hover_on_an_undocumented_local_is_not_reported() {
         let source = r#"(define (add-one x)
   (+ x 1))
 "#;
@@ -1136,7 +1088,7 @@ mod hover_tests {
         let mut server = TestServer::new();
         let uri = server.open("single.scm", source);
 
-        assert!(server.hover(&uri, find_nth(source, "x", 1)).await.is_none());
+        assert!(server.hover(&uri, find_nth(source, "x", 1)).is_none());
     }
 
     fn hover_text(hover: &Hover) -> String {
@@ -1150,8 +1102,8 @@ mod hover_tests {
 mod completion_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn completion_offers_globals_and_top_level_definitions() {
+    #[test]
+    fn completion_offers_globals_and_top_level_definitions() {
         let source = r#"(define (outer alpha)
   (+ alpha 1))
 
@@ -1162,7 +1114,7 @@ mod completion_tests {
         let uri = server.open("complete.scm", source);
 
         // inside (+ alpha 1), right before alpha
-        let labels = completion_labels(&mut server, &uri, position(1, 5)).await;
+        let labels = completion_labels(&mut server, &uri, position(1, 5));
 
         for expected in ["map", "car", "outer", "gamma"] {
             assert!(
@@ -1186,8 +1138,8 @@ mod completion_tests {
         );
     }
 
-    #[tokio::test]
-    async fn completion_filters_by_the_character_already_typed() {
+    #[test]
+    fn completion_filters_by_the_character_already_typed() {
         let source = r#"(define (outer alpha)
   (+ alpha 1))
 
@@ -1198,7 +1150,7 @@ mod completion_tests {
         let uri = server.open("complete.scm", source);
 
         // immediately after the a of alpha, which follows a space
-        let labels = completion_labels(&mut server, &uri, position(1, 6)).await;
+        let labels = completion_labels(&mut server, &uri, position(1, 6));
 
         assert!(!labels.is_empty());
         assert!(
@@ -1209,8 +1161,8 @@ mod completion_tests {
         assert!(labels.contains(&"abs".to_string()));
     }
 
-    #[tokio::test]
-    async fn completion_after_an_open_paren_is_not_filtered() {
+    #[test]
+    fn completion_after_an_open_paren_is_not_filtered() {
         let source = r#"(define (outer alpha)
   (let ([local-binding 1])
     (+ alpha local-binding)))
@@ -1223,7 +1175,7 @@ mod completion_tests {
 
         // ( is the trigger character, so it must not be taken for the first letter of
         // what we're typing. line 2 is `    (+ alpha local-binding)))`
-        let labels = completion_labels(&mut server, &uri, position(2, 5)).await;
+        let labels = completion_labels(&mut server, &uri, position(2, 5));
 
         assert!(labels.contains(&"gamma".to_string()));
         assert!(labels.contains(&"map".to_string()));
@@ -1233,8 +1185,8 @@ mod completion_tests {
         );
     }
 
-    #[tokio::test]
-    async fn completion_offers_macros_that_are_in_scope() {
+    #[test]
+    fn completion_offers_macros_that_are_in_scope() {
         let source = r#"(define (outer alpha)
   (let ([local-binding 1])
     (+ alpha local-binding)))
@@ -1245,7 +1197,7 @@ mod completion_tests {
         let mut server = TestServer::new();
         let uri = server.open("scopes.scm", source);
 
-        let labels = completion_labels(&mut server, &uri, position(2, 5)).await;
+        let labels = completion_labels(&mut server, &uri, position(2, 5));
 
         for expected in ["when", "unless"] {
             assert!(
@@ -1256,9 +1208,9 @@ mod completion_tests {
         }
     }
 
-    #[tokio::test]
+    #[test]
     #[ignore = "function arguments and let bindings never appear in completions"]
-    async fn completion_offers_local_bindings() {
+    fn completion_offers_local_bindings() {
         let source = r#"(define (outer alpha)
   (let ([local-binding 1])
     (+ alpha local-binding)))
@@ -1269,7 +1221,7 @@ mod completion_tests {
         let mut server = TestServer::new();
         let uri = server.open("scopes.scm", source);
 
-        let labels = completion_labels(&mut server, &uri, position(2, 5)).await;
+        let labels = completion_labels(&mut server, &uri, position(2, 5));
 
         for expected in ["alpha", "local-binding"] {
             assert!(
@@ -1281,20 +1233,16 @@ mod completion_tests {
         }
     }
 
-    #[tokio::test]
-    async fn completion_in_an_unopened_document_is_not_reported() {
+    #[test]
+    fn completion_in_an_unopened_document_is_not_reported() {
         let server = TestServer::new();
         let uri = server.unopened("never-opened.scm");
 
-        assert!(server.completion(&uri, position(1, 5)).await.is_none());
+        assert!(server.completion(&uri, position(1, 5)).is_none());
     }
 
-    async fn completion_labels(
-        server: &mut TestServer,
-        uri: &Url,
-        position: Position,
-    ) -> Vec<String> {
-        match server.completion(uri, position).await {
+    fn completion_labels(server: &mut TestServer, uri: &Url, position: Position) -> Vec<String> {
+        match server.completion(uri, position) {
             Some(CompletionResponse::Array(items)) => {
                 items.into_iter().map(|item| item.label).collect()
             }
@@ -1306,8 +1254,8 @@ mod completion_tests {
 mod rename_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn rename_rewrites_every_use_of_a_function_argument() {
+    #[test]
+    fn rename_rewrites_every_use_of_a_function_argument() {
         let source = r#"(define (add-one x)
   (+ x 1))
 "#;
@@ -1318,7 +1266,7 @@ mod rename_tests {
         let position = find_nth(source, "x", 1);
 
         assert_eq!(
-            server.prepare_rename(&uri, position).await,
+            server.prepare_rename(&uri, position),
             Ok(Some(PrepareRenameResponse::Range(range_of_nth(
                 source, "x", 1
             ))))
@@ -1326,7 +1274,6 @@ mod rename_tests {
 
         let edit = server
             .rename(&uri, position, "value")
-            .await
             .expect("expected a workspace edit");
 
         let mut edits = edit.changes.expect("expected document changes")[&uri].clone();
@@ -1341,8 +1288,8 @@ mod rename_tests {
         );
     }
 
-    #[tokio::test]
-    async fn rename_rewrites_every_use_of_a_let_binding() {
+    #[test]
+    fn rename_rewrites_every_use_of_a_let_binding() {
         let source = r#"(define (compute)
   (let ([total 10]
         [other 20])
@@ -1354,7 +1301,6 @@ mod rename_tests {
 
         let edit = server
             .rename(&uri, find_nth(source, "total", 1), "sum")
-            .await
             .expect("expected a workspace edit");
 
         let mut edits = edit.changes.expect("expected document changes")[&uri].clone();
@@ -1370,8 +1316,8 @@ mod rename_tests {
         );
     }
 
-    #[tokio::test]
-    async fn rename_refuses_globals_and_builtins() {
+    #[test]
+    fn rename_refuses_globals_and_builtins() {
         let source = r#"(define (add-one x)
   (+ x 1))
 "#;
@@ -1382,14 +1328,11 @@ mod rename_tests {
         // renaming a global would have to touch every requiring file, which we don't do
         let error = server
             .prepare_rename(&uri, find_nth(source, "add-one", 0))
-            .await
             .expect_err("expected renaming a global to be rejected");
         assert_eq!(error.code, tower_lsp::jsonrpc::ErrorCode::InvalidParams);
 
         assert_eq!(
-            server
-                .rename(&uri, find_nth(source, "add-one", 0), "nope")
-                .await,
+            server.rename(&uri, find_nth(source, "add-one", 0), "nope"),
             None
         );
 
@@ -1401,22 +1344,18 @@ mod rename_tests {
 
         let error = server
             .prepare_rename(&uri, find(builtin, "map"))
-            .await
             .expect_err("expected renaming a builtin to be rejected");
         assert_eq!(error.code, tower_lsp::jsonrpc::ErrorCode::InvalidParams);
 
-        assert_eq!(
-            server.rename(&uri, find(builtin, "map"), "nope").await,
-            None
-        );
+        assert_eq!(server.rename(&uri, find(builtin, "map"), "nope"), None);
     }
 }
 
 mod diagnostics_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn diagnostics_report_free_identifiers_and_unused_arguments() {
+    #[test]
+    fn diagnostics_report_free_identifiers_and_unused_arguments() {
         let source = r#"(define (f x)
   (undefined-function 10))
 "#;
@@ -1442,8 +1381,8 @@ mod diagnostics_tests {
         assert_eq!(unused.range, range_of_nth(source, "x", 0));
     }
 
-    #[tokio::test]
-    async fn diagnostics_report_arity_mismatches() {
+    #[test]
+    fn diagnostics_report_arity_mismatches() {
         let source = r#"(define (f x) x)
 (f 1 2 3)
 (car)
@@ -1472,8 +1411,8 @@ mod diagnostics_tests {
         );
     }
 
-    #[tokio::test]
-    async fn diagnostics_report_every_builtin_arity_kind() {
+    #[test]
+    fn diagnostics_report_every_builtin_arity_kind() {
         let source = r#"(define (run)
   (list (-)
         (log)
@@ -1523,8 +1462,8 @@ mod diagnostics_tests {
             .all(|d| d.severity == Some(DiagnosticSeverity::ERROR)));
     }
 
-    #[tokio::test]
-    async fn calls_within_arity_are_not_reported() {
+    #[test]
+    fn calls_within_arity_are_not_reported() {
         let source = r#"(define (run)
   (list (- 1)
         (log 1)
@@ -1539,8 +1478,8 @@ mod diagnostics_tests {
         assert_eq!(server.diagnostics(&uri), vec![]);
     }
 
-    #[tokio::test]
-    async fn diagnostics_report_arity_for_a_required_function() {
+    #[test]
+    fn diagnostics_report_arity_for_a_required_function() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -1572,8 +1511,8 @@ mod diagnostics_tests {
         );
     }
 
-    #[tokio::test]
-    async fn diagnostics_report_parse_errors() {
+    #[test]
+    fn diagnostics_report_parse_errors() {
         let source = r#"(define (f x)
 "#;
 
@@ -1591,8 +1530,8 @@ mod diagnostics_tests {
         );
     }
 
-    #[tokio::test]
-    async fn a_clean_file_produces_no_diagnostics() {
+    #[test]
+    fn a_clean_file_produces_no_diagnostics() {
         let source = r#"(define (add-one x)
   (+ x 1))
 
@@ -1608,8 +1547,8 @@ mod diagnostics_tests {
         assert_eq!(server.diagnostics(&uri), vec![]);
     }
 
-    #[tokio::test]
-    async fn diagnostics_are_cleared_once_the_problem_is_fixed() {
+    #[test]
+    fn diagnostics_are_cleared_once_the_problem_is_fixed() {
         let source = r#"(define (f x)
   (undefined-function x))
 "#;
@@ -1631,8 +1570,8 @@ mod diagnostics_tests {
 mod document_sync_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn edits_are_reflected_in_later_requests() {
+    #[test]
+    fn edits_are_reflected_in_later_requests() {
         let original = r#"(define (f x) x)
 (f 1)
 "#;
@@ -1644,7 +1583,7 @@ mod document_sync_tests {
         let uri = server.open("change.scm", original);
 
         assert_eq!(
-            flat_symbols(server.document_symbol(&uri).await)
+            flat_symbols(server.document_symbol(&uri))
                 .into_iter()
                 .map(|x| x.name)
                 .collect::<Vec<_>>(),
@@ -1654,22 +1593,20 @@ mod document_sync_tests {
         server.did_change(uri.clone(), updated);
 
         assert_eq!(
-            flat_symbols(server.document_symbol(&uri).await)
+            flat_symbols(server.document_symbol(&uri))
                 .into_iter()
                 .map(|x| x.name)
                 .collect::<Vec<_>>(),
             vec!["renamed"]
         );
 
-        let location = server
-            .definition_location(&uri, find_nth(updated, "renamed", 1))
-            .await;
+        let location = server.definition_location(&uri, find_nth(updated, "renamed", 1));
 
         assert_eq!(location.range, range_of_nth(updated, "renamed", 0));
     }
 
-    #[tokio::test]
-    async fn edits_to_a_library_are_visible_within_that_library() {
+    #[test]
+    fn edits_to_a_library_are_visible_within_that_library() {
         let lib_source = r#"(provide greet)
 
 (define (greet name)
@@ -1698,7 +1635,7 @@ mod document_sync_tests {
 
         server.did_change(lib.clone(), lib_edited);
 
-        let symbols = flat_symbols(server.document_symbol(&lib).await);
+        let symbols = flat_symbols(server.document_symbol(&lib));
         let greet = symbols
             .iter()
             .find(|symbol| symbol.name == "greet")
@@ -1711,8 +1648,8 @@ mod document_sync_tests {
 mod offset_encoding_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn positions_are_utf16_code_units() {
+    #[test]
+    fn positions_are_utf16_code_units() {
         // grüße and naïve-name take a different number of bytes, utf16 code units and
         // characters, which is what the conversions have to get right
         let source = r#"(define (grüße naïve-name)
@@ -1728,12 +1665,11 @@ mod offset_encoding_tests {
         let first_use = Range::new(Position::new(1, 8), Position::new(1, 18));
         let second_use = Range::new(Position::new(1, 19), Position::new(1, 29));
 
-        let location = server.definition_location(&uri, first_use.start).await;
+        let location = server.definition_location(&uri, first_use.start);
         assert_eq!(location.range, declaration);
 
         let locations = server
             .references(&uri, second_use.start, true)
-            .await
             .expect("expected references to the argument");
 
         assert_eq!(
@@ -1746,8 +1682,8 @@ mod offset_encoding_tests {
         );
     }
 
-    #[tokio::test]
-    async fn positions_are_bytes_in_utf8() {
+    #[test]
+    fn positions_are_bytes_in_utf8() {
         // grüße and naïve-name take a different number of bytes, utf16 code units and
         // characters, which is what the conversions have to get right
         let source = r#"(define (grüße naïve-name)
@@ -1762,12 +1698,11 @@ mod offset_encoding_tests {
         let first_use = Range::new(Position::new(1, 8), Position::new(1, 19));
         let second_use = Range::new(Position::new(1, 20), Position::new(1, 31));
 
-        let location = server.definition_location(&uri, first_use.start).await;
+        let location = server.definition_location(&uri, first_use.start);
         assert_eq!(location.range, declaration);
 
         let locations = server
             .references(&uri, second_use.start, true)
-            .await
             .expect("expected references to the argument");
 
         assert_eq!(

@@ -21,7 +21,6 @@ fn isolate_lsp_home() {
 pub struct TestServer {
     service: LspService<Backend>,
     temp: tempfile::TempDir,
-    root: PathBuf,
     diagnostics: HashMap<Url, Vec<Diagnostic>>,
 }
 
@@ -60,7 +59,6 @@ impl TestServer {
 
         let server = TestServer {
             service,
-            root,
             temp,
             diagnostics: HashMap::new(),
         };
@@ -75,7 +73,7 @@ impl TestServer {
     }
 
     pub fn write(&self, name: &str, contents: &str) -> Url {
-        let path = self.root.join(name);
+        let path = self.backend().root.join(name);
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).unwrap();
@@ -87,7 +85,7 @@ impl TestServer {
     }
 
     pub fn unopened(&self, name: &str) -> Url {
-        Url::from_file_path(self.root.join(name)).unwrap()
+        Url::from_file_path(self.backend().root.join(name)).unwrap()
     }
 
     pub fn write_outside(&self, name: &str, contents: &str) -> Url {
@@ -110,7 +108,7 @@ impl TestServer {
     pub fn index_workspace(&self) {
         let mut paths: Vec<PathBuf> = Vec::new();
 
-        for entry in ignore::Walk::new(&self.root).flatten() {
+        for entry in ignore::Walk::new(&self.backend().root).flatten() {
             let path = entry.path();
 
             if path.extension().and_then(|x| x.to_str()) != Some("scm") {
@@ -135,7 +133,7 @@ impl TestServer {
     }
 
     pub fn did_open(&mut self, uri: Url, contents: &str) {
-        let diagnostics = self.backend().analyze(&uri, contents.to_string());
+        let diagnostics = self.backend().analyze(&uri, contents);
         self.diagnostics.insert(uri, diagnostics);
     }
 
@@ -147,18 +145,12 @@ impl TestServer {
         self.diagnostics.get(uri).cloned().unwrap_or_default()
     }
 
-    pub async fn goto_definition(
-        &self,
-        uri: &Url,
-        position: Position,
-    ) -> Option<GotoDefinitionResponse> {
-        self.backend()
-            .goto_definition_impl(uri.clone(), position)
-            .await
+    pub fn goto_definition(&self, uri: &Url, position: Position) -> Option<GotoDefinitionResponse> {
+        self.backend().goto_definition_impl(uri.clone(), position)
     }
 
-    pub async fn definition_location(&self, uri: &Url, position: Position) -> Location {
-        match self.goto_definition(uri, position).await {
+    pub fn definition_location(&self, uri: &Url, position: Position) -> Location {
+        match self.goto_definition(uri, position) {
             Some(GotoDefinitionResponse::Scalar(location)) => location,
             Some(GotoDefinitionResponse::Array(mut locations)) if locations.len() == 1 => {
                 locations.pop().unwrap()
@@ -167,7 +159,7 @@ impl TestServer {
         }
     }
 
-    pub async fn references(
+    pub fn references(
         &self,
         uri: &Url,
         position: Position,
@@ -175,40 +167,31 @@ impl TestServer {
     ) -> Option<Vec<Location>> {
         self.backend()
             .references_impl(uri.clone(), position, include_declaration)
-            .await
     }
 
-    pub async fn hover(&self, uri: &Url, position: Position) -> Option<Hover> {
-        self.backend().hover_impl(uri.clone(), position).await
+    pub fn hover(&self, uri: &Url, position: Position) -> Option<Hover> {
+        self.backend().hover_impl(uri.clone(), position)
     }
 
-    pub async fn document_symbol(&self, uri: &Url) -> Option<DocumentSymbolResponse> {
-        self.backend().document_symbol_impl(uri.clone()).await
+    pub fn document_symbol(&self, uri: &Url) -> Option<DocumentSymbolResponse> {
+        self.backend().document_symbol_impl(uri.clone())
     }
 
-    pub async fn completion(&self, uri: &Url, position: Position) -> Option<CompletionResponse> {
-        self.backend().completion_impl(uri.clone(), position).await
+    pub fn completion(&self, uri: &Url, position: Position) -> Option<CompletionResponse> {
+        self.backend().completion_impl(uri.clone(), position)
     }
 
-    pub async fn prepare_rename(
+    pub fn prepare_rename(
         &self,
         uri: &Url,
         position: Position,
     ) -> Result<Option<PrepareRenameResponse>, tower_lsp::jsonrpc::Error> {
-        self.backend()
-            .prepare_rename_impl(uri.clone(), position)
-            .await
+        self.backend().prepare_rename_impl(uri.clone(), position)
     }
 
-    pub async fn rename(
-        &self,
-        uri: &Url,
-        position: Position,
-        new_name: &str,
-    ) -> Option<WorkspaceEdit> {
+    pub fn rename(&self, uri: &Url, position: Position, new_name: &str) -> Option<WorkspaceEdit> {
         self.backend()
             .rename_impl(uri.clone(), position, new_name.to_string())
-            .await
     }
 }
 

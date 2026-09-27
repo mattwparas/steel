@@ -260,16 +260,14 @@ impl LanguageServer for Backend {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let position = params.text_document_position_params;
 
-        Ok(self
-            .hover_impl(position.text_document.uri, position.position)
-            .await)
+        Ok(self.hover_impl(position.text_document.uri, position.position))
     }
 
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        Ok(self.document_symbol_impl(params.text_document.uri).await)
+        Ok(self.document_symbol_impl(params.text_document.uri))
     }
 
     // TODO: For macros (and otherwise for find references to)
@@ -282,9 +280,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<GotoDefinitionResponse>> {
         let position = params.text_document_position_params;
 
-        Ok(self
-            .goto_definition_impl(position.text_document.uri, position.position)
-            .await)
+        Ok(self.goto_definition_impl(position.text_document.uri, position.position))
     }
 
     // Finding references:
@@ -293,13 +289,11 @@ impl LanguageServer for Backend {
         let include_declaration = params.context.include_declaration;
         let position = params.text_document_position;
 
-        Ok(self
-            .references_impl(
-                position.text_document.uri,
-                position.position,
-                include_declaration,
-            )
-            .await)
+        Ok(self.references_impl(
+            position.text_document.uri,
+            position.position,
+            include_declaration,
+        ))
     }
 
     async fn semantic_tokens_full(
@@ -326,9 +320,7 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let position = params.text_document_position;
 
-        Ok(self
-            .completion_impl(position.text_document.uri, position.position)
-            .await)
+        Ok(self.completion_impl(position.text_document.uri, position.position))
     }
 
     async fn prepare_rename(
@@ -336,16 +328,13 @@ impl LanguageServer for Backend {
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
         self.prepare_rename_impl(params.text_document.uri, params.position)
-            .await
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let new_name = params.new_name;
         let position = params.text_document_position;
 
-        Ok(self
-            .rename_impl(position.text_document.uri, position.position, new_name)
-            .await)
+        Ok(self.rename_impl(position.text_document.uri, position.position, new_name))
     }
 
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
@@ -444,7 +433,7 @@ struct TextDocumentItem {
 }
 
 impl Backend {
-    async fn find_references_builtin(
+    fn find_references_builtin(
         &self,
         analysis: &SemanticAnalysis<'_>,
         syntax_object_id: SyntaxObjectId,
@@ -801,15 +790,15 @@ impl Backend {
         None
     }
 
-    pub async fn hover_impl(&self, uri: Url, position: Position) -> Option<Hover> {
-        if let Some(hover) = self.hover_identifier_impl(&uri, position).await {
+    pub fn hover_impl(&self, uri: Url, position: Position) -> Option<Hover> {
+        if let Some(hover) = self.hover_identifier_impl(&uri, position) {
             return Some(hover);
         }
 
         self.hover_macro_impl(&uri, position)
     }
 
-    async fn hover_identifier_impl(&self, uri: &Url, position: Position) -> Option<Hover> {
+    fn hover_identifier_impl(&self, uri: &Url, position: Position) -> Option<Hover> {
         let mut ast = self.ast_map.get_mut(uri.as_str())?;
         let rope = self.document_map.get(uri.as_str())?;
         let offset = self.config.position_to_offset(position, &rope)?;
@@ -965,12 +954,12 @@ impl Backend {
                                 });
                             }
                         }
-                        None => return self.unresolved_hover(interned, original, name).await,
+                        None => return self.unresolved_hover(interned, original, name),
                     }
                 }
 
                 RequiredIdentifierInformation::Unresolved(mut interned, name, original) => {
-                    return self.unresolved_hover(interned, original, name).await;
+                    return self.unresolved_hover(interned, original, name);
                 }
             }
         }
@@ -1012,7 +1001,7 @@ impl Backend {
 
     // Just do incremental?
     async fn on_change(&self, params: TextDocumentItem) {
-        let diagnostics = self.analyze(&params.uri, params.text);
+        let diagnostics = self.analyze(&params.uri, &params.text);
 
         self.client
             .publish_diagnostics(params.uri, diagnostics, Some(params.version))
@@ -1020,11 +1009,11 @@ impl Backend {
     }
 
     // updates the stored document and analysis, and hands back what's wrong with it
-    pub fn analyze(&self, uri: &Url, text: String) -> Vec<Diagnostic> {
+    pub fn analyze(&self, uri: &Url, text: &str) -> Vec<Diagnostic> {
         let now = std::time::Instant::now();
 
         // Ensure this document is marked as open from the perspective of the LSP
-        let rope = ropey::Rope::from_str(&text);
+        let rope = ropey::Rope::from_str(text);
         self.document_map.insert(uri.to_string(), rope.clone());
 
         self.vfs.insert(uri.clone(), FileState { opened: true });
@@ -1149,7 +1138,7 @@ impl Backend {
 }
 
 impl Backend {
-    async fn unresolved_hover(
+    fn unresolved_hover(
         &self,
         mut interned: InternedString,
         original: Option<InternedString>,
@@ -1471,140 +1460,130 @@ impl Config {
 }
 
 impl Backend {
-    pub async fn document_symbol_impl(&self, uri: Url) -> Option<DocumentSymbolResponse> {
-        let symbols = async {
-            let mut ast = self.raw_ast_map.get_mut(uri.as_str())?;
-            let mut rope = self.document_map.get(uri.as_str())?.clone();
+    pub fn document_symbol_impl(&self, uri: Url) -> Option<DocumentSymbolResponse> {
+        let mut ast = self.raw_ast_map.get_mut(uri.as_str())?;
+        let mut rope = self.document_map.get(uri.as_str())?.clone();
 
-            let analysis = SemanticAnalysis::new(&mut ast);
+        let analysis = SemanticAnalysis::new(&mut ast);
 
-            let top_level_defs: Vec<SymbolInformation> = {
-                let definitions = analysis.find_top_level_definitions();
+        let top_level_defs: Vec<SymbolInformation> = {
+            let definitions = analysis.find_top_level_definitions();
 
-                definitions
-                    .iter()
-                    .map(|(name, kind, span)| {
-                        let container_name = span.source_id.and_then(|source_id| {
-                            let contexts = analysis
-                                .find_contexts_with_offset(span.start() as usize, source_id);
+            definitions
+                .iter()
+                .map(|(name, kind, span)| {
+                    let container_name = span.source_id.and_then(|source_id| {
+                        let contexts =
+                            analysis.find_contexts_with_offset(span.start() as usize, source_id);
 
-                            if contexts.is_empty() {
-                                return None;
-                            }
+                        if contexts.is_empty() {
+                            return None;
+                        }
 
-                            match &contexts.first().unwrap() {
-                                SemanticInformationType::Variable(v) => {
-                                    Some("variable".to_string())
-                                }
-                                SemanticInformationType::Function(f) => match f.aliases_to {
-                                    Some(function_name_id) => {
-                                        match kind {
-                                            ExprKind::LambdaFunction(symbol) => None, // if symbol.syntax_object_id == function_name_id.0 => None,
-                                            _ => {
-                                                let mut id_to_str = HashMap::new();
-                                                id_to_str.insert(function_name_id, None);
-                                                analysis.syntax_object_ids_to_identifiers(
-                                                    &mut id_to_str,
-                                                );
+                        match &contexts.first().unwrap() {
+                            SemanticInformationType::Variable(v) => Some("variable".to_string()),
+                            SemanticInformationType::Function(f) => match f.aliases_to {
+                                Some(function_name_id) => {
+                                    match kind {
+                                        ExprKind::LambdaFunction(symbol) => None, // if symbol.syntax_object_id == function_name_id.0 => None,
+                                        _ => {
+                                            let mut id_to_str = HashMap::new();
+                                            id_to_str.insert(function_name_id, None);
+                                            analysis
+                                                .syntax_object_ids_to_identifiers(&mut id_to_str);
 
-                                                match id_to_str.get(&function_name_id) {
-                                                    Some(Some(name)) => Some(name.to_string()),
-                                                    _ => Some("lambda function".to_string()),
-                                                }
+                                            match id_to_str.get(&function_name_id) {
+                                                Some(Some(name)) => Some(name.to_string()),
+                                                _ => Some("lambda function".to_string()),
                                             }
                                         }
                                     }
-                                    _ => Some("lambda function".to_string()),
-                                },
-                                SemanticInformationType::CallSite(c) => Some("call".to_string()),
-                                SemanticInformationType::Let(l) => Some("let".to_string()),
-                            }
-                        });
-
-                        #[allow(deprecated)]
-                        SymbolInformation {
-                            name: name.resolve().into(),
-                            kind: match kind {
-                                ExprKind::LambdaFunction(_) => SymbolKind::FUNCTION,
-                                _ => SymbolKind::CONSTANT,
-                            },
-                            tags: None,
-                            deprecated: None,
-                            location: Location {
-                                uri: uri.clone(),
-                                range: self.config.span_to_range(span, &rope).unwrap(),
-                            },
-                            container_name,
-                        }
-                    })
-                    .collect()
-            };
-
-            let let_bindings: Vec<SymbolInformation> = {
-                let definitions = analysis.find_let_bindings();
-
-                definitions
-                    .iter()
-                    .map(|(name, span)| {
-                        let container_name = span.source_id.and_then(|source_id| {
-                            let contexts = analysis
-                                .find_contexts_with_offset(span.start() as usize, source_id);
-
-                            if contexts.is_empty() {
-                                return None;
-                            }
-
-                            match &contexts.first().unwrap() {
-                                SemanticInformationType::Variable(v) => {
-                                    Some("variable".to_string())
                                 }
-                                SemanticInformationType::Function(f) => match f.aliases_to {
-                                    Some(function_name_id) => {
-                                        let mut id_to_str = HashMap::new();
-                                        id_to_str.insert(function_name_id, None);
-                                        analysis.syntax_object_ids_to_identifiers(&mut id_to_str);
-
-                                        match id_to_str.get(&function_name_id) {
-                                            Some(Some(name)) => Some(name.to_string()),
-                                            _ => Some("function".to_string()),
-                                        }
-                                    }
-                                    _ => Some("function".to_string()),
-                                },
-                                SemanticInformationType::CallSite(c) => Some("call".to_string()),
-                                SemanticInformationType::Let(l) => Some("let".to_string()),
-                            }
-                        });
-
-                        #[allow(deprecated)]
-                        SymbolInformation {
-                            name: name.to_string(),
-                            kind: SymbolKind::VARIABLE,
-                            tags: None,
-                            deprecated: None,
-                            location: Location {
-                                uri: uri.clone(),
-                                range: self.config.span_to_range(span, &rope).unwrap(),
+                                _ => Some("lambda function".to_string()),
                             },
-                            container_name,
+                            SemanticInformationType::CallSite(c) => Some("call".to_string()),
+                            SemanticInformationType::Let(l) => Some("let".to_string()),
                         }
-                    })
-                    .collect()
-            };
+                    });
 
-            let result = top_level_defs
-                .into_iter()
-                .chain(let_bindings.into_iter())
-                .collect::<Vec<_>>();
+                    #[allow(deprecated)]
+                    SymbolInformation {
+                        name: name.resolve().into(),
+                        kind: match kind {
+                            ExprKind::LambdaFunction(_) => SymbolKind::FUNCTION,
+                            _ => SymbolKind::CONSTANT,
+                        },
+                        tags: None,
+                        deprecated: None,
+                        location: Location {
+                            uri: uri.clone(),
+                            range: self.config.span_to_range(span, &rope).unwrap(),
+                        },
+                        container_name,
+                    }
+                })
+                .collect()
+        };
 
-            Some(DocumentSymbolResponse::Flat(result))
-        }
-        .await;
+        let let_bindings: Vec<SymbolInformation> = {
+            let definitions = analysis.find_let_bindings();
 
-        symbols
+            definitions
+                .iter()
+                .map(|(name, span)| {
+                    let container_name = span.source_id.and_then(|source_id| {
+                        let contexts =
+                            analysis.find_contexts_with_offset(span.start() as usize, source_id);
+
+                        if contexts.is_empty() {
+                            return None;
+                        }
+
+                        match &contexts.first().unwrap() {
+                            SemanticInformationType::Variable(v) => Some("variable".to_string()),
+                            SemanticInformationType::Function(f) => match f.aliases_to {
+                                Some(function_name_id) => {
+                                    let mut id_to_str = HashMap::new();
+                                    id_to_str.insert(function_name_id, None);
+                                    analysis.syntax_object_ids_to_identifiers(&mut id_to_str);
+
+                                    match id_to_str.get(&function_name_id) {
+                                        Some(Some(name)) => Some(name.to_string()),
+                                        _ => Some("function".to_string()),
+                                    }
+                                }
+                                _ => Some("function".to_string()),
+                            },
+                            SemanticInformationType::CallSite(c) => Some("call".to_string()),
+                            SemanticInformationType::Let(l) => Some("let".to_string()),
+                        }
+                    });
+
+                    #[allow(deprecated)]
+                    SymbolInformation {
+                        name: name.to_string(),
+                        kind: SymbolKind::VARIABLE,
+                        tags: None,
+                        deprecated: None,
+                        location: Location {
+                            uri: uri.clone(),
+                            range: self.config.span_to_range(span, &rope).unwrap(),
+                        },
+                        container_name,
+                    }
+                })
+                .collect()
+        };
+
+        let result = top_level_defs
+            .into_iter()
+            .chain(let_bindings.into_iter())
+            .collect::<Vec<_>>();
+
+        Some(DocumentSymbolResponse::Flat(result))
     }
 
-    pub async fn goto_definition_impl(
+    pub fn goto_definition_impl(
         &self,
         uri: Url,
         position: Position,
@@ -1614,7 +1593,7 @@ impl Backend {
         // expose a span -> URI function, as well as figure out how to
         // decide if a definition refers to an import. I think deciding
         // if something is a module import should be like:
-        let definition = async {
+        let definition = (|| -> Option<GotoDefinitionResponse> {
             let mut ast = self.ast_map.get_mut(uri.as_str())?;
             let mut rope = self.document_map.get(uri.as_str())?.clone();
 
@@ -1733,8 +1712,7 @@ impl Backend {
             Some(GotoDefinitionResponse::Scalar(Location::new(
                 location, range,
             )))
-        }
-        .await;
+        })();
 
         // Attempt a fallback with the new goto definition stuff!
         if definition.is_none() {
@@ -1900,7 +1878,7 @@ impl Backend {
         definition
     }
 
-    pub async fn references_impl(
+    pub fn references_impl(
         &self,
         uri: Url,
         position: Position,
@@ -1908,7 +1886,7 @@ impl Backend {
     ) -> Option<Vec<Location>> {
         let mut found_locations = Vec::new();
 
-        let definition = async {
+        let definition = (|| -> Option<(Option<InternedString>, Option<PathBuf>)> {
             let mut ast = self.ast_map.get_mut(uri.as_str())?;
             let mut rope = self.document_map.get(uri.as_str())?.clone();
 
@@ -1921,9 +1899,8 @@ impl Backend {
 
             // If this is a built in, lets just bail
             if information.builtin {
-                if let Some(mut l) = self
-                    .find_references_builtin(&analysis, *syntax_object_id, information)
-                    .await
+                if let Some(mut l) =
+                    self.find_references_builtin(&analysis, *syntax_object_id, information)
                 {
                     found_locations.append(&mut l);
                 }
@@ -2091,8 +2068,7 @@ impl Backend {
             }
 
             Some((identifier, module_path))
-        }
-        .await;
+        })();
 
         // Now that we have the definition, we should also check for where this came from.
         // We'll walk through the modules, look at what they require, and find
@@ -2123,11 +2099,7 @@ impl Backend {
         None
     }
 
-    pub async fn completion_impl(
-        &self,
-        uri: Url,
-        position: Position,
-    ) -> Option<CompletionResponse> {
+    pub fn completion_impl(&self, uri: Url, position: Position) -> Option<CompletionResponse> {
         let mut filter_character = None;
 
         let completions = || -> Option<Vec<CompletionItem>> {
@@ -2247,7 +2219,7 @@ impl Backend {
         completions.map(CompletionResponse::Array)
     }
 
-    pub async fn prepare_rename_impl(
+    pub fn prepare_rename_impl(
         &self,
         uri: Url,
         position: Position,
@@ -2286,7 +2258,7 @@ impl Backend {
         Ok(Some(PrepareRenameResponse::Range(range)))
     }
 
-    pub async fn rename_impl(
+    pub fn rename_impl(
         &self,
         uri: Url,
         position: Position,
