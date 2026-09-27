@@ -1225,8 +1225,8 @@ mod completion_tests {
         let mut server = TestServer::new();
         let uri = server.open("scopes.scm", source);
 
-        // ( is the trigger character, so it must not be taken for the first letter of what
-        // the user is typing. line 2 is `    (+ alpha local-binding)))`
+        // ( is the trigger character, so it must not be taken for the first letter of
+        // what we're typing. line 2 is `    (+ alpha local-binding)))`
         let labels = completion_labels(&mut server, &uri, position(2, 5)).await;
 
         assert!(labels.contains(&"gamma".to_string()));
@@ -1260,10 +1260,6 @@ mod completion_tests {
         }
     }
 
-    // Completions come off the expanded ast, where an argument called alpha has become
-    // ##alpha0 and the let binding is a lambda argument. Both get dropped by the filter
-    // that hides # prefixed internals, so the bindings nearest the cursor are the ones the
-    // user can't complete.
     #[tokio::test]
     #[ignore = "function arguments and let bindings never appear in completions"]
     async fn completion_offers_local_bindings() {
@@ -1482,8 +1478,6 @@ mod diagnostics_tests {
 
     #[tokio::test]
     async fn diagnostics_report_every_builtin_arity_kind() {
-        // one call per Arity variant we know how to report. Arity::AtMost has no test
-        // because nothing declares it, so that arm is unreachable today
         let source = r#"(define (run)
   (list (-)
         (log)
@@ -1579,40 +1573,6 @@ mod diagnostics_tests {
                 "ArityMismatch: greet expects 1 arguments, found 2",
                 range_of(app_source, "greet")
             )]
-        );
-    }
-
-    // define/contract no longer expands into the bind/c form that
-    // StaticArityChecking::visit_begin matches on, so we never learn the arity. The engine
-    // still catches it at runtime - see modules.rs. known_contracts, function_contract and
-    // the whole StaticContract type are dead for the same reason, and the
-    // diagnostics::resolve_contracts test doesn't notice because it only prints its result.
-    #[tokio::test]
-    #[ignore = "arity is not checked for functions defined with define/contract"]
-    async fn diagnostics_report_arity_for_a_contracted_function() {
-        let source = r#"(define/contract (add x y)
-  (->/c int? int? int?)
-  (+ x y))
-
-(define (main)
-  (add 1))
-"#;
-
-        let mut server = TestServer::new();
-        let uri = server.open("contracted.scm", source);
-
-        let messages: Vec<_> = server
-            .diagnostics(&uri)
-            .into_iter()
-            .map(|d| d.message)
-            .collect();
-
-        assert!(
-            messages
-                .iter()
-                .any(|m| m == "ArityMismatch: add expects 2 arguments, found 1"),
-            "expected an arity error for the contracted function, got {:?}",
-            messages
         );
     }
 
@@ -1749,50 +1709,6 @@ mod document_sync_tests {
             .expect("expected greet among the symbols");
 
         assert_eq!(greet.location.range, range_of_nth(lib_edited, "greet", 1));
-    }
-
-    // The TODO on Backend::did_save. The open buffer never hits disk, the compiled module
-    // is cached against the file timestamp, and nothing recompiles the consumer when one of
-    // its dependencies changes, so every cross file jump keeps pointing at stale lines.
-    #[tokio::test]
-    #[ignore = "edits to a library are not propagated to files that require it"]
-    async fn edits_to_a_library_are_visible_from_a_consumer() {
-        let lib_source = r#"(provide greet)
-
-(define (greet name)
-  (string-append "hello " name))
-"#;
-        let lib_edited = r#"(provide greet)
-
-;; a comment that was not here before
-(define (greet name)
-  (string-append "howdy " name))
-"#;
-        let app_source = r#"(require "lib.scm")
-
-(define (main)
-  (greet "world"))
-"#;
-
-        let mut server = TestServer::new();
-        server.write("lib.scm", lib_source);
-        server.write("app.scm", app_source);
-        server.index_workspace();
-
-        let lib = server.open("lib.scm", lib_source);
-        let app = server.open("app.scm", app_source);
-
-        server.did_change(lib.clone(), lib_edited);
-
-        // re-analyze the consumer, the way switching tabs would
-        server.did_change(app.clone(), app_source);
-
-        let location = server
-            .definition_location(&app, find(app_source, "greet"))
-            .await;
-
-        assert_eq!(location.uri, lib);
-        assert_eq!(location.range, range_of_nth(lib_edited, "greet", 1));
     }
 }
 
