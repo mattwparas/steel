@@ -1662,9 +1662,7 @@ impl Engine {
             let mut functions = module.names();
             functions.sort();
             for function in functions {
-                let value = module
-                    .try_get_ref(&function)
-                    .and_then(|value| crate::steel_vm::host_signature::declared(&value))
+                let value = crate::steel_vm::host_signature::declared_in(module, &function)
                     .map(|signature| crate::steel_vm::host_signature::render(&signature))
                     .unwrap_or_else(|| "void".to_string());
                 out.push_str(&format!(

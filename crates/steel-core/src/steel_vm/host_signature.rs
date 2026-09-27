@@ -19,7 +19,7 @@
 //! [`Engine::emit_lsp_definitions`]: crate::steel_vm::engine::Engine::emit_lsp_definitions
 
 use crate::rvals::{Result, SteelVal};
-use crate::steel_vm::builtin::{get_function_metadata, BuiltInFunctionType};
+use crate::steel_vm::builtin::{get_function_metadata, BuiltInFunctionType, BuiltInModule};
 use crate::value_type::{ArgType, ArgTypes, CustomTypeName, Raises, ValueType};
 use crate::values::functions::{BoxedDynFunction, HostSignature};
 use crate::SteelErr;
@@ -156,6 +156,24 @@ pub fn declared(value: &SteelVal) -> Option<HostSignature> {
     })
 }
 
+/// The signature of the function `module` binds to `name`, as programs call
+/// it. A context function's first argument is the context, which its wrapper
+/// passes, so callers supply the rest.
+pub fn declared_in(module: &BuiltInModule, name: &str) -> Option<HostSignature> {
+    let Some(function) = module.context_function(name) else {
+        return declared(&module.try_get_ref(name)?);
+    };
+    let signature = declared(&function)?;
+    let (_, fixed) = signature.arg_types.fixed.split_first()?;
+    Some(HostSignature {
+        arg_types: ArgTypes {
+            fixed,
+            rest: signature.arg_types.rest,
+        },
+        ..signature
+    })
+}
+
 fn error(what: &str) -> SteelErr {
     SteelErr::new(
         crate::rerrs::ErrorKind::Generic,
@@ -231,7 +249,6 @@ fn value_type(value: &SteelVal) -> Result<ValueType> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::steel_vm::builtin::BuiltInModule;
     use crate::steel_vm::engine::Engine;
     use crate::steel_vm::register_fn::RegisterFn;
 
@@ -288,6 +305,10 @@ mod tests {
         struct Counter(isize);
         impl crate::rvals::Custom for Counter {}
         module.register_fn("counter-value", |c: &Counter| c.0);
+        engine.register_value("app-context", SteelVal::IntV(0));
+        module.register_fn_with_ctx("app-context", "ctx-scale", |ctx: isize, x: f64| {
+            x * ctx as f64
+        });
         engine.register_module(module);
         let text = engine.emit_lsp_definitions();
         assert!(
@@ -301,6 +322,10 @@ mod tests {
             r#"(#%module-add module-0 "host-shout" (#%signature (args (or String Symbol)) (returns String)))"#
         ));
         assert!(text.contains(r#"(#%module-add module-0 "host-version" void)"#));
+        // Without the context, which the wrapper passes.
+        assert!(text.contains(
+            r#"(#%module-add module-0 "ctx-scale" (#%signature (args Float) (returns Float)))"#
+        ));
         // Only what the host added.
         assert!(!text.contains("steel/time"), "{text}");
 

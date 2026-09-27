@@ -76,10 +76,23 @@ impl PrimitiveSignatures {
         let module_name = module.name().to_string();
         let is_prelude = module_name == PRELUDE;
         for name in module.names() {
-            let Some(value) = module.try_get_ref(&name) else {
-                continue;
+            // A context function is bound to a wrapper that passes the
+            // context, and the host function it calls has the signature.
+            let (value, metadata) = match module.context_function(&name) {
+                Some(function) => {
+                    let metadata = crate::steel_vm::host_signature::declared_in(module, &name)
+                        .map(|signature| host_metadata(&name, signature));
+                    (function, metadata)
+                }
+                None => {
+                    let Some(value) = module.try_get_ref(&name) else {
+                        continue;
+                    };
+                    let metadata = signature_of(&value);
+                    (value, metadata)
+                }
             };
-            let Some(metadata) = signature_of(&value) else {
+            let Some(metadata) = metadata else {
                 continue;
             };
             self.by_module
@@ -129,6 +142,27 @@ fn same_function(a: &SteelVal, b: &SteelVal) -> bool {
     }
 }
 
+/// A host function's signature, as a native function's metadata.
+fn host_metadata(
+    name: &str,
+    signature: crate::values::functions::HostSignature,
+) -> FunctionSignatureMetadata {
+    let fixed = signature.arg_types.fixed.len();
+    let arity = match signature.arg_types.rest {
+        Some(_) => crate::steel_vm::builtin::Arity::AtLeast(fixed),
+        None => crate::steel_vm::builtin::Arity::Exact(fixed),
+    };
+    FunctionSignatureMetadata {
+        name: name.to_string().into(),
+        arity,
+        is_const: false,
+        doc: None,
+        return_type: signature.return_type,
+        arg_types: Some(signature.arg_types),
+        raises: signature.raises,
+    }
+}
+
 fn signature_of(value: &SteelVal) -> Option<FunctionSignatureMetadata> {
     get_function_metadata(match value {
         SteelVal::FuncV(f) => BuiltInFunctionType::Reference(*f),
@@ -136,21 +170,7 @@ fn signature_of(value: &SteelVal) -> Option<FunctionSignatureMetadata> {
         SteelVal::BuiltIn(f) => BuiltInFunctionType::Context(*f),
         // A function registered with `register_fn` carries its own.
         SteelVal::BoxedFunction(f) => {
-            let signature = f.signature?;
-            let fixed = signature.arg_types.fixed.len();
-            let arity = match signature.arg_types.rest {
-                Some(_) => crate::steel_vm::builtin::Arity::AtLeast(fixed),
-                None => crate::steel_vm::builtin::Arity::Exact(fixed),
-            };
-            return Some(FunctionSignatureMetadata {
-                name: f.name().unwrap_or_default().to_string().into(),
-                arity,
-                is_const: false,
-                doc: None,
-                return_type: signature.return_type,
-                arg_types: Some(signature.arg_types),
-                raises: signature.raises,
-            });
+            return Some(host_metadata(f.name().unwrap_or_default(), f.signature?));
         }
         _ => return None,
     })
@@ -3429,6 +3449,57 @@ mod tests {
         assert_eq!(failures_for(src), Vec::<String>::new());
         let src = "(define (f) (mutable-vector->list \"no\"))";
         assert_eq!(failures_for(src).len(), 1);
+    }
+
+    #[test]
+    fn context_functions() {
+        use crate::steel_vm::builtin::BuiltInModule;
+        use crate::steel_vm::register_fn::RegisterFn;
+        let mut engine = Engine::new();
+        engine.register_value("app-context", SteelVal::StringV("app".into()));
+        let mut module = BuiltInModule::new("host/ctx");
+        module.register_fn_with_ctx("app-context", "ctx-inc", |_: SteelVal, x: isize| x + 1);
+        module.register_fn_with_ctx("app-context", "ctx-name", |ctx: String| ctx);
+        engine.register_module(module);
+        let src = "(require-builtin host/ctx)
+(define (a) (ctx-inc \"x\"))
+(define (b) (ctx-inc 1 2))
+(define (c) (string-length (ctx-inc 1)))
+(define (ok) (list (+ 1 (ctx-inc 1)) (string-length (ctx-name))))";
+        let mut exprs = engine
+            .emit_expanded_ast_without_optimizations(src, None)
+            .unwrap();
+        let source = exprs.last().and_then(|e| e.span().source_id()).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+        let failures: Vec<String> = written_call_failures(&info, source, src)
+            .map(|failure| {
+                format!(
+                    "{} {}",
+                    &src[failure.span.start as usize..failure.span.end as usize],
+                    failure.message()
+                )
+            })
+            .collect();
+        // The context is passed by the wrapper, so callers give one less.
+        assert_eq!(
+            failures,
+            vec![
+                "\"x\" `ctx-inc` always raises here: argument 1 is always string, but it must be int",
+                "(ctx-inc 1) `string-length` always raises here: argument 1 is always int, but it must be string",
+            ]
+        );
+        let arity: Vec<String> = written_arity_failures(&info, source, src)
+            .map(|(failure, written)| failure.message(written))
+            .collect();
+        assert_eq!(arity.len(), 1, "{arity:?}");
+        assert!(arity[0].contains("ctx-inc"), "{arity:?}");
+
+        let result = engine
+            .compile_and_run_raw_program(format!("{src}\n(ok)"))
+            .unwrap();
+        assert_eq!(result.last().unwrap().to_string(), "(3 3)");
     }
 
     #[test]

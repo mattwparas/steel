@@ -1052,6 +1052,17 @@ impl BuiltInModule {
         self.module.read().try_get_ref(name)
     }
 
+    /// The host function registered as `name` with `register_fn_with_ctx`,
+    /// which takes the context as its first argument. Once the module is
+    /// registered, `name` itself is bound to a wrapper that passes it.
+    pub fn context_function(&self, name: &str) -> Option<SteelVal> {
+        self.module
+            .read()
+            .context_functions
+            .get(name)
+            .map(|(_, function)| function.clone())
+    }
+
     /// This does the boot strapping for bundling modules
     /// Rather than expose a native hash-get, the built in module above should expose a raw
     /// function to fetch a dependency. It will be a packaged #<BuiltInModule> with only a function to
