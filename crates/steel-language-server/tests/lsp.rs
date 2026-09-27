@@ -533,8 +533,6 @@ mod find_references_tests {
     }
 }
 
-// spans_to_locations drops anything that is neither in the vfs nor under the root, so
-// results never point into the stdlib or an unrelated checkout we have no watcher for
 mod workspace_tests {
     use super::*;
 
@@ -1051,8 +1049,6 @@ mod hover_tests {
 (define (undocumented a b)
   (+ a b))
 "#;
-        // the file names avoid the word undocumented - the require form holds the path, and
-        // find would otherwise match inside it instead of at the call site
         let app_source = r#"(require "plain-lib.scm")
 
 (define (main)
