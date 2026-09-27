@@ -1,21 +1,20 @@
 use steel::steel_vm::engine::Engine;
 
-static DEEP: &str = r#"(provide deep-fn)
+#[test]
+fn a_binding_can_be_re_provided_through_an_intermediate_module() {
+    let deep = r#"(provide deep-fn)
 
 (define (deep-fn x) (+ x 1))
 "#;
-
-static MIDDLE: &str = r#"(require "deep.scm")
+    let middle = r#"(require "deep.scm")
 (provide deep-fn)
 "#;
 
-#[test]
-fn a_binding_can_be_re_provided_through_an_intermediate_module() {
     let workspace = tempfile::tempdir().unwrap();
     let root = workspace.path().canonicalize().unwrap();
 
-    std::fs::write(root.join("deep.scm"), DEEP).unwrap();
-    std::fs::write(root.join("middle.scm"), MIDDLE).unwrap();
+    std::fs::write(root.join("deep.scm"), deep).unwrap();
+    std::fs::write(root.join("middle.scm"), middle).unwrap();
 
     let call = |module: &std::path::Path| {
         run(&format!(

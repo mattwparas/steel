@@ -2314,13 +2314,6 @@ impl Config {
 mod position_conversion_tests {
     use super::*;
 
-    static SOURCE: &str = r#"(define x 1)
-(display "héllo 😀")
-(+ x 1)
-"#;
-
-    const CLOSE_PAREN: u32 = 35;
-
     fn config(encoding: OffsetEncoding) -> Config {
         let config = Config::new();
         config.encoding.store(encoding);
@@ -2328,47 +2321,40 @@ mod position_conversion_tests {
     }
 
     #[test]
-    fn source_fixture_is_what_the_tests_assume() {
-        assert_eq!(SOURCE.as_bytes()[CLOSE_PAREN as usize], b')');
-        assert_eq!(SOURCE.lines().nth(1), Some("(display \"héllo 😀\")"));
-    }
+    fn offset_to_position_uses_the_negotiated_encoding() {
+        // line 1 mixes a one byte, a two byte and a four byte character, so the byte,
+        // code unit and character columns all disagree past the h
+        let source = r#"(define x 1)
+(display "héllo 😀")
+(+ x 1)
+"#;
+        let rope = Rope::from_str(source);
 
-    #[test]
-    fn offset_to_position_counts_bytes_in_utf8() {
-        let rope = Rope::from_str(SOURCE);
-        let config = config(OffsetEncoding::Utf8);
+        // the ) that closes the display call
+        let close_paren = 35;
+        assert_eq!(source.as_bytes()[close_paren], b')');
 
-        assert_eq!(
-            config.offset_to_position(CLOSE_PAREN as usize, &rope),
-            Some(Position::new(1, 22))
-        );
-    }
-
-    #[test]
-    fn offset_to_position_counts_code_units_in_utf16() {
-        let rope = Rope::from_str(SOURCE);
-        let config = config(OffsetEncoding::Utf16);
-
-        assert_eq!(
-            config.offset_to_position(CLOSE_PAREN as usize, &rope),
-            Some(Position::new(1, 19))
-        );
-    }
-
-    #[test]
-    fn offset_to_position_counts_characters_in_utf32() {
-        let rope = Rope::from_str(SOURCE);
-        let config = config(OffsetEncoding::Utf32);
-
-        assert_eq!(
-            config.offset_to_position(CLOSE_PAREN as usize, &rope),
-            Some(Position::new(1, 18))
-        );
+        for (encoding, column) in [
+            (OffsetEncoding::Utf8, 22),
+            (OffsetEncoding::Utf16, 19),
+            (OffsetEncoding::Utf32, 18),
+        ] {
+            assert_eq!(
+                config(encoding).offset_to_position(close_paren, &rope),
+                Some(Position::new(1, column)),
+                "{:?} put the column in the wrong place",
+                encoding
+            );
+        }
     }
 
     #[test]
     fn position_and_offset_round_trip_in_every_encoding() {
-        let rope = Rope::from_str(SOURCE);
+        let source = r#"(define x 1)
+(display "héllo 😀")
+(+ x 1)
+"#;
+        let rope = Rope::from_str(source);
 
         for encoding in [
             OffsetEncoding::Utf8,
@@ -2377,7 +2363,7 @@ mod position_conversion_tests {
         ] {
             let config = config(encoding);
 
-            for (offset, _) in SOURCE.char_indices() {
+            for (offset, _) in source.char_indices() {
                 let position = config
                     .offset_to_position(offset, &rope)
                     .unwrap_or_else(|| panic!("{:?}: no position for offset {}", encoding, offset));
@@ -2396,7 +2382,10 @@ mod position_conversion_tests {
 
     #[test]
     fn the_first_line_needs_no_adjustment() {
-        let rope = Rope::from_str(SOURCE);
+        let source = r#"(define x 1)
+(display "héllo 😀")
+"#;
+        let rope = Rope::from_str(source);
         let config = config(OffsetEncoding::Utf16);
 
         assert_eq!(
@@ -2415,8 +2404,15 @@ mod position_conversion_tests {
 
     #[test]
     fn span_to_range_covers_the_whole_span() {
-        let rope = Rope::from_str(SOURCE);
+        let source = r#"(define x 1)
+(display "héllo 😀")
+(+ x 1)
+"#;
+        let rope = Rope::from_str(source);
         let config = config(OffsetEncoding::Utf8);
+
+        let close_paren = 35;
+        assert_eq!(source.as_bytes()[close_paren], b')');
 
         // x in (define x 1)
         assert_eq!(
@@ -2425,20 +2421,23 @@ mod position_conversion_tests {
         );
 
         assert_eq!(
-            config.span_to_range(&Span::new(8, CLOSE_PAREN, None), &rope),
+            config.span_to_range(&Span::new(8, close_paren as u32, None), &rope),
             Some(Range::new(Position::new(0, 8), Position::new(1, 22)))
         );
     }
 
     #[test]
     fn out_of_range_offsets_and_positions_are_rejected() {
-        let rope = Rope::from_str(SOURCE);
+        let source = r#"(define x 1)
+(display "héllo 😀")
+"#;
+        let rope = Rope::from_str(source);
         let config = config(OffsetEncoding::Utf16);
 
-        assert_eq!(config.offset_to_position(SOURCE.len() + 1, &rope), None);
+        assert_eq!(config.offset_to_position(source.len() + 1, &rope), None);
         assert_eq!(config.position_to_offset(Position::new(99, 0), &rope), None);
         assert_eq!(
-            config.span_to_range(&Span::new(0, SOURCE.len() as u32 + 1, None), &rope),
+            config.span_to_range(&Span::new(0, source.len() as u32 + 1, None), &rope),
             None
         );
     }
