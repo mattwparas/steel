@@ -41,6 +41,25 @@ const CORPUS: &[&str] = &[
     "(define data '(1 2 3))",
     "#;#;(a) (b) (kept)",
     "#;(a b c) (kept)",
+    // A `#;` and a prefix interleaved. Which applies first depends on the order
+    // they appear in, so these pin that down.
+    "(,@#;a b)",
+    "(#;'1 2)",
+    "#u8(#;'1 2)",
+    "(#;a b)",
+    "('#;a b)",
+    "(#;,@a b)",
+    "(a ,@#;b c)",
+    "#;'a b ",
+    "'#;a b ",
+    "(a ')",
+    "(#;)",
+    "(,@#;)",
+    // A quote applied to a list that starts with `quote`, which the quote context
+    // bookkeeping treats specially. The kernel relies on this shape.
+    "(a '(quote ()))",
+    "(equal? x '(quote ()))",
+    "'(quote ())",
     // Turned up by the fuzzer
     "#!,e)",                  // shebang line split across a chunk
     "#! x\n(a b)",            // shebang line that is complete

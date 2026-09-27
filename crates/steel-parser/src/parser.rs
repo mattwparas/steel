@@ -219,6 +219,10 @@ impl From<&Token<'_, InternedString>> for SyntaxObject {
     }
 }
 
+// Reading a prefix costs a stack frame, about 2KB of it in a debug build, so this
+// stays low enough to be reached before a 2MiB thread runs out of stack.
+pub const MAX_PREFIX_DEPTH: u32 = 512;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
     MismatchedParen(Paren, Span, Option<Rc<PathBuf>>),
@@ -319,6 +323,8 @@ pub struct Parser<'a> {
     datum_comment_base: usize,
     // Tokens handed to the parse - reparsing shows up here
     tokens_lexed: usize,
+    // Prefix reads in flight, which is also the recursion depth
+    prefix_depth: u32,
     // Set when the lexer reported an error that ends before the end of the input.
     // It calls a malformed identifier an eof error but then carries on past it, so
     // that one is final however much more input arrives.
@@ -553,6 +559,7 @@ impl<'a> Parser<'a> {
             datum_comments: Vec::new(),
             datum_comment_base: 0,
             tokens_lexed: 0,
+            prefix_depth: 0,
             lexical_error_is_final: false,
             shebang_incomplete: false,
         }
@@ -585,6 +592,7 @@ impl<'a> Parser<'a> {
             datum_comments: Vec::new(),
             datum_comment_base: 0,
             tokens_lexed: 0,
+            prefix_depth: 0,
             lexical_error_is_final: false,
             shebang_incomplete: false,
         }
@@ -616,6 +624,7 @@ impl<'a> Parser<'a> {
             datum_comments: Vec::new(),
             datum_comment_base: 0,
             tokens_lexed: 0,
+            prefix_depth: 0,
             lexical_error_is_final: false,
             shebang_incomplete: false,
         }
@@ -644,6 +653,7 @@ impl<'a> Parser<'a> {
             datum_comments: Vec::new(),
             datum_comment_base: 0,
             tokens_lexed: 0,
+            prefix_depth: 0,
             lexical_error_is_final: false,
             shebang_incomplete: false,
         }
@@ -1470,18 +1480,38 @@ impl<'a> Parser<'a> {
             owner_base: _,
         } = awaiting;
 
+        if self.prefix_depth >= MAX_PREFIX_DEPTH {
+            return Err(self.too_deep(span));
+        }
+
         let outer_base = self.datum_comment_base;
         self.datum_comment_base = nested_base;
+        self.prefix_depth += 1;
 
         let inner = self.next().unwrap_or(Err(ParseError::UnexpectedEOF(
             span,
             self.source_name.clone(),
         )));
 
+        self.prefix_depth -= 1;
         self.datum_comment_base = outer_base;
 
         let inner = inner?;
 
+        self.wrap_prefix(kind, span, top_level, saved_quote_context, inner)
+    }
+
+    // Deliberately its own frame: these temporaries are only live once the nested
+    // read has returned, so they stay off the stack a long chain of prefixes needs.
+    #[inline(never)]
+    fn wrap_prefix(
+        &mut self,
+        kind: PrefixKind,
+        span: Span,
+        top_level: bool,
+        saved_quote_context: bool,
+        inner: ExprKind,
+    ) -> Result<ExprKind> {
         let wrapped = match kind {
             PrefixKind::QuoteSyntax => self.construct_syntax(inner, span),
             PrefixKind::QuasiQuoteSyntax => self.construct_quasiquote_syntax(inner, span),
@@ -1522,6 +1552,15 @@ impl<'a> Parser<'a> {
         self.undo_prefix(kind, saved_quote_context);
 
         Ok(wrapped)
+    }
+
+    #[inline(never)]
+    fn too_deep(&self, span: Span) -> ParseError {
+        ParseError::SyntaxError(
+            alloc::format!("more than {} nested quote prefixes", MAX_PREFIX_DEPTH),
+            span,
+            self.source_name.clone(),
+        )
     }
 
     // Unwinds what a prefix put in place, once the datum is in hand or when the
