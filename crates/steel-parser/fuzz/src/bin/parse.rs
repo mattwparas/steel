@@ -1,5 +1,3 @@
-//! Parsing arbitrary text should produce a value or an error, never a panic.
-
 fn main() {
     afl::fuzz!(|data: &[u8]| {
         let Ok(text) = core::str::from_utf8(data) else {

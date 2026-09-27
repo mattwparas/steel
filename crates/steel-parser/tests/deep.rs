@@ -47,3 +47,17 @@ fn nesting_past_the_cap_is_an_error() {
         .join()
         .unwrap();
 }
+
+// A `#;` marker belongs to the read that saw it. An error used to leave it behind,
+// and the next read then discarded a good datum with it.
+#[test]
+fn a_datum_comment_does_not_outlive_a_failed_read() {
+    let parsed: Vec<_> = Parser::new_flat("#;(a] 1 2", SourceId::none())
+        .map(|res| res.map(|expr| expr.to_string()).map_err(|_| ()))
+        .collect();
+
+    assert_eq!(
+        parsed,
+        vec![Err(()), Ok("1".to_string()), Ok("2".to_string())]
+    );
+}

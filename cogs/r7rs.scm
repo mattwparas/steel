@@ -368,6 +368,22 @@
               (let ([p (open-input-string "1 2 3 4")])
                 (list (read p) (read p) (read-port-to-string p))))
 
+(check-equal? "read, a failed read leaves the rest of the port readable"
+              '(a b)
+              (let ([p (open-input-string ") (a b)")])
+                (with-handler (lambda (err) 'ignored) (read p))
+                (read p)))
+
+;; `#!` is only a shebang at the very start of a source
+(check-equal? "read, #! after a datum is an ordinary token"
+              3
+              (let ([p (open-input-string "(a)#!eof\n(b)")])
+                (length (list (read p) (read p) (read p)))))
+
+(check-equal? "read, a shebang line at the start of a source is skipped"
+              '(a b)
+              (read (open-input-string "#! /usr/bin/steel\n(a b)")))
+
 (define r7rs-test-stats (get-test-stats))
 
 (displayln "Passed: " (hash-ref r7rs-test-stats 'success-count))

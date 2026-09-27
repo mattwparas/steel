@@ -80,11 +80,11 @@ use crate::{
 };
 
 use crate::parser::parser::{ParseError, Parser};
+use crate::primitives::ports::eof;
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
 };
 use crate::values::port::{SteelPort, SteelPortRepr};
-use steel_parser::parser::ParserState;
 
 use crate::{
     rvals::IntoSteelVal,
@@ -100,7 +100,11 @@ use core::cmp::Ordering;
 use once_cell::sync::Lazy;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
-use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
+use steel_parser::{
+    ast::ExprKind,
+    interner::interned_current_memory_usage,
+    parser::{ParserState, SourceId},
+};
 
 #[cfg(not(target_family = "wasm"))]
 use crate::primitives::polling::polling_module;
@@ -2026,9 +2030,14 @@ enum Attempt {
 }
 
 // Nothing is consumed unless a whole datum comes out, so an incomplete parse
-// leaves the port as it was.
-fn attempt_parse(port: &mut SteelPortRepr, at_eof: bool) -> Result<Attempt> {
-    let saved = port.take_parse();
+// leaves the port as it was. `state` carries the half built datum between fills.
+fn attempt_parse(
+    port: &mut SteelPortRepr,
+    state: &mut Option<ParserState>,
+    at_eof: bool,
+) -> Result<Attempt> {
+    let saved = state.take();
+    let at_source_start = port.at_source_start();
 
     // The parser borrows the buffer, so everything it produces has to be owned
     // and the parser dropped before the port can be touched again.
@@ -2038,14 +2047,18 @@ fn attempt_parse(port: &mut SteelPortRepr, at_eof: bool) -> Result<Attempt> {
         if pending.is_empty() {
             Outcome::Empty
         } else {
-            // A fill can land mid char, so only look at the valid prefix and treat
-            // a trailing partial sequence as needing more input
-            let (text, truncated) = match core::str::from_utf8(pending) {
-                Ok(text) => (text, false),
-                Err(err) => (
-                    core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap(),
-                    err.error_len().is_none(),
-                ),
+            // A fill can land mid char. A trailing partial sequence needs more input,
+            // but bytes that are not utf8 at all are final however much arrives.
+            let (text, truncated, invalid_from) = match core::str::from_utf8(pending) {
+                Ok(text) => (text, false, None),
+                Err(err) => {
+                    let valid = core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap();
+
+                    match err.error_len() {
+                        Some(len) => (valid, false, Some(err.valid_up_to() + len)),
+                        None => (valid, true, None),
+                    }
+                }
             };
 
             // Carry on from where the last chunk stopped rather than reparsing it.
@@ -2054,20 +2067,31 @@ fn attempt_parse(port: &mut SteelPortRepr, at_eof: bool) -> Result<Attempt> {
             let hold_back = truncated || !at_eof;
 
             let mut parser = match saved {
-                Some(state) => Parser::resume(text, SourceId::none(), *state, hold_back),
-                None => Parser::new_incremental(text, SourceId::none(), hold_back),
+                Some(state) => {
+                    Parser::resume(text, SourceId::none(), state, hold_back, at_source_start)
+                }
+                None => Parser::new_incremental(text, SourceId::none(), hold_back, at_source_start),
             };
 
             let result = parser.next();
             let offset = parser.offset();
 
-            match result {
-                Some(Ok(expr)) => Outcome::Parsed(expr, offset),
-                Some(Err(err)) if parser.needs_more_input(&err) => {
-                    Outcome::Incomplete(parser.take_state().map(Box::new))
+            match (result, invalid_from) {
+                (Some(Ok(expr)), _) => Outcome::Parsed(expr, offset),
+                // Nothing came out of the valid prefix and what follows is not utf8,
+                // so no amount of further input helps
+                (_, Some(bad_end)) => Outcome::NotUtf8(bad_end),
+                (Some(Err(err)), _) if parser.needs_more_input(&err) => {
+                    Outcome::Incomplete(parser.take_state())
                 }
-                Some(Err(err)) => Outcome::Bad(err, pending.len()),
-                None => Outcome::Nothing(parser.take_state().map(Box::new)),
+                (Some(Err(err)), _) => {
+                    // Drop only what the parse got through, so a later read can pick
+                    // up the rest, the way other schemes do
+                    let bad = usize::min(usize::max(err.span().end as usize, 1), pending.len());
+
+                    Outcome::Bad(err, bad)
+                }
+                (None, _) => Outcome::Nothing(parser.take_state()),
             }
         }
     };
@@ -2075,18 +2099,21 @@ fn attempt_parse(port: &mut SteelPortRepr, at_eof: bool) -> Result<Attempt> {
     match outcome {
         Outcome::Empty => Ok(Attempt::Nothing),
         Outcome::Parsed(expr, offset) => Ok(Attempt::Parsed(expr, offset)),
-        Outcome::Incomplete(state) => {
-            port.set_parse(state);
+        Outcome::Incomplete(saved) => {
+            *state = saved;
             Ok(Attempt::Incomplete)
         }
-        Outcome::Nothing(state) => {
-            port.set_parse(state);
+        Outcome::Nothing(saved) => {
+            *state = saved;
             Ok(Attempt::Nothing)
         }
-        Outcome::Bad(err, len) => {
-            // Drop the bad text, otherwise the next read trips over it again
-            port.consume_pending(len);
+        Outcome::Bad(err, amt) => {
+            port.consume_pending(amt);
             Err(err.into())
+        }
+        Outcome::NotUtf8(amt) => {
+            port.consume_pending(amt);
+            stop!(Generic => "read: input is not valid utf8")
         }
     }
 }
@@ -2094,18 +2121,20 @@ fn attempt_parse(port: &mut SteelPortRepr, at_eof: bool) -> Result<Attempt> {
 enum Outcome {
     Empty,
     Parsed(ExprKind, usize),
-    Incomplete(Option<Box<ParserState>>),
-    Nothing(Option<Box<ParserState>>),
+    Incomplete(Option<ParserState>),
+    Nothing(Option<ParserState>),
     Bad(ParseError, usize),
+    NotUtf8(usize),
 }
 
 // Advances the port by exactly one datum. Anything after it stays on the port,
 // so this composes with read-char / read-line.
 fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
     let mut at_eof = false;
+    let mut state = None;
 
     loop {
-        let attempt = attempt_parse(&mut port.port.write(), at_eof)?;
+        let attempt = attempt_parse(&mut port.port.write(), &mut state, at_eof)?;
 
         match attempt {
             Attempt::Parsed(expr, consumed) => {
@@ -2123,8 +2152,11 @@ fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> R
                     drop(guard);
 
                     return match attempt {
-                        Attempt::Nothing => Ok(crate::primitives::ports::eof()),
-                        _ => stop!(Generic => "read: unexpected eof while reading datum"),
+                        Attempt::Nothing => Ok(eof()),
+                        Attempt::Incomplete => {
+                            stop!(Generic => "read: unexpected eof while reading datum")
+                        }
+                        Attempt::Parsed(..) => unreachable!("handled above"),
                     };
                 }
 

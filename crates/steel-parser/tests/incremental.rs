@@ -60,6 +60,9 @@ const CORPUS: &[&str] = &[
     "(a '(quote ()))",
     "(equal? x '(quote ()))",
     "'(quote ())",
+    // `#!` only means a shebang at the very start of a source, so this is three
+    // data, not one
+    "(a)#!eof\n(b)",
     // Turned up by the fuzzer
     "#!,e)",       // shebang line split across a chunk
     "#! x\n(a b)", // shebang line that is complete

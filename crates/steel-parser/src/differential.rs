@@ -1,7 +1,4 @@
-//! Helpers for checking that feeding the parser in chunks agrees with parsing
-//! the whole input at once. Used by the integration tests and the fuzz targets,
-//! which is why it lives here rather than in `tests/`.
-
+// Lives here rather than in `tests/` so the fuzz targets can use it too.
 use crate::ast::ExprKind;
 use crate::parser::{Parser, ParserState, SourceId};
 
@@ -48,13 +45,13 @@ fn show(result: Option<crate::parser::Result<ExprKind>>) -> String {
     }
 }
 
-/// The first datum, parsing `input` in one go.
+// The first datum, parsing `input` in one go.
 pub fn one_shot(input: &str) -> String {
     show(Parser::new_flat(input, SourceId::none()).next())
 }
 
-/// The first datum, feeding `input` `chunk` bytes at a time. Nothing is consumed,
-/// so offsets stay absolute and the result compares directly against [`one_shot`].
+// The first datum, feeding `input` `chunk` bytes at a time. Nothing is consumed,
+// so offsets stay absolute and the result compares directly against [`one_shot`].
 pub fn chunked(input: &str, chunk: usize) -> String {
     let chunk = chunk.max(1);
     let mut fed = 0;
@@ -70,8 +67,8 @@ pub fn chunked(input: &str, chunk: usize) -> String {
         let more = fed < input.len();
 
         let mut parser = match state.take() {
-            Some(state) => Parser::resume(visible, SourceId::none(), state, more),
-            None => Parser::new_incremental(visible, SourceId::none(), more),
+            Some(state) => Parser::resume(visible, SourceId::none(), state, more, true),
+            None => Parser::new_incremental(visible, SourceId::none(), more, true),
         };
 
         match parser.next() {
@@ -91,7 +88,7 @@ pub fn chunked(input: &str, chunk: usize) -> String {
     }
 }
 
-/// `Err` with a description when chunking changes the result.
+// `Err` with a description when chunking changes the result.
 pub fn check(input: &str, chunk: usize) -> Result<(), String> {
     let expected = one_shot(input);
     let got = chunked(input, chunk);
@@ -106,12 +103,12 @@ pub fn check(input: &str, chunk: usize) -> Result<(), String> {
     ))
 }
 
-/// Tokens handed to the parse when reading `input` `chunk` bytes at a time, over
-/// the count a single pass needs. A resumed parse sits at 1; one that starts over
-/// on every chunk grows with the input.
-///
-/// A token held back at a boundary is never handed to the parse, so re-lexing it
-/// does not show up here. Only redone parses do.
+// Tokens handed to the parse when reading `input` `chunk` bytes at a time, over
+// the count a single pass needs. A resumed parse sits at 1; one that starts over
+// on every chunk grows with the input.
+//
+// A token held back at a boundary is never handed to the parse, so re-lexing it
+// does not show up here. Only redone parses do.
 pub fn rework(input: &str, chunk: usize) -> f64 {
     let chunk = chunk.max(1);
 
@@ -134,8 +131,8 @@ pub fn rework(input: &str, chunk: usize) -> f64 {
         let more = fed < input.len();
 
         let mut parser = match state.take() {
-            Some(state) => Parser::resume(visible, SourceId::none(), state, more),
-            None => Parser::new_incremental(visible, SourceId::none(), more),
+            Some(state) => Parser::resume(visible, SourceId::none(), state, more, true),
+            None => Parser::new_incremental(visible, SourceId::none(), more, true),
         };
 
         // Stop where `chunked` would: a datum, a hard error, or the end of input

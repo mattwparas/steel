@@ -15,8 +15,6 @@ use std::process::ChildStdin;
 use std::process::ChildStdout;
 use std::sync::Mutex;
 
-use steel_parser::parser::ParserState;
-
 use crate::gc::shared::GcLock;
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
@@ -86,10 +84,8 @@ pub struct Peekable<R> {
     pos: usize,
     // How much the next fill asks for. Doubles while a datum is unfinished.
     chunk: usize,
-    // Half parsed datum from an earlier fill, so `read` does not have to start
-    // over every time more bytes show up. Boxed to keep it off every port - it
-    // is only ever set while a datum straddles a fill.
-    parse: Option<Box<ParserState>>,
+    // Whether anything has been handed out yet
+    consumed_any: bool,
 }
 
 impl<T> Peekable<T> {
@@ -99,16 +95,12 @@ impl<T> Peekable<T> {
             buf: Vec::new(),
             pos: 0,
             chunk: MIN_CHUNK,
-            parse: None,
+            consumed_any: false,
         }
     }
 
-    pub fn take_parse(&mut self) -> Option<Box<ParserState>> {
-        self.parse.take()
-    }
-
-    pub fn set_parse(&mut self, state: Option<Box<ParserState>>) {
-        self.parse = state;
+    pub fn at_source_start(&self) -> bool {
+        !self.consumed_any
     }
 
     pub fn pending(&self) -> &[u8] {
@@ -120,7 +112,7 @@ impl<T> Peekable<T> {
     }
 
     pub fn consume(&mut self, amt: usize) {
-        self.parse = None;
+        self.consumed_any |= amt > 0;
         self.chunk = MIN_CHUNK;
         self.pos = usize::min(self.pos + amt, self.buf.len());
 
@@ -128,14 +120,15 @@ impl<T> Peekable<T> {
             self.buf.clear();
             self.pos = 0;
         } else if self.pos >= self.buf.len() / 2 {
-            // Mostly consumed, so drop the front rather than holding on to
-            // everything a long read has already handed out.
+            // Mostly consumed, so drop the front rather than keeping everything
+            // already handed out.
             self.buf.drain(..self.pos);
             self.pos = 0;
         }
     }
 
     fn take_pending(&mut self, out: &mut Vec<u8>) {
+        self.consumed_any |= self.pos < self.buf.len();
         out.extend_from_slice(&self.buf[self.pos..]);
         self.buf.clear();
         self.pos = 0;
@@ -598,29 +591,16 @@ impl SteelPortRepr {
         }
     }
 
-    pub fn take_parse(&mut self) -> Option<Box<ParserState>> {
+    pub fn at_source_start(&self) -> bool {
         match self {
-            SteelPortRepr::FileInput(_, br) => br.take_parse(),
-            SteelPortRepr::StdInput(br) => br.take_parse(),
-            SteelPortRepr::StringInput(s) => s.take_parse(),
-            SteelPortRepr::ChildStdOutput(br) => br.take_parse(),
-            SteelPortRepr::ChildStdError(br) => br.take_parse(),
-            SteelPortRepr::DynReader(br) => br.take_parse(),
-            SteelPortRepr::TcpStream(t) => t.take_parse(),
-            _ => None,
-        }
-    }
-
-    pub fn set_parse(&mut self, state: Option<Box<ParserState>>) {
-        match self {
-            SteelPortRepr::FileInput(_, br) => br.set_parse(state),
-            SteelPortRepr::StdInput(br) => br.set_parse(state),
-            SteelPortRepr::StringInput(s) => s.set_parse(state),
-            SteelPortRepr::ChildStdOutput(br) => br.set_parse(state),
-            SteelPortRepr::ChildStdError(br) => br.set_parse(state),
-            SteelPortRepr::DynReader(br) => br.set_parse(state),
-            SteelPortRepr::TcpStream(t) => t.set_parse(state),
-            _ => {}
+            SteelPortRepr::FileInput(_, br) => br.at_source_start(),
+            SteelPortRepr::StdInput(br) => br.at_source_start(),
+            SteelPortRepr::StringInput(s) => s.at_source_start(),
+            SteelPortRepr::ChildStdOutput(br) => br.at_source_start(),
+            SteelPortRepr::ChildStdError(br) => br.at_source_start(),
+            SteelPortRepr::DynReader(br) => br.at_source_start(),
+            SteelPortRepr::TcpStream(t) => t.at_source_start(),
+            _ => false,
         }
     }
 
@@ -645,7 +625,7 @@ impl SteelPortRepr {
             SteelPortRepr::FileInput(_, br) => br.fill_chunk(usize::MAX),
             SteelPortRepr::StringInput(s) => {
                 // Already in memory, so never ask for more than is left.
-                let left = s.inner.get_ref().len() - s.inner.position() as usize;
+                let left = (s.inner.get_ref().len()).saturating_sub(s.inner.position() as usize);
                 s.fill_chunk(left)
             }
             SteelPortRepr::StdInput(br) => br.fill_chunk(MAX_STREAM_CHUNK),

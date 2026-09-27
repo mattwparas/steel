@@ -23,6 +23,10 @@ use thin_vec::{thin_vec, ThinVec};
 
 static SOURCE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+// Reading a prefix costs a stack frame, about 2KB of it in a debug build, so this
+// stays low enough to be reached before a 2MiB thread runs out of stack.
+pub const MAX_PREFIX_DEPTH: u32 = 512;
+
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
@@ -219,10 +223,6 @@ impl From<&Token<'_, InternedString>> for SyntaxObject {
     }
 }
 
-// Reading a prefix costs a stack frame, about 2KB of it in a debug build, so this
-// stays low enough to be reached before a 2MiB thread runs out of stack.
-pub const MAX_PREFIX_DEPTH: u32 = 512;
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
     MismatchedParen(Paren, Span, Option<Rc<PathBuf>>),
@@ -307,9 +307,9 @@ pub struct Parser<'a> {
 
     queued: Option<ExprKind>,
 
-    // Only set in incremental mode. Holds the half built datum from the last
-    // chunk so the next one can pick up where it left off instead of reparsing.
     incremental: bool,
+    // Reads in flight, so the next chunk picks up where this one stopped instead of
+    // parsing the datum again
     levels: Vec<Level>,
     // True while more chunks are still coming. A token that runs up against the
     // end of the buffer might continue in the next one, so it gets held back.
@@ -323,7 +323,6 @@ pub struct Parser<'a> {
     datum_comment_base: usize,
     // Tokens handed to the parse - reparsing shows up here
     tokens_lexed: usize,
-    // Prefix reads in flight, which is also the recursion depth
     prefix_depth: u32,
     // Set when the lexer reported an error that ends before the end of the input.
     // It calls a malformed identifier an eof error but then carries on past it, so
@@ -352,7 +351,6 @@ fn can_continue<S>(ty: &TokenType<S>) -> bool {
     )
 }
 
-// A quote prefix waiting on the datum after it
 #[derive(Debug, Clone, Copy)]
 struct Awaiting {
     kind: PrefixKind,
@@ -451,23 +449,33 @@ impl<'a> Parser<'a> {
         self.tokens_lexed
     }
 
-    /// Whether more input could still turn the error this parser just returned
-    /// into a datum.
+    // Whether more input could still turn the error this parser just returned into
+    // a datum
     pub fn needs_more_input(&self, err: &ParseError) -> bool {
         matches!(err, ParseError::UnexpectedEOF(_, _)) && !self.lexical_error_is_final
     }
 
+    // `at_source_start` says whether `input` begins at the source's first byte. Only
+    // there does a leading `#!` mean a shebang line; anywhere else it is an ordinary
+    // token.
     pub fn new_incremental(
         input: &'a str,
         source_id: Option<SourceId>,
         more_to_come: bool,
+        at_source_start: bool,
     ) -> Self {
         let mut parser = Self::new_flat(input, source_id);
+
+        if !at_source_start {
+            parser.tokenizer =
+                crate::lexer::TokenStream::new_mid_source(input, false, source_id).into_owned();
+        }
+
         parser.incremental = true;
         parser.more_to_come = more_to_come;
         parser.input_len = input.len() as u32;
         parser.shebang_incomplete =
-            more_to_come && input.starts_with("#!") && !input.contains('\n');
+            at_source_start && more_to_come && input.starts_with("#!") && !input.contains('\n');
         parser
     }
 
@@ -479,11 +487,12 @@ impl<'a> Parser<'a> {
         source_id: Option<SourceId>,
         state: ParserState,
         more_to_come: bool,
+        at_source_start: bool,
     ) -> Self {
-        let mut parser = Self::new_incremental(input, source_id, more_to_come);
+        let mut parser = Self::new_incremental(input, source_id, more_to_come, at_source_start);
 
-        // Starting over from the top, so strip a shebang line the way a fresh
-        // parse would rather than lexing it as code.
+        // At zero there is nothing to resume, and the tokenizer `new_incremental`
+        // built is already the right one.
         if state.lexer.at() != 0 {
             parser.tokenizer = OwnedTokenStream::resume(input, false, source_id, state.lexer);
         }
@@ -1547,8 +1556,7 @@ impl<'a> Parser<'a> {
         Ok(wrapped)
     }
 
-    // Its own frame, so building the message stays out of `await_prefix`, which is
-    // the frame every level of nesting pays for.
+    // Its own frame, for the reason `wrap_prefix` gives
     #[inline(never)]
     fn too_deep(&self, span: Span) -> ParseError {
         ParseError::SyntaxError(
@@ -1707,6 +1715,13 @@ impl<'a> Parser<'a> {
 
                         continue;
                     }
+                } else if let Err(err) = &value {
+                    // A final error abandons this read, so the markers it pushed go
+                    // with it. One that just wants more input keeps them, since the
+                    // next chunk still has to honour them.
+                    if !self.needs_more_input(err) {
+                        self.datum_comments.truncate(base);
+                    }
                 }
 
                 return Some(value);
@@ -1717,6 +1732,10 @@ impl<'a> Parser<'a> {
             let res = match res {
                 Ok(res) => res,
                 Err(err) => {
+                    if !self.needs_more_input(&err) {
+                        self.datum_comments.truncate(base);
+                    }
+
                     return Some(Err(err));
                 }
             };

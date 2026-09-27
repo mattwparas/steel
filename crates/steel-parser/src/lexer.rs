@@ -29,6 +29,15 @@ pub trait ToOwnedString<T> {
 
 pub type Span = core::ops::Range<usize>;
 
+#[derive(Debug, Clone)]
+pub struct LexerState {
+    at: u32,
+    token_start: u32,
+    queued: Option<TokenType<InternedString>>,
+    error: Range<u32>,
+    ident_buffer: String,
+}
+
 impl LexerState {
     pub fn token_start(&self) -> u32 {
         self.token_start
@@ -46,15 +55,6 @@ impl LexerState {
         self.error = Default::default();
         self.ident_buffer.clear();
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct LexerState {
-    at: u32,
-    token_start: u32,
-    queued: Option<TokenType<InternedString>>,
-    error: Range<u32>,
-    ident_buffer: String,
 }
 
 pub struct Lexer<'a> {
@@ -676,7 +676,20 @@ impl<'a> TokenStream<'a> {
         res
     }
 
-    // No shebang stripping here - that only applies to the first chunk.
+    // For a window that does not start at the source's first byte, where a leading
+    // `#!` is an ordinary token rather than a shebang line.
+    pub fn new_mid_source(
+        input: &'a str,
+        skip_comments: bool,
+        source_id: Option<SourceId>,
+    ) -> Self {
+        Self {
+            lexer: Lexer::new(input),
+            skip_comments,
+            source_id,
+        }
+    }
+
     pub fn resume(
         input: &'a str,
         skip_comments: bool,

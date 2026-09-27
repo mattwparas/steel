@@ -1,11 +1,5 @@
-//! Feeding the parser in chunks has to produce what parsing the whole input at
-//! once does. This is the property the suspend and resume machinery exists to
-//! satisfy, and the one most likely to break on unusual input.
-//!
-//! The first input byte picks the chunk size so afl can steer it; the rest is the
-//! text to parse.
-
 fn main() {
+    // First byte is the chunk size, so afl can steer where the boundaries land
     afl::fuzz!(|data: &[u8]| {
         let Some((first, rest)) = data.split_first() else {
             return;
