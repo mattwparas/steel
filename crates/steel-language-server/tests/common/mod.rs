@@ -1,21 +1,16 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use dashmap::{DashMap, DashSet};
-use steel_language_server::backend::{visible_globals, Backend, Config, OffsetEncoding, ENGINE};
+use steel_language_server::backend::{
+    set_lsp_home, visible_globals, Backend, Config, OffsetEncoding, ENGINE,
+};
 use tower_lsp::lsp_types::*;
 use tower_lsp::LspService;
 
 fn isolate_lsp_home() {
-    static LSP_HOME: OnceLock<PathBuf> = OnceLock::new();
-
-    LSP_HOME.get_or_init(|| {
-        let dir = std::env::temp_dir().join("steel-lsp-test-home");
-        std::fs::create_dir_all(&dir).expect("unable to create the test lsp home");
-        std::env::set_var("STEEL_LSP_HOME", &dir);
-        dir
-    });
+    set_lsp_home(std::env::temp_dir().join("steel-lsp-tests"));
 }
 
 pub struct TestServer {

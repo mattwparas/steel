@@ -5,7 +5,7 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
     path::PathBuf,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, OnceLock, RwLock},
 };
 
 use dashmap::{DashMap, DashSet};
@@ -52,7 +52,19 @@ use crate::diagnostics::{
     StaticArityChecker,
 };
 
+static LSP_HOME_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+// Sets the lsp home without going through $STEEL_LSP_HOME, for callers that would rather
+// not mutate the environment. Only the first call takes effect.
+pub fn set_lsp_home(directory: PathBuf) {
+    let _ = LSP_HOME_OVERRIDE.set(directory);
+}
+
 pub fn lsp_home() -> PathBuf {
+    if let Some(home) = LSP_HOME_OVERRIDE.get() {
+        return home.clone();
+    }
+
     if let Ok(home) = std::env::var("STEEL_LSP_HOME") {
         return PathBuf::from(home);
     }
