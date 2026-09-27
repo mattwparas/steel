@@ -80,10 +80,11 @@ use crate::{
 };
 
 use crate::parser::parser::{ParseError, Parser};
-use crate::primitives::ports::eof;
+use crate::primitives::ports::{eof, would_block_object};
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
 };
+use crate::values::port::MaybeBlocking;
 use crate::values::port::{SteelPort, SteelPortRepr};
 
 use crate::{
@@ -2160,8 +2161,12 @@ fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> R
                     };
                 }
 
-                if port.port.write().fill_more()? == 0 {
-                    at_eof = true;
+                match port.port.write().fill_more()? {
+                    MaybeBlocking::Nonblocking(0) => at_eof = true,
+                    MaybeBlocking::Nonblocking(_) => {}
+                    // A non blocking port with nothing ready. Nothing has been
+                    // consumed, so a later read picks the datum up again.
+                    MaybeBlocking::WouldBlock => return Ok(would_block_object()),
                 }
             }
         }

@@ -374,6 +374,22 @@ enum PrefixKind {
     UnquoteSplice,
 }
 
+impl PrefixKind {
+    fn from_token<S>(ty: &TokenType<S>) -> Option<Self> {
+        Some(match ty {
+            TokenType::QuoteSyntax => Self::QuoteSyntax,
+            TokenType::QuasiQuoteSyntax => Self::QuasiQuoteSyntax,
+            TokenType::UnquoteSyntax => Self::UnquoteSyntax,
+            TokenType::UnquoteSpliceSyntax => Self::UnquoteSpliceSyntax,
+            TokenType::QuoteTick => Self::QuoteTick,
+            TokenType::Unquote => Self::Unquote,
+            TokenType::QuasiQuote => Self::QuasiQuote,
+            TokenType::UnquoteSplice => Self::UnquoteSplice,
+            _ => return None,
+        })
+    }
+}
+
 // A read that was in progress. `Frames` is a `read_from_tokens`; its `awaiting` is
 // set if it stopped inside the datum after a quote prefix. `TopPrefix` is a prefix
 // outside any list, which has no frames of its own.
@@ -445,6 +461,7 @@ impl<'a> Parser<'a> {
         self.tokenizer.offset()
     }
 
+    #[doc(hidden)]
     pub fn tokens_lexed(&self) -> usize {
         self.tokens_lexed
     }
@@ -911,214 +928,16 @@ impl<'a> Parser<'a> {
                     current_frame.comment += 1;
                 }
 
-                TokenType::QuoteSyntax => {
-                    let saved_quote_context = self.quote_context;
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::QuoteSyntax,
-                        span: token.span,
-                        saved_quote_context,
-                        top_level: false,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(inner) => current_frame.push(inner)?,
-                        Err(err) => {
-                            return Err(self.suspend_level(
-                                err,
-                                stack,
-                                current_frame,
-                                last,
-                                Some(awaiting),
-                            ))
-                        }
-                    }
-                }
-
-                TokenType::QuasiQuoteSyntax => {
-                    let saved_quote_context = self.quote_context;
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::QuasiQuoteSyntax,
-                        span: token.span,
-                        saved_quote_context,
-                        top_level: false,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(inner) => current_frame.push(inner)?,
-                        Err(err) => {
-                            return Err(self.suspend_level(
-                                err,
-                                stack,
-                                current_frame,
-                                last,
-                                Some(awaiting),
-                            ))
-                        }
-                    }
-                }
-
-                TokenType::UnquoteSyntax => {
-                    let saved_quote_context = self.quote_context;
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::UnquoteSyntax,
-                        span: token.span,
-                        saved_quote_context,
-                        top_level: false,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(inner) => current_frame.push(inner)?,
-                        Err(err) => {
-                            return Err(self.suspend_level(
-                                err,
-                                stack,
-                                current_frame,
-                                last,
-                                Some(awaiting),
-                            ))
-                        }
-                    }
-                }
-
-                TokenType::UnquoteSpliceSyntax => {
-                    let saved_quote_context = self.quote_context;
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::UnquoteSpliceSyntax,
-                        span: token.span,
-                        saved_quote_context,
-                        top_level: false,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(inner) => current_frame.push(inner)?,
-                        Err(err) => {
-                            return Err(self.suspend_level(
-                                err,
-                                stack,
-                                current_frame,
-                                last,
-                                Some(awaiting),
-                            ))
-                        }
-                    }
-                }
-
-                TokenType::QuoteTick => {
-                    let saved_quote_context = self.quote_context;
-                    self.shorthand_quote_stack.push(stack.len());
-
-                    if self.quasiquote_depth == 0 {
-                        self.quote_context = true;
-                    }
-
-                    self.context.push(ParsingContext::QuoteTick(stack.len()));
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::QuoteTick,
-                        span: token.span,
-                        saved_quote_context,
-                        top_level: false,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(inner) => current_frame.push(inner)?,
-                        Err(err) => {
-                            return Err(self.suspend_level(
-                                err,
-                                stack,
-                                current_frame,
-                                last,
-                                Some(awaiting),
-                            ))
-                        }
-                    }
-                }
-
-                TokenType::Unquote => {
-                    let saved_quote_context = self.quote_context;
-                    self.decrement_quasiquote_context_if_not_in_quote_context();
-                    self.context.push(ParsingContext::UnquoteTick(stack.len()));
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::Unquote,
-                        span: token.span,
-                        saved_quote_context,
-                        top_level: false,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(inner) => current_frame.push(inner)?,
-                        Err(err) => {
-                            return Err(self.suspend_level(
-                                err,
-                                stack,
-                                current_frame,
-                                last,
-                                Some(awaiting),
-                            ))
-                        }
-                    }
-                }
-
-                TokenType::QuasiQuote => {
-                    let saved_quote_context = self.quote_context;
-                    self.increment_quasiquote_context_if_not_in_quote_context();
-                    self.context
-                        .push(ParsingContext::QuasiquoteTick(stack.len()));
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::QuasiQuote,
-                        span: token.span,
-                        saved_quote_context,
-                        top_level: false,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(inner) => current_frame.push(inner)?,
-                        Err(err) => {
-                            return Err(self.suspend_level(
-                                err,
-                                stack,
-                                current_frame,
-                                last,
-                                Some(awaiting),
-                            ))
-                        }
-                    }
-                }
-
-                TokenType::UnquoteSplice => {
-                    let saved_quote_context = self.quote_context;
-                    self.decrement_quasiquote_context_if_not_in_quote_context();
-                    self.context
-                        .push(ParsingContext::UnquoteSplicingTick(stack.len()));
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::UnquoteSplice,
-                        span: token.span,
-                        saved_quote_context,
-                        top_level: false,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
+                TokenType::QuoteSyntax
+                | TokenType::QuasiQuoteSyntax
+                | TokenType::UnquoteSyntax
+                | TokenType::UnquoteSpliceSyntax
+                | TokenType::QuoteTick
+                | TokenType::Unquote
+                | TokenType::QuasiQuote
+                | TokenType::UnquoteSplice => {
+                    let kind = PrefixKind::from_token(&token.ty).expect("matched above");
+                    let awaiting = self.enter_prefix(kind, token.span, false, stack.len());
 
                     match self.await_prefix(awaiting) {
                         Ok(inner) => current_frame.push(inner)?,
@@ -1469,6 +1288,56 @@ impl<'a> Parser<'a> {
         err
     }
 
+    // The bookkeeping a prefix puts in place before the datum after it is read.
+    // `depth` is the frame depth its context entry is recorded at.
+    fn enter_prefix(
+        &mut self,
+        kind: PrefixKind,
+        span: Span,
+        top_level: bool,
+        depth: usize,
+    ) -> Awaiting {
+        let saved_quote_context = self.quote_context;
+
+        match kind {
+            PrefixKind::QuoteSyntax
+            | PrefixKind::QuasiQuoteSyntax
+            | PrefixKind::UnquoteSyntax
+            | PrefixKind::UnquoteSpliceSyntax => {}
+            PrefixKind::QuoteTick => {
+                self.shorthand_quote_stack.push(depth);
+
+                if self.quasiquote_depth == 0 {
+                    self.quote_context = true;
+                }
+
+                self.context.push(ParsingContext::QuoteTick(depth));
+            }
+            PrefixKind::Unquote => {
+                self.decrement_quasiquote_context_if_not_in_quote_context();
+                self.context.push(ParsingContext::UnquoteTick(depth));
+            }
+            PrefixKind::QuasiQuote => {
+                self.increment_quasiquote_context_if_not_in_quote_context();
+                self.context.push(ParsingContext::QuasiquoteTick(depth));
+            }
+            PrefixKind::UnquoteSplice => {
+                self.decrement_quasiquote_context_if_not_in_quote_context();
+                self.context
+                    .push(ParsingContext::UnquoteSplicingTick(depth));
+            }
+        }
+
+        Awaiting {
+            kind,
+            span,
+            saved_quote_context,
+            top_level,
+            nested_base: self.datum_comments.len(),
+            owner_base: self.datum_comment_base,
+        }
+    }
+
     // Reads the datum a prefix applies to and wraps it. The prefix bookkeeping is
     // only unwound once the datum is in hand, so a suspend in between leaves it for
     // the resumed parse.
@@ -1779,170 +1648,16 @@ impl<'a> Parser<'a> {
                 }
 
                 // Just turn this into `syntax`
-                TokenType::QuoteSyntax => {
-                    let saved_quote_context = self.quote_context;
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::QuoteSyntax,
-                        span: res.span,
-                        saved_quote_context,
-                        top_level: true,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(value) => maybe_return![Ok(value)],
-                        Err(err) => {
-                            return Some(Err(self.suspend_top_prefix(err, awaiting)));
-                        }
-                    }
-                }
-
-                TokenType::QuasiQuoteSyntax => {
-                    let saved_quote_context = self.quote_context;
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::QuasiQuoteSyntax,
-                        span: res.span,
-                        saved_quote_context,
-                        top_level: true,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(value) => maybe_return![Ok(value)],
-                        Err(err) => {
-                            return Some(Err(self.suspend_top_prefix(err, awaiting)));
-                        }
-                    }
-                }
-
-                TokenType::UnquoteSyntax => {
-                    let saved_quote_context = self.quote_context;
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::UnquoteSyntax,
-                        span: res.span,
-                        saved_quote_context,
-                        top_level: true,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(value) => maybe_return![Ok(value)],
-                        Err(err) => {
-                            return Some(Err(self.suspend_top_prefix(err, awaiting)));
-                        }
-                    }
-                }
-
-                TokenType::UnquoteSpliceSyntax => {
-                    let saved_quote_context = self.quote_context;
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::UnquoteSpliceSyntax,
-                        span: res.span,
-                        saved_quote_context,
-                        top_level: true,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(value) => maybe_return![Ok(value)],
-                        Err(err) => {
-                            return Some(Err(self.suspend_top_prefix(err, awaiting)));
-                        }
-                    }
-                }
-
-                TokenType::QuoteTick => {
-                    let saved_quote_context = self.quote_context;
-                    self.shorthand_quote_stack.push(0);
-
-                    if self.quasiquote_depth == 0 {
-                        self.quote_context = true;
-                    }
-
-                    self.context.push(ParsingContext::QuoteTick(0));
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::QuoteTick,
-                        span: res.span,
-                        saved_quote_context,
-                        top_level: true,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(value) => maybe_return![Ok(value)],
-                        Err(err) => {
-                            return Some(Err(self.suspend_top_prefix(err, awaiting)));
-                        }
-                    }
-                }
-
-                TokenType::Unquote => {
-                    let saved_quote_context = self.quote_context;
-                    self.context.push(ParsingContext::UnquoteTick(0));
-                    self.decrement_quasiquote_context_if_not_in_quote_context();
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::Unquote,
-                        span: res.span,
-                        saved_quote_context,
-                        top_level: true,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(value) => maybe_return![Ok(value)],
-                        Err(err) => {
-                            return Some(Err(self.suspend_top_prefix(err, awaiting)));
-                        }
-                    }
-                }
-
-                TokenType::UnquoteSplice => {
-                    let saved_quote_context = self.quote_context;
-                    self.context.push(ParsingContext::UnquoteSplicingTick(0));
-                    self.decrement_quasiquote_context_if_not_in_quote_context();
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::UnquoteSplice,
-                        span: res.span,
-                        saved_quote_context,
-                        top_level: true,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
-
-                    match self.await_prefix(awaiting) {
-                        Ok(value) => maybe_return![Ok(value)],
-                        Err(err) => {
-                            return Some(Err(self.suspend_top_prefix(err, awaiting)));
-                        }
-                    }
-                }
-                // Make this also handle quasisyntax
-                TokenType::QuasiQuote => {
-                    let saved_quote_context = self.quote_context;
-                    self.context.push(ParsingContext::QuasiquoteTick(0));
-                    self.increment_quasiquote_context_if_not_in_quote_context();
-
-                    let awaiting = Awaiting {
-                        kind: PrefixKind::QuasiQuote,
-                        span: res.span,
-                        saved_quote_context,
-                        top_level: true,
-                        nested_base: self.datum_comments.len(),
-                        owner_base: self.datum_comment_base,
-                    };
+                TokenType::QuoteSyntax
+                | TokenType::QuasiQuoteSyntax
+                | TokenType::UnquoteSyntax
+                | TokenType::UnquoteSpliceSyntax
+                | TokenType::QuoteTick
+                | TokenType::Unquote
+                | TokenType::QuasiQuote
+                | TokenType::UnquoteSplice => {
+                    let kind = PrefixKind::from_token(&res.ty).expect("matched above");
+                    let awaiting = self.enter_prefix(kind, res.span, true, 0);
 
                     match self.await_prefix(awaiting) {
                         Ok(value) => maybe_return![Ok(value)],

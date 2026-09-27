@@ -161,7 +161,7 @@ impl<R: Read> Peekable<R> {
     // waiting for the whole request - so a complete datum is never stuck behind
     // bytes that may not come. The request doubles while a datum is unfinished,
     // which keeps a parse that has to restart from scratch linear overall.
-    pub fn fill_chunk(&mut self, max: usize) -> Result<usize> {
+    pub fn fill_chunk(&mut self, max: usize) -> Result<MaybeBlocking<usize>> {
         let unfinished = !self.pending_is_empty();
         let start = self.buf.len();
         self.buf.resize(start + usize::min(self.chunk, max), 0);
@@ -181,7 +181,11 @@ impl<R: Read> Peekable<R> {
                     self.chunk = usize::min(self.chunk.saturating_mul(2), max);
                 }
 
-                Ok(amt)
+                Ok(MaybeBlocking::Nonblocking(amt))
+            }
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                self.buf.truncate(start);
+                Ok(MaybeBlocking::WouldBlock)
             }
             Err(err) => {
                 self.buf.truncate(start);
@@ -214,37 +218,50 @@ impl<R: Read> Peekable<R> {
     }
 
     fn peek_char(&mut self) -> Result<MaybeBlocking<Option<char>>> {
-        // A utf8 scalar is at most 4 bytes
-        if self.pending().len() < 4 {
-            let wanted = 4 - self.pending().len();
-            if let MaybeBlocking::WouldBlock = self.fill(wanted)? {
-                if self.pending_is_empty() {
-                    return Ok(MaybeBlocking::WouldBlock);
+        // A utf8 scalar is at most 4 bytes, so that is all this ever needs buffered.
+        // A short fill does not say whether the source ended or just has nothing
+        // ready, so a half decoded character asks again rather than guessing.
+        loop {
+            let upto = usize::min(self.pending().len(), 4);
+
+            if upto > 0 {
+                let pending = self.pending();
+
+                match core::str::from_utf8(&pending[..upto]) {
+                    Ok(str) => return Ok(MaybeBlocking::Nonblocking(str.chars().next())),
+                    Err(err) if err.valid_up_to() > 0 => {
+                        let valid = core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap();
+
+                        return Ok(MaybeBlocking::Nonblocking(valid.chars().next()));
+                    }
+                    // Not utf8 at all, or as much of it as a character can take.
+                    // Skip it, otherwise it gets peeked forever.
+                    Err(err) if err.error_len().is_some() || upto == 4 => {
+                        self.consume(err.error_len().unwrap_or(1));
+
+                        return Ok(MaybeBlocking::Nonblocking(Some(
+                            char::REPLACEMENT_CHARACTER,
+                        )));
+                    }
+                    Err(_) => {}
                 }
             }
-        }
 
-        if self.pending_is_empty() {
-            return Ok(MaybeBlocking::Nonblocking(None));
-        }
+            match self.fill(4 - upto)? {
+                MaybeBlocking::WouldBlock => return Ok(MaybeBlocking::WouldBlock),
+                MaybeBlocking::Nonblocking(0) => {
+                    if upto == 0 {
+                        return Ok(MaybeBlocking::Nonblocking(None));
+                    }
 
-        let pending = self.pending();
-        let upto = usize::min(pending.len(), 4);
+                    // Ended part way through a character
+                    self.consume(upto);
 
-        match core::str::from_utf8(&pending[..upto]) {
-            Ok(str) => Ok(MaybeBlocking::Nonblocking(str.chars().next())),
-            Err(err) => {
-                if err.valid_up_to() > 0 {
-                    let s = core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap();
-                    Ok(MaybeBlocking::Nonblocking(s.chars().next()))
-                } else {
-                    // Skip the bad bytes, otherwise we peek them forever
-                    let skip = err.error_len().unwrap_or(upto);
-                    self.consume(skip);
-                    Ok(MaybeBlocking::Nonblocking(Some(
+                    return Ok(MaybeBlocking::Nonblocking(Some(
                         char::REPLACEMENT_CHARACTER,
-                    )))
+                    )));
                 }
+                MaybeBlocking::Nonblocking(_) => {}
             }
         }
     }
@@ -620,7 +637,7 @@ impl SteelPortRepr {
     // Buffers more input, returning how many bytes arrived. Streams are capped at
     // a pipe's worth per read, since asking for more than can arrive at once
     // only costs zeroing the request.
-    pub fn fill_more(&mut self) -> Result<usize> {
+    pub fn fill_more(&mut self) -> Result<MaybeBlocking<usize>> {
         match self {
             SteelPortRepr::FileInput(_, br) => br.fill_chunk(usize::MAX),
             SteelPortRepr::StringInput(s) => {
