@@ -79,10 +79,12 @@ use crate::{
     },
 };
 
-use crate::values::port::{SteelPort, SteelPortRepr};
+use crate::parser::parser::{ParseError, Parser};
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
 };
+use crate::values::port::{SteelPort, SteelPortRepr};
+use steel_parser::parser::ParserState;
 
 use crate::{
     rvals::IntoSteelVal,
@@ -2052,17 +2054,8 @@ fn attempt_parse(port: &mut SteelPortRepr, at_eof: bool) -> Result<Attempt> {
             let hold_back = truncated || !at_eof;
 
             let mut parser = match saved {
-                Some(state) => crate::parser::parser::Parser::resume(
-                    text,
-                    SourceId::none(),
-                    *state,
-                    hold_back,
-                ),
-                None => crate::parser::parser::Parser::new_incremental(
-                    text,
-                    SourceId::none(),
-                    hold_back,
-                ),
+                Some(state) => Parser::resume(text, SourceId::none(), *state, hold_back),
+                None => Parser::new_incremental(text, SourceId::none(), hold_back),
             };
 
             let result = parser.next();
@@ -2101,9 +2094,9 @@ fn attempt_parse(port: &mut SteelPortRepr, at_eof: bool) -> Result<Attempt> {
 enum Outcome {
     Empty,
     Parsed(ExprKind, usize),
-    Incomplete(Option<Box<steel_parser::parser::ParserState>>),
-    Nothing(Option<Box<steel_parser::parser::ParserState>>),
-    Bad(steel_parser::parser::ParseError, usize),
+    Incomplete(Option<Box<ParserState>>),
+    Nothing(Option<Box<ParserState>>),
+    Bad(ParseError, usize),
 }
 
 // Advances the port by exactly one datum. Anything after it stays on the port,

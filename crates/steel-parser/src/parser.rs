@@ -412,7 +412,6 @@ pub struct ParserState {
     parse: Option<Box<SuspendedParse>>,
 }
 
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum ParsingContext {
     // Inside of a quote. Expressions should be parsed without being coerced into a typed variant of the AST
@@ -458,7 +457,11 @@ impl<'a> Parser<'a> {
         matches!(err, ParseError::UnexpectedEOF(_, _)) && !self.lexical_error_is_final
     }
 
-    pub fn new_incremental(input: &'a str, source_id: Option<SourceId>, more_to_come: bool) -> Self {
+    pub fn new_incremental(
+        input: &'a str,
+        source_id: Option<SourceId>,
+        more_to_come: bool,
+    ) -> Self {
         let mut parser = Self::new_flat(input, source_id);
         parser.incremental = true;
         parser.more_to_come = more_to_come;
@@ -843,13 +846,7 @@ impl<'a> Parser<'a> {
             match self.await_prefix(awaiting) {
                 Ok(inner) => current_frame.push(inner)?,
                 Err(err) => {
-                    return Err(self.suspend_level(
-                        err,
-                        stack,
-                        current_frame,
-                        last,
-                        Some(awaiting),
-                    ))
+                    return Err(self.suspend_level(err, stack, current_frame, last, Some(awaiting)))
                 }
             }
         }
@@ -1422,9 +1419,7 @@ impl<'a> Parser<'a> {
         last: Span,
         awaiting: Option<Awaiting>,
     ) -> ParseError {
-        let resumable = self.incremental
-            && !self.resume_blocked
-            && self.needs_more_input(&err);
+        let resumable = self.incremental && !self.resume_blocked && self.needs_more_input(&err);
 
         if resumable {
             self.levels.push(Level::Frames {
@@ -1451,9 +1446,7 @@ impl<'a> Parser<'a> {
 
     // Same, for a prefix outside any list
     fn suspend_top_prefix(&mut self, err: ParseError, awaiting: Awaiting) -> ParseError {
-        let resumable = self.incremental
-            && !self.resume_blocked
-            && self.needs_more_input(&err);
+        let resumable = self.incremental && !self.resume_blocked && self.needs_more_input(&err);
 
         if resumable {
             self.levels.push(Level::TopPrefix(awaiting));
@@ -1554,10 +1547,12 @@ impl<'a> Parser<'a> {
         Ok(wrapped)
     }
 
+    // Its own frame, so building the message stays out of `await_prefix`, which is
+    // the frame every level of nesting pays for.
     #[inline(never)]
     fn too_deep(&self, span: Span) -> ParseError {
         ParseError::SyntaxError(
-            alloc::format!("more than {} nested quote prefixes", MAX_PREFIX_DEPTH),
+            format!("more than {} nested quote prefixes", MAX_PREFIX_DEPTH),
             span,
             self.source_name.clone(),
         )
@@ -1619,7 +1614,7 @@ impl<'a> Parser<'a> {
                 // An error running up against the end may just be a token cut in
                 // half - `#\` before its character, say. One that ends earlier is
                 // final: the lexer rejected that text and carried on past it.
-                Err(err) => err.span.end >= self.input_len
+                Err(err) => err.span.end >= self.input_len,
             };
 
             if res.is_err() && !touches_end {
@@ -1991,7 +1986,6 @@ impl<'a> Iterator for Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn next_inner(&mut self) -> Option<Result<ExprKind>> {
-
         // Mid datum from a previous chunk. A top level prefix has no frames, so it
         // just finishes its datum; anything else goes back into `read_from_tokens`,
         // which pops the level itself, so the paren details are only used when

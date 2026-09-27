@@ -15,6 +15,8 @@ use std::process::ChildStdin;
 use std::process::ChildStdout;
 use std::sync::Mutex;
 
+use steel_parser::parser::ParserState;
+
 use crate::gc::shared::GcLock;
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
@@ -87,7 +89,7 @@ pub struct Peekable<R> {
     // Half parsed datum from an earlier fill, so `read` does not have to start
     // over every time more bytes show up. Boxed to keep it off every port - it
     // is only ever set while a datum straddles a fill.
-    parse: Option<Box<steel_parser::parser::ParserState>>,
+    parse: Option<Box<ParserState>>,
 }
 
 impl<T> Peekable<T> {
@@ -101,11 +103,11 @@ impl<T> Peekable<T> {
         }
     }
 
-    pub fn take_parse(&mut self) -> Option<Box<steel_parser::parser::ParserState>> {
+    pub fn take_parse(&mut self) -> Option<Box<ParserState>> {
         self.parse.take()
     }
 
-    pub fn set_parse(&mut self, state: Option<Box<steel_parser::parser::ParserState>>) {
+    pub fn set_parse(&mut self, state: Option<Box<ParserState>>) {
         self.parse = state;
     }
 
@@ -369,8 +371,12 @@ impl Peekable<Stdin> {
 }
 
 fn into_utf8(bytes: Vec<u8>) -> io::Result<String> {
-    String::from_utf8(bytes)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "stream did not contain valid UTF-8"))
+    String::from_utf8(bytes).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "stream did not contain valid UTF-8",
+        )
+    })
 }
 
 fn read_full<R: Read>(mut reader: R, mut buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
@@ -592,7 +598,7 @@ impl SteelPortRepr {
         }
     }
 
-    pub fn take_parse(&mut self) -> Option<Box<steel_parser::parser::ParserState>> {
+    pub fn take_parse(&mut self) -> Option<Box<ParserState>> {
         match self {
             SteelPortRepr::FileInput(_, br) => br.take_parse(),
             SteelPortRepr::StdInput(br) => br.take_parse(),
@@ -605,7 +611,7 @@ impl SteelPortRepr {
         }
     }
 
-    pub fn set_parse(&mut self, state: Option<Box<steel_parser::parser::ParserState>>) {
+    pub fn set_parse(&mut self, state: Option<Box<ParserState>>) {
         match self {
             SteelPortRepr::FileInput(_, br) => br.set_parse(state),
             SteelPortRepr::StdInput(br) => br.set_parse(state),

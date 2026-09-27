@@ -1,4 +1,4 @@
-use steel_parser::parser::{MAX_PREFIX_DEPTH, ParseError, Parser, SourceId};
+use steel_parser::parser::{ParseError, Parser, SourceId, MAX_PREFIX_DEPTH};
 
 // Nested lists are read iteratively, so depth is cheap here.
 #[test]

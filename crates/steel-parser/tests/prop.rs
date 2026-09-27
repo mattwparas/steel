@@ -53,13 +53,9 @@ fn open() -> impl Strategy<Value = (String, String)> {
 fn source() -> impl Strategy<Value = String> {
     atom().prop_recursive(5, 48, 5, |inner| {
         prop_oneof![
-            // a list of things
-            (open(), prop::collection::vec(inner.clone(), 0..5)).prop_map(
-                |((open, close), parts)| format!("{}{}{}", open, parts.join(" "), close)
-            ),
-            // something with a prefix on it
+            (open(), prop::collection::vec(inner.clone(), 0..5))
+                .prop_map(|((open, close), parts)| format!("{}{}{}", open, parts.join(" "), close)),
             (prefix(), inner.clone()).prop_map(|(prefix, inner)| format!("{}{}", prefix, inner)),
-            // two things in a row
             (inner.clone(), inner).prop_map(|(left, right)| format!("{} {}", left, right)),
         ]
     })
@@ -157,7 +153,7 @@ proptest! {
         }
     }
 
-    // A datum fed in chunks must not be lexed over and over.
+    // A datum fed in chunks must not be parsed from the start over and over.
     #[test]
     fn chunked_reading_does_not_reparse(input in long_source()) {
         let factor = rework(&input, 8);

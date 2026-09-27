@@ -8,8 +8,6 @@ use crate::parser::{Parser, ParserState, SourceId};
 use alloc::format;
 use alloc::string::{String, ToString};
 
-/// `syntax_object_id` and the interner ids come from global counters, so they
-/// vary between runs. Values get compared through `Display`, which resolves them.
 fn strip(input: String, prefix: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut rest = input.as_str();
@@ -31,6 +29,8 @@ fn strip(input: String, prefix: &str) -> String {
     out
 }
 
+// `syntax_object_id` and the interner ids come from global counters, so they vary
+// between runs. Values get compared through `Display`, which resolves them.
 fn normalize(input: String) -> String {
     strip(strip(input, "syntax_object_id: "), "InternedNumber(")
 }
@@ -53,9 +53,8 @@ pub fn one_shot(input: &str) -> String {
     show(Parser::new_flat(input, SourceId::none()).next())
 }
 
-/// The first datum, feeding `input` `chunk` bytes at a time and suspending at
-/// every boundary. Nothing is consumed, so offsets stay absolute and the result
-/// is directly comparable to [`one_shot`].
+/// The first datum, feeding `input` `chunk` bytes at a time. Nothing is consumed,
+/// so offsets stay absolute and the result compares directly against [`one_shot`].
 pub fn chunked(input: &str, chunk: usize) -> String {
     let chunk = chunk.max(1);
     let mut fed = 0;
@@ -108,11 +107,11 @@ pub fn check(input: &str, chunk: usize) -> Result<(), String> {
 }
 
 /// Tokens handed to the parse when reading `input` `chunk` bytes at a time, over
-/// the count a single pass needs. Stays near 1 if the parse resumes, grows with
-/// the input if it has to start over on every chunk.
+/// the count a single pass needs. A resumed parse sits at 1; one that starts over
+/// on every chunk grows with the input.
 ///
-/// There is a floor above 1: the token at each boundary gets held back and lexed
-/// again, which costs about one token per chunk.
+/// A token held back at a boundary is never handed to the parse, so re-lexing it
+/// does not show up here. Only redone parses do.
 pub fn rework(input: &str, chunk: usize) -> f64 {
     let chunk = chunk.max(1);
 

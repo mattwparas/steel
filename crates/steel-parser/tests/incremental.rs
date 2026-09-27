@@ -61,12 +61,12 @@ const CORPUS: &[&str] = &[
     "(equal? x '(quote ()))",
     "'(quote ())",
     // Turned up by the fuzzer
-    "#!,e)",                  // shebang line split across a chunk
-    "#! x\n(a b)",            // shebang line that is complete
-    ",@#;a b ",               // a prefix whose datum is behind a `#;`
+    "#!,e)",       // shebang line split across a chunk
+    "#! x\n(a b)", // shebang line that is complete
+    ",@#;a b ",    // a prefix whose datum is behind a `#;`
     ",@#;(a b) c ",
-    ".||mn",                  // malformed identifier the lexer carries on past
-    "(list \"a\" #\\b 'c)",     // `#\` split from its character
+    ".||mn",                // malformed identifier the lexer carries on past
+    "(list \"a\" #\\b 'c)", // `#\` split from its character
     // Turned up by the property tests
     "#u8(-2.5 (#u8(1 2)",
     "\"\\\u{1}\u{0}\u{b} a",
@@ -137,12 +137,12 @@ fn chunked_matches_one_shot_at_pseudorandom_boundaries() {
 #[test]
 fn a_long_datum_is_not_reparsed() {
     for shape in [
-        long("", ""),                 // plain
-        long("'", ""),                // prefix outside any list
-        long("`", ""),                // quasiquote outside any list
-        long("''", ""),               // stacked prefixes
-        long("(define data '", ")"),  // prefix inside a list
-        long("#;(skipped) ", ""),     // after a datum comment
+        long("", ""),                // plain
+        long("'", ""),               // prefix outside any list
+        long("`", ""),               // quasiquote outside any list
+        long("''", ""),              // stacked prefixes
+        long("(define data '", ")"), // prefix inside a list
+        long("#;(skipped) ", ""),    // after a datum comment
     ] {
         let factor = rework(&shape, 1);
 
