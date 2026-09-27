@@ -104,7 +104,6 @@ impl TestServer {
         let _ = guard.emit_expanded_ast(&format!(r"(require {:?})", path), None);
     }
 
-    // mirrors the indexing the binary does on startup
     pub fn index_workspace(&self) {
         let mut paths: Vec<PathBuf> = Vec::new();
 
