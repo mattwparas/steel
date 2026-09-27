@@ -38,6 +38,11 @@ pub enum ValueType {
     /// A bytevector (`SteelVal::ByteVector`).
     ByteVector,
     Void,
+    /// A flat vector (`SteelVal::FlatVector`).
+    FlatVector,
+    /// A closure, native function or continuation. Not a struct with a
+    /// procedure property.
+    Procedure,
 }
 
 impl ValueType {
@@ -64,6 +69,35 @@ impl ValueType {
             ValueType::HashSet => matches!(value, HashSetV(_)),
             ValueType::ByteVector => matches!(value, ByteVector(_)),
             ValueType::Void => matches!(value, Void),
+            ValueType::FlatVector => matches!(value, FlatVector(_)),
+            ValueType::Procedure => matches!(
+                value,
+                Closure(_) | FuncV(_) | MutFunc(_) | BuiltIn(_) | BoxedFunction(_) | ContinuationFunction(_)
+            ),
+        }
+    }
+
+    /// The spelling used in the function macros, the inverse of [`Self::from_name`].
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::Bool => "bool",
+            Self::Int => "int",
+            Self::Float => "float",
+            Self::Number => "number",
+            Self::Char => "char",
+            Self::String => "string",
+            Self::Symbol => "symbol",
+            Self::List => "list",
+            Self::Pair => "pair",
+            Self::Vector => "vector",
+            Self::MutableVector => "mutable-vector",
+            Self::HashMap => "hashmap",
+            Self::HashSet => "hashset",
+            Self::ByteVector => "bytevector",
+            Self::Void => "void",
+            Self::FlatVector => "flat-vector",
+            Self::Procedure => "procedure",
         }
     }
 
@@ -86,6 +120,8 @@ impl ValueType {
             "hashset" => Self::HashSet,
             "bytevector" => Self::ByteVector,
             "void" => Self::Void,
+            "flat-vector" => Self::FlatVector,
+            "procedure" => Self::Procedure,
             _ => return None,
         })
     }
@@ -99,15 +135,59 @@ impl ValueType {
 /// passed to. It says nothing about which values are accepted; see [`Raises`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ArgTypes {
-    pub fixed: &'static [ValueType],
+    pub fixed: &'static [ArgType],
     /// The type of every argument past `fixed`, for variadic functions (and
     /// the optional arguments of `Range`/`AtMost` ones).
-    pub rest: Option<ValueType>,
+    pub rest: Option<ArgType>,
+}
+
+/// One argument's declared type: a value of any of these types. Written
+/// `list|pair` in `args = "..."`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ArgType(pub &'static [ValueType]);
+
+impl ArgType {
+    pub fn matches(&self, value: &crate::SteelVal) -> bool {
+        self.0.iter().any(|ty| ty.matches(value))
+    }
+
+    /// The type, when it is a single one and not a union.
+    pub fn single(&self) -> Option<ValueType> {
+        match self.0 {
+            [ty] => Some(*ty),
+            _ => None,
+        }
+    }
+}
+
+impl core::fmt::Display for ArgType {
+    /// As written in `args = "..."`, like `list|pair`.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for (i, ty) in self.0.iter().enumerate() {
+            if i > 0 {
+                f.write_str("|")?;
+            }
+            f.write_str(ty.name())?;
+        }
+        Ok(())
+    }
+}
+
+impl core::fmt::Debug for ArgType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for (i, ty) in self.0.iter().enumerate() {
+            if i > 0 {
+                f.write_str("|")?;
+            }
+            write!(f, "{ty:?}")?;
+        }
+        Ok(())
+    }
 }
 
 impl ArgTypes {
     /// The declared type of argument `index`, if there is one.
-    pub fn get(&self, index: usize) -> Option<ValueType> {
+    pub fn get(&self, index: usize) -> Option<ArgType> {
         self.fixed.get(index).copied().or(self.rest)
     }
 
@@ -117,7 +197,9 @@ impl ArgTypes {
             return ArgMatch::BadCount;
         }
         for (index, arg) in args.iter().enumerate() {
-            let declared = self.get(index).unwrap_or(ValueType::Any);
+            let Some(declared) = self.get(index) else {
+                continue;
+            };
             if !declared.matches(arg) {
                 return ArgMatch::BadType {
                     index,
@@ -137,7 +219,7 @@ pub enum ArgMatch {
     BadCount,
     BadType {
         index: usize,
-        declared: ValueType,
+        declared: ArgType,
         found: String,
     },
 }
@@ -326,7 +408,16 @@ impl TypeSet {
             ValueType::HashSet => Self::HASHSET,
             ValueType::ByteVector => Self::BYTEVECTOR,
             ValueType::Void => Self::VOID,
+            // Flat vectors have no kind of their own.
+            ValueType::FlatVector => Self::OTHER,
+            ValueType::Procedure => Self::PROCEDURE,
         }
+    }
+
+    /// Every kind any of the union's types can be.
+    pub fn from_arg_type(ty: ArgType) -> TypeSet {
+        ty.0.iter()
+            .fold(Self::BOTTOM, |set, ty| set.union(Self::from_value_type(*ty)))
     }
 
     /// The narrowest [`ValueType`] covering every kind in this set.

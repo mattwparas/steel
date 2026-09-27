@@ -1327,7 +1327,7 @@ pub fn ffi_module() -> BuiltInModule {
     module
 }
 
-#[steel_derive::native(name = "ffi-vector", arity = "AtLeast(0)")]
+#[steel_derive::native(name = "ffi-vector", arity = "AtLeast(0)", args = "bool|int|float|char|void|hashmap|list|string...")]
 pub fn new_ffi_vector(args: &[SteelVal]) -> Result<SteelVal> {
     FFIVector {
         vec: args.iter().map(as_ffi_value).collect::<Result<_>>()?,
@@ -1761,7 +1761,7 @@ pub struct HostRuntimeFunction {
 }
 
 #[cfg(feature = "sync")]
-#[steel_derive::context(name = "function->ffi-function", arity = "Exact(1)")]
+#[steel_derive::context(name = "function->ffi-function", arity = "Exact(1)", args = "procedure")]
 pub fn function_to_ffi_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn function_to_ffi_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         let function = args[0].clone();

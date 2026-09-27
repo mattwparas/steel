@@ -100,7 +100,7 @@ pub fn list_module() -> BuiltInModule {
     module
 }
 
-#[steel_derive::function(name = "#%list-sort", returns = "list", args = "list, any")]
+#[steel_derive::function(name = "#%list-sort", returns = "list", args = "list, procedure")]
 pub fn list_sort(value: &List<SteelVal>, func: SteelVal) -> Result<SteelVal> {
     let mut values = value.iter().cloned().collect::<Vec<_>>();
 
@@ -676,7 +676,7 @@ fn first(list: &List<SteelVal>) -> Result<SteelVal> {
 /// > (car '(1 2)) ;; => 1
 /// > (car (cons 2 3)) ;; => 2
 /// ```
-#[steel_derive::function(name = "car", constant = true, args = "any")]
+#[steel_derive::function(name = "car", constant = true, args = "list|pair")]
 pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
     match list {
         SteelVal::ListV(l) => l
@@ -737,7 +737,7 @@ fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
 /// 1 │ (cdr '())
 ///   │  ^^^ cdr expects a non empty list
 /// ```
-#[steel_derive::function(name = "cdr", constant = true, args = "any")]
+#[steel_derive::function(name = "cdr", constant = true, args = "list|pair")]
 #[inline(always)]
 pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
     match core::mem::replace(arg, SteelVal::Void) {

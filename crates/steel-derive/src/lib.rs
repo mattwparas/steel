@@ -883,7 +883,8 @@ fn return_type_tokens(
 }
 
 const VALUE_TYPE_NAMES: &str = "any, bool, int, float, number, char, string, symbol, list, \
-     pair, vector, mutable-vector, hashmap, hashset, bytevector, void";
+     pair, vector, mutable-vector, flat-vector, hashmap, hashset, bytevector, void, procedure \
+     (args can join them with |, as in list|pair)";
 
 /// The `crate::value_type::ValueType` variant spelled `name` in `returns` / `args`.
 fn value_type_variant(name: &str) -> Option<&'static str> {
@@ -904,8 +905,18 @@ fn value_type_variant(name: &str) -> Option<&'static str> {
         "hashset" => "HashSet",
         "bytevector" => "ByteVector",
         "void" => "Void",
+        "flat-vector" => "FlatVector",
+        "procedure" => "Procedure",
         _ => return None,
     })
+}
+
+/// One entry of `args = "..."`: a type, or a union of them (`list|pair`).
+fn arg_type_tokens(entry: &str) -> proc_macro2::TokenStream {
+    let members = entry
+        .split('|')
+        .map(|member| value_type_tokens(member.trim(), "argument"));
+    quote! { crate::value_type::ArgType(&[#(#members),*]) }
 }
 
 fn value_type_tokens(name: &str, what: &str) -> proc_macro2::TokenStream {
@@ -1002,11 +1013,9 @@ fn signature_tokens(
     };
     for (i, entry) in entries.iter().enumerate() {
         match entry.strip_suffix("...") {
-            Some(ty) if i == entries.len() - 1 => {
-                rest = Some(value_type_tokens(ty.trim(), "argument"))
-            }
+            Some(ty) if i == entries.len() - 1 => rest = Some(arg_type_tokens(ty.trim())),
             Some(_) => panic!("`{name}`: only the last of `args` can end in `...`"),
-            None => fixed.push(value_type_tokens(entry, "argument")),
+            None => fixed.push(arg_type_tokens(entry)),
         }
     }
 

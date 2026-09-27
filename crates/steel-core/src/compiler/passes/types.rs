@@ -115,6 +115,18 @@ fn predicate(name: &str) -> Option<(TypeSet, TypeSet)> {
     })
 }
 
+/// Whether a binding named `bound` labels the name `written` in the source.
+/// Renaming only adds `#` / `_` prefixes and a numeric suffix (`acc` binds as
+/// `##acc6`, a named let's box as `####loop46`). A macro's own binding spanned
+/// at the macro use (`or`'s temporary, at `or`) does not match.
+fn names_match(bound: &str, written: &str) -> bool {
+    let bound = bound.strip_prefix("#%prim.").unwrap_or(bound);
+    let bound = bound.trim_start_matches(['#', '_']);
+    bound
+        .strip_prefix(written.trim_start_matches(['#', '_']))
+        .is_some_and(|suffix| suffix.chars().all(|c| c.is_ascii_digit() || c == '_'))
+}
+
 /// The result of [`infer_types`].
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct TypeInfo {
@@ -144,6 +156,21 @@ pub struct TypeInfo {
     pub functions: FxHashMap<SyntaxObjectId, u32>,
     /// Calls to native functions that cannot return normally, in program order.
     pub failures: Vec<CallFailure>,
+    /// Calls to a native function or a known lambda with a number of arguments
+    /// it does not take, in program order.
+    pub arity_failures: Vec<ArityFailure>,
+}
+
+/// A call with a number of arguments the function never takes.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ArityFailure {
+    /// The function's name as bound.
+    pub function: String,
+    /// The operator's span.
+    pub operator: crate::parser::span::Span,
+    /// What the function takes, as in "expects 2 arguments".
+    pub expected: String,
+    pub found: usize,
 }
 
 /// A call to a native function with an argument that can only hold kinds of
@@ -157,7 +184,9 @@ pub struct CallFailure {
     /// Which argument, from 0, and its span.
     pub argument: usize,
     pub span: crate::parser::span::Span,
-    /// What the function accepts there, and what the argument can hold.
+    /// What the function accepts there, as declared and as kinds, and what the
+    /// argument can hold.
+    pub declared: crate::value_type::ArgType,
     pub expected: TypeSet,
     pub found: TypeSet,
 }
@@ -207,6 +236,7 @@ pub fn infer_types(
     let mut result = previous;
     result.functions = facts.functions();
     result.failures.clear();
+    result.arity_failures.clear();
     for ty in result
         .bindings
         .values_mut()
@@ -865,6 +895,27 @@ impl<'a> Inference<'a> {
         self.infer(operator, env);
         let arg_types: Vec<TypeSet> = args.iter().map(|arg| self.infer(arg, env)).collect();
 
+        if let Some(expected) = self.arity_mismatch(&callee, args.len()) {
+            // A named let's loop is called through its box, `((#%unbox loop) ...)`.
+            let named = match operator {
+                ExprKind::List(list) if operator_name(list.args.first()) == Some("#%unbox") => {
+                    list.args.get(1)
+                }
+                _ => Some(operator),
+            };
+            if let Some(named) = named {
+                self.current.arity_failures.push(ArityFailure {
+                    function: named
+                        .atom_identifier()
+                        .map(|name| name.resolve().to_string())
+                        .unwrap_or_default(),
+                    operator: named.span(),
+                    expected,
+                    found: args.len(),
+                });
+            }
+        }
+
         match callee {
             Callee::Primitive(signature) => {
                 // A call that returned proves its arguments had the declared types.
@@ -873,8 +924,8 @@ impl<'a> Inference<'a> {
                         && (declared.rest.is_some() || args.len() == declared.fixed.len());
                     if count_ok {
                         for (i, arg) in args.iter().enumerate() {
-                            let Some(ty) = declared.get(i) else { continue };
-                            let ty = TypeSet::from_value_type(ty);
+                            let Some(declared_ty) = declared.get(i) else { continue };
+                            let ty = TypeSet::from_arg_type(declared_ty);
                             if ty.is_top() {
                                 continue;
                             }
@@ -889,6 +940,7 @@ impl<'a> Inference<'a> {
                                     operator: operator.span(),
                                     argument: i,
                                     span: arg.span(),
+                                    declared: declared_ty,
                                     expected: ty,
                                     found,
                                 });
@@ -921,6 +973,33 @@ impl<'a> Inference<'a> {
                     .unwrap_or(TypeSet::BOTTOM)
             }
             Callee::Unknown => TypeSet::TOP,
+        }
+    }
+
+    /// What `callee` takes, when that excludes `count` arguments.
+    fn arity_mismatch(&self, callee: &Callee, count: usize) -> Option<String> {
+        use crate::steel_vm::builtin::Arity;
+        let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
+        match callee {
+            Callee::Primitive(signature) => match signature.arity {
+                Arity::Exact(n) if count != n => Some(format!("{n} {}", plural(n))),
+                Arity::AtLeast(n) if count < n => Some(format!("at least {n} {}", plural(n))),
+                Arity::AtMost(n) if count > n => Some(format!("at most {n} {}", plural(n))),
+                Arity::Range(a, b) if count < a || count > b => {
+                    Some(format!("{a} to {b} arguments"))
+                }
+                _ => None,
+            },
+            Callee::Lambda(lambda) => match self.facts.arity.get(lambda) {
+                Some(&(fixed, false)) if count != fixed => {
+                    Some(format!("{fixed} {}", plural(fixed)))
+                }
+                Some(&(fixed, true)) if count < fixed => {
+                    Some(format!("at least {fixed} {}", plural(fixed)))
+                }
+                _ => None,
+            },
+            Callee::Unknown => None,
         }
     }
 
@@ -1076,17 +1155,6 @@ pub fn inlay_hints(
         crate::parser::interner::InternedString,
     );
 
-    // Whether a binding named `bound` labels the name `written` in the source.
-    // Renaming only adds `#` / `_` prefixes and a numeric suffix (`acc` binds as
-    // `##acc6`, a named let's box as `####loop46`). A macro's own binding spanned
-    // at the macro use (`or`'s temporary, at `or`) does not match.
-    fn names_match(bound: &str, written: &str) -> bool {
-        let bound = bound.trim_start_matches(['#', '_']);
-        bound
-            .strip_prefix(written)
-            .is_some_and(|suffix| suffix.chars().all(|c| c.is_ascii_digit() || c == '_'))
-    }
-
     let mut all = Vec::new();
     for expr in exprs {
         sites(expr, &mut all);
@@ -1195,9 +1263,37 @@ impl CallFailure {
             self.function,
             self.argument + 1,
             self.found,
-            self.expected
+            self.declared
         )
     }
+}
+
+impl ArityFailure {
+    pub fn message(&self, written: &str) -> String {
+        format!(
+            "ArityMismatch: {written} expects {}, found {}",
+            self.expected, self.found
+        )
+    }
+}
+
+/// The arity failures in `source` whose call is written out in `text`, with the
+/// operator as written. Calls a macro wrote are left out.
+pub fn written_arity_failures<'a>(
+    info: &'a TypeInfo,
+    source: crate::parser::parser::SourceId,
+    text: &'a str,
+) -> impl Iterator<Item = (&'a ArityFailure, &'a str)> + 'a {
+    let mut seen = FxHashSet::default();
+    info.arity_failures.iter().filter_map(move |failure| {
+        let span = failure.operator;
+        if span.source_id() != Some(source) {
+            return None;
+        }
+        let written = text.get(span.start as usize..span.end as usize)?;
+        (names_match(&failure.function, written) && seen.insert(span.start))
+            .then_some((failure, written))
+    })
 }
 
 /// The failures in `source` whose call is written out in `text`, the source's
@@ -1822,6 +1918,59 @@ mod tests {
             .collect()
     }
 
+    fn arity_failures_for(src: &str) -> Vec<String> {
+        let (engine, mut exprs, source) = expand_program(src);
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+        written_arity_failures(&info, source, src)
+            .map(|(failure, written)| failure.message(written))
+            .collect()
+    }
+
+    #[test]
+    fn calls_with_the_wrong_number_of_arguments() {
+        let failures = arity_failures_for(
+            "(define (two a b) (+ a b))
+(define (at-least-one a . rest) a)
+(define (f)
+  (define (helper x) (* x 2))
+  (let loop ([i 0] [acc 0])
+    (if (> i 3)
+        (helper acc 1)
+        (loop (+ i 1)))))
+(define (g) (two 1))
+(define (h) (at-least-one))
+(define (k) (hash-insert (hash) 1))
+(define (m) (car))
+(define (ok) (list (two 1 2) (at-least-one 1 2 3) (hash-insert (hash) 1 2)))",
+        );
+        assert_eq!(
+            failures,
+            vec![
+                "ArityMismatch: helper expects 1 argument, found 2",
+                "ArityMismatch: loop expects 2 arguments, found 1",
+                "ArityMismatch: two expects 2 arguments, found 1",
+                "ArityMismatch: at-least-one expects at least 1 argument, found 0",
+                "ArityMismatch: hash-insert expects 3 arguments, found 2",
+                "ArityMismatch: car expects 1 argument, found 0",
+            ]
+        );
+    }
+
+    #[test]
+    fn arity_of_shadowed_and_mutated_functions_is_not_checked() {
+        let failures = arity_failures_for(
+            "(define (two a b) (+ a b))
+(set! two (lambda (a) a))
+(define (g) (two 1))
+(define (h)
+  (define (car a b) a)
+  (car 1 2))",
+        );
+        assert_eq!(failures, Vec::<String>::new());
+    }
+
     #[test]
     fn calls_that_always_raise() {
         let failures = failures_for(
@@ -1893,6 +2042,9 @@ mod tests {
                 // The named let shows its return type, and not the placeholder
                 // `loop` is bound to before the lambda is stored.
                 "loop -> number",
+                // `null?` is true of an empty vector, `car` and `cdr` take lists
+                // and pairs.
+                "xs : (list | pair | vector | mutable-vector)?",
                 "acc : number",
                 "x : int",
                 // Nothing on `or` (its binding belongs to the macro), and
@@ -1974,10 +2126,14 @@ mod tests {
                 "(g x) -> int",
                 // Only one branch demands a string, so nothing is required of x.
                 "(both v i) -> list",
+                // vector-ref takes any of the three vectors; a flat vector is
+                // `other`.
+                "v : (vector | mutable-vector | other)?",
                 "i : int?",
-                // vector-length has no `args`, so that branch demands nothing
-                // of y and the join requires nothing either.
+                // Each branch demands something of y, so the join requires one
+                // or the other.
                 "(either y) -> int",
+                "y : (string | vector | mutable-vector | other)?",
                 "(helper-user n) -> number",
                 "(helper k) -> number",
                 // n is a global function's parameter (any), so the call site
@@ -2073,6 +2229,13 @@ mod tests {
             let elapsed = start.elapsed();
             for failure in &info.failures {
                 println!("{file}: always raises: {} at {:?}", failure.message(), failure.span);
+            }
+            for failure in &info.arity_failures {
+                println!(
+                    "{file}: arity: {} at {:?}",
+                    failure.message(&failure.function),
+                    failure.operator
+                );
             }
             let count = |map: &mut dyn Iterator<Item = TypeSet>| {
                 let (mut top, mut never, mut known) = (0, 0, 0);

@@ -104,7 +104,7 @@ pub fn command(name: SteelString, args: &List<SteelVal>) -> Result<SteelVal, Ste
 ///       unwrap-ok
 ///       wait)
 /// ```
-#[function(name = "with-current-dir", alias = "set-current-dir!")]
+#[function(name = "with-current-dir", alias = "set-current-dir!", args = "any, string|symbol")]
 pub fn current_dir(builder: SteelVal, directory: String) -> Result<SteelVal, SteelErr> {
     let mut guard = CommandBuilder::as_mut_ref(&builder)?;
     guard.current_dir(directory);
@@ -128,7 +128,7 @@ pub fn current_dir(builder: SteelVal, directory: String) -> Result<SteelVal, Ste
 ///       unwrap-ok
 ///       wait)
 /// ```
-#[function(name = "with-env-var", alias = "set-env-var!")]
+#[function(name = "with-env-var", alias = "set-env-var!", args = "any, string|symbol, string|symbol")]
 pub fn set_env_var(builder: SteelVal, key: String, value: String) -> Result<SteelVal, SteelErr> {
     let mut guard = CommandBuilder::as_mut_ref(&builder)?;
     guard.env_var(key, value);
@@ -151,7 +151,7 @@ pub fn set_env_var(builder: SteelVal, key: String, value: String) -> Result<Stee
 ///       unwrap-ok
 ///       wait)
 /// ```
-#[function(name = "without-env-var")]
+#[function(name = "without-env-var", args = "any, string|symbol")]
 pub fn remove_env_var(builder: SteelVal, key: String) -> Result<SteelVal, SteelErr> {
     let mut guard = CommandBuilder::as_mut_ref(&builder)?;
     guard.command.env_remove(key);
@@ -554,7 +554,7 @@ struct ChildProcess {
 /// > (which "ls") ;; => "/bin/ls"
 /// > (which "some-nonexistent-binary") ;; => #false
 /// ```
-#[function(name = "which")]
+#[function(name = "which", args = "string|symbol", raises = "bad-args")]
 fn binary_exists_on_path(binary: String) -> Option<String> {
     #[cfg(not(any(target_family = "wasm", target_env = "newlib")))]
     match which::which(binary) {

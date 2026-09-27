@@ -16,7 +16,8 @@ use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::compiler::passes::types::{
-    hover_type, infer_types, inlay_hints, written_call_failures, PrimitiveSignatures,
+    hover_type, infer_types, inlay_hints, written_arity_failures, written_call_failures,
+    PrimitiveSignatures,
 };
 use steel::{
     compiler::{
@@ -2039,11 +2040,34 @@ impl Backend {
 
                 free_identifiers_and_unused.append(&mut static_arity_checking);
 
-                // Calls to builtins that raise whenever they run.
+                // Calls to builtins that raise whenever they run, and calls with
+                // a number of arguments the function never takes.
                 if let Some(source) = id {
                     let info =
                         infer_types(&analysis.exprs, &analysis.analysis, &PRIMITIVE_SIGNATURES);
                     let text = rope.to_string();
+
+                    // The static arity checker above also sees functions required
+                    // from other modules. This sees local functions, loops and
+                    // variadic ones, by binding. Where both find a call, keep one.
+                    let reported: Vec<Range> = free_identifiers_and_unused
+                        .iter()
+                        .map(|diagnostic| diagnostic.range)
+                        .collect();
+                    let arity: Vec<_> = written_arity_failures(&info, source, &text)
+                        .filter_map(|(failure, written)| {
+                            let range = self.config.span_to_range(&failure.operator, &rope)?;
+                            (!reported.contains(&range)).then(|| {
+                                create_diagnostic(
+                                    range,
+                                    DiagnosticSeverity::ERROR,
+                                    failure.message(written),
+                                )
+                            })
+                        })
+                        .collect();
+                    free_identifiers_and_unused.extend(arity);
+
                     free_identifiers_and_unused.extend(
                         written_call_failures(&info, source, &text).filter_map(|failure| {
                             let range = self.config.span_to_range(&failure.span, &rope)?;

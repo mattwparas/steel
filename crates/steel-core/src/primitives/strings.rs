@@ -647,7 +647,7 @@ pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::StringV(error_message.into()))
 }
 
-#[function(name = "string-push", returns = "string", args = "string, any")]
+#[function(name = "string-push", returns = "string", args = "string, char|string", raises = "bad-args")]
 pub fn string_push(value: &mut SteelVal, character_or_string: SteelVal) -> Result<SteelVal> {
     if let SteelVal::StringV(_) = value {
         let SteelVal::StringV(mut s) = core::mem::take(value) else {

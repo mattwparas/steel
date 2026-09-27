@@ -1738,7 +1738,7 @@ fn constants_module() -> BuiltInModule {
 /// ```scheme
 /// > (env-var "PATH") ;; => "/usr/bin:/bin:..."
 /// ```
-#[steel_derive::function(name = "env-var", returns = "string")]
+#[steel_derive::function(name = "env-var", returns = "string", args = "string|symbol")]
 fn get_environment_variable(var: String) -> Result<SteelVal> {
     std::env::var(var)
         .map(|x| x.into_steelval().unwrap())
@@ -1751,7 +1751,7 @@ fn get_environment_variable(var: String) -> Result<SteelVal> {
 /// (maybe-get-env-var name) -> (Result? string?)
 ///
 /// * name : string?
-#[steel_derive::function(name = "maybe-get-env-var")]
+#[steel_derive::function(name = "maybe-get-env-var", args = "string|symbol")]
 fn maybe_get_environment_variable(var: String) -> SteelResult<SteelVal, SteelErr> {
     get_environment_variable(var).into()
 }
@@ -2518,7 +2518,7 @@ pub fn struct_to_list(value: &StructRef) -> Result<SteelVal> {
 }
 
 #[cfg(feature = "sync")]
-#[steel_derive::context(name = "#%closure->boxed-function", arity = "Exact(1)")]
+#[steel_derive::context(name = "#%closure->boxed-function", arity = "Exact(1)", args = "procedure")]
 pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn function_to_ffi_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         let function = args[0].clone();
@@ -2541,7 +2541,7 @@ pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
     Some(function_to_ffi_impl(ctx, args))
 }
 
-#[steel_derive::context(name = "module->exports", arity = "Exact(1)", returns = "list")]
+#[steel_derive::context(name = "module->exports", arity = "Exact(1)", returns = "list", args = "string|symbol")]
 fn module_exports(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn module_exports_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         let module = args[0].clone();

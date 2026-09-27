@@ -5585,7 +5585,7 @@ pub fn breakpoint(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVa
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "call-with-exception-handler", arity = "Exact(2)")]
+#[steel_derive::context(name = "call-with-exception-handler", arity = "Exact(2)", args = "any, procedure")]
 pub fn call_with_exception_handler(
     ctx: &mut VmCore,
     args: &[SteelVal],
@@ -5636,7 +5636,7 @@ pub fn call_with_exception_handler(
     None
 }
 
-#[steel_derive::context(name = "call/cc", arity = "Exact(1)")]
+#[steel_derive::context(name = "call/cc", arity = "Exact(1)", args = "procedure")]
 pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     /*
     - Construct the continuation
@@ -5940,7 +5940,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     Ok(())
 }
 
-#[steel_derive::function(name = "emit-expanded", arity = "Exact(1)")]
+#[steel_derive::function(name = "emit-expanded", arity = "Exact(1)", args = "string|symbol")]
 fn emit_expanded_file(path: String) {
     let mut engine = crate::steel_vm::engine::Engine::new();
 
@@ -5949,7 +5949,7 @@ fn emit_expanded_file(path: String) {
     engine.expand_to_file(contents, std::path::PathBuf::from(path))
 }
 
-#[steel_derive::function(name = "load-expanded", arity = "Exact(1)")]
+#[steel_derive::function(name = "load-expanded", arity = "Exact(1)", args = "string|symbol")]
 fn load_expanded_file(path: String) {
     let mut engine = crate::steel_vm::engine::Engine::new();
     engine.load_from_expanded_file(&path)
@@ -6045,7 +6045,7 @@ fn eval(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Resu
     }
 }
 
-#[steel_derive::context(name = "load", arity = "Exact(1)")]
+#[steel_derive::context(name = "load", arity = "Exact(1)", args = "string")]
 fn eval_file(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     match eval_file_impl(ctx, args) {
         Ok(_) => None,
@@ -6053,7 +6053,7 @@ fn eval_file(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option
     }
 }
 
-#[steel_derive::context(name = "eval-string", arity = "Exact(1)")]
+#[steel_derive::context(name = "eval-string", arity = "Exact(1)", args = "string")]
 fn eval_string(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -6334,7 +6334,7 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
     }
 }
 
-#[steel_derive::context(name = "#%expand-syntax-case", arity = "Exact(3)")]
+#[steel_derive::context(name = "#%expand-syntax-case", arity = "Exact(3)", args = "any, hashmap, hashmap")]
 pub(crate) fn expand_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(expand_syntax_case_impl(ctx, args))
 }
@@ -6406,12 +6406,12 @@ fn macro_case_bindings_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<Steel
     ))
 }
 
-#[steel_derive::context(name = "#%macro-case-bindings", arity = "Exact(1)", returns = "list")]
+#[steel_derive::context(name = "#%macro-case-bindings", arity = "Exact(1)", returns = "list", args = "string|symbol")]
 pub(crate) fn macro_case_bindings(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(macro_case_bindings_impl(ctx, args))
 }
 
-#[steel_derive::context(name = "#%match-syntax-case", arity = "Exact(2)", returns = "list")]
+#[steel_derive::context(name = "#%match-syntax-case", arity = "Exact(2)", returns = "list", args = "string|symbol, any")]
 pub(crate) fn match_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(match_syntax_case_impl(ctx, args))
 }
@@ -6527,7 +6527,7 @@ pub(crate) fn sample_stacks(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resul
 /// > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
 /// > (apply list 1 2 (list 3 4)) ;; => '(1 2 3 4)
 ///```
-#[steel_derive::context(name = "apply", arity = "AtLeast(2)")]
+#[steel_derive::context(name = "apply", arity = "AtLeast(2)", args = "procedure, any, any...")]
 pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let current_instruction = ctx.instructions[ctx.ip - 1];
 

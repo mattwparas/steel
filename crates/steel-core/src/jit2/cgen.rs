@@ -2778,9 +2778,12 @@ impl InferredType {
             ValueType::MutableVector => InferredType::MutableVector,
             ValueType::Void => InferredType::Void,
             // No jit type for these yet.
-            ValueType::Vector | ValueType::HashMap | ValueType::HashSet | ValueType::ByteVector => {
-                InferredType::Any
-            }
+            ValueType::Vector
+            | ValueType::HashMap
+            | ValueType::HashSet
+            | ValueType::ByteVector
+            | ValueType::FlatVector
+            | ValueType::Procedure => InferredType::Any,
         }
     }
 
@@ -3710,7 +3713,10 @@ impl FunctionTranslator<'_> {
             return;
         }
         for (i, origin) in origins.iter().enumerate() {
-            let (Some(slot), Some(declared)) = (origin, arg_types.get(i)) else {
+            // A union has no single inferred type to narrow to.
+            let (Some(slot), Some(declared)) =
+                (origin, arg_types.get(i).and_then(|ty| ty.single()))
+            else {
                 continue;
             };
             let ty = InferredType::from_value_type(declared);

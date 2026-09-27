@@ -322,7 +322,7 @@ pub fn interleaving(iterable: &SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// (transduce (list 1 2 3) (mapping (λ (x) (+ x 1))) (into-list)) ;; => '(2 3 4)
 /// ```
-#[steel_derive::function(name = "mapping")]
+#[steel_derive::function(name = "mapping", args = "procedure")]
 pub fn mapping(func: &SteelVal) -> Result<SteelVal> {
     match &func {
         Closure(_) | FuncV(_) | BoxedFunction(_) | BuiltIn(_) | MutFunc(_) => {
@@ -364,7 +364,7 @@ pub fn extending(iterable: &SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// (transduce (list 1 2 3) (flat-mapping (λ (x) (range 0 x))) (into-list)) ;; => '(0 0 1 0 1 2)
 /// ```
-#[steel_derive::function(name = "flat-mapping")]
+#[steel_derive::function(name = "flat-mapping", args = "procedure")]
 pub fn flat_mapping(func: &SteelVal) -> Result<SteelVal> {
     match &func {
         Closure(_) | FuncV(_) | BoxedFunction(_) | BuiltIn(_) | MutFunc(_) => {
@@ -401,7 +401,7 @@ pub fn flattening() -> Result<SteelVal> {
 /// ```scheme
 /// (transduce (list 1 2 3 4) (filtering even?) (into-list)) ;; => '(2 4)
 /// ```
-#[steel_derive::function(name = "filtering")]
+#[steel_derive::function(name = "filtering", args = "procedure")]
 pub fn filtering(func: &SteelVal) -> Result<SteelVal> {
     match &func {
         Closure(_) | FuncV(_) | BoxedFunction(_) | BuiltIn(_) | MutFunc(_) => {

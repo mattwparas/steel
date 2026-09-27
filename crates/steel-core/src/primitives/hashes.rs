@@ -26,7 +26,7 @@ pub fn md5_hasher() -> SteelVal {
     Md5Hasher(Md5::new()).into_steelval().unwrap()
 }
 
-#[steel_derive::function(name = "md5-hasher-update!", returns = "void")]
+#[steel_derive::function(name = "md5-hasher-update!", returns = "void", args = "any, string|bytevector")]
 pub fn md5_hasher_update(hasher: &SteelVal, value: &SteelVal) -> Result<SteelVal> {
     let mut hasher = Md5Hasher::as_mut_ref(hasher)?;
 

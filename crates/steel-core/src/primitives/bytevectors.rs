@@ -412,7 +412,7 @@ pub fn bytes_to_list(value: &SteelByteVector) -> Result<SteelVal> {
 /// ```scheme
 /// (list->bytes (list 0 1 2 3 4 5)) ;; => (bytes 0 1 2 3 4 5)
 /// ```
-#[function(name = "list->bytes", returns = "bytevector")]
+#[function(name = "list->bytes", returns = "bytevector", args = "list|vector")]
 pub fn list_to_bytes(value: Vec<u8>) -> Result<SteelVal> {
     Ok(SteelVal::ByteVector(SteelByteVector::new(value)))
 }

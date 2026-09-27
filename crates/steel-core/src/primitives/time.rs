@@ -38,7 +38,7 @@ fn duration_to_string(duration: Duration) -> String {
 /// (local-time/now! fmt) -> string?
 ///
 /// * fmt : string?
-#[function(name = "local-time/now!")]
+#[function(name = "local-time/now!", args = "string|symbol")]
 fn current_time_formatted(format_string: String) -> String {
     Local::now().format(&format_string).to_string()
 }
