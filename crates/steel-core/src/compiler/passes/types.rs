@@ -2,7 +2,7 @@
 //!
 //! Computes, for every binding (`define`, `let`, lambda parameter), every
 //! identifier reference, every call and every lambda's return, the set of kinds
-//! of value it can hold ([`TypeSet`]). Used by the language server for inlay
+//! of value it can hold ([`Ty`]). Used by the language server for inlay
 //! hints, and meant to feed the jit.
 //!
 //! Types come from:
@@ -34,8 +34,11 @@ use crate::steel_vm::builtin::{
 };
 use crate::steel_vm::engine::ModuleContainer;
 use crate::value_type::TypeSet;
+
+mod ty;
 use rustc_hash::{FxHashMap, FxHashSet};
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
+pub use ty::Ty;
 
 /// The signatures of the native functions a program can refer to, by name.
 #[derive(Default)]
@@ -80,8 +83,8 @@ fn signature_of(value: &SteelVal) -> Option<FunctionSignatureMetadata> {
 /// What a type predicate tells each branch of an `if`. The then-branch can
 /// intersect the tested value's type with `holds`, and the else-branch can
 /// remove `excludes` (only the kinds for which the predicate is always true).
-fn predicate(name: &str) -> Option<(TypeSet, TypeSet)> {
-    use TypeSet as T;
+fn predicate(name: &str) -> Option<(Ty, Ty)> {
+    use Ty as T;
     let vectors = T::VECTOR.union(T::MUTABLE_VECTOR);
     Some(match name.strip_prefix("#%prim.").unwrap_or(name) {
         "string?" => (T::STRING, T::STRING),
@@ -132,20 +135,20 @@ fn names_match(bound: &str, written: &str) -> bool {
 pub struct TypeInfo {
     /// Binding sites (`define` / `let` names, lambda parameters), by the
     /// syntax object id of the name.
-    pub bindings: FxHashMap<SyntaxObjectId, TypeSet>,
+    pub bindings: FxHashMap<SyntaxObjectId, Ty>,
     /// Identifier references, by their syntax object id: what the variable
     /// holds at that point (after narrowing).
-    pub references: FxHashMap<SyntaxObjectId, TypeSet>,
+    pub references: FxHashMap<SyntaxObjectId, Ty>,
     /// Calls, by the list's syntax object id: what the call returns.
-    pub calls: FxHashMap<u32, TypeSet>,
+    pub calls: FxHashMap<u32, Ty>,
     /// Lambdas, by their syntax object id: what a call of it returns.
-    pub returns: FxHashMap<u32, TypeSet>,
+    pub returns: FxHashMap<u32, Ty>,
     /// Parameters, by binding site, with the type the argument must have had for
     /// a call to return normally. This is what the body demands of it, joined
     /// over every normal exit. It says nothing about what callers pass (that is
     /// `bindings`), so it is only for display and cannot be trusted on function
     /// entry.
-    pub required: FxHashMap<SyntaxObjectId, TypeSet>,
+    pub required: FxHashMap<SyntaxObjectId, Ty>,
     /// Calls to a known lambda, by the list's syntax object id: that lambda.
     pub call_targets: FxHashMap<u32, u32>,
     /// How many passes over the program the fixpoint took.
@@ -159,16 +162,16 @@ pub struct TypeInfo {
     /// Calls to a native function or a known lambda with a number of arguments
     /// it does not take, in program order.
     pub arity_failures: Vec<ArityFailure>,
-    /// The program's struct types, indexed as in [`TypeSet::structure`].
+    /// The program's struct types, indexed as in [`Ty::structure`].
     pub structs: Vec<StructType>,
     /// What each field of a struct type can hold, for the struct types whose
     /// every construction and field write the program shows.
-    pub fields: FxHashMap<usize, Vec<TypeSet>>,
+    pub fields: FxHashMap<usize, Vec<Ty>>,
 }
 
 impl TypeInfo {
     /// `ty` as shown to a user, with struct types by name.
-    pub fn show(&self, ty: TypeSet) -> String {
+    pub fn show(&self, ty: Ty) -> String {
         let names: Vec<String> = self.structs.iter().map(|ty| ty.name.clone()).collect();
         ty.show(&names)
     }
@@ -200,7 +203,7 @@ pub struct CallFailure {
     /// What the function accepts there, as declared and as kinds, and what the
     /// argument can hold, as shown.
     pub declared: String,
-    pub expected: TypeSet,
+    pub expected: Ty,
     pub found: String,
 }
 
@@ -224,8 +227,8 @@ pub fn infer_types_with_exports(
 ) -> TypeInfo {
     let facts = Facts::collect(exprs, analysis, primitives, exports);
     let mut previous = TypeInfo::default();
-    let mut previous_params: FxHashMap<u32, Vec<TypeSet>> = FxHashMap::default(); // Every step can only grow a set, and a set can only grow 64 times, so
-                                                                                  // this terminates; the bound is a guard against a bug making it cycle.
+    let mut previous_params: FxHashMap<u32, Vec<Ty>> = FxHashMap::default(); // Every step can only grow a set, and a set can only grow 64 times, so
+                                                                             // this terminates; the bound is a guard against a bug making it cycle.
     for iteration in 1..=128 {
         let mut inference = Inference {
             analysis,
@@ -269,7 +272,7 @@ pub fn infer_types_with_exports(
         .chain(result.returns.values_mut())
         .chain(result.fields.values_mut().flatten())
     {
-        *ty = TypeSet::TOP;
+        *ty = Ty::TOP;
     }
     result
 }
@@ -352,7 +355,7 @@ struct Facts {
     /// Lambdas whose every use is a direct call we can see, so their
     /// parameter types are the union of the argument types at those calls.
     closed: FxHashSet<u32>,
-    /// The program's struct types, indexed as in [`TypeSet::structure`].
+    /// The program's struct types, indexed as in [`Ty::structure`].
     structs: Vec<StructType>,
     /// Lambdas that read or write a field of their first argument, which has
     /// to be of this struct type. A `#:mutable` struct's accessors and setters
@@ -362,6 +365,9 @@ struct Facts {
     /// `#:mutable` struct's constructor does, and the call inside each that
     /// does it.
     struct_constructors: FxHashMap<u32, usize>,
+    /// Lambdas written as the function argument of a standard library `map`,
+    /// `filter`, `foldl` or `foldr`, which call them with list elements only.
+    list_lambdas: FxHashSet<u32>,
     constructor_bodies: FxHashSet<u32>,
     /// Struct types whose every construction and field write is a direct call
     /// in the program, so their field types are known.
@@ -732,6 +738,18 @@ impl<'a> Collector<'a> {
                     }
                     _ => {}
                 }
+                if let (Some(name), Some(ExprKind::LambdaFunction(lambda))) =
+                    (list_function_name(self.analysis, operator), args.first())
+                {
+                    let takes = match name {
+                        "map" => args.len() - 1,
+                        "filter" => 1,
+                        _ => 2,
+                    };
+                    if !lambda.rest && lambda.args.len() == takes {
+                        self.facts.list_lambdas.insert(lambda.syntax_object_id);
+                    }
+                }
                 match operator {
                     ExprKind::List(inner)
                         if operator_name(inner.args.first()) == Some("#%unbox")
@@ -936,6 +954,9 @@ impl<'a> Collector<'a> {
                 self.facts.closed.insert(lambda);
             }
         }
+        // So is one passed straight to a standard library list function.
+        let list_lambdas: Vec<u32> = self.facts.list_lambdas.iter().copied().collect();
+        self.facts.closed.extend(list_lambdas);
         // An immediately applied lambda is only ever called there.
         for lambda in &self.applied_lambdas {
             if !self.bound_lambdas.contains_key(lambda) {
@@ -953,6 +974,111 @@ fn init_position(init: &ExprKind) -> Position {
         ExprKind::Atom(_) => Position::AliasInit,
         _ => Position::Value,
     }
+}
+
+/// `map`, `filter`, `foldl` or `foldr` when `operator` names the standard
+/// library's: an identifier of that name bound nowhere in the program.
+fn list_function_name(analysis: &Analysis, operator: &ExprKind) -> Option<&'static str> {
+    let ExprKind::Atom(atom) = operator else {
+        return None;
+    };
+    if reference(analysis, atom).is_some() {
+        return None;
+    }
+    match atom.ident()?.resolve() {
+        "map" => Some("map"),
+        "filter" => Some("filter"),
+        "foldl" => Some("foldl"),
+        "foldr" => Some("foldr"),
+        _ => None,
+    }
+}
+
+/// What a call of the native function `name` returns, when what its container
+/// arguments hold says more than its declared return type.
+fn container_result(name: &str, args: &[Ty]) -> Option<Ty> {
+    use TypeSet as K;
+    let kinds_of = |tys: &[Ty]| tys.iter().fold(K::BOTTOM, |acc, t| acc.union(t.kinds));
+    // A value of these kinds only (so the call only succeeds on them).
+    let only = |ty: &Ty, kinds: TypeSet| !ty.is_bottom() && kinds.contains(ty.kinds);
+    let element = |ty: &Ty, kinds: TypeSet| {
+        (only(ty, kinds) && !ty.elements.is_top()).then(|| Ty::kinds(ty.elements))
+    };
+    let map = K::HASHMAP;
+    let set = K::HASHSET;
+    Some(match (name.strip_prefix("#%prim.").unwrap_or(name), args) {
+        ("list", _) => Ty::list_of(kinds_of(args)),
+        ("cons", [x, tail]) => {
+            // Onto a list it is a list, onto anything else a pair.
+            let onto_list = !tail.kinds.intersect(K::LIST).is_bottom();
+            let onto_other = !tail.kinds.without(K::LIST).is_bottom();
+            let mut kinds = K::BOTTOM;
+            let mut elements = x.kinds;
+            if onto_list {
+                kinds = kinds.union(K::LIST);
+                elements = elements.union(tail.elements);
+            }
+            if onto_other {
+                kinds = kinds.union(K::PAIR);
+            }
+            Ty::holding(kinds, elements, K::BOTTOM)
+        }
+        ("append", _) if args.iter().all(|a| only(a, K::LIST)) => {
+            Ty::list_of(args.iter().fold(K::BOTTOM, |acc, a| acc.union(a.elements)))
+        }
+        ("reverse" | "cdr" | "rest" | "list-tail", [list, ..]) if only(list, K::LIST) => {
+            Ty::list_of(list.elements)
+        }
+        ("car" | "first" | "second" | "third" | "last" | "list-ref", [list, ..]) => {
+            element(list, K::LIST.union(K::PAIR))?
+        }
+        ("range", _) => Ty::list_of(K::INT),
+        ("string->list", _) => Ty::list_of(K::CHAR),
+        ("immutable-vector", _) => Ty::holding(K::VECTOR, kinds_of(args), K::BOTTOM),
+        ("vector-ref", [vector, _]) => element(vector, K::VECTOR)?,
+        ("vector->list", [vector, ..]) if only(vector, K::VECTOR) => Ty::list_of(vector.elements),
+        ("hash", _) if args.len() % 2 == 0 => {
+            let keys = args
+                .iter()
+                .step_by(2)
+                .fold(K::BOTTOM, |acc, t| acc.union(t.kinds));
+            let values = args
+                .iter()
+                .skip(1)
+                .step_by(2)
+                .fold(K::BOTTOM, |acc, t| acc.union(t.kinds));
+            Ty::holding(map, values, keys)
+        }
+        ("hash-insert", [m, key, value]) if only(m, map) => {
+            Ty::holding(map, m.elements.union(value.kinds), m.keys.union(key.kinds))
+        }
+        ("hash-remove", [m, _]) if only(m, map) => *m,
+        ("hash-union", [a, b]) if only(a, map) && only(b, map) => {
+            Ty::holding(map, a.elements.union(b.elements), a.keys.union(b.keys))
+        }
+        ("hash-ref", [m, _]) => element(m, map)?,
+        // #f when the key is missing.
+        ("hash-try-get", [m, _]) => element(m, map)?.union(Ty::BOOL),
+        ("hash-keys->list", [m]) if only(m, map) && !m.keys.is_top() => Ty::list_of(m.keys),
+        ("hash-values->list", [m]) if only(m, map) => Ty::list_of(m.elements),
+        ("hash-clear", [m]) if only(m, map) => Ty::holding(map, K::BOTTOM, K::BOTTOM),
+        ("hashset", _) => Ty::holding(set, kinds_of(args), K::BOTTOM),
+        ("hashset-insert", [s, value]) if only(s, set) => {
+            Ty::holding(set, s.elements.union(value.kinds), K::BOTTOM)
+        }
+        ("list->hashset", [list]) if only(list, K::LIST) => {
+            Ty::holding(set, list.elements, K::BOTTOM)
+        }
+        ("hashset->list", [s]) if only(s, set) => Ty::list_of(s.elements),
+        // An intersection or difference holds some of what the first holds.
+        ("hashset-union" | "hashset-intersection" | "hashset-difference", [a, b])
+            if only(a, set) && only(b, set) =>
+        {
+            Ty::holding(set, a.elements.union(b.elements), K::BOTTOM)
+        }
+        ("hashset-clear", [s]) if only(s, set) => Ty::holding(set, K::BOTTOM, K::BOTTOM),
+        _ => return None,
+    })
 }
 
 /// The value of a non-negative integer literal.
@@ -1065,7 +1191,7 @@ fn operator_name(expr: Option<&ExprKind>) -> Option<&str> {
 /// Narrowed types of variables at a point in the program. Only holds immutable
 /// bindings, since narrowing a variable that can be reassigned would not
 /// survive the assignment.
-type Env = FxHashMap<SyntaxObjectId, TypeSet>;
+type Env = FxHashMap<SyntaxObjectId, Ty>;
 
 /// What a call's operator is.
 enum Callee<'p> {
@@ -1083,17 +1209,17 @@ struct Inference<'a> {
     /// The last iteration's results, for what calls to functions analyzed later
     /// (or recursively) return.
     previous: &'a TypeInfo,
-    previous_params: &'a FxHashMap<u32, Vec<TypeSet>>,
+    previous_params: &'a FxHashMap<u32, Vec<Ty>>,
     current: TypeInfo,
     /// Parameter types of closed lambdas, from this iteration's call sites.
-    params: FxHashMap<u32, Vec<TypeSet>>,
+    params: FxHashMap<u32, Vec<Ty>>,
 }
 
 impl<'a> Inference<'a> {
     /// What binding `id` holds, before any narrowing.
-    fn declared(&self, id: SyntaxObjectId) -> TypeSet {
+    fn declared(&self, id: SyntaxObjectId) -> Ty {
         if self.facts.mutated.contains(&id) || !self.facts.defined.contains(&id) {
-            return TypeSet::TOP;
+            return Ty::TOP;
         }
         self.current
             .bindings
@@ -1102,10 +1228,10 @@ impl<'a> Inference<'a> {
             .copied()
             // Not analyzed yet in any iteration. Start optimistic and let the
             // fixpoint grow it.
-            .unwrap_or(TypeSet::BOTTOM)
+            .unwrap_or(Ty::BOTTOM)
     }
 
-    fn lookup(&self, id: SyntaxObjectId, env: &Env) -> TypeSet {
+    fn lookup(&self, id: SyntaxObjectId, env: &Env) -> Ty {
         match env.get(&id) {
             Some(ty) => *ty,
             None => self.declared(id),
@@ -1114,20 +1240,20 @@ impl<'a> Inference<'a> {
 
     /// Records `ty` for binding `id`. A name can be bound more than once
     /// (a top-level redefinition), and then it can hold either.
-    fn bind(&mut self, name: &ExprKind, ty: TypeSet) {
+    fn bind(&mut self, name: &ExprKind, ty: Ty) {
         if let Some(id) = binding_site(name) {
             let ty = if self.facts.mutated.contains(&id) {
-                TypeSet::TOP
+                Ty::TOP
             } else {
                 ty
             };
-            let entry = self.current.bindings.entry(id).or_insert(TypeSet::BOTTOM);
+            let entry = self.current.bindings.entry(id).or_insert(Ty::BOTTOM);
             *entry = entry.union(ty);
         }
     }
 
     /// Narrows an immutable variable in `env`.
-    fn narrow(&self, expr: &ExprKind, env: &mut Env, to: impl FnOnce(TypeSet) -> TypeSet) {
+    fn narrow(&self, expr: &ExprKind, env: &mut Env, to: impl FnOnce(Ty) -> Ty) {
         let ExprKind::Atom(atom) = expr else { return };
         let Some(id) = reference(self.analysis, atom) else {
             return;
@@ -1179,17 +1305,12 @@ impl<'a> Inference<'a> {
         }
     }
 
-    fn infer(&mut self, expr: &ExprKind, env: &mut Env) -> TypeSet {
+    fn infer(&mut self, expr: &ExprKind, env: &mut Env) -> Ty {
         match expr {
             ExprKind::Atom(atom) => self.atom(atom, env),
             ExprKind::Quote(quote) => datum_type(&quote.expr),
-            ExprKind::Vector(vector) => {
-                if vector.bytes {
-                    TypeSet::BYTEVECTOR
-                } else {
-                    TypeSet::VECTOR
-                }
-            }
+            // A vector literal's elements are data.
+            ExprKind::Vector(_) => datum_type(expr),
             ExprKind::If(if_) => {
                 self.infer(&if_.test_expr, env);
                 let mut then_env = env.clone();
@@ -1210,14 +1331,14 @@ impl<'a> Inference<'a> {
             ExprKind::Define(define) => {
                 let ty = self.infer(&define.body, env);
                 self.bind(&define.name, ty);
-                TypeSet::VOID
+                Ty::VOID
             }
             ExprKind::LambdaFunction(lambda) => {
                 self.lambda(lambda, env);
-                TypeSet::PROCEDURE
+                Ty::PROCEDURE
             }
             ExprKind::Begin(begin) => {
-                let mut ty = TypeSet::VOID;
+                let mut ty = Ty::VOID;
                 for expr in &begin.exprs {
                     ty = self.infer(expr, env);
                 }
@@ -1227,11 +1348,11 @@ impl<'a> Inference<'a> {
                 self.infer(&set.expr, env);
                 // `set!` evaluates to the variable's previous value, and an
                 // assigned variable can hold anything.
-                TypeSet::TOP
+                Ty::TOP
             }
             ExprKind::Return(return_) => {
                 self.infer(&return_.expr, env);
-                TypeSet::TOP
+                Ty::TOP
             }
             ExprKind::List(list) => {
                 if let Some(ExprKind::List(_) | ExprKind::Atom(_) | ExprKind::LambdaFunction(_)) =
@@ -1247,24 +1368,24 @@ impl<'a> Inference<'a> {
                 self.current.calls.insert(list.syntax_object_id, ty);
                 ty
             }
-            ExprKind::Macro(_) | ExprKind::SyntaxRules(_) | ExprKind::Require(_) => TypeSet::VOID,
+            ExprKind::Macro(_) | ExprKind::SyntaxRules(_) | ExprKind::Require(_) => Ty::VOID,
         }
     }
 
-    fn atom(&mut self, atom: &Atom, env: &Env) -> TypeSet {
+    fn atom(&mut self, atom: &Atom, env: &Env) -> Ty {
         let ty = match &atom.syn.ty {
             TokenType::Identifier(name) => match reference(self.analysis, atom) {
                 Some(id) if self.facts.defined.contains(&id) => self.lookup(id, env),
                 // Bound to something outside what we analyzed.
-                Some(_) => TypeSet::TOP,
-                None if self.free_primitive(name.resolve()).is_some() => TypeSet::PROCEDURE,
-                None => TypeSet::TOP,
+                Some(_) => Ty::TOP,
+                None if self.free_primitive(name.resolve()).is_some() => Ty::PROCEDURE,
+                None => Ty::TOP,
             },
             TokenType::Number(number) => number_type(&number.resolve()),
-            TokenType::StringLiteral(_) => TypeSet::STRING,
-            TokenType::CharacterLiteral(_) => TypeSet::CHAR,
-            TokenType::BooleanLiteral(_) => TypeSet::BOOL,
-            _ => TypeSet::TOP,
+            TokenType::StringLiteral(_) => Ty::STRING,
+            TokenType::CharacterLiteral(_) => Ty::CHAR,
+            TokenType::BooleanLiteral(_) => Ty::BOOL,
+            _ => Ty::TOP,
         };
         if atom.ident().is_some() {
             self.current
@@ -1280,15 +1401,15 @@ impl<'a> Inference<'a> {
         let fixed = lambda.args.len() - usize::from(lambda.rest);
         for (i, arg) in lambda.args.iter().enumerate() {
             let ty = if lambda.rest && i == fixed {
-                TypeSet::LIST
+                Ty::LIST
             } else if closed {
                 self.previous_params
                     .get(&id)
                     .and_then(|params| params.get(i))
                     .copied()
-                    .unwrap_or(TypeSet::BOTTOM)
+                    .unwrap_or(Ty::BOTTOM)
             } else {
-                TypeSet::TOP
+                Ty::TOP
             };
             self.bind(arg, ty);
         }
@@ -1315,15 +1436,15 @@ impl<'a> Inference<'a> {
         }
     }
 
-    fn call(&mut self, list: &crate::parser::ast::List, env: &mut Env) -> TypeSet {
+    fn call(&mut self, list: &crate::parser::ast::List, env: &mut Env) -> Ty {
         let Some((operator, args)) = list.args.split_first() else {
             // `()`
-            return TypeSet::LIST;
+            return Ty::LIST;
         };
 
         let callee = self.callee(operator);
         self.infer(operator, env);
-        let arg_types: Vec<TypeSet> = args.iter().map(|arg| self.infer(arg, env)).collect();
+        let arg_types: Vec<Ty> = args.iter().map(|arg| self.infer(arg, env)).collect();
 
         if let Some(expected) = self.arity_mismatch(&callee, args.len()) {
             // A named let's loop is called through its box, `((#%unbox loop) ...)`.
@@ -1357,7 +1478,7 @@ impl<'a> Inference<'a> {
                             let Some(declared_ty) = declared.get(i) else {
                                 continue;
                             };
-                            let ty = TypeSet::from_arg_type(declared_ty);
+                            let ty = Ty::from_arg_type(declared_ty);
                             if ty.is_top() {
                                 continue;
                             }
@@ -1377,17 +1498,18 @@ impl<'a> Inference<'a> {
                     self.construct(ty, &arg_types[1..]);
                 }
                 self.struct_result(operator, args)
-                    .unwrap_or_else(|| TypeSet::from_value_type(signature.return_type))
+                    .or_else(|| container_result(&signature.name, &arg_types))
+                    .unwrap_or_else(|| Ty::from_value_type(signature.return_type))
             }
             Callee::Struct(ty, piece) => {
-                let this = TypeSet::structure(ty);
+                let this = Ty::structure(ty);
                 let name = &self.facts.structs[ty].name;
                 match piece {
                     StructPiece::Constructor => {
                         self.construct(ty, &arg_types);
                         this
                     }
-                    StructPiece::Predicate => TypeSet::BOOL,
+                    StructPiece::Predicate => Ty::BOOL,
                     StructPiece::GetterPrototype | StructPiece::Getter(_) => {
                         let takes = if piece == StructPiece::GetterPrototype {
                             2
@@ -1400,13 +1522,11 @@ impl<'a> Inference<'a> {
                         }
                         match piece {
                             StructPiece::Getter(field) => self.field(ty, field),
-                            _ => TypeSet::TOP,
+                            _ => Ty::TOP,
                         }
                     }
                     // Calling these raises, but nothing else is claimed.
-                    StructPiece::Table | StructPiece::Descriptor | StructPiece::Getters => {
-                        TypeSet::TOP
-                    }
+                    StructPiece::Table | StructPiece::Descriptor | StructPiece::Getters => Ty::TOP,
                 }
             }
             Callee::Lambda(lambda) => {
@@ -1422,7 +1542,7 @@ impl<'a> Inference<'a> {
                             0,
                             arg,
                             arg_types[0],
-                            TypeSet::structure(ty),
+                            Ty::structure(ty),
                             declared,
                             env,
                         );
@@ -1442,7 +1562,7 @@ impl<'a> Inference<'a> {
                             let params = self
                                 .params
                                 .entry(lambda)
-                                .or_insert_with(|| vec![TypeSet::BOTTOM; fixed]);
+                                .or_insert_with(|| vec![Ty::BOTTOM; fixed]);
                             for (param, ty) in params.iter_mut().zip(&arg_types) {
                                 *param = param.union(*ty);
                             }
@@ -1455,10 +1575,12 @@ impl<'a> Inference<'a> {
                         .get(&lambda)
                         .or_else(|| self.previous.returns.get(&lambda))
                         .copied()
-                        .unwrap_or(TypeSet::BOTTOM)
+                        .unwrap_or(Ty::BOTTOM)
                 })
             }
-            Callee::Unknown => TypeSet::TOP,
+            Callee::Unknown => self
+                .list_function(operator, args, &arg_types)
+                .unwrap_or(Ty::TOP),
         }
     }
 
@@ -1510,8 +1632,8 @@ impl<'a> Inference<'a> {
         operator: &ExprKind,
         index: usize,
         arg: &ExprKind,
-        found: TypeSet,
-        required: TypeSet,
+        found: Ty,
+        required: Ty,
         declared: String,
         env: &mut Env,
     ) {
@@ -1534,9 +1656,9 @@ impl<'a> Inference<'a> {
     }
     /// What field `field` of struct type `ty` can hold: what every
     /// construction and write of it stored, when those are all known.
-    fn field(&self, ty: usize, field: usize) -> TypeSet {
+    fn field(&self, ty: usize, field: usize) -> Ty {
         if !self.facts.closed_structs.contains(&ty) {
-            return TypeSet::TOP;
+            return Ty::TOP;
         }
         self.previous
             .fields
@@ -1544,10 +1666,10 @@ impl<'a> Inference<'a> {
             .and_then(|fields| fields.get(field))
             .copied()
             // No construction seen yet, in any iteration.
-            .unwrap_or(TypeSet::BOTTOM)
+            .unwrap_or(Ty::BOTTOM)
     }
 
-    fn store_field(&mut self, ty: usize, field: usize, value: TypeSet) {
+    fn store_field(&mut self, ty: usize, field: usize, value: Ty) {
         if !self.facts.closed_structs.contains(&ty) {
             return;
         }
@@ -1556,14 +1678,14 @@ impl<'a> Inference<'a> {
             .current
             .fields
             .entry(ty)
-            .or_insert_with(|| vec![TypeSet::BOTTOM; count]);
+            .or_insert_with(|| vec![Ty::BOTTOM; count]);
         if let Some(slot) = fields.get_mut(field) {
             *slot = slot.union(value);
         }
     }
 
     /// A struct of type `ty` made from `values`, one per field.
-    fn construct(&mut self, ty: usize, values: &[TypeSet]) {
+    fn construct(&mut self, ty: usize, values: &[Ty]) {
         if values.len() != self.facts.structs[ty].fields {
             return;
         }
@@ -1613,7 +1735,7 @@ impl<'a> Inference<'a> {
     /// What a native function call builds when it takes apart a struct type or
     /// makes a struct: `(list-ref table i)` of a `make-struct-type` result, and
     /// `(#%make-mutable-struct descriptor fields ...)`.
-    fn struct_result(&self, operator: &ExprKind, args: &[ExprKind]) -> Option<TypeSet> {
+    fn struct_result(&self, operator: &ExprKind, args: &[ExprKind]) -> Option<Ty> {
         let known = |expr: &ExprKind| match expr {
             ExprKind::Atom(atom) => {
                 reference(self.analysis, atom).and_then(|id| self.facts.known.get(&id).copied())
@@ -1622,18 +1744,14 @@ impl<'a> Inference<'a> {
         };
         match (operator_name(Some(operator))?, args) {
             ("#%make-mutable-struct", [descriptor, ..]) => match known(descriptor)? {
-                Known::Struct(ty, StructPiece::Descriptor) => Some(TypeSet::structure(ty)),
+                Known::Struct(ty, StructPiece::Descriptor) => Some(Ty::structure(ty)),
                 _ => None,
             },
             ("list-ref", [table, _]) => match known(table)? {
                 Known::Struct(_, StructPiece::Table) | Known::Struct(_, StructPiece::Getters) => {
                     // The descriptor is the one piece that is not a procedure
                     // or a list, and it is never called.
-                    Some(
-                        TypeSet::PROCEDURE
-                            .union(TypeSet::LIST)
-                            .union(TypeSet::OTHER),
-                    )
+                    Some(Ty::PROCEDURE.union(Ty::LIST).union(Ty::OTHER))
                 }
                 _ => None,
             },
@@ -1645,7 +1763,7 @@ impl<'a> Inference<'a> {
     fn test(&self, test: &ExprKind, then_env: &mut Env, else_env: &mut Env) {
         match test {
             // Only #f is false.
-            ExprKind::Atom(_) => self.narrow(test, else_env, |ty| ty.intersect(TypeSet::BOOL)),
+            ExprKind::Atom(_) => self.narrow(test, else_env, |ty| ty.intersect(Ty::BOOL)),
             ExprKind::List(list) if list.args.len() == 2 => {
                 let name = operator_name(list.args.first());
                 if name == Some("not") && self.is_primitive(&list.args[0]) {
@@ -1660,7 +1778,7 @@ impl<'a> Inference<'a> {
                 }
                 // A struct predicate is true exactly for its own type.
                 if let Callee::Struct(ty, StructPiece::Predicate) = self.callee(&list.args[0]) {
-                    let this = TypeSet::structure(ty);
+                    let this = Ty::structure(ty);
                     self.narrow(&list.args[1], then_env, |ty| ty.intersect(this));
                     self.narrow(&list.args[1], else_env, |ty| ty.without(this));
                 }
@@ -1674,6 +1792,79 @@ impl<'a> Inference<'a> {
             }
             _ => {}
         }
+    }
+
+    /// A call of the standard library's `map`, `filter`, `foldl` or `foldr`: a
+    /// free identifier of that name (see [`list_function_name`]). A lambda
+    /// passed straight to one is called with the list's elements (and the
+    /// accumulator), which become its parameters' types.
+    fn list_function(
+        &mut self,
+        operator: &ExprKind,
+        args: &[ExprKind],
+        arg_types: &[Ty],
+    ) -> Option<Ty> {
+        let name = list_function_name(self.analysis, operator)?;
+        let function = args.first()?;
+        let rest_types = &arg_types[1..];
+        let returns = match self.callee(function) {
+            Callee::Lambda(lambda) => {
+                let parameters: Option<Vec<Ty>> = match name {
+                    "map" => Some(
+                        rest_types
+                            .iter()
+                            .map(|list| Ty::kinds(list.elements))
+                            .collect(),
+                    ),
+                    "filter" => rest_types
+                        .first()
+                        .map(|list| vec![Ty::kinds(list.elements)]),
+                    "foldl" | "foldr" => match rest_types {
+                        [init, list] => {
+                            let returned = self
+                                .current
+                                .returns
+                                .get(&lambda)
+                                .or_else(|| self.previous.returns.get(&lambda))
+                                .copied()
+                                .unwrap_or(Ty::BOTTOM);
+                            Some(vec![Ty::kinds(list.elements), returned.union(*init)])
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let (Some(parameters), true) =
+                    (parameters, self.facts.list_lambdas.contains(&lambda))
+                {
+                    let slots = self
+                        .params
+                        .entry(lambda)
+                        .or_insert_with(|| vec![Ty::BOTTOM; parameters.len()]);
+                    for (slot, ty) in slots.iter_mut().zip(&parameters) {
+                        *slot = slot.union(*ty);
+                    }
+                }
+                self.current
+                    .returns
+                    .get(&lambda)
+                    .or_else(|| self.previous.returns.get(&lambda))
+                    .copied()
+                    .unwrap_or(Ty::BOTTOM)
+            }
+            Callee::Primitive(signature) => Ty::from_value_type(signature.return_type),
+            Callee::Struct(ty, StructPiece::Constructor) => Ty::structure(ty),
+            _ => Ty::TOP,
+        };
+        Some(match (name, rest_types) {
+            ("map", _) => Ty::list_of(returns.kinds),
+            ("filter", [list]) if TypeSet::LIST.contains(list.kinds) && !list.is_bottom() => {
+                Ty::list_of(list.elements)
+            }
+            ("filter", _) => Ty::LIST,
+            ("foldl" | "foldr", [init, _]) => returns.union(*init),
+            _ => return None,
+        })
     }
 
     /// The native function a free identifier (bound nowhere in the program)
@@ -1822,7 +2013,7 @@ pub fn inlay_hints(
         spans.insert((span.start, span.end), span);
     }
 
-    let worth_showing = |ty: TypeSet| !ty.is_top() && !ty.is_bottom();
+    let worth_showing = |ty: Ty| !ty.is_top() && !ty.is_bottom();
     let mut hints = Vec::new();
     for (key, ids) in by_span {
         let span = spans[&key];
@@ -2094,7 +2285,7 @@ pub fn hover_type(
         for (i, arg) in l.args.iter().enumerate() {
             let ExprKind::Atom(atom) = arg else { continue };
             let id = atom.syn.syntax_object_id;
-            let ty = info.bindings.get(&id).copied().unwrap_or(TypeSet::TOP);
+            let ty = info.bindings.get(&id).copied().unwrap_or(Ty::TOP);
             let required = info.required.get(&id).copied();
             let shown = match required {
                 Some(req) if req != ty && ty.contains(req) && !req.is_top() && !req.is_bottom() => {
@@ -2110,7 +2301,7 @@ pub fn hover_type(
             }
             parts.push(shown);
         }
-        let ret = info.returns.get(&lambda).copied().unwrap_or(TypeSet::TOP);
+        let ret = info.returns.get(&lambda).copied().unwrap_or(Ty::TOP);
         Some(format!("({}) -> {}", parts.join(" "), info.show(ret)))
     };
 
@@ -2145,7 +2336,7 @@ pub fn hover_type(
         let id = atom.syn.syntax_object_id;
         return Some(match role {
             Role::Binding => {
-                let ty = info.bindings.get(&id).copied().unwrap_or(TypeSet::TOP);
+                let ty = info.bindings.get(&id).copied().unwrap_or(Ty::TOP);
                 match info.required.get(&id).copied() {
                     Some(req)
                         if req != ty && ty.contains(req) && !req.is_top() && !req.is_bottom() =>
@@ -2156,11 +2347,11 @@ pub fn hover_type(
                 }
             }
             Role::Reference => {
-                let ty = info.references.get(&id).copied().unwrap_or(TypeSet::TOP);
+                let ty = info.references.get(&id).copied().unwrap_or(Ty::TOP);
                 format!("{name}: {}", info.show(ty))
             }
             Role::Operator(call) => {
-                let ty = info.calls.get(&call).copied().unwrap_or(TypeSet::TOP);
+                let ty = info.calls.get(&call).copied().unwrap_or(Ty::TOP);
                 format!("({name} ...) -> {}", info.show(ty))
             }
         });
@@ -2175,34 +2366,48 @@ fn is_false_literal(expr: &ExprKind) -> bool {
     matches!(expr, ExprKind::Atom(atom) if matches!(atom.syn.ty, TokenType::BooleanLiteral(false)))
 }
 
-fn number_type(number: &NumberLiteral) -> TypeSet {
+fn number_type(number: &NumberLiteral) -> Ty {
     match number {
-        NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(_))) => TypeSet::INT,
-        NumberLiteral::Real(RealLiteral::Int(IntLiteral::Big(_))) => TypeSet::OTHER_NUMBER,
+        NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(_))) => Ty::INT,
+        NumberLiteral::Real(RealLiteral::Int(IntLiteral::Big(_))) => Ty::OTHER_NUMBER,
         // Normalized, so 4/2 is the fixnum 2.
-        NumberLiteral::Real(RealLiteral::Rational(..)) => TypeSet::INT.union(TypeSet::OTHER_NUMBER),
-        NumberLiteral::Real(RealLiteral::Float(_)) => TypeSet::FLOAT,
-        NumberLiteral::Complex(..) | NumberLiteral::Polar(..) => TypeSet::NUMBER,
+        NumberLiteral::Real(RealLiteral::Rational(..)) => Ty::INT.union(Ty::OTHER_NUMBER),
+        NumberLiteral::Real(RealLiteral::Float(_)) => Ty::FLOAT,
+        NumberLiteral::Complex(..) | NumberLiteral::Polar(..) => Ty::NUMBER,
     }
 }
 
 /// The type of a quoted datum.
-fn datum_type(expr: &ExprKind) -> TypeSet {
+fn datum_type(expr: &ExprKind) -> Ty {
     match expr {
         ExprKind::Atom(atom) => match &atom.syn.ty {
-            TokenType::Identifier(_) => TypeSet::SYMBOL,
+            TokenType::Identifier(_) => Ty::SYMBOL,
             TokenType::Number(number) => number_type(&number.resolve()),
-            TokenType::StringLiteral(_) => TypeSet::STRING,
-            TokenType::CharacterLiteral(_) => TypeSet::CHAR,
-            TokenType::BooleanLiteral(_) => TypeSet::BOOL,
-            _ => TypeSet::TOP,
+            TokenType::StringLiteral(_) => Ty::STRING,
+            TokenType::CharacterLiteral(_) => Ty::CHAR,
+            TokenType::BooleanLiteral(_) => Ty::BOOL,
+            _ => Ty::TOP,
         },
-        ExprKind::List(list) if list.improper => TypeSet::PAIR,
-        ExprKind::List(_) => TypeSet::LIST,
-        ExprKind::Vector(vector) if vector.bytes => TypeSet::BYTEVECTOR,
-        ExprKind::Vector(_) => TypeSet::VECTOR,
-        _ => TypeSet::TOP,
+        // The `car` of an improper list is one of the elements before the dot.
+        ExprKind::List(list) if list.improper => Ty::holding(
+            TypeSet::PAIR,
+            data_kinds(&list.args[..list.args.len().saturating_sub(1)]),
+            TypeSet::BOTTOM,
+        ),
+        ExprKind::List(list) => Ty::list_of(data_kinds(&list.args)),
+        ExprKind::Vector(vector) if vector.bytes => Ty::BYTEVECTOR,
+        ExprKind::Vector(vector) => {
+            Ty::holding(TypeSet::VECTOR, data_kinds(&vector.args), TypeSet::BOTTOM)
+        }
+        _ => Ty::TOP,
     }
+}
+
+/// The kinds of every datum in `data`.
+fn data_kinds(data: &[ExprKind]) -> TypeSet {
+    data.iter().fold(TypeSet::BOTTOM, |kinds, datum| {
+        kinds.union(datum_type(datum).kinds)
+    })
 }
 
 #[cfg(test)]
@@ -2401,8 +2606,8 @@ mod tests {
                 ("c", "string"),
                 ("d", "char"),
                 ("e", "symbol"),
-                ("f", "list"),
-                ("g", "list"),
+                ("f", "(listof int)"),
+                ("g", "(listof int)"),
                 ("h", "int"),
                 ("i", "string"),
                 // A fixnum sum can overflow into a bignum.
@@ -2863,6 +3068,74 @@ mod tests {
     }
 
     #[test]
+    fn container_hints() {
+        let hints = hints_for(
+            "(define xs (list 1 2 3))
+(define ys (cons \"a\" xs))
+(define q '(1 2 3))
+(define v #(1.5 2.5))
+(define h (hash \"a\" 1 \"b\" 2))
+(define h2 (hash-insert h 'c #\\x))
+(define s (hashset 1 2))
+(define first-x (car xs))
+(define doubled (map (lambda (x) (* x 2)) xs))
+(define evens (filter even? xs))
+(define total (foldl (lambda (x acc) (+ x acc)) 0 xs))
+(define (build n) (let loop ([i 0] [acc '()]) (if (= i n) acc (loop (+ i 1) (cons i acc)))))
+(define keys (hash-keys->list h))
+(define looked (hash-ref h \"a\"))",
+        );
+        assert_eq!(
+            hints,
+            vec![
+                "xs : (listof int)",
+                "ys : (listof (int | string))",
+                "q : (listof int)",
+                "v : (vectorof float)",
+                "h : (hash string int)",
+                "h2 : (hash (string | symbol) (int | char))",
+                "s : (setof int)",
+                "first-x : int",
+                "doubled : (listof number)",
+                // The lambdas passed to map and foldl get the list's elements.
+                "x : int",
+                "evens : (listof int)",
+                "total : number",
+                "x : int",
+                "acc : number",
+                // (+ i 1) is a number, so the accumulated list is too.
+                "(build n) -> (listof number)",
+                "loop -> (listof number)",
+                "i : number",
+                "acc : (listof number)",
+                "keys : (listof string)",
+                "looked : int",
+            ]
+        );
+    }
+
+    #[test]
+    fn container_failures() {
+        let failures = failures_for(
+            "(define xs (list 1 2 3))
+(define h (hash \"a\" 1))
+(define (a) (string-length (car xs)))
+(define (b) (string-length (hash-ref h \"a\")))
+(define (c) (symbol->string (first (map (lambda (x) (+ x 1)) xs))))
+(define (ok1) (+ (car xs) 1))
+(define (ok2 ys) (string-length (car ys)))",
+        );
+        assert_eq!(
+            failures,
+            vec![
+                "(car xs) `string-length` always raises here: argument 1 is always int, but it must be string",
+                "(hash-ref h \"a\") `string-length` always raises here: argument 1 is always int, but it must be string",
+                "(first (map (lambda (x) (+ x 1)) xs)) `symbol->string` always raises here: argument 1 is always number, but it must be symbol|list",
+            ]
+        );
+    }
+
+    #[test]
     fn calls_that_always_raise() {
         let failures = failures_for(
             "(define x 10)
@@ -3142,7 +3415,7 @@ mod tests {
                     failure.operator
                 );
             }
-            let count = |map: &mut dyn Iterator<Item = TypeSet>| {
+            let count = |map: &mut dyn Iterator<Item = Ty>| {
                 let (mut top, mut never, mut known) = (0, 0, 0);
                 for ty in map {
                     if ty.is_top() {
@@ -3202,7 +3475,7 @@ mod tests {
     /// Where a check was inserted, for reporting.
     struct Site {
         what: String,
-        ty: TypeSet,
+        ty: Ty,
         span: crate::parser::span::Span,
     }
 
@@ -3218,23 +3491,32 @@ mod tests {
         tail: bool,
         enclosing: Option<u32>,
     ) {
-        fn wrap(expr: ExprKind, ty: TypeSet, site: usize) -> ExprKind {
+        fn wrap(expr: ExprKind, ty: Ty, site: usize) -> ExprKind {
             // A control. With the claim deliberately wrong, violations must show up.
             let ty = if std::env::var("TY_SOUND_CORRUPT").is_ok() {
-                ty.without(TypeSet::INT)
+                ty.without(Ty::INT)
             } else if std::env::var("TY_SOUND_CORRUPT_STRUCTS").is_ok() {
-                ty.without(TypeSet::STRUCTS)
+                ty.without(Ty::STRUCTS)
+            } else if std::env::var("TY_SOUND_CORRUPT_ELEMENTS").is_ok() {
+                Ty {
+                    elements: ty.elements.without(TypeSet::INT),
+                    ..ty
+                }
             } else {
                 ty
             };
+            let bits =
+                |set: TypeSet| ExprKind::integer_literal(set.bits() as isize, Default::default());
             ExprKind::List(crate::parser::ast::List::new(thin_vec![
                 ExprKind::ident("__tycheck__"),
-                ExprKind::integer_literal(ty.bits() as isize, Default::default()),
+                bits(ty.kinds),
+                bits(ty.elements),
+                bits(ty.keys),
                 ExprKind::integer_literal(site as isize, Default::default()),
                 expr,
             ]))
         }
-        let site = |sites: &mut Vec<Site>, what: String, ty: TypeSet, span| {
+        let site = |sites: &mut Vec<Site>, what: String, ty: Ty, span| {
             sites.push(Site { what, ty, span });
             sites.len() - 1
         };
@@ -3439,6 +3721,69 @@ mod tests {
     /// The struct type names of the program being checked, by index.
     static STRUCT_NAMES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+    /// Whether `value` is of `ty`: its kind, and for a container, what it holds.
+    fn matches_ty(ty: Ty, value: &SteelVal) -> bool {
+        if !matches_with_structs(ty.kinds, value) {
+            return false;
+        }
+        // Only the first elements of a large container, so programs that keep
+        // building longer lists stay linear.
+        fn all(set: TypeSet, values: impl Iterator<Item = SteelVal>) -> bool {
+            set.is_top()
+                || values
+                    .into_iter()
+                    .take(256)
+                    .all(|v| matches_with_structs(set, &v))
+        }
+        // Containers are immutable, so one that held the right kinds once
+        // always does. Checking each at every reference would be quadratic in
+        // programs that build large lists.
+        let identity = match value {
+            // A list's length is a walk, but its node pointer names the view.
+            SteelVal::ListV(list) => Some((list.as_ptr_usize(), 0)),
+            SteelVal::VectorV(vector) => {
+                Some((crate::gc::Gc::as_ptr(&vector.0) as usize, vector.len()))
+            }
+            SteelVal::HashMapV(map) => Some((crate::gc::Gc::as_ptr(&map.0) as usize, map.len())),
+            SteelVal::HashSetV(set) => Some((crate::gc::Gc::as_ptr(&set.0) as usize, set.len())),
+            _ => None,
+        };
+        let key = identity.map(|(address, len)| (address, len, ty.elements.bits(), ty.keys.bits()));
+        if let Some(key) = key {
+            if CHECKED.with(|checked| checked.borrow().contains_key(&key)) {
+                return true;
+            }
+        }
+        let holds = match value {
+            SteelVal::ListV(list) => all(ty.elements, list.iter().cloned()),
+            SteelVal::Pair(pair) => all(ty.elements, std::iter::once(pair.car())),
+            SteelVal::VectorV(vector) => all(ty.elements, vector.iter().cloned()),
+            SteelVal::HashSetV(set) => all(ty.elements, set.iter().cloned()),
+            SteelVal::HashMapV(map) => {
+                all(ty.keys, map.keys().cloned()) && all(ty.elements, map.values().cloned())
+            }
+            _ => true,
+        };
+        if let (Some(key), true) = (key, holds) {
+            CHECKED.with(|checked| {
+                let mut checked = checked.borrow_mut();
+                if checked.len() > 100_000 {
+                    checked.clear();
+                }
+                // Held so the address is not reused by another container.
+                checked.insert(key, value.clone());
+            });
+        }
+        holds
+    }
+
+    std::thread_local! {
+        /// Containers already found to hold what a claim says, by identity,
+        /// length, and the claimed element and key kinds.
+        static CHECKED: std::cell::RefCell<FxHashMap<(usize, usize, u64, u64), SteelVal>> =
+            std::cell::RefCell::new(FxHashMap::default());
+    }
+
     /// `ty.matches(value)`, where a struct matches a struct type of the program
     /// by name. The kind of a struct depends on the program, so
     /// [`TypeSet::of`] only says `other`.
@@ -3462,9 +3807,20 @@ mod tests {
         std::sync::Mutex::new(std::collections::BTreeMap::new());
     static CHECKS_RUN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-    fn tycheck(bits: isize, site: isize, value: SteelVal) -> SteelVal {
+    fn tycheck(
+        kinds: isize,
+        elements: isize,
+        keys: isize,
+        site: isize,
+        value: SteelVal,
+    ) -> SteelVal {
         CHECKS_RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if !matches_with_structs(TypeSet::from_bits(bits as u64), &value) {
+        let ty = Ty {
+            kinds: TypeSet::from_bits(kinds as u64),
+            elements: TypeSet::from_bits(elements as u64),
+            keys: TypeSet::from_bits(keys as u64),
+        };
+        if !matches_ty(ty, &value) {
             VIOLATIONS
                 .lock()
                 .unwrap()

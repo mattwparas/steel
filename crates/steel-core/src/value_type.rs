@@ -481,15 +481,15 @@ impl TypeSet {
         TypeSet(bits)
     }
 
-    pub fn union(self, other: TypeSet) -> TypeSet {
+    pub const fn union(self, other: TypeSet) -> TypeSet {
         TypeSet(self.0 | other.0)
     }
 
-    pub fn intersect(self, other: TypeSet) -> TypeSet {
+    pub const fn intersect(self, other: TypeSet) -> TypeSet {
         TypeSet(self.0 & other.0)
     }
 
-    pub fn without(self, other: TypeSet) -> TypeSet {
+    pub const fn without(self, other: TypeSet) -> TypeSet {
         TypeSet(self.0 & !other.0)
     }
 
