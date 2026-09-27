@@ -46,6 +46,28 @@ pub enum ValueType {
 }
 
 impl ValueType {
+    /// Every variant.
+    pub const ALL: [ValueType; 18] = [
+        ValueType::Any,
+        ValueType::Bool,
+        ValueType::Int,
+        ValueType::Float,
+        ValueType::Number,
+        ValueType::Char,
+        ValueType::String,
+        ValueType::Symbol,
+        ValueType::List,
+        ValueType::Pair,
+        ValueType::Vector,
+        ValueType::MutableVector,
+        ValueType::HashMap,
+        ValueType::HashSet,
+        ValueType::ByteVector,
+        ValueType::Void,
+        ValueType::FlatVector,
+        ValueType::Procedure,
+    ];
+
     /// Whether `value` is of this type.
     pub fn matches(&self, value: &crate::SteelVal) -> bool {
         use crate::SteelVal::*;
@@ -127,6 +149,9 @@ pub struct ArgTypes {
 pub struct ArgType(pub &'static [ValueType]);
 
 impl ArgType {
+    /// Anything.
+    pub const ANY: ArgType = ArgType(&[ValueType::Any]);
+
     pub fn matches(&self, value: &crate::SteelVal) -> bool {
         self.0.iter().any(|ty| ty.matches(value))
     }

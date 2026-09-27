@@ -2531,6 +2531,7 @@ pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
                     function,
                     name: None,
                     arity: None,
+                    signature: None,
                 },
             )))
         } else {

@@ -12,7 +12,7 @@ use steel::{
     steel_vm::{engine::Engine, register_fn::RegisterFn},
 };
 use steel_language_server::backend::{
-    lsp_home, Backend, Config, ExternalModuleResolver, FileState, ENGINE,
+    lsp_home, Backend, Config, ExternalModuleResolver, FileState, ENGINE, EXTERNAL_MODULES,
 };
 
 use tower_lsp::{lsp_types::Url, LspService, Server};
@@ -50,11 +50,15 @@ async fn main() {
         cloned_additional_search_paths.insert(path);
     });
 
+    // Signatures of host functions, written `(#%signature (args Int) (returns Int))`.
+    steel::steel_vm::host_signature::register(&mut resolver_engine).unwrap();
+
     let home_directory = lsp_home();
 
-    ENGINE.write().unwrap().register_module_resolver(
-        ExternalModuleResolver::new(&mut resolver_engine, PathBuf::from(home_directory)).unwrap(),
-    );
+    let resolver =
+        ExternalModuleResolver::new(&mut resolver_engine, PathBuf::from(home_directory)).unwrap();
+    let _ = EXTERNAL_MODULES.set(resolver.modules());
+    ENGINE.write().unwrap().register_module_resolver(resolver);
 
     {
         let mut guard = ENGINE.write().unwrap();

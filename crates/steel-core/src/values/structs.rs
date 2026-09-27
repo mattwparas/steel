@@ -1925,6 +1925,8 @@ impl<T: IntoSteelVal, E: IntoSteelVal> From<core::result::Result<T, E>> for Stee
 // if they occur as genuine steel errors. If you'd like to catch these, you can set up an exception handler.
 // The runtime cost for this is relatively low.
 impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for core::result::Result<T, E> {
+    // An `Err` raises, so a value is always an `Ok`.
+    const RETURN_TYPE: crate::value_type::ValueType = T::RETURN_TYPE;
     fn into_steelval(self) -> Result<SteelVal> {
         match self {
             Ok(s) => s.into_steelval(),

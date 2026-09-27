@@ -95,6 +95,40 @@ keymaps
 
 The following rules apply: Any global value that is defined as a builtin module, will be interpreted by the LSP and used, or evaluated as a top level env var. So either defining `keymaps` or evaluating like so on the last line of the example will get the module to show up.
 
+### Signatures of host functions
+
+Instead of `void`, a module entry can carry the function's signature, so the language server can check
+calls to it (wrong argument types, wrong number of arguments) and show the types in hints:
+
+```scheme
+(define demo (#%module "host/demo"))
+
+(#%module-add demo "host-add" (#%signature (args Int Int) (returns Int)))
+(#%module-add demo "host-shout" (#%signature (args (or String Symbol)) (returns String)))
+(#%module-add demo "host-log" (#%signature (args String (rest Any)) (returns Void) (raises BadArgs)))
+```
+
+The names are the `ValueType` variants the `steel_derive` function macros use (`Int`, `Float`, `Number`,
+`String`, `Symbol`, `List`, `Pair`, `Vector`, `MutableVector`, `HashMap`, `HashSet`, `Procedure`, `Any`, ...).
+A union is `(or List Pair)`, and `(rest T)` gives the type of every argument past the fixed ones.
+The language server trusts these: a signature claiming a type the function does not actually require will
+produce wrong errors.
+
+### Generating the file
+
+Rather than writing this by hand, the host application can generate it from the functions it registers:
+
+```rust
+std::fs::write(
+    lsp_home.join("host.scm"),
+    engine.emit_lsp_definitions(),
+)?;
+```
+
+`emit_lsp_definitions` describes every module the engine has beyond a stock one. Functions registered with
+`register_fn` get signatures read from their Rust argument and return types, so they are always accurate;
+other values are listed with `void`. Regenerate the file when the registered functions change.
+
 Any symbol added with `#%ignore-unused-identifier` will escape that symbol from being shown as an unused identifier.
 
 Any global registered with `#%register-global` will be ignored as a free identifier as well.

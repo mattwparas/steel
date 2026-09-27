@@ -66,7 +66,7 @@ pub use strings::string_module;
 pub use symbols::symbol_module;
 
 macro_rules! try_from_steelval_int {
-    ($($body:ty),*) => {
+    ($($body:ty => $kind:ident),*) => {
         $(
             impl TryFrom<SteelVal> for $body {
                 type Error = SteelErr;
@@ -98,6 +98,8 @@ macro_rules! try_from_steelval_int {
             }
 
             impl FromSteelVal for $body {
+                const ARG_TYPE: crate::value_type::ArgType =
+                    crate::value_type::ArgType(&[crate::value_type::ValueType::$kind]);
                 #[inline]
                 fn from_steelval(value: &SteelVal) -> result::Result<Self, SteelErr> {
                     <$body>::try_from(value)
@@ -108,7 +110,7 @@ macro_rules! try_from_steelval_int {
 }
 
 macro_rules! try_from_impl {
-    ($type:ident => $($body:ty),*) => {
+    ($type:ident, $kind:ident => $($body:ty),*) => {
         $(
             impl TryFrom<SteelVal> for $body {
                 type Error = SteelErr;
@@ -133,6 +135,8 @@ macro_rules! try_from_impl {
             }
 
             impl FromSteelVal for $body {
+                const ARG_TYPE: crate::value_type::ArgType =
+                    crate::value_type::ArgType(&[crate::value_type::ValueType::$kind]);
                 #[inline]
                 fn from_steelval(value: &SteelVal) -> result::Result<Self, SteelErr> {
                     match value {
@@ -157,6 +161,7 @@ macro_rules! from_f64 {
             }
 
             impl IntoSteelVal for $body {
+                const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Float;
                 #[inline]
                 fn into_steelval(self) -> Result<SteelVal, SteelErr> {
                     Ok(SteelVal::NumV(self as f64))
@@ -167,7 +172,7 @@ macro_rules! from_f64 {
 }
 
 macro_rules! from_for_isize {
-    ($($body:ty),*) => {
+    ($($body:ty => $kind:ident),*) => {
         $(
             impl From<$body> for SteelVal {
                 #[inline]
@@ -180,6 +185,7 @@ macro_rules! from_for_isize {
             }
 
             impl IntoSteelVal for $body {
+                const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::$kind;
                 #[inline]
                 fn into_steelval(self) -> Result<SteelVal, SteelErr> {
                     Ok(SteelVal::from(self))
@@ -200,6 +206,8 @@ impl From<i64> for SteelVal {
 }
 
 impl FromSteelVal for u8 {
+    const ARG_TYPE: crate::value_type::ArgType =
+        crate::value_type::ArgType(&[crate::value_type::ValueType::Int]);
     #[inline]
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         match val {
@@ -224,6 +232,8 @@ impl FromSteelVal for u8 {
 }
 
 impl FromSteelVal for i8 {
+    const ARG_TYPE: crate::value_type::ArgType =
+        crate::value_type::ArgType(&[crate::value_type::ValueType::Int]);
     #[inline]
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         match val {
@@ -259,6 +269,7 @@ impl From<usize> for SteelVal {
 }
 
 impl IntoSteelVal for usize {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Number;
     #[inline]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(SteelVal::from(self))
@@ -266,6 +277,7 @@ impl IntoSteelVal for usize {
 }
 
 impl IntoSteelVal for u128 {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Number;
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(SteelVal::from(self))
     }
@@ -282,6 +294,8 @@ impl From<u128> for SteelVal {
 }
 
 impl IntoSteelVal for i64 {
+    #[cfg(target_pointer_width = "64")]
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Int;
     #[inline]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(self.into())
@@ -289,6 +303,9 @@ impl IntoSteelVal for i64 {
 }
 
 impl FromSteelVal for i64 {
+    #[cfg(target_pointer_width = "64")]
+    const ARG_TYPE: crate::value_type::ArgType =
+        crate::value_type::ArgType(&[crate::value_type::ValueType::Int]);
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         match val {
             SteelVal::IntV(v) => (*v).try_into().map_err(|_err| {
@@ -319,6 +336,7 @@ impl From<char> for SteelVal {
 }
 
 impl IntoSteelVal for char {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Char;
     #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::CharV(self))
@@ -326,6 +344,8 @@ impl IntoSteelVal for char {
 }
 
 impl FromSteelVal for char {
+    const ARG_TYPE: crate::value_type::ArgType =
+        crate::value_type::ArgType(&[crate::value_type::ValueType::Char]);
     #[inline(always)]
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if let SteelVal::CharV(c) = val {
@@ -380,6 +400,8 @@ impl FromSteelVal for SteelVal {
 }
 
 impl FromSteelVal for () {
+    const ARG_TYPE: crate::value_type::ArgType =
+        crate::value_type::ArgType(&[crate::value_type::ValueType::Void]);
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if let SteelVal::Void = val {
             Ok(())
@@ -390,6 +412,7 @@ impl FromSteelVal for () {
 }
 
 impl IntoSteelVal for () {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Void;
     #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::Void)
@@ -404,6 +427,7 @@ impl From<()> for SteelVal {
 }
 
 impl IntoSteelVal for Rational32 {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Number;
     #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         if self.is_integer() {
@@ -415,6 +439,7 @@ impl IntoSteelVal for Rational32 {
 }
 
 impl IntoSteelVal for BigInt {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Number;
     #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         match self.to_isize() {
@@ -425,6 +450,7 @@ impl IntoSteelVal for BigInt {
 }
 
 impl IntoSteelVal for BigRational {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Number;
     #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         if self.is_integer() {
@@ -439,9 +465,11 @@ impl IntoSteelVal for BigRational {
 }
 
 from_f64!(f64, f32);
-from_for_isize!(i32, i16, i8, u8, u16, u32, u64, isize);
-try_from_impl!(NumV => f64, f32);
-try_from_steelval_int!(i32, i16, u16, u32, u64, usize, isize);
+// A u64 past isize::MAX is a bignum.
+from_for_isize!(i32 => Int, i16 => Int, i8 => Int, u8 => Int, u16 => Int, u32 => Int, u64 => Number, isize => Int);
+try_from_impl!(NumV, Float => f64, f32);
+// A u64 or usize can hold a bignum; the others only ever fit a fixnum.
+try_from_steelval_int!(i32 => Int, i16 => Int, u16 => Int, u32 => Int, u64 => Number, usize => Number, isize => Int);
 
 impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
@@ -473,6 +501,10 @@ impl From<Gc<SteelVal>> for SteelVal {
 }
 
 impl FromSteelVal for String {
+    const ARG_TYPE: crate::value_type::ArgType = crate::value_type::ArgType(&[
+        crate::value_type::ValueType::String,
+        crate::value_type::ValueType::Symbol,
+    ]);
     #[inline]
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         match val {
@@ -508,6 +540,7 @@ impl From<String> for SteelVal {
 }
 
 impl IntoSteelVal for &str {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::String;
     #[inline]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(SteelVal::StringV(self.into()))
@@ -515,6 +548,8 @@ impl IntoSteelVal for &str {
 }
 
 impl FromSteelVal for SteelString {
+    const ARG_TYPE: crate::value_type::ArgType =
+        crate::value_type::ArgType(&[crate::value_type::ValueType::String]);
     #[inline]
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::StringV(s) = val {
@@ -945,6 +980,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelHashMap {
 }
 
 impl IntoSteelVal for String {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::String;
     #[inline(always)]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::StringV(self.into()))
@@ -952,6 +988,7 @@ impl IntoSteelVal for String {
 }
 
 impl IntoSteelVal for SteelString {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::String;
     #[inline(always)]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::StringV(self))
@@ -973,6 +1010,8 @@ impl From<bool> for SteelVal {
 }
 
 impl FromSteelVal for bool {
+    const ARG_TYPE: crate::value_type::ArgType =
+        crate::value_type::ArgType(&[crate::value_type::ValueType::Bool]);
     #[inline(always)]
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<bool> {
         if let SteelVal::BoolV(b) = val {
@@ -984,6 +1023,7 @@ impl FromSteelVal for bool {
 }
 
 impl IntoSteelVal for bool {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Bool;
     #[inline(always)]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::BoolV(self))

@@ -1264,11 +1264,18 @@ struct TextDocumentItem {
 /// The signatures of the builtin functions, for type inference. Built once, since
 /// the builtin modules do not change while the server runs.
 static PRIMITIVE_SIGNATURES: Lazy<PrimitiveSignatures> = Lazy::new(|| {
-    ENGINE
+    let mut signatures = ENGINE
         .read()
         .map(|engine| PrimitiveSignatures::from_modules(engine.builtin_modules()))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    for module in EXTERNAL_MODULES.get().into_iter().flatten() {
+        signatures.add_module(module);
+    }
+    signatures
 });
+
+/// The modules described in `STEEL_LSP_HOME`, set once at startup.
+pub static EXTERNAL_MODULES: std::sync::OnceLock<Vec<BuiltInModule>> = std::sync::OnceLock::new();
 
 /// A hover showing `type_line` (as Scheme) above whatever documentation was
 /// found.
@@ -2280,6 +2287,10 @@ pub struct ExternalModuleResolver {
 }
 
 impl ExternalModuleResolver {
+    pub fn modules(&self) -> Vec<BuiltInModule> {
+        self.modules.values().cloned().collect()
+    }
+
     pub fn new(
         engine: &mut Engine,
         directory: PathBuf,

@@ -483,6 +483,10 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
 /// get this implementation for a custom struct by using the custom
 /// steel derive.
 pub trait IntoSteelVal: Sized {
+    /// What every successful conversion produces, for the signature of a
+    /// function registered with `register_fn`. Only claim what always holds.
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Any;
+
     fn into_steelval(self) -> Result<SteelVal>;
 
     #[doc(hidden)]
@@ -497,6 +501,11 @@ pub trait IntoSteelVal: Sized {
 /// get this implementation for a custom struct by using the custom
 /// steel derive.
 pub trait FromSteelVal: Sized {
+    /// What a successful conversion proves the value was, for the signature
+    /// of a function registered with `register_fn`. Only claim what always
+    /// holds: a value outside it must fail to convert.
+    const ARG_TYPE: crate::value_type::ArgType = crate::value_type::ArgType::ANY;
+
     fn from_steelval(val: &SteelVal) -> Result<Self>;
 }
 
@@ -1940,6 +1949,7 @@ impl SteelComplex {
 }
 
 impl IntoSteelVal for SteelComplex {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Number;
     #[inline(always)]
     fn into_steelval(self) -> Result<SteelVal> {
         Ok(match self.im {
@@ -1977,6 +1987,7 @@ impl SteelVal {
             function,
             name: None,
             arity: None,
+            signature: None,
         }))
     }
 

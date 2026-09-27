@@ -5,6 +5,7 @@ pub mod contract_checker;
 #[cfg(feature = "dylibs")]
 pub mod dylib;
 pub mod engine;
+pub mod host_signature;
 #[cfg(feature = "dylibs")]
 pub mod ffi;
 mod lazy_stream;

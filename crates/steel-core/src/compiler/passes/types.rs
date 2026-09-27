@@ -40,27 +40,54 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 pub use ty::Ty;
 
-/// The signatures of the native functions a program can refer to, by name.
+/// The signatures of the native functions a program can refer to, by name,
+/// and by the module that provides them.
 #[derive(Default)]
 pub struct PrimitiveSignatures {
     by_name: FxHashMap<String, FunctionSignatureMetadata>,
+    by_module: FxHashMap<(String, String), FunctionSignatureMetadata>,
 }
 
 impl PrimitiveSignatures {
     /// Every function value bound in `modules`, under every name it is bound to.
     pub fn from_modules(modules: &ModuleContainer) -> Self {
         let mut by_name = FxHashMap::default();
+        let mut by_module = FxHashMap::default();
         for module in modules.inner().values() {
+            let module_name = module.name().to_string();
             for name in module.names() {
                 let Some(value) = module.try_get_ref(&name) else {
                     continue;
                 };
                 if let Some(metadata) = signature_of(&value) {
+                    by_module.insert((module_name.clone(), name.clone()), metadata.clone());
                     by_name.entry(name).or_insert(metadata);
                 }
             }
         }
-        Self { by_name }
+        Self { by_name, by_module }
+    }
+
+    /// Adds the functions of `module`, a module the program can require that is
+    /// not among the engine's own (one described in `STEEL_LSP_HOME`).
+    pub fn add_module(&mut self, module: &crate::steel_vm::builtin::BuiltInModule) {
+        let module_name = module.name().to_string();
+        for name in module.names() {
+            let Some(value) = module.try_get_ref(&name) else {
+                continue;
+            };
+            if let Some(metadata) = signature_of(&value) {
+                self.by_module
+                    .insert((module_name.clone(), name.clone()), metadata.clone());
+                self.by_name.entry(name).or_insert(metadata);
+            }
+        }
+    }
+
+    /// The function `name` of the builtin module `module`, as a
+    /// `(require-builtin module)` binds it.
+    pub fn get_in(&self, module: &str, name: &str) -> Option<&FunctionSignatureMetadata> {
+        self.by_module.get(&(module.to_string(), name.to_string()))
     }
 
     /// `name` may carry the `#%prim.` prefix the expander uses for prelude
@@ -76,6 +103,24 @@ fn signature_of(value: &SteelVal) -> Option<FunctionSignatureMetadata> {
         SteelVal::FuncV(f) => BuiltInFunctionType::Reference(*f),
         SteelVal::MutFunc(f) => BuiltInFunctionType::Mutable(*f),
         SteelVal::BuiltIn(f) => BuiltInFunctionType::Context(*f),
+        // A function registered with `register_fn` carries its own.
+        SteelVal::BoxedFunction(f) => {
+            let signature = f.signature?;
+            let fixed = signature.arg_types.fixed.len();
+            let arity = match signature.arg_types.rest {
+                Some(_) => crate::steel_vm::builtin::Arity::AtLeast(fixed),
+                None => crate::steel_vm::builtin::Arity::Exact(fixed),
+            };
+            return Some(FunctionSignatureMetadata {
+                name: f.name().unwrap_or_default().to_string().into(),
+                arity,
+                is_const: false,
+                doc: None,
+                return_type: signature.return_type,
+                arg_types: Some(signature.arg_types),
+                raises: signature.raises,
+            });
+        }
         _ => return None,
     })
 }
@@ -284,6 +329,9 @@ enum Known {
     Lambda(u32),
     /// A native function, by name.
     Primitive(InternedName),
+    /// A function of a builtin module, by module and name: what
+    /// `(require-builtin module)` binds, `(%module-get% %-builtin-module-M 'name)`.
+    ModuleFunction(InternedName, InternedName),
     /// A box whose only `set-box!` stores this lambda. This is how a named `let`
     /// or `letrec` expands (`(#%box _)`, `(#%set-box! box (λ ...))`, and calls
     /// as `((#%unbox box) args ...)`).
@@ -388,7 +436,7 @@ impl Facts {
             .iter()
             .filter_map(|(id, known)| match known {
                 Known::Lambda(lambda) | Known::BoxedLambda(lambda) => Some((*id, *lambda)),
-                Known::Primitive(_) | Known::Struct(..) => None,
+                Known::Primitive(_) | Known::ModuleFunction(..) | Known::Struct(..) => None,
             })
             .collect()
     }
@@ -512,7 +560,10 @@ impl<'a> Collector<'a> {
                 self.boxes.insert(id);
             }
             Some(ExprKind::List(list)) => {
-                if let Some(known) = self.struct_piece(id, list) {
+                if let Some(known) = self
+                    .struct_piece(id, list)
+                    .or_else(|| self.module_function(list))
+                {
                     self.facts.known.insert(id, known);
                 }
             }
@@ -575,6 +626,33 @@ impl<'a> Collector<'a> {
             _ => None,
         }
     }
+    /// `(%module-get% %-builtin-module-M 'name)`, how `(require-builtin M)`
+    /// binds each function of a builtin module.
+    fn module_function(&self, list: &crate::parser::ast::List) -> Option<Known> {
+        let [ExprKind::Atom(operator), ExprKind::Atom(module), ExprKind::Quote(name)] =
+            list.args.as_slice()
+        else {
+            return None;
+        };
+        // All three are the builtins, not program bindings of those names.
+        if self.reference(operator).is_some() || self.reference(module).is_some() {
+            return None;
+        }
+        if !matches!(
+            operator.ident()?.resolve(),
+            "%module-get%" | "##__module-get"
+        ) {
+            return None;
+        }
+        let module = module
+            .ident()?
+            .resolve()
+            .strip_prefix("%-builtin-module-")?;
+        let name = name.expr.atom_identifier()?;
+        self.primitives.get_in(module, name.resolve())?;
+        Some(Known::ModuleFunction(module.into(), *name))
+    }
+
     /// For a lambda shaped like a mutable struct's accessor or setter,
     /// `(λ (this) (#%unbox (getter this i)))` or
     /// `(λ (this value) (#%set-box! (getter this i) value))`, the binding of
@@ -1276,6 +1354,10 @@ impl<'a> Inference<'a> {
                     Some(id) => match self.facts.known.get(&id) {
                         Some(Known::Lambda(lambda)) => Callee::Lambda(*lambda),
                         Some(Known::Struct(ty, piece)) => Callee::Struct(*ty, *piece),
+                        Some(Known::ModuleFunction(module, name)) => self
+                            .primitives
+                            .get_in(module.resolve(), name.resolve())
+                            .map_or(Callee::Unknown, Callee::Primitive),
                         Some(Known::Primitive(name)) => self
                             .primitives
                             .get(name.resolve())
@@ -3133,6 +3215,89 @@ mod tests {
                 "(first (map (lambda (x) (+ x 1)) xs)) `symbol->string` always raises here: argument 1 is always number, but it must be symbol|list",
             ]
         );
+    }
+
+    #[test]
+    fn builtin_module_functions() {
+        let src = "(require-builtin steel/time)
+(require-builtin steel/time as t.)
+(define (a) (naive-date-ymd \"x\" 1 2))
+(define (b) (t.naive-date-ymd 1 2 \"y\"))
+(define (c) (t.local-time/now! 5))
+(define (ok) (t.naive-date-ymd 2026 9 27))";
+        assert_eq!(
+            failures_for(src),
+            vec![
+                "\"x\" `naive-date-ymd` always raises here: argument 1 is always string, but it must be int",
+                "\"y\" `t.naive-date-ymd` always raises here: argument 3 is always string, but it must be int",
+                "5 `t.local-time/now!` always raises here: argument 1 is always int, but it must be string|symbol",
+            ]
+        );
+        assert_eq!(
+            arity_failures_for(
+                "(require-builtin steel/time as t.)
+(define (a) (t.naive-date-ymd 1))"
+            ),
+            vec!["ArityMismatch: t.naive-date-ymd expects 3 arguments, found 1"]
+        );
+        // A program binding of a builtin module's name is not the builtin.
+        assert_eq!(
+            failures_for(
+                "(require-builtin steel/time)
+(define (f)
+  (define (naive-date-ymd a b c) a)
+  (naive-date-ymd \"x\" 1 2))"
+            ),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn registered_host_functions() {
+        use crate::steel_vm::builtin::BuiltInModule;
+        use crate::steel_vm::register_fn::RegisterFn;
+        let mut engine = Engine::new();
+        let mut module = BuiltInModule::new("host/demo");
+        module.register_fn("host-add", |a: isize, b: isize| a + b);
+        module.register_fn("host-shout", |s: String| s.to_uppercase());
+        module.register_fn("host-mean", |xs: Vec<f64>| xs.iter().sum::<f64>());
+        engine.register_module(module);
+        let src = "(require-builtin host/demo)
+(define (a) (host-add \"x\" 1))
+(define (b) (string-length (host-add 1 2)))
+(define (c) (+ 1 (host-shout 'sym)))
+(define (d) (host-mean 5))
+(define (ok) (list (+ (host-add 1 2) 3) (string-length (host-shout \"a\")) (host-mean (list 1.0))))";
+        let mut exprs = engine
+            .emit_expanded_ast_without_optimizations(src, None)
+            .unwrap();
+        let source = exprs.last().and_then(|e| e.span().source_id()).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+        let failures: Vec<String> = written_call_failures(&info, source, src)
+            .map(|failure| {
+                format!(
+                    "{} {}",
+                    &src[failure.span.start as usize..failure.span.end as usize],
+                    failure.message()
+                )
+            })
+            .collect();
+        assert_eq!(
+            failures,
+            vec![
+                "\"x\" `host-add` always raises here: argument 1 is always string, but it must be int",
+                "(host-add 1 2) `string-length` always raises here: argument 1 is always int, but it must be string",
+                // A `String` parameter also takes a symbol, and returns a string.
+                "(host-shout 'sym) `+` always raises here: argument 2 is always string, but it must be number",
+                "5 `host-mean` always raises here: argument 1 is always int, but it must be list|vector",
+            ]
+        );
+        let arity: Vec<String> = written_arity_failures(&info, source, src)
+            .map(|(failure, written)| failure.message(written))
+            .collect();
+        assert_eq!(arity, Vec::<String>::new());
     }
 
     #[test]

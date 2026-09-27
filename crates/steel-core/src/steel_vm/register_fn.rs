@@ -2441,15 +2441,42 @@ macro_rules! impl_register_fn {
                         err
                     })?,)*);
 
-                    res.into_steelval()
+                    // The types the signature claims, checked in debug builds.
+                    #[cfg(debug_assertions)]
+                    {
+                        $(debug_assert!(
+                            <$param as FromSteelVal>::ARG_TYPE.matches(&args[$idx]),
+                            "`{}`: argument {} converted, but is not its declared {:?}",
+                            name, $idx, <$param as FromSteelVal>::ARG_TYPE
+                        );)*
+                    }
+                    let res = res.into_steelval();
+                    #[cfg(debug_assertions)]
+                    if let Ok(value) = &res {
+                        debug_assert!(
+                            <RET as IntoSteelVal>::RETURN_TYPE.matches(value),
+                            "`{}` returned {}, which is not its declared {:?}",
+                            name, value, <RET as IntoSteelVal>::RETURN_TYPE
+                        );
+                    }
+                    res
                 };
 
                 self.register_value(
                     name,
-                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
+                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_typed(
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
+                        crate::values::functions::HostSignature {
+                            arg_types: crate::value_type::ArgTypes {
+                                fixed: const { &[$(<$param as FromSteelVal>::ARG_TYPE),*] },
+                                rest: None,
+                            },
+                            return_type: <RET as IntoSteelVal>::RETURN_TYPE,
+                            // A conversion can fail, and so can the function.
+                            raises: crate::value_type::Raises::Maybe,
+                        },
                     ))),
                 )
             }
@@ -2484,15 +2511,42 @@ macro_rules! impl_register_fn {
                         err
                     })?,)*);
 
-                    res.into_steelval()
+                    // The types the signature claims, checked in debug builds.
+                    #[cfg(debug_assertions)]
+                    {
+                        $(debug_assert!(
+                            <$param as FromSteelVal>::ARG_TYPE.matches(&args[$idx]),
+                            "`{}`: argument {} converted, but is not its declared {:?}",
+                            name, $idx, <$param as FromSteelVal>::ARG_TYPE
+                        );)*
+                    }
+                    let res = res.into_steelval();
+                    #[cfg(debug_assertions)]
+                    if let Ok(value) = &res {
+                        debug_assert!(
+                            <RET as IntoSteelVal>::RETURN_TYPE.matches(value),
+                            "`{}` returned {}, which is not its declared {:?}",
+                            name, value, <RET as IntoSteelVal>::RETURN_TYPE
+                        );
+                    }
+                    res
                 };
 
                 self.register_value(
                     name,
-                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
+                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_typed(
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
+                        crate::values::functions::HostSignature {
+                            arg_types: crate::value_type::ArgTypes {
+                                fixed: const { &[$(<$param as FromSteelVal>::ARG_TYPE),*] },
+                                rest: None,
+                            },
+                            return_type: <RET as IntoSteelVal>::RETURN_TYPE,
+                            // A conversion can fail, and so can the function.
+                            raises: crate::value_type::Raises::Maybe,
+                        },
                     ))),
                 )
             }

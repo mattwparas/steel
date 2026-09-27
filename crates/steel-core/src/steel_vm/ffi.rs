@@ -1958,6 +1958,7 @@ impl FFIBoxedDynFunction {
         BoxedDynFunction {
             name: Some(Arc::new(name)),
             arity: Some(self.arity as _),
+            signature: None,
             function: Arc::new(function),
         }
     }
@@ -1997,6 +1998,7 @@ impl From<FFIBoxedDynFunction> for BoxedDynFunction {
         BoxedDynFunction {
             name: Some(Arc::new(name)),
             arity: Some(arity as _),
+            signature: None,
             function: Arc::new(function),
         }
     }
@@ -2046,6 +2048,7 @@ impl BoxedDynFunction {
         let func = BoxedDynFunction {
             name: Some(Arc::new(name)),
             arity: Some(arity as _),
+            signature: None,
             function: Arc::new(function),
         };
 

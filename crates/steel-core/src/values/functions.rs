@@ -725,6 +725,20 @@ pub struct BoxedDynFunction {
         Arc<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static>,
     pub name: Option<Arc<String>>,
     pub arity: Option<u32>,
+    /// What the function takes and returns, when known from the Rust types of
+    /// a function registered with `register_fn`.
+    pub signature: Option<HostSignature>,
+}
+
+/// The argument and return types of a function registered with
+/// `register_fn`, from its Rust signature (see
+/// [`crate::rvals::FromSteelVal::ARG_TYPE`] and
+/// [`crate::rvals::IntoSteelVal::RETURN_TYPE`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HostSignature {
+    pub arg_types: crate::value_type::ArgTypes,
+    pub return_type: crate::value_type::ValueType,
+    pub raises: crate::value_type::Raises,
 }
 
 impl BoxedDynFunction {
@@ -743,6 +757,22 @@ impl BoxedDynFunction {
             function,
             name: name.map(|x| Arc::new(x.to_string())),
             arity,
+            signature: None,
+        }
+    }
+
+    /// [`Self::new`], with the signature `register_fn` read off the Rust types.
+    pub(crate) fn new_typed(
+        function: Arc<
+            dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
+        >,
+        name: Option<&str>,
+        arity: Option<u32>,
+        signature: HostSignature,
+    ) -> Self {
+        BoxedDynFunction {
+            signature: Some(signature),
+            ..Self::new(function, name, arity)
         }
     }
 
@@ -757,6 +787,7 @@ impl BoxedDynFunction {
             function,
             name,
             arity,
+            signature: None,
         }
     }
 

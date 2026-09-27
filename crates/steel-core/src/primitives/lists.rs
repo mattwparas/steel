@@ -1071,11 +1071,7 @@ pub fn plist_validate_args(
 }
 
 // Find the arg by index, skipping keyword pairs
-#[steel_derive::function(
-    name = "plist-get-positional-arg",
-    constant = true,
-    args(List, Number)
-)]
+#[steel_derive::function(name = "plist-get-positional-arg", constant = true, args(List, Number))]
 pub fn plist_get_positional(list: &List<SteelVal>, index: usize) -> Result<SteelVal> {
     let mut iter = list.iter();
     let mut positional_arg_offset = 0;
