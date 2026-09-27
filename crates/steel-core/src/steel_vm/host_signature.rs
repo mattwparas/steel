@@ -13,13 +13,14 @@
 //! The vocabulary is the one the function macros use: `crate::value_type::ValueType`
 //! variants, unions written `(or List Pair)`, the type of every argument past
 //! the fixed ones as `(rest T)`, and a `crate::value_type::Raises` variant.
+//! A host type is `(custom "app::Counter")`, by its full Rust type name.
 //! Arity follows from `args`.
 //!
 //! [`Engine::emit_lsp_definitions`]: crate::steel_vm::engine::Engine::emit_lsp_definitions
 
 use crate::rvals::{Result, SteelVal};
 use crate::steel_vm::builtin::{get_function_metadata, BuiltInFunctionType};
-use crate::value_type::{ArgType, ArgTypes, Raises, ValueType};
+use crate::value_type::{ArgType, ArgTypes, CustomTypeName, Raises, ValueType};
 use crate::values::functions::{BoxedDynFunction, HostSignature};
 use crate::SteelErr;
 use alloc::sync::Arc;
@@ -102,9 +103,9 @@ pub fn parse(clauses: &SteelVal) -> Result<HostSignature> {
 /// `signature` as the clauses of a `#%signature`.
 pub fn render(signature: &HostSignature) -> String {
     let arg = |ty: &ArgType| match ty.0 {
-        [single] => format!("{single:?}"),
+        [single] => render_type(single),
         members => {
-            let members: Vec<String> = members.iter().map(|m| format!("{m:?}")).collect();
+            let members: Vec<String> = members.iter().map(render_type).collect();
             format!("(or {})", members.join(" "))
         }
     };
@@ -118,13 +119,24 @@ pub fn render(signature: &HostSignature) -> String {
         args.join(" ")
     );
     if signature.return_type != ValueType::Any {
-        out.push_str(&format!(" (returns {:?})", signature.return_type));
+        out.push_str(&format!(
+            " (returns {})",
+            render_type(&signature.return_type)
+        ));
     }
     if signature.raises != Raises::Maybe {
         out.push_str(&format!(" (raises {:?})", signature.raises));
     }
     out.push(')');
     out
+}
+
+/// `Int`, or `(custom "app::Counter")` for a host type.
+fn render_type(ty: &ValueType) -> String {
+    match ty {
+        ValueType::Custom(name) => format!("(custom {:?})", name.name()),
+        other => format!("{other:?}"),
+    }
 }
 
 /// The signature a function value declares: one `register_fn` read off its Rust
@@ -181,7 +193,10 @@ fn rest_clause(value: &SteelVal) -> Result<Option<&SteelVal>> {
 fn arg_type(value: &SteelVal) -> Result<ArgType> {
     let members = match value {
         SteelVal::SymbolV(_) => vec![value_type(value)?],
-        SteelVal::ListV(items) if items.first().map(symbol).transpose()? == Some("or") => items
+        SteelVal::ListV(items) if items.first().map(symbol).transpose()? != Some("or") => {
+            vec![value_type(value)?]
+        }
+        SteelVal::ListV(items) => items
             .iter()
             .skip(1)
             .map(value_type)
@@ -192,6 +207,14 @@ fn arg_type(value: &SteelVal) -> Result<ArgType> {
 }
 
 fn value_type(value: &SteelVal) -> Result<ValueType> {
+    if let SteelVal::ListV(items) = value {
+        if let [head, SteelVal::StringV(name)] = items.iter().collect::<Vec<_>>().as_slice() {
+            if symbol(head)? == "custom" {
+                return Ok(ValueType::Custom(CustomTypeName::named(name.as_str())));
+            }
+        }
+        stop!(Generic => "expected a type or (custom \"path::Type\") in a #%signature, found {}", value)
+    }
     let name = symbol(value)?;
     ValueType::ALL
         .iter()
@@ -229,6 +252,7 @@ mod tests {
             "(#%signature (args String (rest Any)) (returns Void) (raises BadArgs))",
             "(#%signature (args))",
             "(#%signature (args (rest (or List Pair))) (raises Never))",
+            r#"(#%signature (args (custom "app::Counter") (or Int (custom "app::Gauge"))) (returns (custom "app::Counter")))"#,
         ] {
             let clauses = text
                 .strip_prefix("(#%signature ")
@@ -247,6 +271,7 @@ mod tests {
             "((raises Sometimes))",
             "((returns (or Int String)))",
             "((takes Int))",
+            "((args (custom Counter)))",
         ] {
             assert!(parse_text(clauses).is_err(), "{clauses} parsed");
         }
@@ -259,6 +284,10 @@ mod tests {
         module.register_fn("host-add", |a: isize, b: isize| a + b);
         module.register_fn("host-shout", |s: String| s.to_uppercase());
         module.register_value("host-version", SteelVal::IntV(1));
+        #[derive(Clone)]
+        struct Counter(isize);
+        impl crate::rvals::Custom for Counter {}
+        module.register_fn("counter-value", |c: &Counter| c.0);
         engine.register_module(module);
         let text = engine.emit_lsp_definitions();
         assert!(
@@ -286,5 +315,13 @@ mod tests {
             render(&declared(&add).unwrap()),
             "(#%signature (args Int Int) (returns Int))"
         );
+        // A host type keeps its full name, which is what its values report.
+        let counter = format!(
+            "(#%signature (args (custom {:?})) (returns Int))",
+            core::any::type_name::<Counter>()
+        );
+        assert!(text.contains(&counter), "{text}");
+        let value = read.try_get_ref("counter-value").unwrap();
+        assert_eq!(render(&declared(&value).unwrap()), counter);
     }
 }

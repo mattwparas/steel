@@ -7,6 +7,7 @@ use super::{
     builtin::{Arity, FunctionSignatureMetadata},
     engine::Engine,
 };
+use crate::value_type::{ArgType, ValueType};
 use crate::{
     gc::{
         shared::MutContainer,
@@ -169,11 +170,11 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(0),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(0)).with_signature(
+                    host_signature(const { &[] }, <RET as IntoSteelVal>::RETURN_TYPE),
+                ),
+            )),
         )
     }
 
@@ -212,11 +213,14 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1)).with_signature(
+                    host_signature(
+                        const { &[<SELF as AsRefSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -255,11 +259,14 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1)).with_signature(
+                    host_signature(
+                        const { &[<SELF as AsRefMutSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -301,11 +308,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -350,11 +360,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(2)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY, <FRAME as AsRefMutSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -399,11 +412,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(2)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY, <FRAME as AsRefMutSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -459,11 +475,21 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(4),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(4)).with_signature(
+                    host_signature(
+                        const {
+                            &[
+                                <SELF as AsRefMutSteelVal>::ARG_TYPE,
+                                <AREA as FromSteelVal>::ARG_TYPE,
+                                ArgType::ANY,
+                                ArgType::ANY,
+                            ]
+                        },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -518,11 +544,21 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(4),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(4)).with_signature(
+                    host_signature(
+                        const {
+                            &[
+                                <SELF as AsRefMutSteelVal>::ARG_TYPE,
+                                <AREA as FromSteelVal>::ARG_TYPE,
+                                ArgType::ANY,
+                                ArgType::ANY,
+                            ]
+                        },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -574,11 +610,20 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(3),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(3)).with_signature(
+                    host_signature(
+                        const {
+                            &[
+                                <SELF as AsRefMutSteelVal>::ARG_TYPE,
+                                <AREA as AsRefSteelVal>::ARG_TYPE,
+                                ArgType::ANY,
+                            ]
+                        },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -630,11 +675,20 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(3),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(3)).with_signature(
+                    host_signature(
+                        const {
+                            &[
+                                <SELF as AsRefSteelVal>::ARG_TYPE,
+                                <AREA as FromSteelVal>::ARG_TYPE,
+                                ArgType::ANY,
+                            ]
+                        },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -688,11 +742,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(3),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(3)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY, ArgType::ANY, <F as FromSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -727,11 +784,13 @@ impl<
 
         self.register_value(
             &cloned_name.to_string(),
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
-                Arc::new(f),
-                Some(cloned_name.into()),
-                Some(3),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new_owned(Arc::new(f), Some(cloned_name.into()), Some(3))
+                    .with_signature(host_signature(
+                        const { &[ArgType::ANY, ArgType::ANY, <F as FromSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    )),
+            )),
         )
     }
 
@@ -779,11 +838,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(2)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY, ArgType::ANY] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -814,11 +876,13 @@ impl<
 
         self.register_value(
             &cloned_name.to_string(),
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
-                Arc::new(f),
-                Some(cloned_name.into()),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new_owned(Arc::new(f), Some(cloned_name.into()), Some(2))
+                    .with_signature(host_signature(
+                        const { &[ArgType::ANY, ArgType::ANY] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    )),
+            )),
         )
     }
 
@@ -866,11 +930,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(2)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY, ArgType::ANY] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -899,11 +966,13 @@ impl<
 
         self.register_value(
             &cloned_name.to_string(),
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
-                Arc::new(f),
-                Some(cloned_name.into()),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new_owned(Arc::new(f), Some(cloned_name.into()), Some(2))
+                    .with_signature(host_signature(
+                        const { &[ArgType::ANY, ArgType::ANY] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    )),
+            )),
         )
     }
 
@@ -1001,11 +1070,10 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1))
+                    .with_signature(host_signature(const { &[ArgType::ANY] }, ValueType::Any)),
+            )),
         )
     }
 
@@ -1096,11 +1164,10 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1))
+                    .with_signature(host_signature(const { &[ArgType::ANY] }, ValueType::Any)),
+            )),
         )
     }
 
@@ -1193,11 +1260,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(2)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY, <ARG as FromSteelVal>::ARG_TYPE] },
+                        ValueType::Any,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -1399,11 +1469,20 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(3),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(3)).with_signature(
+                    host_signature(
+                        const {
+                            &[
+                                <SELF as AsRefMutSteelVal>::ARG_TYPE,
+                                <AREA as AsRefSteelVal>::ARG_TYPE,
+                                ArgType::ANY,
+                            ]
+                        },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -1455,11 +1534,20 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(3),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(3)).with_signature(
+                    host_signature(
+                        const {
+                            &[
+                                <SELF as AsRefSteelVal>::ARG_TYPE,
+                                <AREA as FromSteelVal>::ARG_TYPE,
+                                ArgType::ANY,
+                            ]
+                        },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -1488,8 +1576,8 @@ impl<
         // use std::Borrow();
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
+            if args.len() != 3 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1513,11 +1601,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(3)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY, ArgType::ANY, <F as FromSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -1527,8 +1618,8 @@ impl<
         let cloned_name = name.clone();
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
+            if args.len() != 3 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1555,11 +1646,13 @@ impl<
 
         self.register_value(
             &cloned_name.to_string(),
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
-                Arc::new(f),
-                Some(cloned_name.into()),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new_owned(Arc::new(f), Some(cloned_name.into()), Some(3))
+                    .with_signature(host_signature(
+                        const { &[ArgType::ANY, ArgType::ANY, <F as FromSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    )),
+            )),
         )
     }
 
@@ -1657,11 +1750,10 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1))
+                    .with_signature(host_signature(const { &[ArgType::ANY] }, ValueType::Any)),
+            )),
         )
     }
 
@@ -1754,11 +1846,10 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1))
+                    .with_signature(host_signature(const { &[ArgType::ANY] }, ValueType::Any)),
+            )),
         )
     }
 
@@ -1852,11 +1943,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(2)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY, <ARG as FromSteelVal>::ARG_TYPE] },
+                        ValueType::Any,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -1986,11 +2080,11 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(0),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(0)).with_signature(
+                    host_signature(const { &[] }, <RET as IntoSteelVal>::RETURN_TYPE),
+                ),
+            )),
         )
     }
 
@@ -2029,11 +2123,14 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1)).with_signature(
+                    host_signature(
+                        const { &[<SELF as AsRefSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -2105,11 +2202,14 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1)).with_signature(
+                    host_signature(
+                        const { &[<SELF as AsRefMutSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -2151,11 +2251,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -2192,11 +2295,14 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -2239,11 +2345,14 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(2)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY, <ARG as FromSteelVal>::ARG_TYPE] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -2282,11 +2391,14 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(1),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(1)).with_signature(
+                    host_signature(
+                        const { &[ArgType::ANY] },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -2351,11 +2463,19 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(2)).with_signature(
+                    host_signature(
+                        const {
+                            &[
+                                <A as AsRefSteelVal>::ARG_TYPE,
+                                <B as AsRefSteelVal>::ARG_TYPE,
+                            ]
+                        },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -2402,11 +2522,19 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                Arc::new(f),
-                Some(name),
-                Some(2),
-            ))),
+            SteelVal::BoxedFunction(Gc::new(
+                BoxedDynFunction::new(Arc::new(f), Some(name), Some(2)).with_signature(
+                    host_signature(
+                        const {
+                            &[
+                                <A as FromSteelVal>::ARG_TYPE,
+                                <B as AsRefSteelVal>::ARG_TYPE,
+                            ]
+                        },
+                        <RET as IntoSteelVal>::RETURN_TYPE,
+                    ),
+                ),
+            )),
         )
     }
 
@@ -2419,6 +2547,20 @@ impl<
         self.register_fn(name, func);
         self.supply_context_arg(ctx, name);
         self
+    }
+}
+
+/// The signature of a function registered with `register_fn`: what each
+/// argument's conversion proves it was, and what the result converts to. A
+/// conversion can fail, and so can the function.
+const fn host_signature(
+    fixed: &'static [ArgType],
+    return_type: ValueType,
+) -> crate::values::functions::HostSignature {
+    crate::values::functions::HostSignature {
+        arg_types: crate::value_type::ArgTypes { fixed, rest: None },
+        return_type,
+        raises: crate::value_type::Raises::Maybe,
     }
 }
 
@@ -2684,7 +2826,8 @@ macro_rules! impl_register_fn_self {
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
-                    ))),
+                    )
+.with_signature(host_signature(const { &[<SELF as AsRefSteelVal>::ARG_TYPE, $(<$param as FromSteelVal>::ARG_TYPE),*] }, <RET as IntoSteelVal>::RETURN_TYPE)))),
                 )
             }
         }
@@ -2734,7 +2877,8 @@ macro_rules! impl_register_fn_self {
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
-                    ))),
+                    )
+.with_signature(host_signature(const { &[<SELF as AsRefMutSteelVal>::ARG_TYPE, $(<$param as FromSteelVal>::ARG_TYPE),*] }, <RET as IntoSteelVal>::RETURN_TYPE)))),
                 )
             }
         }
@@ -2785,7 +2929,8 @@ macro_rules! impl_register_fn_self {
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
-                    ))),
+                    )
+.with_signature(host_signature(const { &[ArgType::ANY, $(<$param as FromSteelVal>::ARG_TYPE),*] }, <RET as IntoSteelVal>::RETURN_TYPE)))),
                 )
             }
 
@@ -2818,7 +2963,8 @@ macro_rules! impl_register_fn_self {
                      Arc::new(f),
                      Some(Arc::new(cloned_name)),
                      Some($arg_count),
-                 ))),
+                 )
+.with_signature(host_signature(const { &[ArgType::ANY, $(<$param as FromSteelVal>::ARG_TYPE),*] }, <RET as IntoSteelVal>::RETURN_TYPE)))),
              )
          }
         }
@@ -2840,7 +2986,7 @@ impl_register_fn!(12 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, 
 impl_register_fn!(13 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12);
 impl_register_fn!(14 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13);
 impl_register_fn!(15 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14);
-impl_register_fn!(16 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 14, O: 14, P: 15);
+impl_register_fn!(16 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14, P: 15);
 
 impl_register_fn_self!(2 => B:1);
 impl_register_fn_self!(3 => B:1, C:2);
@@ -2856,4 +3002,4 @@ impl_register_fn_self!(12 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, 
 impl_register_fn_self!(13 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12);
 impl_register_fn_self!(14 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13);
 impl_register_fn_self!(15 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14);
-impl_register_fn_self!(16 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 14, O: 14, P: 15);
+impl_register_fn_self!(16 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14, P: 15);

@@ -776,6 +776,14 @@ impl BoxedDynFunction {
         }
     }
 
+    /// With the signature `register_fn` read off the Rust types.
+    pub(crate) fn with_signature(self, signature: HostSignature) -> Self {
+        BoxedDynFunction {
+            signature: Some(signature),
+            ..self
+        }
+    }
+
     pub(crate) fn new_owned(
         function: Arc<
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,

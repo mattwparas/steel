@@ -409,6 +409,10 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
 }
 
 impl<T: CustomType + 'static> IntoSteelVal for T {
+    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::Custom(
+        crate::value_type::CustomTypeName::Of(core::any::type_name::<T>),
+    );
+
     fn into_steelval(self) -> Result<SteelVal> {
         Ok(SteelVal::Custom(Gc::new_mut(Box::new(self))))
     }
@@ -451,6 +455,11 @@ impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for
 // TODO: Marshalling out of the type could also try to yoink from a native steel struct.
 // If possible, we can try to line the constructor up with the fields
 impl<T: CustomType + Clone + 'static> FromSteelVal for T {
+    const ARG_TYPE: crate::value_type::ArgType =
+        crate::value_type::ArgType(&[crate::value_type::ValueType::Custom(
+            crate::value_type::CustomTypeName::Of(core::any::type_name::<T>),
+        )]);
+
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::Custom(v) = val {
             // let left_type = v.borrow().as_any_ref();
@@ -602,6 +611,10 @@ impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
 pub trait AsRefSteelVal: Sized {
     type Nursery: Default;
 
+    /// What a successful borrow proves the value was, like
+    /// [`FromSteelVal::ARG_TYPE`].
+    const ARG_TYPE: crate::value_type::ArgType = crate::value_type::ArgType::ANY;
+
     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>>;
 }
 
@@ -623,6 +636,10 @@ pub trait AsRefSteelValFromUnsized<T>: Sized {
 }
 
 pub trait AsRefMutSteelVal: Sized {
+    /// What a successful borrow proves the value was, like
+    /// [`FromSteelVal::ARG_TYPE`].
+    const ARG_TYPE: crate::value_type::ArgType = crate::value_type::ArgType::ANY;
+
     fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<MappedScopedWriteContainer<'b, Self>>;
 }
 
@@ -648,6 +665,11 @@ impl AsRefSteelVal for StructRef {
 
 impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
     type Nursery = ();
+
+    const ARG_TYPE: crate::value_type::ArgType =
+        crate::value_type::ArgType(&[crate::value_type::ValueType::Custom(
+            crate::value_type::CustomTypeName::Of(core::any::type_name::<T>),
+        )]);
 
     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         if let SteelVal::Custom(v) = val {
@@ -679,6 +701,11 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
 }
 
 impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
+    const ARG_TYPE: crate::value_type::ArgType =
+        crate::value_type::ArgType(&[crate::value_type::ValueType::Custom(
+            crate::value_type::CustomTypeName::Of(core::any::type_name::<T>),
+        )]);
+
     fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<MappedScopedWriteContainer<'b, Self>> {
         if let SteelVal::Custom(v) = val {
             let res = ScopedWriteContainer::map(v.write(), |x| x.as_any_ref_mut());

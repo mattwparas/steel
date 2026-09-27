@@ -21,10 +21,10 @@ pub struct Ty {
 
 /// The kinds `elements` describe.
 const CONTAINERS: TypeSet = TypeSet::LIST
-    .union(TypeSet::PAIR)
-    .union(TypeSet::VECTOR)
-    .union(TypeSet::HASHSET)
-    .union(TypeSet::HASHMAP);
+    .with(TypeSet::PAIR)
+    .with(TypeSet::VECTOR)
+    .with(TypeSet::HASHSET)
+    .with(TypeSet::HASHMAP);
 
 impl Ty {
     pub const BOTTOM: Ty = Ty::kinds(TypeSet::BOTTOM);
@@ -144,10 +144,6 @@ impl Ty {
     pub fn contains(self, other: Ty) -> bool {
         let (a, b) = (self.normal(), other.normal());
         a.kinds.contains(b.kinds) && a.elements.contains(b.elements) && a.keys.contains(b.keys)
-    }
-
-    pub fn struct_indices(self) -> impl Iterator<Item = usize> {
-        self.kinds.struct_indices()
     }
 
     /// Like [`TypeSet::show`], with what a container holds when that is known

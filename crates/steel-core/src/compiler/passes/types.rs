@@ -46,41 +46,58 @@ pub use ty::Ty;
 pub struct PrimitiveSignatures {
     by_name: FxHashMap<String, FunctionSignatureMetadata>,
     by_module: FxHashMap<(String, String), FunctionSignatureMetadata>,
+    /// The function each name in `by_name` is, to tell when two modules bind a
+    /// name to different functions.
+    named: FxHashMap<String, SteelVal>,
+    /// Names the prelude binds. A free name in a program is the prelude's.
+    prelude: FxHashSet<String>,
+    /// Names two modules bind to different functions, outside the prelude.
+    /// Nothing says which one a free name is.
+    ambiguous: FxHashSet<String>,
 }
 
 impl PrimitiveSignatures {
     /// Every function value bound in `modules`, under every name it is bound to.
     pub fn from_modules(modules: &ModuleContainer) -> Self {
-        let mut by_name = FxHashMap::default();
-        let mut by_module = FxHashMap::default();
-        for module in modules.inner().values() {
-            let module_name = module.name().to_string();
-            for name in module.names() {
-                let Some(value) = module.try_get_ref(&name) else {
-                    continue;
-                };
-                if let Some(metadata) = signature_of(&value) {
-                    by_module.insert((module_name.clone(), name.clone()), metadata.clone());
-                    by_name.entry(name).or_insert(metadata);
-                }
-            }
+        let mut signatures = Self::default();
+        let inner = modules.inner();
+        let mut modules: Vec<_> = inner.values().collect();
+        // The prelude first, so its bindings take the names.
+        modules.sort_by_key(|module| module.name().as_ref() != PRELUDE);
+        for module in modules {
+            signatures.add_module(module);
         }
-        Self { by_name, by_module }
+        signatures
     }
 
     /// Adds the functions of `module`, a module the program can require that is
     /// not among the engine's own (one described in `STEEL_LSP_HOME`).
     pub fn add_module(&mut self, module: &crate::steel_vm::builtin::BuiltInModule) {
         let module_name = module.name().to_string();
+        let is_prelude = module_name == PRELUDE;
         for name in module.names() {
             let Some(value) = module.try_get_ref(&name) else {
                 continue;
             };
-            if let Some(metadata) = signature_of(&value) {
-                self.by_module
-                    .insert((module_name.clone(), name.clone()), metadata.clone());
-                self.by_name.entry(name).or_insert(metadata);
+            let Some(metadata) = signature_of(&value) else {
+                continue;
+            };
+            self.by_module
+                .insert((module_name.clone(), name.clone()), metadata.clone());
+            if is_prelude {
+                self.prelude.insert(name.clone());
+            } else if self.prelude.contains(&name) || self.ambiguous.contains(&name) {
+                continue;
+            } else if let Some(other) = self.named.get(&name) {
+                if !same_function(other, &value) {
+                    self.by_name.remove(&name);
+                    self.named.remove(&name);
+                    self.ambiguous.insert(name);
+                }
+                continue;
             }
+            self.named.insert(name.clone(), value);
+            self.by_name.insert(name, metadata);
         }
     }
 
@@ -95,6 +112,20 @@ impl PrimitiveSignatures {
     pub fn get(&self, name: &str) -> Option<&FunctionSignatureMetadata> {
         self.by_name
             .get(name.strip_prefix("#%prim.").unwrap_or(name))
+    }
+}
+
+/// The module a program's free names are bound from.
+const PRELUDE: &str = "steel/base";
+
+/// Whether `a` and `b` are the same native function.
+fn same_function(a: &SteelVal, b: &SteelVal) -> bool {
+    match (a, b) {
+        (SteelVal::FuncV(a), SteelVal::FuncV(b)) => *a as usize == *b as usize,
+        (SteelVal::MutFunc(a), SteelVal::MutFunc(b)) => *a as usize == *b as usize,
+        (SteelVal::BuiltIn(a), SteelVal::BuiltIn(b)) => *a as usize == *b as usize,
+        (SteelVal::BoxedFunction(a), SteelVal::BoxedFunction(b)) => crate::gc::Gc::ptr_eq(a, b),
+        _ => false,
     }
 }
 
@@ -123,6 +154,15 @@ fn signature_of(value: &SteelVal) -> Option<FunctionSignatureMetadata> {
         }
         _ => return None,
     })
+}
+
+/// A struct type's descriptor, the host type `make-struct-type` returns first.
+fn struct_descriptor() -> Ty {
+    Ty::from_value_type(crate::value_type::ValueType::Custom(
+        crate::value_type::CustomTypeName::Of(
+            core::any::type_name::<crate::values::structs::StructTypeDescriptor>,
+        ),
+    ))
 }
 
 /// What a type predicate tells each branch of an `if`. The then-branch can
@@ -459,6 +499,7 @@ impl Facts {
             applied_lambdas: FxHashSet::default(),
             binding_names: FxHashMap::default(),
             unresolved_set_names: FxHashSet::default(),
+            global_defines: FxHashMap::default(),
             accessor_candidates: Vec::new(),
             constructor_candidates: Vec::new(),
         };
@@ -492,6 +533,9 @@ struct Collector<'a> {
     /// defined before the global's `define` has no `refers_to` yet.
     binding_names: FxHashMap<SyntaxObjectId, crate::parser::interner::InternedString>,
     unresolved_set_names: FxHashSet<crate::parser::interner::InternedString>,
+    /// The binding sites of each global name. A module can define a global
+    /// that its prelude already bound to a builtin.
+    global_defines: FxHashMap<crate::parser::interner::InternedString, Vec<SyntaxObjectId>>,
     /// Lambdas shaped like a mutable struct's accessor or setter, with the
     /// binding of the getter prototype they call, the field, and whether they
     /// write it.
@@ -528,6 +572,9 @@ impl<'a> Collector<'a> {
         self.facts.defined.insert(id);
         if let Some(ident) = name.atom_identifier() {
             self.binding_names.insert(id, *ident);
+            if self.facts.globals.contains(&id) {
+                self.global_defines.entry(*ident).or_default().push(id);
+            }
         }
         match init {
             Some(ExprKind::LambdaFunction(lambda)) => {
@@ -587,9 +634,7 @@ impl<'a> Collector<'a> {
         }
         match (operator_name(Some(operator))?, args) {
             ("make-struct-type", [ExprKind::Quote(name), fields, _]) => {
-                if !self.facts.globals.contains(&id)
-                    || self.facts.structs.len() >= TypeSet::MAX_STRUCTS
-                {
+                if !self.facts.globals.contains(&id) {
                     return None;
                 }
                 let name = name.expr.atom_identifier()?.resolve().to_string();
@@ -937,6 +982,12 @@ impl<'a> Collector<'a> {
         for (id, name) in &self.binding_names {
             if self.unresolved_set_names.contains(name) {
                 self.facts.mutated.insert(*id);
+            }
+        }
+        // A global defined twice holds whichever definition ran last.
+        for ids in self.global_defines.values() {
+            if ids.len() > 1 {
+                self.facts.mutated.extend(ids.iter().copied());
             }
         }
 
@@ -1833,7 +1884,7 @@ impl<'a> Inference<'a> {
                 Known::Struct(_, StructPiece::Table) | Known::Struct(_, StructPiece::Getters) => {
                     // The descriptor is the one piece that is not a procedure
                     // or a list, and it is never called.
-                    Some(Ty::PROCEDURE.union(Ty::LIST).union(Ty::OTHER))
+                    Some(Ty::PROCEDURE.union(Ty::LIST).union(struct_descriptor()))
                 }
                 _ => None,
             },
@@ -3007,6 +3058,64 @@ mod tests {
     }
 
     #[test]
+    fn globals_defined_twice_are_not_trusted() {
+        // `match` refers to the builtin `car`, so the module's expansion binds
+        // `car` to it before the module's own definition.
+        let mut engine = Engine::new();
+        engine.register_steel_module(
+            "shim".to_string(),
+            "(provide g)
+(struct mp (a d))
+(define (car p) (if (mp? p) (mp-a p) (#%prim.car p)))
+(define (h x) (match x [(list a b) a] [_ 0]))
+(define (g y) (car y) y)"
+                .to_string(),
+        );
+        let mut exprs = engine
+            .emit_expanded_ast_without_optimizations("(require \"shim\")", None)
+            .unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+
+        fn find_lambda(expr: &ExprKind, suffix: &str) -> Option<u32> {
+            match expr {
+                ExprKind::Define(d) => match (&d.name, &d.body) {
+                    (ExprKind::Atom(a), ExprKind::LambdaFunction(l))
+                        if a.ident()?.resolve().ends_with(suffix) =>
+                    {
+                        Some(l.syntax_object_id)
+                    }
+                    _ => None,
+                },
+                ExprKind::Begin(b) => b.exprs.iter().find_map(|e| find_lambda(e, suffix)),
+                _ => None,
+            }
+        }
+        let g = analysis
+            .exprs
+            .iter()
+            .find_map(|e| find_lambda(e, "__g"))
+            .unwrap();
+        // `car` is the module's own, which also takes structs.
+        assert_eq!(info.returns[&g].to_string(), "any");
+    }
+
+    #[test]
+    fn any_number_of_struct_types() {
+        let mut src = String::new();
+        for i in 0..200 {
+            src.push_str(&format!("(struct s{i} (a))\n"));
+        }
+        src.push_str("(define last-one (s199 1))\n(define (bad) (s0-a last-one))\n");
+        assert_eq!(
+            hover_at(&src, "last-one", 0, 1).as_deref(),
+            Some("last-one: s199")
+        );
+        assert_eq!(failures_for(&src).len(), 1);
+    }
+
+    #[test]
     fn structs_from_a_required_module() {
         let mut engine = Engine::new();
         engine.register_steel_module(
@@ -3298,6 +3407,94 @@ mod tests {
             .map(|(failure, written)| failure.message(written))
             .collect();
         assert_eq!(arity, Vec::<String>::new());
+    }
+
+    #[test]
+    fn struct_definitions_raise_nothing() {
+        // The expansion passes the descriptor, a host value, to natives.
+        let (engine, mut exprs, _) =
+            expand_program("(struct point (x y) #:mutable)\n(struct thing (a))\n(define z 1)");
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+        let failures: Vec<String> = info.failures.iter().map(|f| f.message()).collect();
+        assert_eq!(failures, Vec::<String>::new());
+    }
+
+    #[test]
+    fn free_names_are_the_preludes() {
+        // A private module binds `mutable-vector->list` to a function of its
+        // own host type. A free name is the prelude's function.
+        let src = "(define (f) (mutable-vector->list (make-vector 3 0)))";
+        assert_eq!(failures_for(src), Vec::<String>::new());
+        let src = "(define (f) (mutable-vector->list \"no\"))";
+        assert_eq!(failures_for(src).len(), 1);
+    }
+
+    #[test]
+    fn custom_host_types() {
+        use crate::steel_vm::builtin::BuiltInModule;
+        use crate::steel_vm::register_fn::RegisterFn;
+        #[derive(Clone)]
+        struct Counter(isize);
+        impl crate::rvals::Custom for Counter {}
+        #[derive(Clone)]
+        struct Gauge(f64);
+        impl crate::rvals::Custom for Gauge {}
+
+        let mut engine = Engine::new();
+        let mut module = BuiltInModule::new("host/counter");
+        module.register_fn("make-counter", || Counter(0));
+        module.register_fn("make-gauge", || Gauge(0.0));
+        module.register_fn("counter-value", |c: &Counter| c.0);
+        module.register_fn("counter-bump!", |c: &mut Counter, by: isize| c.0 += by);
+        module.register_fn("counter-copy", |c: Counter| c);
+        engine.register_module(module);
+        let src = "(require-builtin host/counter)
+(define c (make-counter))
+(define (a) (counter-value 5))
+(define (b) (counter-bump! \"x\" 1))
+(define (d) (counter-copy (make-gauge)))
+(define (e) (+ 1 c))
+(define (ok) (counter-bump! c (counter-value (counter-copy c))))";
+        let mut exprs = engine
+            .emit_expanded_ast_without_optimizations(src, None)
+            .unwrap();
+        let source = exprs.last().and_then(|e| e.span().source_id()).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+        let failures: Vec<String> = written_call_failures(&info, source, src)
+            .map(|failure| {
+                format!(
+                    "{} {}",
+                    &src[failure.span.start as usize..failure.span.end as usize],
+                    failure.message()
+                )
+            })
+            .collect();
+        assert_eq!(
+            failures,
+            vec![
+                "5 `counter-value` always raises here: argument 1 is always int, but it must be Counter",
+                "\"x\" `counter-bump!` always raises here: argument 1 is always string, but it must be Counter",
+                "(make-gauge) `counter-copy` always raises here: argument 1 is always Gauge, but it must be Counter",
+                "c `+` always raises here: argument 2 is always Counter, but it must be number",
+            ]
+        );
+        let offset = src.find("define c").unwrap() + "define ".len();
+        assert_eq!(
+            hover_type(
+                &analysis.exprs,
+                &analysis.analysis,
+                &info,
+                source,
+                src,
+                offset
+            )
+            .as_deref(),
+            Some("c: Counter")
+        );
     }
 
     #[test]
@@ -3960,11 +4157,10 @@ mod tests {
             return false;
         };
         let names = STRUCT_NAMES.lock().unwrap();
-        ty.struct_indices().any(|index| {
-            names
-                .get(index)
-                .is_some_and(|name| name.as_str() == s.name().resolve())
-        })
+        names
+            .iter()
+            .enumerate()
+            .any(|(index, name)| name.as_str() == s.name().resolve() && ty.has_struct(index))
     }
 
     /// The first bad value seen at each site.

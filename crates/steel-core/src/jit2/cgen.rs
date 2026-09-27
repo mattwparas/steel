@@ -2783,7 +2783,8 @@ impl InferredType {
             | ValueType::HashSet
             | ValueType::ByteVector
             | ValueType::FlatVector
-            | ValueType::Procedure => InferredType::Any,
+            | ValueType::Procedure
+            | ValueType::Custom(_) => InferredType::Any,
         }
     }
 
