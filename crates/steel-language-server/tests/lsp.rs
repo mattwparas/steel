@@ -458,9 +458,9 @@ mod find_references_tests {
         );
     }
 
-    // The `TODO: Dedupe the found locations` in Backend::references. Once a file is indexed
-    // as a module, a use inside it is found twice - once by the analysis of the open
-    // document, and again when the reverse dependency walk re-analyzes that same file.
+    // TODO: @matt - once a file is indexed as a module, a use inside it is found twice -
+    // once by the analysis of the open document, and again when the reverse dependency
+    // walk re-analyzes that same file.
     #[tokio::test]
     #[ignore = "references reports the same location twice for an indexed requiring file"]
     async fn references_does_not_report_duplicate_locations() {
@@ -530,9 +530,7 @@ mod find_references_tests {
         );
     }
 
-    // Builtins have no refers_to edge, so the span scan has nothing to match on and only
-    // the occurrence under the cursor comes back. find_references_builtin doesn't fill the
-    // hole either - it only reports hits inside modules that define the same name.
+    // TODO: @matt - this is broken
     #[tokio::test]
     #[ignore = "references to a builtin only return the occurrence under the cursor"]
     async fn references_to_a_builtin_find_every_use_in_the_file() {
@@ -767,8 +765,7 @@ mod require_graph_tests {
         );
     }
 
-    // deep-fn reaches top.scm through middle.scm, which re-provides it. resolution only
-    // walks one hop, so nothing comes back
+    // TODO: Resolution isn't going deep enough
     #[tokio::test]
     #[ignore = "definitions are not resolved through a re-providing intermediate module"]
     async fn definition_follows_a_transitive_re_provide() {
@@ -799,6 +796,7 @@ mod require_graph_tests {
         assert_eq!(location.range, range_of_nth(deep, "deep-fn", 1));
     }
 
+    // TODO: Resolution isn't going deep enough
     #[tokio::test]
     #[ignore = "references are not resolved through a re-providing intermediate module"]
     async fn references_follow_a_transitive_re_provide() {

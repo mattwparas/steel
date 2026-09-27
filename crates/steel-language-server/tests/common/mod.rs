@@ -40,14 +40,9 @@ impl TestServer {
 
         let temp = tempfile::tempdir().expect("unable to create a temp directory");
 
-        // the workspace is a subdirectory so that write_outside has somewhere to put files
-        // that are not under the root
         let root = temp.path().join("workspace");
         std::fs::create_dir_all(&root).unwrap();
 
-        // canonicalize matters on macos, where the temp dir is a symlink into /private.
-        // url round trips have to agree with the paths the engine records or nothing
-        // resolves
         let root = root
             .canonicalize()
             .expect("unable to canonicalize the temp workspace");
@@ -96,8 +91,6 @@ impl TestServer {
         Url::from_file_path(&path).unwrap()
     }
 
-    // never written, never opened - the queries bail on the document maps before they
-    // reach the filesystem
     pub fn unopened(&self, name: &str) -> Url {
         Url::from_file_path(self.root.join(name)).unwrap()
     }
@@ -264,7 +257,6 @@ fn offset_to_position(text: &str, offset: usize) -> Position {
     Position::new(line, (offset - line_start) as u32)
 }
 
-// deliberately does not dedupe - the same location twice is a bug we want to catch
 pub fn sorted(mut locations: Vec<Location>) -> Vec<Location> {
     locations.sort_by(|a, b| {
         a.uri
@@ -276,16 +268,12 @@ pub fn sorted(mut locations: Vec<Location>) -> Vec<Location> {
     locations
 }
 
-// for the cases where we know a location comes back twice, so the test still pins down
-// what was found - see references_does_not_report_duplicate_locations
 pub fn deduped(locations: Vec<Location>) -> Vec<Location> {
     let mut locations = sorted(locations);
     locations.dedup();
     locations
 }
 
-// for locations in different directories, where sorting whole uris would depend on the
-// random temp directory names
 pub fn by_file(locations: Vec<Location>) -> Vec<(String, Range)> {
     let mut named: Vec<(String, Range)> = locations
         .into_iter()
