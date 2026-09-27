@@ -448,7 +448,6 @@ mod find_references_tests {
             .await
             .expect("expected references across the module boundary");
 
-        // sorted by uri, so lib.scm comes first
         assert_eq!(
             deduped(locations),
             vec![
@@ -708,7 +707,6 @@ mod workspace_tests {
         )
     }
 
-    // the require form holds an absolute path, so the fixture can't be a constant
     fn call_site(source: &str) -> Position {
         let open_paren = find(source, "(greet");
         Position::new(open_paren.line, open_paren.character + 1)

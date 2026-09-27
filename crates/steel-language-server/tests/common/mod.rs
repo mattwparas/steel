@@ -1,6 +1,3 @@
-// Drives the backend directly rather than over JSON-RPC, so what's under test is the
-// analysis and span conversion rather than tower-lsp's plumbing.
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -10,8 +7,6 @@ use steel_language_server::backend::{visible_globals, Backend, Config, OffsetEnc
 use tower_lsp::lsp_types::*;
 use tower_lsp::LspService;
 
-// point the lint engine at a scratch directory so we never pick up the developer's real
-// lint configuration
 fn isolate_lsp_home() {
     static LSP_HOME: OnceLock<PathBuf> = OnceLock::new();
 
@@ -125,7 +120,6 @@ impl TestServer {
             paths.push(path.to_path_buf());
         }
 
-        // deterministic order, so a failure is reproducible
         paths.sort();
 
         for path in paths {
@@ -253,7 +247,6 @@ fn offset_to_position(text: &str, offset: usize) -> Position {
     let line = text[..offset].matches('\n').count() as u32;
     let line_start = text[..offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
 
-    // the fixtures using these helpers are ascii, so byte and character offsets agree
     Position::new(line, (offset - line_start) as u32)
 }
 
