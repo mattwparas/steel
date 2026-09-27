@@ -20,7 +20,7 @@ use steel_derive::function;
 /// ```scheme
 /// (string->jsexpr "{\"foo\": [3]}") ;; => '#hash((foo . (3)))
 /// ```
-#[function(name = "string->jsexpr", args = "string")]
+#[function(name = "string->jsexpr", args(String))]
 pub fn string_to_jsexpr(value: &SteelString) -> Result<SteelVal> {
     // let unescaped = unescape(&value);
     let unescaped = value;
@@ -40,7 +40,7 @@ pub fn string_to_jsexpr(value: &SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// (value->jsexpr-string `(,(hash "foo" #t))) ;; => "[{\"foo\":true}]"
 /// ```
-#[function(name = "value->jsexpr-string", returns = "string")]
+#[function(name = "value->jsexpr-string", returns = String)]
 pub fn serialize_val_to_string(value: SteelVal) -> Result<SteelVal> {
     let serde_value: Value = value.try_into()?;
     let serialized_value = serde_value.to_string();

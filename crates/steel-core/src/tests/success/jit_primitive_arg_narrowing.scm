@@ -1,5 +1,5 @@
 ;; The jit narrows a local passed to a primitive to the argument type the
-;; primitive declares (`args = "..."`), once the call has returned normally.
+;; primitive declares (`args(..)`), once the call has returned normally.
 ;; Loops so the functions get compiled, then uses the narrowed locals.
 
 ;; After (length lst), lst is a list, so use car / cdr / null? on it.

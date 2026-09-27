@@ -249,7 +249,7 @@ steel_config! {
     /// declares.
     jit_primitive_types: bool = true, "STEEL_JIT_PRIMITIVE_TYPES";
     /// After a primitive call returns normally, narrow the locals passed to it
-    /// to the argument types its definition declares (`args = "..."`).
+    /// to the argument types its definition declares (`args(..)`).
     jit_primitive_arg_types: bool = true, "STEEL_JIT_PRIMITIVE_ARG_TYPES";
     /// Log each generic primitive call site the jit compiles, with the type
     /// its result was given.

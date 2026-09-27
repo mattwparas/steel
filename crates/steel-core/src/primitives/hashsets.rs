@@ -33,10 +33,10 @@ pub fn hashset_module() -> BuiltInModule {
 /// ```
 #[steel_derive::native(
     name = "hashset",
-    arity = "AtLeast(0)",
-    returns = "hashset",
-    args = "any...",
-    raises = "never"
+    arity = AtLeast(0),
+    returns = HashSet,
+    args(rest = Any),
+    raises = Never
 )]
 pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
     let mut hs = HashSet::new();
@@ -54,7 +54,7 @@ pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```scheme
 /// (hashset-length (hashset 10 20 30)) ;; => 3
 /// ```
-#[steel_derive::function(name = "hashset-length", args = "hashset", raises = "bad-args")]
+#[steel_derive::function(name = "hashset-length", args(HashSet), raises = BadArgs)]
 pub fn hashset_length(hashset: &SteelHashSet) -> usize {
     hashset.len()
 }
@@ -70,9 +70,9 @@ pub fn hashset_length(hashset: &SteelHashSet) -> usize {
 /// ```
 #[steel_derive::function(
     name = "hashset-insert",
-    returns = "hashset",
-    args = "hashset, any",
-    raises = "bad-args"
+    returns = HashSet,
+    args(HashSet, Any),
+    raises = BadArgs
 )]
 pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     if let SteelVal::HashSetV(SteelHashSet(hs)) = hashset {
@@ -98,9 +98,9 @@ pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(
     name = "hashset-contains?",
-    returns = "bool",
-    args = "hashset, any",
-    raises = "bad-args"
+    returns = Bool,
+    args(HashSet, Any),
+    raises = BadArgs
 )]
 pub fn hashset_contains(hashset: &SteelHashSet, key: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(hashset.contains(key)))
@@ -115,8 +115,8 @@ pub fn hashset_contains(hashset: &SteelHashSet, key: &SteelVal) -> Result<SteelV
 /// ```
 #[steel_derive::function(
     name = "hashset-subset?",
-    args = "hashset, hashset",
-    raises = "bad-args"
+    args(HashSet, HashSet),
+    raises = BadArgs
 )]
 pub fn hashset_is_subset(left: &SteelHashSet, right: &SteelHashSet) -> bool {
     left.is_subset(right.0.as_ref())
@@ -131,9 +131,9 @@ pub fn hashset_is_subset(left: &SteelHashSet, right: &SteelHashSet) -> bool {
 /// ```
 #[steel_derive::function(
     name = "hashset->list",
-    returns = "list",
-    args = "hashset",
-    raises = "bad-args"
+    returns = List,
+    args(HashSet),
+    raises = BadArgs
 )]
 pub fn hashset_to_list(hashset: &SteelHashSet) -> SteelVal {
     SteelVal::ListV(hashset.iter().cloned().collect::<List<SteelVal>>())
@@ -147,9 +147,9 @@ pub fn hashset_to_list(hashset: &SteelHashSet) -> SteelVal {
 /// ```
 #[steel_derive::function(
     name = "hashset-union",
-    returns = "hashset",
-    args = "hashset, hashset",
-    raises = "bad-args"
+    returns = HashSet,
+    args(HashSet, HashSet),
+    raises = BadArgs
 )]
 pub fn hashset_union(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
     SteelVal::HashSetV(SteelHashSet(Gc::new(l.0.unwrap().union(r.0.unwrap()))))
@@ -163,9 +163,9 @@ pub fn hashset_union(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
 /// ```
 #[steel_derive::function(
     name = "hashset-intersection",
-    returns = "hashset",
-    args = "hashset, hashset",
-    raises = "bad-args"
+    returns = HashSet,
+    args(HashSet, HashSet),
+    raises = BadArgs
 )]
 pub fn hashset_intersection(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
     SteelVal::HashSetV(SteelHashSet(Gc::new(
@@ -181,9 +181,9 @@ pub fn hashset_intersection(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
 /// ```
 #[steel_derive::function(
     name = "hashset-difference",
-    returns = "hashset",
-    args = "hashset, hashset",
-    raises = "bad-args"
+    returns = HashSet,
+    args(HashSet, HashSet),
+    raises = BadArgs
 )]
 pub fn hashset_difference(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
     #[cfg(not(feature = "imbl"))]
@@ -205,9 +205,9 @@ pub fn hashset_difference(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
 /// ```
 #[steel_derive::function(
     name = "hashset->immutable-vector",
-    returns = "vector",
-    args = "hashset",
-    raises = "bad-args"
+    returns = Vector,
+    args(HashSet),
+    raises = BadArgs
 )]
 pub fn hashset_to_immutable_vector(hashset: &SteelHashSet) -> SteelVal {
     SteelVal::VectorV(Gc::new(hashset.0.iter().cloned().collect::<Vector<_>>()).into())
@@ -222,10 +222,10 @@ pub fn hashset_to_immutable_vector(hashset: &SteelHashSet) -> SteelVal {
 /// ```
 #[steel_derive::context(
     name = "hashset->vector",
-    arity = "Exact(1)",
-    returns = "mutable-vector",
-    args = "hashset",
-    raises = "bad-args"
+    arity = Exact(1),
+    returns = MutableVector,
+    args(HashSet),
+    raises = BadArgs
 )]
 pub fn hashset_to_mutable_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn hashset_to_mutable_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
@@ -248,9 +248,9 @@ pub fn hashset_to_mutable_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
 /// references to a given hashset, and you want to reuse its allocation.
 #[steel_derive::function(
     name = "hashset-clear",
-    returns = "hashset",
-    args = "hashset",
-    raises = "bad-args"
+    returns = HashSet,
+    args(HashSet),
+    raises = BadArgs
 )]
 pub fn hashset_clear(hashset: &mut SteelVal) -> Result<SteelVal> {
     if let SteelVal::HashSetV(SteelHashSet(hs)) = hashset {
@@ -274,9 +274,9 @@ pub fn hashset_clear(hashset: &mut SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(
     name = "list->hashset",
-    returns = "hashset",
-    args = "list",
-    raises = "bad-args"
+    returns = HashSet,
+    args(List),
+    raises = BadArgs
 )]
 pub fn list_to_hashset(l: &List<SteelVal>) -> SteelVal {
     SteelVal::HashSetV(Gc::new(l.iter().cloned().collect::<HashSet<_>>()).into())

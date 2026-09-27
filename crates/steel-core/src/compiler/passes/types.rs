@@ -109,8 +109,8 @@ fn predicate(name: &str) -> Option<(TypeSet, TypeSet)> {
         "exact-integer?" => (T::INT.union(T::OTHER_NUMBER), T::INT),
         "float?" => (T::FLOAT, T::FLOAT),
         "function?" => (T::PROCEDURE, T::PROCEDURE),
-        // A struct with a procedure property is OTHER.
-        "procedure?" => (T::PROCEDURE.union(T::OTHER), T::PROCEDURE),
+        // A struct with a procedure property is callable.
+        "procedure?" => (T::PROCEDURE.union(T::OTHER).union(T::STRUCTS), T::PROCEDURE),
         _ => return None,
     })
 }
@@ -159,6 +159,19 @@ pub struct TypeInfo {
     /// Calls to a native function or a known lambda with a number of arguments
     /// it does not take, in program order.
     pub arity_failures: Vec<ArityFailure>,
+    /// The program's struct types, indexed as in [`TypeSet::structure`].
+    pub structs: Vec<StructType>,
+    /// What each field of a struct type can hold, for the struct types whose
+    /// every construction and field write the program shows.
+    pub fields: FxHashMap<usize, Vec<TypeSet>>,
+}
+
+impl TypeInfo {
+    /// `ty` as shown to a user, with struct types by name.
+    pub fn show(&self, ty: TypeSet) -> String {
+        let names: Vec<String> = self.structs.iter().map(|ty| ty.name.clone()).collect();
+        ty.show(&names)
+    }
 }
 
 /// A call with a number of arguments the function never takes.
@@ -185,10 +198,10 @@ pub struct CallFailure {
     pub argument: usize,
     pub span: crate::parser::span::Span,
     /// What the function accepts there, as declared and as kinds, and what the
-    /// argument can hold.
-    pub declared: crate::value_type::ArgType,
+    /// argument can hold, as shown.
+    pub declared: String,
     pub expected: TypeSet,
-    pub found: TypeSet,
+    pub found: String,
 }
 
 /// Infers types for `exprs`, which `analysis` was computed for.
@@ -197,14 +210,23 @@ pub fn infer_types(
     analysis: &Analysis,
     primitives: &PrimitiveSignatures,
 ) -> TypeInfo {
-    let facts = Facts::collect(exprs, analysis, primitives);
+    infer_types_with_exports(exprs, analysis, primitives, None)
+}
 
+/// [`infer_types`] for a program that other modules can only see through
+/// `exports` (see [`exported_names`]). Without that, any of its globals might
+/// be used from elsewhere, and struct field types are never known.
+pub fn infer_types_with_exports(
+    exprs: &[ExprKind],
+    analysis: &Analysis,
+    primitives: &PrimitiveSignatures,
+    exports: Option<&FxHashSet<String>>,
+) -> TypeInfo {
+    let facts = Facts::collect(exprs, analysis, primitives, exports);
     let mut previous = TypeInfo::default();
-    let mut previous_params: FxHashMap<u32, Vec<TypeSet>> = FxHashMap::default();
-
-    // Every step can only grow a set, and a set can only grow 17 times, so
-    // this terminates; the bound is a guard against a bug making it cycle.
-    for iteration in 1..=64 {
+    let mut previous_params: FxHashMap<u32, Vec<TypeSet>> = FxHashMap::default(); // Every step can only grow a set, and a set can only grow 64 times, so
+                                                                                  // this terminates; the bound is a guard against a bug making it cycle.
+    for iteration in 1..=128 {
         let mut inference = Inference {
             analysis,
             primitives,
@@ -225,6 +247,7 @@ pub fn infer_types(
             return TypeInfo {
                 iterations: iteration,
                 functions: facts.functions(),
+                structs: facts.structs.clone(),
                 ..current
             };
         }
@@ -235,6 +258,7 @@ pub fn infer_types(
     // Did not settle, so claim nothing.
     let mut result = previous;
     result.functions = facts.functions();
+    result.structs = facts.structs.clone();
     result.failures.clear();
     result.arity_failures.clear();
     for ty in result
@@ -243,6 +267,7 @@ pub fn infer_types(
         .chain(result.references.values_mut())
         .chain(result.calls.values_mut())
         .chain(result.returns.values_mut())
+        .chain(result.fields.values_mut().flatten())
     {
         *ty = TypeSet::TOP;
     }
@@ -260,6 +285,33 @@ enum Known {
     /// or `letrec` expands (`(#%box _)`, `(#%set-box! box (λ ...))`, and calls
     /// as `((#%unbox box) args ...)`).
     BoxedLambda(u32),
+    /// A piece of the program's struct type `index` (see [`StructType`]).
+    Struct(usize, StructPiece),
+}
+
+/// What `(make-struct-type 'name fields module)` returns, and what the `struct`
+/// macro binds from it: a list of the descriptor, the constructor, the
+/// predicate, the getter prototype `(getter struct index)`, and a list of one
+/// getter per field.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum StructPiece {
+    /// The list `make-struct-type` returns.
+    Table,
+    Descriptor,
+    Constructor,
+    Predicate,
+    GetterPrototype,
+    Getters,
+    /// The getter of field `i`.
+    Getter(usize),
+}
+
+/// A struct type defined at the top level of the program, by a `struct` form
+/// or a direct `make-struct-type`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StructType {
+    pub name: String,
+    pub fields: usize,
 }
 
 type InternedName = crate::parser::interner::InternedString;
@@ -275,6 +327,11 @@ enum Position {
     SetBoxTarget,
     /// The value of a `(#%set-box! box x)`, stored into that box.
     BoxStore(SyntaxObjectId),
+    /// A `define` / `let` whose value is just this variable, an alias of it.
+    AliasInit,
+    /// The descriptor argument of `#%make-mutable-struct` or
+    /// `#%vtable-update-entry!`.
+    DescriptorUse,
     /// Anywhere else, where the value escapes.
     Value,
 }
@@ -295,6 +352,28 @@ struct Facts {
     /// Lambdas whose every use is a direct call we can see, so their
     /// parameter types are the union of the argument types at those calls.
     closed: FxHashSet<u32>,
+    /// The program's struct types, indexed as in [`TypeSet::structure`].
+    structs: Vec<StructType>,
+    /// Lambdas that read or write a field of their first argument, which has
+    /// to be of this struct type. A `#:mutable` struct's accessors and setters
+    /// are defined this way.
+    struct_accessors: FxHashMap<u32, Accessor>,
+    /// Lambdas that make a struct of this type from their arguments, as a
+    /// `#:mutable` struct's constructor does, and the call inside each that
+    /// does it.
+    struct_constructors: FxHashMap<u32, usize>,
+    constructor_bodies: FxHashSet<u32>,
+    /// Struct types whose every construction and field write is a direct call
+    /// in the program, so their field types are known.
+    closed_structs: FxHashSet<usize>,
+}
+
+/// A lambda reading or writing field `field` of struct type `ty`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Accessor {
+    ty: usize,
+    field: usize,
+    set: bool,
 }
 
 impl Facts {
@@ -303,15 +382,20 @@ impl Facts {
             .iter()
             .filter_map(|(id, known)| match known {
                 Known::Lambda(lambda) | Known::BoxedLambda(lambda) => Some((*id, *lambda)),
-                Known::Primitive(_) => None,
+                Known::Primitive(_) | Known::Struct(..) => None,
             })
             .collect()
     }
-
-    fn collect(exprs: &[ExprKind], analysis: &Analysis, primitives: &PrimitiveSignatures) -> Self {
+    fn collect(
+        exprs: &[ExprKind],
+        analysis: &Analysis,
+        primitives: &PrimitiveSignatures,
+        exports: Option<&FxHashSet<String>>,
+    ) -> Self {
         let mut collector = Collector {
             analysis,
             primitives,
+            exports,
             facts: Facts::default(),
             boxes: FxHashSet::default(),
             box_stores: FxHashMap::default(),
@@ -321,6 +405,8 @@ impl Facts {
             applied_lambdas: FxHashSet::default(),
             binding_names: FxHashMap::default(),
             unresolved_set_names: FxHashSet::default(),
+            accessor_candidates: Vec::new(),
+            constructor_candidates: Vec::new(),
         };
         for expr in exprs {
             collector.top_level(expr);
@@ -332,6 +418,9 @@ impl Facts {
 struct Collector<'a> {
     analysis: &'a Analysis,
     primitives: &'a PrimitiveSignatures,
+    /// The names the program makes visible to other modules, or None when that
+    /// is not known and every global counts as visible.
+    exports: Option<&'a FxHashSet<String>>,
     facts: Facts,
     /// Bindings initialized with `(#%box _)`.
     boxes: FxHashSet<SyntaxObjectId>,
@@ -349,6 +438,13 @@ struct Collector<'a> {
     /// defined before the global's `define` has no `refers_to` yet.
     binding_names: FxHashMap<SyntaxObjectId, crate::parser::interner::InternedString>,
     unresolved_set_names: FxHashSet<crate::parser::interner::InternedString>,
+    /// Lambdas shaped like a mutable struct's accessor or setter, with the
+    /// binding of the getter prototype they call, the field, and whether they
+    /// write it.
+    accessor_candidates: Vec<(u32, SyntaxObjectId, usize, bool)>,
+    /// Lambdas shaped like a mutable struct's constructor, with the binding of
+    /// the descriptor and the call that makes the struct.
+    constructor_candidates: Vec<(u32, SyntaxObjectId, u32)>,
 }
 
 impl<'a> Collector<'a> {
@@ -385,6 +481,14 @@ impl<'a> Collector<'a> {
                     .known
                     .insert(id, Known::Lambda(lambda.syntax_object_id));
                 self.bound_lambdas.insert(lambda.syntax_object_id, id);
+                if let Some((getter, field, set)) = self.field_access(lambda) {
+                    self.accessor_candidates
+                        .push((lambda.syntax_object_id, getter, field, set));
+                }
+                if let Some((descriptor, call)) = self.construction(lambda) {
+                    self.constructor_candidates
+                        .push((lambda.syntax_object_id, descriptor, call));
+                }
             }
             Some(ExprKind::Atom(atom)) => match self.reference(atom) {
                 Some(target) => {
@@ -401,8 +505,131 @@ impl<'a> Collector<'a> {
             Some(ExprKind::List(list)) if operator_name(list.args.first()) == Some("#%box") => {
                 self.boxes.insert(id);
             }
+            Some(ExprKind::List(list)) => {
+                if let Some(known) = self.struct_piece(id, list) {
+                    self.facts.known.insert(id, known);
+                }
+            }
             _ => {}
         }
+    }
+
+    /// What a binding initialized with `list` holds, when that is a struct type
+    /// (a top-level `make-struct-type`) or a piece of one (`list-ref` of it).
+    fn struct_piece(
+        &mut self,
+        id: SyntaxObjectId,
+        list: &crate::parser::ast::List,
+    ) -> Option<Known> {
+        let (operator, args) = list.args.split_first()?;
+        // The native function, not a program binding that shares its name.
+        if let ExprKind::Atom(atom) = operator {
+            if self.reference(atom).is_some() {
+                return None;
+            }
+        }
+        match (operator_name(Some(operator))?, args) {
+            ("make-struct-type", [ExprKind::Quote(name), fields, _]) => {
+                if !self.facts.globals.contains(&id)
+                    || self.facts.structs.len() >= TypeSet::MAX_STRUCTS
+                {
+                    return None;
+                }
+                let name = name.expr.atom_identifier()?.resolve().to_string();
+                let fields = integer_literal(fields)?;
+                self.facts.structs.push(StructType { name, fields });
+                Some(Known::Struct(
+                    self.facts.structs.len() - 1,
+                    StructPiece::Table,
+                ))
+            }
+            ("list-ref", [ExprKind::Atom(source), index]) => {
+                let index = integer_literal(index)?;
+                let source = self.reference(source)?;
+                match self.facts.known.get(&source)? {
+                    Known::Struct(ty, StructPiece::Table) => Some(Known::Struct(
+                        *ty,
+                        match index {
+                            0 => StructPiece::Descriptor,
+                            1 => StructPiece::Constructor,
+                            2 => StructPiece::Predicate,
+                            3 => StructPiece::GetterPrototype,
+                            4 => StructPiece::Getters,
+                            _ => return None,
+                        },
+                    )),
+                    Known::Struct(ty, StructPiece::Getters)
+                        if index < self.facts.structs[*ty].fields =>
+                    {
+                        Some(Known::Struct(*ty, StructPiece::Getter(index)))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+    /// For a lambda shaped like a mutable struct's accessor or setter,
+    /// `(λ (this) (#%unbox (getter this i)))` or
+    /// `(λ (this value) (#%set-box! (getter this i) value))`, the binding of
+    /// `getter` (which has to turn out to be a getter prototype), `i`, and
+    /// whether it is a setter.
+    fn field_access(&self, lambda: &LambdaFunction) -> Option<(SyntaxObjectId, usize, bool)> {
+        if lambda.rest {
+            return None;
+        }
+        let this = binding_site(lambda.args.first()?)?;
+        let ExprKind::List(body) = &lambda.body else {
+            return None;
+        };
+        let (operator, args) = body.args.split_first()?;
+        let (field, set) = match (operator_name(Some(operator))?, args, lambda.args.len()) {
+            ("#%unbox", [field], 1) => (field, false),
+            // The value stored is the second parameter.
+            ("#%set-box!", [field, ExprKind::Atom(value)], 2) => {
+                (self.reference(value)? == binding_site(&lambda.args[1])?).then_some(())?;
+                (field, true)
+            }
+            _ => return None,
+        };
+        let ExprKind::List(field) = field else {
+            return None;
+        };
+        let [ExprKind::Atom(getter), ExprKind::Atom(object), index] = field.args.as_slice() else {
+            return None;
+        };
+        let index = integer_literal(index)?;
+        (self.reference(object)? == this).then_some(())?;
+        Some((self.reference(getter)?, index, set))
+    }
+
+    /// For a lambda shaped like a mutable struct's constructor,
+    /// `(λ (a b) (#%make-mutable-struct descriptor a b))`, the binding of
+    /// `descriptor` and the id of the call.
+    fn construction(&self, lambda: &LambdaFunction) -> Option<(SyntaxObjectId, u32)> {
+        if lambda.rest {
+            return None;
+        }
+        let ExprKind::List(body) = &lambda.body else {
+            return None;
+        };
+        let (operator, args) = body.args.split_first()?;
+        if operator_name(Some(operator))? != "#%make-mutable-struct" {
+            return None;
+        }
+        let (ExprKind::Atom(descriptor), fields) = args.split_first()? else {
+            return None;
+        };
+        if fields.len() != lambda.args.len() {
+            return None;
+        }
+        for (field, param) in fields.iter().zip(&lambda.args) {
+            let ExprKind::Atom(field) = field else {
+                return None;
+            };
+            (self.reference(field)? == binding_site(param)?).then_some(())?;
+        }
+        Some((self.reference(descriptor)?, body.syntax_object_id))
     }
 
     fn expr(&mut self, expr: &ExprKind, position: Position) {
@@ -414,12 +641,12 @@ impl<'a> Collector<'a> {
             }
             ExprKind::Define(define) => {
                 self.bind(&define.name, Some(&define.body));
-                self.expr(&define.body, Position::Value);
+                self.expr(&define.body, init_position(&define.body));
             }
             ExprKind::Let(let_) => {
                 for (name, init) in &let_.bindings {
                     self.bind(name, Some(init));
-                    self.expr(init, Position::Value);
+                    self.expr(init, init_position(init));
                 }
                 self.expr(&let_.body_expr, Position::Value);
             }
@@ -464,6 +691,16 @@ impl<'a> Collector<'a> {
                     return;
                 };
                 match operator_name(Some(operator)) {
+                    Some("#%make-mutable-struct" | "#%vtable-update-entry!")
+                        if matches!(args.first(), Some(ExprKind::Atom(_))) =>
+                    {
+                        self.expr(operator, Position::Operator);
+                        self.expr(&args[0], Position::DescriptorUse);
+                        for arg in &args[1..] {
+                            self.expr(arg, Position::Value);
+                        }
+                        return;
+                    }
                     Some("#%set-box!") if args.len() == 2 => {
                         let target = match &args[0] {
                             ExprKind::Atom(atom) => self.reference(atom),
@@ -520,6 +757,83 @@ impl<'a> Collector<'a> {
             | ExprKind::Require(_) => {}
         }
     }
+    /// The struct types whose constructions and field writes are all direct
+    /// calls in the program: nothing that makes one or writes a field is
+    /// exported, reassigned, or used as a value.
+    fn close_structs(&mut self) {
+        // What can make a struct of each type or write one of its fields, and
+        // the positions it may appear in.
+        enum Role {
+            Call,
+            Descriptor,
+            Prototype,
+        }
+        let mut roles: FxHashMap<SyntaxObjectId, (usize, Role)> = FxHashMap::default();
+        for (id, known) in &self.facts.known {
+            let role = match known {
+                Known::Struct(ty, StructPiece::Constructor) => (*ty, Role::Call),
+                Known::Struct(ty, StructPiece::Descriptor) => (*ty, Role::Descriptor),
+                Known::Struct(ty, StructPiece::GetterPrototype) => (*ty, Role::Prototype),
+                Known::Lambda(lambda) => {
+                    if let Some(&ty) = self.facts.struct_constructors.get(lambda) {
+                        (ty, Role::Call)
+                    } else if let Some(accessor) = self.facts.struct_accessors.get(lambda) {
+                        if !accessor.set {
+                            continue;
+                        }
+                        (accessor.ty, Role::Call)
+                    } else {
+                        continue;
+                    }
+                }
+                _ => continue,
+            };
+            roles.insert(*id, role);
+        }
+
+        let mut open = FxHashSet::default();
+        // Every call of a getter prototype is inside one of its accessors.
+        let mut prototype_calls: FxHashMap<SyntaxObjectId, usize> = FxHashMap::default();
+        for &(_, getter, _, _) in &self.accessor_candidates {
+            *prototype_calls.entry(getter).or_default() += 1;
+        }
+        for (id, (ty, role)) in &roles {
+            let uses = self.uses.get(id).map(Vec::as_slice).unwrap_or(&[]);
+            let allowed = match role {
+                Role::Call => uses
+                    .iter()
+                    .all(|p| matches!(p, Position::Operator | Position::AliasInit)),
+                Role::Descriptor => uses
+                    .iter()
+                    .all(|p| matches!(p, Position::DescriptorUse | Position::AliasInit)),
+                Role::Prototype => {
+                    uses.iter().all(|p| matches!(p, Position::Operator))
+                        && prototype_calls.get(id).copied().unwrap_or(0) == uses.len()
+                }
+            };
+            let exported = match self.exports {
+                None => self.facts.globals.contains(id),
+                Some(exports) => self
+                    .binding_names
+                    .get(id)
+                    .is_some_and(|name| exports.iter().any(|e| names_match(name.resolve(), e))),
+            };
+            if !allowed || exported {
+                open.insert(*ty);
+            }
+        }
+        // A reassigned alias may have held one of them.
+        for (alias, target) in &self.aliases {
+            if self.facts.mutated.contains(alias) {
+                if let Some((ty, _)) = roles.get(target) {
+                    open.insert(*ty);
+                }
+            }
+        }
+        self.facts.closed_structs = (0..self.facts.structs.len())
+            .filter(|ty| !open.contains(ty))
+            .collect();
+    }
 
     fn finish(mut self) -> Facts {
         // For a `set!` we could not tie to its binding, every binding of that
@@ -560,7 +874,28 @@ impl<'a> Collector<'a> {
         for id in &self.facts.mutated {
             self.facts.known.remove(id);
         }
-
+        for &(lambda, getter, field, set) in &self.accessor_candidates {
+            if let Some(&Known::Struct(ty, StructPiece::GetterPrototype)) =
+                self.facts.known.get(&getter)
+            {
+                if field < self.facts.structs[ty].fields {
+                    self.facts
+                        .struct_accessors
+                        .insert(lambda, Accessor { ty, field, set });
+                }
+            }
+        }
+        for &(lambda, descriptor, call) in &self.constructor_candidates {
+            if let Some(&Known::Struct(ty, StructPiece::Descriptor)) =
+                self.facts.known.get(&descriptor)
+            {
+                if self.facts.arity.get(&lambda) == Some(&(self.facts.structs[ty].fields, false)) {
+                    self.facts.struct_constructors.insert(lambda, ty);
+                    self.facts.constructor_bodies.insert(call);
+                }
+            }
+        }
+        self.close_structs();
         // A lambda is closed when every way to reach it is a direct call we can see.
         // A box holding a lambda is closed when it is only ever unboxed to be
         // called (plus its one store).
@@ -612,6 +947,98 @@ impl<'a> Collector<'a> {
     }
 }
 
+/// How a `define` / `let` uses its value: a lone variable is aliased.
+fn init_position(init: &ExprKind) -> Position {
+    match init {
+        ExprKind::Atom(_) => Position::AliasInit,
+        _ => Position::Value,
+    }
+}
+
+/// The value of a non-negative integer literal.
+fn integer_literal(expr: &ExprKind) -> Option<usize> {
+    let ExprKind::Atom(atom) = expr else {
+        return None;
+    };
+    match &atom.syn.ty {
+        TokenType::Number(number) => match number.resolve() {
+            NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(n))) => usize::try_from(n).ok(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The names a module's `provide` forms make visible, from its source before
+/// expansion. None when that cannot be told: a `provide` anywhere but at the
+/// top level (as a macro might write one), or a form it does not know.
+pub fn exported_names(source: &[ExprKind]) -> Option<FxHashSet<String>> {
+    fn mentions_provide(expr: &ExprKind) -> bool {
+        match expr {
+            ExprKind::Atom(atom) => atom.ident().is_some_and(|name| name.resolve() == "provide"),
+            ExprKind::List(list) => list.args.iter().any(mentions_provide),
+            ExprKind::Quote(quote) => mentions_provide(&quote.expr),
+            ExprKind::Begin(begin) => begin.exprs.iter().any(mentions_provide),
+            ExprKind::Define(define) => mentions_provide(&define.body),
+            ExprKind::LambdaFunction(lambda) => mentions_provide(&lambda.body),
+            ExprKind::If(if_) => {
+                mentions_provide(&if_.test_expr)
+                    || mentions_provide(&if_.then_expr)
+                    || mentions_provide(&if_.else_expr)
+            }
+            ExprKind::Let(let_) => {
+                let_.bindings
+                    .iter()
+                    .any(|(_, value)| mentions_provide(value))
+                    || mentions_provide(&let_.body_expr)
+            }
+            ExprKind::Set(set) => mentions_provide(&set.expr),
+            ExprKind::Return(return_) => mentions_provide(&return_.expr),
+            ExprKind::Vector(vector) => vector.args.iter().any(mentions_provide),
+            // A macro could write a `provide` when its definition mentions one.
+            ExprKind::Macro(_) | ExprKind::SyntaxRules(_) => expr
+                .to_string()
+                .split(|c: char| c.is_whitespace() || "()[]".contains(c))
+                .any(|token| token == "provide"),
+            ExprKind::Require(_) => false,
+        }
+    }
+    fn top_level(expr: &ExprKind, names: &mut FxHashSet<String>) -> Option<()> {
+        match expr {
+            ExprKind::Begin(begin) => {
+                for expr in &begin.exprs {
+                    top_level(expr, names)?;
+                }
+                Some(())
+            }
+            ExprKind::List(list) if operator_name(list.args.first()) == Some("provide") => {
+                for item in &list.args[1..] {
+                    let name = match item {
+                        ExprKind::Atom(atom) => atom.ident()?,
+                        ExprKind::List(form) => {
+                            match (operator_name(form.args.first())?, form.args.get(1)) {
+                                ("for-syntax" | "contract/out", Some(name)) => {
+                                    name.atom_identifier()?
+                                }
+                                _ => return None,
+                            }
+                        }
+                        _ => return None,
+                    };
+                    names.insert(name.resolve().to_string());
+                }
+                Some(())
+            }
+            other => (!mentions_provide(other)).then_some(()),
+        }
+    }
+    let mut names = FxHashSet::default();
+    for expr in source {
+        top_level(expr, &mut names)?;
+    }
+    Some(names)
+}
+
 /// The syntax object id a binding site (`define` / `let` name, parameter)
 /// declares.
 fn binding_site(name: &ExprKind) -> Option<SyntaxObjectId> {
@@ -644,6 +1071,8 @@ type Env = FxHashMap<SyntaxObjectId, TypeSet>;
 enum Callee<'p> {
     Primitive(&'p FunctionSignatureMetadata),
     Lambda(u32),
+    /// A piece of the program's struct type (see [`StructPiece`]).
+    Struct(usize, StructPiece),
     Unknown,
 }
 
@@ -720,6 +1149,7 @@ impl<'a> Inference<'a> {
                 match reference(self.analysis, atom) {
                     Some(id) => match self.facts.known.get(&id) {
                         Some(Known::Lambda(lambda)) => Callee::Lambda(*lambda),
+                        Some(Known::Struct(ty, piece)) => Callee::Struct(*ty, *piece),
                         Some(Known::Primitive(name)) => self
                             .primitives
                             .get(name.resolve())
@@ -924,34 +1354,88 @@ impl<'a> Inference<'a> {
                         && (declared.rest.is_some() || args.len() == declared.fixed.len());
                     if count_ok {
                         for (i, arg) in args.iter().enumerate() {
-                            let Some(declared_ty) = declared.get(i) else { continue };
+                            let Some(declared_ty) = declared.get(i) else {
+                                continue;
+                            };
                             let ty = TypeSet::from_arg_type(declared_ty);
                             if ty.is_top() {
                                 continue;
                             }
-                            // An argument that cannot produce a value never
-                            // reaches the call.
-                            let found = arg_types[i];
-                            if !found.is_bottom() && found.intersect(ty).is_bottom() {
-                                self.current.failures.push(CallFailure {
-                                    function: operator_name(Some(operator))
-                                        .unwrap_or_default()
-                                        .to_string(),
-                                    operator: operator.span(),
-                                    argument: i,
-                                    span: arg.span(),
-                                    declared: declared_ty,
-                                    expected: ty,
-                                    found,
-                                });
-                            }
-                            self.narrow(arg, env, |current| current.intersect(ty));
+                            self.require(
+                                operator,
+                                i,
+                                arg,
+                                arg_types[i],
+                                ty,
+                                declared_ty.to_string(),
+                                env,
+                            );
                         }
                     }
                 }
-                TypeSet::from_value_type(signature.return_type)
+                if let Some(ty) = self.mutable_construction(list, operator, args) {
+                    self.construct(ty, &arg_types[1..]);
+                }
+                self.struct_result(operator, args)
+                    .unwrap_or_else(|| TypeSet::from_value_type(signature.return_type))
+            }
+            Callee::Struct(ty, piece) => {
+                let this = TypeSet::structure(ty);
+                let name = &self.facts.structs[ty].name;
+                match piece {
+                    StructPiece::Constructor => {
+                        self.construct(ty, &arg_types);
+                        this
+                    }
+                    StructPiece::Predicate => TypeSet::BOOL,
+                    StructPiece::GetterPrototype | StructPiece::Getter(_) => {
+                        let takes = if piece == StructPiece::GetterPrototype {
+                            2
+                        } else {
+                            1
+                        };
+                        if let (Some(arg), true) = (args.first(), args.len() == takes) {
+                            let declared = name.clone();
+                            self.require(operator, 0, arg, arg_types[0], this, declared, env);
+                        }
+                        match piece {
+                            StructPiece::Getter(field) => self.field(ty, field),
+                            _ => TypeSet::TOP,
+                        }
+                    }
+                    // Calling these raises, but nothing else is claimed.
+                    StructPiece::Table | StructPiece::Descriptor | StructPiece::Getters => {
+                        TypeSet::TOP
+                    }
+                }
             }
             Callee::Lambda(lambda) => {
+                let takes = self.facts.arity.get(&lambda).map(|&(fixed, _)| fixed);
+                let fits = takes == Some(args.len());
+                let mut field_read = None;
+                if let Some(&accessor) = self.facts.struct_accessors.get(&lambda) {
+                    if let (Some(arg), true) = (args.first(), fits) {
+                        let ty = accessor.ty;
+                        let declared = self.facts.structs[ty].name.clone();
+                        self.require(
+                            operator,
+                            0,
+                            arg,
+                            arg_types[0],
+                            TypeSet::structure(ty),
+                            declared,
+                            env,
+                        );
+                        if accessor.set {
+                            self.store_field(ty, accessor.field, arg_types[1]);
+                        } else {
+                            field_read = Some(self.field(ty, accessor.field));
+                        }
+                    }
+                }
+                if let (Some(&ty), true) = (self.facts.struct_constructors.get(&lambda), fits) {
+                    self.construct(ty, &arg_types);
+                }
                 if self.facts.closed.contains(&lambda) {
                     if let Some(&(fixed, rest)) = self.facts.arity.get(&lambda) {
                         if arg_types.len() == fixed || (rest && arg_types.len() >= fixed) {
@@ -965,12 +1449,14 @@ impl<'a> Inference<'a> {
                         }
                     }
                 }
-                self.current
-                    .returns
-                    .get(&lambda)
-                    .or_else(|| self.previous.returns.get(&lambda))
-                    .copied()
-                    .unwrap_or(TypeSet::BOTTOM)
+                field_read.unwrap_or_else(|| {
+                    self.current
+                        .returns
+                        .get(&lambda)
+                        .or_else(|| self.previous.returns.get(&lambda))
+                        .copied()
+                        .unwrap_or(TypeSet::BOTTOM)
+                })
             }
             Callee::Unknown => TypeSet::TOP,
         }
@@ -999,7 +1485,159 @@ impl<'a> Inference<'a> {
                 }
                 _ => None,
             },
+            Callee::Struct(ty, piece) => {
+                let expected = match piece {
+                    StructPiece::Constructor => self.facts.structs[*ty].fields,
+                    StructPiece::Predicate | StructPiece::Getter(_) => 1,
+                    StructPiece::GetterPrototype => 2,
+                    StructPiece::Table | StructPiece::Descriptor | StructPiece::Getters => {
+                        return None
+                    }
+                };
+                (count != expected).then(|| format!("{expected} {}", plural(expected)))
+            }
             Callee::Unknown => None,
+        }
+    }
+
+    /// A call that returns normally proves argument `index` had type
+    /// `required`: narrow it, and record the call as always failing when the
+    /// argument can never be of it. `declared` is `required` as the function's
+    /// declaration spells it.
+    #[allow(clippy::too_many_arguments)]
+    fn require(
+        &mut self,
+        operator: &ExprKind,
+        index: usize,
+        arg: &ExprKind,
+        found: TypeSet,
+        required: TypeSet,
+        declared: String,
+        env: &mut Env,
+    ) {
+        // An argument that cannot produce a value never reaches the call.
+        if !found.is_bottom() && found.intersect(required).is_bottom() {
+            let structs = self.struct_names();
+            self.current.failures.push(CallFailure {
+                function: operator_name(Some(operator))
+                    .unwrap_or_default()
+                    .to_string(),
+                operator: operator.span(),
+                argument: index,
+                span: arg.span(),
+                declared,
+                expected: required,
+                found: found.show(&structs),
+            });
+        }
+        self.narrow(arg, env, |current| current.intersect(required));
+    }
+    /// What field `field` of struct type `ty` can hold: what every
+    /// construction and write of it stored, when those are all known.
+    fn field(&self, ty: usize, field: usize) -> TypeSet {
+        if !self.facts.closed_structs.contains(&ty) {
+            return TypeSet::TOP;
+        }
+        self.previous
+            .fields
+            .get(&ty)
+            .and_then(|fields| fields.get(field))
+            .copied()
+            // No construction seen yet, in any iteration.
+            .unwrap_or(TypeSet::BOTTOM)
+    }
+
+    fn store_field(&mut self, ty: usize, field: usize, value: TypeSet) {
+        if !self.facts.closed_structs.contains(&ty) {
+            return;
+        }
+        let count = self.facts.structs[ty].fields;
+        let fields = self
+            .current
+            .fields
+            .entry(ty)
+            .or_insert_with(|| vec![TypeSet::BOTTOM; count]);
+        if let Some(slot) = fields.get_mut(field) {
+            *slot = slot.union(value);
+        }
+    }
+
+    /// A struct of type `ty` made from `values`, one per field.
+    fn construct(&mut self, ty: usize, values: &[TypeSet]) {
+        if values.len() != self.facts.structs[ty].fields {
+            return;
+        }
+        for (field, value) in values.iter().enumerate() {
+            self.store_field(ty, field, *value);
+        }
+    }
+
+    /// The struct type a `(#%make-mutable-struct descriptor fields ...)` call
+    /// makes, unless it is the one inside a recognized constructor, whose
+    /// fields are its parameters (the calls of the constructor are counted).
+    fn mutable_construction(
+        &self,
+        list: &crate::parser::ast::List,
+        operator: &ExprKind,
+        args: &[ExprKind],
+    ) -> Option<usize> {
+        if operator_name(Some(operator))? != "#%make-mutable-struct"
+            || self
+                .facts
+                .constructor_bodies
+                .contains(&list.syntax_object_id)
+        {
+            return None;
+        }
+        let ExprKind::Atom(descriptor) = args.first()? else {
+            return None;
+        };
+        match self
+            .facts
+            .known
+            .get(&reference(self.analysis, descriptor)?)?
+        {
+            Known::Struct(ty, StructPiece::Descriptor) => Some(*ty),
+            _ => None,
+        }
+    }
+
+    fn struct_names(&self) -> Vec<String> {
+        self.facts
+            .structs
+            .iter()
+            .map(|ty| ty.name.clone())
+            .collect()
+    }
+
+    /// What a native function call builds when it takes apart a struct type or
+    /// makes a struct: `(list-ref table i)` of a `make-struct-type` result, and
+    /// `(#%make-mutable-struct descriptor fields ...)`.
+    fn struct_result(&self, operator: &ExprKind, args: &[ExprKind]) -> Option<TypeSet> {
+        let known = |expr: &ExprKind| match expr {
+            ExprKind::Atom(atom) => {
+                reference(self.analysis, atom).and_then(|id| self.facts.known.get(&id).copied())
+            }
+            _ => None,
+        };
+        match (operator_name(Some(operator))?, args) {
+            ("#%make-mutable-struct", [descriptor, ..]) => match known(descriptor)? {
+                Known::Struct(ty, StructPiece::Descriptor) => Some(TypeSet::structure(ty)),
+                _ => None,
+            },
+            ("list-ref", [table, _]) => match known(table)? {
+                Known::Struct(_, StructPiece::Table) | Known::Struct(_, StructPiece::Getters) => {
+                    // The descriptor is the one piece that is not a procedure
+                    // or a list, and it is never called.
+                    Some(
+                        TypeSet::PROCEDURE
+                            .union(TypeSet::LIST)
+                            .union(TypeSet::OTHER),
+                    )
+                }
+                _ => None,
+            },
+            _ => None,
         }
     }
 
@@ -1019,6 +1657,12 @@ impl<'a> Inference<'a> {
                         self.narrow(&list.args[1], then_env, |ty| ty.intersect(holds));
                         self.narrow(&list.args[1], else_env, |ty| ty.without(excludes));
                     }
+                }
+                // A struct predicate is true exactly for its own type.
+                if let Callee::Struct(ty, StructPiece::Predicate) = self.callee(&list.args[0]) {
+                    let this = TypeSet::structure(ty);
+                    self.narrow(&list.args[1], then_env, |ty| ty.intersect(this));
+                    self.narrow(&list.args[1], else_env, |ty| ty.without(this));
                 }
             }
             // `(and a b)` expands to `(if a b #f)`. When it is true, both were.
@@ -1189,7 +1833,7 @@ pub fn inlay_hints(
             Some(lambda) => match info.returns.get(lambda) {
                 Some(&ty) if worth_showing(ty) => {
                     at = return_hint_offset(text, span);
-                    format!("-> {ty}")
+                    format!("-> {}", info.show(ty))
                 }
                 _ => continue,
             },
@@ -1207,18 +1851,19 @@ pub fn inlay_hints(
                     .find_map(|id| info.required.get(id).copied())
                     .filter(|&req| req != first && first.contains(req) && worth_showing(req));
                 if let Some(required) = required {
-                    let shown = required.to_string();
+                    let shown = info.show(required);
                     let shown = if shown.contains(' ') {
                         format!("({shown})")
                     } else {
                         shown
                     };
                     tooltip = Some(format!(
-                        "Expected {required}. Calls that return normally pass one, but it is not checked on entry."
+                        "Expected {}. Calls that return normally pass one, but it is not checked on entry.",
+                        info.show(required)
                     ));
                     format!(": {shown}?")
                 } else if worth_showing(first) {
-                    format!(": {first}")
+                    format!(": {}", info.show(first))
                 } else {
                     continue;
                 }
@@ -1312,8 +1957,9 @@ pub fn written_call_failures<'a>(
         };
         written(failure.operator)
             && written(failure.span)
-            && text.get(failure.operator.start as usize..failure.operator.end as usize)
-                == Some(failure.function.as_str())
+            && text
+                .get(failure.operator.start as usize..failure.operator.end as usize)
+                .is_some_and(|written| names_match(&failure.function, written))
             && seen.insert((failure.span.start, failure.argument))
     })
 }
@@ -1452,9 +2098,11 @@ pub fn hover_type(
             let required = info.required.get(&id).copied();
             let shown = match required {
                 Some(req) if req != ty && ty.contains(req) && !req.is_top() && !req.is_bottom() => {
-                    format!("{}: {req}?", name_of(atom))
+                    format!("{}: {}?", name_of(atom), info.show(req))
                 }
-                _ if !ty.is_top() && !ty.is_bottom() => format!("{}: {ty}", name_of(atom)),
+                _ if !ty.is_top() && !ty.is_bottom() => {
+                    format!("{}: {}", name_of(atom), info.show(ty))
+                }
                 _ => name_of(atom),
             };
             if i == fixed {
@@ -1463,7 +2111,7 @@ pub fn hover_type(
             parts.push(shown);
         }
         let ret = info.returns.get(&lambda).copied().unwrap_or(TypeSet::TOP);
-        Some(format!("({}) -> {ret}", parts.join(" ")))
+        Some(format!("({}) -> {}", parts.join(" "), info.show(ret)))
     };
 
     // The function a binding or reference denotes, if any.
@@ -1488,7 +2136,7 @@ pub fn hover_type(
             let sig = signature(&name, lambda)?;
             return Some(match role {
                 Role::Operator(call) => match info.calls.get(&call) {
-                    Some(ty) => format!("{sig}\n; this call: {ty}"),
+                    Some(&ty) => format!("{sig}\n; this call: {}", info.show(ty)),
                     None => sig,
                 },
                 _ => sig,
@@ -1502,25 +2150,25 @@ pub fn hover_type(
                     Some(req)
                         if req != ty && ty.contains(req) && !req.is_top() && !req.is_bottom() =>
                     {
-                        format!("{name}: {ty}, expected {req}")
+                        format!("{name}: {}, expected {}", info.show(ty), info.show(req))
                     }
-                    _ => format!("{name}: {ty}"),
+                    _ => format!("{name}: {}", info.show(ty)),
                 }
             }
             Role::Reference => {
                 let ty = info.references.get(&id).copied().unwrap_or(TypeSet::TOP);
-                format!("{name}: {ty}")
+                format!("{name}: {}", info.show(ty))
             }
             Role::Operator(call) => {
                 let ty = info.calls.get(&call).copied().unwrap_or(TypeSet::TOP);
-                format!("({name} ...) -> {ty}")
+                format!("({name} ...) -> {}", info.show(ty))
             }
         });
     }
 
     let call = walk.call_at_paren?;
     let ty = info.calls.get(&call)?;
-    Some(format!("-> {ty}"))
+    Some(format!("-> {}", info.show(*ty)))
 }
 
 fn is_false_literal(expr: &ExprKind) -> bool {
@@ -1971,6 +2619,249 @@ mod tests {
         assert_eq!(failures, Vec::<String>::new());
     }
 
+    const STRUCTS: &str = "(struct point (x y))
+(struct rect (w h))
+(struct cell (v) #:mutable)
+(define p (point 1 2))
+(define r (rect 1 2))
+(define c (cell 5))
+";
+
+    #[test]
+    fn struct_hints() {
+        let hints = hints_for(&format!(
+            "{STRUCTS}(define (get q) (point-x q))
+(define (cget q) (cell-v q))
+(define (either q) (if (point? q) (point-y q) (rect-h q)))
+(define (make) (point 1 2))
+(define (not-point q) (if (point? q) (rect-w q) 0))"
+        ));
+        assert_eq!(
+            hints,
+            vec![
+                "p : point",
+                "r : rect",
+                "c : cell",
+                // An accessor takes only its own struct type.
+                "q : point?",
+                "q : cell?",
+                // Each branch demands one of them.
+                "q : (point | rect)?",
+                "(make) -> point",
+                // A point never gets through the first branch.
+                "q : (any except point)?",
+            ]
+        );
+    }
+
+    #[test]
+    fn struct_failures() {
+        let failures = failures_for(&format!(
+            "{STRUCTS}(define (a) (point-x r))
+(define (b) (point-x \"abc\"))
+(define (d) (cell-v 5))
+(define (e) (set-cell-v! r 1))
+(define (f q) (if (point? q) (rect-w q) 0))
+(define (g) (vector-ref p 0))
+(define (ok1 q) (if (point? q) (point-x q) (rect-w q)))
+(define (ok2) (list (point-x p) (cell-v c) (set-cell-v! c 2) (rect-h r)))"
+        ));
+        let arity = arity_failures_for(&format!(
+            "{STRUCTS}(define (a) (point 1))
+(define (b) (point-x))
+(define (d) (cell 1 2))
+(define (e) (point? p r))
+(define (ok) (list (point 1 2) (point-x p) (cell 1) (point? p)))"
+        ));
+        assert_eq!(
+            failures,
+            vec![
+                "r `point-x` always raises here: argument 1 is always rect, but it must be point",
+                "\"abc\" `point-x` always raises here: argument 1 is always string, but it must be point",
+                "5 `cell-v` always raises here: argument 1 is always int, but it must be cell",
+                "r `set-cell-v!` always raises here: argument 1 is always rect, but it must be cell",
+                // The predicate narrowed q to a point.
+                "q `rect-w` always raises here: argument 1 is always point, but it must be rect",
+                "p `vector-ref` always raises here: argument 1 is always point, but it must be vector|mutable-vector|flat-vector",
+            ]
+        );
+        assert_eq!(
+            arity,
+            vec![
+                "ArityMismatch: point expects 2 arguments, found 1",
+                "ArityMismatch: point-x expects 1 argument, found 0",
+                "ArityMismatch: cell expects 1 argument, found 2",
+                "ArityMismatch: point? expects 1 argument, found 2",
+            ]
+        );
+    }
+
+    #[test]
+    fn struct_functions_that_are_redefined_are_not_trusted() {
+        let failures = failures_for(&format!(
+            "{STRUCTS}(set! point-x car)
+(define (a) (point-x r))
+(define (b)
+  (define (rect-w x) x)
+  (rect-w p))"
+        ));
+        assert_eq!(failures, Vec::<String>::new());
+
+        // A struct type made at run time, by a function, is not one of the
+        // program's struct types.
+        let src = "(define (make) (make-struct-type 'foo 1 (current-module-relative)))
+(define table (make))
+(define foo (list-ref table 1))
+(define foo-a (list-ref (list-ref table 4) 0))
+(define (a) (foo 1 2))
+(define (b) (foo-a 5))";
+        assert_eq!(failures_for(src), Vec::<String>::new());
+        assert_eq!(arity_failures_for(src), Vec::<String>::new());
+    }
+
+    #[test]
+    fn structs_from_a_required_module() {
+        let mut engine = Engine::new();
+        engine.register_steel_module(
+            "shapes".to_string(),
+            "(provide point point-x point?) (struct point (x y))".to_string(),
+        );
+        let src = "(require \"shapes\")
+(define p (point 1 2))
+(define (ok) (list (point-x p) (point? p)))";
+        let mut exprs = engine
+            .emit_expanded_ast_without_optimizations(src, None)
+            .unwrap();
+        let source = exprs.last().and_then(|e| e.span().source_id()).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+        assert_eq!(written_call_failures(&info, source, src).count(), 0);
+        assert_eq!(written_arity_failures(&info, source, src).count(), 0);
+    }
+
+    /// With `TY_DUMP_SIGNATURES=path`, writes every native function's declared
+    /// signature, one per line and sorted, to compare two builds.
+    #[test]
+    fn dump_signatures() {
+        let Ok(path) = std::env::var("TY_DUMP_SIGNATURES") else {
+            return;
+        };
+        let engine = Engine::new();
+        let mut lines = Vec::new();
+        for module in engine.builtin_modules().inner().values() {
+            for name in module.names() {
+                let Some(value) = module.try_get_ref(&name) else {
+                    continue;
+                };
+                if let Some(meta) = signature_of(&value) {
+                    lines.push(format!(
+                        "{name} | {:?} | {:?} | {:?} | {:?} | {}",
+                        meta.arity, meta.return_type, meta.arg_types, meta.raises, meta.is_const
+                    ));
+                }
+            }
+        }
+        lines.sort();
+        lines.dedup();
+        std::fs::write(path, lines.join("\n") + "\n").unwrap();
+    }
+
+    /// What `failures_for` finds, for a program that exports only `exports`.
+    fn failures_exporting(src: &str, exports: &[&str]) -> Vec<String> {
+        let (engine, mut exprs, source) = expand_program(src);
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let exports: FxHashSet<String> = exports.iter().map(|e| e.to_string()).collect();
+        let info = infer_types_with_exports(
+            &analysis.exprs,
+            &analysis.analysis,
+            &primitives,
+            Some(&exports),
+        );
+        written_call_failures(&info, source, src)
+            .map(|failure| {
+                format!(
+                    "{} {}",
+                    &src[failure.span.start as usize..failure.span.end as usize],
+                    failure.message()
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn struct_field_types() {
+        let src = "(struct point (x y))
+(struct cell (v) #:mutable)
+(define p (point 1 \"a\"))
+(define c (cell 5))
+(set-cell-v! c 6)
+(define (f q) (string-length (point-x q)))
+(define (g) (string-length (cell-v c)))
+(define (ok q) (string-length (point-y q)))";
+        let expected = vec![
+            "(point-x q) `string-length` always raises here: argument 1 is always int, but it must be string",
+            "(cell-v c) `string-length` always raises here: argument 1 is always int, but it must be string",
+        ];
+        assert_eq!(failures_exporting(src, &[]), expected);
+        // Without knowing what the program exports, another module might make
+        // points of anything.
+        assert_eq!(failures_for(src), Vec::<String>::new());
+    }
+
+    #[test]
+    fn struct_fields_are_unknown_when_construction_can_happen_elsewhere() {
+        let src = "(struct point (x y))
+(struct cell (v) #:mutable)
+(define p (point 1 2))
+(define c (cell 5))
+(define (f q) (string-length (point-x q)))
+(define (g) (string-length (cell-v c)))";
+        // Exported constructor, exported setter.
+        assert_eq!(
+            failures_exporting(src, &["point", "set-cell-v!"]),
+            Vec::<String>::new()
+        );
+        // The constructor escapes as a value, and the setter is reassigned.
+        let escaped = format!(
+            "{src}
+(define makers (list point))
+(define setter set-cell-v!)
+(set! setter #f)"
+        );
+        assert_eq!(failures_exporting(&escaped, &[]), Vec::<String>::new());
+        // A setter storing something else widens the field.
+        let widened = format!("{src}\n(set-cell-v! c \"s\")");
+        assert_eq!(
+            failures_exporting(&widened, &[]),
+            vec!["(point-x q) `string-length` always raises here: argument 1 is always int, but it must be string"]
+        );
+    }
+
+    #[test]
+    fn exported_names_from_provide_forms() {
+        let parse = |src: &str| crate::parser::parser::Parser::parse(src).unwrap();
+        let names = |src: &str| {
+            exported_names(&parse(src)).map(|names| {
+                let mut names: Vec<String> = names.into_iter().collect();
+                names.sort();
+                names
+            })
+        };
+        assert_eq!(
+            names("(provide a (for-syntax m) (contract/out f (-> int? int?))) (define a 1)"),
+            Some(vec!["a".to_string(), "f".to_string(), "m".to_string()])
+        );
+        assert_eq!(names("(define a 1)"), Some(vec![]));
+        // A provide a macro might write, or a form it does not know.
+        assert_eq!(
+            names("(define-syntax p (syntax-rules () [(_) (provide a)]))"),
+            None
+        );
+        assert_eq!(names("(provide (all-defined-out))"), None);
+    }
+
     #[test]
     fn calls_that_always_raise() {
         let failures = failures_for(
@@ -2225,10 +3116,24 @@ mod tests {
             let analysis = SemanticAnalysis::new(&mut exprs);
             let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
             let start = std::time::Instant::now();
-            let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+            // What the file exports, from its `provide` forms, as the language
+            // server sees it.
+            let exports = crate::parser::parser::Parser::parse(&src)
+                .ok()
+                .and_then(|source| exported_names(&source));
+            let info = infer_types_with_exports(
+                &analysis.exprs,
+                &analysis.analysis,
+                &primitives,
+                exports.as_ref(),
+            );
             let elapsed = start.elapsed();
             for failure in &info.failures {
-                println!("{file}: always raises: {} at {:?}", failure.message(), failure.span);
+                println!(
+                    "{file}: always raises: {} at {:?}",
+                    failure.message(),
+                    failure.span
+                );
             }
             for failure in &info.arity_failures {
                 println!(
@@ -2254,8 +3159,23 @@ mod tests {
             let r = count(&mut info.returns.values().copied());
             let c = count(&mut info.calls.values().copied());
             println!(
-                "{file}: {:?} iters={} bindings(known,any,never)={b:?} returns={r:?} calls={c:?}",
-                elapsed, info.iterations
+                "{file}: {:?} iters={} bindings(known,any,never)={b:?} returns={r:?} calls={c:?} structs={} closed={} fields={:?}",
+                elapsed,
+                info.iterations,
+                info.structs.len(),
+                info.fields.len(),
+                {
+                    let mut fields: Vec<String> = info
+                        .fields
+                        .iter()
+                        .map(|(ty, fields)| {
+                            let shown: Vec<String> = fields.iter().map(|t| info.show(*t)).collect();
+                            format!("{}({})", info.structs[*ty].name, shown.join(", "))
+                        })
+                        .collect();
+                    fields.sort();
+                    fields
+                }
             );
             if std::env::var("TY_NEVER").is_ok() {
                 let mut names = FxHashMap::default();
@@ -2302,6 +3222,8 @@ mod tests {
             // A control. With the claim deliberately wrong, violations must show up.
             let ty = if std::env::var("TY_SOUND_CORRUPT").is_ok() {
                 ty.without(TypeSet::INT)
+            } else if std::env::var("TY_SOUND_CORRUPT_STRUCTS").is_ok() {
+                ty.without(TypeSet::STRUCTS)
             } else {
                 ty
             };
@@ -2514,6 +3436,27 @@ mod tests {
         }
     }
 
+    /// The struct type names of the program being checked, by index.
+    static STRUCT_NAMES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    /// `ty.matches(value)`, where a struct matches a struct type of the program
+    /// by name. The kind of a struct depends on the program, so
+    /// [`TypeSet::of`] only says `other`.
+    fn matches_with_structs(ty: TypeSet, value: &SteelVal) -> bool {
+        if ty.matches(value) {
+            return true;
+        }
+        let SteelVal::CustomStruct(s) = value else {
+            return false;
+        };
+        let names = STRUCT_NAMES.lock().unwrap();
+        ty.struct_indices().any(|index| {
+            names
+                .get(index)
+                .is_some_and(|name| name.as_str() == s.name().resolve())
+        })
+    }
+
     /// The first bad value seen at each site.
     static VIOLATIONS: std::sync::Mutex<std::collections::BTreeMap<usize, String>> =
         std::sync::Mutex::new(std::collections::BTreeMap::new());
@@ -2521,7 +3464,7 @@ mod tests {
 
     fn tycheck(bits: isize, site: isize, value: SteelVal) -> SteelVal {
         CHECKS_RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if !TypeSet::from_bits(bits as u32).matches(&value) {
+        if !matches_with_structs(TypeSet::from_bits(bits as u64), &value) {
             VIOLATIONS
                 .lock()
                 .unwrap()
@@ -2569,7 +3512,18 @@ mod tests {
             };
             let analysis = SemanticAnalysis::new(&mut exprs);
             let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
-            let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+            // What the file exports, from its `provide` forms, as the language
+            // server sees it.
+            let exports = crate::parser::parser::Parser::parse(&src)
+                .ok()
+                .and_then(|source| exported_names(&source));
+            let info = infer_types_with_exports(
+                &analysis.exprs,
+                &analysis.analysis,
+                &primitives,
+                exports.as_ref(),
+            );
+            *STRUCT_NAMES.lock().unwrap() = info.structs.iter().map(|ty| ty.name.clone()).collect();
 
             if std::env::var("TY_SOUND_DEBUG").is_ok() {
                 let narrow_required = info.required.values().filter(|t| !t.is_top()).count();

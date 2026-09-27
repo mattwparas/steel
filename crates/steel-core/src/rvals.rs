@@ -2846,9 +2846,9 @@ fn bignum_float_equality(bigint: &Gc<BigInt>, float: f64) -> bool {
 #[steel_derive::function(
     name = "=",
     constant = true,
-    returns = "bool",
-    args = "number, number",
-    raises = "bad-args"
+    returns = Bool,
+    args(Number, Number),
+    raises = BadArgs
 )]
 pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     let result = match (left, right) {

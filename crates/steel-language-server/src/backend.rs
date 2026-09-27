@@ -16,8 +16,8 @@ use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::compiler::passes::types::{
-    hover_type, infer_types, inlay_hints, written_arity_failures, written_call_failures,
-    PrimitiveSignatures,
+    exported_names, hover_type, infer_types_with_exports, inlay_hints, written_arity_failures,
+    written_call_failures, PrimitiveSignatures,
 };
 use steel::{
     compiler::{
@@ -1309,8 +1309,17 @@ impl Backend {
         let source = uri_to_source_id(uri)?;
         let offset = self.config.position_to_offset(position.position, &rope)?;
 
+        let exports = self
+            .raw_ast_map
+            .get(uri.as_str())
+            .and_then(|source| exported_names(&source));
         let analysis = SemanticAnalysis::new(&mut ast);
-        let info = infer_types(&analysis.exprs, &analysis.analysis, &PRIMITIVE_SIGNATURES);
+        let info = infer_types_with_exports(
+            &analysis.exprs,
+            &analysis.analysis,
+            &PRIMITIVE_SIGNATURES,
+            exports.as_ref(),
+        );
         hover_type(
             &analysis.exprs,
             &analysis.analysis,
@@ -1332,8 +1341,17 @@ impl Backend {
         let mut ast = self.ast_map.get_mut(uri.as_str())?;
         let source = uri_to_source_id(uri)?;
 
+        let exports = self
+            .raw_ast_map
+            .get(uri.as_str())
+            .and_then(|source| exported_names(&source));
         let analysis = SemanticAnalysis::new(&mut ast);
-        let info = infer_types(&analysis.exprs, &analysis.analysis, &PRIMITIVE_SIGNATURES);
+        let info = infer_types_with_exports(
+            &analysis.exprs,
+            &analysis.analysis,
+            &PRIMITIVE_SIGNATURES,
+            exports.as_ref(),
+        );
 
         // A range reaching past the end of the document (a common client
         // habit) means "to the end".
@@ -2043,8 +2061,17 @@ impl Backend {
                 // Calls to builtins that raise whenever they run, and calls with
                 // a number of arguments the function never takes.
                 if let Some(source) = id {
-                    let info =
-                        infer_types(&analysis.exprs, &analysis.analysis, &PRIMITIVE_SIGNATURES);
+                    // What other modules can see, from the file's `provide` forms.
+                    let exports = raw_program
+                        .as_ref()
+                        .ok()
+                        .and_then(|source| exported_names(source));
+                    let info = infer_types_with_exports(
+                        &analysis.exprs,
+                        &analysis.analysis,
+                        &PRIMITIVE_SIGNATURES,
+                        exports.as_ref(),
+                    );
                     let text = rope.to_string();
 
                     // The static arity checker above also sees functions required

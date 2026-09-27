@@ -46,9 +46,9 @@ pub fn process_module() -> BuiltInModule {
 #[function(
     name = "subprocess?",
     alias = "ChildProcess?",
-    returns = "bool",
-    args = "any",
-    raises = "never"
+    returns = Bool,
+    args(Any),
+    raises = Never
 )]
 pub fn is_subprocess(value: &SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(SteelVal::BoolV(ChildProcess::as_ref(value).is_ok()))
@@ -57,9 +57,9 @@ pub fn is_subprocess(value: &SteelVal) -> Result<SteelVal, SteelErr> {
 #[function(
     name = "command-builder?",
     alias = "CommandBuilder?",
-    returns = "bool",
-    args = "any",
-    raises = "never"
+    returns = Bool,
+    args(Any),
+    raises = Never
 )]
 pub fn is_command_builder(value: &SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(SteelVal::BoolV(CommandBuilder::as_ref(value).is_ok()))
@@ -76,7 +76,7 @@ pub fn is_command_builder(value: &SteelVal) -> Result<SteelVal, SteelErr> {
 /// ```scheme
 /// > (spawn-process (command "echo" (list "hello" "world")))
 /// ```
-#[function(name = "command", args = "string, list")]
+#[function(name = "command", args(String, List))]
 pub fn command(name: SteelString, args: &List<SteelVal>) -> Result<SteelVal, SteelErr> {
     let mut command = Command::new(name.as_str());
 
@@ -104,7 +104,7 @@ pub fn command(name: SteelString, args: &List<SteelVal>) -> Result<SteelVal, Ste
 ///       unwrap-ok
 ///       wait)
 /// ```
-#[function(name = "with-current-dir", alias = "set-current-dir!", args = "any, string|symbol")]
+#[function(name = "with-current-dir", alias = "set-current-dir!", args(Any, String | Symbol))]
 pub fn current_dir(builder: SteelVal, directory: String) -> Result<SteelVal, SteelErr> {
     let mut guard = CommandBuilder::as_mut_ref(&builder)?;
     guard.current_dir(directory);
@@ -128,7 +128,7 @@ pub fn current_dir(builder: SteelVal, directory: String) -> Result<SteelVal, Ste
 ///       unwrap-ok
 ///       wait)
 /// ```
-#[function(name = "with-env-var", alias = "set-env-var!", args = "any, string|symbol, string|symbol")]
+#[function(name = "with-env-var", alias = "set-env-var!", args(Any, String | Symbol, String | Symbol))]
 pub fn set_env_var(builder: SteelVal, key: String, value: String) -> Result<SteelVal, SteelErr> {
     let mut guard = CommandBuilder::as_mut_ref(&builder)?;
     guard.env_var(key, value);
@@ -151,7 +151,7 @@ pub fn set_env_var(builder: SteelVal, key: String, value: String) -> Result<Stee
 ///       unwrap-ok
 ///       wait)
 /// ```
-#[function(name = "without-env-var", args = "any, string|symbol")]
+#[function(name = "without-env-var", args(Any, String | Symbol))]
 pub fn remove_env_var(builder: SteelVal, key: String) -> Result<SteelVal, SteelErr> {
     let mut guard = CommandBuilder::as_mut_ref(&builder)?;
     guard.command.env_remove(key);
@@ -526,7 +526,7 @@ pub fn child_stderr(child: &SteelVal) -> Result<SteelVal, SteelErr> {
 /// (subprocess-kill subprocess)
 ///
 /// subprocess : ChildProcess?
-#[function(name = "kill", alias = "subprocess-kill", returns = "void")]
+#[function(name = "kill", alias = "subprocess-kill", returns = Void)]
 pub fn child_kill(child: &SteelVal) -> Result<SteelVal, SteelErr> {
     let mut child = ChildProcess::as_mut_ref(&child)?;
     child.kill()
@@ -554,7 +554,7 @@ struct ChildProcess {
 /// > (which "ls") ;; => "/bin/ls"
 /// > (which "some-nonexistent-binary") ;; => #false
 /// ```
-#[function(name = "which", args = "string|symbol", raises = "bad-args")]
+#[function(name = "which", args(String | Symbol), raises = BadArgs)]
 fn binary_exists_on_path(binary: String) -> Option<String> {
     #[cfg(not(any(target_family = "wasm", target_env = "newlib")))]
     match which::which(binary) {

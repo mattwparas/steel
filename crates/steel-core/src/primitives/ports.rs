@@ -127,14 +127,14 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
 /// ```scheme
 /// > (stdin) ;; => #<input-port:stdin>
 /// ```
-#[function(name = "stdin", args = "", raises = "never")]
+#[function(name = "stdin", args(), raises = Never)]
 pub fn open_stdin() -> SteelVal {
     SteelVal::PortV(SteelPort {
         port: Gc::new_lock(SteelPortRepr::StdInput(Peekable::new(std::io::stdin()))),
     })
 }
 
-#[function(name = "stdout", args = "", raises = "never")]
+#[function(name = "stdout", args(), raises = Never)]
 pub fn open_stdout() -> SteelVal {
     SteelVal::PortV(SteelPort {
         port: Gc::new_lock(SteelPortRepr::StdOutput(std::io::stdout())),
@@ -156,7 +156,7 @@ pub fn open_stdout() -> SteelVal {
 /// 1 │ (open-input-file "foo-bar.txt")
 ///   │  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
 /// ```
-#[function(name = "open-input-file", args = "string")]
+#[function(name = "open-input-file", args(String))]
 pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
     SteelPort::new_textual_file_input(path).map(SteelVal::PortV)
 }
@@ -171,8 +171,8 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 /// ```
 #[native(
     name = "open-output-file",
-    arity = "AtLeast(1)",
-    args = "string, any..."
+    arity = AtLeast(1),
+    args(String, rest = Any)
 )]
 pub fn open_output_file(args: &[SteelVal]) -> Result<SteelVal> {
     let path = SteelString::from_steelval(&args[0])?;
@@ -241,7 +241,7 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
 /// 1 │ (open-input-file "foo-bar.txt")
 ///   │  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
 /// ```
-#[function(name = "open-input-file", args = "string")]
+#[function(name = "open-input-file", args(String))]
 pub fn open_input_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
     stop!(Generic => "A sandboxed engine cannot open the file system.")
 }
@@ -254,7 +254,7 @@ pub fn open_input_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// > (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 /// ```
-#[function(name = "open-output-file", args = "string")]
+#[function(name = "open-output-file", args(String))]
 pub fn open_output_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
     stop!(Generic => "A sandboxed engine cannot open the file system.")
 }
@@ -274,7 +274,7 @@ pub fn open_output_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
 ///
 /// (get-output-string out) ;; => "αω"
 /// ```
-#[function(name = "open-output-string", args = "", raises = "never")]
+#[function(name = "open-output-string", args(), raises = Never)]
 pub fn open_output_string() -> SteelVal {
     SteelVal::PortV(SteelPort::new_output_port_string())
 }
@@ -294,7 +294,7 @@ pub fn open_output_string() -> SteelVal {
 ///
 /// (get-output-bytevector out) ;; => (bytes 30 250)
 /// ```
-#[function(name = "open-output-bytevector", args = "", raises = "never")]
+#[function(name = "open-output-bytevector", args(), raises = Never)]
 pub fn open_output_bytevector() -> SteelVal {
     SteelVal::PortV(SteelPort::new_output_port_string())
 }
@@ -302,7 +302,7 @@ pub fn open_output_bytevector() -> SteelVal {
 /// Creates an input port from a string, that will return the string contents.
 ///
 /// (open-input-string string?) -> input-port?
-#[function(name = "open-input-string", args = "string", raises = "bad-args")]
+#[function(name = "open-input-string", args(String), raises = BadArgs)]
 pub fn open_input_string(s: &SteelString) -> SteelVal {
     SteelVal::PortV(SteelPort::new_input_port_string(s.to_string()))
 }
@@ -312,8 +312,8 @@ pub fn open_input_string(s: &SteelString) -> SteelVal {
 /// (open-input-bytevector bytes?) -> input-port?
 #[function(
     name = "open-input-bytevector",
-    args = "bytevector",
-    raises = "bad-args"
+    args(ByteVector),
+    raises = BadArgs
 )]
 pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
     // The port owns a `std::vec::Vec` (it wraps it in a `Cursor`), so this
@@ -326,7 +326,7 @@ pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
 /// (read-port-to-string [port]) -> string?
 ///
 /// * [port] : input-port? = (current-input-port)
-#[function(name = "#%read-port-to-string", returns = "string")]
+#[function(name = "#%read-port-to-string", returns = String)]
 pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
     let (_, result) = port.read_all_str()?;
     Ok(SteelVal::StringV(result.into()))
@@ -337,7 +337,7 @@ pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
 /// (read-port-to-bytes [port]) -> string?
 ///
 /// * [port] : input-port? = (current-input-port)
-#[function(name = "#%read-port-to-bytes", returns = "bytevector")]
+#[function(name = "#%read-port-to-bytes", returns = ByteVector)]
 pub fn read_port_to_bytes(port: &SteelPort) -> Result<SteelVal> {
     let (_, result) = port.read_all_bytes()?;
     Ok(SteelVal::ByteVector(SteelByteVector::new(result)))
@@ -353,7 +353,7 @@ pub fn read_port_to_bytes(port: &SteelPort) -> Result<SteelVal> {
 /// > (input-port? (stdin)) ;; => #true
 /// > (input-port? "foo") ;; => #false
 /// ```
-#[function(name = "input-port?", args = "any", raises = "never")]
+#[function(name = "input-port?", args(Any), raises = Never)]
 pub fn is_input(maybe_port: &SteelVal) -> bool {
     if let SteelVal::PortV(port) = maybe_port {
         port.is_input()
@@ -372,7 +372,7 @@ pub fn is_input(maybe_port: &SteelVal) -> bool {
 /// > (string-input-port? (stdin)) ;; => #false
 /// > (string-input-port? (open-input-string "foo")) ;; => #true
 /// ```
-#[function(name = "#%string-input-port?", args = "any", raises = "never")]
+#[function(name = "#%string-input-port?", args(Any), raises = Never)]
 pub fn is_string_input(maybe_port: &SteelVal) -> bool {
     if let SteelVal::PortV(port) = maybe_port {
         port.is_string_input()
@@ -391,7 +391,7 @@ pub fn is_string_input(maybe_port: &SteelVal) -> bool {
 /// > (file-input-port? (stdin)) ;; => #false
 /// > (file-input-port? (open-input-file "foo.scm")) ;; => #true
 /// ```
-#[function(name = "#%file-input-port?", args = "any", raises = "never")]
+#[function(name = "#%file-input-port?", args(Any), raises = Never)]
 pub fn is_file_input(maybe_port: &SteelVal) -> bool {
     if let SteelVal::PortV(port) = maybe_port {
         port.is_file_input()
@@ -410,7 +410,7 @@ pub fn is_file_input(maybe_port: &SteelVal) -> bool {
 /// > (define output (open-output-file "foo.txt"))
 /// > (output-port? output) ;; => #true
 /// ```
-#[function(name = "output-port?", args = "any", raises = "never")]
+#[function(name = "output-port?", args(Any), raises = Never)]
 pub fn is_output(maybe_port: &SteelVal) -> bool {
     if let SteelVal::PortV(port) = maybe_port {
         port.is_output()
@@ -457,7 +457,7 @@ pub fn read_line_from_port(port: &SteelPort) -> Result<SteelVal> {
     }
 }
 
-#[function(name = "write-line!", returns = "void")]
+#[function(name = "write-line!", returns = Void)]
 pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
     let line = line.to_string();
     let res = port.write_string_line(line.as_str());
@@ -469,7 +469,7 @@ pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-#[function(name = "#%raw-write", returns = "void")]
+#[function(name = "#%raw-write", returns = Void)]
 pub fn write(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
     let res = port.write(line.to_string().as_bytes());
 
@@ -480,7 +480,7 @@ pub fn write(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
     }
 }
 
-#[function(name = "#%raw-display", returns = "void")]
+#[function(name = "#%raw-display", returns = Void)]
 pub fn display(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
     let line = SteelValDisplay(line).to_string();
     let res = port.write(line.as_bytes());
@@ -492,7 +492,7 @@ pub fn display(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
     }
 }
 
-#[function(name = "#%raw-write-char", returns = "void", args = "char, any")]
+#[function(name = "#%raw-write-char", returns = Void, args(Char, Any))]
 pub fn write_char(character: char, port: &SteelPort) -> Result<SteelVal> {
     let res = port.write_char(character);
 
@@ -504,7 +504,7 @@ pub fn write_char(character: char, port: &SteelPort) -> Result<SteelVal> {
 }
 
 // TODO: support start and end
-#[function(name = "#%raw-write-string", returns = "void")]
+#[function(name = "#%raw-write-string", returns = Void)]
 pub fn write_string(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
     let res = if let SteelVal::StringV(s) = line {
         port.write(s.as_bytes())
@@ -522,7 +522,7 @@ pub fn write_string(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
 /// Extracts the string contents from a port created with `open-output-string`.
 ///
 /// (get-output-string port?) -> string?
-#[function(name = "get-output-string", returns = "string")]
+#[function(name = "get-output-string", returns = String)]
 pub fn get_output_string(port: &SteelPort) -> Result<SteelVal> {
     let Some(bytes) = port.get_output()? else {
         stop!(TypeMismatch => "get-output-string expects an output port created with open-output-string");
@@ -538,7 +538,7 @@ pub fn get_output_string(port: &SteelPort) -> Result<SteelVal> {
 /// Extracts the contents from a port created with `open-output-bytevector`.
 ///
 /// (get-output-bytevector port?) -> bytes?
-#[function(name = "get-output-bytevector", returns = "bytevector")]
+#[function(name = "get-output-bytevector", returns = ByteVector)]
 pub fn get_output_bytevector(port: &SteelPort) -> Result<SteelVal> {
     let Some(bytes) = port.get_output()? else {
         stop!(TypeMismatch => "get-output-bytevector expects an output port created with open-output-bytevector");
@@ -547,22 +547,22 @@ pub fn get_output_bytevector(port: &SteelPort) -> Result<SteelVal> {
     Ok(SteelVal::ByteVector(SteelByteVector::new(bytes)))
 }
 
-#[function(name = "flush-output-port", returns = "void")]
+#[function(name = "flush-output-port", returns = Void)]
 pub fn flush_output_port(port: &SteelPort) -> Result<SteelVal> {
     port.flush().map(|_| SteelVal::Void)
 }
 
-#[function(name = "#%default-input-port", args = "", raises = "never")]
+#[function(name = "#%default-input-port", args(), raises = Never)]
 pub fn default_input_port() -> SteelVal {
     SteelVal::PortV(SteelPort::default_input_port())
 }
 
-#[function(name = "#%default-output-port", args = "", raises = "never")]
+#[function(name = "#%default-output-port", args(), raises = Never)]
 pub fn default_output_port() -> SteelVal {
     SteelVal::PortV(SteelPort::default_output_port())
 }
 
-#[function(name = "#%default-error-port", args = "", raises = "never")]
+#[function(name = "#%default-error-port", args(), raises = Never)]
 pub fn default_error_port() -> SteelVal {
     SteelVal::PortV(SteelPort::default_error_port())
 }
@@ -570,7 +570,7 @@ pub fn default_error_port() -> SteelVal {
 /// Close a port. If the port is a file, the file will be closed.
 ///
 /// (close-port port?) -> void
-#[function(name = "close-port", returns = "void")]
+#[function(name = "close-port", returns = Void)]
 pub fn close_port(port: &SteelPort) -> SteelVal {
     port.close_port();
     SteelVal::Void
@@ -579,7 +579,7 @@ pub fn close_port(port: &SteelPort) -> SteelVal {
 /// Close an output port. If the port is a file, the file will be closed.
 ///
 /// (close-output-port output-port?) -> void
-#[function(name = "close-output-port", returns = "void")]
+#[function(name = "close-output-port", returns = Void)]
 pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
     port.close_output_port().map(|_| SteelVal::Void)
 }
@@ -587,7 +587,7 @@ pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
 /// Close an input port. If the port is a file, the file will be closed.
 ///
 /// (close-input-port input-port?) -> void
-#[function(name = "close-input-port", returns = "void")]
+#[function(name = "close-input-port", returns = Void)]
 pub fn close_input_port(port: &SteelPort) -> Result<SteelVal> {
     port.close_input_port().map(|_| SteelVal::Void)
 }
@@ -595,7 +595,7 @@ pub fn close_input_port(port: &SteelPort) -> Result<SteelVal> {
 /// Returns `#t` if the value is an EOF object.
 ///
 /// (eof-object? any/c) -> bool?
-#[function(name = "eof-object?", args = "any", raises = "never")]
+#[function(name = "eof-object?", args(Any), raises = Never)]
 pub fn eof_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {
         return false;
@@ -619,12 +619,12 @@ pub fn eof_objectp_jit(value: SteelVal) -> Result<SteelVal> {
 /// Returns an EOF object.
 ///
 /// (eof-object) -> eof-object?
-#[function(name = "eof-object", args = "", raises = "never")]
+#[function(name = "eof-object", args(), raises = Never)]
 pub fn eof_object() -> SteelVal {
     eof()
 }
 
-#[function(name = "would-block", args = "", raises = "never")]
+#[function(name = "would-block", args(), raises = Never)]
 pub fn would_block_object() -> SteelVal {
     would_block()
 }
@@ -632,7 +632,7 @@ pub fn would_block_object() -> SteelVal {
 /// Returns `#t` if the value is an EOF object.
 ///
 /// (eof-object? any/c) -> bool?
-#[function(name = "would-block-object?", args = "any", raises = "never")]
+#[function(name = "would-block-object?", args(Any), raises = Never)]
 pub fn would_block_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {
         return false;
@@ -670,7 +670,7 @@ pub fn read_byte(port: &SteelPort) -> Result<SteelVal> {
 ///
 /// * amt : (and positive? int?)
 /// * port : input-port? = (current-input-port)
-#[function(name = "#%read-bytes", args = "number, any")]
+#[function(name = "#%read-bytes", args(Number, Any))]
 pub fn read_bytes(amt: usize, port: &SteelPort) -> Result<SteelVal> {
     let bytes = port.read_bytes(amt)?;
 
@@ -686,7 +686,7 @@ pub fn read_bytes(amt: usize, port: &SteelPort) -> Result<SteelVal> {
     }
 }
 
-#[function(name = "#%read-bytes!", args = "bytevector, any, number, number")]
+#[function(name = "#%read-bytes!", args(ByteVector, Any, Number, Number))]
 pub fn read_bytes_into(
     buf: &SteelByteVector,
     port: &SteelPort,
@@ -712,7 +712,7 @@ pub fn read_bytes_into(
 ///
 /// * b : byte?
 /// * port : output-port? = (current-output-port)
-#[function(name = "#%write-byte", returns = "void", args = "int, any")]
+#[function(name = "#%write-byte", returns = Void, args(Int, Any))]
 pub fn write_byte(byte: u8, port: &SteelPort) -> Result<SteelVal> {
     port.write(&[byte])?;
 
@@ -725,7 +725,7 @@ pub fn write_byte(byte: u8, port: &SteelPort) -> Result<SteelVal> {
 ///
 /// * buf : bytes?
 /// * port : output-port? = (current-output-port)
-#[function(name = "#%write-bytes", returns = "void", args = "bytevector, any")]
+#[function(name = "#%write-bytes", returns = Void, args(ByteVector, Any))]
 pub fn write_bytes(bytes: &SteelByteVector, port: &SteelPort) -> Result<SteelVal> {
     port.write(&*bytes.vec.read())?;
 

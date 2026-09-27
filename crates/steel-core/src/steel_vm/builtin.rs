@@ -279,11 +279,11 @@ pub struct NativeFunctionDefinition {
     pub doc: Option<MarkdownDoc<'static>>,
     pub is_const: bool,
     /// What every call returns, from the Rust return type or the macro's
-    /// `returns = "..."`. The jit types the result of a call with it.
+    /// `returns = ..`. The jit types the result of a call with it.
     pub return_type: crate::value_type::ValueType,
-    /// The macro's `args = "..."`; see [`crate::value_type::ArgTypes`].
+    /// The macro's `args(..)`; see [`crate::value_type::ArgTypes`].
     pub arg_types: Option<crate::value_type::ArgTypes>,
-    /// The macro's `raises = "..."`.
+    /// The macro's `raises = ..`.
     pub raises: crate::value_type::Raises,
 }
 

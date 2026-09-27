@@ -5500,10 +5500,10 @@ fn inspect_impl(ctx: &VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
 
 #[steel_derive::context(
     name = "inspect",
-    arity = "Exact(1)",
-    returns = "void",
-    args = "any",
-    raises = "never"
+    arity = Exact(1),
+    returns = Void,
+    args(Any),
+    raises = Never
 )]
 pub fn inspect(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     inspect_impl(ctx, args)
@@ -5585,7 +5585,7 @@ pub fn breakpoint(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVa
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "call-with-exception-handler", arity = "Exact(2)", args = "any, procedure")]
+#[steel_derive::context(name = "call-with-exception-handler", arity = Exact(2), args(Any, Procedure))]
 pub fn call_with_exception_handler(
     ctx: &mut VmCore,
     args: &[SteelVal],
@@ -5636,7 +5636,7 @@ pub fn call_with_exception_handler(
     None
 }
 
-#[steel_derive::context(name = "call/cc", arity = "Exact(1)", args = "procedure")]
+#[steel_derive::context(name = "call/cc", arity = Exact(1), args(Procedure))]
 pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     /*
     - Construct the continuation
@@ -5712,10 +5712,10 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 
 #[steel_derive::context(
     name = "debug-globals",
-    arity = "Exact(0)",
-    returns = "void",
-    args = "",
-    raises = "never"
+    arity = Exact(0),
+    returns = Void,
+    args(),
+    raises = Never
 )]
 fn debug_globals(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(debug_global_env(ctx, args))
@@ -5940,7 +5940,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     Ok(())
 }
 
-#[steel_derive::function(name = "emit-expanded", arity = "Exact(1)", args = "string|symbol")]
+#[steel_derive::function(name = "emit-expanded", arity = Exact(1), args(String | Symbol))]
 fn emit_expanded_file(path: String) {
     let mut engine = crate::steel_vm::engine::Engine::new();
 
@@ -5949,7 +5949,7 @@ fn emit_expanded_file(path: String) {
     engine.expand_to_file(contents, std::path::PathBuf::from(path))
 }
 
-#[steel_derive::function(name = "load-expanded", arity = "Exact(1)", args = "string|symbol")]
+#[steel_derive::function(name = "load-expanded", arity = Exact(1), args(String | Symbol))]
 fn load_expanded_file(path: String) {
     let mut engine = crate::steel_vm::engine::Engine::new();
     engine.load_from_expanded_file(&path)
@@ -5957,9 +5957,9 @@ fn load_expanded_file(path: String) {
 
 #[steel_derive::context(
     name = "current-module",
-    arity = "Exact(0)",
-    args = "",
-    raises = "never"
+    arity = Exact(0),
+    args(),
+    raises = Never
 )]
 fn get_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
@@ -5976,7 +5976,7 @@ fn get_module_context(
     Some(Ok(last))
 }
 
-#[steel_derive::context(name = "current-module-relative", arity = "Exact(0)")]
+#[steel_derive::context(name = "current-module-relative", arity = Exact(0))]
 fn get_module_relative_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -6005,10 +6005,10 @@ fn get_module_relative_context(
 
 #[steel_derive::context(
     name = "#%push-module-context",
-    arity = "Exact(1)",
-    returns = "void",
-    args = "any",
-    raises = "never"
+    arity = Exact(1),
+    returns = Void,
+    args(Any),
+    raises = Never
 )]
 fn push_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
@@ -6024,10 +6024,10 @@ fn push_module_context(
 
 #[steel_derive::context(
     name = "#%pop-module-context",
-    arity = "Exact(0)",
-    returns = "void",
-    args = "",
-    raises = "never"
+    arity = Exact(0),
+    returns = Void,
+    args(),
+    raises = Never
 )]
 fn pop_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
@@ -6037,7 +6037,7 @@ fn pop_module_context(
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "eval", arity = "Exact(1)")]
+#[steel_derive::context(name = "eval", arity = Exact(1))]
 fn eval(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     match eval_impl(ctx, args) {
         Ok(_) => None,
@@ -6045,7 +6045,7 @@ fn eval(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Resu
     }
 }
 
-#[steel_derive::context(name = "load", arity = "Exact(1)", args = "string")]
+#[steel_derive::context(name = "load", arity = Exact(1), args(String))]
 fn eval_file(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     match eval_file_impl(ctx, args) {
         Ok(_) => None,
@@ -6053,7 +6053,7 @@ fn eval_file(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option
     }
 }
 
-#[steel_derive::context(name = "eval-string", arity = "Exact(1)", args = "string")]
+#[steel_derive::context(name = "eval-string", arity = Exact(1), args(String))]
 fn eval_string(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -6064,7 +6064,7 @@ fn eval_string(
     }
 }
 
-#[steel_derive::context(name = "#%expand", arity = "Exact(1)")]
+#[steel_derive::context(name = "#%expand", arity = Exact(1))]
 fn expand_syntax_objects(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -6334,7 +6334,7 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
     }
 }
 
-#[steel_derive::context(name = "#%expand-syntax-case", arity = "Exact(3)", args = "any, hashmap, hashmap")]
+#[steel_derive::context(name = "#%expand-syntax-case", arity = Exact(3), args(Any, HashMap, HashMap))]
 pub(crate) fn expand_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(expand_syntax_case_impl(ctx, args))
 }
@@ -6406,12 +6406,12 @@ fn macro_case_bindings_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<Steel
     ))
 }
 
-#[steel_derive::context(name = "#%macro-case-bindings", arity = "Exact(1)", returns = "list", args = "string|symbol")]
+#[steel_derive::context(name = "#%macro-case-bindings", arity = Exact(1), returns = List, args(String | Symbol))]
 pub(crate) fn macro_case_bindings(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(macro_case_bindings_impl(ctx, args))
 }
 
-#[steel_derive::context(name = "#%match-syntax-case", arity = "Exact(2)", returns = "list", args = "string|symbol, any")]
+#[steel_derive::context(name = "#%match-syntax-case", arity = Exact(2), returns = List, args(String | Symbol, Any))]
 pub(crate) fn match_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(match_syntax_case_impl(ctx, args))
 }
@@ -6423,7 +6423,7 @@ pub struct CallStackCapture {
     names: HashMap<u32, InternedString>,
 }
 
-#[steel_derive::function(name = "dump-profiler", returns = "void")]
+#[steel_derive::function(name = "dump-profiler", returns = Void)]
 pub fn dump_profiler(value: &SteelVal) -> Result<SteelVal> {
     let capture = CallStackCapture::as_ref(value)?;
 
@@ -6452,7 +6452,7 @@ pub fn dump_profiler(value: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
-#[steel_derive::function(name = "make-callstack-profiler", args = "", raises = "never")]
+#[steel_derive::function(name = "make-callstack-profiler", args(), raises = Never)]
 pub fn make_callstack_profiler() -> Result<SteelVal> {
     CallStackCapture {
         timer: HashMap::default(),
@@ -6461,7 +6461,7 @@ pub fn make_callstack_profiler() -> Result<SteelVal> {
     .into_steelval()
 }
 
-#[steel_derive::context(name = "callstack-hydrate-names", arity = "Exact(1)", returns = "void")]
+#[steel_derive::context(name = "callstack-hydrate-names", arity = Exact(1), returns = Void)]
 pub fn callstack_hydrate_names(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut capture = CallStackCapture::as_mut_ref(&args[0]).unwrap();
 
@@ -6480,7 +6480,7 @@ pub fn callstack_hydrate_names(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Re
 
 impl crate::rvals::Custom for CallStackCapture {}
 
-#[steel_derive::context(name = "#%snapshot-stacks", arity = "Exact(1)", returns = "void")]
+#[steel_derive::context(name = "#%snapshot-stacks", arity = Exact(1), returns = Void)]
 pub(crate) fn sample_stacks(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut capture = CallStackCapture::as_mut_ref(&args[0]).unwrap();
 
@@ -6527,7 +6527,7 @@ pub(crate) fn sample_stacks(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resul
 /// > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
 /// > (apply list 1 2 (list 3 4)) ;; => '(1 2 3 4)
 ///```
-#[steel_derive::context(name = "apply", arity = "AtLeast(2)", args = "procedure, any, any...")]
+#[steel_derive::context(name = "apply", arity = AtLeast(2), args(Procedure, Any, rest = Any))]
 pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let current_instruction = ctx.instructions[ctx.ip - 1];
 

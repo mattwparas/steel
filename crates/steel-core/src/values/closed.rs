@@ -750,7 +750,7 @@ impl Custom for WillExecutor {
 }
 
 #[cfg(feature = "sync")]
-#[steel_derive::function(name = "make-will-executor", args = "", raises = "never")]
+#[steel_derive::function(name = "make-will-executor", args(), raises = Never)]
 pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
     let (sender, incoming) = crossbeam_channel::unbounded();
     WillExecutor {
@@ -762,13 +762,13 @@ pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
 }
 
 #[cfg(not(feature = "sync"))]
-#[steel_derive::function(name = "make-will-executor", args = "", raises = "never")]
+#[steel_derive::function(name = "make-will-executor", args(), raises = Never)]
 pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
     WillExecutor {}.into_steelval()
 }
 
 #[cfg(feature = "sync")]
-#[steel_derive::context(name = "will-execute", arity = "Exact(1)")]
+#[steel_derive::context(name = "will-execute", arity = Exact(1))]
 pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
     let executor = match WillExecutor::as_ref(&args[0]) {
         Ok(executor) => executor,
@@ -802,7 +802,7 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 }
 
 #[cfg(not(feature = "sync"))]
-#[steel_derive::context(name = "will-execute", arity = "Exact(1)")]
+#[steel_derive::context(name = "will-execute", arity = Exact(1))]
 pub fn will_execute(_ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
     if let Err(err) = WillExecutor::as_ref(&args[0]) {
         return Some(Err(err));
@@ -811,7 +811,7 @@ pub fn will_execute(_ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Steel
 }
 
 #[cfg(feature = "sync")]
-#[steel_derive::function(name = "will-register", returns = "void")]
+#[steel_derive::function(name = "will-register", returns = Void)]
 pub fn will_register(
     will: SteelVal,
     value: SteelVal,
@@ -825,9 +825,9 @@ pub fn will_register(
 #[cfg(not(feature = "sync"))]
 #[steel_derive::function(
     name = "will-register",
-    returns = "void",
-    args = "any, any, any",
-    raises = "never"
+    returns = Void,
+    args(Any, Any, Any),
+    raises = Never
 )]
 pub fn will_register(
     _will: SteelVal,
@@ -854,9 +854,9 @@ impl Custom for WeakBox {}
 /// a gc collection.
 #[steel_derive::context(
     name = "make-weak-box",
-    arity = "Exact(1)",
-    args = "any",
-    raises = "never"
+    arity = Exact(1),
+    args(Any),
+    raises = Never
 )]
 pub fn make_weak_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
     let value = args[0].clone();

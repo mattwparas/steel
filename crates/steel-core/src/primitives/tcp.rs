@@ -34,7 +34,7 @@ impl Custom for TcpListener {}
 /// ```scheme
 /// (tcp-connect "127.0.0.1:8080")
 /// ```
-#[function(name = "tcp-connect", args = "string")]
+#[function(name = "tcp-connect", args(String))]
 pub fn tcp_connect(addr: SteelString) -> Result<SteelVal> {
     TcpStream::connect(addr.as_str())?.into_steelval()
 }
@@ -55,7 +55,7 @@ pub fn tcp_connect(addr: SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// (tcp-shutdown! stream) ;; stream : TcpStream?
 /// ```
-#[function(name = "tcp-shutdown!", returns = "void")]
+#[function(name = "tcp-shutdown!", returns = Void)]
 pub fn tcp_close(stream: &SteelVal) -> Result<SteelVal> {
     let writer = TcpStream::as_ref(stream)?.try_clone().unwrap();
     writer.shutdown(std::net::Shutdown::Both)?;
@@ -130,7 +130,7 @@ pub fn tcp_buffered_output_port(stream: &SteelVal) -> Result<SteelVal> {
 /// (tcp-listen "127.0.0.1:80")
 /// ```
 ///
-#[function(name = "tcp-listen", args = "string")]
+#[function(name = "tcp-listen", args(String))]
 pub fn tcp_listen(addr: SteelString) -> Result<SteelVal> {
     TcpListener::bind(addr.as_str())?.into_steelval()
 }
@@ -142,7 +142,7 @@ pub fn tcp_listen(addr: SteelString) -> Result<SteelVal> {
 /// ```
 ///
 /// listener : TcpListener?
-#[function(name = "tcp-listener-local-addr", returns = "string")]
+#[function(name = "tcp-listener-local-addr", returns = String)]
 pub fn tcp_listener_local_addr(value: &SteelVal) -> Result<SteelVal> {
     TcpListener::as_ref(value)?
         .local_addr()?
@@ -181,7 +181,7 @@ pub fn tcp_accept(value: &SteelVal) -> Result<SteelVal> {
 ///
 /// (tcp-accept listener) ;; => (cons TcpStream? string?)
 /// ```
-#[function(name = "tcp-accept-with-addr", returns = "pair")]
+#[function(name = "tcp-accept-with-addr", returns = Pair)]
 pub fn tcp_accept_addr(value: &SteelVal) -> Result<SteelVal> {
     let res = TcpListener::as_ref(value)?.accept()?;
 
@@ -197,7 +197,7 @@ pub fn tcp_accept_addr(value: &SteelVal) -> Result<SteelVal> {
 /// (tcp-listener-set-non-blocking! listener) -> void?
 ///
 /// * listener : tcp-listener?
-#[function(name = "tcp-listener-set-non-blocking!", returns = "void")]
+#[function(name = "tcp-listener-set-non-blocking!", returns = Void)]
 pub fn tcp_listener_set_non_blocking(value: &SteelVal) -> Result<SteelVal> {
     TcpListener::as_ref(value)?.set_nonblocking(true)?;
     Ok(SteelVal::Void)
@@ -209,7 +209,7 @@ pub fn tcp_listener_set_non_blocking(value: &SteelVal) -> Result<SteelVal> {
 /// (tcp-stream-set-non-blocking! stream) -> void?
 ///
 /// * stream : tcp-stream?
-#[function(name = "tcp-stream-set-non-blocking!", returns = "void")]
+#[function(name = "tcp-stream-set-non-blocking!", returns = Void)]
 pub fn tcp_stream_set_non_blocking(value: &SteelVal) -> Result<SteelVal> {
     TcpStream::as_ref(value)?.set_nonblocking(true)?;
     Ok(SteelVal::Void)

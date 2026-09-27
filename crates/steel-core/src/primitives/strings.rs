@@ -223,8 +223,8 @@ fn number_to_string_impl(value: &SteelVal, radix: Option<usize>) -> Result<Steel
 #[function(
     name = "number->string",
     constant = true,
-    returns = "string",
-    args = "number, any..."
+    returns = String,
+    args(Number, rest = Any)
 )]
 pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let radix = rest.next();
@@ -264,7 +264,7 @@ pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> 
 /// > (string->number "1/10" 2) ;; => 1/2
 /// > (string->number "not-a-number") ;; => #f
 /// ```
-#[function(name = "string->number", constant = true, args = "string, any...")]
+#[function(name = "string->number", constant = true, args(String, rest = Any))]
 pub fn string_to_number(
     value: &SteelString,
     mut rest: RestArgsIter<'_, isize>,
@@ -300,9 +300,9 @@ pub fn string_to_number(
 /// ```
 #[function(
     name = "string",
-    returns = "string",
-    args = "char...",
-    raises = "bad-args"
+    returns = String,
+    args(rest = Char),
+    raises = BadArgs
 )]
 pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
     rest.collect::<Result<String>>().map(|x| x.into())
@@ -469,7 +469,7 @@ impl_str_comparison!(
 /// > (string=? "hello" "hello") ;; => #t
 /// > (string=? "hello" "HELLO") ;; => #f
 /// ```
-#[function(name = "string=?", constant = true, returns = "bool")]
+#[function(name = "string=?", constant = true, returns = Bool)]
 pub fn string_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
     monotonic!(rest, |s1: &_, s2: &_| s1 == s2)
 }
@@ -485,7 +485,7 @@ pub fn string_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
 /// > (string-ci=? "Straße" "STRASSE" "strasse" "STRAẞE") ;; => #t
 /// > (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύς" "ὀδυσσεύσ") ;; => #t
 /// ```
-#[function(name = "string-ci=?", constant = true, returns = "bool")]
+#[function(name = "string-ci=?", constant = true, returns = Bool)]
 pub fn string_ci_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
     let cm = CaseMapper::new();
     monotonic!(
@@ -508,8 +508,8 @@ pub fn string_ci_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
 #[function(
     name = "string-ref",
     constant = true,
-    returns = "char",
-    args = "string, number"
+    returns = Char,
+    args(String, Number)
 )]
 pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
     let res = if index < value.len() {
@@ -541,8 +541,8 @@ pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
 #[function(
     name = "substring",
     constant = true,
-    returns = "string",
-    args = "string, number, int..."
+    returns = String,
+    args(String, Number, rest = Int)
 )]
 pub fn substring(
     value: &SteelString,
@@ -574,7 +574,7 @@ pub fn substring(
 /// > (make-string 5 #\a) ;; => "aaaaa"
 /// > (make-string 5) ;; => "\0\0\0\0\0"
 /// ```
-#[function(name = "make-string", returns = "string", args = "number, char...")]
+#[function(name = "make-string", returns = String, args(Number, rest = Char))]
 pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> {
     // If the char is there, we want to take it
     let char = c.next().transpose()?;
@@ -602,9 +602,9 @@ pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> 
 /// ```
 #[function(
     name = "string-replace",
-    returns = "string",
-    args = "string, string, string",
-    raises = "bad-args"
+    returns = String,
+    args(String, String, String),
+    raises = BadArgs
 )]
 pub fn replace(value: &SteelString, from: &SteelString, to: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::StringV(
@@ -626,10 +626,10 @@ pub fn replace(value: &SteelString, from: &SteelString, to: &SteelString) -> Res
 /// ```
 #[native(
     name = "to-string",
-    arity = "AtLeast(0)",
-    returns = "string",
-    args = "any...",
-    raises = "never"
+    arity = AtLeast(0),
+    returns = String,
+    args(rest = Any),
+    raises = Never
 )]
 pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
     let mut error_message = String::new();
@@ -647,7 +647,7 @@ pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::StringV(error_message.into()))
 }
 
-#[function(name = "string-push", returns = "string", args = "string, char|string", raises = "bad-args")]
+#[function(name = "string-push", returns = String, args(String, Char | String), raises = BadArgs)]
 pub fn string_push(value: &mut SteelVal, character_or_string: SteelVal) -> Result<SteelVal> {
     if let SteelVal::StringV(_) = value {
         let SteelVal::StringV(mut s) = core::mem::take(value) else {
@@ -689,9 +689,9 @@ pub fn string_push(value: &mut SteelVal, character_or_string: SteelVal) -> Resul
 #[function(
     name = "string->uninterned-symbol",
     constant = false,
-    returns = "symbol",
-    args = "string",
-    raises = "bad-args"
+    returns = Symbol,
+    args(String),
+    raises = BadArgs
 )]
 pub fn string_to_uninterned_symbol(value: SteelString) -> SteelVal {
     match Gc::strong_count(&value.0) {
@@ -713,10 +713,10 @@ pub fn string_to_uninterned_symbol(value: SteelString) -> SteelVal {
 /// ```
 #[steel_derive::context(
     name = "string->symbol",
-    arity = "Exact(1)",
-    returns = "symbol",
-    args = "string",
-    raises = "bad-args"
+    arity = Exact(1),
+    returns = Symbol,
+    args(String),
+    raises = BadArgs
 )]
 pub fn string_to_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let value = match &args[0] {
@@ -745,7 +745,7 @@ pub fn string_to_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<St
 /// ```scheme
 /// > (int->string 10) ;; => "10"
 /// ```
-#[function(name = "int->string", args = "int", raises = "bad-args")]
+#[function(name = "int->string", args(Int), raises = BadArgs)]
 pub fn int_to_string(value: isize) -> String {
     format!("{value}")
 }
@@ -763,7 +763,7 @@ pub fn int_to_string(value: isize) -> String {
 /// > (string->int "100") ;; => 10
 /// > (string->int "not-an-int") ;; error
 /// ```
-#[function(name = "string->int", returns = "int", args = "string")]
+#[function(name = "string->int", returns = Int, args(String))]
 pub fn string_to_int(value: &SteelString) -> Result<SteelVal> {
     let parsed_int = value.parse::<isize>();
     match parsed_int {
@@ -788,7 +788,7 @@ pub fn string_to_int(value: &SteelString) -> Result<SteelVal> {
 /// > (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
 /// > (string->list "one two three" 4 7) ;; => '(#\t #\w #\o)
 /// ```
-#[function(name = "string->list", returns = "list", args = "string, int...")]
+#[function(name = "string->list", returns = List, args(String, rest = Int))]
 pub fn string_to_list(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
     let i = rest.next().transpose()?;
     let j = rest.next().transpose()?;
@@ -819,8 +819,8 @@ pub fn string_to_list(value: &SteelString, mut rest: RestArgsIter<isize>) -> Res
 #[function(
     name = "string-upcase",
     alias = "string->upper",
-    args = "string",
-    raises = "bad-args"
+    args(String),
+    raises = BadArgs
 )]
 pub fn string_upcase(value: &SteelString) -> String {
     value.to_uppercase()
@@ -840,8 +840,8 @@ pub fn string_upcase(value: &SteelString) -> String {
 #[function(
     name = "string-downcase",
     alias = "string->lower",
-    args = "string",
-    raises = "bad-args"
+    args(String),
+    raises = BadArgs
 )]
 pub fn string_downcase(value: &SteelString) -> String {
     value.to_lowercase()
@@ -856,7 +856,7 @@ pub fn string_downcase(value: &SteelString) -> String {
 /// ```scheme
 /// > (string-foldcase "Straße") ;; => "strasse"
 /// ```
-#[function(name = "string-foldcase", args = "string", raises = "bad-args")]
+#[function(name = "string-foldcase", args(String), raises = BadArgs)]
 pub fn string_foldcase(value: &SteelString) -> String {
     let cm = CaseMapper::new();
     cm.fold_string(value).into_owned()
@@ -871,7 +871,7 @@ pub fn string_foldcase(value: &SteelString) -> String {
 /// ```scheme
 /// > (trim "   foo     ") ;; => "foo"
 /// ```
-#[function(name = "trim", args = "string", raises = "bad-args")]
+#[function(name = "trim", args(String), raises = BadArgs)]
 pub fn trim(value: &SteelString) -> String {
     value.trim().into()
 }
@@ -885,7 +885,7 @@ pub fn trim(value: &SteelString) -> String {
 /// ```scheme
 /// > (trim "   foo     ") ;; => "foo     "
 /// ```
-#[function(name = "trim-start", args = "string", raises = "bad-args")]
+#[function(name = "trim-start", args(String), raises = BadArgs)]
 pub fn trim_start(value: &SteelString) -> String {
     value.trim_start().into()
 }
@@ -899,7 +899,7 @@ pub fn trim_start(value: &SteelString) -> String {
 /// ```scheme
 /// > (trim "   foo     ") ;; => "   foo"
 /// ```
-#[function(name = "trim-end", args = "string", raises = "bad-args")]
+#[function(name = "trim-end", args(String), raises = BadArgs)]
 pub fn trim_end(value: &SteelString) -> String {
     value.trim_end().into()
 }
@@ -917,8 +917,8 @@ pub fn trim_end(value: &SteelString) -> String {
 /// ```
 #[function(
     name = "trim-end-matches",
-    args = "string, string",
-    raises = "bad-args"
+    args(String, String),
+    raises = BadArgs
 )]
 pub fn trim_end_matches(value: &SteelString, pat: &SteelString) -> String {
     value.trim_end_matches(pat.as_str()).into()
@@ -937,8 +937,8 @@ pub fn trim_end_matches(value: &SteelString, pat: &SteelString) -> String {
 /// ```
 #[function(
     name = "trim-start-matches",
-    args = "string, string",
-    raises = "bad-args"
+    args(String, String),
+    raises = BadArgs
 )]
 pub fn trim_start_matches(value: &SteelString, pat: &SteelString) -> String {
     value.trim_start_matches(pat.as_str()).into()
@@ -956,9 +956,9 @@ pub fn trim_start_matches(value: &SteelString, pat: &SteelString) -> String {
 /// ```
 #[function(
     name = "split-whitespace",
-    returns = "list",
-    args = "string",
-    raises = "bad-args"
+    returns = List,
+    args(String),
+    raises = BadArgs
 )]
 pub fn split_whitespace(value: &SteelString) -> SteelVal {
     let split: List<SteelVal> = value
@@ -982,7 +982,7 @@ pub fn split_whitespace(value: &SteelString) -> SteelVal {
 /// (split-once "foo|bar|" "|") ;; => '("foo" "bar|")
 /// (split-once "" "&") ;; => '("")
 /// ```
-#[function(name = "split-once", args = "string, string", raises = "bad-args")]
+#[function(name = "split-once", args(String, String), raises = BadArgs)]
 pub fn split_once(value: &SteelString, pat: &SteelString) -> SteelVal {
     let split: Option<List<SteelVal>> = value
         .split_once(pat.as_str())
@@ -1005,9 +1005,9 @@ pub fn split_once(value: &SteelString, pat: &SteelString) -> SteelVal {
 /// ```
 #[function(
     name = "split-many",
-    returns = "list",
-    args = "string, string",
-    raises = "bad-args"
+    returns = List,
+    args(String, String),
+    raises = BadArgs
 )]
 pub fn split_many(value: &SteelString, pat: &SteelString) -> SteelVal {
     let split: List<SteelVal> = value
@@ -1030,7 +1030,7 @@ pub fn split_many(value: &SteelString, pat: &SteelString) -> SteelVal {
 /// > (starts-with? "foobar" "foo") ;; => #true
 /// > (starts-with? "foobar" "bar") ;; => #false
 /// ```
-#[function(name = "starts-with?", args = "string, string", raises = "bad-args")]
+#[function(name = "starts-with?", args(String, String), raises = BadArgs)]
 pub fn starts_with(value: &SteelString, prefix: &SteelString) -> bool {
     value.starts_with(prefix.as_str())
 }
@@ -1048,7 +1048,7 @@ pub fn starts_with(value: &SteelString, prefix: &SteelString) -> bool {
 /// > (ends-with? "foobar" "foo") ;; => #false
 /// > (ends-with? "foobar" "bar") ;; => #true
 /// ```
-#[function(name = "ends-with?", args = "string, string", raises = "bad-args")]
+#[function(name = "ends-with?", args(String, String), raises = BadArgs)]
 pub fn ends_with(value: &SteelString, suffix: &SteelString) -> bool {
     value.ends_with(suffix.as_str())
 }
@@ -1066,9 +1066,9 @@ pub fn ends_with(value: &SteelString, suffix: &SteelString) -> bool {
 /// ```
 #[function(
     name = "string-length",
-    returns = "int",
-    args = "string",
-    raises = "bad-args"
+    returns = Int,
+    args(String),
+    raises = BadArgs
 )]
 pub fn string_length(value: &SteelString) -> usize {
     value.chars().count()
@@ -1085,7 +1085,7 @@ pub fn string_length(value: &SteelString) -> usize {
 /// > (utf8-length "αβγ") ;; => 6
 /// > (utf8-length "✅") ;; => 3
 /// ```
-#[function(name = "utf8-length", args = "string", raises = "bad-args")]
+#[function(name = "utf8-length", args(String), raises = BadArgs)]
 pub fn utf8_length(value: &SteelString) -> usize {
     value.len()
 }
@@ -1103,9 +1103,9 @@ pub fn utf8_length(value: &SteelString) -> usize {
 /// ```
 #[function(
     name = "string-append",
-    returns = "string",
-    args = "string...",
-    raises = "bad-args"
+    returns = String,
+    args(rest = String),
+    raises = BadArgs
 )]
 pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVal> {
     rest.0
@@ -1129,7 +1129,7 @@ pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVa
 /// > (char=? #\a #\b) ;; => #f
 /// > (char=? #\a #\A) ;; => #f
 /// ```
-#[function(name = "char=?", constant = true, returns = "bool")]
+#[function(name = "char=?", constant = true, returns = Bool)]
 pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
 }
@@ -1163,7 +1163,7 @@ pub fn char_equals_binop(l: SteelVal, r: SteelVal) -> Result<SteelVal> {
 /// > (char-ci=? #\ß #\ẞ) ;; => #t
 /// > (char-ci=? #\σ #\Σ #\ς) ;; => #t
 /// ```
-#[function(name = "char-ci=?", constant = true, returns = "bool")]
+#[function(name = "char-ci=?", constant = true, returns = Bool)]
 pub fn char_ci_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     let cm = CaseMapper::new();
     monotonic!(
@@ -1325,7 +1325,7 @@ impl_char_comparison!(
 /// > (char->integer #\a) ;; => 97
 /// > (char->integer #\λ) ;; => 955
 /// ```
-#[function(name = "char->integer", args = "char", raises = "bad-args")]
+#[function(name = "char->integer", args(Char), raises = BadArgs)]
 pub fn char_to_integer(ch: char) -> u32 {
     ch as u32
 }
@@ -1340,7 +1340,7 @@ pub fn char_to_integer(ch: char) -> u32 {
 /// > (integer->char #x61) ;; => #\a
 /// > (integer->char 955) ;; => #\λ
 /// ```
-#[function(name = "integer->char", returns = "char", args = "int")]
+#[function(name = "integer->char", returns = Char, args(Int))]
 pub fn integer_to_char(int: u32) -> Result<SteelVal> {
     let Some(ch) = char::from_u32(int) else {
         stop!(ConversionError => "integer {} is out of range for a character", int);
@@ -1367,8 +1367,8 @@ pub fn integer_to_char(int: u32) -> Result<SteelVal> {
 #[function(
     name = "string->bytes",
     alias = "string->utf8",
-    returns = "bytevector",
-    args = "string, int..."
+    returns = ByteVector,
+    args(String, rest = Int)
 )]
 pub fn string_to_bytes(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
     let start = rest.next().transpose()?;
@@ -1399,7 +1399,7 @@ pub fn string_to_bytes(value: &SteelString, mut rest: RestArgsIter<isize>) -> Re
 /// (string->vector "hello") ;; => '#(#\h #\e #\l #\l #\o)
 /// (string->vector "one two three" 4 7) ;; => '#(#\t #\w #\o)
 /// ```
-#[function(name = "string->vector", returns = "vector", args = "string, int...")]
+#[function(name = "string->vector", returns = Vector, args(String, rest = Int))]
 pub fn string_to_vector(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
     let start = rest.next().transpose()?;
     let end = rest.next().transpose()?;
@@ -1481,7 +1481,7 @@ fn bounds(
 /// > (char-upcase #\U) ;; => #\U
 /// > (char-upcase #\ß) ;; => #\ß
 /// ```
-#[function(name = "char-upcase", args = "char", raises = "bad-args")]
+#[function(name = "char-upcase", args(Char), raises = BadArgs)]
 fn char_upcase(c: char) -> char {
     let cm = CaseMapper::new();
     cm.simple_uppercase(c)
@@ -1499,7 +1499,7 @@ fn char_upcase(c: char) -> char {
 /// > (char-downcase #\d) ;; => #\d
 /// > (char-downcase #\ẞ) ;; => #\ß
 /// ```
-#[function(name = "char-downcase", args = "char", raises = "bad-args")]
+#[function(name = "char-downcase", args(Char), raises = BadArgs)]
 fn char_downcase(c: char) -> char {
     let cm = CaseMapper::new();
     cm.simple_lowercase(c)
@@ -1516,7 +1516,7 @@ fn char_downcase(c: char) -> char {
 /// > (char-foldcase #\c) ;; => #\c
 /// > (char-foldcase #\ς) ;; => #\σ
 /// ```
-#[function(name = "char-foldcase", args = "char", raises = "bad-args")]
+#[function(name = "char-foldcase", args(Char), raises = BadArgs)]
 fn char_foldcase(c: char) -> char {
     let cm = CaseMapper::new();
     cm.simple_fold(c)
@@ -1533,7 +1533,7 @@ fn char_foldcase(c: char) -> char {
 /// > (char-whitespace? #\xA0) ;; => #t
 /// > (char-whitespace? #\越) ;; => #f
 /// ```
-#[function(name = "char-whitespace?", args = "char", raises = "bad-args")]
+#[function(name = "char-whitespace?", args(Char), raises = BadArgs)]
 fn char_is_whitespace(c: char) -> bool {
     c.is_whitespace()
 }
@@ -1550,7 +1550,7 @@ fn char_is_whitespace(c: char) -> bool {
 /// > (char-digit? #\٣) ;; => #f
 /// > (char-digit? #\①) ;; => #f
 /// ```
-#[function(name = "char-digit?", args = "char", raises = "bad-args")]
+#[function(name = "char-digit?", args(Char), raises = BadArgs)]
 fn char_is_digit(c: char) -> bool {
     c.is_digit(10)
 }
@@ -1567,7 +1567,7 @@ fn char_is_digit(c: char) -> bool {
 /// > (char->number #\a) ;; => #f
 /// > (char->number #\٣) ;; => #f
 /// ```
-#[function(name = "char->number", args = "char", raises = "bad-args")]
+#[function(name = "char->number", args(Char), raises = BadArgs)]
 fn char_to_number(c: char) -> Option<u32> {
     c.to_digit(10)
 }
@@ -1584,7 +1584,7 @@ fn char_to_number(c: char) -> Option<u32> {
 /// (string-join '("a" "b" "c")) ;; => "abc"
 /// (string-join '("one" "two" "three") ", ") ;; => "one, two, three"
 /// ```
-#[function(name = "string-join", returns = "string", args = "list, string...")]
+#[function(name = "string-join", returns = String, args(List, rest = String))]
 fn string_join(
     strings: SteelList<SteelVal>,
     mut rest: RestArgsIter<'_, &SteelString>,
@@ -1627,8 +1627,8 @@ fn string_join(
 /// ```
 #[function(
     name = "string-contains?",
-    args = "string, string",
-    raises = "bad-args"
+    args(String, String),
+    raises = BadArgs
 )]
 fn string_contains(s: &SteelString, contained: &SteelString) -> bool {
     s.as_str().contains(contained.as_str())

@@ -596,39 +596,185 @@ pub fn derive_steel_internal(input: TokenStream) -> TokenStream {
     derive_steel_impl(input, prefix)
 }
 
-fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> HashMap<String, String> {
-    let mut map = HashMap::new();
+/// A definition macro's arguments. `name` and `alias` are Scheme names, so they
+/// are strings. The rest are Rust syntax, so rustc checks the names:
+///
+/// ```ignore
+/// #[function(name = "vector-copy", constant = true, arity = AtLeast(1),
+///            args(Vector | MutableVector, rest = Int), raises = Maybe, returns = Vector)]
+/// ```
+///
+/// `args` has one type per argument, a union joined with `|`, and the type of
+/// every argument past those as `rest = T`. The types are
+/// `crate::value_type::ValueType` variants, and `raises` is a
+/// `crate::value_type::Raises` variant.
+struct Attrs {
+    /// `name`, `alias`, `constant` (`"true"` / `"false"`) and `arity`, as text
+    /// (`"AtLeast(1)"`).
+    strings: HashMap<String, String>,
+    args: Option<ArgsAttr>,
+    raises: Option<Ident>,
+    returns: Option<Ident>,
+}
 
-    for nested_meta in args.iter() {
-        if let Meta::NameValue(n) = nested_meta {
-            let key = n.path.get_ident().unwrap().to_string();
+/// `args(T, T | U, rest = T)`: each argument's type, a union of
+/// `ValueType` variants.
+struct ArgsAttr {
+    fixed: Vec<Vec<Ident>>,
+    rest: Option<Vec<Ident>>,
+}
 
-            let mut value = &n.value;
+impl Attrs {
+    fn get(&self, key: &str) -> Option<&String> {
+        self.strings.get(key)
+    }
 
-            loop {
-                match value {
+    fn contains_key(&self, key: &str) -> bool {
+        match key {
+            "args" => self.args.is_some(),
+            "raises" => self.raises.is_some(),
+            "returns" => self.returns.is_some(),
+            key => self.strings.contains_key(key),
+        }
+    }
+}
+
+const ATTRIBUTE_KEYS: &str = "name = \"..\", alias = \"..\", constant = bool, \
+     arity = Exact(n) / AtLeast(n) / AtMost(n) / Range(a, b), args(..), raises = .., returns = ..";
+
+fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> Attrs {
+    let mut attrs = Attrs {
+        strings: HashMap::new(),
+        args: None,
+        raises: None,
+        returns: None,
+    };
+
+    for meta in args.iter() {
+        match meta {
+            Meta::NameValue(n) => {
+                let key = n
+                    .path
+                    .get_ident()
+                    .map(|i| i.to_string())
+                    .unwrap_or_default();
+                let mut value = &n.value;
+                while let Expr::Group(ExprGroup { expr, .. }) = value {
+                    value = expr;
+                }
+                let string = match value {
                     Expr::Lit(ExprLit {
                         lit: Lit::Str(s), ..
-                    }) => {
-                        map.insert(key, s.value());
-                        break;
+                    }) => Some(s.value()),
+                    _ => None,
+                };
+                match key.as_str() {
+                    "name" | "alias" => {
+                        let value = string.unwrap_or_else(|| {
+                            panic!("`{key}` is a Scheme name, written as a string")
+                        });
+                        attrs.strings.insert(key, value);
                     }
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Bool(b), ..
-                    }) => {
-                        map.insert(key, b.value().to_string());
-                        break;
+                    "constant" => match value {
+                        Expr::Lit(ExprLit {
+                            lit: Lit::Bool(b), ..
+                        }) => {
+                            attrs.strings.insert(key, b.value().to_string());
+                        }
+                        _ => panic!("`constant` is `true` or `false`"),
+                    },
+                    "arity" => {
+                        if string.is_some() {
+                            panic!("`arity` is written without quotes, as in `arity = Exact(2)`");
+                        }
+                        let text: String = quote! { #value }
+                            .to_string()
+                            .chars()
+                            .filter(|c| !c.is_whitespace())
+                            .collect();
+                        attrs.strings.insert(key, text);
                     }
-                    Expr::Group(ExprGroup { expr, .. }) => {
-                        value = &**expr;
+                    "raises" | "returns" => {
+                        let ident = match value {
+                            Expr::Path(path) => path.path.get_ident().cloned(),
+                            _ => None,
+                        }
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "`{key}` is a single variant without quotes, as in `{key} = {}`",
+                                if key == "raises" { "BadArgs" } else { "List" }
+                            )
+                        });
+                        if key == "raises" {
+                            attrs.raises = Some(ident);
+                        } else {
+                            attrs.returns = Some(ident);
+                        }
                     }
-                    _ => break,
+                    "args" => panic!(
+                        "`args` is written as a list, as in `args(List | Pair, Int, rest = Any)`"
+                    ),
+                    other => panic!("unknown key `{other}`: expected one of {ATTRIBUTE_KEYS}"),
                 }
             }
+            Meta::List(list) if list.path.is_ident("args") => {
+                let entries = list
+                    .parse_args_with(Punctuated::<Expr, Token![,]>::parse_terminated)
+                    .unwrap_or_else(|e| panic!("unable to parse `args`: {e}"));
+                let mut parsed = ArgsAttr {
+                    fixed: Vec::new(),
+                    rest: None,
+                };
+                let count = entries.len();
+                for (i, entry) in entries.iter().enumerate() {
+                    match entry {
+                        Expr::Assign(assign) if matches!(&*assign.left, Expr::Path(p) if p.path.is_ident("rest")) =>
+                        {
+                            if i != count - 1 {
+                                panic!("`rest = ..` has to be the last of `args`");
+                            }
+                            parsed.rest = Some(union_members(&assign.right));
+                        }
+                        entry => parsed.fixed.push(union_members(entry)),
+                    }
+                }
+                attrs.args = Some(parsed);
+            }
+            other => panic!(
+                "unknown attribute argument `{}`: expected one of {ATTRIBUTE_KEYS}",
+                quote! { #other }
+            ),
         }
     }
 
-    map
+    attrs
+}
+
+/// The variants of one argument's type: `Int`, or a union `List | Pair`.
+fn union_members(expr: &Expr) -> Vec<Ident> {
+    match expr {
+        Expr::Path(path) => vec![path
+            .path
+            .get_ident()
+            .cloned()
+            .unwrap_or_else(|| panic!("an argument type is a `ValueType` variant, like `List`"))],
+        Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => {
+            let mut members = union_members(&binary.left);
+            members.extend(union_members(&binary.right));
+            members
+        }
+        Expr::Group(group) => union_members(&group.expr),
+        other => panic!(
+            "unexpected argument type `{}`: write a `ValueType` variant or a union like `List | Pair`",
+            quote! { #other }
+        ),
+    }
+}
+
+/// `ArgType(&[ValueType::List, ValueType::Pair])`, keeping the spans of the
+/// names as written so rustc reports a misspelled one there.
+fn arg_type_union_tokens(members: &[Ident]) -> proc_macro2::TokenStream {
+    quote! { crate::value_type::ArgType(&[#(crate::value_type::ValueType::#members),*]) }
 }
 
 fn parse_doc_comment(input: ItemFn) -> Option<proc_macro2::TokenStream> {
@@ -865,21 +1011,19 @@ struct NativeMacroComponents {
 }
 
 /// The `crate::value_type::ValueType` a native function returns. This is the macro's
-/// `returns = "..."` if given, otherwise what its Rust return type guarantees.
+/// `returns = ..` if given, otherwise what its Rust return type guarantees.
 ///
 /// The jit optimizes on this, so the inference only claims what the conversion
 /// to a `SteelVal` always produces. `usize` becomes a bignum past `isize::MAX`,
 /// so it is a `number` and not an `int` (a fixnum).
 fn return_type_tokens(
-    keyword_map: &HashMap<String, String>,
+    keyword_map: &Attrs,
     output: Option<&ReturnType>,
 ) -> proc_macro2::TokenStream {
-    let name = match keyword_map.get("returns") {
-        Some(explicit) => explicit.as_str(),
-        None => output.map(rust_return_type_name).unwrap_or("any"),
-    };
-
-    value_type_tokens(name, "return")
+    match &keyword_map.returns {
+        Some(explicit) => quote! { crate::value_type::ValueType::#explicit },
+        None => value_type_tokens(output.map(rust_return_type_name).unwrap_or("any"), "return"),
+    }
 }
 
 const VALUE_TYPE_NAMES: &str = "any, bool, int, float, number, char, string, symbol, list, \
@@ -911,14 +1055,6 @@ fn value_type_variant(name: &str) -> Option<&'static str> {
     })
 }
 
-/// One entry of `args = "..."`: a type, or a union of them (`list|pair`).
-fn arg_type_tokens(entry: &str) -> proc_macro2::TokenStream {
-    let members = entry
-        .split('|')
-        .map(|member| value_type_tokens(member.trim(), "argument"));
-    quote! { crate::value_type::ArgType(&[#(#members),*]) }
-}
-
 fn value_type_tokens(name: &str, what: &str) -> proc_macro2::TokenStream {
     let variant = value_type_variant(name).unwrap_or_else(|| {
         panic!("unknown {what} type {name:?}: expected one of {VALUE_TYPE_NAMES}")
@@ -928,14 +1064,14 @@ fn value_type_tokens(name: &str, what: &str) -> proc_macro2::TokenStream {
 }
 
 /// How many arguments a function always takes, and whether it can take more.
-/// `args = "..."` has to line up with this.
+/// `args(..)` has to line up with this.
 #[derive(Clone, Copy)]
 struct ArgShape {
     fixed: usize,
     more: bool,
 }
 
-/// The shape of a native function's `arity = "..."` (`Exact(n)`, `AtLeast(n)`,
+/// The shape of a native function's `arity = ..` (`Exact(n)`, `AtLeast(n)`,
 /// `AtMost(n)`, `Range(a, b)`).
 fn arity_shape(arity: &str) -> ArgShape {
     let arity: String = arity.chars().filter(|c| !c.is_whitespace()).collect();
@@ -971,68 +1107,50 @@ fn arity_shape(arity: &str) -> ArgShape {
     }
 }
 
-/// The macro's `args = "..."` and `raises = "..."` as the
-/// `(Option<ArgTypes>, Raises)` expressions of a definition. `args` lists one
-/// type per argument, the last one ending in `...` when the function takes
-/// more (`"int, any..."`); it is checked against `shape`.
+/// The macro's `args(..)` and `raises = ..` as the
+/// `(Option<ArgTypes>, Raises)` expressions of a definition, with `args`
+/// checked against `shape`.
 fn signature_tokens(
-    keyword_map: &HashMap<String, String>,
+    keyword_map: &Attrs,
     shape: ArgShape,
 ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
     let name = keyword_map.get("name").cloned().unwrap_or_default();
 
-    let raises = match keyword_map.get("raises") {
+    let raises = match &keyword_map.raises {
         None => quote! { crate::value_type::Raises::Maybe },
         Some(raises) => {
-            if !keyword_map.contains_key("args") {
+            if keyword_map.args.is_none() {
                 panic!("`{name}`: `raises` needs `args` too - it is a promise about them");
             }
-            let variant = match raises.as_str() {
-                "maybe" => "Maybe",
-                "bad-args" => "BadArgs",
-                "never" => "Never",
-                other => panic!(
-                    "`{name}`: unknown raises {other:?}: expected one of maybe, bad-args, never"
-                ),
-            };
-            let variant = Ident::new(variant, proc_macro2::Span::call_site());
-            quote! { crate::value_type::Raises::#variant }
+            quote! { crate::value_type::Raises::#raises }
         }
     };
 
-    let Some(args) = keyword_map.get("args") else {
+    let Some(args) = &keyword_map.args else {
         return (quote! { None }, raises);
     };
 
-    let mut fixed = Vec::new();
-    let mut rest = None;
-    let entries: Vec<&str> = if args.trim().is_empty() {
-        Vec::new()
-    } else {
-        args.split(',').map(str::trim).collect()
-    };
-    for (i, entry) in entries.iter().enumerate() {
-        match entry.strip_suffix("...") {
-            Some(ty) if i == entries.len() - 1 => rest = Some(arg_type_tokens(ty.trim())),
-            Some(_) => panic!("`{name}`: only the last of `args` can end in `...`"),
-            None => fixed.push(arg_type_tokens(entry)),
-        }
-    }
-
-    if fixed.len() != shape.fixed || rest.is_some() != shape.more {
+    if args.fixed.len() != shape.fixed || args.rest.is_some() != shape.more {
         panic!(
-            "`{name}`: `args = {args:?}` does not match the arity: expected {} argument type(s){}",
+            "`{name}`: `args` does not match the arity: expected {} argument type(s){}",
             shape.fixed,
             if shape.more {
-                " and a last one ending in `...` for the rest"
+                " and `rest = ..` for the rest"
             } else {
                 ""
             }
         );
     }
 
-    let rest = match rest {
-        Some(rest) => quote! { Some(#rest) },
+    let fixed = args
+        .fixed
+        .iter()
+        .map(|members| arg_type_union_tokens(members));
+    let rest = match &args.rest {
+        Some(rest) => {
+            let rest = arg_type_union_tokens(rest);
+            quote! { Some(#rest) }
+        }
         None => quote! { None },
     };
     (
@@ -1045,7 +1163,7 @@ fn signature_tokens(
 /// The first half runs before the body, on the slice `args` as passed in, and
 /// the second after it, on the result bound to `__ret`.
 fn call_check_tokens(
-    keyword_map: &HashMap<String, String>,
+    keyword_map: &Attrs,
     shape: ArgShape,
     args: &proc_macro2::TokenStream,
 ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
@@ -1069,13 +1187,10 @@ fn call_check_tokens(
     )
 }
 
-/// A debug-build check of what a function with an explicit `returns = "..."`
+/// A debug-build check of what a function with an explicit `returns = ..`
 /// returned (the value bound to `__ret`) against the declaration. Inferred
 /// types come from the Rust signature, so they need no check.
-fn return_check_tokens(
-    keyword_map: &HashMap<String, String>,
-    steel_name: &str,
-) -> proc_macro2::TokenStream {
+fn return_check_tokens(keyword_map: &Attrs, steel_name: &str) -> proc_macro2::TokenStream {
     if !keyword_map.contains_key("returns") {
         return quote! {};
     }
@@ -1087,7 +1202,7 @@ fn return_check_tokens(
 }
 
 /// Runs the body of a `native` / `context` / `native_mut` function with an
-/// explicit `returns = "..."` or `args = "..."` as a closure of the same type,
+/// explicit `returns = ..` or `args(..)` as a closure of the same type,
 /// with the debug-build checks around it. `return` and `?` in the body leave
 /// the closure, as before.
 fn wrap_with_checks(

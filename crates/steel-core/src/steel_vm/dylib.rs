@@ -127,7 +127,7 @@ pub fn load_root_module_in_directory_manual(
 #[derive(Clone)]
 pub(crate) struct DylibContainers {}
 
-#[steel_derive::function(name = "#%get-dylib", args = "string")]
+#[steel_derive::function(name = "#%get-dylib", args(String))]
 pub fn load_module(target: &SteelString) -> crate::rvals::Result<SteelVal> {
     match DylibContainers::load_module(target.clone()) {
         Some(container) => container.into_steelval(),

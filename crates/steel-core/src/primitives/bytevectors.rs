@@ -83,9 +83,9 @@ pub fn bytevector_module() -> BuiltInModule {
 /// ```
 #[steel_derive::native(
     name = "bytevector",
-    arity = "AtLeast(0)",
-    returns = "bytevector",
-    args = "int..."
+    arity = AtLeast(0),
+    returns = ByteVector,
+    args(rest = Int)
 )]
 pub fn bytevector(args: &[SteelVal]) -> Result<SteelVal> {
     args.iter()
@@ -111,9 +111,9 @@ pub fn bytevector(args: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::native(
     name = "bytes",
     alias = "bytevector",
-    arity = "AtLeast(0)",
-    returns = "bytevector",
-    args = "int..."
+    arity = AtLeast(0),
+    returns = ByteVector,
+    args(rest = Int)
 )]
 pub fn bytes(args: &[SteelVal]) -> Result<SteelVal> {
     args.iter()
@@ -130,7 +130,7 @@ pub fn bytes(args: &[SteelVal]) -> Result<SteelVal> {
 /// (bytes? (bytes 0 1 2)) ;; => #t
 /// (bytes? (list 10 20 30)) ;; => #f
 /// ```
-#[steel_derive::function(name = "bytes?", alias = "bytevector?", args = "any", raises = "never")]
+#[steel_derive::function(name = "bytes?", alias = "bytevector?", args(Any), raises = Never)]
 pub fn is_bytes(arg: &SteelVal) -> bool {
     matches!(arg, SteelVal::ByteVector(_))
 }
@@ -154,8 +154,8 @@ pub fn is_bytes(arg: &SteelVal) -> bool {
 #[steel_derive::function(
     name = "bytes-copy",
     alias = "bytevector-copy",
-    returns = "bytevector",
-    args = "bytevector, any..."
+    returns = ByteVector,
+    args(ByteVector, rest = Any)
 )]
 pub fn bytevector_copy_new(
     bytevector: &SteelByteVector,
@@ -210,8 +210,8 @@ pub fn bytevector_copy_new(
 #[function(
     name = "make-bytes",
     alias = "make-bytevector",
-    returns = "bytevector",
-    args = "number, int..."
+    returns = ByteVector,
+    args(Number, rest = Int)
 )]
 pub fn make_bytes(k: usize, mut c: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let default = c.next();
@@ -247,7 +247,7 @@ pub fn make_bytes(k: usize, mut c: RestArgsIter<'_, isize>) -> Result<SteelVal> 
 /// (byte? 100000) ;; => #f
 /// (byte? -1) ;; => #f
 /// ```
-#[function(name = "byte?", args = "any", raises = "never")]
+#[function(name = "byte?", args(Any), raises = Never)]
 pub fn is_byte(value: &SteelVal) -> bool {
     if let SteelVal::IntV(i) = value {
         u8::try_from(*i).is_ok()
@@ -265,8 +265,8 @@ pub fn is_byte(value: &SteelVal) -> bool {
 #[function(
     name = "bytes-length",
     alias = "bytevector-length",
-    args = "bytevector",
-    raises = "bad-args"
+    args(ByteVector),
+    raises = BadArgs
 )]
 pub fn bytes_length(value: &SteelByteVector) -> usize {
     value.vec.read().len()
@@ -288,8 +288,8 @@ pub fn bytes_length(value: &SteelByteVector) -> usize {
 #[function(
     name = "bytes-ref",
     alias = "bytevector-u8-ref",
-    returns = "int",
-    args = "bytevector, number"
+    returns = Int,
+    args(ByteVector, Number)
 )]
 pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
     let guard = value.vec.read();
@@ -322,8 +322,8 @@ pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 #[function(
     name = "bytes-set!",
     alias = "bytevector-u8-set!",
-    returns = "void",
-    args = "bytevector, number, int"
+    returns = Void,
+    args(ByteVector, Number, Int)
 )]
 pub fn bytes_set(value: &SteelByteVector, index: usize, byte: u8) -> Result<SteelVal> {
     let mut guard = value.vec.write();
@@ -350,7 +350,7 @@ pub fn bytes_set(value: &SteelByteVector, index: usize, byte: u8) -> Result<Stee
 /// (bytes-push! my-bytes 3)
 /// my-bytes ;; =>  #u8(#x00 #x01 #x02 #x03)
 /// ```
-#[function(name = "bytes-push!", returns = "void", args = "bytevector, int")]
+#[function(name = "bytes-push!", returns = Void, args(ByteVector, Int))]
 pub fn bytes_push(value: &mut SteelByteVector, byte: u8) -> Result<SteelVal> {
     let mut guard = value.vec.write();
     guard.push(byte);
@@ -371,9 +371,9 @@ pub fn bytes_push(value: &mut SteelByteVector, byte: u8) -> Result<SteelVal> {
 /// ```
 #[function(
     name = "bytes-clear!",
-    returns = "void",
-    args = "bytevector",
-    raises = "bad-args"
+    returns = Void,
+    args(ByteVector),
+    raises = BadArgs
 )]
 pub fn bytes_clear(value: &mut SteelByteVector) -> Result<SteelVal> {
     let mut guard = value.vec.write();
@@ -389,9 +389,9 @@ pub fn bytes_clear(value: &mut SteelByteVector) -> Result<SteelVal> {
 /// ```
 #[function(
     name = "bytes->list",
-    returns = "list",
-    args = "bytevector",
-    raises = "bad-args"
+    returns = List,
+    args(ByteVector),
+    raises = BadArgs
 )]
 pub fn bytes_to_list(value: &SteelByteVector) -> Result<SteelVal> {
     Ok(SteelVal::ListV(
@@ -412,7 +412,7 @@ pub fn bytes_to_list(value: &SteelByteVector) -> Result<SteelVal> {
 /// ```scheme
 /// (list->bytes (list 0 1 2 3 4 5)) ;; => (bytes 0 1 2 3 4 5)
 /// ```
-#[function(name = "list->bytes", returns = "bytevector", args = "list|vector")]
+#[function(name = "list->bytes", returns = ByteVector, args(List | Vector))]
 pub fn list_to_bytes(value: Vec<u8>) -> Result<SteelVal> {
     Ok(SteelVal::ByteVector(SteelByteVector::new(value)))
 }
@@ -428,9 +428,9 @@ pub fn list_to_bytes(value: Vec<u8>) -> Result<SteelVal> {
 #[function(
     name = "bytes-append",
     alias = "bytevector-append",
-    returns = "bytevector",
-    args = "bytevector...",
-    raises = "bad-args"
+    returns = ByteVector,
+    args(rest = ByteVector),
+    raises = BadArgs
 )]
 pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<SteelVal> {
     let mut vector = vec![];
@@ -458,8 +458,8 @@ pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<Stee
 #[function(
     name = "bytes->string/utf8",
     alias = "utf8->string",
-    returns = "string",
-    args = "bytevector, int..."
+    returns = String,
+    args(ByteVector, rest = Int)
 )]
 pub fn bytes_to_string(
     value: &SteelByteVector,
@@ -718,8 +718,8 @@ bytevector_accessor!(
 /// ```
 #[function(
     name = "bytevector-s8-ref",
-    returns = "int",
-    args = "bytevector, number"
+    returns = Int,
+    args(ByteVector, Number)
 )]
 pub fn s8_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
     let guard = value.vec.read();
@@ -749,8 +749,8 @@ pub fn s8_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 /// ```
 #[function(
     name = "bytevector-s8-set!",
-    returns = "void",
-    args = "bytevector, number, int"
+    returns = Void,
+    args(ByteVector, Number, Int)
 )]
 pub fn s8_bytes_set(value: &mut SteelByteVector, index: usize, byte: i8) -> Result<SteelVal> {
     let mut guard = value.vec.write();

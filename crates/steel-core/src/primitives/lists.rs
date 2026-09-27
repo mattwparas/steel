@@ -100,7 +100,7 @@ pub fn list_module() -> BuiltInModule {
     module
 }
 
-#[steel_derive::function(name = "#%list-sort", returns = "list", args = "list, procedure")]
+#[steel_derive::function(name = "#%list-sort", returns = List, args(List, Procedure))]
 pub fn list_sort(value: &List<SteelVal>, func: SteelVal) -> Result<SteelVal> {
     let mut values = value.iter().cloned().collect::<Vec<_>>();
 
@@ -221,7 +221,7 @@ pub fn list_sort(value: &List<SteelVal>, func: SteelVal) -> Result<SteelVal> {
 /// (member #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
 /// (member 5 '(0 1 2 3 4)) ;; => #f
 /// ```
-#[steel_derive::function(name = "member", args = "any, list", raises = "bad-args")]
+#[steel_derive::function(name = "member", args(Any, List), raises = BadArgs)]
 pub fn member(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
     let mut list = list.clone();
     while let Some(first) = list.first() {
@@ -249,7 +249,7 @@ pub fn member(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
 /// (memq #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
 /// (memq 5 '(0 1 2 3 4)) ;; => #f
 /// ```
-#[steel_derive::function(name = "memq", args = "any, list", raises = "bad-args")]
+#[steel_derive::function(name = "memq", args(Any, List), raises = BadArgs)]
 pub fn memq(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
     let mut list = list.clone();
     while let Some(first) = list.first() {
@@ -265,9 +265,9 @@ pub fn memq(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
 
 #[steel_derive::function(
     name = "list-contains",
-    returns = "bool",
-    args = "any, list",
-    raises = "bad-args"
+    returns = Bool,
+    args(Any, List),
+    raises = BadArgs
 )]
 pub fn list_contains(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
     for item in list.iter() {
@@ -282,9 +282,9 @@ pub fn list_contains(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal
 #[steel_derive::function(
     name = "list-chunks",
     constant = true,
-    returns = "list",
-    args = "list",
-    raises = "bad-args"
+    returns = List,
+    args(List),
+    raises = BadArgs
 )]
 pub fn chunks(list: &List<SteelVal>) -> Result<SteelVal> {
     let nodes = list.nodes();
@@ -310,7 +310,7 @@ pub fn chunks(list: &List<SteelVal>) -> Result<SteelVal> {
 /// 1 │ (second '())
 ///   │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
 /// ```
-#[steel_derive::function(name = "second", constant = true, args = "list")]
+#[steel_derive::function(name = "second", constant = true, args(List))]
 pub fn second(list: &List<SteelVal>) -> Result<SteelVal> {
     list.get(1).cloned().ok_or_else(throw!(Generic => "second: index out of bounds - list did not have an element in the second position: {:?}", list))
 }
@@ -331,7 +331,7 @@ pub fn second(list: &List<SteelVal>) -> Result<SteelVal> {
 /// 1 │ (third '())
 ///   │  ^^^^^ third: Index out of bounds - list did not have an element in the second position: []
 /// ```
-#[steel_derive::function(name = "third", constant = true, args = "list")]
+#[steel_derive::function(name = "third", constant = true, args(List))]
 pub(crate) fn third(list: &List<SteelVal>) -> Result<SteelVal> {
     list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list))
 }
@@ -354,7 +354,7 @@ pub(crate) fn third(list: &List<SteelVal>) -> Result<SteelVal> {
 ///   │  ^^^^^^^^^ list-tail expects at least 3
 ///                     elements in the list, found: 0
 /// ```
-#[steel_derive::function(name = "list-tail", args = "any, number")]
+#[steel_derive::function(name = "list-tail", args(Any, Number))]
 pub fn list_tail(list_or_pair: &SteelVal, pos: usize) -> Result<SteelVal> {
     match list_or_pair {
         SteelVal::ListV(l) => l
@@ -400,10 +400,10 @@ pub fn list_tail(list_or_pair: &SteelVal, pos: usize) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(
     name = "list",
-    arity = "AtLeast(0)",
-    returns = "list",
-    args = "any...",
-    raises = "never"
+    arity = AtLeast(0),
+    returns = List,
+    args(rest = Any),
+    raises = Never
 )]
 pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
@@ -425,10 +425,10 @@ pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native_mut(
     name = "#%const-list",
-    arity = "AtLeast(0)",
-    returns = "list",
-    args = "any...",
-    raises = "never"
+    arity = AtLeast(0),
+    returns = List,
+    args(rest = Any),
+    raises = Never
 )]
 pub fn new_const(args: &mut [SteelVal]) -> Result<SteelVal> {
     // Note: This signature needs to be different than the above list
@@ -453,7 +453,7 @@ pub fn new_const(args: &mut [SteelVal]) -> Result<SteelVal> {
 /// > (empty? (list 1 2 3 4 5)) ;; => #false
 /// > (empty? '()) ;; => #true
 /// ```
-#[steel_derive::function(name = "empty?", args = "any", raises = "never")]
+#[steel_derive::function(name = "empty?", args(Any), raises = Never)]
 pub fn is_empty(list: &SteelVal) -> bool {
     list.list().map(|x| x.is_empty()).unwrap_or_default()
 }
@@ -469,7 +469,7 @@ pub fn is_empty(list: &SteelVal) -> bool {
 /// > (pair? '(10)) ;; => #true
 /// > (pair? '()) ;; => #false
 /// ```
-#[steel_derive::function(name = "pair?", args = "any", raises = "never")]
+#[steel_derive::function(name = "pair?", args(Any), raises = Never)]
 pub fn pair(list: &SteelVal) -> bool {
     match list {
         SteelVal::ListV(l) => !l.is_empty(),
@@ -490,7 +490,7 @@ pub fn pair(list: &SteelVal) -> bool {
 /// > (cons 1 2) ;; => '(1 . 2)
 /// > (cons 1 '()) ;; => '(1)
 /// ```
-#[steel_derive::function(name = "cons", arity = "Exact(2)", args = "any, any", raises = "never")]
+#[steel_derive::function(name = "cons", arity = Exact(2), args(Any, Any), raises = Never)]
 pub fn cons(arg: &mut SteelVal, arg2: &mut SteelVal) -> Result<SteelVal> {
     match (
         core::mem::replace(arg, SteelVal::Void),
@@ -557,9 +557,9 @@ macro_rules! debug_unreachable {
 /// ```
 #[steel_derive::native(
     name = "range",
-    arity = "Range(1,2)",
-    returns = "list",
-    args = "int, int..."
+    arity = Range(1,2),
+    returns = List,
+    args(Int, rest = Int)
 )]
 fn range(args: &[SteelVal]) -> Result<SteelVal> {
     let (lower, upper) = match args {
@@ -594,9 +594,9 @@ fn range(args: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::function(
     name = "length",
     constant = true,
-    returns = "int",
-    args = "list",
-    raises = "bad-args"
+    returns = Int,
+    args(List),
+    raises = BadArgs
 )]
 fn length(list: &List<SteelVal>) -> usize {
     list.len()
@@ -616,9 +616,9 @@ fn length(list: &List<SteelVal>) -> usize {
 #[steel_derive::function(
     name = "reverse",
     constant = true,
-    returns = "list",
-    args = "list",
-    raises = "bad-args"
+    returns = List,
+    args(List),
+    raises = BadArgs
 )]
 pub(crate) fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
     let replaced = core::mem::replace(arg, SteelVal::Void);
@@ -639,7 +639,7 @@ pub(crate) fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// > (list (list 1 2 3 4)) ;; => 4
 /// ```
-#[steel_derive::function(name = "last", constant = true, args = "list")]
+#[steel_derive::function(name = "last", constant = true, args(List))]
 pub fn last(list: &List<SteelVal>) -> Result<SteelVal> {
     list.last()
         .cloned()
@@ -658,7 +658,7 @@ pub fn last(list: &List<SteelVal>) -> Result<SteelVal> {
 /// > (first '(1 2)) ;; => 1
 /// > (first (cons 2 3)) ;; => 2
 /// ```
-#[steel_derive::function(name = "first", constant = true, args = "list")]
+#[steel_derive::function(name = "first", constant = true, args(List))]
 fn first(list: &List<SteelVal>) -> Result<SteelVal> {
     list.car()
         .ok_or_else(throw!(Generic => "first resulted in an error - empty list"))
@@ -676,7 +676,7 @@ fn first(list: &List<SteelVal>) -> Result<SteelVal> {
 /// > (car '(1 2)) ;; => 1
 /// > (car (cons 2 3)) ;; => 2
 /// ```
-#[steel_derive::function(name = "car", constant = true, args = "list|pair")]
+#[steel_derive::function(name = "car", constant = true, args(List | Pair))]
 pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
     match list {
         SteelVal::ListV(l) => l
@@ -702,9 +702,9 @@ pub(crate) unsafe fn unchecked_car(list: &SteelVal) -> SteelVal {
 #[steel_derive::native(
     name = "cdr-null?",
     constant = true,
-    arity = "Exact(1)",
-    returns = "bool",
-    args = "list"
+    arity = Exact(1),
+    returns = Bool,
+    args(List)
 )]
 fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
@@ -737,7 +737,7 @@ fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
 /// 1 │ (cdr '())
 ///   │  ^^^ cdr expects a non empty list
 /// ```
-#[steel_derive::function(name = "cdr", constant = true, args = "list|pair")]
+#[steel_derive::function(name = "cdr", constant = true, args(List | Pair))]
 #[inline(always)]
 pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
     match core::mem::replace(arg, SteelVal::Void) {
@@ -817,9 +817,9 @@ pub(crate) unsafe fn cdr_no_check(arg: &mut SteelVal) -> SteelVal {
 #[steel_derive::function(
     name = "rest",
     constant = true,
-    arity = "Exact(1)",
-    returns = "list",
-    args = "list"
+    arity = Exact(1),
+    returns = List,
+    args(List)
 )]
 fn rest(arg: &mut SteelVal) -> Result<SteelVal> {
     if let SteelVal::ListV(mut l) = core::mem::replace(arg, SteelVal::Void) {
@@ -849,7 +849,7 @@ fn rest(arg: &mut SteelVal) -> Result<SteelVal> {
 /// > (take '(1 2 3 4) 2) ;; => '(0 1)
 /// > (take (range 0 10) 4) ;; => '(0 1 2 3)
 /// ```
-#[steel_derive::function(name = "take", constant = true, returns = "list", args = "list, int")]
+#[steel_derive::function(name = "take", constant = true, returns = List, args(List, Int))]
 fn take(list: &List<SteelVal>, n: isize) -> Result<SteelVal> {
     if n < 0 {
         stop!(Generic => "take expects a positive integer")
@@ -876,7 +876,7 @@ fn take(list: &List<SteelVal>, n: isize) -> Result<SteelVal> {
 /// > (append (list 1 2) (cons 3 4)) ;; => '(1 2 3 . 4)
 /// > (append '() 'a) ;; => 'a
 /// ```
-#[steel_derive::native_mut(name = "append", constant = true, arity = "AtLeast(0)")]
+#[steel_derive::native_mut(name = "append", constant = true, arity = AtLeast(0))]
 fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
     if let Some((last, rest)) = args
         .split_last_mut()
@@ -916,7 +916,7 @@ fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
 }
 
-#[steel_derive::function(name = "try-list-ref", constant = true, args = "list, int")]
+#[steel_derive::function(name = "try-list-ref", constant = true, args(List, Int))]
 pub fn try_list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
     if index < 0 {
         stop!(Generic => "list-ref expects a positive integer")
@@ -942,8 +942,8 @@ pub fn try_list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
 #[steel_derive::function(
     name = "list-drop",
     constant = true,
-    returns = "list",
-    args = "list, number"
+    returns = List,
+    args(List, Number)
 )]
 pub fn drop_start(list: &List<SteelVal>, skip: usize) -> Result<SteelVal> {
     let mut list = list.clone();
@@ -953,7 +953,7 @@ pub fn drop_start(list: &List<SteelVal>, skip: usize) -> Result<SteelVal> {
     Ok(SteelVal::ListV(list))
 }
 
-#[steel_derive::function(name = "plist-get", constant = true, args = "list, any")]
+#[steel_derive::function(name = "plist-get", constant = true, args(List, Any))]
 pub fn plist_get(list: &List<SteelVal>, key: &SteelVal) -> Result<SteelVal> {
     plist_get_impl(list.iter(), key)
 }
@@ -993,8 +993,8 @@ where
 #[steel_derive::function(
     name = "plist-get-positional-arg-list",
     constant = true,
-    returns = "list",
-    args = "list, number"
+    returns = List,
+    args(List, Number)
 )]
 pub fn plist_get_positional_list(list: &List<SteelVal>, index: usize) -> Result<SteelVal> {
     let mut iter = list.iter();
@@ -1028,7 +1028,7 @@ pub fn plist_get_positional_list(list: &List<SteelVal>, index: usize) -> Result<
 #[steel_derive::function(
     name = "plist-validate-args",
     constant = true,
-    args = "list, number, number, number, number, bool"
+    args(List, Number, Number, Number, Number, Bool)
 )]
 pub fn plist_validate_args(
     list: &List<SteelVal>,
@@ -1074,7 +1074,7 @@ pub fn plist_validate_args(
 #[steel_derive::function(
     name = "plist-get-positional-arg",
     constant = true,
-    args = "list, number"
+    args(List, Number)
 )]
 pub fn plist_get_positional(list: &List<SteelVal>, index: usize) -> Result<SteelVal> {
     let mut iter = list.iter();
@@ -1103,7 +1103,7 @@ pub fn plist_get_positional(list: &List<SteelVal>, index: usize) -> Result<Steel
 #[steel_derive::function(
     name = "plist-try-get-positional-arg",
     constant = true,
-    args = "list, number, any"
+    args(List, Number, Any)
 )]
 pub fn plist_try_get_positional(
     list: &List<SteelVal>,
@@ -1131,7 +1131,7 @@ pub fn plist_try_get_positional(
     Ok(default_value)
 }
 
-#[steel_derive::function(name = "plist-get-kwarg", constant = true, args = "list, any, any")]
+#[steel_derive::function(name = "plist-get-kwarg", constant = true, args(List, Any, Any))]
 pub fn plist_get_context(
     list: &List<SteelVal>,
     key: &SteelVal,
@@ -1150,8 +1150,8 @@ pub fn plist_get_context(
 #[steel_derive::function(
     name = "plist-try-get",
     constant = true,
-    args = "list, any, any",
-    raises = "bad-args"
+    args(List, Any, Any),
+    raises = BadArgs
 )]
 pub fn plist_try_get(
     list: &List<SteelVal>,
@@ -1193,7 +1193,7 @@ pub(crate) fn plist_try_get_impl<'a>(
 /// 1 │ (list-ref (list 1 2 3 4) 10)
 ///   │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
 /// ```
-#[steel_derive::function(name = "list-ref", constant = true, args = "list, int")]
+#[steel_derive::function(name = "list-ref", constant = true, args(List, Int))]
 pub fn list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
     if index < 0 {
         stop!(Generic => "list-ref expects a positive integer, found: {}", index);
@@ -1217,8 +1217,8 @@ pub fn list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
 #[steel_derive::function(
     name = "list->string",
     constant = true,
-    returns = "string",
-    args = "list"
+    returns = String,
+    args(List)
 )]
 fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
     list.iter()
@@ -1232,9 +1232,9 @@ fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
 
 #[steel_derive::function(
     name = "list->vector",
-    returns = "vector",
-    args = "list",
-    raises = "bad-args"
+    returns = Vector,
+    args(List),
+    raises = BadArgs
 )]
 fn list_to_vector(list: &List<SteelVal>) -> SteelVal {
     let args: crate::values::Vector<_> = list.iter().cloned().collect();

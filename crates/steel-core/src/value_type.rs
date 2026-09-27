@@ -72,12 +72,17 @@ impl ValueType {
             ValueType::FlatVector => matches!(value, FlatVector(_)),
             ValueType::Procedure => matches!(
                 value,
-                Closure(_) | FuncV(_) | MutFunc(_) | BuiltIn(_) | BoxedFunction(_) | ContinuationFunction(_)
+                Closure(_)
+                    | FuncV(_)
+                    | MutFunc(_)
+                    | BuiltIn(_)
+                    | BoxedFunction(_)
+                    | ContinuationFunction(_)
             ),
         }
     }
 
-    /// The spelling used in the function macros, the inverse of [`Self::from_name`].
+    /// The name used for this type in messages, like `mutable-vector`.
     pub fn name(&self) -> &'static str {
         match self {
             Self::Any => "any",
@@ -100,34 +105,9 @@ impl ValueType {
             Self::Procedure => "procedure",
         }
     }
-
-    /// The spelling used by `returns = "..."` in the function macros.
-    pub fn from_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "any" => Self::Any,
-            "bool" => Self::Bool,
-            "int" => Self::Int,
-            "float" => Self::Float,
-            "number" => Self::Number,
-            "char" => Self::Char,
-            "string" => Self::String,
-            "symbol" => Self::Symbol,
-            "list" => Self::List,
-            "pair" => Self::Pair,
-            "vector" => Self::Vector,
-            "mutable-vector" => Self::MutableVector,
-            "hashmap" => Self::HashMap,
-            "hashset" => Self::HashSet,
-            "bytevector" => Self::ByteVector,
-            "void" => Self::Void,
-            "flat-vector" => Self::FlatVector,
-            "procedure" => Self::Procedure,
-            _ => return None,
-        })
-    }
 }
 
-/// The argument types of a native function, from the macros' `args = "..."`.
+/// The argument types of a native function, from the macros' `args(..)`.
 ///
 /// If a call with the right number of arguments returns normally, argument `i`
 /// had type `fixed[i]`, and every argument past the fixed ones had type `rest`.
@@ -142,7 +122,7 @@ pub struct ArgTypes {
 }
 
 /// One argument's declared type: a value of any of these types. Written
-/// `list|pair` in `args = "..."`.
+/// `List | Pair` in `args(..)`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ArgType(pub &'static [ValueType]);
 
@@ -161,7 +141,7 @@ impl ArgType {
 }
 
 impl core::fmt::Display for ArgType {
-    /// As written in `args = "..."`, like `list|pair`.
+    /// Like `list|pair`.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for (i, ty) in self.0.iter().enumerate() {
             if i > 0 {
@@ -224,7 +204,7 @@ pub enum ArgMatch {
     },
 }
 
-/// When a native function can raise an error, from the macros' `raises = "..."`.
+/// When a native function can raise an error, from the macros' `raises = ..`.
 /// Calls with the wrong number of arguments always may.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub enum Raises {
@@ -236,18 +216,6 @@ pub enum Raises {
     BadArgs,
     /// Never.
     Never,
-}
-
-impl Raises {
-    /// The spelling used by `raises = "..."` in the function macros.
-    pub fn from_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "maybe" => Self::Maybe,
-            "bad-args" => Self::BadArgs,
-            "never" => Self::Never,
-            _ => return None,
-        })
-    }
 }
 
 /// What a native function hands back, for `check_return`.
@@ -286,7 +254,7 @@ impl<E> ReturnedValue for Option<Result<crate::SteelVal, E>> {
 }
 
 /// In debug builds the function macros call this on the result of every
-/// function with an explicit `returns = "..."`, to check the declared type the
+/// function with an explicit `returns = ..`, to check the declared type the
 /// jit optimizes on.
 #[track_caller]
 pub fn check_return<R: ReturnedValue>(returned: &R, declared: ValueType, name: &str) {
@@ -299,7 +267,7 @@ pub fn check_return<R: ReturnedValue>(returned: &R, declared: ValueType, name: &
 }
 
 /// In debug builds the function macros call this around every function with
-/// an explicit `args = "..."` or `raises = "..."`, to check the promises
+/// an explicit `args(..)` or `raises = ..`, to check the promises
 /// [`ArgTypes`] and [`Raises`] make. `before` is [`ArgTypes::check`] of the
 /// arguments as they were passed in (the function may move out of them).
 #[track_caller]
@@ -336,10 +304,12 @@ pub fn check_call<R: ReturnedValue>(returned: &R, before: &ArgMatch, raises: Rai
 /// A set of possible kinds of value, which the type inference pass
 /// (`compiler::passes::types`) computes for an expression. Unlike [`ValueType`]
 /// it is a union, so `int | string` is expressible. It also adds kinds
-/// [`ValueType`] has no name for: procedures, and `OTHER` for everything else
-/// (ports, structs, custom types, ...).
+/// [`ValueType`] has no name for: procedures, the struct types a program
+/// defines (each its own kind, see [`TypeSet::structure`]), and `OTHER` for
+/// everything else (ports, structs of types the analysis did not see, custom
+/// types, ...).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct TypeSet(u32);
+pub struct TypeSet(u64);
 
 impl TypeSet {
     pub const BOTTOM: TypeSet = TypeSet(0);
@@ -368,7 +338,14 @@ impl TypeSet {
     pub const OTHER: TypeSet = TypeSet(1 << 16);
 
     pub const NUMBER: TypeSet = TypeSet(Self::INT.0 | Self::FLOAT.0 | Self::OTHER_NUMBER.0);
-    pub const TOP: TypeSet = TypeSet((1 << 17) - 1);
+    /// Every kind, struct types included.
+    pub const TOP: TypeSet = TypeSet(u64::MAX);
+    /// The kinds other than struct types.
+    const BASE: TypeSet = TypeSet((1 << 17) - 1);
+    /// Every struct type kind.
+    pub const STRUCTS: TypeSet = TypeSet(!Self::BASE.0);
+    /// How many struct types of a program get kinds of their own.
+    pub const MAX_STRUCTS: usize = 64 - 17;
 
     const NAMES: [(TypeSet, &'static str); 17] = [
         (Self::BOOL, "bool"),
@@ -416,8 +393,9 @@ impl TypeSet {
 
     /// Every kind any of the union's types can be.
     pub fn from_arg_type(ty: ArgType) -> TypeSet {
-        ty.0.iter()
-            .fold(Self::BOTTOM, |set, ty| set.union(Self::from_value_type(*ty)))
+        ty.0.iter().fold(Self::BOTTOM, |set, ty| {
+            set.union(Self::from_value_type(*ty))
+        })
     }
 
     /// The narrowest [`ValueType`] covering every kind in this set.
@@ -476,18 +454,31 @@ impl TypeSet {
         }
     }
 
+    /// The kind of the program's `index`th struct type, counting from 0 up to
+    /// [`Self::MAX_STRUCTS`].
+    pub fn structure(index: usize) -> TypeSet {
+        assert!(index < Self::MAX_STRUCTS);
+        TypeSet(1 << (17 + index))
+    }
+
+    /// The struct types in this set, by index.
+    pub fn struct_indices(self) -> impl Iterator<Item = usize> {
+        let structs = self.intersect(Self::STRUCTS).0 >> 17;
+        (0..Self::MAX_STRUCTS).filter(move |i| structs & (1 << i) != 0)
+    }
+
     /// Whether `value` is of a kind in this set.
     pub fn matches(self, value: &crate::SteelVal) -> bool {
         self.contains(Self::of(value))
     }
 
     /// The raw bits, e.g. to pass the set to scheme code.
-    pub fn bits(self) -> u32 {
+    pub fn bits(self) -> u64 {
         self.0
     }
 
-    pub fn from_bits(bits: u32) -> TypeSet {
-        TypeSet(bits & Self::TOP.0)
+    pub fn from_bits(bits: u64) -> TypeSet {
+        TypeSet(bits)
     }
 
     pub fn union(self, other: TypeSet) -> TypeSet {
@@ -516,37 +507,60 @@ impl TypeSet {
     }
 }
 
-impl core::fmt::Display for TypeSet {
+impl TypeSet {
     /// `int`, `string | list`, `number` (every numeric kind), `any` (everything)
-    /// or `never` (the expression cannot produce a value).
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    /// or `never` (the expression cannot produce a value). Struct types are
+    /// shown by their names in `structs`, the program's struct types by index.
+    pub fn show(self, structs: &[String]) -> String {
         if self.is_top() {
-            return f.write_str("any");
+            return "any".to_string();
         }
         if self.is_bottom() {
-            return f.write_str("never");
+            return "never".to_string();
         }
-        let missing = Self::TOP.without(*self);
-        if missing.0.count_ones() <= 3 {
-            // Mostly everything, so say what it is not.
-            return write!(f, "any except {}", missing);
+        // Struct kinds past the program's own are never produced on their own,
+        // only as part of `any`, so they only count as a group.
+        let named = (0..structs.len().min(Self::MAX_STRUCTS))
+            .fold(Self::BOTTOM, |set, index| set.union(Self::structure(index)));
+        let unnamed = Self::STRUCTS.without(named);
+        let has_unnamed = !unnamed.is_bottom() && self.contains(unnamed);
+        if has_unnamed {
+            let missing = Self::BASE.union(named).without(self);
+            if missing.0.count_ones() <= 3 {
+                // Mostly everything, so say what it is not.
+                return format!("any except {}", missing.show(structs));
+            }
         }
-        let mut rest = *self;
+        let mut rest = self.without(Self::STRUCTS);
         let mut parts = Vec::new();
         if rest.contains(Self::NUMBER) {
-            parts.push("number");
+            parts.push("number".to_string());
             rest = rest.without(Self::NUMBER);
         }
         for (kind, name) in Self::NAMES {
             if rest.contains(kind) {
                 parts.push(if kind == Self::OTHER_NUMBER {
-                    "bignum/rational/complex"
+                    "bignum/rational/complex".to_string()
                 } else {
-                    name
+                    name.to_string()
                 });
             }
         }
-        f.write_str(&parts.join(" | "))
+        for index in self.intersect(named).struct_indices() {
+            if !parts.contains(&structs[index]) {
+                parts.push(structs[index].clone());
+            }
+        }
+        if has_unnamed {
+            parts.push("struct".to_string());
+        }
+        parts.join(" | ")
+    }
+}
+
+impl core::fmt::Display for TypeSet {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.show(&[]))
     }
 }
 

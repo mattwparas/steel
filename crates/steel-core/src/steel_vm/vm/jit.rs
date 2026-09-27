@@ -563,10 +563,10 @@ fn run_background_job(queued: &mut QueuedJob) {
 // once when nothing is queued.
 #[steel_derive::context(
     name = "#%jit-drain",
-    arity = "Exact(0)",
-    returns = "void",
-    args = "",
-    raises = "never"
+    arity = Exact(0),
+    returns = Void,
+    args(),
+    raises = Never
 )]
 pub(crate) fn jit_drain(_ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     wait_for_background_compiles();
@@ -575,9 +575,9 @@ pub(crate) fn jit_drain(_ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<
 
 #[steel_derive::context(
     name = "#%jit-compile-2",
-    arity = "AtLeast(1)",
-    args = "any, any...",
-    raises = "never"
+    arity = AtLeast(1),
+    args(Any, rest = Any),
+    raises = Never
 )]
 pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let function = &args[0];
@@ -650,9 +650,9 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
 
 #[steel_derive::context(
     name = "#%jit-compile",
-    arity = "AtLeast(1)",
-    args = "any, any...",
-    raises = "never"
+    arity = AtLeast(1),
+    args(Any, rest = Any),
+    raises = Never
 )]
 pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let function = &args[0];
