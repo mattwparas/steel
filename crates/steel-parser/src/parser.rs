@@ -390,8 +390,8 @@ impl PrefixKind {
     }
 }
 
-// A read that was in progress. `Frames` is a `read_from_tokens`; its `awaiting` is
-// set if it stopped inside the datum after a quote prefix. `TopPrefix` is a prefix
+// A read that was in progress. `Frames` is a `read_from_tokens`, with `awaiting` set
+// if it stopped inside the datum after a quote prefix. `TopPrefix` is a prefix
 // outside any list, which has no frames of its own.
 #[derive(Debug)]
 enum Level {
@@ -600,31 +600,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn new_flat(input: &'a str, source_id: Option<SourceId>) -> Self {
-        Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
-            quote_stack: Vec::new(),
-            quasiquote_depth: 0,
-            quote_context: false,
-            shorthand_quote_stack: Vec::new(),
-            source_name: None,
-            context: Vec::new(),
-            comment_buffer: Vec::new(),
-            collecting_comments: false,
-            keep_lists: true,
-            queued: None,
-            incremental: false,
-            levels: Vec::new(),
-            more_to_come: false,
-            input_len: 0,
-            resume_at: None,
-            resume_blocked: false,
-            datum_comments: Vec::new(),
-            datum_comment_base: 0,
-            tokens_lexed: 0,
-            prefix_depth: 0,
-            lexical_error_is_final: false,
-            shebang_incomplete: false,
-        }
+        Self::new(input, source_id).without_lowering()
     }
 
     pub fn new_from_source(
@@ -632,60 +608,14 @@ impl<'a> Parser<'a> {
         source_name: PathBuf,
         source_id: Option<SourceId>,
     ) -> Self {
-        Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
-            quote_stack: Vec::new(),
-            quasiquote_depth: 0,
-            quote_context: false,
-            shorthand_quote_stack: Vec::new(),
-            source_name: Some(Rc::from(source_name)),
-            context: Vec::new(),
-            comment_buffer: Vec::new(),
-            collecting_comments: false,
-            keep_lists: false,
-            queued: None,
-            incremental: false,
-            levels: Vec::new(),
-            more_to_come: false,
-            input_len: 0,
-            resume_at: None,
-            resume_blocked: false,
-            datum_comments: Vec::new(),
-            datum_comment_base: 0,
-            tokens_lexed: 0,
-            prefix_depth: 0,
-            lexical_error_is_final: false,
-            shebang_incomplete: false,
-        }
+        let mut parser = Self::new(input, source_id);
+        parser.source_name = Some(Rc::from(source_name));
+        parser
     }
 
     // Attach comments!
     pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
-        Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
-            quote_stack: Vec::new(),
-            quasiquote_depth: 0,
-            quote_context: false,
-            shorthand_quote_stack: Vec::new(),
-            source_name: None,
-            context: Vec::new(),
-            comment_buffer: Vec::new(),
-            collecting_comments: false,
-            keep_lists: false,
-            queued: None,
-            incremental: false,
-            levels: Vec::new(),
-            more_to_come: false,
-            input_len: 0,
-            resume_at: None,
-            resume_blocked: false,
-            datum_comments: Vec::new(),
-            datum_comment_base: 0,
-            tokens_lexed: 0,
-            prefix_depth: 0,
-            lexical_error_is_final: false,
-            shebang_incomplete: false,
-        }
+        Self::new(input, source_id)
     }
 
     fn construct_quote(&mut self, val: ExprKind, span: Span) -> ExprKind {
@@ -1338,9 +1268,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Reads the datum a prefix applies to and wraps it. The prefix bookkeeping is
-    // only unwound once the datum is in hand, so a suspend in between leaves it for
-    // the resumed parse.
+    // Reads the datum a prefix applies to and wraps it. The bookkeeping is unwound
+    // only once the datum is in hand, so a suspend in between leaves it for the
+    // resumed parse.
     fn await_prefix(&mut self, awaiting: Awaiting) -> Result<ExprKind> {
         let Awaiting {
             kind,
@@ -1372,8 +1302,8 @@ impl<'a> Parser<'a> {
         self.wrap_prefix(kind, span, top_level, saved_quote_context, inner)
     }
 
-    // Deliberately its own frame: these temporaries are only live once the nested
-    // read has returned, so they stay off the stack a long chain of prefixes needs.
+    // Its own frame on purpose: these temporaries are only live once the nested read
+    // returned, so they stay off the stack a long chain of prefixes needs.
     #[inline(never)]
     fn wrap_prefix(
         &mut self,
@@ -1482,15 +1412,14 @@ impl<'a> Parser<'a> {
         };
 
         if self.more_to_come {
-            // Ends flush against the buffer and could still grow, so stop here and
-            // pick it up from the start next time. Tokens that are already
-            // finished go through, otherwise a datum ending in `)` would wait on
-            // input that may never come.
+            // Ends flush against the buffer and could still grow, so pick it up from
+            // the start next time. Already finished tokens go through, otherwise a
+            // datum ending in `)` would wait on input that may never come.
             let touches_end = match &res {
                 Ok(token) => token.span.end >= self.input_len && can_continue(&token.ty),
-                // An error running up against the end may just be a token cut in
-                // half - `#\` before its character, say. One that ends earlier is
-                // final: the lexer rejected that text and carried on past it.
+                // An error up against the end may just be a token cut in half - `#\`
+                // before its character. One ending earlier is final: the lexer
+                // rejected that text and carried on past it.
                 Err(err) => err.span.end >= self.input_len,
             };
 
@@ -1499,8 +1428,8 @@ impl<'a> Parser<'a> {
             }
 
             if touches_end {
-                // Back to the start of the token. An error span can cover just the
-                // part the lexer objected to, so it is not a safe resume point.
+                // Back to the start of the token - an error span can cover just the
+                // part the lexer objected to, so it isn't a safe resume point.
                 self.resume_at = Some(match &res {
                     Ok(token) => token.span.start,
                     Err(_) => self.tokenizer.state().token_start(),
@@ -1586,8 +1515,8 @@ impl<'a> Parser<'a> {
                     }
                 } else if let Err(err) = &value {
                     // A final error abandons this read, so the markers it pushed go
-                    // with it. One that just wants more input keeps them, since the
-                    // next chunk still has to honour them.
+                    // with it. One that just wants more input keeps them for the
+                    // next chunk.
                     if !self.needs_more_input(err) {
                         self.datum_comments.truncate(base);
                     }
@@ -1720,10 +1649,9 @@ impl<'a> Iterator for Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn next_inner(&mut self) -> Option<Result<ExprKind>> {
-        // Mid datum from a previous chunk. A top level prefix has no frames, so it
-        // just finishes its datum; anything else goes back into `read_from_tokens`,
-        // which pops the level itself, so the paren details are only used when
-        // starting fresh.
+        // Mid datum from a previous chunk. A top level prefix has no frames and just
+        // finishes its datum; anything else goes back into `read_from_tokens`, which
+        // pops the level itself.
         let resumed = match self.levels.last() {
             Some(Level::TopPrefix(awaiting)) => {
                 let awaiting = *awaiting;

@@ -120,8 +120,7 @@ impl<T> Peekable<T> {
             self.buf.clear();
             self.pos = 0;
         } else if self.pos >= self.buf.len() / 2 {
-            // Mostly consumed, so drop the front rather than keeping everything
-            // already handed out.
+            // Mostly consumed, so drop the front instead of keeping it all
             self.buf.drain(..self.pos);
             self.pos = 0;
         }
@@ -157,10 +156,9 @@ impl<R: Read> Peekable<R> {
         Ok(MaybeBlocking::Nonblocking(filled))
     }
 
-    // A single read call, which returns whatever the source has ready instead of
-    // waiting for the whole request - so a complete datum is never stuck behind
-    // bytes that may not come. The request doubles while a datum is unfinished,
-    // which keeps a parse that has to restart from scratch linear overall.
+    // One read call, taking whatever is ready rather than waiting on the whole
+    // request, so a finished datum never waits on bytes that may not come. The
+    // request doubles while a datum is unfinished to keep a restart linear.
     pub fn fill_chunk(&mut self, max: usize) -> Result<MaybeBlocking<usize>> {
         let unfinished = !self.pending_is_empty();
         let start = self.buf.len();
@@ -218,9 +216,9 @@ impl<R: Read> Peekable<R> {
     }
 
     fn peek_char(&mut self) -> Result<MaybeBlocking<Option<char>>> {
-        // A utf8 scalar is at most 4 bytes, so that is all this ever needs buffered.
-        // A short fill does not say whether the source ended or just has nothing
-        // ready, so a half decoded character asks again rather than guessing.
+        // A utf8 scalar is at most 4 bytes, so that is all this needs buffered. A
+        // short fill doesn't say whether the source ended, so a half decoded
+        // character asks again instead of guessing.
         loop {
             let upto = usize::min(self.pending().len(), 4);
 
@@ -326,8 +324,8 @@ impl<R: Read> Peekable<R> {
         Ok(amt)
     }
 
-    // Returns true if the buffer already held the end of the line, in which case
-    // the caller must not touch `inner`.
+    // True if the buffer already held the end of the line, in which case the caller
+    // must not touch `inner`.
     fn line_from_pending(&mut self, bytes: &mut Vec<u8>) -> bool {
         match self.pending().iter().position(|b| *b == b'\n') {
             Some(pos) => {
@@ -634,9 +632,8 @@ impl SteelPortRepr {
         }
     }
 
-    // Buffers more input, returning how many bytes arrived. Streams are capped at
-    // a pipe's worth per read, since asking for more than can arrive at once
-    // only costs zeroing the request.
+    // Buffers more input, returning how many bytes arrived. Streams cap the request
+    // at a pipe's worth, since asking for more than can arrive only costs zeroing.
     pub fn fill_more(&mut self) -> Result<MaybeBlocking<usize>> {
         match self {
             SteelPortRepr::FileInput(_, br) => br.fill_chunk(usize::MAX),

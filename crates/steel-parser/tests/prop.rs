@@ -3,9 +3,8 @@ use proptest::test_runner::FileFailurePersistence;
 use steel_parser::differential::{check, one_shot, rework};
 use steel_parser::parser::{Parser, SourceId};
 
-// Text that looks like scheme, to get past the lexer and into the parser. The
-// generator is deliberately loose - unbalanced parens and stray prefixes are
-// useful inputs too.
+// Text that looks like scheme, to get past the lexer and into the parser. Loose on
+// purpose - unbalanced parens and stray prefixes are useful inputs too.
 fn atom() -> impl Strategy<Value = String> {
     prop_oneof![
         Just("a".to_string()),
@@ -79,8 +78,8 @@ fn truncated_source() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    // Regressions land next to this file rather than beside a lib.rs that
-    // integration tests do not have.
+    // Regressions land next to this file, not beside a lib.rs integration tests
+    // don't have.
     #![proptest_config(ProptestConfig {
         failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
             "tests/prop-regressions.txt",
@@ -88,8 +87,8 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    // Reading in chunks has to agree with reading the whole input at once. This
-    // is the property the suspend and resume machinery exists to satisfy.
+    // Reading in chunks has to agree with reading it all at once - what suspend and
+    // resume is for.
     #[test]
     fn chunking_does_not_change_the_result(
         input in truncated_source(),

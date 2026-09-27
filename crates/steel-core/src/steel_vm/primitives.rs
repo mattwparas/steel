@@ -2079,15 +2079,15 @@ fn attempt_parse(
 
             match (result, invalid_from) {
                 (Some(Ok(expr)), _) => Outcome::Parsed(expr, offset),
-                // Nothing came out of the valid prefix and what follows is not utf8,
+                // Nothing came out of the valid prefix and what follows isn't utf8,
                 // so no amount of further input helps
                 (_, Some(bad_end)) => Outcome::NotUtf8(bad_end),
                 (Some(Err(err)), _) if parser.needs_more_input(&err) => {
                     Outcome::Incomplete(parser.take_state())
                 }
                 (Some(Err(err)), _) => {
-                    // Drop only what the parse got through, so a later read can pick
-                    // up the rest, the way other schemes do
+                    // Drop only what the parse got through so a later read picks up
+                    // the rest, the way other schemes do
                     let bad = usize::min(usize::max(err.span().end as usize, 1), pending.len());
 
                     Outcome::Bad(err, bad)
@@ -2144,9 +2144,8 @@ fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> R
             }
             Attempt::Nothing | Attempt::Incomplete => {
                 if at_eof {
-                    // Already retried knowing nothing more is coming. Nothing
-                    // pending is a clean eof, leftover text means a datum was
-                    // opened and never closed.
+                    // Already retried knowing nothing more is coming. Nothing pending
+                    // is a clean eof, leftover text means an unclosed datum.
                     let mut guard = port.port.write();
                     let len = guard.pending().len();
                     guard.consume_pending(len);
@@ -2164,8 +2163,8 @@ fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> R
                 match port.port.write().fill_more()? {
                     MaybeBlocking::Nonblocking(0) => at_eof = true,
                     MaybeBlocking::Nonblocking(_) => {}
-                    // A non blocking port with nothing ready. Nothing has been
-                    // consumed, so a later read picks the datum up again.
+                    // Non blocking port with nothing ready. Nothing was consumed, so
+                    // a later read picks the datum up again.
                     MaybeBlocking::WouldBlock => return Ok(would_block_object()),
                 }
             }
@@ -2857,9 +2856,8 @@ mod read_datum_tests {
     use crate::values::port::Peekable;
     use std::io::{BufReader, Read};
 
-    // Hands out one chunk per read call. Once they run out it either reports eof,
-    // or panics - standing in for a source with nothing more to send, where
-    // reading again would block forever.
+    // One chunk per read call. Once they run out it reports eof, or panics - standing
+    // in for a source where reading again would block forever.
     struct Chunks {
         chunks: Vec<&'static str>,
         next: usize,

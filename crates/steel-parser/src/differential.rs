@@ -73,8 +73,8 @@ pub fn chunked(input: &str, chunk: usize) -> String {
 
         match parser.next() {
             Some(Ok(expr)) => return render(&expr),
-            // A hard error only comes from a token that is already complete, so
-            // more input cannot change it. Stopping here is what the reader does.
+            // A hard error only comes from a complete token, so more input can't
+            // change it. Stopping here is what the reader does.
             Some(Err(err)) if !parser.needs_more_input(&err) => return show(Some(Err(err))),
             other => {
                 if !more {
@@ -103,12 +103,10 @@ pub fn check(input: &str, chunk: usize) -> Result<(), String> {
     ))
 }
 
-// Tokens handed to the parse when reading `input` `chunk` bytes at a time, over
-// the count a single pass needs. A resumed parse sits at 1; one that starts over
-// on every chunk grows with the input.
-//
-// A token held back at a boundary is never handed to the parse, so re-lexing it
-// does not show up here. Only redone parses do.
+// Tokens handed to the parse when reading `input` `chunk` bytes at a time, over the
+// count a single pass needs. A resumed parse sits at 1, one that starts over on every
+// chunk grows with the input. A token held back at a boundary never reaches the parse,
+// so only redone parses show up here.
 pub fn rework(input: &str, chunk: usize) -> f64 {
     let chunk = chunk.max(1);
 

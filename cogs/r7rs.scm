@@ -246,7 +246,7 @@
               (let ([p (open-input-string "1 2 3")])
                 (list (read p) (read p) (read p) (eof-object? (read p)))))
 
-;; Two ports read in an interleaved fashion must not disturb each other.
+;; Two ports read interleaved must not disturb each other.
 (check-equal? "read, interleaved reads on two ports"
               '(1 10 2 20)
               (let ([a (open-input-string "1 2 3")]
@@ -274,13 +274,13 @@
               (let ([p (open-input-string "abcdef")])
                 (list (peek-char p) (read-port-to-bytes p))))
 
-;; The newline lands past the peek buffer here...
+;; The newline lands past the peek buffer here
 (check-equal? "peek-char does not consume, read-line"
               '(#\h "hello world" "second")
               (let ([p (open-input-string "hello world\nsecond")])
                 (list (peek-char p) (read-line p) (read-line p))))
 
-;; ...and inside it here, which is a separate path.
+;; and inside it here, which is a separate path
 (check-equal? "peek-char does not consume, read-line with newline in the peek buffer"
               '(#\a "ab" "cd")
               (let ([p (open-input-string "ab\ncd")])

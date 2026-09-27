@@ -9,8 +9,8 @@ fn nested_lists_are_read_iteratively() {
     assert!(parser.next().map(|res| res.is_ok()).unwrap_or(false));
 }
 
-// Quote prefixes are read by recursing, one frame per level. This pins the
-// headroom there is, to catch it shrinking.
+// Quote prefixes recurse, one frame per level. Pins the headroom to catch it
+// shrinking.
 #[test]
 fn stacked_prefixes_have_headroom() {
     for prefix in ["'", "`", ",", ",@", "#'", "#`", "#,", "#,@"] {
@@ -25,9 +25,8 @@ fn stacked_prefixes_have_headroom() {
     }
 }
 
-// Past the cap it reports an error the caller can catch, rather than running the
-// stack out. The thread here gets the 2MiB a thread gets by default, which is the
-// budget the cap has to fit inside.
+// Past the cap it reports an error the caller can catch instead of running the stack
+// out. The thread gets the default 2MiB, which is the budget the cap fits inside.
 #[test]
 fn nesting_past_the_cap_is_an_error() {
     std::thread::Builder::new()
