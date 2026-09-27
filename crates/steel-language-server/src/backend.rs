@@ -1019,7 +1019,7 @@ impl Backend {
             .await;
     }
 
-    // Applies a document to the backend's state and hands back whatever is wrong with it.
+    // updates the stored document and analysis, and hands back what's wrong with it
     pub fn analyze(&self, uri: &Url, text: String) -> Vec<Diagnostic> {
         let now = std::time::Instant::now();
 

@@ -381,7 +381,6 @@ mod find_references_tests {
             ]
         );
 
-        // other is bound in the same let, and must not get swept up in it
         let locations = server
             .references(&uri, find_nth(source, "other", 1), true)
             .await
@@ -514,8 +513,6 @@ mod find_references_tests {
 
         let uri = server.open("builtin.scm", source);
 
-        // the information.builtin branch re-analyzes every loaded module, so make sure it
-        // terminates and doesn't surface anything from the stdlib
         let locations = server
             .references(&uri, find(source, "map"), true)
             .await
@@ -572,9 +569,8 @@ mod find_references_tests {
     }
 }
 
-// Several documents open at once, and the workspace boundary. spans_to_locations drops
-// anything that is neither in the vfs nor under the root, so results never point into the
-// stdlib or some unrelated checkout we have no file watcher for.
+// spans_to_locations drops anything that is neither in the vfs nor under the root, so
+// results never point into the stdlib or an unrelated checkout we have no watcher for
 mod workspace_tests {
     use super::*;
 
@@ -803,7 +799,6 @@ mod require_graph_tests {
         assert_eq!(location.range, range_of_nth(deep, "deep-fn", 1));
     }
 
-    // the find references half of the above
     #[tokio::test]
     #[ignore = "references are not resolved through a re-providing intermediate module"]
     async fn references_follow_a_transitive_re_provide() {
@@ -908,7 +903,6 @@ mod document_symbol_tests {
 
         assert_eq!(binding("inner-star").kind, SymbolKind::VARIABLE);
 
-        // the range is the whole binding pair, not just the name
         assert_eq!(
             binding("inner-star").location.range,
             range_of(source, "[inner-star 1]")
@@ -1063,7 +1057,6 @@ mod hover_tests {
             text
         );
 
-        // the signature is rendered underneath the doc comment
         assert!(
             text.contains("(define greet") && text.contains("(name)"),
             "unexpected hover contents: {}",
@@ -1128,7 +1121,6 @@ mod hover_tests {
             .await
             .expect("expected a signature for the undocumented function");
 
-        // with no doc comment to show, the pretty printed definition stands in for it
         assert_eq!(
             hover_text(&hover),
             r#"```scheme
@@ -1184,8 +1176,6 @@ mod completion_tests {
             );
         }
 
-        // the globals and the in scope names run through different filters, so check that
-        // compiler generated names are hidden by both
         for internal in ["mangler#%", "##mm", "__module-", "!!dummy-rest"] {
             assert!(
                 !labels.iter().any(|label| label.starts_with(internal)),
@@ -1261,7 +1251,6 @@ mod completion_tests {
 
         let labels = completion_labels(&mut server, &uri, position(2, 5)).await;
 
-        // these come from the engine's macro environment, not the global set
         for expected in ["when", "unless"] {
             assert!(
                 labels.contains(&expected.to_string()),
@@ -1398,8 +1387,7 @@ mod rename_tests {
         let mut server = TestServer::new();
         let uri = server.open("single.scm", source);
 
-        // renaming a top level define would have to touch every requiring file, which we
-        // don't attempt
+        // renaming a global would have to touch every requiring file, which we don't do
         let error = server
             .prepare_rename(&uri, find_nth(source, "add-one", 0))
             .await
@@ -1580,7 +1568,6 @@ mod diagnostics_tests {
 
         let uri = server.open("arity-app.scm", app_source);
 
-        // the arity has to be resolved out of the other module's ast to be known here
         let diagnostics = server.diagnostics(&uri);
 
         assert_eq!(
@@ -1755,7 +1742,6 @@ mod document_sync_tests {
 
         server.did_change(lib.clone(), lib_edited);
 
-        // the edited buffer's own analysis moves with it
         let symbols = flat_symbols(server.document_symbol(&lib).await);
         let greet = symbols
             .iter()

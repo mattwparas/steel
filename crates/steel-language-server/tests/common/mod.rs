@@ -1,5 +1,4 @@
-// Harness for driving the language server backend the way an editor would, minus the
-// JSON-RPC layer. Tests call Backend's inherent methods, so what's under test is our
+// Drives the backend directly rather than over JSON-RPC, so what's under test is the
 // analysis and span conversion rather than tower-lsp's plumbing.
 
 use std::collections::HashMap;
@@ -30,8 +29,7 @@ pub struct TestServer {
     service: LspService<Backend>,
     root: PathBuf,
     diagnostics: HashMap<Url, Vec<Diagnostic>>,
-    // the engine keeps compiled modules keyed by these paths, which is fine as long as
-    // every test gets a directory of its own
+    // the engine keeps compiled modules keyed by path, so every test needs its own dir
     _workspace: tempfile::TempDir,
     // a second directory, deliberately not under the workspace root
     outside: tempfile::TempDir,
@@ -100,14 +98,12 @@ impl TestServer {
         Url::from_file_path(&path).unwrap()
     }
 
-    // A uri under the workspace root for a file that is never written or opened. The
-    // queries bail on the document maps before they reach the filesystem.
+    // never written, never opened - the queries bail on the document maps before they
+    // reach the filesystem
     pub fn unopened(&self, name: &str) -> Url {
         Url::from_file_path(self.root.join(name)).unwrap()
     }
 
-    // Writes a fixture file outside the workspace root, the way a library in $STEEL_HOME
-    // or a sibling checkout would sit. We treat those differently from files we own.
     pub fn write_outside(&self, name: &str, contents: &str) -> Url {
         let path = self.outside.path().canonicalize().unwrap().join(name);
 
@@ -116,15 +112,13 @@ impl TestServer {
         Url::from_file_path(&path).unwrap()
     }
 
-    // Requires a single file into the engine, without treating it as part of the workspace.
     pub fn index_path(&self, uri: &Url) {
         let path = uri.to_file_path().unwrap();
         let mut guard = ENGINE.write().unwrap();
         let _ = guard.emit_expanded_ast(&format!(r"(require {:?})", path), None);
     }
 
-    // Mirrors the indexing the binary does on startup - every .scm file under the root
-    // gets required so the engine knows about its module.
+    // mirrors the indexing the binary does on startup
     pub fn index_workspace(&self) {
         let mut paths: Vec<PathBuf> = Vec::new();
 
@@ -162,7 +156,6 @@ impl TestServer {
         self.did_open(uri, contents);
     }
 
-    // The diagnostics from the last time this document was opened or changed.
     pub fn diagnostics(&self, uri: &Url) -> Vec<Diagnostic> {
         self.diagnostics.get(uri).cloned().unwrap_or_default()
     }
@@ -177,7 +170,6 @@ impl TestServer {
             .await
     }
 
-    // Narrows goto definition down to a single location, failing the test otherwise.
     pub async fn definition_location(&self, uri: &Url, position: Position) -> Location {
         match self.goto_definition(uri, position).await {
             Some(GotoDefinitionResponse::Scalar(location)) => location,
@@ -233,13 +225,10 @@ impl TestServer {
     }
 }
 
-// Zero based (line, character).
 pub fn position(line: u32, character: u32) -> Position {
     Position::new(line, character)
 }
 
-// The position of the first character of the nth (zero indexed) occurrence of `needle`.
-// Keeps the tests readable, and honest when a fixture gets reformatted.
 pub fn find_nth(text: &str, needle: &str, n: usize) -> Position {
     let offset = text
         .match_indices(needle)
@@ -250,12 +239,10 @@ pub fn find_nth(text: &str, needle: &str, n: usize) -> Position {
     offset_to_position(text, offset)
 }
 
-// find_nth, for the first occurrence.
 pub fn find(text: &str, needle: &str) -> Position {
     find_nth(text, needle, 0)
 }
 
-// The range covering the nth (zero indexed) occurrence of `needle`.
 pub fn range_of_nth(text: &str, needle: &str, n: usize) -> Range {
     let start = find_nth(text, needle, n);
 
@@ -265,7 +252,6 @@ pub fn range_of_nth(text: &str, needle: &str, n: usize) -> Range {
     )
 }
 
-// The range covering the first occurrence of `needle`.
 pub fn range_of(text: &str, needle: &str) -> Range {
     range_of_nth(text, needle, 0)
 }
@@ -278,9 +264,7 @@ fn offset_to_position(text: &str, offset: usize) -> Position {
     Position::new(line, (offset - line_start) as u32)
 }
 
-// Sorts locations so a test can compare them without depending on discovery order.
-// Deliberately does not dedupe - emitting the same location twice is a bug we want to
-// catch.
+// deliberately does not dedupe - the same location twice is a bug we want to catch
 pub fn sorted(mut locations: Vec<Location>) -> Vec<Location> {
     locations.sort_by(|a, b| {
         a.uri
@@ -292,18 +276,16 @@ pub fn sorted(mut locations: Vec<Location>) -> Vec<Location> {
     locations
 }
 
-// sorted with duplicates collapsed. For the cases where we know the same location comes
-// back more than once, so the test still pins down what was found. See
-// references_does_not_report_duplicate_locations.
+// for the cases where we know a location comes back twice, so the test still pins down
+// what was found - see references_does_not_report_duplicate_locations
 pub fn deduped(locations: Vec<Location>) -> Vec<Location> {
     let mut locations = sorted(locations);
     locations.dedup();
     locations
 }
 
-// Reduces locations to (file name, range), sorted and deduped. Use this instead of deduped
-// when the locations can live in different directories - sorting whole uris would depend on
-// the random temp directory names.
+// for locations in different directories, where sorting whole uris would depend on the
+// random temp directory names
 pub fn by_file(locations: Vec<Location>) -> Vec<(String, Range)> {
     let mut named: Vec<(String, Range)> = locations
         .into_iter()
@@ -319,7 +301,6 @@ pub fn by_file(locations: Vec<Location>) -> Vec<(String, Range)> {
     named
 }
 
-// The last path segment of a file uri.
 pub fn file_name(uri: &Url) -> String {
     uri.path_segments()
         .and_then(|mut segments| segments.next_back())
