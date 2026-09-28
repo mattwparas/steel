@@ -54,8 +54,6 @@ use crate::diagnostics::{
 
 static LSP_HOME_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 
-// Sets the lsp home without going through $STEEL_LSP_HOME, for callers that would rather
-// not mutate the environment. Only the first call takes effect.
 pub fn set_lsp_home(directory: PathBuf) {
     let _ = LSP_HOME_OVERRIDE.set(directory);
 }

@@ -964,8 +964,6 @@ mod hover_tests {
 
         let uri = server.open("documented.scm", source);
 
-        // macros aren't identifiers in the analysis, so this goes through the separate
-        // hover_macro_impl fallback rather than hover_impl
         let hover = server
             .hover(&uri, find_nth(source, "twice", 1))
             .expect("expected documentation for the macro");
@@ -1646,8 +1644,6 @@ mod offset_encoding_tests {
 
     #[test]
     fn positions_are_utf16_code_units() {
-        // grüße and naïve-name take a different number of bytes, utf16 code units and
-        // characters, which is what the conversions have to get right
         let source = r#"(define (grüße naïve-name)
   (list naïve-name naïve-name))
 "#;
@@ -1655,9 +1651,7 @@ mod offset_encoding_tests {
         let mut server = TestServer::new();
         let uri = server.open("unicode.scm", source);
 
-        // `(define (grüße ` is 15 code units, and naïve-name is 10
         let declaration = Range::new(Position::new(0, 15), Position::new(0, 25));
-        // `  (list ` is 8, then two 10 unit uses separated by a space
         let first_use = Range::new(Position::new(1, 8), Position::new(1, 18));
         let second_use = Range::new(Position::new(1, 19), Position::new(1, 29));
 
@@ -1680,8 +1674,6 @@ mod offset_encoding_tests {
 
     #[test]
     fn positions_are_bytes_in_utf8() {
-        // grüße and naïve-name take a different number of bytes, utf16 code units and
-        // characters, which is what the conversions have to get right
         let source = r#"(define (grüße naïve-name)
   (list naïve-name naïve-name))
 "#;
@@ -1689,7 +1681,6 @@ mod offset_encoding_tests {
         let mut server = TestServer::with_encoding(OffsetEncoding::Utf8);
         let uri = server.open("unicode.scm", source);
 
-        // same source, but now ü and ï count as two each
         let declaration = Range::new(Position::new(0, 17), Position::new(0, 28));
         let first_use = Range::new(Position::new(1, 8), Position::new(1, 19));
         let second_use = Range::new(Position::new(1, 20), Position::new(1, 31));
