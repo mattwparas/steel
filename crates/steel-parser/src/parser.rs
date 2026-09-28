@@ -76,6 +76,39 @@ impl core::fmt::Display for SyntaxObjectId {
     }
 }
 
+// Starts at 1, since 0 is NONE
+static EXPANSION_MARK_COUNTER: AtomicU32 = AtomicU32::new(1);
+
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+)]
+pub struct ExpansionMark(pub u32);
+
+impl ExpansionMark {
+    // For identifiers that weren't introduced by a template
+    pub const NONE: Self = ExpansionMark(0);
+
+    // For identifiers whose mark was lost, e.g. when a kernel macro rebuilds them from a datum
+    // since the steelval -> exprkind conversion is lossy when going through lists of atoms
+    // instead of syntax objects.
+    pub const UNKNOWN: Self = ExpansionMark(u32::MAX);
+
+    pub fn fresh() -> Self {
+        loop {
+            let mark = ExpansionMark(EXPANSION_MARK_COUNTER.fetch_add(1, Ordering::Relaxed));
+
+            if mark.is_template() {
+                return mark;
+            }
+        }
+    }
+
+    // Whether the identifier with this mark was introduced by a template
+    pub fn is_template(self) -> bool {
+        self != Self::NONE && self != Self::UNKNOWN
+    }
+}
+
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
@@ -132,6 +165,10 @@ pub struct RawSyntaxObject<T> {
     // or nothing at all.
     pub unresolved: bool,
     pub introduced_via_macro: bool,
+    // The syntax-rules expansion that introduced this identifier from a template.
+    // Identifiers with the same name from different expansions are different variables.
+    #[serde(skip)]
+    pub mark: ExpansionMark,
 }
 
 impl<T: Clone> Clone for RawSyntaxObject<T> {
@@ -142,6 +179,7 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
             syntax_object_id: SyntaxObjectId::fresh(),
             unresolved: self.unresolved,
             introduced_via_macro: self.introduced_via_macro,
+            mark: self.mark,
         }
     }
 }
@@ -181,6 +219,7 @@ impl SyntaxObject {
             syntax_object_id: SyntaxObjectId::fresh(),
             unresolved: false,
             introduced_via_macro: false,
+            mark: ExpansionMark::NONE,
         }
     }
 
@@ -192,6 +231,7 @@ impl SyntaxObject {
             syntax_object_id: SyntaxObjectId::fresh(),
             unresolved: false,
             introduced_via_macro: false,
+            mark: ExpansionMark::NONE,
         }
     }
 
@@ -209,6 +249,7 @@ impl SyntaxObject {
             syntax_object_id: SyntaxObjectId::fresh(),
             unresolved: false,
             introduced_via_macro: false,
+            mark: ExpansionMark::NONE,
         }
     }
 }

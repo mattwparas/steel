@@ -2,7 +2,7 @@ use crate::compiler::passes::VisitorMutRefUnit;
 use crate::compiler::program::{BEGIN, DEFINE, ELLIPSES_SYMBOL, IF, LAMBDA};
 use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair, Vector};
 use crate::parser::expand_visitor::GlobalMap;
-use crate::parser::parser::SyntaxObject;
+use crate::parser::parser::{ExpansionMark, SyntaxObject};
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
 use crate::parser::replace_idents::replace_identifiers;
 use crate::parser::tokens::TokenType;
@@ -509,6 +509,20 @@ impl MacroCase {
                     }
 
                     let mut body = self.body.clone();
+
+                    // Give the identifiers in the template a mark unique to this expansion.
+                    // This happens before the pattern variables are substituted, so only
+                    // identifiers from the template get it.
+                    struct MarkTemplateIdentifiers(ExpansionMark);
+                    impl VisitorMutRefUnit for MarkTemplateIdentifiers {
+                        fn visit_atom(&mut self, a: &mut Atom) {
+                            if let TokenType::Identifier(_) = a.syn.ty {
+                                a.syn.mark = self.0;
+                            }
+                        }
+                    }
+
+                    MarkTemplateIdentifiers(ExpansionMark::fresh()).visit(&mut body);
 
                     // println!("Expanding: {}", body);
                     // println!("Bindings");
