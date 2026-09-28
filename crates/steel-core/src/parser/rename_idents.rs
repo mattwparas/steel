@@ -40,10 +40,9 @@ impl<'a> RenameIdentifiersVisitor<'a> {
         self.visit(expr);
     }
 
-    // Quoted data in the template. A pattern variable is still replaced by its
-    // argument, but a name the template introduces stays the symbol it spells.
-    // Inside `quasiquote`, `depth` counts the levels, and what is unquoted back
-    // to 0 is code again. Plain quoted data has no depth.
+    // Okay so this is annoying: we'll have to handle quoted data in the template.
+    // A pattern variable is still replaced by its argument, but a name the template introduces stays
+    // whatever it was before.
     fn visit_data(&mut self, expr: &mut ExprKind, depth: Option<usize>) {
         match expr {
             ExprKind::Atom(a) => {

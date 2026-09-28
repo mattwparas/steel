@@ -1,5 +1,5 @@
 ;; a name a macro template introduces is renamed for hygiene, but quoting it
-;; gives the symbol as written
+;; gives the symbol as it was originally
 (define-syntax quote-local
   (syntax-rules ()
     [(_) (let ([y 1]) (list y 'y (quote y)))]))

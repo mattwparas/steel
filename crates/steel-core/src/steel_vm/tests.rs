@@ -1011,8 +1011,6 @@ mod exported_macro_quote_tests {
 
     #[test]
     fn quoted_names_in_exported_macros() {
-        // The module's own names are mangled in its exported macros, but not
-        // inside quoted data.
         let mut engine = Engine::new();
         engine.register_steel_module(
             "quoting-macros".to_string(),

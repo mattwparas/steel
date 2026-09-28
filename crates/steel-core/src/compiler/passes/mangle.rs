@@ -154,8 +154,6 @@ impl NameMangler {
         }
     }
 
-    // Quasiquoted data at nesting `depth`. Only what is unquoted back to depth
-    // 0 is code.
     fn visit_quasiquoted(&mut self, expr: &mut ExprKind, depth: usize) {
         match expr {
             ExprKind::List(l) => {
@@ -229,8 +227,7 @@ impl VisitorMutRefUnit for NameMangler {
     #[inline]
     fn visit_quote(&mut self, _q: &mut Quote) {}
 
-    // A macro template keeps `(quote x)` and `(quasiquote x)` as lists, and
-    // their data has to keep its names too.
+    // (Unfortunately) A macro template needs to keep `(quote x)` and `(quasiquote x)` as lists
     #[inline]
     fn visit_list(&mut self, l: &mut List) {
         let quote_keyword = l

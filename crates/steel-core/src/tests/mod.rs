@@ -107,7 +107,6 @@ test_harness_success_sync! {
 test_harness_success! {
     abc_problem,
     arity_mismatch_calls,
-    macro_quoted_names,
     box_release,
     jit_arithmetic_errors,
     jit_branch_in_argument_list,
@@ -179,6 +178,7 @@ test_harness_success! {
     list_append,
     list_functions,
     local_struct,
+    macro_quoted_names,
     matcher,
     maxsubseq,
     merge_sort,
