@@ -2823,6 +2823,14 @@ fn test_set_on_global_is_seen_by_closures_compiled_earlier() {
     assert_eq!(engine.run("n").unwrap()[0], SteelVal::IntV(5));
     assert_eq!(engine.run("(get-n)").unwrap()[0], SteelVal::IntV(5));
 
+    // The same holds for functions: callers compiled alongside a top-level define must
+    // not have its body inlined, or a later `set!` of it is invisible to them.
+    engine
+        .run("(define (f x) (+ x 1)) (define (g) (f 1))")
+        .unwrap();
+    engine.run("(set! f (lambda (x) (* x 10)))").unwrap();
+    assert_eq!(engine.run("(g)").unwrap()[0], SteelVal::IntV(10));
+
     // Local bindings are still folded: every mutation of a local is in scope.
     let local = engine
         .run("(define (local-constant) (let ([k 3]) (+ k 1))) (local-constant)")

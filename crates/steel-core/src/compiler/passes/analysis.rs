@@ -5831,10 +5831,21 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
+        // Top-level user definitions are globals: a later program run against the same
+        // engine can `set!` them, and callers compiled now must see the new value, so
+        // their bodies must not be copied into call sites. Compiler-generated
+        // definitions (lifted lambdas) cannot be named by user code, so inlining those
+        // stays sound. Module definitions above are compiled as closed units.
+        let is_generated = |d: &Define| {
+            d.name
+                .atom_identifier()
+                .is_some_and(|name| name.resolve().starts_with("##"))
+        };
+
         // Only inline forwards, as to not run in to any issues with visibility
         for expr in self.exprs.iter() {
             match expr {
-                ExprKind::Define(d) => {
+                ExprKind::Define(d) if is_generated(d) => {
                     if let ControlFlow::Break(_) =
                         self.inline_handle_define(&estimator, threshold, &mut funcs, d, &changed)
                     {
@@ -5845,6 +5856,9 @@ impl<'a> SemanticAnalysis<'a> {
                 ExprKind::Begin(b) => {
                     for expr in b.exprs.iter() {
                         if let ExprKind::Define(d) = expr {
+                            if !is_generated(d) {
+                                continue;
+                            }
                             if let ControlFlow::Break(_) = self.inline_handle_define(
                                 &estimator, threshold, &mut funcs, d, &changed,
                             ) {
