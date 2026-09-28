@@ -804,8 +804,6 @@ pub struct Syntax {
     pub(crate) raw: Option<SteelVal>,
     pub(crate) syntax: SteelVal,
     span: Span,
-    // The mark of the identifier this was converted from, see `RawSyntaxObject::mark`.
-    // Syntax objects created from scheme code use `ExpansionMark::UNKNOWN`.
     mark: ExpansionMark,
 }
 
