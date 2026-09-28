@@ -89,13 +89,14 @@ impl ExpansionMark {
     pub const NONE: Self = ExpansionMark(0);
 
     // For identifiers whose mark was lost, e.g. when a kernel macro rebuilds them from a datum
+    // since the steelval -> exprkind conversion is lossy when going through lists of atoms
+    // instead of syntax objects.
     pub const UNKNOWN: Self = ExpansionMark(u32::MAX);
 
     pub fn fresh() -> Self {
         loop {
             let mark = ExpansionMark(EXPANSION_MARK_COUNTER.fetch_add(1, Ordering::Relaxed));
 
-            // The counter can wrap around, so skip over `NONE` and `UNKNOWN`
             if mark.is_template() {
                 return mark;
             }
