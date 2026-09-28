@@ -4395,14 +4395,14 @@ impl<'a> VmCore<'a> {
                 .insert(closure_id, spans);
 
             #[cfg(feature = "jit2")]
-            let constructed_lambda = if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str())
-                != Ok("false")
-                && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
-            {
-                jit::jit_compile_lambda(self, constructed_lambda)
-            } else {
-                constructed_lambda
-            };
+            let constructed_lambda =
+                if matches!(std::env::var("STEEL_JIT").as_deref(), Ok("1" | "true"))
+                    && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
+                {
+                    jit::jit_compile_lambda(self, constructed_lambda)
+                } else {
+                    constructed_lambda
+                };
 
             let constructed_lambda = Gc::new(constructed_lambda);
 

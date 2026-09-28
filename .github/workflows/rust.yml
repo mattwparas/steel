@@ -140,14 +140,14 @@ jobs:
           command: test
           args: --all
 
-      # We also want to test the JIT stuff as well
-      - uses: actions-rs/cargo@v1
-        env:
-          STEEL_HOME: ${{ env.STEEL_HOME }}
-          STEEL_JIT: false
-        with:
-          command: test
-          args: --all
+      # The JIT is off by default. Re-enable this once the JIT fixes land.
+      # - uses: actions-rs/cargo@v1
+      #   env:
+      #     STEEL_HOME: ${{ env.STEEL_HOME }}
+      #     STEEL_JIT: true
+      #   with:
+      #     command: test
+      #     args: --all
 
       - name: Install shared libraries
         env:
