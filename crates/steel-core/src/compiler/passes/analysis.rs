@@ -94,6 +94,10 @@ pub struct SemanticInformation {
     /// `(define x (%module-get% %-builtin-module-... 'x))`. Set for any builtin
     /// module, where `builtin` is only set for the ones in `MODULE_IDENTIFIERS`.
     pub from_builtin_module: bool,
+    /// For such a global, the name of the value in its module. With a prefix,
+    /// as in `(require-builtin steel/strings as s.)`, this differs from the
+    /// global's own name.
+    pub builtin_name: Option<InternedString>,
 }
 
 #[test]
@@ -124,6 +128,7 @@ impl SemanticInformation {
             is_shadowed: false,
             is_required_identifier: false,
             from_builtin_module: false,
+            builtin_name: None,
         }
     }
 
@@ -481,6 +486,7 @@ impl Analysis {
         }
 
         semantic_info.from_builtin_module = is_a_builtin_module_get(define);
+        semantic_info.builtin_name = builtin_module_get_name(define);
 
         if is_a_require_definition(define) {
             semantic_info.mark_required();
@@ -615,6 +621,7 @@ impl Analysis {
         existing.read_heap_offset = metadata.read_heap_offset;
         existing.is_required_identifier = metadata.is_required_identifier;
         existing.from_builtin_module = metadata.from_builtin_module;
+        existing.builtin_name = metadata.builtin_name;
     }
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
@@ -841,6 +848,7 @@ impl<'a> AnalysisPass<'a> {
         }
 
         semantic_info.from_builtin_module = is_a_builtin_module_get(define);
+        semantic_info.builtin_name = builtin_module_get_name(define);
 
         if is_a_require_definition(define) {
             semantic_info.mark_required();
@@ -881,6 +889,7 @@ impl<'a> AnalysisPass<'a> {
         }
 
         semantic_info.from_builtin_module = is_a_builtin_module_get(define);
+        semantic_info.builtin_name = builtin_module_get_name(define);
 
         if is_a_require_definition(define) {
             semantic_info.mark_required();
@@ -3778,6 +3787,17 @@ pub(crate) fn is_a_builtin_module_get(def: &Define) -> bool {
     false
 }
 
+/// The name `(define x (%module-get% %-builtin-module-... 'name))` looks up.
+fn builtin_module_get_name(def: &Define) -> Option<InternedString> {
+    if !is_a_builtin_module_get(def) {
+        return None;
+    }
+    match def.body.list()?.args.get(2)? {
+        ExprKind::Quote(quote) => quote.expr.atom_identifier().copied(),
+        _ => None,
+    }
+}
+
 #[inline(always)]
 pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
     if let ExprKind::List(l) = &def.body {
@@ -5875,7 +5895,7 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
 }
 
 struct ReplaceBuiltinUsagesInsideMacros<'a> {
-    identifiers_to_replace: &'a mut FxHashSet<InternedString>,
+    identifiers_to_replace: &'a mut FxHashMap<InternedString, InternedString>,
     analysis: &'a Analysis,
     changed: bool,
 }
@@ -5895,11 +5915,9 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
         }
 
         if let Some(ident) = a.ident_mut() {
-            if self.identifiers_to_replace.contains(ident) {
-                if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
-                    *ident = builtin_to_reserved(builtin_name);
-                    self.changed = true;
-                }
+            if let Some(reserved) = self.identifiers_to_replace.get(ident) {
+                *ident = *reserved;
+                self.changed = true;
             }
         }
     }
@@ -5936,7 +5954,7 @@ impl<'a> VisitorMutRefUnit for FlattenModuleReferences<'a> {
 
 struct ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     analysis: &'a Analysis,
-    identifiers_to_replace: &'a mut FxHashSet<InternedString>,
+    identifiers_to_replace: &'a mut FxHashMap<InternedString, InternedString>,
     // Prelude names that have been given another value at the top level.
     redefined_builtins: &'a FxHashSet<InternedString>,
     globals: &'a FxHashMap<InternedString, usize>,
@@ -5946,7 +5964,7 @@ struct ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
 impl<'a> ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     pub fn new(
         analysis: &'a Analysis,
-        identifiers_to_replace: &'a mut FxHashSet<InternedString>,
+        identifiers_to_replace: &'a mut FxHashMap<InternedString, InternedString>,
         redefined_builtins: &'a FxHashSet<InternedString>,
         globals: &'a FxHashMap<InternedString, usize>,
     ) -> Self {
@@ -5957,6 +5975,13 @@ impl<'a> ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
             globals,
             changed: false,
         }
+    }
+
+    // The reserved name of the builtin the global `definition` is bound to. A
+    // prefixed `require-builtin` binds it under another name.
+    fn reserved_name(&self, definition: Option<SyntaxObjectId>) -> Option<InternedString> {
+        let name = self.analysis.info.get(&definition?)?.builtin_name?;
+        Some(builtin_to_reserved(name.resolve()))
     }
 
     // A free reference to a prelude name, from a program rather than a module.
@@ -6034,19 +6059,15 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                 let is_free = info.refers_to.is_none();
 
+                let reserved = self.reserved_name(info.refers_to);
+
                 if let Some(ident) = a.ident_mut() {
-                    if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
-                        // let original = *ident;
-
-                        self.identifiers_to_replace.insert(*ident);
-
-                        // *ident = ("#%prim.".to_string() + builtin_name).into();
-
-                        *ident = builtin_to_reserved(builtin_name);
-
-                        self.changed = true;
-
-                        // println!("top level - MUTATED IDENT TO BE: {} -> {}", original, ident);
+                    if ident.resolve().contains(MANGLER_SEPARATOR) {
+                        if let Some(reserved) = reserved {
+                            self.identifiers_to_replace.insert(*ident, reserved);
+                            *ident = reserved;
+                            self.changed = true;
+                        }
                     } else if is_free {
                         self.replace_free_builtin(ident);
                     }
@@ -6067,22 +6088,17 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                             // println!("FOUND UNSHADOWED USAGE OF BUILTIN: {}", a);
 
+                            let reserved = info
+                                .builtin_name
+                                .map(|name| builtin_to_reserved(name.resolve()));
+
                             if let Some(ident) = a.ident_mut() {
-                                if let Some((_, builtin_name)) =
-                                    ident.resolve().split_once(MANGLER_SEPARATOR)
-                                {
-                                    // let original = *ident;
-
-                                    self.identifiers_to_replace.insert(*ident);
-
-                                    // *ident = ("#%prim.".to_string() + builtin_name).into();
-                                    *ident = builtin_to_reserved(builtin_name);
-
-                                    self.changed = true;
-
-                                    // println!("MUTATED IDENT TO BE: {} -> {}", original, ident);
-
-                                    // println!("{:#?}", info);
+                                if ident.resolve().contains(MANGLER_SEPARATOR) {
+                                    if let Some(reserved) = reserved {
+                                        self.identifiers_to_replace.insert(*ident, reserved);
+                                        *ident = reserved;
+                                        self.changed = true;
+                                    }
                                 }
                             }
                         }
@@ -8276,7 +8292,7 @@ impl<'a> SemanticAnalysis<'a> {
         &mut self,
         macros: &mut FxHashMap<InternedString, SteelMacro>,
         module_manager: &mut ModuleManager,
-        table: &mut FxHashSet<InternedString>,
+        table: &mut FxHashMap<InternedString, InternedString>,
         redefined_builtins: &mut FxHashSet<InternedString>,
         globals: &FxHashMap<InternedString, usize>,
     ) -> &mut Self {

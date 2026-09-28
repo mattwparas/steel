@@ -222,6 +222,7 @@ test_harness_success! {
 
 test_harness_success_module! {
     abc_problem,
+    prefixed_require_builtin,
     jit_arithmetic_errors,
     jit_branch_in_argument_list,
     jit_compare_register_int,
