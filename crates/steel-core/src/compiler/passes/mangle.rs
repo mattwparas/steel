@@ -227,7 +227,7 @@ impl VisitorMutRefUnit for NameMangler {
     #[inline]
     fn visit_quote(&mut self, _q: &mut Quote) {}
 
-    // A macro template keeps `(quote x)` and `(quasiquote x)` as lists
+    // (Unfortunately) A macro template needs to keep `(quote x)` and `(quasiquote x)` as lists
     #[inline]
     fn visit_list(&mut self, l: &mut List) {
         let quote_keyword = l
