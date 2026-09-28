@@ -3325,8 +3325,6 @@ impl<'a> LowerRestArguments<'a> {
         index: usize,
         value: &ExprKind,
     ) -> Option<()> {
-        println!("plist-get-positional-arg-list start: {} - {}", index, value);
-
         let lst = value.list()?;
 
         let ident = lst.get(1)?.atom_identifier()?;
