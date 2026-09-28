@@ -1,6 +1,5 @@
 #![allow(unused)]
 
-use crate::values::structs::StructRef;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -38,7 +37,7 @@ use crate::{
 
 use super::{
     closed::{Heap, HeapRef},
-    structs::UserDefinedStruct,
+    structs::{StructRef, UserDefinedStruct},
 };
 
 // Keeps track of this metadata table for getting the docs associated
@@ -154,12 +153,13 @@ pub struct ByteCodeLambda {
     pub(crate) tier2: Option<JitFnPointer>,
 }
 
-/// A lambda's compiled entry point: null until compiled.
+/// A lambda's compiled entry point, null until compiled.
 ///
 /// Atomic because the background compiler installs it into a lambda the
-/// interpreter already holds (see `jit_background_enabled`). Same layout as
-/// `Option<JitFnPointer>` - one pointer, null for none - which is what the
-/// generated code loads through `offset_of!(ByteCodeLambda, super_instructions)`.
+/// interpreter already holds (see `jit_background_enabled`). It has the same
+/// layout as `Option<JitFnPointer>`, a single pointer that is null for none,
+/// which the generated code loads through
+/// `offset_of!(ByteCodeLambda, super_instructions)`.
 #[cfg(feature = "jit2")]
 #[repr(transparent)]
 pub(crate) struct JitEntry(core::sync::atomic::AtomicPtr<u8>);
@@ -267,13 +267,13 @@ pub struct SerializedLambdaPrototype {
 
 // The instruction slice a frame is currently executing.
 //
-// Under rooted-instructions this is a raw pointer and a length, and nothing keeps
-// the buffer alive - the caller has to. The fields are spelled out because the jit
-// builds one of these in generated code and stores it into VmCore and every
-// StackFrame; Rust doesn't say which order the halves of a *const [T] go in, so
-// repr(C) is what makes that well defined. jit2 needs this variant.
+// Under rooted-instructions this is a raw pointer and a length, and the caller
+// has to keep the buffer alive. The jit builds one of these in generated code and
+// stores it into VmCore and every StackFrame. Rust doesn't define the order of the
+// halves of a *const [T], so the fields are spelled out and the struct is repr(C).
+// jit2 needs this variant.
 //
-// Otherwise its a counted InstructionPointer, which keeps the buffer alive on its
+// Otherwise it's a counted InstructionPointer, which keeps the buffer alive on its
 // own but pays refcount traffic on every frame push.
 #[cfg(feature = "rooted-instructions")]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -304,7 +304,7 @@ impl RootedInstructions {
         };
     }
 
-    // Borrows - the buffer has to outlive the RootedInstructions
+    // Borrows the slice, so the buffer has to outlive the RootedInstructions
     #[cfg(feature = "rooted-instructions")]
     pub(crate) fn from_slice(slice: &[DenseInstruction]) -> Self {
         Self {
@@ -347,8 +347,8 @@ impl ByteCodeLambda {
         self.super_instructions.store(pointer);
     }
 
-    /// Install a compiled body into a lambda that is already shared - and may be
-    /// running, on this thread or another. See `JitEntry`.
+    /// Install a compiled body into a lambda that is already shared, and may be
+    /// running on this thread or another. See `JitEntry`.
     #[cfg(feature = "jit2")]
     #[inline]
     pub(crate) fn install_super_instructions(&self, pointer: JitFnPointer) {
@@ -409,8 +409,8 @@ impl ByteCodeLambda {
             #[cfg(feature = "jit2")]
             super_instructions: {
                 // A background compile may have switched the shared body over
-                // since the prototype was made; pick its entry up here, once,
-                // rather than on every instance's first call.
+                // since the prototype was made. Pick up its entry here once
+                // instead of on every instance's first call.
                 if proto.super_instructions.load().is_none()
                     && crate::steel_vm::vm::jit::body_entered_natively(&proto.body_exp)
                 {
@@ -761,7 +761,8 @@ impl BoxedDynFunction {
         }
     }
 
-    /// [`Self::new`], with the signature `register_fn` read off the Rust types.
+    /// Like [`Self::new`], with the signature `register_fn` read off the Rust
+    /// types.
     pub(crate) fn new_typed(
         function: Arc<
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
@@ -776,7 +777,7 @@ impl BoxedDynFunction {
         }
     }
 
-    /// With the signature `register_fn` read off the Rust types.
+    /// Attaches the signature `register_fn` read off the Rust types.
     pub(crate) fn with_signature(self, signature: HostSignature) -> Self {
         BoxedDynFunction {
             signature: Some(signature),

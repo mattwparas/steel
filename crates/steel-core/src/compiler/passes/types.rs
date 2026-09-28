@@ -25,8 +25,10 @@
 //! anywhere) and results of calls to unknown functions are `any`.
 
 use crate::compiler::passes::analysis::Analysis;
-use crate::parser::ast::{Atom, ExprKind, LambdaFunction};
-use crate::parser::parser::SyntaxObjectId;
+use crate::parser::ast::{Atom, ExprKind, LambdaFunction, List};
+use crate::parser::interner::InternedString;
+use crate::parser::parser::{SourceId, SyntaxObjectId};
+use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 use crate::rvals::SteelVal;
 use crate::steel_vm::builtin::{
@@ -288,7 +290,7 @@ pub struct ArityFailure {
     /// The function's name as bound.
     pub function: String,
     /// The operator's span.
-    pub operator: crate::parser::span::Span,
+    pub operator: Span,
     /// What the function takes, as in "expects 2 arguments".
     pub expected: String,
     pub found: usize,
@@ -301,10 +303,10 @@ pub struct CallFailure {
     /// The function, as the source names it.
     pub function: String,
     /// The operator's span.
-    pub operator: crate::parser::span::Span,
+    pub operator: Span,
     /// Which argument, from 0, and its span.
     pub argument: usize,
-    pub span: crate::parser::span::Span,
+    pub span: Span,
     /// What the function accepts there, as declared and as kinds, and what the
     /// argument can hold, as shown.
     pub declared: String,
@@ -332,8 +334,9 @@ pub fn infer_types_with_exports(
 ) -> TypeInfo {
     let facts = Facts::collect(exprs, analysis, primitives, exports);
     let mut previous = TypeInfo::default();
-    let mut previous_params: FxHashMap<u32, Vec<Ty>> = FxHashMap::default(); // Every step can only grow a set, and a set can only grow 64 times, so
-                                                                             // this terminates; the bound is a guard against a bug making it cycle.
+    let mut previous_params: FxHashMap<u32, Vec<Ty>> = FxHashMap::default();
+    // Every step can only grow a set, and a set can only grow 64 times, so
+    // this terminates. The bound guards against a bug making it cycle.
     for iteration in 1..=128 {
         let mut inference = Inference {
             analysis,
@@ -388,10 +391,10 @@ enum Known {
     /// A lambda, by id.
     Lambda(u32),
     /// A native function, by name.
-    Primitive(InternedName),
+    Primitive(InternedString),
     /// A function of a builtin module, by module and name: what
     /// `(require-builtin module)` binds, `(%module-get% %-builtin-module-M 'name)`.
-    ModuleFunction(InternedName, InternedName),
+    ModuleFunction(InternedString, InternedString),
     /// A box whose only `set-box!` stores this lambda. This is how a named `let`
     /// or `letrec` expands (`(#%box _)`, `(#%set-box! box (λ ...))`, and calls
     /// as `((#%unbox box) args ...)`).
@@ -425,8 +428,6 @@ pub struct StructType {
     pub fields: usize,
 }
 
-type InternedName = crate::parser::interner::InternedString;
-
 /// Where a variable reference appears.
 #[derive(Clone, Copy, PartialEq)]
 enum Position {
@@ -438,7 +439,7 @@ enum Position {
     SetBoxTarget,
     /// The value of a `(#%set-box! box x)`, stored into that box.
     BoxStore(SyntaxObjectId),
-    /// A `define` / `let` whose value is just this variable, an alias of it.
+    /// A `define` / `let` whose value is this variable, an alias of it.
     AliasInit,
     /// The descriptor argument of `#%make-mutable-struct` or
     /// `#%vtable-update-entry!`.
@@ -551,11 +552,11 @@ struct Collector<'a> {
     /// Every binding site's name, and the names `set!` targets whose binding
     /// the analysis did not resolve. A `set!` of a global inside a function
     /// defined before the global's `define` has no `refers_to` yet.
-    binding_names: FxHashMap<SyntaxObjectId, crate::parser::interner::InternedString>,
-    unresolved_set_names: FxHashSet<crate::parser::interner::InternedString>,
+    binding_names: FxHashMap<SyntaxObjectId, InternedString>,
+    unresolved_set_names: FxHashSet<InternedString>,
     /// The binding sites of each global name. A module can define a global
     /// that its prelude already bound to a builtin.
-    global_defines: FxHashMap<crate::parser::interner::InternedString, Vec<SyntaxObjectId>>,
+    global_defines: FxHashMap<InternedString, Vec<SyntaxObjectId>>,
     /// Lambdas shaped like a mutable struct's accessor or setter, with the
     /// binding of the getter prototype they call, the field, and whether they
     /// write it.
@@ -640,13 +641,9 @@ impl<'a> Collector<'a> {
 
     /// What a binding initialized with `list` holds, when that is a struct type
     /// (a top-level `make-struct-type`) or a piece of one (`list-ref` of it).
-    fn struct_piece(
-        &mut self,
-        id: SyntaxObjectId,
-        list: &crate::parser::ast::List,
-    ) -> Option<Known> {
+    fn struct_piece(&mut self, id: SyntaxObjectId, list: &List) -> Option<Known> {
         let (operator, args) = list.args.split_first()?;
-        // The native function, not a program binding that shares its name.
+        // The operator has to be the native function, unbound in the program.
         if let ExprKind::Atom(atom) = operator {
             if self.reference(atom).is_some() {
                 return None;
@@ -693,13 +690,13 @@ impl<'a> Collector<'a> {
     }
     /// `(%module-get% %-builtin-module-M 'name)`, how `(require-builtin M)`
     /// binds each function of a builtin module.
-    fn module_function(&self, list: &crate::parser::ast::List) -> Option<Known> {
+    fn module_function(&self, list: &List) -> Option<Known> {
         let [ExprKind::Atom(operator), ExprKind::Atom(module), ExprKind::Quote(name)] =
             list.args.as_slice()
         else {
             return None;
         };
-        // All three are the builtins, not program bindings of those names.
+        // All three have to be the builtins, unbound in the program.
         if self.reference(operator).is_some() || self.reference(module).is_some() {
             return None;
         }
@@ -1589,7 +1586,7 @@ impl<'a> Inference<'a> {
         }
     }
 
-    fn call(&mut self, list: &crate::parser::ast::List, env: &mut Env) -> Ty {
+    fn call(&mut self, list: &List, env: &mut Env) -> Ty {
         let Some((operator, args)) = list.args.split_first() else {
             // `()`
             return Ty::LIST;
@@ -1852,7 +1849,7 @@ impl<'a> Inference<'a> {
     /// fields are its parameters (the calls of the constructor are counted).
     fn mutable_construction(
         &self,
-        list: &crate::parser::ast::List,
+        list: &List,
         operator: &ExprKind,
         args: &[ExprKind],
     ) -> Option<usize> {
@@ -1929,7 +1926,7 @@ impl<'a> Inference<'a> {
                         self.narrow(&list.args[1], else_env, |ty| ty.without(excludes));
                     }
                 }
-                // A struct predicate is true exactly for its own type.
+                // A struct predicate is true only for its own type.
                 if let Callee::Struct(ty, StructPiece::Predicate) = self.callee(&list.args[0]) {
                     let this = Ty::structure(ty);
                     self.narrow(&list.args[1], then_env, |ty| ty.intersect(this));
@@ -2029,8 +2026,8 @@ impl<'a> Inference<'a> {
         self.primitives.get(name)
     }
 
-    /// Whether `operator` refers to a native function, and not a user binding
-    /// that happens to share its name.
+    /// Whether `operator` refers to a native function. A user binding that
+    /// shares its name does not count.
     fn is_primitive(&self, operator: &ExprKind) -> bool {
         matches!(self.callee(operator), Callee::Primitive(_))
     }
@@ -2053,7 +2050,7 @@ impl<'a> Inference<'a> {
 /// or for a function defined as `(define (f args ...) ...)` after its header.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeHint {
-    pub span: crate::parser::span::Span,
+    pub span: Span,
     pub at: u32,
     pub label: String,
     /// An explanation, where the label alone is not self explanatory.
@@ -2062,7 +2059,7 @@ pub struct TypeHint {
 
 /// Where to show a function's return type. This is after `(f args ...)` when
 /// the name heads such a header, otherwise right after the name.
-fn return_hint_offset(text: &str, name: crate::parser::span::Span) -> u32 {
+fn return_hint_offset(text: &str, name: Span) -> u32 {
     let bytes = text.as_bytes();
     let start = name.start as usize;
     if start == 0 || bytes.get(start - 1) != Some(&b'(') {
@@ -2096,7 +2093,7 @@ fn return_hint_offset(text: &str, name: crate::parser::span::Span) -> u32 {
 pub fn inlay_hints(
     exprs: &[ExprKind],
     info: &TypeInfo,
-    source: crate::parser::parser::SourceId,
+    source: SourceId,
     text: &str,
 ) -> Vec<TypeHint> {
     fn sites(expr: &ExprKind, out: &mut Vec<SyntaxObjectIdAndSpan>) {
@@ -2137,11 +2134,7 @@ pub fn inlay_hints(
             _ => {}
         }
     }
-    type SyntaxObjectIdAndSpan = (
-        SyntaxObjectId,
-        crate::parser::span::Span,
-        crate::parser::interner::InternedString,
-    );
+    type SyntaxObjectIdAndSpan = (SyntaxObjectId, Span, InternedString);
 
     let mut all = Vec::new();
     for expr in exprs {
@@ -2270,7 +2263,7 @@ impl ArityFailure {
 /// operator as written. Calls a macro wrote are left out.
 pub fn written_arity_failures<'a>(
     info: &'a TypeInfo,
-    source: crate::parser::parser::SourceId,
+    source: SourceId,
     text: &'a str,
 ) -> impl Iterator<Item = (&'a ArityFailure, &'a str)> + 'a {
     let mut seen = FxHashSet::default();
@@ -2290,12 +2283,12 @@ pub fn written_arity_failures<'a>(
 /// so calls a macro wrote are left out.
 pub fn written_call_failures<'a>(
     info: &'a TypeInfo,
-    source: crate::parser::parser::SourceId,
+    source: SourceId,
     text: &'a str,
 ) -> impl Iterator<Item = &'a CallFailure> + 'a {
     let mut seen = FxHashSet::default();
     info.failures.iter().filter(move |failure| {
-        let written = |span: crate::parser::span::Span| {
+        let written = |span: Span| {
             span.source_id() == Some(source)
                 && text.get(span.start as usize..span.end as usize).is_some()
         };
@@ -2321,7 +2314,7 @@ pub fn hover_type(
     exprs: &[ExprKind],
     analysis: &Analysis,
     info: &TypeInfo,
-    source: crate::parser::parser::SourceId,
+    source: SourceId,
     text: &str,
     offset: usize,
 ) -> Option<String> {
@@ -2333,17 +2326,17 @@ pub fn hover_type(
     }
 
     struct Walk<'a> {
-        source: crate::parser::parser::SourceId,
+        source: SourceId,
         offset: usize,
         // Atoms under the cursor (expansion can put several at one name).
         atoms: Vec<(&'a Atom, Role)>,
-        // The innermost call starting exactly at the cursor (its paren).
+        // The innermost call whose paren is at the cursor.
         call_at_paren: Option<u32>,
         lambdas: FxHashMap<u32, &'a LambdaFunction>,
     }
 
     impl<'a> Walk<'a> {
-        fn under(&self, span: crate::parser::span::Span) -> bool {
+        fn under(&self, span: Span) -> bool {
             span.source_id() == Some(self.source)
                 && (span.start as usize) <= self.offset
                 && self.offset < span.end as usize
@@ -2866,7 +2859,7 @@ mod tests {
             Some("any"),
             "{types:#?}"
         );
-        // An actual builtin still narrows.
+        // The builtin narrows.
         assert_eq!(
             types.get("s()").map(String::as_str),
             Some("string"),
@@ -3925,7 +3918,7 @@ mod tests {
         enclosing: Option<u32>,
     ) {
         fn wrap(expr: ExprKind, ty: Ty, site: usize) -> ExprKind {
-            // A control. With the claim deliberately wrong, violations must show up.
+            // A control. With the claim made wrong on purpose, violations must show up.
             let ty = if std::env::var("TY_SOUND_CORRUPT").is_ok() {
                 ty.without(Ty::INT)
             } else if std::env::var("TY_SOUND_CORRUPT_STRUCTS").is_ok() {
@@ -3940,7 +3933,7 @@ mod tests {
             };
             let bits =
                 |set: TypeSet| ExprKind::integer_literal(set.bits() as isize, Default::default());
-            ExprKind::List(crate::parser::ast::List::new(thin_vec![
+            ExprKind::List(List::new(thin_vec![
                 ExprKind::ident("__tycheck__"),
                 bits(ty.kinds),
                 bits(ty.elements),

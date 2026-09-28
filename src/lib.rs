@@ -504,11 +504,9 @@ fn r7rs_test_suite() {
     run(args).unwrap()
 }
 
+/// Runs a group of R7RS benchmarks against the reduced ("small") inputs. The
+/// full-size runs are driven by `r7rs-benchmarks/run.sh`.
 #[cfg(test)]
-/// Runs a group of R7RS benchmarks against the reduced ("small") inputs.
-///
-/// The full-size inputs and the Guile comparison are driven by
-/// `r7rs-benchmarks/run.sh`; see `r7rs-benchmarks/README.md`.
 fn run_r7rs_benchmarks(benches: &[&str]) {
     for bench in benches {
         let args = SteelCliArgs {

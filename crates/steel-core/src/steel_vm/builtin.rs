@@ -27,6 +27,7 @@ use crate::{
         Custom, FromSteelVal, FunctionSignature, IntoSteelVal, MutFunctionSignature, Result,
         SteelVal,
     },
+    value_type::{ArgTypes, Raises, ValueType},
     values::functions::BoxedDynFunction,
 };
 use compact_str::CompactString;
@@ -90,11 +91,11 @@ pub struct FunctionSignatureMetadata {
     pub is_const: bool,
     pub doc: Option<MarkdownDoc<'static>>,
     /// What every call returns; see [`crate::value_type`].
-    pub return_type: crate::value_type::ValueType,
-    /// What a successful call's arguments were, if declared.
-    pub arg_types: Option<crate::value_type::ArgTypes>,
+    pub return_type: ValueType,
+    /// The argument types of a successful call, if declared.
+    pub arg_types: Option<ArgTypes>,
     /// When a call can raise.
-    pub raises: crate::value_type::Raises,
+    pub raises: Raises,
 }
 
 impl FunctionSignatureMetadata {
@@ -109,22 +110,18 @@ impl FunctionSignatureMetadata {
             arity,
             is_const,
             doc,
-            return_type: crate::value_type::ValueType::Any,
+            return_type: ValueType::Any,
             arg_types: None,
-            raises: crate::value_type::Raises::Maybe,
+            raises: Raises::Maybe,
         }
     }
 
-    pub fn with_return_type(mut self, return_type: crate::value_type::ValueType) -> Self {
+    pub fn with_return_type(mut self, return_type: ValueType) -> Self {
         self.return_type = return_type;
         self
     }
 
-    pub fn with_arg_types(
-        mut self,
-        arg_types: Option<crate::value_type::ArgTypes>,
-        raises: crate::value_type::Raises,
-    ) -> Self {
+    pub fn with_arg_types(mut self, arg_types: Option<ArgTypes>, raises: Raises) -> Self {
         self.arg_types = arg_types;
         self.raises = raises;
         self
@@ -280,11 +277,11 @@ pub struct NativeFunctionDefinition {
     pub is_const: bool,
     /// What every call returns, from the Rust return type or the macro's
     /// `returns = ..`. The jit types the result of a call with it.
-    pub return_type: crate::value_type::ValueType,
-    /// The macro's `args(..)`; see [`crate::value_type::ArgTypes`].
-    pub arg_types: Option<crate::value_type::ArgTypes>,
+    pub return_type: ValueType,
+    /// The macro's `args(..)`; see [`ArgTypes`].
+    pub arg_types: Option<ArgTypes>,
     /// The macro's `raises = ..`.
-    pub raises: crate::value_type::Raises,
+    pub raises: Raises,
 }
 
 pub fn register_context_functions(
@@ -651,11 +648,10 @@ impl BuiltInModuleRepr {
         self
     }
 
-    /// Every native function a module exposes gets an entry in the function
-    /// table, however it was registered. The jit looks up primitive return types
-    /// there, and printing a function uses it for the name. One registered from
-    /// a `NativeFunctionDefinition` already has an entry with its real arity and
-    /// return type. Anything else gets only its name.
+    /// Adds a native function value to the function table, where the jit looks up
+    /// return types and printing looks up names. Functions registered from a
+    /// `NativeFunctionDefinition` already have an entry with their arity and
+    /// return type, anything else only gets its name.
     fn note_function_value(&mut self, name: &str, value: &SteelVal) {
         let key = match value {
             SteelVal::FuncV(f) => BuiltInFunctionType::Reference(*f),
@@ -667,8 +663,8 @@ impl BuiltInModuleRepr {
             return;
         }
         match get_function_metadata(key) {
-            // Registered elsewhere under its own name (this is an alias or a
-            // re-export), so share that entry.
+            // An alias or re-export of a function registered under its own
+            // name, so share its entry.
             Some(existing) => {
                 self.fn_ptr_table.insert(key, existing);
             }
@@ -680,9 +676,9 @@ impl BuiltInModuleRepr {
                         arity: Arity::AtLeast(0),
                         is_const: false,
                         doc: None,
-                        return_type: crate::value_type::ValueType::Any,
+                        return_type: ValueType::Any,
                         arg_types: None,
-                        raises: crate::value_type::Raises::Maybe,
+                        raises: Raises::Maybe,
                     },
                 );
             }
@@ -727,14 +723,14 @@ impl BuiltInModuleRepr {
             None => {
                 let known_symbols = self.values.keys().map(Arc::as_ref);
                 match find_closest_match(&name, known_symbols) {
-                    Some(closest_match) => stop!(Generic =>
-                        format!("symbol {name:?} not found in module {module_name}, did you mean {closest_match:?}?",
-                        module_name = self.name)
-                    ),
-                    None => stop!(Generic =>
-                        format!("symbol {name:?} not found in module {module_name}",
-                        module_name = self.name)
-                    ),
+                    Some(closest_match) => stop!(Generic => format!(
+                        "symbol {name:?} not found in module {module_name}, did you mean {closest_match:?}?",
+                        module_name = self.name
+                    )),
+                    None => stop!(Generic => format!(
+                        "symbol {name:?} not found in module {module_name}",
+                        module_name = self.name
+                    )),
                 }
             }
         }
@@ -1052,9 +1048,9 @@ impl BuiltInModule {
         self.module.read().try_get_ref(name)
     }
 
-    /// The host function registered as `name` with `register_fn_with_ctx`,
-    /// which takes the context as its first argument. Once the module is
-    /// registered, `name` itself is bound to a wrapper that passes it.
+    /// The host function registered as `name` with `register_fn_with_ctx`, which
+    /// takes the context as its first argument. Once the module is registered,
+    /// `name` is bound to a wrapper that passes the context in.
     pub fn context_function(&self, name: &str) -> Option<SteelVal> {
         self.module
             .read()

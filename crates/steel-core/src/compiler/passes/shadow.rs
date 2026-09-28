@@ -18,9 +18,10 @@ pub struct RenameShadowedVariables {
     shadows: ScopeMap<InternedString, InternedString, FxBuildHasher>,
     str_modifiers: FxHashMap<usize, CompactString>,
     rename_all: bool,
-    // Every name handed out so far. Scope local uniqueness is not enough: two top
-    // level functions each holding a `loop` produce the same mangled name, and the
-    // passes that rewrite by name cannot then tell the two scopes apart.
+    // Every name handed out so far. Names also have to be unique across scopes,
+    // since two top level functions that each hold a `loop` would otherwise get
+    // the same mangled name, and the passes that rewrite by name couldn't tell
+    // them apart.
     issued: FxHashSet<InternedString>,
 }
 

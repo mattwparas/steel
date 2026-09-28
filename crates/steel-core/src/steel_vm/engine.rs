@@ -674,10 +674,9 @@ impl Engine {
     /// is to expose some kind of module artifact that we can then consume.
     pub fn register_module_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
         for name in resolver.names() {
-            // If the resolver can hand us the module now, bind the real value so that
-            // `(require-builtin <name>)` can actually be _run_ by this engine, and not just
-            // compiled against. If it can't be resolved, we still reserve the binding with
-            // a void value so that the module can be referenced during compilation.
+            // Bind the resolved module so `(require-builtin <name>)` can run in this
+            // engine. If it can't be resolved, reserve the binding with void so the
+            // module can still be referenced during compilation.
             let value = resolver
                 .resolve(&name)
                 .and_then(|module| module.into_steelval().ok())
@@ -1626,12 +1625,12 @@ impl Engine {
         Ok(self)
     }
 
-    // Registers the given module into the virtual machine
-    /// A file for the language server's `STEEL_LSP_HOME` describing the modules
-    /// this engine has beyond a stock one: each function, with the signature it
-    /// declares (see [`crate::steel_vm::host_signature`]), read off the Rust
-    /// types of `register_fn` functions. The language server trusts these, so
-    /// regenerate the file when the registered functions change.
+    /// Generates a file for the language server's `STEEL_LSP_HOME` describing
+    /// the modules this engine has on top of a stock engine. Each function gets
+    /// the signature it declares (see [`crate::steel_vm::host_signature`]),
+    /// which for `register_fn` functions comes from their Rust types. The
+    /// language server trusts these, so regenerate the file whenever the
+    /// registered functions change.
     pub fn emit_lsp_definitions(&self) -> String {
         let stock: std::collections::HashSet<String> = Engine::new()
             .builtin_modules()
@@ -1674,6 +1673,7 @@ impl Engine {
         out
     }
 
+    // Registers the given module into the virtual machine
     pub fn register_module(&mut self, module: BuiltInModule) -> &mut Self {
         {
             use crate::gc::ShareableMut;
@@ -1872,10 +1872,9 @@ impl Engine {
         self.run_raw_program(program).unwrap();
     }
 
-    // TODO -> clean up this API a lot
-    /// Compiles and runs an already expanded program, as
-    /// `emit_expanded_ast_without_optimizations` produces it. Used by tests that
-    /// rewrite that AST, such as the type inference soundness check.
+    /// Compiles and runs an already expanded program, as produced by
+    /// `emit_expanded_ast_without_optimizations`. Used by tests that rewrite
+    /// that AST, such as the type inference soundness check.
     #[cfg(test)]
     pub(crate) fn compile_and_run_expanded(
         &mut self,
@@ -1892,6 +1891,7 @@ impl Engine {
         self.run_raw_program(program)
     }
 
+    // TODO -> clean up this API a lot
     pub fn compile_and_run_raw_program_with_path<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
         exprs: E,
@@ -2307,9 +2307,7 @@ impl Engine {
     ///
     /// impl ExternalStruct {
     ///     pub fn new(value: isize) -> Self {
-    ///         Self {
-    ///             value,
-    ///         }
+    ///         Self { value }
     ///     }
     /// }
     ///
@@ -2317,11 +2315,9 @@ impl Engine {
     ///     fn from_steelval(val: &SteelVal) -> Result<Self> {
     ///         let value: isize = match val {
     ///             SteelVal::IntV(v) => *v,
-    ///             _ => unimplemented!()
+    ///             _ => unimplemented!(),
     ///         };
-    ///         Ok(Self{
-    ///            value,
-    ///         })
+    ///         Ok(Self { value })
     ///     }
     /// }
     ///
@@ -2339,8 +2335,8 @@ impl Engine {
     /// // Register a constructor as a function with the same name as the struct.
     /// vm.register_fn("ExternalStruct", ExternalStruct::new);
     ///
-    /// let _ = vm
-    ///     .compile_and_run_raw_program(r#"(define new-external-struct (ExternalStruct 42))"#).unwrap(); // Returns vec![10]
+    /// vm.compile_and_run_raw_program(r#"(define new-external-struct (ExternalStruct 42))"#)
+    ///     .unwrap();
     ///
     /// let extracted = vm.extract::<ExternalStruct>("new-external-struct").unwrap();
     /// assert_eq!(extracted.value, 42);

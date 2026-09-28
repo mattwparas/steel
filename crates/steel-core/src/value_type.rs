@@ -413,7 +413,7 @@ pub fn check_call<R: ReturnedValue>(returned: &R, before: &ArgMatch, raises: Rai
 /// A set of possible kinds of value, which the type inference pass
 /// (`compiler::passes::types`) computes for an expression. Unlike [`ValueType`]
 /// it is a union, so `int | string` is expressible. It also adds kinds
-/// [`ValueType`] has no name for: procedures, the struct types a program
+/// [`ValueType`] has no name for: the struct types a program
 /// defines (each its own kind, see [`TypeSet::structure`]), and `OTHER` for
 /// everything else (ports, structs of types the analysis did not see, custom
 /// types, ...).
@@ -447,7 +447,7 @@ impl TypeSet {
     pub const HASHSET: TypeSet = TypeSet::base(1 << 12);
     pub const BYTEVECTOR: TypeSet = TypeSet::base(1 << 13);
     pub const VOID: TypeSet = TypeSet::base(1 << 14);
-    /// A closure or a native function.
+    /// A closure, native function or continuation.
     pub const PROCEDURE: TypeSet = TypeSet::base(1 << 15);
     /// Anything else.
     pub const OTHER: TypeSet = TypeSet::base(1 << 16);

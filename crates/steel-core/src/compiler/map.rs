@@ -93,7 +93,7 @@ pub struct SymbolMap {
 
     // Names the last compile never `set!`.
     pub(crate) non_mutable: Vec<InternedString>,
-    // Indices of those that no later compile can reach either (`is_closed_global`).
+    // Indices of those that no later compile can `set!` either, see `is_closed_global`.
     pub(crate) closed_globals: HashSet<usize>,
 }
 
@@ -157,14 +157,11 @@ impl SymbolMap {
             .pop_next_free()
             .unwrap_or_else(|| self.values.len());
 
-        // `closed_globals` records *indices* whose symbol can never hold
-        // another value, and it accumulates across compilation units. Indices
-        // get recycled through the free list though, so without this a slot
-        // marked closed for one symbol keeps that mark for whatever is
-        // bound there next - and callers that bake a global's value into
-        // generated code then trust it wrongly. Clearing on (re)binding means
-        // the flag only describes the symbol currently in the slot; the reify
-        // pass re-adds it if the new occupant qualifies.
+        // `closed_globals` holds indices and accumulates across compilation
+        // units, but indices are recycled through the free list. Clear the mark
+        // on (re)binding so it only describes the symbol now in the slot, since
+        // callers bake the values of closed globals into generated code. The
+        // reify pass adds it back if the new symbol qualifies.
         self.closed_globals.remove(&idx);
 
         if USE_LIFTED_LAMBDAS_AS_ROOTS {

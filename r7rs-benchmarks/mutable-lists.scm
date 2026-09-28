@@ -2,15 +2,15 @@
 ;;;
 ;;; Steel's lists are immutable, so benchmarks that use `set-car!` / `set-cdr!`
 ;;; cannot run against native pairs. This module rebuilds the list surface on
-;;; top of a mutable struct: `cons` (and everything that builds a list) yields
-;;; an `mpair`, and every accessor dispatches so that native lists -- which is
-;;; what quoted literals and `read` still produce -- keep working unchanged.
+;;; top of a mutable struct. `cons` (and everything that builds a list) yields
+;;; an `mpair`, and every accessor dispatches so that native lists, which quoted
+;;; literals and `read` still produce, keep working.
 ;;;
 ;;; Requiring this module shadows the list primitives for that file only.
 ;;;
-;;; Caveat for anyone reading benchmark numbers: pairs here are heap structs
-;;; behind a dispatching accessor, so a ported benchmark measures this shim and
-;;; is NOT comparable to a benchmark running on Steel's native lists.
+;;; Pairs here are heap structs behind a dispatching accessor, so a benchmark
+;;; using this module measures the shim and is not comparable to one running on
+;;; Steel's native lists.
 
 (provide cons
          car
@@ -101,7 +101,7 @@
   (if (#%prim.null? xs) '() (mpair (#%prim.car xs) (list->mlist (#%prim.cdr xs)))))
 
 ;;; Benchmarks mutate the program they read in, so `read` has to hand back the
-;;; mutable representation -- a native list from the reader cannot be
+;;; mutable representation, since a native list from the reader cannot be
 ;;; `set-car!`ed.
 (define (deep-list->mlist x)
   (cond

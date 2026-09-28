@@ -7,7 +7,7 @@
 
 ;; A cycle through one box: a set! captured variable holding a closure that
 ;; captures it. Only the collector can free it, and emptying the slot drops
-;; the closure - which drops the last handle to the box whose lock the
+;; the closure, which drops the last handle to the box whose lock the
 ;; collector is holding. That must not wait on the lock.
 (define (make-cycle k)
   (define self #f)

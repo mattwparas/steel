@@ -191,7 +191,8 @@ pub fn bytevector_copy_new(
 
     let copy = guard
         .get(start..end)
-        .ok_or_else(throw!(Generic => "index out of bounds: attempted to slice range: {:?} for bytevector: {:?}", start..end, guard))?.to_vec();
+        .ok_or_else(throw!(Generic => "index out of bounds: attempted to slice range: {:?} for bytevector: {:?}", start..end, guard))?
+        .to_vec();
 
     Ok(SteelVal::ByteVector(SteelByteVector::new(copy)))
 }
@@ -348,7 +349,7 @@ pub fn bytes_set(value: &SteelByteVector, index: usize, byte: u8) -> Result<Stee
 /// ```scheme
 /// (define my-bytes (bytes 0 1 2))
 /// (bytes-push! my-bytes 3)
-/// my-bytes ;; =>  #u8(#x00 #x01 #x02 #x03)
+/// my-bytes ;; => #u8(#x00 #x01 #x02 #x03)
 /// ```
 #[function(name = "bytes-push!", returns = Void, args(ByteVector, Int))]
 pub fn bytes_push(value: &mut SteelByteVector, byte: u8) -> Result<SteelVal> {
@@ -496,7 +497,7 @@ pub fn bytes_to_string(
     Ok(s.to_string().into())
 }
 
-// The doc comments need the element width as a literal unfortunately
+// The element width as a literal, since the doc comments need one.
 macro_rules! byte_width {
     (u16) => {
         2
@@ -701,9 +702,9 @@ bytevector_accessor!(
     example = "-1000000",
 );
 
-/// Reads an 8-bit signed integer from the bytevector at the
-/// given index. Unlike the wider variants, the index addresses a single byte
-/// directly (offset `index`). If the index is out of bounds, this will error.
+/// Reads an 8-bit signed integer from the bytevector at the given index.
+/// Unlike the wider variants, the index addresses a single byte directly
+/// (offset `index`). If the index is out of bounds, this will error.
 ///
 /// (bytevector-s8-ref vector index)
 ///
@@ -731,9 +732,9 @@ pub fn s8_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
         .map(|x| SteelVal::IntV(*x as i8 as isize))
 }
 
-/// Writes an 8-bit signed integer into the bytevector at the
-/// given index. Unlike the wider variants, the index addresses a single byte
-/// directly (offset `index`). Will error if the index is out of bounds.
+/// Writes an 8-bit signed integer into the bytevector at the given index.
+/// Unlike the wider variants, the index addresses a single byte directly
+/// (offset `index`). Will error if the index is out of bounds.
 ///
 /// (bytevector-s8-set! vector index value)
 ///

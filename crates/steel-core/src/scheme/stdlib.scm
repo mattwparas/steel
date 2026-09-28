@@ -849,9 +849,7 @@
     (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
 
   ;; Two lists is the common multi-list case, and `map-many` pays an `apply`
-  ;; plus two temporary lists *per element* for it. Guile's `map` special-cases
-  ;; one and two lists for the same reason, falling back to `apply` only at
-  ;; three or more.
+  ;; plus two temporary lists per element, so it gets its own loop.
   (define (map2 func accum l1 l2)
     (if (or (null? l1) (null? l2))
         (reverse accum)

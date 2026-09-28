@@ -1,5 +1,6 @@
+use rustc_hash::FxHashSet;
 use steel_parser::{
-    ast::{Atom, ExprKind},
+    ast::{Atom, ExprKind, Set},
     interner::InternedString,
     parser::SyntaxObject,
     tokens::TokenType,
@@ -121,21 +122,20 @@ pub struct RemoveLetsBoundToOtherLocalVars {
     args: Vec<InternedString>,
     scope: Vec<Vec<(InternedString, Option<InternedString>)>>,
     // Every variable the expression `set!`s. `(let ([a b]) ...)` can only
-    // become `...` with `b` for `a` when neither is ever assigned: a `set!` of
-    // `a` would then assign `b` - the caller's variable, once an inlined callee
-    // that mutates its parameter has been turned into `(let ([param arg]) ..)` -
-    // and a `set!` of `b` would show through the copy. Local names are unique
-    // by this point, so the names alone are precise enough.
-    mutated: rustc_hash::FxHashSet<InternedString>,
+    // become `...` with `b` for `a` when neither is assigned. A `set!` of `a`
+    // would assign `b` instead, which is the caller's variable when an inlined
+    // callee mutates its parameter, and a `set!` of `b` would show through the
+    // copy. Local names are unique by this point, so names are enough.
+    mutated: FxHashSet<InternedString>,
 }
 
 impl RemoveLetsBoundToOtherLocalVars {
     /// The pass for `expr`, knowing what it assigns.
     pub fn for_expr(expr: &ExprKind) -> Self {
-        struct Assigned(rustc_hash::FxHashSet<InternedString>);
+        struct Assigned(FxHashSet<InternedString>);
 
         impl<'a> VisitorMutUnitRef<'a> for Assigned {
-            fn visit_set(&mut self, s: &'a steel_parser::ast::Set) {
+            fn visit_set(&mut self, s: &'a Set) {
                 if let Some(name) = s.variable.atom_identifier() {
                     self.0.insert(*name);
                 }
@@ -256,7 +256,7 @@ impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
         l.bindings.retain(|(ident, expr)| {
             if ident.atom_identifier().is_some() && expr.atom_identifier().is_some() {
                 let rhs = expr.atom_identifier().unwrap();
-                // Kept as a real binding: see `mutated`.
+                // Keep the binding, see `mutated`.
                 if self.mutated.contains(ident.atom_identifier().unwrap())
                     || self.mutated.contains(rhs)
                 {

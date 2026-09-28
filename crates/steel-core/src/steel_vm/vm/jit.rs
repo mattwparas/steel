@@ -461,7 +461,7 @@ fn background_queue() -> &'static crossbeam_channel::Sender<QueuedJob> {
             .spawn(move || {
                 for mut queued in receiver {
                     // A panic in one compile must not take the worker (and every
-                    // compile after it) down; the lambda just stays interpreted.
+                    // compile after it) down; the lambda stays interpreted.
                     crate::jit2::cgen::begin_deferred_leaks();
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         run_background_job(&mut queued)
@@ -527,8 +527,8 @@ fn run_background_job(queued: &mut QueuedJob) {
         return;
     };
 
-    // The entry point first, then the opcode that sends the interpreter to
-    // it: whoever sees `DynSuperInstruction` finds the pointer.
+    // Install the entry point before the opcode that sends the interpreter to
+    // it, so whoever sees `DynSuperInstruction` finds the pointer.
     lambda.install_super_instructions(fn_pointer);
     BACKGROUND_ENTRIES
         .write()
@@ -545,10 +545,10 @@ fn run_background_job(queued: &mut QueuedJob) {
     // and the store is a single byte, so dispatch loops see either the old
     // opcode or the new one.
     //
-    // Other lambdas can share this body with an empty entry: closure instances
-    // copy their prototype's entry when created, so ones made before this have
-    // none. They find it in `BACKGROUND_ENTRIES` (`resolve_background_entry`)
-    // the first time they need it.
+    // Other lambdas can share this body with an empty entry, since closure
+    // instances copy their prototype's entry when created, and ones made before
+    // this have none. They find it in `BACKGROUND_ENTRIES`
+    // (`resolve_background_entry`) the first time they need it.
     const _: () = assert!(core::mem::size_of::<OpCode>() == 1);
     let byte = unsafe { core::mem::transmute::<OpCode, u8>(OpCode::DynSuperInstruction) };
     unsafe {

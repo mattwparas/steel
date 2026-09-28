@@ -21,22 +21,23 @@ use std::hash::{Hash, Hasher};
 
 pub mod weak;
 
-/// Width of the owner id in the biased half-word, which leaves the owner's count
-/// the other 18 bits.
+/// Width of the owner id in the biased half-word. The owner's count gets the
+/// rest of the word.
 ///
-/// BRC gives the id 18 bits and the count 14 (PACT'18, Fig. 5), but the count is
-/// the one that runs out: every live frame of a recursive function holds a
-/// reference to its closure, and ack's 30k-deep recursion went past 16383. Past
-/// the cap increments spill to the shared counter, and once the biased count
-/// then drains to zero the object merges and loses its owner for good - every
-/// later increment and decrement is atomic and out of line (ack: 51% of its
-/// time). 14 bits of id is 16382 concurrently live threads, ids are recycled,
-/// and a thread past that gets `SENTINEL` and just never owns anything.
+/// BRC gives the id 18 bits and the count 14 (PACT'18, Fig. 5). We swap that,
+/// since the count is the one that runs out. Every live frame of a recursive
+/// function holds a reference to its closure, so deep recursion overflows a
+/// small count. Past the cap increments spill to the shared counter, and once
+/// the biased count drains to zero the object merges and loses its owner for
+/// good, so every later count change is atomic and out of line.
+///
+/// Ids are recycled, and a thread that can't get one gets `SENTINEL` and never
+/// owns anything.
 const TID_BITS: u32 = 14;
 const MAX_TID: u32 = (1 << TID_BITS) - 1;
 
 /// Handed out when no id is available. Never equal to anything, so an object
-/// allocated by such a thread is simply never biased - it takes the atomic path.
+/// allocated by such a thread is never biased and takes the atomic path.
 const SENTINEL: u32 = MAX_TID;
 const SENTINEL_ID: NonZeroU32 = NonZeroU32::new(SENTINEL).unwrap();
 
@@ -48,7 +49,7 @@ thread_local! {
     /// including while other thread locals are being torn down.
     static MY_TID: Cell<u32> = const { Cell::new(0) };
 
-    /// Separate, and only for its `Drop`: hands the id back when the thread exits.
+    /// Only here for its `Drop`, which hands the id back when the thread exits.
     static TID_RELEASER: TidReleaser = const { TidReleaser };
 }
 
@@ -65,9 +66,9 @@ impl Drop for TidReleaser {
     }
 }
 
-/// Ids are recycled on thread exit, so the space bounds *concurrently live*
-/// threads rather than total thread creations - which is what keeps 18 bits
-/// workable for a long running process.
+/// Ids are recycled on thread exit, so the id space bounds concurrently live
+/// threads rather than total thread creations. That keeps the id small enough
+/// for a long running process.
 fn acquire_tid() -> u32 {
     if let Ok(mut free) = FREE_TIDS.lock() {
         if let Some(id) = free.pop() {
@@ -95,9 +96,9 @@ fn acquire_tid() -> u32 {
 /// A unique identifier for a running thread.
 ///
 /// Uniqueness is guaranteed between running threads. The ids of dead threads
-/// are reused, which is what keeps them small enough to pack into the biased
-/// half-word; biased RC only needs "exactly one live thread believes it owns
-/// this object", and a recycled id preserves that.
+/// are reused so they stay small enough to pack into the biased half-word.
+/// Biased RC only needs one live thread to believe it owns an object, and a
+/// recycled id preserves that.
 #[derive(Debug, Clone, Copy, Hash, Eq)]
 #[repr(transparent)]
 pub struct ThreadId(pub(crate) NonZeroU32);
@@ -146,10 +147,10 @@ impl PartialEq for ThreadId {
 
 // Okay, now that this appears to be working, we
 // need to shrink this down as much as possible.
-/// The owner id occupies the low bits and its count the high ones. That order
-/// matters: adjusting the count is `word +/- COUNTER_ONE`, so a carry or borrow
-/// leaves the word entirely rather than running into the owner id. With the
-/// fields the other way round a stray decrement silently reassigns ownership.
+/// The owner id occupies the low bits and its count the high ones. Adjusting
+/// the count is `word +/- COUNTER_ONE`, so a carry or borrow leaves the word
+/// instead of running into the owner id. With the fields the other way round a
+/// stray decrement would reassign ownership.
 const TID_MASK: u32 = (1 << TID_BITS) - 1;
 
 const COUNTER_SHIFT: u32 = TID_BITS;
@@ -157,13 +158,11 @@ const COUNTER_ONE: u32 = 1 << COUNTER_SHIFT;
 const BIASED_COUNTER_BITS: u32 = 32 - COUNTER_SHIFT;
 const BIASED_COUNTER_MASK: u32 = (1 << BIASED_COUNTER_BITS) - 1;
 
-/// The most references the owning thread can hold to one object (18 bits). BRC calls 14
-/// bits "more than enough for RC" - many Java programs need only 7.
+/// The most references the owning thread can count in the biased half-word.
 pub const MAX_BIASED_COUNT: u32 = BIASED_COUNTER_MASK;
 
-/// Where generated code finds the pieces of the biased half-word. It lives at
-/// offset 0 of the `RcWord`, which is itself at offset 0 of the allocation.
-/// Shift that moves the count down to the bottom of the word.
+/// Shift that moves the biased count down to the bottom of the word. Generated
+/// code uses these accessors to pick apart the biased half-word.
 pub const fn biased_counter_shift() -> u32 {
     COUNTER_SHIFT
 }
@@ -178,7 +177,7 @@ pub const fn biased_counter_one() -> u32 {
     COUNTER_ONE
 }
 
-/// Largest count the field holds; past this the caller must spill to `shared`.
+/// Largest count the field holds. Past this the caller must spill to `shared`.
 pub const fn biased_counter_max() -> u32 {
     BIASED_COUNTER_MASK
 }
@@ -191,22 +190,21 @@ pub const fn biased_offset() -> usize {
 
 /// Offset of the shared half-word, the counterpart to `biased_offset`.
 ///
-/// Generated code reads this to decide whether anyone *other than the owner
-/// thread* holds a reference: every non-owner acquire lands here, so a zero
-/// word means every live reference belongs to the owner. A caller that holds
-/// one is therefore the owner, and nothing else can be touching the payload.
+/// Generated code reads this to decide whether any thread other than the owner
+/// holds a reference. Every non-owner acquire lands here, so a zero word means
+/// every live reference belongs to the owner, and nothing else can be touching
+/// the payload.
 pub const fn shared_offset() -> usize {
     core::mem::offset_of!(RcWord, shared)
 }
 
-/// BRC splits the word in two (PACT'18, Fig. 5): a biased half-word owned
-/// outright by one thread, and a shared half-word every other thread updates
-/// atomically. Packing the owner id in alongside its count is what keeps the
-/// whole thing to 8 bytes.
+/// BRC splits the word in two (PACT'18, Fig. 5). The biased half-word is owned
+/// by one thread, and every other thread updates the shared half-word
+/// atomically. The owner id is packed in with its count to keep the whole
+/// thing to 8 bytes.
 ///
-/// Steel keeps weak references in a separate type, so the paper's 16 reserved
-/// bits are spare here and `shared` keeps its full 30 bit counter rather than
-/// the paper's 14.
+/// Weak references live in a separate type, so the bits the paper reserves for
+/// them are spare here and `shared` gets a wider counter.
 #[repr(C)]
 #[derive(Debug)]
 pub struct RcWord {
@@ -250,24 +248,22 @@ const VALUE_BITS: u32 = 30;
 const VALUE_MASK: u32 = (1 << VALUE_BITS) - 1;
 const VALUE_SIGN_BIT: u32 = 1 << (VALUE_BITS - 1);
 
-/// The shared half-word counts in a signed 30-bit field, so there is a ceiling
+/// The shared half-word counts in a signed 30-bit field, so there is a limit
 /// on how many references the non-owning threads can hold between them.
 ///
-/// Three things can happen at that ceiling, and only one of them is safe.
-/// Wrapping frees an object that is still referenced. Panicking unwinds
-/// arbitrary code with the count already wrong, and an overflow is not
-/// something the program can catch and repair. Saturating leaks the object -
-/// it can never reach zero again - which costs memory and nothing else, so
-/// that is what the counter does.
+/// At the limit the count saturates. Wrapping would free an object that is
+/// still referenced, and panicking would unwind arbitrary code with the count
+/// already wrong. A saturated count never reaches zero again, so the object
+/// leaks, which only costs memory.
 pub const MAX_SHARED_COUNT: i32 = (1 << (VALUE_BITS - 1)) - 1;
 pub const MIN_SHARED_COUNT: i32 = -(1 << (VALUE_BITS - 1));
 
-/// Room to move by one in either direction. One unsigned compare rather than
-/// two signed ones, because this sits inside the shared counter's CAS loop and
-/// `browse` runs through it millions of times.
+/// Room to move by one in either direction. Uses one unsigned compare instead
+/// of two signed ones since this sits inside the shared counter's CAS loop.
 #[inline(always)]
 const fn shared_count_has_headroom(value: i32) -> bool {
-    (value.wrapping_sub(MIN_SHARED_COUNT + 1) as u32) < ((MAX_SHARED_COUNT - MIN_SHARED_COUNT - 1) as u32)
+    (value.wrapping_sub(MIN_SHARED_COUNT + 1) as u32)
+        < ((MAX_SHARED_COUNT - MIN_SHARED_COUNT - 1) as u32)
 }
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
@@ -340,14 +336,14 @@ impl Packed {
     }
 
     fn set_value(&mut self, value: i32) {
-        // Clamped, not asserted: see `MAX_SHARED_COUNT`. The counter operations
-        // below already refuse to move a saturated count, so reaching the clamp
-        // means something handed us an out-of-range value directly.
+        // Clamp instead of asserting, see `MAX_SHARED_COUNT`. The counter
+        // operations below already refuse to move a saturated count, so only an
+        // out of range value passed in directly hits the clamp.
         self.store_value(value.clamp(MIN_SHARED_COUNT, MAX_SHARED_COUNT));
     }
 
     /// Stores a value already known to be in range. The mask keeps a wrong one
-    /// inside the field rather than smearing it over the flags.
+    /// inside the field instead of spilling into the flags.
     #[inline(always)]
     fn store_value(&mut self, value: i32) {
         self.0 = (self.0 & !VALUE_MASK) | ((value as u32) & VALUE_MASK);
@@ -493,12 +489,11 @@ pub enum DecrementAction {
     Deallocate,
 }
 
-
 // The biased reference counting protocol lives on the word itself, so any
-// allocation that begins with one - RcBox, or a packed header - shares a
-// single implementation rather than keeping its own copy in step.
+// allocation that begins with one (RcBox, or a packed header) shares a single
+// implementation.
 impl RcWord {
-    /// The thread local portion of the count. A cheap, non destructive hint -
+    /// The thread local portion of the count. A cheap, non destructive hint,
     /// unlike `has_unique_ref`, which consumes the shared count when it wins.
     pub fn biased_count(&self) -> u32 {
         self.biased.get() >> COUNTER_SHIFT
@@ -519,13 +514,13 @@ impl RcWord {
         self.biased.set(self.biased.get() & !TID_MASK);
     }
 
-    /// Masks the incoming value: the count shares a word with the owner id now,
-    /// so a wrapping decrement must stay inside its own field rather than
-    /// smearing ones across the id.
+    /// Masks the incoming value. The count shares a word with the owner id, so
+    /// a wrapping decrement has to stay inside its own field.
     #[inline(always)]
     fn set_biased_count(&self, counter: u32) {
-        self.biased
-            .set((self.biased.get() & TID_MASK) | ((counter & BIASED_COUNTER_MASK) << COUNTER_SHIFT));
+        self.biased.set(
+            (self.biased.get() & TID_MASK) | ((counter & BIASED_COUNTER_MASK) << COUNTER_SHIFT),
+        );
     }
 
     pub fn fast_increment(&self) {
@@ -534,9 +529,7 @@ impl RcWord {
         if counter == MAX_BIASED_COUNT {
             // The biased field is full. BRC's invariant is that biased + shared
             // is the true count, so carrying on in the shared half-word is
-            // correct - just slower for this object. The paper calls 14 bits
-            // "more than enough"; `browse` disagrees, and a panic is not an
-            // acceptable answer to a program holding many references.
+            // correct, only slower for this object.
             self.slow_increment();
             return;
         }
@@ -711,8 +704,8 @@ impl RcWord {
 }
 
 impl RcWord {
-    /// Destructive: when this wins it consumes the shared count, so the
-    /// caller now holds the only reference.
+    /// Consumes the shared count when it succeeds, so the caller then holds the
+    /// only reference.
     pub fn has_unique_ref(&self) -> bool {
         let owner = self.owner();
         match owner {
@@ -918,13 +911,14 @@ impl QueueHandle {
 
     /// Hands an owned merge handle to its owning thread's queue.
     ///
-    /// Split out from `enqueue` so that allocations other than `BiasedRc` - a
-    /// `PackedRc`, say - can take the same path. The queue already stores these
-    /// type erased, so only the entry point needed widening.
+    /// Separate from `enqueue` so that allocations other than `BiasedRc`, such
+    /// as a `PackedRc`, can take the same path.
     pub fn enqueue_merge<M: BiasedMerge + 'static>(key: Option<ThreadId>, value: M) {
-        let wrapper = || Wrapper(Box::new(ManuallyDrop::new(unsafe {
-            core::ptr::read(&value as *const M)
-        })));
+        let wrapper = || {
+            Wrapper(Box::new(ManuallyDrop::new(unsafe {
+                core::ptr::read(&value as *const M)
+            })))
+        };
 
         if let Some(mut q) = QUEUE.map.get_mut(&key) {
             q.push(wrapper());
@@ -2298,14 +2292,12 @@ fn make_mut_test() {
 //     drop(word);
 // }
 
-
-
 /// How a [`PackedRc`] tears its elements down when the last reference goes.
 ///
-/// The default drops each element where it sits. An owner that cannot afford to
-/// drop recursively - a deeply nested value that would blow the stack - supplies
-/// its own handler and moves the elements into a work list instead. im-lists
-/// takes the same approach with its list drop handler.
+/// The default drops each element where it sits. An owner that can't drop
+/// recursively, because a deeply nested value would blow the stack, supplies its
+/// own handler and moves the elements into a work list instead, the same way
+/// im-lists does with its list drop handler.
 pub trait PackedDropHandler<T> {
     /// Must drop or move out every element exactly once. The block is released
     /// by the caller afterwards.
@@ -2330,14 +2322,14 @@ impl<T> PackedDropHandler<T> for DefaultPackedDrop {
 
 /// A thin, reference counted allocation holding a header and an inline slice.
 ///
-/// `BiasedRc<[T]>` is a fat pointer, so it cannot be stored anywhere a value has
-/// to stay pointer sized. This keeps the element count in the allocation instead
-/// and hands back a one word handle. The elements sit directly after the header,
-/// so reading one is a single load off the pointer rather than a hop through a
-/// separately allocated buffer, and a value plus its elements is one allocation.
+/// `BiasedRc<[T]>` is a fat pointer, so it can't be stored anywhere a value has
+/// to stay pointer sized. This keeps the element count in the allocation and
+/// hands back a one word handle. The elements sit directly after the header, so
+/// reading one is a single load off the pointer, and a value plus its elements
+/// is one allocation.
 ///
-/// `H` is free space in the header for whatever the owner wants to keep beside
-/// the count - a type descriptor, for instance.
+/// `H` is space in the header for whatever the owner wants to keep beside the
+/// count, such as a type descriptor.
 pub struct PackedRc<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static = DefaultPackedDrop> {
     ptr: NonNull<PackedHeader<H>>,
     phantom: PhantomData<(H, T, D)>,
@@ -2345,8 +2337,8 @@ pub struct PackedRc<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static = 
 
 /// The header of a [`PackedRc`] allocation.
 ///
-/// `rcword` must stay first: the biased protocol addresses it at offset zero,
-/// and code that inlines the counter decrement (the JIT does) relies on it.
+/// `rcword` must stay first. The biased protocol addresses it at offset zero,
+/// and code that inlines the counter decrement (the JIT) relies on it.
 #[repr(C)]
 pub struct PackedHeader<H> {
     pub rcword: RcWord,
@@ -2357,8 +2349,8 @@ pub struct PackedHeader<H> {
 impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D> {
     /// Where the header payload sits, relative to the pointer.
     ///
-    /// Public because code that addresses the allocation directly - the JIT
-    /// reads the header and the elements without a call - needs both offsets.
+    /// Public because code that addresses the allocation directly, like the
+    /// JIT, needs both offsets.
     #[inline]
     pub const fn header_offset() -> usize {
         core::mem::offset_of!(PackedHeader<H>, header)
@@ -2376,11 +2368,10 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
 
     fn layout(len: usize) -> Layout {
         let size = Self::data_offset() + len * core::mem::size_of::<T>();
-        let align = if core::mem::align_of::<PackedHeader<H>>() > core::mem::align_of::<T>() {
-            core::mem::align_of::<PackedHeader<H>>()
-        } else {
-            core::mem::align_of::<T>()
-        };
+        let align = cmp::max(
+            core::mem::align_of::<PackedHeader<H>>(),
+            core::mem::align_of::<T>(),
+        );
 
         Layout::from_size_align(size, align).expect("packed allocation layout overflowed")
     }
@@ -2392,8 +2383,8 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
 
         let layout = Self::layout(len);
 
-        // Safety: the layout is non zero - the header alone occupies space - and
-        // the allocation is fully initialized below before anything reads it.
+        // Safety: the layout is non zero since the header alone occupies space,
+        // and the allocation is fully initialized below before anything reads it.
         unsafe {
             let raw = std::alloc::alloc(layout) as *mut PackedHeader<H>;
             let Some(ptr) = NonNull::new(raw) else {
@@ -2480,10 +2471,9 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
 
     /// A mutable view of the elements, if this is the only live reference.
     ///
-    /// Mirrors `Gc::get_mut`: callers that need to modify a shared value clone
-    /// it instead. The uniqueness check is destructive - winning it consumes the
-    /// shared count - so a `Some` result means this handle now owns the block
-    /// outright.
+    /// Mirrors `Gc::get_mut`, callers that need to modify a shared value clone
+    /// it instead. The uniqueness check consumes the shared count when it
+    /// succeeds, so a `Some` result means this handle owns the block outright.
     #[inline]
     pub fn get_mut(&mut self) -> Option<&mut [T]> {
         if self.meta().has_unique_ref() {
@@ -2498,8 +2488,7 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
 
     /// A fresh allocation with the same header and elements.
     ///
-    /// This is a deep copy of the block itself - the elements are cloned - as
-    /// opposed to `Clone`, which shares it.
+    /// The elements are cloned. `Clone` shares the block instead.
     pub fn deep_clone(&self) -> Self
     where
         H: Clone,
@@ -2508,8 +2497,8 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
         Self::new(self.header().clone(), self.as_slice().iter().cloned())
     }
 
-    /// Applies the outcome of a decrement: nothing, hand off to the owning
-    /// thread, or tear down.
+    /// Applies the outcome of a decrement, which is either nothing, a hand off
+    /// to the owning thread, or tearing the block down.
     #[inline]
     fn apply(&mut self, action: DecrementAction) {
         match action {
@@ -2526,7 +2515,7 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
         }
     }
 
-    /// Finishes a decrement whose counter was already lowered elsewhere - the
+    /// Finishes a decrement whose counter was already lowered elsewhere. The
     /// JIT lowers it inline and calls back in here.
     pub fn fast_decrement_post_ref_count_dec(&mut self) {
         let action = self.meta().fast_decrement_drop_impl();
@@ -2599,8 +2588,14 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> BiasedMerge for 
     }
 }
 
-unsafe impl<H: Send + Sync + 'static, T: Send + Sync + 'static, D: PackedDropHandler<T> + 'static> Send for PackedRc<H, T, D> {}
-unsafe impl<H: Send + Sync + 'static, T: Send + Sync + 'static, D: PackedDropHandler<T> + 'static> Sync for PackedRc<H, T, D> {}
+unsafe impl<H: Send + Sync + 'static, T: Send + Sync + 'static, D: PackedDropHandler<T> + 'static>
+    Send for PackedRc<H, T, D>
+{
+}
+unsafe impl<H: Send + Sync + 'static, T: Send + Sync + 'static, D: PackedDropHandler<T> + 'static>
+    Sync for PackedRc<H, T, D>
+{
+}
 
 #[cfg(test)]
 mod packed_rc_tests {
@@ -2617,8 +2612,8 @@ mod packed_rc_tests {
 
     #[test]
     fn handle_is_pointer_sized() {
-        // The whole point: a fat BiasedRc<[T]> would not fit where a value has
-        // to stay pointer sized.
+        // A fat BiasedRc<[T]> would not fit where a value has to stay pointer
+        // sized.
         assert_eq!(
             core::mem::size_of::<PackedRc<Desc, u64>>(),
             core::mem::size_of::<*const u8>()
@@ -2670,7 +2665,7 @@ mod packed_rc_tests {
         assert_eq!(b.header(), &Desc(9));
     }
 
-    // Counts its own drops so we can prove every element is dropped exactly once
+    // Counts its own drops so we can check every element is dropped once
     #[derive(Clone)]
     struct Tracked(Rc<Cell<usize>>);
     impl Drop for Tracked {
@@ -2737,8 +2732,8 @@ mod packed_rc_tests {
 
     #[test]
     fn dropped_on_another_thread_is_handed_back() {
-        // A handle released by a thread that does not own it takes the queue
-        // path rather than freeing, which is what enqueue_merge exists for.
+        // A handle released by a thread that does not own it goes through
+        // enqueue_merge instead of freeing.
         let p = packed(11, &[1, 2, 3]);
         let kept = p.clone();
 
@@ -2767,7 +2762,7 @@ mod packed_rc_tests {
                 taken.push(unsafe { core::ptr::read(elements.add(i)) });
             }
             COLLECTED.with(|c| c.set(c.get() + taken.len()));
-            // taken drops here, exactly once each
+            // taken drops here, once each
         }
     }
 
@@ -2796,7 +2791,10 @@ mod packed_rc_tests {
         assert_eq!(a.as_slice(), &[1, 99, 3]);
 
         let b = a.clone();
-        assert!(a.get_mut().is_none(), "shared handle must not hand out &mut");
+        assert!(
+            a.get_mut().is_none(),
+            "shared handle must not hand out &mut"
+        );
         drop(b);
     }
 
@@ -2833,13 +2831,18 @@ mod rcword_layout {
 
     #[test]
     fn rcword_is_one_word() {
-
         assert_eq!(core::mem::size_of::<ThreadId>(), 4);
-        assert_eq!(core::mem::size_of::<RcWord>(), 8, "BRC keeps RcWord to one word");
-        assert_eq!(core::mem::size_of::<Option<ThreadId>>(), 4, "niche keeps it loadable as one u32");
+        assert_eq!(
+            core::mem::size_of::<RcWord>(),
+            8,
+            "BRC keeps RcWord to one word"
+        );
+        assert_eq!(
+            core::mem::size_of::<Option<ThreadId>>(),
+            4,
+            "niche keeps it loadable as one u32"
+        );
         assert_eq!(BiasedRc::<[u8; 16]>::data_offset(), 8);
-
-
     }
 
     #[test]
@@ -2882,7 +2885,6 @@ mod rcword_layout {
     #[test]
     fn count_underflow_does_not_disturb_the_owner() {
         let word = RcWord::new();
-        let me = ThreadId::current_thread();
         // Drive the count to zero and one past it, the way a stray decrement would.
         assert!(matches!(word.fast_decrement(), DecrementAction::Deallocate));
         word.set_biased_count(word.biased_count().wrapping_sub(1));
@@ -2890,7 +2892,6 @@ mod rcword_layout {
             word.biased_count() <= MAX_BIASED_COUNT,
             "count escaped its field"
         );
-        let _ = me;
     }
 
     #[test]
@@ -2907,7 +2908,8 @@ mod rcword_layout {
                 std::thread::spawn(move || {
                     let id = ThreadId::current_thread();
                     assert!(seen.lock().unwrap().insert(id.0), "duplicate live id");
-                    barrier.wait(); // hold every thread alive at once
+                    // Keep every thread alive at once
+                    barrier.wait();
                 })
             })
             .collect();
@@ -2919,7 +2921,7 @@ mod rcword_layout {
 
     #[test]
     fn ids_are_recycled_across_sequential_threads() {
-        // Without recycling this would consume 4000 ids; with it, a handful.
+        // Without recycling every thread would consume a fresh id
         let before = NEXT_TID.load(Ordering::Relaxed);
         for _ in 0..4000 {
             std::thread::spawn(|| {
@@ -2939,12 +2941,7 @@ mod unsized_roundtrip {
 
     #[test]
     fn slice_rc_roundtrips() {
-        println!("RcWord size={} align={}", size_of::<RcWord>(), align_of::<RcWord>());
-        println!("RcBox<()> size={} align={}", size_of::<RcBox<()>>(), align_of::<RcBox<()>>());
-        println!("data_offset u32={}", BiasedRc::<u32>::data_offset());
-        println!("data_offset u64={}", BiasedRc::<u64>::data_offset());
-
-        // DenseInstruction is 4 bytes / align 4; mirror that.
+        // Same size and alignment as DenseInstruction
         let values: Vec<u32> = (0..21u32).collect();
         let rc: BiasedRc<[u32]> = values.clone().into();
         assert_eq!(rc.len(), 21, "length survived the round trip");
@@ -2976,12 +2973,6 @@ mod align1_slice {
     fn align1_slice_roundtrips() {
         assert_eq!(size_of::<DI>(), 4);
         assert_eq!(align_of::<DI>(), 1);
-        println!(
-            "RcWord={} data_offset(DI)={} data_offset(u32)={}",
-            size_of::<RcWord>(),
-            BiasedRc::<DI>::data_offset(),
-            BiasedRc::<u32>::data_offset()
-        );
 
         for len in [0usize, 1, 2, 3, 5, 20, 21, 22, 23, 100, 257] {
             let values: Vec<DI> = (0..len)
@@ -3010,14 +3001,21 @@ mod align1_slice {
 #[cfg(test)]
 mod biased_word_layout {
     /// The owner id and the count share one 32-bit half-word, so widening
-    /// either silently narrows the other. A 14-bit count was reachable - `browse`
-    /// overflowed it, and ack's recursion merged its closure off the fast path -
-    /// so pin both fields here.
+    /// either narrows the other. Deep recursion overflows a narrow count, so pin
+    /// both fields here.
     #[test]
     fn id_and_count_do_not_overlap() {
-        assert_eq!(super::BIASED_COUNTER_BITS, 18, "counter width must not shrink");
+        assert_eq!(
+            super::BIASED_COUNTER_BITS,
+            18,
+            "counter width must not shrink"
+        );
         assert_eq!(super::MAX_BIASED_COUNT, (1 << 18) - 1);
-        assert_eq!(super::TID_MASK, (1 << super::COUNTER_SHIFT) - 1, "id fills everything below the count");
+        assert_eq!(
+            super::TID_MASK,
+            (1 << super::COUNTER_SHIFT) - 1,
+            "id fills everything below the count"
+        );
         assert_eq!(core::mem::size_of::<super::RcWord>(), 8);
     }
 }
@@ -3026,9 +3024,9 @@ mod biased_word_layout {
 mod counter_overflow {
     use super::*;
 
-    /// BRC's invariant I1: the true count is `biased + shared`. Once the biased
-    /// field saturates, increments spill into the shared half-word - so the
-    /// decrements that pair with them have to be able to come back out of it.
+    /// BRC's invariant I1 says the true count is `biased + shared`. Once the
+    /// biased field saturates, increments spill into the shared half-word, so
+    /// the decrements that pair with them have to come back out of it.
     #[test]
     fn owner_thread_can_drop_everything_it_cloned_past_saturation() {
         let word = RcWord::new();
@@ -3037,7 +3035,11 @@ mod counter_overflow {
         for _ in 0..n {
             word.fast_increment();
         }
-        assert_eq!(word.biased_count(), MAX_BIASED_COUNT, "biased field saturated");
+        assert_eq!(
+            word.biased_count(),
+            MAX_BIASED_COUNT,
+            "biased field saturated"
+        );
         // RcWord::new() starts at 1, so only MAX-1 of the increments fit in the
         // biased field and the remainder spill.
         assert_eq!(
@@ -3047,8 +3049,7 @@ mod counter_overflow {
         );
 
         // RcWord::new() starts at 1, so `n` increments means n+1 references.
-        // Drop them all; exactly one decrement may say Deallocate, and it must
-        // be the last one.
+        // Drop them all. Only the last decrement may say Deallocate.
         let mut deallocs = 0;
         for i in 0..=n {
             match word.decrement() {
@@ -3062,10 +3063,9 @@ mod counter_overflow {
         assert_eq!(deallocs, 1, "exactly one deallocate for n+1 references");
     }
 
-    /// A recursive function's closure: one reference per live frame on the
-    /// owning thread, 20k deep, then all released. With a 14-bit count this
-    /// saturated, spilled, drained to zero and merged - the object lost its
-    /// owner, and every later count change took the atomic path.
+    /// A recursive function's closure holds one reference per live frame on
+    /// the owning thread, then releases them all. The object must stay owned
+    /// so later count changes keep the fast path.
     #[test]
     fn deep_owner_burst_stays_owned() {
         let word = RcWord::new();
@@ -3075,16 +3075,20 @@ mod counter_overflow {
         for _ in 0..20_000 {
             word.increment();
         }
-        assert_eq!(word.shared.load(Ordering::Relaxed).get_counter(), 0, "nothing spilled");
+        assert_eq!(
+            word.shared.load(Ordering::Relaxed).get_counter(),
+            0,
+            "nothing spilled"
+        );
         for _ in 0..20_000 {
             assert!(matches!(word.decrement(), DecrementAction::DoNothing));
         }
         assert_eq!(word.owner(), owner, "still owned after the burst");
     }
 
-    /// The real scenario: one value cloned hard from many threads at once. The
-    /// owning thread takes the biased path and saturates it; every other thread
-    /// goes through the shared half-word.
+    /// One value cloned from many threads at once. The owning thread takes the
+    /// biased path and saturates it, every other thread goes through the shared
+    /// half-word.
     #[test]
     fn many_threads_cloning_one_value_do_not_panic() {
         let rc: BiasedRc<u64> = BiasedRc::new(99);
@@ -3123,7 +3127,7 @@ mod counter_overflow {
         assert_eq!(*rc, 7, "still alive with one reference left");
     }
 
-    /// Seeds the shared counter directly rather than performing 2^29 CAS ops.
+    /// Seeds the shared counter directly instead of counting up to it.
     fn seed_shared(word: &RcWord, value: i32) {
         loop {
             let old = word.shared.load(Ordering::Relaxed);
@@ -3162,9 +3166,8 @@ mod counter_overflow {
         );
     }
 
-    /// The safety property that makes leaking the right answer: a saturated
-    /// count must never fall back to zero, or the object is freed while it is
-    /// still referenced.
+    /// A saturated count must never fall back to zero, or the object is freed
+    /// while it is still referenced.
     #[test]
     fn a_saturated_count_never_deallocates() {
         let word = RcWord::new();
@@ -3184,9 +3187,8 @@ mod counter_overflow {
         );
     }
 
-    /// The mirror case: BRC lets the shared count go negative when non-owning
-    /// threads drop references the owner created, so the floor needs the same
-    /// treatment as the ceiling.
+    /// BRC lets the shared count go negative when non-owning threads drop
+    /// references the owner created, so the floor saturates like the ceiling.
     #[test]
     fn shared_counter_saturates_at_the_floor_too() {
         let word = RcWord::new();
@@ -3202,9 +3204,9 @@ mod counter_overflow {
         );
     }
 
-    /// The third way the shared counter grows: ExplicitMerge folds the whole
-    /// biased count in at once, so it can jump the ceiling rather than walk up
-    /// to it. `set_value`'s clamp is what catches that one.
+    /// ExplicitMerge folds the whole biased count in at once, so it can jump
+    /// past the ceiling instead of walking up to it. `set_value`'s clamp
+    /// catches that.
     #[test]
     fn a_merge_that_jumps_the_ceiling_clamps() {
         let mut p = Packed(0);
@@ -3219,7 +3221,11 @@ mod counter_overflow {
         let mut q = Packed(0);
         q.set_counter(MIN_SHARED_COUNT + 10);
         q.update_counter(|x| x - 5_000);
-        assert_eq!(q.get_counter(), MIN_SHARED_COUNT, "and the same at the floor");
+        assert_eq!(
+            q.get_counter(),
+            MIN_SHARED_COUNT,
+            "and the same at the floor"
+        );
     }
 
     /// Saturation must not disturb ordinary traffic just below the ceiling.

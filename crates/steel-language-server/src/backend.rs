@@ -66,10 +66,8 @@ pub fn lsp_home() -> PathBuf {
     home_directory.push("lsp");
 
     if !home_directory.exists() {
-        // Best effort: on a read-only filesystem (e.g. a Nix store default
-        // `STEEL_HOME`) we cannot create this directory. The language server
-        // does not require it to exist to function, so a failure here should
-        // not abort startup.
+        // This fails on a read-only filesystem, like a `STEEL_HOME` in the Nix
+        // store. The language server works without the directory, so ignore it.
         let _ = std::fs::create_dir_all(&home_directory);
     }
 

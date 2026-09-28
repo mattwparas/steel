@@ -254,7 +254,9 @@ helper_family! {
     names "call_global_function_deopt_" "_no_arity",
     add_func fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize) -> SteelVal,
     arities [0 1 2 3 4 5 6 7 8],
-    |args| call_global_function_deopt_no_arity(unsafe { &mut *ctx }, lookup_index, fallback_ip, args)
+    |args| {
+        call_global_function_deopt_no_arity(unsafe { &mut *ctx }, lookup_index, fallback_ip, args)
+    }
 }
 
 // A call to a global with its `arity` args already spilled to the stack.
@@ -393,15 +395,29 @@ fn call_boxed_function_handler<const TAIL: bool>(
 helper_family! {
     CallBoxedFunctionDefinitions, mod call_boxed_function,
     names "call_boxed_function_" "",
-    add_func fn(ctx: *mut VmCore, func: *const BoxedDynFunction, lookup_index: usize, fallback_ip: usize) -> SteelVal,
+    add_func fn(
+        ctx: *mut VmCore,
+        func: *const BoxedDynFunction,
+        lookup_index: usize,
+        fallback_ip: usize
+    ) -> SteelVal,
     arities [0 1 2 3 4 5 6 7 8],
-    |args| unsafe { call_boxed_function_handler::<false>(&mut *ctx, func, lookup_index, fallback_ip, &mut args) }
+    |args| unsafe {
+        call_boxed_function_handler::<false>(&mut *ctx, func, lookup_index, fallback_ip, &mut args)
+    }
 }
 
 helper_family! {
     CallBoxedFunctionTailDefinitions, mod call_boxed_function_tail,
     names "call_boxed_function_tail_" "",
-    add_func fn(ctx: *mut VmCore, func: *const BoxedDynFunction, lookup_index: usize, fallback_ip: usize) -> SteelVal,
+    add_func fn(
+        ctx: *mut VmCore,
+        func: *const BoxedDynFunction,
+        lookup_index: usize,
+        fallback_ip: usize
+    ) -> SteelVal,
     arities [0 1 2 3 4 5 6 7 8],
-    |args| unsafe { call_boxed_function_handler::<true>(&mut *ctx, func, lookup_index, fallback_ip, &mut args) }
+    |args| unsafe {
+        call_boxed_function_handler::<true>(&mut *ctx, func, lookup_index, fallback_ip, &mut args)
+    }
 }

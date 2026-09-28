@@ -1,5 +1,5 @@
 ;; Indirect calls at a spread of arities, with branches among the arguments.
-;; https://github.com/mattwparas/steel/issues/680 lived here - a branch part way
+;; See https://github.com/mattwparas/steel/issues/680, where a branch part way
 ;; through an argument list left the jit's two arms disagreeing about the stack.
 (define (id x) x)
 

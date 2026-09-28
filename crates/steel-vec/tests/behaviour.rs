@@ -83,7 +83,7 @@ fn clone_that_panics_drops_what_it_already_cloned() {
     }));
     assert!(result.is_err(), "clone was expected to unwind");
 
-    // Three cloned fine before the fourth panicked - all three belong to the half
+    // Three were cloned before the fourth panicked. They belong to the half
     // built vector, so they should have been dropped
     assert_eq!(
         DROPS.with(|c| c.get()),
@@ -111,8 +111,8 @@ fn zero_sized_types_round_trip() {
 
 #[test]
 fn zero_sized_types_via_with_capacity_and_extend() {
-    // with_capacity used to hand a zero sized type a finite capacity, which then
-    // tripped grow's overflow assert on the first push past it.
+    // A zero sized type must not get a finite capacity from with_capacity, or
+    // grow's overflow assert trips on the first push past it
     let mut v: steel_vec::Vec<()> = steel_vec::Vec::with_capacity(4);
     v.extend((0..10).map(|_| ()));
     assert_eq!(v.len(), 10);

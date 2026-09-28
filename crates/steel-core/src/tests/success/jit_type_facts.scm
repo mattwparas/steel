@@ -1,6 +1,6 @@
 ;; Type facts the jit carries across merges and spills. A fixnum fact lets a
 ;; fast arm unbox without checking the tag, so every shape here pairs a merge
-;; or reload that *does* agree on `Int` with one that must not.
+;; or reload that agrees on `Int` with one that must not.
 
 (define big 9223372036854775807)
 
@@ -48,8 +48,7 @@
 (define (merge-compare c y) (let ([x (if c 5 y)]) (< x 10)))
 (assert! (equal? (merge-compare #t 'unused) #t))
 (assert! (equal? (merge-compare #f 20.5) #f))
-;; (not asserting on a non-number here: `<` returns #false for a string instead
-;; of raising, in the interpreter too - a separate, pre-existing bug)
+(assert! (equal? (with-handler (lambda (e) 'raised) (merge-compare #f "a")) 'raised))
 
 ;; one arm leaves through a tail call, so only the other reaches the merge
 (define (merge-one-arm n)
@@ -86,8 +85,7 @@
 (define (let-rhs-compare a) (let ([b 5]) (< a b)))
 (assert! (equal? (let-rhs-compare 1) #t))
 (assert! (equal? (let-rhs-compare 7.5) #f))
-;; (not asserting on a non-number here: `<` returns #false for a string instead
-;; of raising, in the interpreter too - a separate, pre-existing bug)
+(assert! (equal? (with-handler (lambda (e) 'raised) (let-rhs-compare "a")) 'raised))
 
 ;; the same slot index reused by a later scope with a different type
 (define (let-reuse)

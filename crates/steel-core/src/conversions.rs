@@ -4,6 +4,7 @@ use crate::{
     gc::Gc,
     rerrs::ErrorKind,
     rvals::{AsRefSteelValFromUnsized, FromSteelVal, IntoSteelVal, Result},
+    value_type::{ArgType, ValueType},
     SteelErr, SteelVal,
 };
 use std::{
@@ -38,8 +39,7 @@ impl IntoSteelVal for SteelVal {
 // }
 
 impl FromSteelVal for Gc<ImmutableHashMap<SteelVal, SteelVal>> {
-    const ARG_TYPE: crate::value_type::ArgType =
-        crate::value_type::ArgType(&[crate::value_type::ValueType::HashMap]);
+    const ARG_TYPE: ArgType = ArgType(&[ValueType::HashMap]);
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
             Ok(hm.0.clone())
@@ -65,7 +65,7 @@ impl FromSteelVal for Gc<ImmutableHashMap<SteelVal, SteelVal>> {
 // }
 
 impl IntoSteelVal for Cow<'_, str> {
-    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::String;
+    const RETURN_TYPE: ValueType = ValueType::String;
     fn into_steelval(self) -> Result<SteelVal> {
         match self {
             Cow::Borrowed(b) => b.into_steelval(),
@@ -75,8 +75,7 @@ impl IntoSteelVal for Cow<'_, str> {
 }
 
 impl FromSteelVal for Cow<'_, str> {
-    const ARG_TYPE: crate::value_type::ArgType =
-        crate::value_type::ArgType(&[crate::value_type::ValueType::String]);
+    const ARG_TYPE: ArgType = ArgType(&[ValueType::String]);
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::StringV(s) = val {
             Ok(Cow::Owned(s.to_string()))
@@ -87,7 +86,7 @@ impl FromSteelVal for Cow<'_, str> {
 }
 
 impl<T: IntoSteelVal + Clone> IntoSteelVal for &[T] {
-    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::List;
+    const RETURN_TYPE: ValueType = ValueType::List;
     fn into_steelval(self) -> Result<SteelVal> {
         self.iter()
             .map(|x| x.clone().into_steelval())
@@ -113,7 +112,7 @@ impl<T: FromSteelVal + Clone> AsRefSteelValFromUnsized<T> for T {
 }
 
 impl<A: IntoSteelVal, B: IntoSteelVal> IntoSteelVal for (A, B) {
-    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::List;
+    const RETURN_TYPE: ValueType = ValueType::List;
     fn into_steelval(self) -> Result<SteelVal> {
         Ok(SteelVal::ListV(
             vec![self.0.into_steelval()?, self.1.into_steelval()?].into(),
@@ -123,7 +122,7 @@ impl<A: IntoSteelVal, B: IntoSteelVal> IntoSteelVal for (A, B) {
 
 // Vectors should translate into vectors in rust
 impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
-    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::List;
+    const RETURN_TYPE: ValueType = ValueType::List;
     fn into_steelval(self) -> Result<SteelVal> {
         let vec_vals: Result<Vec<SteelVal>> = self.into_iter().map(|x| x.into_steelval()).collect();
 
@@ -138,10 +137,7 @@ impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
 }
 
 impl<T: FromSteelVal> FromSteelVal for Vec<T> {
-    const ARG_TYPE: crate::value_type::ArgType = crate::value_type::ArgType(&[
-        crate::value_type::ValueType::List,
-        crate::value_type::ValueType::Vector,
-    ]);
+    const ARG_TYPE: ArgType = ArgType(&[ValueType::List, ValueType::Vector]);
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         match val {
             SteelVal::ListV(l) => {
@@ -192,10 +188,7 @@ impl<T: FromSteelVal> FromSteelVal for Vec<T> {
 }
 
 impl<T: FromSteelVal> FromSteelVal for Box<[T]> {
-    const ARG_TYPE: crate::value_type::ArgType = crate::value_type::ArgType(&[
-        crate::value_type::ValueType::List,
-        crate::value_type::ValueType::Vector,
-    ]);
+    const ARG_TYPE: ArgType = ArgType(&[ValueType::List, ValueType::Vector]);
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         match val {
             SteelVal::ListV(l) => {
@@ -232,8 +225,7 @@ impl<T: FromSteelVal> FromSteelVal for Box<[T]> {
 }
 
 impl FromSteelVal for Box<str> {
-    const ARG_TYPE: crate::value_type::ArgType =
-        crate::value_type::ArgType(&[crate::value_type::ValueType::String]);
+    const ARG_TYPE: ArgType = ArgType(&[ValueType::String]);
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::StringV(s) = val {
             Ok(s.as_str().into())
@@ -245,7 +237,7 @@ impl FromSteelVal for Box<str> {
 
 // HashMap
 impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
-    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::HashMap;
+    const RETURN_TYPE: ValueType = ValueType::HashMap;
     fn into_steelval(mut self) -> Result<SteelVal> {
         let mut hm = ImmutableHashMap::new();
         for (key, val) in self.drain() {
@@ -256,8 +248,7 @@ impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
 }
 
 impl<K: FromSteelVal + Eq + core::hash::Hash, V: FromSteelVal> FromSteelVal for HashMap<K, V> {
-    const ARG_TYPE: crate::value_type::ArgType =
-        crate::value_type::ArgType(&[crate::value_type::ValueType::HashMap]);
+    const ARG_TYPE: ArgType = ArgType(&[ValueType::HashMap]);
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         // todo!()
         if let SteelVal::HashMapV(hm) = val {
@@ -293,8 +284,7 @@ impl<K: FromSteelVal + Eq + core::hash::Hash, V: FromSteelVal> FromSteelVal for 
 // }
 
 impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
-    const ARG_TYPE: crate::value_type::ArgType =
-        crate::value_type::ArgType(&[crate::value_type::ValueType::List]);
+    const ARG_TYPE: ArgType = ArgType(&[ValueType::List]);
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::ListV(l) = val {
             if l.len() != 2 {
@@ -316,7 +306,7 @@ impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
 
 // HashSet
 impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {
-    const RETURN_TYPE: crate::value_type::ValueType = crate::value_type::ValueType::HashSet;
+    const RETURN_TYPE: ValueType = ValueType::HashSet;
     fn into_steelval(mut self) -> Result<SteelVal> {
         let mut hs = ImmutableHashSet::new();
         for value in self.drain() {
@@ -327,8 +317,7 @@ impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {
 }
 
 impl<K: FromSteelVal + Eq + core::hash::Hash> FromSteelVal for HashSet<K> {
-    const ARG_TYPE: crate::value_type::ArgType =
-        crate::value_type::ArgType(&[crate::value_type::ValueType::HashSet]);
+    const ARG_TYPE: ArgType = ArgType(&[ValueType::HashSet]);
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashSetV(hs) = val {
             let mut h = HashSet::new();

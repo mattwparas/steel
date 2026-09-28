@@ -1,6 +1,6 @@
 ;; Errors raised out of jitted arithmetic have to come back as steel errors the
-;; handler can catch. The two argument helpers used to unwrap the Result, which
-;; took the whole process down on something as ordinary as a divide by zero.
+;; handler can catch, rather than the two argument helpers unwrapping the Result
+;; and aborting the process on a divide by zero.
 
 (define (div a b) (/ a b))
 (define (mul a b) (* a b))
@@ -17,9 +17,8 @@
 (assert! (equal? (mul 10 2) 20))
 (assert! (equal? (sub 10 2) 8))
 
-;; = went further wrong: the helper set the error but nothing checked for it
-;; until after the jit had popped the frame holding the handler, so the error
-;; escaped with-handler entirely
+;; the error from = has to be checked before the jit pops the frame holding
+;; the handler, or it escapes with-handler
 (define (num-eq a b) (= a b))
 
 (assert! (equal? (with-handler (lambda (e) 'caught) (num-eq 10 "s")) 'caught))

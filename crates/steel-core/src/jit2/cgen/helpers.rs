@@ -94,8 +94,7 @@ macro_rules! register_helper {
 
 macro_rules! jit_helpers {
     ($(
-        $konst:ident = $name:literal => $f:ident : $kind:ident fn($($p:ty),* $(,)?) $(-> $ret:ty)?
-;
+        $konst:ident = $name:literal => $f:ident : $kind:ident fn($($p:ty),* $(,)?) $(-> $ret:ty)?;
     )*) => {
         $(
             // Some are only reached by a name built at run time, or not at all

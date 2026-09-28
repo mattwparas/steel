@@ -1,11 +1,11 @@
 //! Promotes vector construction sites to flat vectors.
 //!
-//! Proving a constructed vector never escapes is hopeless - it usually lands in a
-//! cons cell immediately - so this walks backwards from the mutations instead. Every
-//! mutating vector call has its target resolved to the binding it came from, and if
-//! that binding was initialized by a construction site then only that site has to stay
-//! mutable. A target that does not resolve means some unknown vector gets mutated, and
-//! the whole unit is left alone.
+//! A constructed vector usually escapes right away, e.g. into a cons cell, so
+//! this works backwards from the mutations instead. Every mutating vector call has
+//! its target resolved to the binding it came from, and if that binding was
+//! initialized by a construction site then only that site has to stay mutable. A
+//! target that does not resolve means some unknown vector gets mutated, and the
+//! whole unit is left alone.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use steel_parser::{
@@ -31,9 +31,9 @@ const MUTATING: &[&str] = &[
     "pop-front",
 ];
 
-// `make-vector` and `mutable-vector` have no flat counterpart yet, but they still have
-// to be recognized so that a mutated binding resolves to one rather than looking like
-// an unknown origin and bailing the whole unit.
+// `make-vector` and `mutable-vector` have no flat version yet. They are still listed
+// so a mutated binding resolves to one of them instead of to an unknown origin, which
+// would bail on the whole unit.
 const CONSTRUCTORS: &[&str] = &["vector", "make-vector", "mutable-vector"];
 
 const REWRITABLE: &str = "vector";
@@ -90,7 +90,7 @@ impl<'a> Collect<'a> {
         }
     }
 
-    // The binding a mutation is aimed at, or None when it cannot be pinned down.
+    // The binding a mutation targets, or None when it can't be resolved.
     fn resolve(&self, target: &ExprKind) -> Option<SyntaxObjectId> {
         let syn = target.atom_syntax_object()?;
         self.analysis.get(syn)?.refers_to
@@ -113,7 +113,7 @@ impl<'a> VisitorMutUnitRef<'a> for Collect<'a> {
     }
 
     fn visit_list(&mut self, l: &'a List) {
-        // A let that has already been lowered to an applied lambda. The literal is in
+        // A let that has already been lowered to an applied lambda. The lambda is in
         // call position so this is its only call site, and the arguments are its inits.
         if let Some(ExprKind::LambdaFunction(func)) = l.args.first() {
             for (param, arg) in func.args.iter().zip(l.args.iter().skip(1)) {
@@ -193,8 +193,8 @@ pub fn run(exprs: &mut Vec<ExprKind>, analysis: &Analysis) -> Report {
     let mut bailed = false;
 
     for target in &collect.targets {
-        // A binding that is `set!` can hold a vector from anywhere, so it is no more
-        // pinned down than an unresolvable target.
+        // A binding that is `set!` can hold any vector, so treat it like a target
+        // that doesn't resolve.
         let origin = target.filter(|id| {
             analysis
                 .identifier_info()

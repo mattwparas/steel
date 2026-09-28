@@ -333,10 +333,6 @@ impl FunctionTranslator<'_> {
             // compiled, fixed arity closure, and falls back to the
             // helper otherwise. It reads the current value every time,
             // so `set!` is not a concern here.
-            // Unbound while this function is being compiled, e.g. a
-            // callee defined further down the file, or the other
-            // members of a mutually recursive cycle. There is nothing
-            // to bake, so read the global when the call runs.
             if func.is_none() {
                 self.generic_global_tail_call(function_index, arity);
                 return;
@@ -404,6 +400,7 @@ impl FunctionTranslator<'_> {
         // into the value, and then also leak the ref count here and embed it
         // directly into the generated code, so that we can call the function
         // without needing to look it up?
+
         // Recognise struct constructors, predicates and getters here,
         // like `call_global_impl` does, so they are emitted directly
         // instead of going through the generic deopt helper.
@@ -487,7 +484,7 @@ impl FunctionTranslator<'_> {
         }
         // TODO: inline the call global here!
         else if matches!(self._globals.get(payload), Some(SteelVal::Closure(_)))
-                        // And, we actually have a super instruction. A variadic
+                        // We have a super instruction. A variadic
                         // callee is fine since the call site builds its rest list,
                         // unless it was given too few arguments, which has to
                         // raise from the helper path.

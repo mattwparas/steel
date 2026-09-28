@@ -1,5 +1,5 @@
-// Its own test binary because a global allocator can only be installed once per
-// binary. Counters are thread local so parallel tests can't throw off a
+// A separate test binary since a global allocator can only be installed once
+// per binary. Counters are thread local so parallel tests don't throw off a
 // measurement, and const initialized so the allocator can't recurse into them.
 
 use std::alloc::{GlobalAlloc, Layout, System};

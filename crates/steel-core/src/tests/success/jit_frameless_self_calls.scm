@@ -61,5 +61,5 @@
 (assert-equal! 300000. (fdepth 200000.))
 
 ;; An exact argument takes the generic copy, which must not assume floats. The
-;; float constants still make the answer a float - as the interpreter agrees.
+;; float constants still make the answer a float, same as the interpreter.
 (assert-equal! 6765. (fibfp 20))

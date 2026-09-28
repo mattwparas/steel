@@ -3,18 +3,17 @@ use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-// How many failed acquires before we let the scheduler run whoever is holding the
-// lock instead of burning the core. Spinning only pays while the holder is running
-// somewhere else - if its been descheduled, or parked at a gc safepoint, spinning
-// gets us nowhere.
+// How many failed acquires before we yield to the scheduler instead of spinning.
+// Spinning only helps while the holder is running on another core. If it has been
+// descheduled or is parked at a gc safepoint, yielding lets it make progress.
 const SPINS_BEFORE_YIELD: u32 = 128;
 
 // TODO: @Matt
 // This needs to have a proper mutex backing.
 //
-// locked has to stay first: the jit emits its own inline acquire and release
-// (emit_spinlock_inline) which does an atomic_cas at the base of this struct.
-// lock_offset and data_offset are how it finds the two halves.
+// locked has to stay first, since the jit emits its own inline acquire and
+// release (emit_spinlock_inline) which does an atomic_cas at the base of this
+// struct. lock_offset and data_offset are how it finds the two halves.
 #[repr(C)]
 #[derive(Debug)]
 pub struct SpinLock<T> {
@@ -45,23 +44,21 @@ impl<T> SpinLock<T> {
         self.lock()
     }
 
-    // There is no shared-read mode - this is a mutex, not an rwlock - but
-    // callers that only read still read better as `read()`, and it keeps the
-    // bytevector primitives reading the same as they did under `GcMut`.
+    // Same as `write`, since this is a mutex. Callers that only read can still
+    // say so, which keeps the bytevector primitives reading like other locks.
     pub fn read(&self) -> SpinGuard<'_, T> {
         self.lock()
     }
 
-    // Reads the payload without taking the lock, so the caller has to know
-    // nothing else can touch it - no other thread holding this, no gc pass
-    // reaching the same slot
+    // Reads the payload without taking the lock. The caller has to know nothing
+    // else can touch it, whether another thread holding the lock or a gc pass
+    // reaching the same slot.
     pub unsafe fn get_value(&self) -> &T {
         unsafe { &*self.data.get() }
     }
 
-    // Not reentrant - taking this twice on one thread spins forever with nothing
-    // to say so, which matters if a guard is still alive across a call that might
-    // reach the same lock
+    // Not reentrant. Taking this twice on one thread spins forever, so don't keep
+    // a guard alive across a call that might reach the same lock.
     pub fn lock(&self) -> SpinGuard<'_, T> {
         let mut spins: u32 = 0;
 
@@ -94,10 +91,9 @@ impl<T> SpinLock<T> {
 #[must_use = "the lock is released as soon as the guard drops"]
 pub struct SpinGuard<'a, T> {
     lock: &'a SpinLock<T>,
-    // Opts out of the auto derived Send/Sync so the impls below are the only ones
-    // that apply. Deriving from &SpinLock<T> makes the guard Sync whenever T is
-    // Send, and since Deref hands out a &T that would let two threads share a
-    // payload that isn't Sync at all.
+    // Opts out of the auto derived Send/Sync so only the impls below apply. The
+    // derived ones would make the guard Sync whenever T is Send, and since Deref
+    // hands out a &T that would let two threads share a payload that isn't Sync.
     _marker: PhantomData<*const ()>,
 }
 
@@ -110,10 +106,10 @@ impl<'a, T> SpinGuard<'a, T> {
     }
 }
 
-// Sharing the guard shares the payload, so this wants Sync and not Send
+// Sharing the guard shares the payload, so this needs T: Sync
 unsafe impl<T: Sync> Sync for SpinGuard<'_, T> {}
 
-// Nothing is tied to the acquiring thread - unlocking is a plain store - so the
+// Unlocking is a plain store and nothing is tied to the acquiring thread, so the
 // guard can move between threads as long as the payload can
 unsafe impl<T: Send> Send for SpinGuard<'_, T> {}
 
@@ -155,9 +151,8 @@ mod tests {
         assert_sync::<SpinGuard<'static, i32>>();
         assert_send::<SpinGuard<'static, i32>>();
 
-        // The other direction - SpinGuard<Cell<i32>> must not be Sync, since Cell
-        // is Send but not Sync and &SpinGuard derefs to &Cell - would need a
-        // compile fail harness, which we don't have here.
+        // Checking that SpinGuard<Cell<i32>> is not Sync would need a compile
+        // fail harness, which we don't have here.
     }
 
     #[test]

@@ -12,7 +12,6 @@ use super::{
         MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
     },
 };
-use crate::values::structs::StructRef;
 use crate::{
     compiler::modules::steel_home,
     gc::{shared::ShareableMut, GcMut},
@@ -77,16 +76,14 @@ use crate::{
         lists::{List, SteelList},
         structs::{
             build_type_id_module, make_struct_type, struct_update_primitive, SteelResult,
-            UserDefinedStruct,
+            StructRef, StructTypeDescriptor,
         },
     },
 };
 
-use crate::gc::Gc;
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
 };
-use crate::values::structs::StructTypeDescriptor;
 
 use crate::{
     rvals::IntoSteelVal,
@@ -1016,8 +1013,8 @@ pub fn futurep(value: &SteelVal) -> bool {
     matches!(value, SteelVal::FutureV(_))
 }
 
-/// Returns `#t` if the value is an atom: a number, string, symbol, boolean or
-/// character.
+/// Returns `#t` if the value is an atom, meaning a number, string, symbol,
+/// boolean or character.
 ///
 /// (atom? value) -> bool?
 ///
@@ -1454,12 +1451,10 @@ pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 
 /// The shared body of `<`, `<=`, `>` and `>=`.
 ///
-/// Two values that cannot be ordered, such as a number and a string, raise an
-/// error (R7RS), matching the jit's fallback helpers. `partial_cmp` returning
-/// `None` is not treated as "the comparison did not hold".
-///
-/// Every pair is checked, so `(< 3 2 "x")` raises instead of returning `#false`
-/// at the first false pair, as guile does.
+/// Values that cannot be ordered, such as a number and a string, raise an error
+/// as R7RS requires, matching the jit's fallback helpers. Every pair is checked,
+/// so `(< 3 2 "x")` raises even though the first pair is already false, like
+/// guile.
 #[inline(always)]
 fn ordering_primitive(
     args: &[SteelVal],
@@ -1810,8 +1805,8 @@ fn feature_dylib_build() -> bool {
     cfg!(feature = "dylib-build")
 }
 
-/// Returns the path to the Steel home directory - the `STEEL_HOME` location used
-/// to resolve installed packages and cogs - or `#false` if it is not set.
+/// Returns the path to the Steel home directory (`STEEL_HOME`), where installed
+/// packages and cogs are resolved from, or `#false` if it is not set.
 ///
 /// (steel-home-location) -> (or string? #false)
 #[steel_derive::function(name = "steel-home-location", args(), raises = Never)]
@@ -2307,17 +2302,13 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
 
 /// Builds a mutable struct, boxing every field.
 ///
-/// Boxing all the fields here takes one VM dispatch, safepoint entry and heap
-/// lock, where a `#%box` per field would take one each.
+/// Boxing the fields together takes one VM dispatch, safepoint entry and heap
+/// lock instead of one per field with `#%box`.
 #[steel_derive::context(name = "#%make-mutable-struct", arity = AtLeast(1))]
 pub(crate) fn make_mutable_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(make_mutable_struct_from_args(ctx, args))
 }
 
-/// `#%make-mutable-struct` without the `BuiltIn` calling convention, so the jit
-/// can call it directly. `args` is the descriptor followed by the fields. The
-/// fields are handed to the allocator as roots, so a collection triggered while
-/// the boxes are made cannot reclaim them.
 /// Like `make_mutable_struct_from_args`, for a caller that owns the arguments
 /// (the jit's constructor helpers), so the fields are moved into their boxes
 /// instead of cloned.
@@ -2354,6 +2345,8 @@ pub(crate) fn make_mutable_struct_from_owned(
     )))
 }
 
+/// `#%make-mutable-struct` without the `BuiltIn` calling convention, so the jit
+/// can call it directly. `args` is the descriptor followed by the fields.
 pub(crate) fn make_mutable_struct_from_args(
     ctx: &mut VmCore,
     args: &[SteelVal],
@@ -2432,13 +2425,10 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 ///
 /// * the-box : box-strong? - The strong box to read from.
 ///
-/// Strong boxes are reference counted and are _not_ tracked by the garbage
-/// collector. Storing a value that (directly or indirectly) refers back to the
-/// box creates a reference count cycle that will never be reclaimed, leaking
-/// memory. Because they skip the GC bookkeeping that `box` requires, strong
-/// boxes are slightly more efficient, so they are the preferred option when you
-/// are certain no cycles can form (or are willing to accept the leak if one
-/// does).
+/// Strong boxes are reference counted and not tracked by the garbage collector.
+/// Storing a value that refers back to the box, directly or indirectly, creates
+/// a cycle that is never reclaimed. They skip the bookkeeping that `box` needs,
+/// so they are a bit cheaper and preferred when no cycles can form.
 ///
 /// # Examples
 /// ```scheme
@@ -2457,13 +2447,10 @@ pub fn unbox(value: &GcMut<SteelVal>) -> SteelVal {
 /// * the-box : box-strong? - The strong box to mutate.
 /// * value : any? - The new value to store in the box.
 ///
-/// Strong boxes are reference counted and are _not_ tracked by the garbage
-/// collector. Storing a value that (directly or indirectly) refers back to the
-/// box creates a reference count cycle that will never be reclaimed, leaking
-/// memory. Because they skip the GC bookkeeping that `box` requires, strong
-/// boxes are slightly more efficient, so they are the preferred option when you
-/// are certain no cycles can form (or are willing to accept the leak if one
-/// does).
+/// Strong boxes are reference counted and not tracked by the garbage collector.
+/// Storing a value that refers back to the box, directly or indirectly, creates
+/// a cycle that is never reclaimed. They skip the bookkeeping that `box` needs,
+/// so they are a bit cheaper and preferred when no cycles can form.
 ///
 /// # Examples
 /// ```scheme
@@ -2483,13 +2470,10 @@ pub fn set_box(value: &GcMut<SteelVal>, update_to: SteelVal) {
 ///
 /// * value : any? - The initial value to store in the box.
 ///
-/// Strong boxes are reference counted and are _not_ tracked by the garbage
-/// collector. Storing a value that (directly or indirectly) refers back to the
-/// box creates a reference count cycle that will never be reclaimed, leaking
-/// memory. Because they skip the GC bookkeeping that `box` requires, strong
-/// boxes are slightly more efficient, so they are the preferred option when you
-/// are certain no cycles can form (or are willing to accept the leak if one
-/// does).
+/// Strong boxes are reference counted and not tracked by the garbage collector.
+/// Storing a value that refers back to the box, directly or indirectly, creates
+/// a cycle that is never reclaimed. They skip the bookkeeping that `box` needs,
+/// so they are a bit cheaper and preferred when no cycles can form.
 ///
 /// # Examples
 /// ```scheme
@@ -2542,7 +2526,12 @@ pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
     Some(function_to_ffi_impl(ctx, args))
 }
 
-#[steel_derive::context(name = "module->exports", arity = Exact(1), returns = List, args(String | Symbol))]
+#[steel_derive::context(
+    name = "module->exports",
+    arity = Exact(1),
+    returns = List,
+    args(String | Symbol)
+)]
 fn module_exports(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn module_exports_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         let module = args[0].clone();

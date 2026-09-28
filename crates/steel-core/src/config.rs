@@ -2,7 +2,7 @@
 //!
 //! Each setting is declared once below with its field, type, default, environment
 //! variable and description, and read once, the first time anything asks for
-//! [`config()`]. Code reads the field (`config().jit_frameless`), never the environment.
+//! [`config()`]. Code reads the field (`config().jit_frameless`) instead of the environment.
 //!
 //! Parsing is the same for every setting of a type:
 //! - `bool`: unset means the default; `0`, `false`, `off` or `no` mean off, and
@@ -130,16 +130,16 @@ macro_rules! steel_config {
 }
 
 steel_config! {
-    // ---- jit: whether and how -----------------------------------------------
+    // Jit
 
-    /// Compile functions with the jit at all.
+    /// Compile functions with the jit.
     jit: bool = true, "STEEL_JIT";
     /// Compile on a background thread while the interpreter runs; off compiles
     /// each function as it is defined. Turn off when bisecting a miscompile or
     /// profiling compiled code, so which code is native doesn't depend on timing.
     jit_background: bool = true, "STEEL_JIT_BACKGROUND";
-    /// Run cranelift's verifier on everything the jit emits. Costs real time on
-    /// compile heavy programs.
+    /// Run cranelift's verifier on everything the jit emits. Slow on compile
+    /// heavy programs.
     jit_verifier: bool = true, "STEEL_JIT_VERIFIER";
     /// Size of the code arena in MiB (default 1024, 256 on windows; at most 2047).
     jit_memory_size: Option<usize> = None, "STEEL_JIT_MEMORY_SIZE";
@@ -147,7 +147,7 @@ steel_config! {
     /// speculating.
     jit_deopt_limit: u64 = 64, "STEEL_JIT_DEOPT_LIMIT";
 
-    // ---- jit: bisecting and dumping -------------------------------------------
+    // Jit bisecting and dumping
 
     /// Log every compile candidate by index and id.
     jit_log: bool = false, "STEEL_JIT_LOG";
@@ -181,13 +181,13 @@ steel_config! {
     /// Report native stack use at the trampoline.
     stack_debug: bool = false, "STEEL_STACK_DEBUG";
 
-    // ---- jit: calls and the stack -----------------------------------------------
+    // Jit calls and the stack
 
     /// Check the remaining native stack on calls instead of capping at 100 vm
     /// frames.
     jit_stack_check: bool = true, "STEEL_JIT_STACK_CHECK";
     /// Native stack the check allows, in MiB, measured from where it is first
-    /// taken (default: what the thread actually has).
+    /// taken. Defaults to what the thread has.
     jit_stack_budget: Option<usize> = None, "STEEL_JIT_STACK_BUDGET";
     /// Self-recursive calls that push no vm frame.
     jit_frameless: bool = true, "STEEL_JIT_FRAMELESS";
@@ -201,7 +201,7 @@ steel_config! {
     /// Build rest lists at call sites of variadic functions.
     jit_rest_args: bool = true, "STEEL_JIT_REST_ARGS";
 
-    // ---- jit: inlining primitives -------------------------------------------------
+    // Jit primitive inlining
 
     /// Inline primitive calls in tail position.
     jit_prim_tail: bool = true, "STEEL_JIT_PRIM_TAIL";
@@ -258,7 +258,7 @@ steel_config! {
     /// fold away.
     jit_proven_tags: bool = true, "STEEL_JIT_PROVEN_TAGS";
 
-    // ---- jit: specialization and experiments ------------------------------------------
+    // Jit specialization and experiments
 
     /// Type specialized copies of loops and self-recursive functions.
     jit_specialize_loops: bool = true, "STEEL_JIT_SPECIALIZE_LOOPS";
@@ -287,7 +287,7 @@ steel_config! {
     /// The bytecode of functions given cursors.
     cursor_dump: bool = false, "STEEL_CURSOR_DUMP";
 
-    // ---- compiler -----------------------------------------------------------------------
+    // Compiler
 
     /// Inline across module boundaries.
     module_inline: bool = true, "STEEL_MODULE_INLINE";
@@ -348,7 +348,7 @@ steel_config! {
     /// Print the program as inlining left it, before closure lifting.
     debug_ast_pre_lift: bool = false, "STEEL_DEBUG_AST_PRE_LIFT";
 
-    // ---- gc -----------------------------------------------------------------------------
+    // Gc
 
     /// Allocation work per unit of collection work.
     gc_work_ratio: usize = 16, "STEEL_GC_WORK_RATIO";

@@ -4415,7 +4415,7 @@ impl<'a> VmCore<'a> {
 
             // The jit wants a Gc it can point self calls at before the real
             // lambda exists, so hand it a placeholder and move the finished one
-            // into that same allocation afterwards
+            // into that same allocation afterwards.
             #[cfg(feature = "jit2")]
             let constructed_lambda = {
                 let mut fake_lambda = ByteCodeLambda::default();
@@ -5585,7 +5585,11 @@ pub fn breakpoint(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVa
     Some(Ok(SteelVal::Void))
 }
 
-#[steel_derive::context(name = "call-with-exception-handler", arity = Exact(2), args(Any, Procedure))]
+#[steel_derive::context(
+    name = "call-with-exception-handler",
+    arity = Exact(2),
+    args(Any, Procedure)
+)]
 pub fn call_with_exception_handler(
     ctx: &mut VmCore,
     args: &[SteelVal],
@@ -6334,7 +6338,11 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
     }
 }
 
-#[steel_derive::context(name = "#%expand-syntax-case", arity = Exact(3), args(Any, HashMap, HashMap))]
+#[steel_derive::context(
+    name = "#%expand-syntax-case",
+    arity = Exact(3),
+    args(Any, HashMap, HashMap)
+)]
 pub(crate) fn expand_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(expand_syntax_case_impl(ctx, args))
 }
@@ -6406,12 +6414,22 @@ fn macro_case_bindings_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<Steel
     ))
 }
 
-#[steel_derive::context(name = "#%macro-case-bindings", arity = Exact(1), returns = List, args(String | Symbol))]
+#[steel_derive::context(
+    name = "#%macro-case-bindings",
+    arity = Exact(1),
+    returns = List,
+    args(String | Symbol)
+)]
 pub(crate) fn macro_case_bindings(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(macro_case_bindings_impl(ctx, args))
 }
 
-#[steel_derive::context(name = "#%match-syntax-case", arity = Exact(2), returns = List, args(String | Symbol, Any))]
+#[steel_derive::context(
+    name = "#%match-syntax-case",
+    arity = Exact(2),
+    returns = List,
+    args(String | Symbol, Any)
+)]
 pub(crate) fn match_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(match_syntax_case_impl(ctx, args))
 }

@@ -180,7 +180,7 @@ pub struct UserDefinedStruct {
 ///
 /// A struct can hold arbitrarily deep values, so dropping the fields in place
 /// would recurse as far as the data is deep. This moves them into the shared
-/// work list instead, the same thing `Drop for UserDefinedStruct` used to do.
+/// work list instead.
 pub struct StructDropHandler;
 
 impl steel_rc::PackedDropHandler<SteelVal> for StructDropHandler {
@@ -205,9 +205,9 @@ pub type StructStorage = steel_rc::PackedRc<StructTypeDescriptor, SteelVal, Stru
 /// A handle to a struct value.
 ///
 /// One allocation holding the type descriptor, the field count and the fields
-/// inline, addressed by a thin pointer - so it still fits where `SteelVal`
-/// requires a pointer sized payload, and reading a field is a single load
-/// rather than a hop through a separate buffer.
+/// inline, addressed by a thin pointer. It fits in a pointer sized `SteelVal`
+/// payload, and reading a field is a single load with no separate buffer to
+/// go through.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct StructRef(StructStorage);
@@ -433,8 +433,8 @@ impl UserDefinedStruct {
 
     /// The struct's fields.
     ///
-    /// Everything outside this type goes through here rather than touching the
-    /// storage, so the representation can change underneath it.
+    /// Everything outside this type goes through here instead of touching the
+    /// storage, so the representation can change.
     #[inline]
     pub fn fields(&self) -> &[SteelVal] {
         &self.fields
@@ -447,7 +447,7 @@ impl UserDefinedStruct {
     }
 
     /// Takes the fields out, leaving the struct empty. Used by the iterative
-    /// drop path, which moves them into a work list rather than dropping in place.
+    /// drop path, which moves them into a work list instead of dropping in place.
     #[inline]
     pub fn take_fields(&mut self) -> impl Iterator<Item = SteelVal> + '_ {
         self.fields.drain(..)

@@ -2640,9 +2640,9 @@ impl<
     }
 }
 
-/// The signature of a function registered with `register_fn`: what each
-/// argument's conversion proves it was, and what the result converts to. A
-/// conversion can fail, and so can the function.
+/// Signature of a function registered with `register_fn`. The argument types are
+/// what each conversion guarantees and the return type is what the result converts
+/// to. Both the conversions and the function can fail, so it may raise.
 const fn host_signature(
     fixed: &'static [ArgType],
     return_type: ValueType,
@@ -2673,7 +2673,7 @@ macro_rules! impl_register_fn {
                         err
                     })?,)*);
 
-                    // The types the signature claims, checked in debug builds.
+                    // Check the declared argument types in debug builds.
                     #[cfg(debug_assertions)]
                     {
                         $(debug_assert!(
@@ -2700,15 +2700,10 @@ macro_rules! impl_register_fn {
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
-                        crate::values::functions::HostSignature {
-                            arg_types: crate::value_type::ArgTypes {
-                                fixed: const { &[$(<$param as FromSteelVal>::ARG_TYPE),*] },
-                                rest: None,
-                            },
-                            return_type: <RET as IntoSteelVal>::RETURN_TYPE,
-                            // A conversion can fail, and so can the function.
-                            raises: crate::value_type::Raises::Maybe,
-                        },
+                        host_signature(
+                            const { &[$(<$param as FromSteelVal>::ARG_TYPE),*] },
+                            <RET as IntoSteelVal>::RETURN_TYPE,
+                        ),
                     ))),
                 )
             }
@@ -2743,7 +2738,7 @@ macro_rules! impl_register_fn {
                         err
                     })?,)*);
 
-                    // The types the signature claims, checked in debug builds.
+                    // Check the declared argument types in debug builds.
                     #[cfg(debug_assertions)]
                     {
                         $(debug_assert!(
@@ -2770,15 +2765,10 @@ macro_rules! impl_register_fn {
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
-                        crate::values::functions::HostSignature {
-                            arg_types: crate::value_type::ArgTypes {
-                                fixed: const { &[$(<$param as FromSteelVal>::ARG_TYPE),*] },
-                                rest: None,
-                            },
-                            return_type: <RET as IntoSteelVal>::RETURN_TYPE,
-                            // A conversion can fail, and so can the function.
-                            raises: crate::value_type::Raises::Maybe,
-                        },
+                        host_signature(
+                            const { &[$(<$param as FromSteelVal>::ARG_TYPE),*] },
+                            <RET as IntoSteelVal>::RETURN_TYPE,
+                        ),
                     ))),
                 )
             }
@@ -2915,12 +2905,13 @@ macro_rules! impl_register_fn_self {
 
                 self.register_value_inner(
                     name,
-                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                        Arc::new(f),
-                        Some(name),
-                        Some($arg_count),
-                    )
-.with_signature(host_signature(const { &[<SELF as AsRefSteelVal>::ARG_TYPE, $(<$param as FromSteelVal>::ARG_TYPE),*] }, <RET as IntoSteelVal>::RETURN_TYPE)))),
+                    SteelVal::BoxedFunction(Gc::new(
+                        BoxedDynFunction::new(Arc::new(f), Some(name), Some($arg_count))
+                            .with_signature(host_signature(
+                                const { &[<SELF as AsRefSteelVal>::ARG_TYPE, $(<$param as FromSteelVal>::ARG_TYPE),*] },
+                                <RET as IntoSteelVal>::RETURN_TYPE,
+                            )),
+                    )),
                 )
             }
         }
@@ -2969,12 +2960,13 @@ macro_rules! impl_register_fn_self {
 
                 self.register_value_inner(
                     name,
-                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                        Arc::new(f),
-                        Some(name),
-                        Some($arg_count),
-                    )
-.with_signature(host_signature(const { &[<SELF as AsRefMutSteelVal>::ARG_TYPE, $(<$param as FromSteelVal>::ARG_TYPE),*] }, <RET as IntoSteelVal>::RETURN_TYPE)))),
+                    SteelVal::BoxedFunction(Gc::new(
+                        BoxedDynFunction::new(Arc::new(f), Some(name), Some($arg_count))
+                            .with_signature(host_signature(
+                                const { &[<SELF as AsRefMutSteelVal>::ARG_TYPE, $(<$param as FromSteelVal>::ARG_TYPE),*] },
+                                <RET as IntoSteelVal>::RETURN_TYPE,
+                            )),
+                    )),
                 )
             }
         }
@@ -3024,12 +3016,13 @@ macro_rules! impl_register_fn_self {
 
                 self.register_value_inner(
                     name,
-                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
-                        Arc::new(f),
-                        Some(name),
-                        Some($arg_count),
-                    )
-.with_signature(host_signature(const { &[ArgType::ANY, $(<$param as FromSteelVal>::ARG_TYPE),*] }, <RET as IntoSteelVal>::RETURN_TYPE)))),
+                    SteelVal::BoxedFunction(Gc::new(
+                        BoxedDynFunction::new(Arc::new(f), Some(name), Some($arg_count))
+                            .with_signature(host_signature(
+                                const { &[ArgType::ANY, $(<$param as FromSteelVal>::ARG_TYPE),*] },
+                                <RET as IntoSteelVal>::RETURN_TYPE,
+                            )),
+                    )),
                 )
             }
 
@@ -3061,12 +3054,13 @@ macro_rules! impl_register_fn_self {
 
              self.register_value_inner(
                  &cloned_name.to_string(),
-                 SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
-                     Arc::new(f),
-                     Some(Arc::new(cloned_name)),
-                     Some($arg_count),
-                 )
-.with_signature(host_signature(const { &[ArgType::ANY, $(<$param as FromSteelVal>::ARG_TYPE),*] }, <RET as IntoSteelVal>::RETURN_TYPE)))),
+                 SteelVal::BoxedFunction(Gc::new(
+                     BoxedDynFunction::new_owned(Arc::new(f), Some(Arc::new(cloned_name)), Some($arg_count))
+                         .with_signature(host_signature(
+                             const { &[ArgType::ANY, $(<$param as FromSteelVal>::ARG_TYPE),*] },
+                             <RET as IntoSteelVal>::RETURN_TYPE,
+                         )),
+                 )),
              )
          }
         }

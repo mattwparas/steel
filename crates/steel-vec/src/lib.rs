@@ -30,10 +30,10 @@ impl<T> RawVec<T> {
     }
 
     fn with_capacity(capacity: usize) -> Self {
-        // Zero elements must not reach the allocator - alloc::alloc wants a non
-        // zero sized layout, and since Drop skips cap == 0 the block would never
-        // get freed either. Zero sized types don't allocate at all; new encodes
-        // that as usize::MAX capacity, which the rest of RawVec relies on.
+        // alloc::alloc needs a non zero sized layout, and Drop skips cap == 0 so
+        // the block would never be freed either. Zero sized types don't allocate
+        // at all, new gives them usize::MAX capacity which the rest of RawVec
+        // relies on.
         if capacity == 0 || mem::size_of::<T>() == 0 {
             return Self::new();
         }
@@ -90,7 +90,7 @@ impl<T> RawVec<T> {
 
         let old_layout = Layout::array::<T>(self.cap).unwrap();
 
-        // Drop skips cap == 0, so release the block rather than realloc to zero
+        // Drop skips cap == 0, so release the block instead of realloc to zero
         if len == 0 {
             unsafe { alloc::dealloc(self.ptr.as_ptr() as *mut u8, old_layout) };
             self.ptr = NonNull::dangling();
@@ -99,9 +99,8 @@ impl<T> RawVec<T> {
         }
 
         let new_layout = Layout::array::<T>(len).expect("Allocation too large");
-        let new_ptr = unsafe {
-            alloc::realloc(self.ptr.as_ptr() as *mut u8, old_layout, new_layout.size())
-        };
+        let new_ptr =
+            unsafe { alloc::realloc(self.ptr.as_ptr() as *mut u8, old_layout, new_layout.size()) };
 
         self.ptr = match NonNull::new(new_ptr as *mut T) {
             Some(p) => p,
@@ -168,15 +167,15 @@ pub struct Vec<T> {
 
 impl<T: Clone> Clone for Vec<T> {
     fn clone(&self) -> Self {
-        // Allocate for what we're about to write rather than mirroring the
-        // source's spare capacity - cloning an empty vector shouldn't allocate
+        // Only allocate for the elements, not the source's spare capacity, so
+        // cloning an empty vector doesn't allocate
         let mut new_vec = Vec::<T>::with_capacity(self.len());
 
         for x in self.iter() {
             unsafe {
-                // x.clone() runs before the write, so if it unwinds nothing has
-                // been written and len hasn't moved. Bumping len as each element
-                // lands means a panic part way through still drops what we cloned
+                // x.clone() runs before the write, so if it unwinds len hasn't
+                // moved. Bumping len after each write means a panic part way
+                // through still drops what was already cloned
                 ptr::write(new_vec.ptr().add(new_vec.len), x.clone());
                 new_vec.len += 1;
             }
@@ -191,11 +190,11 @@ impl<T> Vec<T> {
         self.buf.ptr.as_ptr()
     }
 
-    // These shadow the [T] methods reached through Deref, and have to. The slice
-    // ones only carry provenance over the initialized 0..len range, so anything
-    // that shrinks len and then reaches past it - drain, split_off, Drain::drop -
-    // ends up outside the pointer's range. Going through RawVec keeps provenance
-    // over the whole allocation, same as std does.
+    // These shadow the [T] methods reached through Deref. The slice ones only
+    // carry provenance over the initialized 0..len range, so anything that
+    // shrinks len and then reaches past it (drain, split_off, Drain::drop) would
+    // end up outside the pointer's range. Going through RawVec keeps provenance
+    // over the whole allocation, like std does.
     pub fn as_ptr(&self) -> *const T {
         self.buf.ptr.as_ptr()
     }
@@ -253,15 +252,15 @@ impl<T> Vec<T> {
     /// Builds a vector of `n` bitwise duplicates of `elem`.
     ///
     /// `Clone` on a large enum is a jump table, so cloning per slot keeps a
-    /// branch in the fill loop and stops it being widened. When duplicating the
-    /// representation is all a clone would do, this writes the bits straight
-    /// through instead and the compiler can turn it into wide stores.
+    /// branch in the fill loop and stops it being vectorized. When a clone would
+    /// only copy the bits, this copies them directly and the compiler can turn
+    /// it into wide stores.
     ///
     /// # Safety
     ///
-    /// Duplicating `elem`'s representation `n` times must be sound: the value
+    /// Duplicating `elem`'s representation `n` times must be sound. The value
     /// must own no resource, so that neither `Clone` nor `Drop` has any work to
-    /// do for it. `elem` is forgotten rather than dropped.
+    /// do for it. `elem` is forgotten instead of dropped.
     pub unsafe fn from_elem_bitwise(elem: T, n: usize) -> Self {
         let mut vec = Self::with_capacity(n);
 
@@ -286,9 +285,8 @@ impl<T> Vec<T> {
 
     /// Builds a vector of `n` copies of `elem`.
     ///
-    /// Going through `iter::repeat(x).take(n).collect()` costs an iterator
-    /// dispatch and a capacity check per element, which dominates the cost of
-    /// building a large vector. This reserves once and fills straight through.
+    /// Reserves once and fills in place, avoiding the per element capacity
+    /// check of `iter::repeat(x).take(n).collect()`.
     pub fn from_elem(elem: T, n: usize) -> Self
     where
         T: Clone,
@@ -299,8 +297,8 @@ impl<T> Vec<T> {
             let ptr = vec.ptr();
 
             // Safety: with_capacity reserved room for n elements, and len is only
-            // advanced past the slots actually written. A panic in T::clone leaks
-            // the values written so far rather than dropping uninitialized memory.
+            // set once every slot is written. A panic in T::clone leaks the values
+            // written so far instead of dropping uninitialized memory.
             unsafe {
                 for i in 0..n - 1 {
                     ptr::write(ptr.add(i), elem.clone());
@@ -592,8 +590,7 @@ struct RawValIter<T> {
     start: *const T,
     end: *const T,
     // Remaining elements when T is zero sized. They all live at the same dangling
-    // address, so start and end carry no information - keep the count here rather
-    // than smuggling it into the pointer as an integer.
+    // address, so start and end can't track them and the count is kept here.
     zst_remaining: usize,
 }
 
@@ -749,7 +746,10 @@ mod tests {
 
         assert_eq!(v.capacity(), 8);
         assert_eq!(v.len(), 8);
-        assert_eq!(v.iter().copied().collect::<std::vec::Vec<_>>(), (0..8).collect::<std::vec::Vec<_>>());
+        assert_eq!(
+            v.iter().copied().collect::<std::vec::Vec<_>>(),
+            (0..8).collect::<std::vec::Vec<_>>()
+        );
     }
 
     #[test]

@@ -619,10 +619,10 @@ mod expansion_tests {
     use crate::steel_vm::engine::Engine;
     use std::path::PathBuf;
 
-    /// A main program (compiled with `compile_and_run_raw_program`, not as a module)
-    /// that requires a module and has a `case` clause whose datum names a
-    /// special form. Expanding the required module's macros must not parse
-    /// `(lambda)` inside the unexpanded `case` as a malformed lambda.
+    /// A main program, compiled with `compile_and_run_raw_program`, that requires
+    /// a module and has a `case` clause whose datum names a special form.
+    /// Expanding the required module's macros must not parse `(lambda)` inside
+    /// the unexpanded `case` as a malformed lambda.
     #[test]
     fn case_datum_naming_a_special_form_in_a_program_with_requires() {
         let engine = || {
@@ -650,9 +650,9 @@ mod expansion_tests {
         assert!(engine().compile_and_run_raw_program(bad).is_err());
     }
 
-    /// A main program using a module's own `car` / `cdr` in a loop. The
-    /// "hoist car before cdr" optimization must not replace the module's
-    /// `(car u)` with `(#%prim.car u)`, which rejects the module's pairs.
+    /// A main program using a module's own `car` and `cdr` in a loop. Hoisting
+    /// car before cdr must not replace the module's `(car u)` with
+    /// `(#%prim.car u)`, which rejects the module's pairs.
     #[test]
     fn a_modules_car_is_not_the_builtin_car() {
         let mut engine = Engine::new();
@@ -674,8 +674,8 @@ mod expansion_tests {
         assert_eq!(engine.extract_value("result").unwrap().to_string(), "6");
     }
 
-    /// A reference's `builtin` flag comes from the definition it resolves to.
-    /// A program's own global named like a prelude function (`car`) can be
+    /// A reference's `builtin` flag comes from the definition it resolves to,
+    /// so a program's own global named like a prelude function (`car`) can be
     /// `set!` without "cannot mutate module-required identifier".
     #[test]
     fn set_of_a_programs_own_car_is_allowed() {
@@ -731,7 +731,7 @@ mod expansion_tests {
             .emit_expanded_ast_without_optimizations(src, None::<PathBuf>)
             .unwrap();
         let text = expanded.iter().map(|e| e.to_string()).collect::<String>();
-        // Every call is to a renamed local; no bare `odd?` is left over.
+        // Every call is to a renamed local, so no bare `odd?` is left over.
         assert!(!text.contains("(odd? "), "{text}");
     }
 }
@@ -1057,7 +1057,7 @@ mod set_after_compile_tests {
     }
 
     // A module's own calls go to its own globals, which nothing outside it can
-    // `set!`; the program's `f` is a separate global.
+    // `set!`. The program's `f` is a separate global.
     #[test]
     fn module_calls_are_not_changed_by_a_programs_set() {
         let mut engine = engine();

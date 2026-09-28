@@ -466,10 +466,27 @@ impl IntoSteelVal for BigRational {
 
 from_f64!(f64, f32);
 // A u64 past isize::MAX is a bignum.
-from_for_isize!(i32 => Int, i16 => Int, i8 => Int, u8 => Int, u16 => Int, u32 => Int, u64 => Number, isize => Int);
+from_for_isize!(
+    i32 => Int,
+    i16 => Int,
+    i8 => Int,
+    u8 => Int,
+    u16 => Int,
+    u32 => Int,
+    u64 => Number,
+    isize => Int
+);
 try_from_impl!(NumV, Float => f64, f32);
 // A u64 or usize can hold a bignum; the others only ever fit a fixnum.
-try_from_steelval_int!(i32 => Int, i16 => Int, u16 => Int, u32 => Int, u64 => Number, usize => Number, isize => Int);
+try_from_steelval_int!(
+    i32 => Int,
+    i16 => Int,
+    u16 => Int,
+    u32 => Int,
+    u64 => Number,
+    usize => Number,
+    isize => Int
+);
 
 impl TryFrom<SteelVal> for String {
     type Error = SteelErr;

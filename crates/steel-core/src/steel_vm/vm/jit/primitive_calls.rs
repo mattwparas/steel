@@ -16,7 +16,11 @@ pub(super) fn raise_at(ctx: &mut VmCore, fallback_ip: usize, e: SteelErr) -> Ste
 helper_family! {
     CallPrimitiveDefinitions, mod call_primitive_function_deopt,
     names "call_primitive_function_deopt_" "",
-    add_func fn(ctx: *mut VmCore, func: fn(&[SteelVal]) -> Result<SteelVal>, fallback_ip: usize) -> SteelVal,
+    add_func fn(
+        ctx: *mut VmCore,
+        func: fn(&[SteelVal]) -> Result<SteelVal>,
+        fallback_ip: usize
+    ) -> SteelVal,
     arities [0 1 2 3 4 5 6 7 8],
     |args| {
         let ctx = unsafe { &mut *ctx };
@@ -30,7 +34,11 @@ helper_family! {
 helper_family! {
     CallPrimitiveMutDefinitions, mod call_primitive_mut_function_deopt,
     names "call_primitive_mut_function_deopt_" "",
-    add_func fn(ctx: *mut VmCore, func: fn(&mut [SteelVal]) -> Result<SteelVal>, fallback_ip: usize) -> SteelVal,
+    add_func fn(
+        ctx: *mut VmCore,
+        func: fn(&mut [SteelVal]) -> Result<SteelVal>,
+        fallback_ip: usize
+    ) -> SteelVal,
     arities [0 1 2 3 4 5 6 7 8],
     |args| match (func)(&mut args) {
         Ok(v) => v,

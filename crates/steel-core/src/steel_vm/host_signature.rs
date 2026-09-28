@@ -195,7 +195,7 @@ fn symbol(value: &SteelVal) -> Result<&str> {
     }
 }
 
-/// `(rest T)`: `T`.
+/// The `T` of a `(rest T)` clause.
 fn rest_clause(value: &SteelVal) -> Result<Option<&SteelVal>> {
     if let SteelVal::ListV(items) = value {
         if let (Some(head), 2) = (items.first(), items.len()) {

@@ -1250,11 +1250,8 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         match x {
             SteelVal::IntV(n) => match i32::try_from(*n) {
                 Ok(0) => stop!(Generic => "/: division by zero"),
-                // avoid panic when making a 1/i32::MIN, as that would then
-                // be converted into a -1/-i32::MIN, which would result in the
-                // denominator being higher than the hightest possible i32,
-                // which would crash in a debug build and produce confusing
-                // results in release.
+                // 1/i32::MIN normalises to -1/-i32::MIN, and -i32::MIN overflows
+                // an i32. That panics in debug builds and gives garbage in release.
                 Ok(i32::MIN) | Err(_) => {
                     BigRational::new(BigInt::from(1), BigInt::from(*n)).into_steelval()
                 }

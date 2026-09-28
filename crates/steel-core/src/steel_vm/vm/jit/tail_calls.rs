@@ -103,7 +103,9 @@ helper_family! {
     names "call_global_native_tail_" "",
     add_func fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize) -> SteelVal,
     arities [0 1 2 3 4 5 6 7 8],
-    |args| unsafe { callglobal_native_tail_handler(&mut *ctx, lookup_index, fallback_ip, &mut args) }
+    |args| unsafe {
+        callglobal_native_tail_handler(&mut *ctx, lookup_index, fallback_ip, &mut args)
+    }
 }
 
 // A tail call to a global with its `arity` args already spilled to the stack.

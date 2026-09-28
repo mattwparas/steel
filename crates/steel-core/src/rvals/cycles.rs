@@ -743,15 +743,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     }
 }
 
-/// Feeds a struct's fields into the shared drop work list.
-///
-/// Returns Err when the list is unavailable, in which case the caller drops
-/// them itself.
 /// Whether dropping `value` can reach other values, and so has to go through
-/// the iterative drop queue rather than recursing. Everything else - immediates,
-/// strings, symbols, native functions, bytevectors, bignums - is dropped where
-/// it is, never queued: the queue is a `VecDeque` walked one value at a time,
-/// so queueing one costs a push, a pop and a visit for nothing.
+/// the iterative drop queue instead of recursing. Values that can't (immediates,
+/// strings, symbols, native functions, bytevectors, bignums) are dropped in
+/// place, since queueing them costs a push, a pop and a visit for nothing.
 fn needs_iterative_drop(value: &SteelVal) -> bool {
     !matches!(
         value,
@@ -773,6 +768,10 @@ fn needs_iterative_drop(value: &SteelVal) -> bool {
     )
 }
 
+/// Feeds a struct's fields into the shared drop work list.
+///
+/// Returns Err when the list is unavailable, in which case the caller drops
+/// them itself.
 #[cfg(feature = "without-drop-protection")]
 pub fn drop_fields_iteratively(
     _fields: impl Iterator<Item = SteelVal>,
@@ -780,6 +779,10 @@ pub fn drop_fields_iteratively(
     Err(())
 }
 
+/// Feeds a struct's fields into the shared drop work list.
+///
+/// Returns Err when the list is unavailable, in which case the caller drops
+/// them itself.
 #[cfg(not(feature = "without-drop-protection"))]
 pub fn drop_fields_iteratively(
     fields: impl Iterator<Item = SteelVal>,
@@ -787,24 +790,24 @@ pub fn drop_fields_iteratively(
     drop_impls::DROP_BUFFER
         .try_with(|drop_buffer| {
             if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                // Not filtered with `needs_iterative_drop`, which was slower here.
-                // The visit is cheap for values that reach nothing else.
+                // Filtering with `needs_iterative_drop` here is slower. The visit
+                // is cheap for values that reach nothing else.
                 drop_buffer.extend(fields);
 
                 IterativeDropHandler::bfs(&mut drop_buffer);
             } else {
-                // A drain is already running further up this thread's stack -
-                // this is a drop reached from inside it. Dropping in place here
-                // recurses once per link of whatever chain is being torn down, so
-                // hand the values to the running drain instead; it empties
-                // `PENDING` before it finishes.
+                // A drain is already running further up this thread's stack, and
+                // this drop was reached from inside it. Dropping in place would
+                // recurse once per link of the chain being torn down, so hand the
+                // values to the running drain, which empties `PENDING` before it
+                // finishes.
                 let mut fields = Some(fields);
                 let _ = drop_impls::PENDING.try_with(|pending| {
                     if let Ok(mut pending) = pending.try_borrow_mut() {
                         pending.extend(fields.take().unwrap());
                     }
                 });
-                // Otherwise (thread teardown) `fields` drops in place here.
+                // During thread teardown `fields` drops in place here.
             }
         })
         .map_err(|_| ())
@@ -965,7 +968,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn pop_front(&mut self) -> Option<SteelVal> {
         self.drop_buffer.pop_front().or_else(|| {
-            // Anything a nested drop handed over, see `drop_fields_iteratively`
+            // Anything a nested drop handed over. See `drop_fields_iteratively`.
             #[cfg(not(feature = "without-drop-protection"))]
             {
                 drop_impls::PENDING
@@ -1048,8 +1051,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_steel_struct(&mut self, steel_struct: StructRef) {
-        let mut steel_struct = steel_struct;
+    fn visit_steel_struct(&mut self, mut steel_struct: StructRef) {
         if let Some(fields) = steel_struct.take_fields_if_unique() {
             for value in fields {
                 self.push_back(value);
@@ -1229,9 +1231,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 Complex(x) => self.visit_complex(x),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
-                // Take the elements when we hold the only reference, the way the
-                // immutable vector case does - cloning here pays a refcount round
-                // trip per element on the way to dropping them
+                // Take the elements when we hold the only reference, like the
+                // immutable vector case. Cloning them would pay a refcount round
+                // trip per element.
                 FlatVector(mut v) => {
                     if let Some(inner) = v.get_mut() {
                         for value in core::mem::take(inner) {
@@ -1434,8 +1436,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
         }
     }
 
-    fn visit_steel_struct(&mut self, steel_struct: StructRef) {
-        let mut steel_struct = steel_struct;
+    fn visit_steel_struct(&mut self, mut steel_struct: StructRef) {
         if let Some(fields) = steel_struct.take_fields_if_unique() {
             for value in fields {
                 self.push_back(value);
@@ -1611,9 +1612,9 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
                 Complex(x) => self.visit_complex(x),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
-                // Take the elements when we hold the only reference, the way the
-                // immutable vector case does - cloning here pays a refcount round
-                // trip per element on the way to dropping them
+                // Take the elements when we hold the only reference, like the
+                // immutable vector case. Cloning them would pay a refcount round
+                // trip per element.
                 FlatVector(mut v) => {
                     if let Some(inner) = v.get_mut() {
                         for value in core::mem::take(inner) {
@@ -1687,8 +1688,8 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 Complex(x) => self.visit_complex(x),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
-                // A flat vector is a plain reference counted value with no cycle to
-                // detect, so just walk what it holds
+                // A flat vector is reference counted and can't be cyclic, so walk
+                // its elements.
                 FlatVector(v) => {
                     for value in v.iter() {
                         self.push_back(value.clone());
@@ -1791,8 +1792,8 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
                 Complex(x) => self.visit_complex(x),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
-                // A flat vector is a plain reference counted value with no cycle to
-                // detect, so just walk what it holds
+                // A flat vector is reference counted and can't be cyclic, so walk
+                // its elements.
                 FlatVector(v) => {
                     for value in v.iter() {
                         self.push_back(value);
@@ -1895,8 +1896,8 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
                 Complex(_) => unimplemented!(),
                 CharV(c) => self.visit_char(*c),
                 VectorV(v) => self.visit_immutable_vector(v),
-                // A flat vector is a plain reference counted value with no cycle to
-                // detect, so just walk what it holds
+                // A flat vector is reference counted and can't be cyclic, so walk
+                // its elements.
                 FlatVector(v) => {
                     for value in v.iter() {
                         self.push_back(value);
@@ -2220,7 +2221,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
-                // Flat vectors cannot be cyclic, so equality is a straight walk
+                // Flat vectors can't be cyclic, so compare the elements directly
                 (FlatVector(l), FlatVector(r)) => {
                     if l.len() != r.len() {
                         return false;

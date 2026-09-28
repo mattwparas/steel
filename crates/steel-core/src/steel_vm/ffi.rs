@@ -1327,7 +1327,11 @@ pub fn ffi_module() -> BuiltInModule {
     module
 }
 
-#[steel_derive::native(name = "ffi-vector", arity = AtLeast(0), args(rest = Bool | Int | Float | Char | Void | HashMap | List | String))]
+#[steel_derive::native(
+    name = "ffi-vector",
+    arity = AtLeast(0),
+    args(rest = Bool | Int | Float | Char | Void | HashMap | List | String)
+)]
 pub fn new_ffi_vector(args: &[SteelVal]) -> Result<SteelVal> {
     FFIVector {
         vec: args.iter().map(as_ffi_value).collect::<Result<_>>()?,

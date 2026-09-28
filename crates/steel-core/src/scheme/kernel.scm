@@ -159,7 +159,7 @@
              (flattening)
              (into-list)))
 
-;; `hash->list` for the given keys, in their order.
+;; Like `hash->list`, but only for the given keys, in their order.
 (define (option-arguments hm keys)
   (apply append
          (map (lambda (k)
@@ -278,7 +278,7 @@
       (error! "struct #:prop:procedure cannot refer to an index that is out of bounds"))
 
     ;; The options in the order they were written, then the defaults. Hash map
-    ;; order changes from run to run, and so would the compiled code.
+    ;; order changes from run to run, which would change the compiled code.
     (define option-keys
       (let loop ([rest (append options-without-single-keywords
                                (list '#:mutable #f '#:transparent #f '#:fields #f
@@ -322,8 +322,8 @@
            (#%start-will-executor)
            void)
        ,(if mutable?
-            ;; One call boxes every field under a single heap lock, rather than
-            ;; a #%box call per field each paying its own safepoint and lock
+            ;; #%make-mutable-struct boxes every field in one call, under a single
+            ;; heap lock and safepoint.
             (if maybe-finalizer
                 `(define ,struct-name
                    (lambda ,fields

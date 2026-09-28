@@ -1302,8 +1302,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let is_top_level = self.info.scope.depth() == 1;
 
         // Inlining doesn't freshen parameter names, so a let can end up nested
-        // inside another binding the same name. Without its own layer, the inner
-        // one's cleanup would remove the outer one's binding.
+        // inside another that binds the same name. Without its own layer, the
+        // inner one's cleanup would remove the outer one's binding.
         let shadows_enclosing = l
             .local_bindings()
             .filter_map(|x| x.atom_identifier())
@@ -1811,15 +1811,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     let global_var_id = global_var.id;
                     let definition = self.info.get_mut(&global_var_id).unwrap();
                     definition.usage_count += 1;
-                    // A reference under a prelude name is to a builtin when the
+                    // A reference under a prelude name is only a builtin when the
                     // global it resolves to is a builtin definition or a value of
                     // any builtin module (what `require-builtin` defines). A
                     // program's own `car`, or a required user module's, is also a
-                    // global named `car`, and must stay mutable with `set!`.
-                    // This only narrows the prelude name rule. Setting `builtin`
-                    // on references that lacked it would send them through the
-                    // `#%prim.` rewriting, which checks shadowing on the reference
-                    // and would rewrite redefined builtins back to the primitive.
+                    // global named `car` and has to stay mutable with `set!`.
+                    // This never marks a reference the prelude name check didn't.
+                    // Those would go through the `#%prim.` rewriting, which checks
+                    // shadowing on the reference and would turn redefined builtins
+                    // back into the primitive.
                     let definition_is_builtin = (definition.builtin
                         || definition.from_builtin_module)
                         && crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS
@@ -2387,7 +2387,8 @@ fn known_function_args_size() -> usize {
 }
 
 /// Whether `expr` names a function whose identity is fixed for the whole
-/// program: a primitive, or a global defined as a lambda that is never `set!`.
+/// program, meaning a primitive or a global defined as a lambda that is never
+/// `set!`.
 fn is_known_function(expr: &ExprKind, known: &FxHashSet<InternedString>) -> bool {
     expr.atom_identifier()
         .is_some_and(|name| name.resolve().starts_with("#%prim.") || known.contains(name))
@@ -2503,7 +2504,7 @@ impl<'a> VisitorMutRefUnit for RewriteAliasReferences<'a> {
         }
     }
 
-    fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
+    fn visit_quote(&mut self, _: &mut Quote) {}
 }
 
 /// Which of a lambda's parameters its body calls, including inside nested
@@ -2565,11 +2566,12 @@ impl<'a> VisitorMutUnitRef<'a> for CalledParams {
 }
 
 /// Gives every binder inside a copied lambda (its parameters, nested lambda
-/// parameters, let bindings, internal defines) a fresh name, and renames the references to
-/// match. Closure lifting finds a local loop's call sites by the loop's local
-/// name across the whole program, so two copies of the same body inlined into
-/// different functions must not share those names. Binders are already unique
-/// within one function by this point, so renaming by name is exact.
+/// parameters, let bindings, internal defines) a fresh name, and renames the
+/// references to match. Closure lifting finds a local loop's call sites by the
+/// loop's local name across the whole program, so two copies of the same body
+/// inlined into different functions must not share those names. Binders are
+/// already unique within one function by this point, so renaming by name is
+/// enough.
 struct FreshenBinders {
     renames: HashMap<InternedString, InternedString>,
 }
@@ -2614,7 +2616,7 @@ impl VisitorMutRefUnit for FreshenBinders {
         }
     }
 
-    fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
+    fn visit_quote(&mut self, _: &mut Quote) {}
 }
 
 /// `STEEL_LIFT_DEAD_CAPTURES=0` keeps every captured parameter closure lifting
@@ -2674,7 +2676,9 @@ fn eliminate_dead_captured_params(
         return;
     }
 
-    // live[(f, i)] for captured parameter i of f; deps are (f, i) <- (g, j).
+    // `live` holds the captured parameters (f, i) that are used. A dep
+    // ((f, i), (g, j)) means f passes its parameter i to g as parameter j, so
+    // (f, i) is live when (g, j) is.
     let mut live: FxHashSet<(InternedString, usize)> = FxHashSet::default();
     let mut deps: Vec<((InternedString, usize), (InternedString, usize))> = Vec::new();
 
@@ -2704,7 +2708,7 @@ fn eliminate_dead_captured_params(
             }
         }
 
-        fn visit_quote(&mut self, _: &'b steel_parser::ast::Quote) {}
+        fn visit_quote(&mut self, _: &'b Quote) {}
 
         fn visit_list(&mut self, l: &'b List) {
             let callee = l
@@ -2819,7 +2823,7 @@ fn eliminate_dead_captured_params(
             self.visit(&mut define.body);
         }
 
-        fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
+        fn visit_quote(&mut self, _: &mut Quote) {}
     }
 
     let mut remove = RemoveArgs {
@@ -2853,7 +2857,7 @@ fn contains_nested_lambda(expr: &ExprKind) -> bool {
                 self.visit(expr);
             }
         }
-        fn visit_quote(&mut self, _: &'a steel_parser::ast::Quote) {}
+        fn visit_quote(&mut self, _: &'a Quote) {}
     }
     let mut find = Find(false);
     find.visit(expr);
@@ -2892,7 +2896,7 @@ impl<'a> VisitorMutUnitRef<'a> for CollectBinders {
         self.visit(&l.body_expr);
     }
 
-    fn visit_quote(&mut self, _: &'a steel_parser::ast::Quote) {}
+    fn visit_quote(&mut self, _: &'a Quote) {}
 }
 
 /// Replaces references to let-bound names with the known function each is
@@ -2924,7 +2928,7 @@ impl VisitorMutRefUnit for SubstituteBindings {
         }
     }
 
-    fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
+    fn visit_quote(&mut self, _: &mut Quote) {}
 
     fn visit_lambda_function(&mut self, l: &mut LambdaFunction) {
         let saved = self.without_shadowed(l.args.iter());
@@ -2976,7 +2980,7 @@ impl<'a, 'b> VisitorMutUnitRef<'b> for CountUses<'a> {
         }
     }
 
-    fn visit_quote(&mut self, _: &'b steel_parser::ast::Quote) {}
+    fn visit_quote(&mut self, _: &'b Quote) {}
 
     fn visit_list(&mut self, l: &'b List) {
         if l.first_ident() == Some(self.name) {
@@ -3016,7 +3020,7 @@ impl<'a> SubstituteLambdaCalls<'a> {
 }
 
 impl<'a> VisitorMutRefUnit for SubstituteLambdaCalls<'a> {
-    fn visit_quote(&mut self, _: &mut steel_parser::ast::Quote) {}
+    fn visit_quote(&mut self, _: &mut Quote) {}
 
     fn visit_lambda_function(&mut self, lambda: &mut LambdaFunction) {
         let was = self.shadowed;
@@ -3074,7 +3078,7 @@ impl<'a> VisitorMutRefUnit for SubstituteKnownFunctionBindings<'a> {
                 return true;
             }
             // A later binding in the same let could shadow an earlier
-            // substitution's target; keep it simple and take the first.
+            // substitution's target, so only the first one is used.
             if map.iter().any(|(from, _)| from == name) {
                 return true;
             }
@@ -3267,13 +3271,6 @@ struct FunctionSizeEstimator {
     prim_map: HashMap<SyntaxObjectId, usize>,
 }
 
-// The share of a body, in percent, that must be primitive calls before it is
-// worth inlining. 0 disables the filter and judges on size alone.
-//
-// 5 did best on the r7rs suite and also cuts compile time. Useful values are
-// roughly 5..15. Above that the filter rejects the case-lambda bodies that
-// LowerRestArguments specializes.
-
 impl FunctionSizeEstimator {
     // The size the inliner judges against. None disqualifies the body, so
     // callers skip it as they would a missing entry
@@ -3285,7 +3282,10 @@ impl FunctionSizeEstimator {
             return Some(count);
         }
 
-        // Inline only bodies with enough primitive calls
+        // `inline_prim_density` is the share of a body, in percent, that has to be
+        // primitive calls for it to be inlined. 0 judges on size alone. Above
+        // roughly 15 the filter rejects the case-lambda bodies that
+        // LowerRestArguments specializes.
         if crate::config::config().inline_prim_density > 0 {
             let prims = self.prim_map.get(&id).copied().unwrap_or(0);
 
@@ -3461,6 +3461,17 @@ where
 // is stable across that churn.
 struct CollectSetTargets<'a> {
     targets: &'a mut FxHashSet<InternedString>,
+}
+
+fn set_targets(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
+    let mut targets = FxHashSet::default();
+    let mut collector = CollectSetTargets {
+        targets: &mut targets,
+    };
+    for expr in exprs {
+        collector.visit(expr);
+    }
+    targets
 }
 
 impl<'a, 'b> VisitorMutUnitRef<'a> for CollectSetTargets<'b> {
@@ -3752,8 +3763,8 @@ impl<'a> RemoveUnusedDefineImports<'a> {
 // This should just be a function on the define, not a method - so that it can be moved
 // into a different crate
 
-/// `(define x (%module-get% %-builtin-module-<any> ...))`: a value of a
-/// builtin module, whether or not that module is in `MODULE_IDENTIFIERS`.
+/// Whether `def` is `(define x (%module-get% %-builtin-module-<any> ...))`, a
+/// value of any builtin module, whether or not it is in `MODULE_IDENTIFIERS`.
 pub(crate) fn is_a_builtin_module_get(def: &Define) -> bool {
     if let ExprKind::List(l) = &def.body {
         if let Some(func) = l.first_ident() {
@@ -5225,9 +5236,6 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
-                // We've hit something like (unbox <foo>)
-                // but we need to make sure that this only happens in the call
-                // position, meaning if we hit the identifier in any other way,
                 // A bare (unbox x) reached here is used as a value (returned,
                 // bound or stored), so the reference outlives what we can rewrite.
                 if l.first_ident().copied() == Some(*UNBOX)
@@ -5240,6 +5248,9 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                     return;
                 }
 
+                // We've hit something like (unbox <foo>)
+                // but we need to make sure that this only happens in the call
+                // position, meaning if we hit the identifier in any other way,
                 // then we've escaped.
                 if let Some(ExprKind::List(il)) = l.first() {
                     if il.first_ident().copied() == Some(*UNBOX) {
@@ -6194,8 +6205,8 @@ fn is_boolean_valued(expr: &ExprKind, bound: &FxHashSet<InternedString>) -> bool
         return false;
     };
 
-    // The operator arrives either bare or as `#%prim.<name>`; a bare name the
-    // program binds itself is not the builtin.
+    // The operator is either bare or `#%prim.<name>`. A bare name the program
+    // binds itself is not the builtin.
     let Some(name) = l.first().and_then(|op| called_primitive(op, bound)) else {
         return false;
     };
@@ -6466,9 +6477,8 @@ fn list_accessor_on_var<'a>(
     l.args[1].atom_identifier()
 }
 
-/// Nothing here can have an effect, so the arguments of one call can be
-/// evaluated in any order. Reordering can only change which error a bad value
-/// raises.
+/// Whether `expr` has no effects, so the arguments of one call can be evaluated
+/// in any order. Reordering can only change which error a bad value raises.
 fn is_reorderable(expr: &ExprKind, bound: &FxHashSet<InternedString>) -> bool {
     match expr {
         ExprKind::Atom(_) | ExprKind::Quote(_) => true,
@@ -6562,7 +6572,7 @@ impl HoistCarBeforeCdr {
         pass.rewritten
     }
 
-    /// The variable to hoist `(car ...)` of, for this call.
+    /// Whether a hoist here pays for its binding, see `in_tail`.
     fn worth_hoisting(&self, calls_self: bool) -> bool {
         !self.tail_only || (self.in_tail && calls_self)
     }
@@ -6574,6 +6584,7 @@ impl HoistCarBeforeCdr {
         }
     }
 
+    /// The variable to hoist `(car ...)` of, for this call.
     fn candidate(&self, l: &crate::parser::ast::List) -> Option<InternedString> {
         // A complex callee would be evaluated after the hoisted read.
         let callee = l.args.first()?;
@@ -6767,7 +6778,7 @@ impl VisitorMutRefUnit for HoistCarBeforeCdr {
         self.in_tail = outer;
     }
 
-    // Both arms of an `if` inherit its position; the test does not.
+    // Both arms of an `if` inherit its position, the test doesn't.
     fn visit_if(&mut self, f: &mut crate::parser::ast::If) {
         let tail = self.in_tail;
         self.in_tail = false;
@@ -6790,7 +6801,7 @@ impl VisitorMutRefUnit for HoistCarBeforeCdr {
         self.in_tail = tail;
     }
 
-    // A `let`'s body is; its bindings' values are not.
+    // A `let`'s body is, its bindings' values aren't.
     fn visit_let(&mut self, l: &mut crate::parser::ast::Let) {
         let tail = self.in_tail;
         for (_, value) in l.bindings.iter_mut() {
@@ -7130,32 +7141,10 @@ pub enum RequiredIdentifierInformation<'a> {
     Unresolved(InternedString, String, Option<InternedString>),
 }
 
-/// Every name that appears as the target of a `set!`, anywhere.
-///
-/// `set_bang` on the define's syntax object is unreliable here. `visit_set`
-/// records the flag against `scope_info.id` (the id the scope map held for that
-/// name at the time), and after `refresh_variables` regenerates ids the two
-/// need not agree. Collecting the targets by name avoids depending on ids, as
-/// the inliner's `set!` guard does.
-#[derive(Default)]
-struct SetBangTargets {
-    names: std::collections::HashSet<InternedString>,
-}
-
-impl<'a> VisitorMutUnitRef<'a> for SetBangTargets {
-    fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
-        if let Some(name) = s.variable.atom_identifier() {
-            self.names.insert(*name);
-        }
-        self.visit(&s.expr);
-        self.visit(&s.variable);
-    }
-}
-
 /// Every identifier an expression refers to, ignoring quoted data.
 #[derive(Default)]
 struct ReferencedNames {
-    names: std::collections::HashSet<InternedString>,
+    names: HashSet<InternedString>,
 }
 
 impl<'a> VisitorMutUnitRef<'a> for ReferencedNames {
@@ -7165,7 +7154,7 @@ impl<'a> VisitorMutUnitRef<'a> for ReferencedNames {
         }
     }
 
-    // Quoted data is inert - it names nothing.
+    // Quoted data doesn't refer to anything.
     fn visit_quote(&mut self, _quote: &'a crate::parser::ast::Quote) {}
 }
 
@@ -7192,10 +7181,10 @@ fn sort_define_run(run: Vec<ExprKind>) -> Vec<ExprKind> {
         return run;
     }
 
-    let index: std::collections::HashMap<InternedString, usize> =
+    let index: HashMap<InternedString, usize> =
         names.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
-    let deps: Vec<std::collections::HashSet<usize>> = run
+    let deps: Vec<HashSet<usize>> = run
         .iter()
         .enumerate()
         .map(|(i, e)| {
@@ -7209,7 +7198,7 @@ fn sort_define_run(run: Vec<ExprKind>) -> Vec<ExprKind> {
         })
         .collect();
 
-    // Kahn, sweeping in source order so this is deterministic.
+    // Kahn's algorithm, sweeping in source order so the result is deterministic.
     let mut placed = vec![false; run.len()];
     let mut order = Vec::with_capacity(run.len());
     loop {
@@ -7228,7 +7217,7 @@ fn sort_define_run(run: Vec<ExprKind>) -> Vec<ExprKind> {
             break;
         }
     }
-    // What's left is a cycle - leave it be.
+    // Whatever is left is part of a cycle and keeps its order.
     for (i, done) in placed.iter().enumerate() {
         if !done {
             order.push(i);
@@ -7568,16 +7557,7 @@ impl<'a> SemanticAnalysis<'a> {
         // ordinary inlining. The gain scales with the per call overhead removed.
         let threshold: usize = crate::config::config().inline_recursive_size;
 
-        let mut assigned: FxHashSet<InternedString> = FxHashSet::default();
-        {
-            let mut collector = CollectSetTargets {
-                targets: &mut assigned,
-            };
-
-            for expr in self.exprs.iter() {
-                collector.visit(expr);
-            }
-        }
+        let assigned = set_targets(self.exprs);
 
         let changed = Rc::new(Cell::new(false));
         let known = Rc::new(known_functions(self.exprs, &assigned, module_map));
@@ -7889,16 +7869,7 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
-        let mut assigned: FxHashSet<InternedString> = FxHashSet::default();
-        {
-            let mut collector = CollectSetTargets {
-                targets: &mut assigned,
-            };
-
-            for expr in self.exprs.iter() {
-                collector.visit(expr);
-            }
-        }
+        let assigned = set_targets(self.exprs);
         let changed = Rc::new(Cell::new(false));
 
         let known = Rc::new(known_functions(self.exprs, &assigned, module_map));
@@ -8162,9 +8133,6 @@ impl<'a> SemanticAnalysis<'a> {
                     let original_id = l.syntax_object_id;
                     let l = l.clone();
 
-                    // Rest-argument functions are inlined too, so
-                    // LowerRestArguments can specialize a case-lambda such as
-                    // read-char at its call site
                     let changed = Rc::clone(changed);
 
                     // A local function in the body becomes a global when closures
@@ -8175,6 +8143,9 @@ impl<'a> SemanticAnalysis<'a> {
                     // substituted into one copy. Give each copy its own names.
                     let freshen = contains_nested_lambda(&l.body);
 
+                    // Rest-argument functions are inlined too, so
+                    // LowerRestArguments can specialize a case-lambda such as
+                    // read-char at its call site
                     let params = l.args.len();
                     let rest = l.rest;
 
@@ -8852,15 +8823,7 @@ impl<'a> SemanticAnalysis<'a> {
             return self;
         }
 
-        let mut assigned: FxHashSet<InternedString> = FxHashSet::default();
-        {
-            let mut collector = CollectSetTargets {
-                targets: &mut assigned,
-            };
-            for expr in self.exprs.iter() {
-                collector.visit(expr);
-            }
-        }
+        let assigned = set_targets(self.exprs);
 
         let mut aliases = FxHashMap::default();
         collect_aliases(self.exprs.iter(), &assigned, &mut aliases);
@@ -8918,15 +8881,7 @@ impl<'a> SemanticAnalysis<'a> {
             return self;
         }
 
-        let mut assigned: FxHashSet<InternedString> = FxHashSet::default();
-        {
-            let mut collector = CollectSetTargets {
-                targets: &mut assigned,
-            };
-            for expr in self.exprs.iter() {
-                collector.visit(expr);
-            }
-        }
+        let assigned = set_targets(self.exprs);
 
         let known = known_functions(self.exprs, &assigned, module_map);
 
@@ -9321,10 +9276,7 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         // `Begin`s included, so a name defined twice never moves.
-        fn count_defines(
-            exprs: &[ExprKind],
-            counts: &mut std::collections::HashMap<InternedString, usize>,
-        ) {
+        fn count_defines(exprs: &[ExprKind], counts: &mut HashMap<InternedString, usize>) {
             for expr in exprs {
                 match expr {
                     ExprKind::Define(d) => {
@@ -9338,12 +9290,12 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
-        let mut definitions = std::collections::HashMap::new();
+        let mut definitions = HashMap::new();
         count_defines(self.exprs, &mut definitions);
 
         fn sort_runs(
             exprs: Vec<ExprKind>,
-            definitions: &std::collections::HashMap<InternedString, usize>,
+            definitions: &HashMap<InternedString, usize>,
             reordered: &mut bool,
         ) -> Vec<ExprKind> {
             let movable = |expr: &ExprKind| match expr {
@@ -9406,7 +9358,8 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn lift_closures(&mut self) -> &mut Self {
         let mut lifter = LiftClosuresToGlobalScope::new(&self.analysis);
-        // So each one goes back next to the expression it came out of.
+        // How many functions were lifted up to each expression, so each one can go
+        // back next to the expression it came out of.
         let mut lifted_by_expr = Vec::with_capacity(self.exprs.len());
         for expr in self.exprs.iter_mut() {
             lifter.visit(expr);
@@ -9668,13 +9621,9 @@ impl<'a> SemanticAnalysis<'a> {
         // Such that we can then grab the values
         let mut names = Vec::new();
 
-        // Collect `set!` targets by name first. See `SetBangTargets` for why
+        // Collect `set!` targets by name first. See `CollectSetTargets` for why
         // the per-define `set_bang` flag cannot be trusted on its own.
-        let mut mutated = SetBangTargets::default();
-        for expr in self.exprs.iter() {
-            mutated.visit(expr);
-        }
-        let mutated = mutated.names;
+        let mutated = set_targets(self.exprs);
 
         for expr in self.exprs.iter() {
             match expr {

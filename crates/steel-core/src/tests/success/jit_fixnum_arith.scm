@@ -1,8 +1,8 @@
 ;; Arithmetic on operands the jit knows are fixnums skips the tag check and, on
 ;; overflow, exits to the interpreter at that instruction instead of calling a
-;; slow path. These check the exit leaves the interpreter exactly where it
-;; would have been: operands back on the stack, let slots intact, and nothing
-;; before the operation run twice.
+;; slow path. These check the exit leaves the interpreter where it would have
+;; been, with operands back on the stack, let slots intact, and nothing before
+;; the operation run twice.
 
 (define big 9223372036854775807)
 (define small (- 0 9223372036854775807))

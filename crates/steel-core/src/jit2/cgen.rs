@@ -83,7 +83,7 @@ fn rest_args_enabled() -> bool {
 }
 
 /// Whether calls check the remaining native stack instead of counting vm
-/// frames. `STEEL_JIT_STACK_CHECK=0` restores the old 100-frame cap;
+/// frames. `STEEL_JIT_STACK_CHECK=0` uses a 100-frame cap instead;
 /// `STEEL_JIT_STACK_BUDGET=<mb>` overrides how much stack the check allows.
 fn native_stack_check_enabled() -> bool {
     crate::config::config().jit_stack_check
@@ -130,7 +130,7 @@ pub struct JIT {
     allow_cursors: bool,
 
     // perf inject --jit support. None unless STEEL_JIT_DUMP is set, since opening
-    // it writes a jit-<pid>.dump into the cwd of every process that builds a JIT
+    // it writes a jit-<pid>.dump into the cwd of every process that builds a JIT.
     #[cfg(target_os = "linux")]
     jitdump: Option<wasmtime_jit_debug::perf_jitdump::JitDumpFile>,
 }
@@ -523,14 +523,14 @@ impl Default for JIT {
         flag_builder.set("opt_level", "speed").unwrap();
 
         // On in release too, so a miscompile gets caught before it is emitted.
-        // It is slow on compile heavy programs, so it can be turned off
+        // It is slow on compile heavy programs, so it can be turned off.
         if !crate::config::config().jit_verifier {
             flag_builder.set("enable_verifier", "false").unwrap();
         }
 
         // Required because the jit emits tail calls, and cranelift's x64 backend
-        // asserts on tail calls without frame pointers. They cost ~3.4% of fib in
-        // prologue, so revisit if that restriction is lifted upstream.
+        // asserts on tail calls without frame pointers. They cost some prologue
+        // work, so revisit if that restriction is lifted upstream.
         flag_builder.set("preserve_frame_pointers", "true").unwrap();
 
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
@@ -631,8 +631,6 @@ impl Default for JIT {
     }
 }
 
-// Where the slice data starts in an `RcBox<[DenseInstruction]>`. Same header as
-// any other `RcBox`, so take it from the type instead of hardcoding it.
 // The weak counter's offset and width in the box header. `inline_weak_decrement`
 // writes it directly, so both have to track the type. At the wrong offset this
 // decrements the spinlock instead and the next acquire never completes.
@@ -805,15 +803,17 @@ fn list_next_tag_mask() -> i64 {
     SteelList::<SteelVal>::cell_next_tag_mask() as i64
 }
 
+// Where the slice data starts in an `RcBox<[DenseInstruction]>`. Same header as
+// any other `RcBox`, so take it from the type instead of hardcoding it.
 const fn rcbox_slice_data_offset() -> i64 {
     steel_rc::BiasedRc::<DenseInstruction>::data_offset() as i64
 }
 
-/// Loop specialization (M3). A function whose self tail call carries fixnums
-/// in some argument slots gets a second compiled copy with those slots typed
-/// `Int`. The generic copy checks the slots once, at its tail call, and tail
-/// calls into the specialized one; the specialized copy loops on itself for as
-/// long as the slots stay fixnums, and tail calls back otherwise.
+/// Loop specialization. A loop or recursive function whose argument slots have
+/// a guessed type (see `SpecType`) gets a second compiled copy with those slots
+/// typed. The generic copy checks the slots on entry and tail calls into the
+/// specialized one; the specialized copy loops on itself for as long as the
+/// slots keep their types, and tail calls back otherwise.
 #[derive(Clone, Debug)]
 enum SpecMode {
     None,
@@ -1217,8 +1217,8 @@ fn loop_type_seed(
                         if let (Some(spec), Some(Entry::Slot(k))) = (getter, args.first()) {
                             uses.entry(*k).or_default().structs.insert(spec.descriptor);
                         }
-                        // `null?` is a separate opcode and stays compatible: the
-                        // empty list is a list.
+                        // `null?` is a separate opcode and stays compatible, since
+                        // the empty list is a list.
                         let is_type_test = n == 1
                             && ins.op_code == OpCode::CALLPRIMITIVE
                             && matches!(globals.get(payload), Some(SteelVal::FuncV(f))
@@ -1302,7 +1302,7 @@ fn loop_type_seed(
 }
 
 /// At the top of a generic copy, tail call into the specialized copy when every
-/// seeded argument slot holds a fixnum. These are raw loads emitted before the
+/// seeded argument slot holds its seeded type. These are raw loads emitted before the
 /// translator exists, so none of its caches see them.
 fn emit_spec_entry_guard(
     builder: &mut FunctionBuilder,
@@ -1755,9 +1755,7 @@ impl JIT {
         // enough (see `frameless_eligible`). The frameless copy comes first since
         // the specialized copy only calls it if it compiled.
         let frameless = match &spec {
-            Some((_, spec_name))
-                if frameless_enabled() && frameless_eligible(stmts, function_index) =>
-            {
+            Some(_) if frameless_enabled() && frameless_eligible(stmts, function_index) => {
                 let frameless_name = format!("{}_frameless", inner_name);
                 let mut sig = self.module.make_signature();
                 let mut vm_param = AbiParam::new(self.module.target_config().pointer_type());
@@ -1770,7 +1768,6 @@ impl JIT {
                     .module
                     .declare_function(&frameless_name, Linkage::Local, &sig)
                     .map_err(|e| e.to_string())?;
-                let _ = spec_name;
                 let compiled = self.compile_frameless(
                     id,
                     frameless_id,
@@ -2010,12 +2007,8 @@ impl JIT {
             .push(AbiParam::new(types::I64));
     }
 
-    /// Compile the `_frameless` copy of a self recursive function; see
-    /// `frameless_enabled`. Returns the validated return type when it compiled,
-    /// and `None` when it did not. In that case it is defined as a stub that
-    /// nothing calls, because a declared function has to be defined.
-    /// `STEEL_JIT_DUMP_CLIF=<substring>` for the specialized and frameless
-    /// copies too.
+    /// `STEEL_JIT_DUMP_CLIF=<substring>`, applied to the specialized and
+    /// frameless copies too.
     fn dump_clif_if_asked(&mut self, name: &str) {
         if let Some(filter) = &crate::config::config().jit_dump_clif {
             if filter != "1" && name.contains(filter.as_str()) {
@@ -2041,6 +2034,10 @@ impl JIT {
         self.ctx.set_disasm(false);
     }
 
+    /// Compile the `_frameless` copy of a self recursive function; see
+    /// `frameless_enabled`. Returns the validated return type when it compiled,
+    /// and `None` when it did not. In that case it is defined as a stub that
+    /// nothing calls, because a declared function has to be defined.
     fn compile_frameless(
         &mut self,
         id: u32,
@@ -2246,7 +2243,10 @@ impl JIT {
             let second = translate_with(self, Some(assumed));
             if spec_debug_enabled() {
                 if let Ok(Ok(info)) = &second {
-                    eprintln!("[spec] {spec_name}: with the assumption: returned {:?}, direct self calls {}, untyped exit {}", info.returned, info.direct_self_calls, info.untyped_non_deopt_exit);
+                    eprintln!(
+                        "[spec] {spec_name}: with the assumption: returned {:?}, direct self calls {}, untyped exit {}",
+                        info.returned, info.direct_self_calls, info.untyped_non_deopt_exit
+                    );
                 }
             }
             let holds = matches!(&second, Ok(Ok(info))
@@ -2788,12 +2788,6 @@ impl InferredType {
         }
     }
 
-    /// What this value's type becomes once it has been materialized as a
-    /// `SteelVal`.
-    ///
-    /// The untagged types describe how a value is being carried, so they must
-    /// not survive materialization. A slot recorded as `Int64` after the tagged
-    /// value was written to it would be tagged a second time on the next read.
     /// The `SteelVal` tag a value of this type is guaranteed to carry, for the
     /// types whose producers only ever make that variant. `Number`, `Any` and
     /// the list-or-pair family say nothing about the tag.
@@ -2834,6 +2828,12 @@ impl InferredType {
         Self::Any
     }
 
+    /// What this value's type becomes once it has been materialized as a
+    /// `SteelVal`.
+    ///
+    /// The untagged types describe how a value is being carried, so they must
+    /// not survive materialization. A slot recorded as `Int64` after the tagged
+    /// value was written to it would be tagged a second time on the next read.
     fn boxed(self) -> Self {
         match self {
             // Use `Number` here. The dispatch guards match on `Int` and then
@@ -3010,8 +3010,8 @@ enum MaybeStackValue {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct BorrowedValue {
     value: Value,
-    // An i8 variable: 1 when the value was cloned after all (a slow path took
-    // it) and so is owned, 0 when it is only borrowed.
+    // An i8 variable, 1 when a slow path cloned the value so it is owned, and 0
+    // when it is only borrowed.
     owned: Variable,
 }
 
@@ -3073,7 +3073,8 @@ struct PropertyMap {
 }
 
 impl PropertyMap {
-    // Keep only what both branches agree on; anything else is unknown here.
+    /// Keep only what both branches agree on; anything else is unknown here.
+    ///
     /// Returns whether the two arms disagreed about a list cursor. A cursor is
     /// the authoritative copy of its value and the slot behind it is stale, so
     /// one that survives in only one arm can't be dropped here like a cached
@@ -3474,11 +3475,12 @@ struct FunctionTranslator<'a> {
     /// `is_native` and can be skipped.
     checked_native_block: Option<Block>,
 
-    // Speculative exits, filled once the body is done. Emitting them inline puts
-    // their loads ahead of the fast path they branch away from, and those values
-    // then do not dominate it, which cranelift rejects.
-    /// Queued cold exits, each with the list cursors that were live where it
-    /// was queued. Those have to be written back to their slots on the way out.
+    /// Queued cold exits, filled once the body is done. Emitting them inline
+    /// puts their loads ahead of the fast path they branch away from, and those
+    /// values then do not dominate it, which cranelift rejects.
+    ///
+    /// Each carries the list cursors that were live where it was queued. Those
+    /// have to be written back to their slots on the way out.
     pending_deopt_exits: Vec<(
         Block,
         Vec<MaybeStackValue>,
@@ -4901,8 +4903,8 @@ impl FunctionTranslator<'_> {
                 // call path above.
                 ctx.push_to_many_vm_stack_let_var_new(&args_off_the_stack);
 
-                // The checked push reserves exactly what it needs, so there
-                // is no headroom left over:
+                // The checked push reserves only what it needs, so there
+                // is no headroom left over.
                 ctx.properties.cached_lookups.stack_length_capacity = 0;
 
                 let should_trampoline = ctx.check_should_trampoline(vm_ctx);
@@ -5670,7 +5672,7 @@ impl FunctionTranslator<'_> {
     //
     // Weak::drop also frees the allocation at zero, which we can't do from here, so
     // if we're the one taking it to zero we put it back and let the real destructor
-    // run. The free list holds a strong ref while the slot is live, so thats cold.
+    // run. The free list holds a strong ref while the slot is live, so that's cold.
     fn inline_weak_decrement(
         &mut self,
         ptr: Value,
@@ -6732,8 +6734,8 @@ impl FunctionTranslator<'_> {
 
     /// The end of a self tail call, once the arguments are written back. Where
     /// it goes depends on which copy of the function this is. The generic copy
-    /// moves into the specialized one when the seeded slots hold fixnums, and
-    /// the specialized copy moves back out when one might not.
+    /// loops on itself, since its entry guard already decided, and the
+    /// specialized copy moves back out when a seeded slot might not hold its type.
     fn emit_self_tail_jump(&mut self, proven: &[bool]) {
         match self.spec_mode.clone() {
             SpecMode::None => self.emit_loop_jump(),
@@ -7338,10 +7340,8 @@ impl FunctionTranslator<'_> {
             .map(|x| x.0)
             .collect::<Vec<_>>();
 
-        // The vm context is not pinned to r15 with get_pinned_reg/set_pinned_reg.
-        // That was slower (fib 17%): a reload that hits L1 is cheap, while
-        // reserving r15 costs the allocator a register in a function that
-        // already uses all five callee-saved ones. See `get_ctx`.
+        // The vm context is not pinned to r15 with get_pinned_reg/set_pinned_reg;
+        // see `get_ctx`.
 
         let vm_ctx = self.get_ctx();
 
@@ -7648,7 +7648,7 @@ impl FunctionTranslator<'_> {
         Gc::as_ptr(&func) as i64
     }
 
-    // call_global_function without materialising the operand stack
+    // call_global_function without materialising the operand stack.
     fn call_global_function_no_spill(
         &mut self,
         arity: usize,
@@ -7760,20 +7760,6 @@ impl FunctionTranslator<'_> {
         is_native
     }
 
-    /// Leave jitted code and let the interpreter re-execute `bytecode_ip`.
-    ///
-    /// The shadow stack knows every live value and the vm stack slot it belongs
-    /// to, and spilling it writes them back as `SteelVal`s (`as_steelval` tags
-    /// anything carried untagged). The exit materializes, points `ip` at the
-    /// instruction to redo, clears `is_native` so the caller resumes the loop
-    /// instead of taking our return value, and returns.
-    ///
-    /// The caller must not have emitted any effect for that instruction yet,
-    /// since it is about to happen again.
-    /// `emit_deopt_exit` in its own scope. The exit block emits loads and
-    /// rewrites the caches as it materializes, and none of that may be visible
-    /// to the block we return to, since values defined in the exit do not
-    /// dominate it.
     /// Queue an exit to be emitted after the body, so its loads land after every
     /// block that branches to it.
     fn defer_deopt_exit(&mut self, block: Block, bytecode_ip: usize, stack: Vec<MaybeStackValue>) {
@@ -7796,6 +7782,10 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    /// `emit_deopt_exit` in its own scope. The exit block emits loads and
+    /// rewrites the caches as it materializes, and none of that may be visible
+    /// to the block we return to, since values defined in the exit do not
+    /// dominate it.
     fn emit_deopt_exit_scoped(&mut self, bytecode_ip: usize, stack: Vec<MaybeStackValue>) {
         let saved_stack = core::mem::replace(&mut self.shadow_stack, stack);
         let saved_properties = self.properties.clone();
@@ -7815,6 +7805,16 @@ impl FunctionTranslator<'_> {
         self.let_var_stack = saved_let_var_stack;
     }
 
+    /// Leave jitted code and let the interpreter re-execute `bytecode_ip`.
+    ///
+    /// The shadow stack knows every live value and the vm stack slot it belongs
+    /// to, and spilling it writes them back as `SteelVal`s (`as_steelval` tags
+    /// anything carried untagged). The exit materializes, points `ip` at the
+    /// instruction to redo, clears `is_native` so the caller resumes the loop
+    /// instead of taking our return value, and returns.
+    ///
+    /// The caller must not have emitted any effect for that instruction yet,
+    /// since it is about to happen again.
     fn emit_deopt_exit(&mut self, bytecode_ip: usize) {
         // Write back everything the interpreter will expect on its operand
         // stack. This is the same materialization a two way branch does.
@@ -8367,10 +8367,6 @@ impl FunctionTranslator<'_> {
     //
     // For mutable registers, we can probably brand the values based on what operations
     // are performed on them.
-    /// The type recorded for a value-stack slot. `properties` is what
-    /// `immutable_register_to_value` reads; `local_to_value_map` is what the
-    /// dispatch guards read. `LetVar` writes both, so they agree, but a slot can
-    /// be present in one and not the other.
     /// Type of an if-merge's value, the join of every arm reaching it.
     fn merge_type(&mut self, phi: Value, arms: &[InferredType]) -> InferredType {
         let Some((first, rest)) = arms.split_first() else {
@@ -8666,6 +8662,10 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    /// The type recorded for a value-stack slot. `properties` is what
+    /// `immutable_register_to_value` reads; `local_to_value_map` is what the
+    /// dispatch guards read. `LetVar` writes both, so they agree, but a slot can
+    /// be present in one and not the other.
     pub(super) fn register_type(&self, r: usize) -> InferredType {
         // Search the facts instead of using `properties.get`, which only answers
         // when a slot has one fact. A typed register that a comparison also gave
@@ -8974,7 +8974,7 @@ impl FunctionTranslator<'_> {
         };
 
         // Any of these can raise. If one did, bail out here instead of carrying
-        // on and popping the frame that holds the handler out from under it
+        // on and popping the frame that holds the handler out from under it.
         self.check_deopt();
 
         // Check the inferred type, if we know of it
@@ -9070,9 +9070,6 @@ impl FunctionTranslator<'_> {
 
     // Just... store as a i128, and hope for the best. Don't need to encode
     // it directly as anything really?
-    // Build the i128 the jit passes a RootedInstructions around as. Low half is
-    // the pointer, high half the length, the same order iconcat(data_ptr, len)
-    // produces elsewhere and the fields are declared in.
     /// Whether a callee runs the same instruction stream we are compiling.
     ///
     /// For a self call the instructions saved into the new frame and the ones
@@ -9083,6 +9080,9 @@ impl FunctionTranslator<'_> {
             && callee.len as usize == self.instructions.len()
     }
 
+    // Build the i128 the jit passes a RootedInstructions around as. Low half is
+    // the pointer, high half the length, the same order iconcat(data_ptr, len)
+    // produces elsewhere and the fields are declared in.
     fn rooted_instructions_const(&mut self, instructions: RootedInstructions) -> Value {
         let int = Type::int(64).unwrap();
         let ptr = self.builder.ins().iconst(int, instructions.ptr as i64);
@@ -9256,6 +9256,7 @@ impl FunctionTranslator<'_> {
         // Unwrap or... must have been a tail call?
 
         let mut then_type = InferredType::Any;
+        // A borrowed then value crosses the merge borrowed, with its owned flag;
         // anything else reaches the merge owned.
         let then_owned = match self.shadow_stack.last().copied() {
             Some(MaybeStackValue::Borrowed(b)) if !then_out_of_bounds => {
@@ -9601,11 +9602,10 @@ impl FunctionTranslator<'_> {
         };
 
         // `STEEL_CURSOR_ONLY=name,...` seeds cursors only in these functions,
-        // to bisect which one breaks a program or costs time. The
-        // `closure-lifting-<digits>` gensym differs per run, so it is
-        // normalised away before matching.
+        // to bisect which one breaks a program or costs time.
         if let Some(only) = &crate::config::config().cursor_only {
-            // The closure-lifting gensym number differs run to run.
+            // The closure-lifting gensym number differs run to run, so it is
+            // normalised away before matching.
             fn stable(name: &str) -> String {
                 match name.find("closure-lifting-") {
                     Some(i) => {
@@ -10287,17 +10287,11 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    /// True when the closure takes a fixed argument list.
-    ///
-    /// A variadic callee needs its trailing arguments collected into a list
-    /// before its frame is set up. `adjust_stack_for_multi_arity` does that,
-    /// and only the interpreter-side paths call it. The direct paths here set
-    /// the frame up themselves, so they hand a variadic callee back to those
-    /// paths instead.
     /// Whether a closure only known at run time can take `arity` arguments
-    /// through a frame this code sets up itself. It needs fixed arity (a
-    /// variadic one needs its rest list built) and exactly that many
-    /// parameters. Anything else goes to the helper, which adjusts or raises
+    /// through a frame this code sets up itself. It needs fixed arity and that
+    /// many parameters. A variadic callee needs its rest list built by
+    /// `adjust_stack_for_multi_arity`, which only the interpreter-side paths
+    /// call. Anything else goes to the helper, which adjusts or raises
     /// the arity error. The generated frame setup checks neither, so a
     /// mismatch would read garbage slots.
     fn closure_accepts_arity(&mut self, closure: Value, arity: usize) -> Value {
@@ -10390,8 +10384,8 @@ impl FunctionTranslator<'_> {
         // stack buffer and corrupt the allocator, so always take the check.
         self.push_to_many_vm_stack_let_var_new(&args);
 
-        // The checked push reserves exactly what it needs, so there is no
-        // headroom left over:
+        // The checked push reserves only what it needs, so there is no
+        // headroom left over.
         self.properties.cached_lookups.stack_length_capacity = 0;
 
         self.converging_if(
@@ -10437,7 +10431,7 @@ impl FunctionTranslator<'_> {
             |ctx| {
                 let arity_val = ctx.i64_const(arity as i64);
                 let fallback_ip_val = ctx.i64_const(fallback_ip as i64);
-                // Part of the call protocol: an arity error is picked up after the merge.
+                // Part of the call protocol. An arity error is picked up after the merge.
                 ctx.call_helper_unchecked(SETUP_CLOSURE_ARITY, [func, arity_val, fallback_ip_val])
             },
             typ,
@@ -11738,10 +11732,11 @@ impl FunctionTranslator<'_> {
     }
 
     /// Fetches a pointer to the VM context
-    // The vm context stays an ordinary ssa value, which cranelift spills to a
-    // stack slot and reloads after calls. It is not pinned to r15, since the
-    // reloads are cheap L1 hits and reserving r15 costs the allocator a
-    // register in functions that already use all five callee-saved ones.
+    ///
+    /// The vm context stays an ordinary ssa value, which cranelift spills to a
+    /// stack slot and reloads after calls. It is not pinned to r15, since the
+    /// reloads are cheap L1 hits and reserving r15 costs the allocator a
+    /// register in functions that already use all five callee-saved ones.
     fn get_ctx(&mut self) -> Value {
         self.vm_context
     }

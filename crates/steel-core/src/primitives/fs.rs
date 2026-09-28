@@ -421,7 +421,6 @@ pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
 /// > (rename-file-or-directory! "logs/today.json" "logs/tomorrow.json") ;;
 /// > (rename-file-or-directory! "logs" "backup") ;;
 /// ```
-///
 #[steel_derive::function(
     name = "rename-file-or-directory!",
     returns = Void,

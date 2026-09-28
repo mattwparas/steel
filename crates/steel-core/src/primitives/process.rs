@@ -128,7 +128,11 @@ pub fn current_dir(builder: SteelVal, directory: String) -> Result<SteelVal, Ste
 ///       unwrap-ok
 ///       wait)
 /// ```
-#[function(name = "with-env-var", alias = "set-env-var!", args(Any, String | Symbol, String | Symbol))]
+#[function(
+    name = "with-env-var",
+    alias = "set-env-var!",
+    args(Any, String | Symbol, String | Symbol)
+)]
 pub fn set_env_var(builder: SteelVal, key: String, value: String) -> Result<SteelVal, SteelErr> {
     let mut guard = CommandBuilder::as_mut_ref(&builder)?;
     guard.env_var(key, value);
@@ -197,8 +201,8 @@ pub fn stdout_piped(builder: SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(builder)
 }
 
-/// Equivalent to `set-stdout-piped!`: connects the spawned child's stdin,
-/// stdout, and stderr to pipes. Returns the command builder.
+/// Same as `set-stdout-piped!`. Connects the spawned child's stdin, stdout,
+/// and stderr to pipes, and returns the command builder.
 ///
 /// (set-piped-stdout! process) -> CommandBuilder?
 ///

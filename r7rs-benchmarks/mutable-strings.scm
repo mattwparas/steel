@@ -2,14 +2,14 @@
 ;;;
 ;;; Steel's strings are immutable, so benchmarks using `string-set!` cannot run
 ;;; against them. `make-string` here returns a mutable char vector wrapped in a
-;;; struct; every other string operation dispatches, so native strings -- what
-;;; literals, `read` and `symbol->string` still produce -- keep working.
+;;; struct, and every other string operation dispatches, so native strings from
+;;; literals, `read` and `symbol->string` keep working.
 ;;;
 ;;; In practice every `string-set!` in these benchmarks targets a `make-string`
 ;;; result, so only that one constructor needs to produce the mutable form.
 ;;;
-;;; Caveat for anyone reading benchmark numbers: a benchmark that requires this
-;;; module measures the shim, not Steel's native strings.
+;;; A benchmark that requires this module measures the shim, so it is not
+;;; comparable to one using Steel's native strings.
 
 (require "mstring-struct.scm")
 (require "mpair-struct.scm")
@@ -50,10 +50,8 @@
   (or (mstring? s) (#%prim.string? s)))
 
 ;;; Collapse to a native string, which is what every primitive below expects.
-;;; `vector->string` builds it straight from the character vector. Going by way
-;;; of a list of one-character strings and `string-append` instead made every
-;;; conversion allocate a list plus one string per character - parsing spends
-;;; its time in token extraction, so that dominated the benchmark.
+;;; `vector->string` builds it straight from the character vector, without a
+;;; string per character.
 (define (mstring->string s)
   (if (mstring? s) (#%prim.vector->string (mstring-chars s)) s))
 
@@ -72,10 +70,9 @@
 (define (string-append . args)
   (#%prim.apply #%prim.string-append (%map mstring->string args)))
 
-;;; Slice the character vector directly rather than converting the whole string
-;;; first: a benchmark that pulls short tokens out of a long buffer (parsing
-;;; extracts every token from a 1024 character accumulator) otherwise pays for
-;;; the entire buffer on each one.
+;;; Slice the character vector directly instead of converting the whole string
+;;; first, so pulling short tokens out of a long buffer (as parsing does) only
+;;; pays for the token.
 (define (substring s start [end (string-length s)])
   (if (mstring? s)
       (#%prim.vector->string (mstring-chars s) start end)
@@ -105,19 +102,16 @@
   (%list->mlist
    (#%prim.apply #%prim.string->list (#%prim.cons (mstring->string s) rest))))
 
-;;; Collect the characters into a vector and convert once. Building a string per
-;;; character and appending them all cost parsing a second per call: it reads
-;;; its whole 28k input file this way.
+;;; Collect the characters into a vector and convert once, instead of building
+;;; a string per character and appending them.
 (define (list->string chars)
   (let ([v (make-vector (%chain-length chars) #\space)])
     (let loop ([i 0] [xs chars])
       (if (#%prim.null? xs)
-          ;; Hand back the mutable representation, like `make-string` does. A
-          ;; native Steel string indexes by character - `string-ref` is
-          ;; `chars().nth(i)`, so scanning one costs O(n) per character - and
-          ;; benchmarks build their input this way then scan it (parsing reads a
-          ;; 28k file and walks it with `string-ref`). Backed by a vector, the
-          ;; same scan is an O(1) `vector-ref`.
+          ;; Hand back the mutable representation, like `make-string` does.
+          ;; `string-ref` on a native Steel string is O(n) since it indexes by
+          ;; character, and benchmarks build their input this way and then scan
+          ;; it. Backed by a vector, each read is an O(1) `vector-ref`.
           (mstring v)
           (begin
             (vector-set! v i (%chain-car xs))

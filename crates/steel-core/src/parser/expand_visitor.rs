@@ -433,9 +433,9 @@ impl<'a> VisitorMutRef for Expander<'a> {
                     }
 
                     // Only parse a well-formed lambda. A list starting with `lambda`
-                    // can be data, e.g. a `case` clause `((lambda) ...)` when `case`
-                    // has not been expanded yet. Malformed code is still reported
-                    // by the lowering that runs after expansion.
+                    // can be data, e.g. a `case` clause `((lambda) ...)` before `case`
+                    // is expanded. Malformed code is still reported by the lowering
+                    // that runs after expansion.
                     Some(ExprKind::Atom(
                         ident @ Atom {
                             syn:
@@ -469,8 +469,8 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 ..
                             },
                     })) if l.args.len() > 1 => {
-                        // Requires a head, since `(define)` alone can be data, as
-                        // with lambda above.
+                        // Needs a head, since `(define)` alone can be data, as with
+                        // lambda above.
 
                         match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
@@ -813,7 +813,7 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                                 ..
                             },
                     })) if *i == *QUOTE => return Ok(()),
-                    // Only well-formed: see the same arm in `Expander`.
+                    // Same as the lambda arm in `Expander`.
                     Some(ExprKind::Atom(
                         ident @ Atom {
                             syn:
@@ -873,7 +873,7 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                                 ..
                             },
                     })) if l.args.len() > 1 => {
-                        // Only with a head: see the same arm in `Expander`.
+                        // Same as the define arm in `Expander`.
 
                         match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {

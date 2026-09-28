@@ -1,8 +1,8 @@
 ;; Loops and self-recursive functions whose argument slots have a guessable
 ;; type get a second compiled copy with those slots typed (on by default,
 ;; STEEL_JIT_SPECIALIZE_LOOPS=0 turns it off). The generic copy moves into it
-;; once the slots hold those types, and it moves back out whenever one might not. Every transition has to leave the loop exactly
-;; where the interpreter would have it.
+;; once the slots hold those types, and it moves back out whenever one might
+;; not. Every transition has to leave the loop where the interpreter would.
 
 (define big 9223372036854775807)
 

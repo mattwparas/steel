@@ -1192,7 +1192,7 @@ impl RawProgramWithSymbols {
 
         // Patch through the non mutable symbols now that we
         // have matched it directly against a symbol map. Only the ones no later
-        // compile can `set!` (see `is_closed_global`).
+        // compile can `set!`, see `is_closed_global`.
         for x in self.non_mutable_symbols {
             if !is_closed_global(x.resolve()) {
                 continue;
@@ -1277,11 +1277,11 @@ impl Executable {
     }
 }
 
-/// A global that only code compiled with its definition can refer to: a module
-/// member, or a function the compiler generated. The reserved `#%prim.` names
-/// count too, since calls through them are compiled as never changing. Whether one of these is ever
-/// `set!` is known once its compile is done. Any other top level name can be
-/// `set!` by a later program, e.g. at the repl.
+/// A global that only code compiled with its definition can refer to, meaning a
+/// module member or a function the compiler generated. The reserved `#%prim.`
+/// names count too, since calls through them are compiled as never changing.
+/// Whether one of these is ever `set!` is known once its compile is done. Any
+/// other top level name can be `set!` by a later program, e.g. at the repl.
 pub(crate) fn is_closed_global(name: &str) -> bool {
     name.starts_with("#%prim.")
         || name.contains(crate::compiler::modules::MANGLER_SEPARATOR)

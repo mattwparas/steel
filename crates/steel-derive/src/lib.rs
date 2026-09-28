@@ -1015,51 +1015,18 @@ struct NativeMacroComponents {
 ///
 /// The jit optimizes on this, so the inference only claims what the conversion
 /// to a `SteelVal` always produces. `usize` becomes a bignum past `isize::MAX`,
-/// so it is a `number` and not an `int` (a fixnum).
+/// so it is a `Number`. An `Int` is always a fixnum.
 fn return_type_tokens(
     keyword_map: &Attrs,
     output: Option<&ReturnType>,
 ) -> proc_macro2::TokenStream {
-    match &keyword_map.returns {
-        Some(explicit) => quote! { crate::value_type::ValueType::#explicit },
-        None => value_type_tokens(output.map(rust_return_type_name).unwrap_or("any"), "return"),
-    }
-}
-
-const VALUE_TYPE_NAMES: &str = "any, bool, int, float, number, char, string, symbol, list, \
-     pair, vector, mutable-vector, flat-vector, hashmap, hashset, bytevector, void, procedure \
-     (args can join them with |, as in list|pair)";
-
-/// The `crate::value_type::ValueType` variant spelled `name` in `returns` / `args`.
-fn value_type_variant(name: &str) -> Option<&'static str> {
-    Some(match name {
-        "any" => "Any",
-        "bool" => "Bool",
-        "int" => "Int",
-        "float" => "Float",
-        "number" => "Number",
-        "char" => "Char",
-        "string" => "String",
-        "symbol" => "Symbol",
-        "list" => "List",
-        "pair" => "Pair",
-        "vector" => "Vector",
-        "mutable-vector" => "MutableVector",
-        "hashmap" => "HashMap",
-        "hashset" => "HashSet",
-        "bytevector" => "ByteVector",
-        "void" => "Void",
-        "flat-vector" => "FlatVector",
-        "procedure" => "Procedure",
-        _ => return None,
-    })
-}
-
-fn value_type_tokens(name: &str, what: &str) -> proc_macro2::TokenStream {
-    let variant = value_type_variant(name).unwrap_or_else(|| {
-        panic!("unknown {what} type {name:?}: expected one of {VALUE_TYPE_NAMES}")
-    });
-    let variant = Ident::new(variant, proc_macro2::Span::call_site());
+    let variant = match &keyword_map.returns {
+        Some(explicit) => explicit.clone(),
+        None => Ident::new(
+            output.map(rust_return_type_name).unwrap_or("Any"),
+            proc_macro2::Span::call_site(),
+        ),
+    };
     quote! { crate::value_type::ValueType::#variant }
 }
 
@@ -1204,7 +1171,7 @@ fn return_check_tokens(keyword_map: &Attrs, steel_name: &str) -> proc_macro2::To
 /// Runs the body of a `native` / `context` / `native_mut` function with an
 /// explicit `returns = ..` or `args(..)` as a closure of the same type,
 /// with the debug-build checks around it. `return` and `?` in the body leave
-/// the closure, as before.
+/// the closure, so the checks still see their result.
 fn wrap_with_checks(
     mut input: ItemFn,
     args: &Punctuated<Meta, Comma>,
@@ -1268,30 +1235,31 @@ fn wrap_with_checks(
 
 fn rust_return_type_name(output: &ReturnType) -> &'static str {
     match output {
-        ReturnType::Default => "void",
+        ReturnType::Default => "Void",
         ReturnType::Type(_, ty) => rust_type_name(ty),
     }
 }
 
+/// The `crate::value_type::ValueType` variant a value of `ty` always converts to.
 fn rust_type_name(ty: &Type) -> &'static str {
     match ty {
         Type::Reference(reference) => rust_type_name(&reference.elem),
         Type::Paren(inner) => rust_type_name(&inner.elem),
-        Type::Tuple(tuple) if tuple.elems.is_empty() => "void",
+        Type::Tuple(tuple) if tuple.elems.is_empty() => "Void",
         Type::Path(path) => {
             let Some(last) = path.path.segments.last() else {
-                return "any";
+                return "Any";
             };
             match last.ident.to_string().as_str() {
-                "bool" => "bool",
-                "char" => "char",
-                "f64" | "f32" => "float",
-                "isize" | "i32" | "i16" | "i8" | "u8" | "u16" => "int",
-                "usize" | "u32" | "u64" | "i64" | "u128" | "i128" => "number",
-                "String" | "str" | "SteelString" => "string",
+                "bool" => "Bool",
+                "char" => "Char",
+                "f64" | "f32" => "Float",
+                "isize" | "i32" | "i16" | "i8" | "u8" | "u16" => "Int",
+                "usize" | "u32" | "u64" | "i64" | "u128" | "i128" => "Number",
+                "String" | "str" | "SteelString" => "String",
                 // Their IntoSteelVal impls always build HashMapV / HashSetV.
-                "HashMap" => "hashmap",
-                "HashSet" => "hashset",
+                "HashMap" => "HashMap",
+                "HashSet" => "HashSet",
                 // `Result<T>` / `Result<T, E>`. An error never returns.
                 "Result" => match &last.arguments {
                     syn::PathArguments::AngleBracketed(args) => args
@@ -1301,13 +1269,13 @@ fn rust_type_name(ty: &Type) -> &'static str {
                             syn::GenericArgument::Type(ty) => Some(rust_type_name(ty)),
                             _ => None,
                         })
-                        .unwrap_or("any"),
-                    _ => "any",
+                        .unwrap_or("Any"),
+                    _ => "Any",
                 },
-                _ => "any",
+                _ => "Any",
             }
         }
-        _ => "any",
+        _ => "Any",
     }
 }
 
@@ -1598,7 +1566,6 @@ pub fn function(
     };
 
     let return_check = return_check_tokens(&keyword_map, &value);
-    let ret_val_inner = ret_val;
 
     let mut type_vec: Vec<Box<Type>> = Vec::new();
 
@@ -1788,7 +1755,6 @@ pub fn function(
 
                 #before_check
 
-
                 fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                     err.prepend_message(#function_name_with_colon);
                     err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
@@ -1797,17 +1763,17 @@ pub fn function(
 
                 #[allow(clippy::redundant_closure_call)]
                 let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
-                let res = #function_name(
-                    #(
-                        // TODO: Distinguish reference types here if possible - make a special implementation
-                        // for builtin pointer types here to distinguish them
-                        <#arg_type>::#conversion_functions(&args[#arg_index])
-                            .map_err(err_thunk)
-                        ?,
-                    )*
-                );
+                    let res = #function_name(
+                        #(
+                            // TODO: Distinguish reference types here if possible - make a special implementation
+                            // for builtin pointer types here to distinguish them
+                            <#arg_type>::#conversion_functions(&args[#arg_index])
+                                .map_err(err_thunk)
+                            ?,
+                        )*
+                    );
 
-                #ret_val_inner
+                    #ret_val
                 })();
                 #ret_tail
             }
@@ -1853,8 +1819,6 @@ pub fn function(
 
                     #before_check
 
-
-
                     fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                         err.prepend_message(#function_name_with_colon);
                         err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
@@ -1864,19 +1828,19 @@ pub fn function(
                     if let [ #(#temporary_fields,)* ] = args {
 
                         #[allow(clippy::redundant_closure_call)]
-                let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
-                let res = #function_name(
-                            #(
-                                // TODO: Distinguish reference types here if possible - make a special implementation
-                                // for builtin pointer types here to distinguish them
-                                <#arg_type>::#conversion_functions(#temporary_fields)
-                                    .map_err(err_thunk)?,
-                            )*
-                        );
+                        let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
+                            let res = #function_name(
+                                #(
+                                    // TODO: Distinguish reference types here if possible - make a special implementation
+                                    // for builtin pointer types here to distinguish them
+                                    <#arg_type>::#conversion_functions(#temporary_fields)
+                                        .map_err(err_thunk)?,
+                                )*
+                            );
 
-                        #ret_val_inner
-                })();
-                #ret_tail
+                            #ret_val
+                        })();
+                        #ret_tail
                     } else {
                         crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
 
@@ -1922,8 +1886,6 @@ pub fn function(
 
             #before_check
 
-
-
             fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                 err.prepend_message(#function_name_with_colon);
                 err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
@@ -1931,19 +1893,19 @@ pub fn function(
             };
 
             #[allow(clippy::redundant_closure_call)]
-                let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
+            let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
                 let res = #function_name(
-                #(
-                    // TODO: Distinguish reference types here if possible - make a special implementation
-                    // for builtin pointer types here to distinguish them
-                    <#arg_type>::#conversion_functions(&args[#arg_index])
-                        .map_err(err_thunk)?,
-                )*
-            );
+                    #(
+                        // TODO: Distinguish reference types here if possible - make a special implementation
+                        // for builtin pointer types here to distinguish them
+                        <#arg_type>::#conversion_functions(&args[#arg_index])
+                            .map_err(err_thunk)?,
+                    )*
+                );
 
-            #ret_val_inner
-                })();
-                #ret_tail
+                #ret_val
+            })();
+            #ret_tail
         }
     };
 
@@ -2014,7 +1976,6 @@ pub fn custom_function(
     };
 
     let return_check = return_check_tokens(&keyword_map, &value);
-    let ret_val_inner = ret_val;
 
     let mut type_vec: Vec<Box<Type>> = Vec::new();
 
@@ -2205,7 +2166,6 @@ pub fn custom_function(
 
                 #before_check
 
-
                 fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                     err.prepend_message(#function_name_with_colon);
                     err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
@@ -2214,17 +2174,17 @@ pub fn custom_function(
 
                 #[allow(clippy::redundant_closure_call)]
                 let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
-                let res = #function_name(
-                    #(
-                        // TODO: Distinguish reference types here if possible - make a special implementation
-                        // for builtin pointer types here to distinguish them
-                        <#arg_type>::#conversion_functions(&args[#arg_index])
-                            .map_err(err_thunk)
-                        ?,
-                    )*
-                );
+                    let res = #function_name(
+                        #(
+                            // TODO: Distinguish reference types here if possible - make a special implementation
+                            // for builtin pointer types here to distinguish them
+                            <#arg_type>::#conversion_functions(&args[#arg_index])
+                                .map_err(err_thunk)
+                            ?,
+                        )*
+                    );
 
-                #ret_val_inner
+                    #ret_val
                 })();
                 #ret_tail
             }
@@ -2270,8 +2230,6 @@ pub fn custom_function(
 
                     #before_check
 
-
-
                     fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                         err.prepend_message(#function_name_with_colon);
                         err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
@@ -2281,19 +2239,19 @@ pub fn custom_function(
                     if let [ #(#temporary_fields,)* ] = args {
 
                         #[allow(clippy::redundant_closure_call)]
-                let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
-                let res = #function_name(
-                            #(
-                                // TODO: Distinguish reference types here if possible - make a special implementation
-                                // for builtin pointer types here to distinguish them
-                                <#arg_type>::#conversion_functions(#temporary_fields)
-                                    .map_err(err_thunk)?,
-                            )*
-                        );
+                        let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
+                            let res = #function_name(
+                                #(
+                                    // TODO: Distinguish reference types here if possible - make a special implementation
+                                    // for builtin pointer types here to distinguish them
+                                    <#arg_type>::#conversion_functions(#temporary_fields)
+                                        .map_err(err_thunk)?,
+                                )*
+                            );
 
-                        #ret_val_inner
-                })();
-                #ret_tail
+                            #ret_val
+                        })();
+                        #ret_tail
                     } else {
                         crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
 
@@ -2339,8 +2297,6 @@ pub fn custom_function(
 
             #before_check
 
-
-
             fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
                 err.prepend_message(#function_name_with_colon);
                 err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
@@ -2348,19 +2304,19 @@ pub fn custom_function(
             };
 
             #[allow(clippy::redundant_closure_call)]
-                let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
+            let __ret: std::result::Result<SteelVal, crate::rerrs::SteelErr> = (|| {
                 let res = #function_name(
-                #(
-                    // TODO: Distinguish reference types here if possible - make a special implementation
-                    // for builtin pointer types here to distinguish them
-                    <#arg_type>::#conversion_functions(&args[#arg_index])
-                        .map_err(err_thunk)?,
-                )*
-            );
+                    #(
+                        // TODO: Distinguish reference types here if possible - make a special implementation
+                        // for builtin pointer types here to distinguish them
+                        <#arg_type>::#conversion_functions(&args[#arg_index])
+                            .map_err(err_thunk)?,
+                    )*
+                );
 
-            #ret_val_inner
-                })();
-                #ret_tail
+                #ret_val
+            })();
+            #ret_tail
         }
     };
 

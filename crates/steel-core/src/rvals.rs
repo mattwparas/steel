@@ -512,7 +512,7 @@ pub trait IntoSteelVal: Sized {
 pub trait FromSteelVal: Sized {
     /// What a successful conversion proves the value was, for the signature
     /// of a function registered with `register_fn`. Only claim what always
-    /// holds: a value outside it must fail to convert.
+    /// holds, since a value outside it must fail to convert.
     const ARG_TYPE: crate::value_type::ArgType = crate::value_type::ArgType::ANY;
 
     fn from_steelval(val: &SteelVal) -> Result<Self>;
@@ -1756,10 +1756,10 @@ pub enum SteelVal {
     Complex(Gc<SteelComplex>),
     // Byte vectors
     ByteVector(SteelByteVector),
-    // A flat, immutable vector. Unlike VectorV this is a contiguous
-    // steel_vec::Vec rather than an rrb tree, so indexing is a load and the jit
-    // can address elements directly. Being immutable it cannot form a cycle, so
-    // it is reference counted rather than registered with the collector.
+    // A flat, immutable vector. This is a contiguous steel_vec::Vec instead of
+    // an rrb tree like VectorV, so the jit can address elements directly. It is
+    // immutable and so can't form a cycle, which is why it is reference counted
+    // and not registered with the collector.
     FlatVector(Gc<steel_vec::Vec<SteelVal>>),
 }
 
@@ -1888,14 +1888,11 @@ fn check_send_sync() {
 
 /// The bytes of a bytevector.
 ///
-/// `steel_vec::Vec` rather than `std::vec::Vec`, and `SpinLock` rather than
-/// `parking_lot::RwLock`, for one reason: **the jit addresses this by raw
-/// offset**. Both of those types publish `const fn *_offset()` and are
-/// `repr(C)`, where the std and parking_lot types have private fields and an
-/// unspecified layout that `offset_of!` cannot even be written against. This is
-/// the same stack `MutableVector` stands on - see `native.rs`'s offset
-/// constants - and it is what lets `bytes-ref` / `bytes-set!` become a load and
-/// a store instead of a call.
+/// The jit addresses this by raw offset, which is why it uses `steel_vec::Vec`
+/// and `SpinLock` instead of the std and parking_lot types. Both are `repr(C)`
+/// and publish `const fn *_offset()`, the same as `MutableVector` (see the
+/// offset constants in `native.rs`). This lets `bytes-ref` and `bytes-set!`
+/// compile to a load and a store.
 pub type ByteVectorStorage = Gc<SpinLock<steel_vec::Vec<u8>>>;
 
 #[derive(Clone, Debug)]
@@ -1904,9 +1901,9 @@ pub struct SteelByteVector {
 }
 
 impl SteelByteVector {
-    /// Still takes a `std::vec::Vec<u8>`, since that is what every caller has -
-    /// ports, hashes, http, the ffi boundary and the `#u8(...)` literal reader
-    /// all produce one. The conversion is the only copy.
+    /// Takes a `std::vec::Vec<u8>` since that is what callers have (ports,
+    /// hashes, http, the ffi boundary and the `#u8(...)` reader). The
+    /// conversion is the only copy.
     pub fn new(vec: Vec<u8>) -> Self {
         Self::from_storage(vec.into_iter().collect())
     }
@@ -1928,8 +1925,8 @@ impl Eq for SteelByteVector {}
 
 impl Hash for SteelByteVector {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Hash the bytes, not the container: `steel_vec::Vec` has no `Hash`,
-        // and a slice hashes the same as the `std::vec::Vec` this used to be.
+        // `steel_vec::Vec` has no `Hash`, so hash the bytes as a slice, which
+        // hashes the same as a `std::vec::Vec<u8>`.
         self.vec.read().as_ref().hash(state);
     }
 }
@@ -2170,21 +2167,6 @@ impl core::fmt::Debug for SteelString {
 const _ASSERT_SMALL: () = assert!(core::mem::size_of::<SteelVal>() <= 16);
 
 #[test]
-fn tmp_cell_sizes() {
-    use core::mem::size_of;
-    println!("SteelVal                {}", size_of::<SteelVal>());
-    println!(
-        "Pair (car+cdr)          {}",
-        size_of::<crate::values::lists::Pair>()
-    );
-    println!(
-        "RcBox<Pair>             {}",
-        size_of::<steel_rc::RcBox<crate::values::lists::Pair>>()
-    );
-    println!("RcWord header           {}", size_of::<steel_rc::RcWord>());
-}
-
-#[test]
 fn check_size_of_steelval() {
     assert_eq!(core::mem::size_of::<SteelVal>(), 16);
 }
@@ -2356,11 +2338,11 @@ fn slow_path_eq_lists(
     _l: &crate::values::lists::List<SteelVal>,
     _r: &crate::values::lists::List<SteelVal>,
 ) -> bool {
-    // Measured: enabling the commented out body below fixes `eq?` on a tail
-    // reached twice, but makes `(eq? (cons 0 l) (cons 0 l))` answer true - two
-    // separate conses are distinct pairs. Same next pointer plus same contents
-    // cannot tell "the same tail" from "built independently and identical",
-    // which is the history the note below is asking for. Staying conservative.
+    // The commented out body below fixes `eq?` on a tail reached twice, but
+    // makes `(eq? (cons 0 l) (cons 0 l))` return true even though the two
+    // conses are distinct pairs. The same next pointer and contents can't tell
+    // a shared tail from two identical ones built separately, so stay
+    // conservative.
     false
 
     /*
@@ -2396,8 +2378,8 @@ fn slow_path_eq_lists(
     */
 }
 
-// The vector representations all compare equal to one another, so they have to hash
-// alike - a shared tag stands in for their differing discriminants.
+// The vector representations compare equal to one another, so they have to
+// hash alike. They share this tag in place of their discriminants.
 const VECTOR_HASH_TAG: u8 = 0xFE;
 
 fn hash_vector_elements<'a, H: Hasher>(
@@ -2421,9 +2403,7 @@ impl Hash for SteelVal {
         match self {
             Closure(b) => b.hash(state),
             BoolV(b) => b.hash(state),
-            // The bits, with -0.0 folded into 0.0 since the two are equal. It
-            // used to hash `n.to_string()`: an allocation per hash, and "0" vs
-            // "-0" for two equal keys.
+            // Hash the bits, with -0.0 folded into 0.0 since the two are equal.
             NumV(n) => (if *n == 0.0 { 0.0f64 } else { *n }).to_bits().hash(state),
             IntV(i) => i.hash(state),
             Rational(f) => f.hash(state),

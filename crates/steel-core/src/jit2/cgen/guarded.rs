@@ -33,8 +33,8 @@
 //!   fast path branches again, or whose fallback is shared with an inner
 //!   branch, can use `tags_are` and `converging_if` directly.
 //!
-//! Converting a lowering to these should not change what it emits. Check with
-//! the normalised `STEEL_JIT_DUMP_CLIF=` diff (OPT_NOTES.md).
+//! Converting a lowering to these should not change what it emits. Check by
+//! diffing the normalised `STEEL_JIT_DUMP_CLIF=` output.
 
 use super::*;
 

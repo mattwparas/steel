@@ -1026,9 +1026,9 @@ impl Compiler {
         // expanded_statements.pretty_print();
 
         // Internal defines become lets before renaming, as in
-        // `lower_expressions_impl`. Renaming the `define` form first leaves a
-        // reference to a later sibling define (mutual recursion) unrenamed,
-        // so it reads as a free identifier.
+        // `lower_expressions_impl`. Renaming the `define` forms first leaves a
+        // reference to a later sibling define (mutual recursion) unrenamed, so
+        // it reads as a free identifier.
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
         let mut expanded_statements = filter_provides(expanded_statements);
@@ -1412,7 +1412,7 @@ impl Compiler {
         }
 
         // `STEEL_INLINE_RECURSIVE=<depth>` sets how many levels to unroll. An empty
-        // value uses depth 2, and a number is used as the depth, so `=1` is one level.
+        // or unparseable value uses depth 2.
         if let Some(recursive) = &crate::config::config().inline_recursive {
             let depth = match recursive.trim() {
                 "" => 2,
@@ -1452,9 +1452,8 @@ impl Compiler {
         semantic.lower_rest_arguments();
 
         if let Some(inline_more) = &crate::config::config().inline_more {
-            // A comma separated list of size thresholds selects the rounds.
-            // "1" uses the default of one round at 25. Larger sizes mostly add
-            // compile time.
+            // A comma separated list of size thresholds, one round per size.
+            // "1" is a single round at 25. Larger sizes mostly add compile time.
             let sizes: Vec<usize> = if inline_more == "1" {
                 vec![25]
             } else {
@@ -1487,17 +1486,16 @@ impl Compiler {
             }
         }
 
-        // Copy propagation (`RemoveLetsBoundToOtherLocalVars`) strips let
-        // bindings whose RHS was another local, leaving `(let () body)`
-        // shells behind. Each one still emits a BEGINSCOPE/LETENDSCOPE pair,
-        // so flatten them.
+        // Copy propagation (`RemoveLetsBoundToOtherLocalVars`) can leave
+        // `(let () body)` behind, which still emits a BEGINSCOPE/LETENDSCOPE
+        // pair, so flatten those.
         if crate::config::config().flatten_empty_lets {
             semantic.flatten_empty_lets();
         }
 
-        // `or` expands to `(let ([z x]) (if z z y))`; where `x` can be
-        // re-evaluated for free or is boolean valued, the binding can be dropped.
-        // Runs after the inlining passes so it also catches `or`s exposed by inlining.
+        // `or` expands to `(let ([z x]) (if z z y))`. The binding can be dropped
+        // when `x` is free to evaluate again or is boolean valued. This runs after
+        // inlining so it also catches the `or`s that inlining exposes.
         semantic.simplify_or_bindings();
 
         // `(loop (cdr l) ... (car l) ...)` reads `l` after the `cdr`, so the

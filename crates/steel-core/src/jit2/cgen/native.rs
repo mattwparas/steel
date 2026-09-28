@@ -22,7 +22,7 @@ fn ref_count_type() -> Type {
     }
 }
 
-// Byte offset from the pointer a HeapRef holds to the steel_vec::Vec itself
+// Byte offset from the pointer a HeapRef holds to the steel_vec::Vec itself.
 const fn heap_vec_offset() -> i32 {
     (steel_rc::weak::Weak::<SpinLock<HeapAllocated<HeapVec>>>::data_offset()
         + SpinLock::<HeapAllocated<HeapVec>>::data_offset()
@@ -30,7 +30,7 @@ const fn heap_vec_offset() -> i32 {
 }
 
 // A FlatVector carries the BiasedRc box pointer, and the steel_vec::Vec sits in
-// its data. Contiguous, so an element is a load and an index
+// its data. The elements are contiguous, so reading one is a single load.
 const fn flat_vec_offset() -> i32 {
     steel_rc::BiasedRc::<steel_vec::Vec<SteelVal>>::data_offset() as i32
 }
@@ -1895,7 +1895,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     // Hands back the old value. The caller bounds checks, and drops outside
-    // whatever lock it holds
+    // whatever lock it holds.
     fn heap_vec_replace(&mut self, ptr: Value, index: Value, value: Value, owned: bool) -> Value {
         let slot = self.heap_vec_element_address(ptr, index);
         let old = self
@@ -1917,7 +1917,7 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.ins().iadd_imm_s(ptr, offset)
     }
 
-    // Nothing else can reach the value at a strong count of one
+    // Nothing else can reach the value at a strong count of one.
     fn with_heap_vec_lock(&mut self, ptr: Value, body: impl Fn(&mut Self) -> Value) -> Value {
         let strong = self
             .builder
@@ -1940,7 +1940,7 @@ impl<'a> FunctionTranslator<'a> {
     // Ownership is per argument because the shapes mix the two. A register
     // argument is a borrow, while a spilled one is ours to move in or drop.
     // In (vector-set! v i (vector-ref x i)), v and i are registers and the
-    // value is not
+    // value is not.
     pub(super) fn inline_mut_vector_set(
         &mut self,
         vector: Value,
@@ -1994,7 +1994,7 @@ impl<'a> FunctionTranslator<'a> {
 
     // vector-ref with no call, for either representation. Flat is checked first
     // since its read is cheaper, and a mutable vector falls through to its own
-    // inline path before the handler
+    // inline path before the handler.
     pub(super) fn inline_vector_ref(
         &mut self,
         vector: Value,
@@ -2008,7 +2008,7 @@ impl<'a> FunctionTranslator<'a> {
 
     // vector-ref on a mutable vector with no call: check the tags, bounds check,
     // then load under the lock. A clone only bumps a refcount, so unlike a drop it
-    // is safe to run while the lock is held
+    // is safe to run while the lock is held.
     pub(super) fn inline_mut_vector_ref(
         &mut self,
         vector: Value,
@@ -2284,7 +2284,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     // vector-ref on a flat vector with no call: check the tags, bounds check, then
-    // load. The element is cloned because the vector keeps its own copy
+    // load. The element is cloned because the vector keeps its own copy.
     pub(super) fn inline_flat_vector_ref(
         &mut self,
         vector: Value,
@@ -2344,7 +2344,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     // vector-push! with no call while the buffer has room. Growing reallocates
-    // and a shared vector needs the lock, so both take the fallback
+    // and a shared vector needs the lock, so both take the fallback.
     pub(super) fn inline_mut_vector_push(
         &mut self,
         vector: Value,
@@ -2830,7 +2830,7 @@ fn inline_struct_getter(
         move |ctx| {
             // call_global_function takes self.ip as the deopt fallback and then
             // advances one, so this has to enter on the call itself, the same
-            // as the outer slow path does
+            // as the outer slow path does.
             ctx.ip = old_ip;
             ctx.shadow_stack = saved.clone();
             let value = slow_path_struct_getter(slow_arity, function_index, ctx);
@@ -2918,7 +2918,7 @@ fn slow_path_struct_getter(
 
     if let Some(name) = name {
         // A pure error path, so the interpreter never resumes from it. There is
-        // no need to materialise the operand stack, so the fast arm skips it too
+        // no need to materialise the operand stack, so the fast arm skips it too.
         let result = ctx.call_global_function_no_spill(arity, name, function_index);
         ctx.check_deopt();
 
@@ -2932,18 +2932,6 @@ fn slow_path_struct_getter(
     }
 }
 
-// TODO: Use this now for anything that is boxed:
-// i.e. Vectors and boxes
-//
-// Box get / unbox should now be inlineable.
-// Vector ref / set should now be inlineable (once we swap the vector implementation)
-// to the custom one.
-//
-// Struct refs should now be inlineable.
-// The jit's own acquire/release, matching values::lock::SpinLock. Cranelift's
-// atomics are sequentially consistent, so this is stronger than the rust side's
-// Acquire/Release. They interoperate, and generated code pays a bit more.
-//
 // lock_ptr is the base of the SpinLock, so the flag has to live at offset 0.
 //
 // unbox_value_checked_register reaches the payload with SpinLock<SteelVal>'s
@@ -2953,6 +2941,18 @@ const _: () = {
     assert!(core::mem::offset_of!(HeapAllocated<SteelVal>, value) == 0);
 };
 
+// TODO: Use this now for anything that is boxed:
+// i.e. Vectors and boxes
+//
+// Box get / unbox should now be inlineable.
+// Vector ref / set should now be inlineable (once we swap the vector implementation)
+// to the custom one.
+//
+// Struct refs should now be inlineable.
+//
+// The jit's own acquire/release, matching values::lock::SpinLock. Cranelift's
+// atomics are sequentially consistent, so this is stronger than the rust side's
+// Acquire/Release. They interoperate, and generated code pays a bit more.
 fn emit_spinlock_inline(builder: &mut FunctionBuilder, lock_ptr: Value) {
     let spin_entry = builder.create_block();
     let spin_wait = builder.create_block();

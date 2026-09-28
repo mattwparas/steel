@@ -1,4 +1,4 @@
-;; Chains of indirect calls - map, fold, transducers, sorting.
+;; Chains of indirect calls through map, fold, transducers and sorting.
 (define nums (range 0 50))
 (define (compose2 f g) (lambda (x) (f (g x))))
 (define inc-then-double (compose2 (lambda (x) (* 2 x)) (lambda (x) (+ 1 x))))

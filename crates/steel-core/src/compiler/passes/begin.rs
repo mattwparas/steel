@@ -403,10 +403,8 @@ impl ExpressionType {
     fn generate_expression_types(exprs: &[ExprKind]) -> Vec<ExpressionType> {
         let mut expression_types = Vec::with_capacity(exprs.len());
         let mut defined_idents = DefinedVars::new();
-        // Flat defines after a deferred expression must also be
-        // deferred to make sure we don't accidentally reordering the
-        // flat define expressions (i.e. (define a 10) (define b 20) ordering is
-        // preserved)
+        // Flat defines after a deferred expression are deferred too, so the
+        // defines keep their order, e.g. `(define a 10) (define b 20)`.
         let mut seen_deferred = false;
 
         for expr in exprs {
@@ -440,7 +438,7 @@ impl ExpressionType {
                 }
                 _ => {
                     seen_deferred = true;
-                    expression_types.push(ExpressionType::Expression)
+                    expression_types.push(ExpressionType::Expression);
                 }
             }
         }
@@ -465,11 +463,9 @@ fn apply_ident(func: ExprKind) -> ExprKind {
 
 /// Collects references to a set of names, ignoring quoted data.
 ///
-/// The distinction matters: a struct's generated definitions include
-/// `(make-struct-type (quote node) ...)`, and the quoted symbol `node` is an
-/// identifier atom that also happens to be the name of a *later* definition in
-/// the same group. Counting it as a reference made every struct look
-/// self-referential.
+/// A struct's generated definitions include `(make-struct-type (quote node) ...)`,
+/// where the quoted `node` is also the name of a later definition in the same
+/// group. Counting it would make every struct look self-referential.
 struct ForwardReferences {
     names: smallvec::SmallVec<[InternedString; 32]>,
     found: bool,
@@ -495,50 +491,39 @@ impl VisitorMutUnit for ForwardReferences {
         }
     }
 
-    // Quoted data is inert - it names nothing.
+    // Quoted data doesn't refer to anything.
     fn visit_quote(&mut self, _quote: &Quote) {}
 }
 
-/// `STEEL_SEQUENTIAL_DEFINES=0` falls back to encoding every internal define
-/// group as letrec, the way this pass always used to.
+/// `STEEL_SEQUENTIAL_DEFINES=0` encodes every internal define group as letrec.
 fn sequential_defines_enabled() -> bool {
     crate::config::config().sequential_defines
 }
 
 /// True when no expression in the group refers to a name bound at or after its
-/// own position - that is, there is no forward reference and no self
-/// recursion, so the group is `let*` shaped rather than genuinely `letrec`
-/// shaped.
+/// own position. With no forward references and no self recursion, the group
+/// can be lowered like `let*` instead of `letrec`.
 ///
-/// This matters far more than it looks. The letrec encoding below binds every
-/// name to a dummy, thunks each initializer so it can run once all the names
-/// exist, and assigns with `set!`. Both halves of that are visible later:
-/// `replace_mutable_captured_variables_with_boxes` sees a variable that is
-/// *assigned* (the `set!`) and *captured* (by the initializer thunk), so it
-/// boxes it - and every subsequent read becomes an `#%unbox`. A function
-/// defined among the group is enough to drag the whole group onto that path,
-/// so
+/// The letrec encoding binds every name to a dummy, thunks each initializer so
+/// it can run once all the names exist, and assigns with `set!`.
+/// `replace_mutable_captured_variables_with_boxes` then sees each variable as
+/// assigned and captured, and boxes it, so every read becomes an `#%unbox`. One
+/// function define in the group puts the whole group on that path, as in
 ///
 /// ```text
 /// (define (seq n)
 ///   (define a (+ n 1))
 ///   (define b (* a 2))
-///   (define (get) b)      ; merely existing boxed a and b
+///   (define (get) b)      ; boxes a and b
 ///   (+ (get) a))
 /// ```
 ///
-/// paid two box allocations and an unbox per read for bindings that are
-/// assigned exactly once, in order, and never mutated again. Closure lifting
-/// does not rescue this: it runs after boxing, so it lifts an already-boxed
-/// function that takes boxes and unboxes them internally.
+/// Closure lifting runs after boxing, so it doesn't undo this. A `#:mutable`
+/// struct defined inside a function generates one of these groups, with
+/// function defines and no forward references.
 ///
-/// A `#:mutable` struct nested in a function generates nine such bindings, all
-/// of them acyclic, which is why nested structs were so much slower than top
-/// level ones.
-///
-/// Conservative in the safe direction: identifiers are collected without
-/// tracking shadowing, so a name that merely *looks* like a forward reference
-/// keeps the whole group on the letrec path.
+/// Identifiers are collected without tracking shadowing, so a name that only
+/// looks like a forward reference keeps the group on the letrec path.
 fn defines_are_sequential(exprs: &[ExprKind]) -> bool {
     let names: Vec<Option<InternedString>> = exprs
         .iter()
@@ -548,7 +533,7 @@ fn defines_are_sequential(exprs: &[ExprKind]) -> bool {
         })
         .collect();
 
-    // A define we cannot name is one we cannot reason about.
+    // Give up on a define without a plain name.
     if exprs
         .iter()
         .zip(names.iter())
@@ -558,7 +543,7 @@ fn defines_are_sequential(exprs: &[ExprKind]) -> bool {
     }
 
     for (index, expr) in exprs.iter().enumerate() {
-        // Everything bound at or after this point: referring to any of them is
+        // Everything bound at or after this point. Referring to any of them is
         // either self recursion or a forward reference.
         let mut later = ForwardReferences::new();
         for name in names[index..].iter().flatten() {
@@ -605,9 +590,8 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
         return ExprKind::Begin(begin);
     }
 
-    // A group with no function defines was always safe to lower this way. A
-    // group that merely *contains* one still is, as long as nothing refers
-    // forward - see `defines_are_sequential`.
+    // A group without function defines can be lowered this way, and so can one
+    // with them as long as nothing refers forward, see `defines_are_sequential`.
     if !expression_types
         .iter()
         .any(|x| matches!(x, ExpressionType::DefineFunction(_)))

@@ -1,4 +1,3 @@
-use crate::values::structs::StructRef;
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashSet;
@@ -61,7 +60,7 @@ use super::{
     functions::BoxedDynFunction,
     lazy_stream::LazyStream,
     port::SteelPort,
-    structs::UserDefinedStruct,
+    structs::{StructRef, UserDefinedStruct},
     transducers::{Reducer, Transducer},
 };
 
@@ -180,8 +179,8 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 Complex(x) => self.visit_complex(x),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
-                // A flat vector is a plain reference counted value with no cycle to
-                // detect, so just walk what it holds
+                // A flat vector is plain reference counted with no cycle to detect,
+                // so walk what it holds
                 FlatVector(v) => {
                     for value in v.iter() {
                         self.push_back(value.clone());
@@ -468,33 +467,27 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
 const GC_THRESHOLD: usize = 256 * 1000;
 // Occupancy after a collection that means the heap has to get bigger
 const HEAP_GROW_OCCUPANCY: f64 = 0.5;
-// How much bigger the heap gets each time it grows. A full mark happens once
-// per growth, so this is the log base for how many marks a run costs
+// How much bigger the heap gets each time it grows. A full mark happens once per
+// growth, so this sets how many marks a run costs
 const GC_GROW_FACTOR: usize = 4;
 const RESET_LIMIT: usize = 9;
 
-// Allocations to leave available per unit of marking work. Lower means a bigger
-// heap and rarer collections; higher means less memory and more of them.
-//
-// Swept at full size over 4 / 8 / 16: 16 was as good or better everywhere,
-// earley included, which says the win comes from the ceiling and from adapting
-// at all rather than from a large multiplier.
+// Units of marking work per free slot left after a collection. Lower means a
+// bigger heap and rarer collections, higher means less memory and more of them.
 fn gc_work_ratio() -> usize {
     crate::config::config().gc_work_ratio
 }
 
 // How much a weak collection has to reclaim, as a fraction of the list it walks,
-// to be worth repeating. The scan is O(heap) and its yield decays as the easy
-// slots go, so a nearly full list will otherwise rescan on every allocation and
-// the walk swamps everything else. Backing off on yield rather than on occupancy
-// stops that; a full collection re-arms it.
+// to be worth repeating. The scan is O(heap) and reclaims less each time, so a
+// nearly full list would otherwise rescan on every allocation. A full collection
+// re-arms it.
 fn weak_yield_ratio() -> usize {
     crate::config::config().gc_weak_yield
 }
 
-// A ceiling on that headroom. Slots are not free - each one is a live allocation
-// - so the heap cannot simply be sized to the graph it traces. Without this the
-// rule reaches for gigabytes on a large graph and ends up slower than it started.
+// A ceiling on the headroom left after a collection. Each free slot is still a
+// live allocation, so without this a large graph would size the heap to gigabytes.
 fn gc_max_headroom() -> usize {
     crate::config::config().gc_max_headroom
 }
@@ -1053,8 +1046,8 @@ fn parallel_mark_counts_each_slot_exactly_once() {
     let num_slots = 4000;
     let num_threads = 8;
 
-    // Reachability is an atomic flag behind a SpinLock, so the slots are built
-    // and read through that rather than through a lock guard
+    // Several threads mark the same slots at once, and each slot must only be
+    // counted by the thread that set its reachable flag
     let slots: Arc<Vec<HeapElement<SteelVal>>> = Arc::new(
         (0..num_slots)
             .map(|_| steel_rc::weak::Arc::new(SpinLock::new(HeapAllocated::new(SteelVal::Void))))
@@ -1315,15 +1308,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             .for_each(|x| unsafe { x.get_value().reset() });
     }
 
-    // Compact every once in a while
-    //
-    // How much room to leave is decided by the work the mark just did, not by
-    // how full this list happens to be. A mark walks every reachable value, and
-    // most of those live outside this list - a list of boxes says nothing about
-    // the size of the graph hanging off them. Sizing on occupancy alone lets a
-    // large live graph get re-traced every time a small list fills, which is
-    // quadratic in the graph size. Leaving free slots in proportion to the
-    // traversal keeps the amortized cost per allocation bounded instead.
+    // Leaves free slots in proportion to the work the mark just did. Most of
+    // what a mark walks lives outside this list, so sizing on occupancy alone
+    // would re-trace a large live graph every time a small list fills, which is
+    // quadratic in the graph size.
     fn resize_after_collection(&mut self, marking_work: usize) {
         let target_free = (marking_work / gc_work_ratio())
             .max(Self::EXTEND_CHUNK)
@@ -1340,6 +1328,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         }
     }
 
+    // Compact every once in a while
     // TODO: Move this on to its own thread
     fn compact(&mut self) {
         #[cfg(feature = "sync")]
@@ -1583,15 +1572,10 @@ impl<T: HeapAble + 'static> FreeList<T> {
             .for_each(|x| unsafe { x.get_value().reset() });
     }
 
-    // Compact every once in a while
-    //
-    // How much room to leave is decided by the work the mark just did, not by
-    // how full this list happens to be. A mark walks every reachable value, and
-    // most of those live outside this list - a list of boxes says nothing about
-    // the size of the graph hanging off them. Sizing on occupancy alone lets a
-    // large live graph get re-traced every time a small list fills, which is
-    // quadratic in the graph size. Leaving free slots in proportion to the
-    // traversal keeps the amortized cost per allocation bounded instead.
+    // Leaves free slots in proportion to the work the mark just did. Most of
+    // what a mark walks lives outside this list, so sizing on occupancy alone
+    // would re-trace a large live graph every time a small list fills, which is
+    // quadratic in the graph size.
     fn resize_after_collection(&mut self, marking_work: usize) {
         let target_free = (marking_work / gc_work_ratio())
             .max(Self::EXTEND_CHUNK)
@@ -1608,6 +1592,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
         }
     }
 
+    // Compact every once in a while
     // TODO: Move this on to its own thread
     fn compact(&mut self) {
         #[cfg(feature = "sync")]
@@ -1848,13 +1833,13 @@ impl Heap {
     }
 
     /// Allocates a box per value, checking for a collection once for the whole
-    /// batch rather than once per value.
+    /// batch.
     ///
-    /// Handing the values in is what keeps this sound: none of them is reachable
-    /// from a root set while the batch is in flight - the caller has usually just
-    /// taken them off the value stack - so a collection triggered part way
-    /// through would otherwise reclaim the ones already boxed, along with
-    /// anything only they referred to.
+    /// The values are passed to that collection as roots, since none of them is
+    /// reachable from a root set while the batch is in flight (the caller has
+    /// usually just taken them off the value stack). A collection part way
+    /// through would otherwise reclaim the boxes already made, along with
+    /// anything only they refer to.
     pub fn allocate_many<'a>(
         &mut self,
         values: &[SteelVal],
@@ -1881,11 +1866,10 @@ impl Heap {
         }
     }
 
-    /// `allocate_many` for values the caller owns: they are moved into the
-    /// boxes rather than cloned and dropped again. Nothing collects between the
-    /// collection below and the moves, so the pending values only have to be
-    /// reachable for that one call - which takes them by reference, and only
-    /// clones them if a collection actually runs.
+    /// Like `allocate_many`, for values the caller owns. They are moved into the
+    /// boxes instead of cloned. Nothing collects between the collection below
+    /// and the moves, so the values only have to be visible to that one call,
+    /// which only clones them if a collection runs.
     pub fn allocate_many_owned<'a>(
         &mut self,
         values: &mut smallvec::SmallVec<[SteelVal; 8]>,
@@ -1975,7 +1959,7 @@ impl Heap {
                 self.memory_free_list
                     .resize_after_collection(stats.object_count);
 
-                // A full collection changes what is reachable, so the cheap scan
+                // A full collection changes what is reachable, so the weak scan
                 // is worth trying again
                 self.memory_free_list.should_run_weak = true;
                 self.vector_free_list.should_run_weak = true;
@@ -2217,10 +2201,10 @@ impl Heap {
             stats: MarkAndSweepStats::default(),
         };
 
-        // A root only needs the address of what it points at - cloning every
-        // global is a refcount round trip for nothing. These are handed over
-        // under mark's lock, not pushed straight at the shared queue, so a
-        // concurrent collection can't drain them
+        // A root only needs the address of what it points at, which saves a
+        // refcount round trip per global. These are handed over under mark's
+        // lock instead of pushed to the shared queue, so a concurrent collection
+        // can't drain them
         #[cfg(feature = "sync")]
         let mut root_pointers: Vec<SteelValPointer> = Vec::new();
 
@@ -2296,9 +2280,9 @@ impl Heap {
         // and do them that way?
         log::debug!(target: "gc", "Stack size: {}", context.queue.len());
 
-        // mark only reads the slice, so unlike the visit below it leaves the
-        // queue behind. Left alone it grows for the life of the process and
-        // remarks stale roots on every collection
+        // mark only reads the slice and leaves the queue behind, so clear it
+        // here or it grows for the life of the process and remarks stale roots
+        // on every collection
         #[cfg(feature = "sync")]
         let count = {
             let count = MARKER.mark(context.queue, root_pointers);
@@ -2341,10 +2325,8 @@ struct MarkerWorker {
 #[cfg(feature = "sync")]
 impl ParallelMarker {
     pub fn new() -> Self {
-        // Marking is memory latency bound, so extra workers buy queue contention
-        // and cache thrashing rather than throughput - one is faster than 33 on
-        // every benchmark measured, at a ninth of the cpu. STEEL_GC_MARK_THREADS
-        // opts back in.
+        // Marking is memory latency bound, so extra workers mostly add queue
+        // contention and cache thrashing. STEEL_GC_MARK_THREADS opts into more.
         let parallelism = crate::config::config().gc_mark_threads.max(1);
 
         let mut workers = Vec::with_capacity(parallelism);
@@ -2426,8 +2408,8 @@ pub trait HeapAble: Clone + core::fmt::Debug + PartialEq + Eq {
     fn empty() -> Self;
 
     /// Drops a value taken out of a box whose last handle went away, without
-    /// recursing through whatever it holds - a chain of boxes (a mutable list
-    /// built from mutable structs) would otherwise drop one box per native frame.
+    /// recursing through whatever it holds. Otherwise a chain of boxes, such as
+    /// a mutable list built from mutable structs, drops one box per native frame.
     fn release(self);
 }
 impl HeapAble for SteelVal {
@@ -2439,9 +2421,8 @@ impl HeapAble for SteelVal {
         if !needs_release(&self) {
             return;
         }
-        // Always through the work list: a box's value is usually a struct or a
-        // list, whose own drop starts a drain of its own - one per release, where
-        // queueing it lets a whole tree go in a single drain (gcbench).
+        // A box's value is usually a struct or a list, whose own drop would start
+        // a separate drain. Queueing it lets a whole tree go in a single drain.
         let _ = crate::rvals::cycles::drop_fields_iteratively(core::iter::once(self));
     }
 }
@@ -2455,11 +2436,10 @@ thread_local! {
 }
 
 /// Drops `value` in place while releases are shallowly nested, and hands it to
-/// `queue` past that. Nearly every release is a box or small vector whose value
-/// holds nothing that nests - going through the work list for those (a
-/// thread-local borrow, a queue, a visitor per element) cost paraffins 13% for
-/// nothing. Only a chain of boxes, each the last handle to the next, nests
-/// deeply, and that switches to the work list after `RELEASE_DIRECT_DEPTH`.
+/// `queue` past that. Nearly every release is a box or small vector that holds
+/// nothing that nests, and the work list is expensive for those. Only a chain of
+/// boxes, each the last handle to the next, nests deeply, and that switches to
+/// the work list after `RELEASE_DIRECT_DEPTH`.
 #[inline]
 fn release_bounded<V>(value: V, queue: impl FnOnce(V)) {
     let direct = RELEASE_DEPTH
@@ -2482,7 +2462,7 @@ fn release_bounded<V>(value: V, queue: impl FnOnce(V)) {
     }
 }
 
-/// Values whose drop does no work worth routing through the work list.
+/// Whether dropping the value does work worth routing through the work list.
 #[inline]
 fn needs_release(value: &SteelVal) -> bool {
     !matches!(
@@ -2508,10 +2488,9 @@ impl HeapAble for HeapVec {
     }
 
     fn release(self) {
-        // Only what can hold more structure goes through the work list. A
-        // vector of fixnums (array1: a million per vector) would otherwise be
-        // pushed onto and popped off the queue one element at a time, where
-        // dropping the buffer directly is free.
+        // Only values that can hold more structure go through the work list. A
+        // vector of fixnums would otherwise go through the queue one element at
+        // a time, where dropping the buffer directly is free.
         if !self.iter().any(needs_release) {
             return;
         }
@@ -2523,8 +2502,8 @@ impl HeapAble for HeapVec {
     }
 }
 
-// The jit hands HeapRef straight to drop-box / drop-boxed-vec as a bare pointer,
-// so the single field layout has to be guaranteed rather than assumed
+// The jit hands HeapRef straight to drop-box and drop-boxed-vec as a bare
+// pointer, so the single field layout has to be guaranteed
 #[derive(Clone, Debug)]
 #[repr(transparent)]
 pub struct HeapRef<T: HeapAble> {
@@ -2534,14 +2513,13 @@ pub struct HeapRef<T: HeapAble> {
 }
 
 /// A box can only be read through a handle, so once the last handle is gone
-/// nothing can observe its value again. Release it now rather than when the
-/// heap next collects: the heap decides when to collect by how many boxes it
-/// holds, not by what they keep alive, so a handful of boxes each pinning a
-/// large structure (mperm: the `set!` captured list of every permutation) was
-/// never collected at all. The slot itself is still reclaimed by the heap.
+/// nothing can observe its value again, and the value is released right away.
+/// The heap decides when to collect by how many boxes it holds and not by what
+/// they keep alive, so a few boxes each pinning a large structure might
+/// otherwise never be collected. The slot itself is still reclaimed by the heap.
 ///
 /// Cycles through boxes keep their handles alive and are left to mark and
-/// sweep, as before.
+/// sweep.
 impl<T: HeapAble> Drop for HeapRef<T> {
     #[inline]
     fn drop(&mut self) {
@@ -2560,13 +2538,13 @@ impl<T: HeapAble> HeapRef<T> {
             return None;
         }
         let inner = self.inner.upgrade()?;
-        // Only if the lock is free. Several places drop a box's old value while
-        // holding that box's lock - the collector emptying a dead slot, `set` -
-        // and when the value is a cycle back through the same box (a closure
-        // capturing it), dropping it lands here on the lock this thread already
-        // holds. The spin lock isn't reentrant, so waiting spins forever. The
-        // holder is replacing the value anyway; anything else leaves it to the
-        // collector, as before.
+        // Only if the lock is free. The collector emptying a dead slot and `set`
+        // drop a box's old value while holding that box's lock, and when the
+        // value cycles back through the same box (a closure capturing it), the
+        // drop lands here on a lock this thread already holds. The spin lock
+        // isn't reentrant, so waiting would spin forever. The holder is
+        // replacing the value anyway, and anything else is left to the
+        // collector.
         let mut guard = inner.try_lock()?;
         Some(core::mem::replace(&mut guard.value, T::empty()))
     }
@@ -2654,8 +2632,8 @@ impl<T: HeapAble> HeapRef<T> {
     }
 }
 
-// reachable is atomic so the allocator and the marker can touch it without
-// taking the spin lock, which is the bulk of what they were doing
+// reachable is atomic so the allocator and the marker can read and set it
+// without taking the spin lock
 #[derive(Debug)]
 pub struct HeapAllocated<T: Clone + core::fmt::Debug + PartialEq + Eq> {
     pub(crate) reachable: AtomicBool,
@@ -2705,8 +2683,8 @@ impl<T: Clone + core::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
         self.reachable.store(true, Ordering::Relaxed);
     }
 
-    // Marks and reports whether it was already marked, so the marker tests and
-    // sets in one go rather than locking twice
+    // Marks and reports whether it was already marked, so the marker can test
+    // and set in one step
     pub(crate) fn mark_reachable_was_set(&self) -> bool {
         self.reachable.swap(true, Ordering::Relaxed)
     }

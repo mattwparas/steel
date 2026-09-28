@@ -360,7 +360,7 @@ impl FunctionTranslator<'_> {
                                     // Inline car for a pair:
                                     // Unboxed variant. This site reads with
                                     // `read_from_vm_stack_split`, so `value` is
-                                    // already the payload. Unboxing again isplits
+                                    // already the payload. Unboxing again splits
                                     // an i64 into i32 halves and uses one as a
                                     // pointer, which the verifier rejects.
                                     |ctx| ctx.inline_pair_car_unboxed(value),

@@ -110,7 +110,11 @@ fn immutable_vector_to_list(
 /// > (define A (vector #\a #\b #\c)) ;;
 /// > (vector->string A) ;; => "abc"
 /// ```
-#[steel_derive::function(name = "vector->string", returns = String, args(Vector | MutableVector, rest = Int))]
+#[steel_derive::function(
+    name = "vector->string",
+    returns = String,
+    args(Vector | MutableVector, rest = Int)
+)]
 fn vector_to_string(
     vector: Either<&SteelVector, &HeapRef<HeapVec>>,
     rest: RestArgsIter<'_, isize>,
@@ -155,9 +159,9 @@ fn immutable_vector_to_string(
     )
 }
 
-/// The characters `values` as a string, allocated up front since collecting
-/// through a `Result` gives `String` no length hint.
-/// `count` is the number of values; at least one byte each.
+/// Collects `values` into a string, erroring on anything that is not a
+/// character. `count` is the number of values and sizes the allocation, since
+/// collecting through a `Result` gives no size hint.
 fn chars_to_string<'a>(
     values: impl Iterator<Item = &'a SteelVal>,
     count: usize,
@@ -184,7 +188,11 @@ fn chars_to_string<'a>(
 /// > (define A (vector 1 2 3)) ;;
 /// > (vector-copy A) ;; => '#(1 2 3)
 /// ```
-#[steel_derive::context(name = "vector-copy", arity = AtLeast(1), args(Vector | MutableVector | FlatVector, rest = Int))]
+#[steel_derive::context(
+    name = "vector-copy",
+    arity = AtLeast(1),
+    args(Vector | MutableVector | FlatVector, rest = Int)
+)]
 fn vector_copy(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
@@ -809,9 +817,7 @@ pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
 // Immediates own nothing, so filling with them is a bitwise copy the compiler
 // can widen. Everything else is heap backed and needs a refcount bump per slot
 // through Clone.
-pub(crate) fn filled_heap_vec(value: SteelVal, n: usize) -> crate::values::closed::HeapVec {
-    use crate::values::closed::HeapVec;
-
+pub(crate) fn filled_heap_vec(value: SteelVal, n: usize) -> HeapVec {
     match value {
         SteelVal::IntV(_)
         | SteelVal::NumV(_)
@@ -1126,17 +1132,6 @@ pub fn mut_vec_swap(vec: &HeapRef<HeapVec>, i: usize, j: usize) -> Result<SteelV
     Ok(SteelVal::Void)
 }
 
-/// Constructs an immutable vector from the given arguments.
-///
-/// (immutable-vector . vals) -> vector?
-///
-/// * vals : any? - The values to store in the immutable vector.
-///
-/// # Examples
-/// ```scheme
-/// > (define V (immutable-vector 1 2 3)) ;;
-/// > V ;; => '#(1 2 3)
-/// ```
 /// Constructs a flat, immutable vector. Indexing is a single load, and it is
 /// reference counted instead of tracked by the collector.
 #[steel_derive::native(
@@ -1161,7 +1156,9 @@ pub fn flat_vectorp(value: &SteelVal) -> bool {
 #[steel_derive::native(
     name = "flat-vector->list",
     arity = AtLeast(1),
-    returns = List, args(FlatVector, rest = Int))]
+    returns = List,
+    args(FlatVector, rest = Int)
+)]
 pub fn flat_vector_to_list(args: &[SteelVal]) -> Result<SteelVal> {
     use crate::rvals::FromSteelVal;
 
@@ -1184,6 +1181,17 @@ pub fn flat_vector_to_list(args: &[SteelVal]) -> Result<SteelVal> {
     ))
 }
 
+/// Constructs an immutable vector from the given arguments.
+///
+/// (immutable-vector . vals) -> vector?
+///
+/// * vals : any? - The values to store in the immutable vector.
+///
+/// # Examples
+/// ```scheme
+/// > (define V (immutable-vector 1 2 3)) ;;
+/// > V ;; => '#(1 2 3)
+/// ```
 #[steel_derive::native(
     name = "immutable-vector",
     arity = AtLeast(0),
@@ -1234,7 +1242,13 @@ pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVa
 /// > (define V (immutable-vector 1 2 3 4)) ;;
 /// > (vector-length V) ;; => 4
 /// ```
-#[steel_derive::native(name = "vector-length", arity = Exact(1), returns = Int, args(Vector | MutableVector | FlatVector), raises = BadArgs)]
+#[steel_derive::native(
+    name = "vector-length",
+    arity = Exact(1),
+    returns = Int,
+    args(Vector | MutableVector | FlatVector),
+    raises = BadArgs
+)]
 pub fn vec_length(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
         SteelVal::VectorV(v) => Ok(SteelVal::IntV(v.len() as _)),
@@ -1267,7 +1281,7 @@ pub fn vec_length(args: &[SteelVal]) -> Result<SteelVal> {
 pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::IntV(lower), SteelVal::IntV(upper)) => {
-            // Like `range`. Casting a negative bound to usize would wrap it.
+            // Negative bounds are an error, same as `range`.
             if *lower < 0 || *upper < 0 {
                 stop!(Generic => "range-vec expects a positive integer");
             }
@@ -1461,7 +1475,11 @@ pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (define B (mutable-vector 5 15 25)) ;;
 /// > (vector-ref B 2) ;; => 25
 /// ```
-#[steel_derive::function(name = "vector-ref", constant = true, args(Vector | MutableVector | FlatVector, Int))]
+#[steel_derive::function(
+    name = "vector-ref",
+    constant = true,
+    args(Vector | MutableVector | FlatVector, Int)
+)]
 #[inline(always)]
 pub fn vec_ref(vec: &mut SteelVal, idx: &SteelVal) -> Result<SteelVal> {
     // First, ensure the index is a valid non-negative integer
