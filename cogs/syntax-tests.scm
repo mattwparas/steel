@@ -383,16 +383,16 @@
 (define-syntax emit-cwv-form
   (syntax-rules ()
     [(_ (temps ...) (assignments ...) values-form)
-     (call-with-values (lambda () values-form) (lambda (temps ...) assignments ...))]))
+     (call-with-values (lambda () values-form)
+                       (lambda (temps ...)
+                         assignments ...))]))
 
 (define mvs-a 0)
 (define mvs-b 0)
 (define mvs-c 0)
 (multiple-value-set! (mvs-a mvs-b mvs-c) (values 1 2 3))
 
-(check-equal? "hygiene, temporaries from recursive expansion"
-              (list mvs-a mvs-b mvs-c)
-              '(1 2 3))
+(check-equal? "hygiene, temporaries from recursive expansion" (list mvs-a mvs-b mvs-c) '(1 2 3))
 
 (check-equal? "hygiene, temporaries from recursive expansion, local variables"
               (let ([x 0]
@@ -430,9 +430,10 @@
 (define-syntax define-temps
   (syntax-rules ()
     [(_ () (names ...)) (list names ...)]
-    [(_ (v . vs) (names ...)) (begin
-                                (define tmp v)
-                                (define-temps vs (names ... tmp)))]))
+    [(_ (v . vs) (names ...))
+     (begin
+       (define tmp v)
+       (define-temps vs (names ... tmp)))]))
 
 (check-equal? "hygiene, internal defines from recursive expansion"
               ((lambda () (define-temps (1 2 3) ())))
