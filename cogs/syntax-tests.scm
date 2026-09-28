@@ -367,6 +367,119 @@
                            [(_ a) (... a 1)])))
                      "ellipses are not a valid identifier in templates")
 
+;; https://github.com/mattwparas/steel/issues/706
+
+(define-syntax multiple-value-set!
+  (syntax-rules ()
+    [(_ variables values-form) (gen-temps-and-sets variables () () values-form)]))
+
+(define-syntax gen-temps-and-sets
+  (syntax-rules ()
+    [(_ () (temps ...) (assignments ...) values-form)
+     (emit-cwv-form (temps ...) (assignments ...) values-form)]
+    [(_ (variable . more) (temps ...) (assignments ...) values-form)
+     (gen-temps-and-sets more (temps ... temp) (assignments ... (set! variable temp)) values-form)]))
+
+(define-syntax emit-cwv-form
+  (syntax-rules ()
+    [(_ (temps ...) (assignments ...) values-form)
+     (call-with-values (lambda () values-form) (lambda (temps ...) assignments ...))]))
+
+(define mvs-a 0)
+(define mvs-b 0)
+(define mvs-c 0)
+(multiple-value-set! (mvs-a mvs-b mvs-c) (values 1 2 3))
+
+(check-equal? "hygiene, temporaries from recursive expansion"
+              (list mvs-a mvs-b mvs-c)
+              '(1 2 3))
+
+(check-equal? "hygiene, temporaries from recursive expansion, local variables"
+              (let ([x 0]
+                    [y 0])
+                (multiple-value-set! (x y) (values 'x 'y))
+                (list x y))
+              '(x y))
+
+(define-syntax gen-thunks
+  (syntax-rules ()
+    [(_ () (tmps ...) (vals ...)) ((lambda (tmps ...) (list (lambda () tmps) ...)) vals ...)]
+    [(_ (v . vs) (tmps ...) (vals ...)) (gen-thunks vs (tmps ... tmp) (vals ... v))]))
+
+(check-equal? "hygiene, temporaries from recursive expansion, closures"
+              (map (lambda (thunk) (thunk)) (gen-thunks (1 2 3) () ()))
+              '(1 2 3))
+
+(define-syntax sum-chain
+  (syntax-rules ()
+    [(_ () e) e]
+    [(_ (x . xs) e) (let ([t x]) (sum-chain xs (+ t e)))]))
+
+(check-equal? "hygiene, nested bindings from recursive expansion" (sum-chain (1 2) 0) 3)
+
+(define-syntax bind-inner
+  (syntax-rules ()
+    [(_ e) (let ([t 2]) e)]))
+
+(define-syntax bind-outer
+  (syntax-rules ()
+    [(_) (let ([t 1]) (bind-inner t))]))
+
+(check-equal? "hygiene, bindings from different macros" (bind-outer) 1)
+
+(define-syntax define-temps
+  (syntax-rules ()
+    [(_ () (names ...)) (list names ...)]
+    [(_ (v . vs) (names ...)) (begin
+                                (define tmp v)
+                                (define-temps vs (names ... tmp)))]))
+
+(check-equal? "hygiene, internal defines from recursive expansion"
+              ((lambda () (define-temps (1 2 3) ())))
+              '(1 2 3))
+
+(define-syntax set-via-temp
+  (syntax-rules ()
+    [(_ var val) (bind-with (hyg-temp) (set! var hyg-temp) val)]))
+
+(define-syntax bind-with
+  (syntax-rules ()
+    [(_ (x) body val) ((lambda (x) body) val)]))
+
+(define hyg-temp 0)
+(set-via-temp hyg-temp 5)
+
+(check-equal? "hygiene, global not captured by macro binding" hyg-temp 5)
+
+(check-equal? "hygiene, local not captured by macro temporaries"
+              (let ([temp 0]
+                    [b 0])
+                (multiple-value-set! (temp b) (values 1 2))
+                (list temp b))
+              '(1 2))
+
+(define-syntax gen-through-kernel
+  (syntax-rules ()
+    [(_ r () (tmps ...) (vals ...))
+     ((lambda (tmps ...)
+        (define-values (r) (values (list tmps ...)))
+        r)
+      vals ...)]
+    [(_ r (v . vs) (tmps ...) (vals ...)) (gen-through-kernel r vs (tmps ... tmp) (vals ... v))]))
+
+(check-equal? "hygiene, temporaries used inside kernel macro"
+              (gen-through-kernel result (1 2 3) () ())
+              '(1 2 3))
+
+(define-syntax sum-twice
+  (syntax-rules ()
+    [(_ e a b)
+     (let ([t e])
+       (define-values (a b) (values t t))
+       (+ a b))]))
+
+(check-equal? "hygiene, template binding used inside kernel macro" (sum-twice 21 x y) 42)
+
 ;; -------------- Report ------------------
 
 (define stats (get-test-stats))
@@ -374,3 +487,5 @@
 (displayln "Passed: " (hash-ref stats 'success-count))
 (displayln "Skipped compilation: " (hash-ref stats 'failed-to-compile))
 (displayln "Failed: " (hash-ref stats 'failure-count))
+
+(assert! (= 0 (hash-ref stats 'failure-count)))
