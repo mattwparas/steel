@@ -132,6 +132,22 @@ fn module_test_chain() {
 }
 
 #[test]
+fn module_test_re_provide() {
+    let mut vm = Engine::new();
+    let res = vm
+        .compile_and_run_raw_program(
+            r#"
+        (require "tests/modules/re-provide-middle.scm")
+
+        (deep-fn 41)
+    "#,
+        )
+        .unwrap();
+
+    assert_eq!(res.last().unwrap(), &steel::SteelVal::IntV(42));
+}
+
+#[test]
 fn static_site_generator_modules() {
     let mut vm = Engine::new();
 

@@ -334,21 +334,23 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                 .unwrap_or(false)
             {
                 if let Some(info) = self.context.analysis.get_identifier(function_call_ident) {
-                    if info.builtin {
+                    // A program's free builtin references are rewritten to their
+                    // `#%prim.` names before this runs.
+                    let written = l.first_ident().map(|name| name.resolve()).unwrap_or("");
+                    let builtin_name = written.strip_prefix("#%prim.");
+                    if info.builtin || builtin_name.is_some() {
+                        let name = builtin_name.unwrap_or(written);
                         let found_arity = self
                             .context
                             .engine
                             .builtin_modules()
-                            .get_metadata_by_name(l.first_ident().unwrap().resolve())
+                            .get_metadata_by_name(name)
                             .map(|x| x.arity)
                             .or_else(|| {
                                 // If this isn't found in the original built in modules,
                                 // attempt to find it registered globally?
-                                if let SteelVal::BoxedFunction(b) = self
-                                    .context
-                                    .engine
-                                    .extract_value(l.first_ident().unwrap().resolve())
-                                    .ok()?
+                                if let SteelVal::BoxedFunction(b) =
+                                    self.context.engine.extract_value(name).ok()?
                                 {
                                     b.arity.map(|x| Arity::Exact(x as _))
                                 } else {
@@ -370,7 +372,7 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                             DiagnosticSeverity::ERROR,
                                             format!(
                                                 "ArityMismatch: {} expects {} arguments, found {}",
-                                                l.first().unwrap(),
+                                                name,
                                                 arity,
                                                 l.args.len() - 1
                                             ),
@@ -391,7 +393,7 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                             range,
                                             DiagnosticSeverity::ERROR,
                                             format!("ArityMismatch: {} expects at least {} arguments, found {}",
-                                                l.first().unwrap(),
+                                                name,
                                                 arity,
                                                 l.args.len() - 1
                                             ),
@@ -413,7 +415,7 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                             DiagnosticSeverity::ERROR,
                                             format!(
                                                 "ArityMismatch: {} expects at most {} arguments, found {}",
-                                                l.first().unwrap(),
+                                                name,
                                                 arity,
                                                 l.args.len() - 1
                                             ),
@@ -436,7 +438,7 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                             DiagnosticSeverity::ERROR,
                                             format!(
                                                 "ArityMismatch: {} expects {} to {} arguments, found {}",
-                                                l.first().unwrap(),
+                                                name,
                                                 n,
                                                 m,
                                                 arg_amount

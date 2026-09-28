@@ -12,7 +12,7 @@ use crate::{
     },
     parser::{
         ast::{self, Atom, ExprKind},
-        parser::SyntaxObject,
+        parser::{ExpansionMark, SyntaxObject},
         span::Span,
         tokens::TokenType,
     },
@@ -770,10 +770,11 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 span,
             )))),
 
-            SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::Identifier(x.as_str().into()),
-                span,
-            )))),
+            SymbolV(x) => {
+                let mut syn = SyntaxObject::new(TokenType::Identifier(x.as_str().into()), span);
+                syn.mark = value.mark;
+                Ok(ExprKind::Atom(Atom::new(syn)))
+            }
 
             ListV(l) => {
                 // Rooted - things operate as normal
@@ -840,6 +841,7 @@ pub struct Syntax {
     pub(crate) raw: Option<SteelVal>,
     pub(crate) syntax: SteelVal,
     span: Span,
+    mark: ExpansionMark,
 }
 
 impl Syntax {
@@ -848,6 +850,7 @@ impl Syntax {
             raw: None,
             syntax,
             span,
+            mark: ExpansionMark::UNKNOWN,
         }
     }
 
@@ -856,7 +859,13 @@ impl Syntax {
             raw: Some(raw),
             syntax,
             span,
+            mark: ExpansionMark::UNKNOWN,
         }
+    }
+
+    pub(crate) fn with_mark(mut self, mark: ExpansionMark) -> Syntax {
+        self.mark = mark;
+        self
     }
 
     pub fn syntax_e(&self) -> SteelVal {
@@ -868,6 +877,7 @@ impl Syntax {
             raw: None,
             syntax,
             span,
+            mark: ExpansionMark::UNKNOWN,
         }
     }
 
@@ -902,9 +912,11 @@ impl Syntax {
             )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
-            SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::Identifier(x.as_str().into()),
-            )))),
+            SymbolV(x) => {
+                let mut syn = SyntaxObject::default(TokenType::Identifier(x.as_str().into()));
+                syn.mark = ExpansionMark::UNKNOWN;
+                Ok(ExprKind::Atom(Atom::new(syn)))
+            }
             ListV(l) => {
                 let items: Result<ThinVec<ExprKind>> =
                     l.iter().map(Self::steelval_to_exprkind).collect();
@@ -949,10 +961,11 @@ impl Syntax {
             )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
-            SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::Identifier(x.as_str().into()),
-                span,
-            )))),
+            SymbolV(x) => {
+                let mut syn = SyntaxObject::new(TokenType::Identifier(x.as_str().into()), span);
+                syn.mark = self.mark;
+                Ok(ExprKind::Atom(Atom::new(syn)))
+            }
             ListV(l) => {
                 let items: Result<ThinVec<ExprKind>> =
                     l.iter().map(Self::steelval_to_exprkind).collect();

@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod begin;
 pub mod flat_vector;
+pub mod hygiene;
 pub mod manager;
 pub mod mangle;
 pub mod opt;

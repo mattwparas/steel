@@ -6,7 +6,7 @@ use thin_vec::ThinVec;
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
 use crate::compiler::program::{ELLIPSES_SYMBOL, SYNTAX_SPAN};
 use crate::parser::expand_visitor::GlobalMap;
-use crate::parser::parser::SyntaxObject;
+use crate::parser::parser::{ExpansionMark, SyntaxObject};
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 use crate::{
@@ -592,9 +592,11 @@ impl<'a> ReplaceExpressions<'a> {
                         }
                     }
 
-                    Ok(Some(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        TokenType::Identifier(buffer.into()),
-                    )))))
+                    // This is a new identifier, so it doesn't have a known mark
+                    let mut syn = SyntaxObject::default(TokenType::Identifier(buffer.into()));
+                    syn.mark = ExpansionMark::UNKNOWN;
+
+                    Ok(Some(ExprKind::Atom(Atom::new(syn))))
                 } else {
                     Ok(None)
                 }
