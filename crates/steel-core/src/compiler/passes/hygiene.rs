@@ -26,11 +26,9 @@ struct Binder {
 
 #[derive(Default)]
 pub struct ResolveExpansionMarks {
-    // The local binders currently in scope, innermost last
     scope: Vec<Binder>,
     // How many of the binders in scope were introduced by a template
     template_binders: usize,
-    // Binder ids are assigned in visiting order, so they match between both walks
     next_id: usize,
     conflicts: FxHashSet<usize>,
     renamed: FxHashMap<usize, InternedString>,
