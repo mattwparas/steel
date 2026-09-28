@@ -1,4 +1,7 @@
-use steel_parser::ast::{Atom, LAMBDA, LAMBDA_FN, PLAIN_LET};
+use steel_parser::ast::{
+    Atom, LAMBDA, LAMBDA_FN, PLAIN_LET, QUASIQUOTE, RAW_QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING,
+    UNQUOTE, UNQUOTE_COMMA, UNQUOTE_SPLICING,
+};
 
 use crate::compiler::program::{DATUM_SYNTAX, LAMBDA_SYMBOL};
 use crate::parser::ast::ExprKind;
@@ -36,6 +39,50 @@ impl<'a> RenameIdentifiersVisitor<'a> {
     pub fn rename_identifiers(&mut self, expr: &mut ExprKind) {
         self.visit(expr);
     }
+
+    // Okay so this is annoying: we'll have to handle uoted data in the template.
+    // A pattern variable is still replaced by its argument, but a name the template introduces stays
+    // whatever it was before.
+    fn visit_data(&mut self, expr: &mut ExprKind, depth: Option<usize>) {
+        match expr {
+            ExprKind::Atom(a) => {
+                if let TokenType::Identifier(s) = a.syn.ty {
+                    if self.pattern_variables.contains(&s) {
+                        a.syn.ty = TokenType::Identifier(("##".to_string() + s.resolve()).into());
+                    }
+                }
+            }
+            ExprKind::List(l) => {
+                let depth = match (depth, l.first_ident()) {
+                    (Some(depth), Some(head)) if *head == *QUASIQUOTE => Some(depth + 1),
+                    (Some(depth), Some(head)) if is_unquote(head) => Some(depth - 1),
+                    (depth, _) => depth,
+                };
+                for expr in &mut l.args {
+                    if depth == Some(0) {
+                        self.visit(expr);
+                    } else {
+                        self.visit_data(expr, depth);
+                    }
+                }
+            }
+            ExprKind::Vector(v) => {
+                for expr in &mut v.args {
+                    self.visit_data(expr, depth);
+                }
+            }
+            ExprKind::Quote(q) => self.visit_data(&mut q.expr, depth),
+            _ => self.visit(expr),
+        }
+    }
+}
+
+fn is_unquote(head: &InternedString) -> bool {
+    *head == *UNQUOTE
+        || *head == *UNQUOTE_COMMA
+        || *head == *RAW_UNQUOTE
+        || *head == *UNQUOTE_SPLICING
+        || *head == *RAW_UNQUOTE_SPLICING
 }
 
 impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
@@ -107,7 +154,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
     }
 
     fn visit_quote(&mut self, quote: &mut super::ast::Quote) -> Self::Output {
-        self.visit(&mut quote.expr);
+        self.visit_data(&mut quote.expr, None);
     }
 
     fn visit_macro(&mut self, _m: &mut super::ast::Macro) -> Self::Output {
@@ -133,6 +180,22 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
         // TODO: So here, since this body isn't lowered all the way, we're not
         // actually _doing_ anything!
         match l.first() {
+            Some(ExprKind::Atom(Atom {
+                syn: SyntaxObject { ty, .. },
+            })) if *ty == TokenType::Quote || *ty == TokenType::Identifier(*RAW_QUOTE) => {
+                for expr in &mut l.args[1..] {
+                    self.visit_data(expr, None);
+                }
+            }
+
+            Some(ExprKind::Atom(Atom {
+                syn: SyntaxObject { ty, .. },
+            })) if *ty == TokenType::Identifier(*QUASIQUOTE) => {
+                for expr in &mut l.args[1..] {
+                    self.visit_data(expr, Some(1));
+                }
+            }
+
             // Some(ExprKind::Atom(Atom {
             //     syn: SyntaxObject { ty, .. },
             // })) if *ty == TokenType::Identifier(*DATUM_SYNTAX) => {
