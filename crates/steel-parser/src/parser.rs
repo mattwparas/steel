@@ -76,7 +76,7 @@ impl core::fmt::Display for SyntaxObjectId {
     }
 }
 
-// Starts at 1, since 0 is `ExpansionMark::NONE`
+// Starts at 1, since 0 is NONE
 static EXPANSION_MARK_COUNTER: AtomicU32 = AtomicU32::new(1);
 
 #[derive(
