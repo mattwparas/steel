@@ -727,7 +727,10 @@ pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
 #[cfg(feature = "sync")]
 #[steel_derive::context(name = "will-execute", arity = "Exact(1)")]
 pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
-    let executor = WillExecutor::as_ref(&args[0]).unwrap();
+    let executor = match WillExecutor::as_ref(&args[0]) {
+        Ok(executor) => executor,
+        Err(err) => return Some(Err(err)),
+    };
 
     // TODO: Make this find the next thing? Perhaps just have this be a channel
     // or something that waits until the next thing is found?
@@ -758,7 +761,9 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 #[cfg(not(feature = "sync"))]
 #[steel_derive::context(name = "will-execute", arity = "Exact(1)")]
 pub fn will_execute(_ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
-    let _ = WillExecutor::as_ref(&args[0]).unwrap();
+    if let Err(err) = WillExecutor::as_ref(&args[0]) {
+        return Some(Err(err));
+    }
     Some(Ok(SteelVal::Void))
 }
 

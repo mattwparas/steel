@@ -2010,6 +2010,10 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
         .cloned()
         .unwrap_or(SteelVal::NumV(core::f64::consts::E));
 
+    if !numberp(first) || !numberp(&base) {
+        stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
+    }
+
     match (first, &base) {
         (SteelVal::IntV(1), _) => Ok(SteelVal::IntV(0)),
         (SteelVal::IntV(val), SteelVal::IntV(base)) if *val < 0 || *base < 0 => {
@@ -2125,9 +2129,10 @@ pub fn bitwise_xor(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     for value in &args[1..] {
-        if let SteelVal::IntV(v) = value {
-            accum = accum.bitxor(v);
-        }
+        let SteelVal::IntV(v) = value else {
+            stop!(TypeMismatch => "bitwise-xor expects exact integers, found: {}", value);
+        };
+        accum = accum.bitxor(v);
     }
 
     Ok(SteelVal::IntV(accum))
@@ -2157,9 +2162,10 @@ pub fn bitwise_ior(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     for value in &args[1..] {
-        if let SteelVal::IntV(v) = value {
-            accum = accum.bitor(v);
-        }
+        let SteelVal::IntV(v) = value else {
+            stop!(TypeMismatch => "bitwise-ior expects exact integers, found: {}", value);
+        };
+        accum = accum.bitor(v);
     }
 
     Ok(SteelVal::IntV(accum))
@@ -2189,9 +2195,10 @@ pub fn bitwise_and(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     for value in &args[1..] {
-        if let SteelVal::IntV(v) = value {
-            accum = accum.bitand(v);
-        }
+        let SteelVal::IntV(v) = value else {
+            stop!(TypeMismatch => "bitwise-and expects exact integers, found: {}", value);
+        };
+        accum = accum.bitand(v);
     }
 
     Ok(SteelVal::IntV(accum))
@@ -2385,7 +2392,8 @@ fn multiply_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             let y = SteelComplex::new(y.clone(), SteelVal::IntV(0));
             multiply_complex(x, &y)
         }
-        (SteelVal::BigRational(x), SteelVal::Rational(y)) => {
+        (SteelVal::BigRational(x), SteelVal::Rational(y))
+        | (SteelVal::Rational(y), SteelVal::BigRational(x)) => {
             let mut res = BigRational::new(x.numer().clone(), x.denom().clone());
             res *= BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
             res.into_steelval()

@@ -1488,8 +1488,8 @@ impl<
         // use std::Borrow();
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
+            if args.len() != 3 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1516,7 +1516,7 @@ impl<
             SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(2),
+                Some(3),
             ))),
         )
     }
@@ -1527,8 +1527,8 @@ impl<
         let cloned_name = name.clone();
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
+            if args.len() != 3 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1558,7 +1558,7 @@ impl<
             SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                 Arc::new(f),
                 Some(cloned_name.into()),
-                Some(2),
+                Some(3),
             ))),
         )
     }
@@ -2786,7 +2786,7 @@ impl_register_fn!(12 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, 
 impl_register_fn!(13 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12);
 impl_register_fn!(14 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13);
 impl_register_fn!(15 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14);
-impl_register_fn!(16 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 14, O: 14, P: 15);
+impl_register_fn!(16 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14, P: 15);
 
 impl_register_fn_self!(2 => B:1);
 impl_register_fn_self!(3 => B:1, C:2);
@@ -2802,4 +2802,4 @@ impl_register_fn_self!(12 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, 
 impl_register_fn_self!(13 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12);
 impl_register_fn_self!(14 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13);
 impl_register_fn_self!(15 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14);
-impl_register_fn_self!(16 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 14, O: 14, P: 15);
+impl_register_fn_self!(16 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14, P: 15);

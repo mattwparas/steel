@@ -643,3 +643,72 @@ mod exported_macro_quote_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod prefixed_builtin_tests {
+    use crate::steel_vm::engine::Engine;
+
+    fn run(engine: &mut Engine, src: &str) -> String {
+        let values = engine.compile_and_run_raw_program(src.to_string()).unwrap();
+        values.last().unwrap().to_string()
+    }
+
+    #[test]
+    fn modules_that_only_provide_prefixed_builtins() {
+        let mut engine = Engine::new();
+        engine.register_steel_module(
+            "reexport-strings".to_string(),
+            "(require-builtin steel/strings as s.) (provide s.string-upcase)".to_string(),
+        );
+        engine.register_steel_module(
+            "reexport-lists".to_string(),
+            "(require-builtin steel/lists as string-) (provide string-length)".to_string(),
+        );
+        assert_eq!(
+            run(
+                &mut engine,
+                "(require \"reexport-strings\")
+                 (require \"reexport-lists\")
+                 (list (s.string-upcase \"hi\") (string-length (list 1 2 3)))"
+            ),
+            "(\"HI\" 3)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod register_fn_arity_tests {
+    use crate::steel_vm::engine::Engine;
+    use crate::steel_vm::register_fn::RegisterFn;
+
+    #[test]
+    fn sixteen_argument_functions_get_every_argument() {
+        let mut engine = Engine::new();
+        engine.register_fn(
+            "sixteen",
+            |a: isize,
+             b: isize,
+             c: isize,
+             d: isize,
+             e: isize,
+             f: isize,
+             g: isize,
+             h: isize,
+             i: isize,
+             j: isize,
+             k: isize,
+             l: isize,
+             m: isize,
+             n: isize,
+             o: isize,
+             p: isize| vec![a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p],
+        );
+        let values = engine
+            .compile_and_run_raw_program("(sixteen 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)")
+            .unwrap();
+        assert_eq!(
+            values.last().unwrap().to_string(),
+            "(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)"
+        );
+    }
+}

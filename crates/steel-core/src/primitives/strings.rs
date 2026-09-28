@@ -1510,7 +1510,7 @@ fn string_join(
     let sep = rest.next().transpose()?;
 
     if rest.next().is_some() {
-        todo!()
+        stop!(ArityMismatch => "string-join expects one or two arguments");
     }
 
     for (i, val) in strings.into_iter().enumerate() {

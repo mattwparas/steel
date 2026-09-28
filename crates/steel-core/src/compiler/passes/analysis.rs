@@ -90,6 +90,7 @@ pub struct SemanticInformation {
     pub read_heap_offset: Option<u32>,
     pub is_shadowed: bool,
     pub is_required_identifier: bool,
+    pub builtin_name: Option<InternedString>,
 }
 
 #[test]
@@ -119,6 +120,7 @@ impl SemanticInformation {
             read_heap_offset: None,
             is_shadowed: false,
             is_required_identifier: false,
+            builtin_name: None,
         }
     }
 
@@ -475,6 +477,8 @@ impl Analysis {
             semantic_info.mark_builtin();
         }
 
+        semantic_info.builtin_name = builtin_module_get_name(define);
+
         if is_a_require_definition(define) {
             semantic_info.mark_required();
         }
@@ -607,6 +611,7 @@ impl Analysis {
         existing.heap_offset = metadata.heap_offset;
         existing.read_heap_offset = metadata.read_heap_offset;
         existing.is_required_identifier = metadata.is_required_identifier;
+        existing.builtin_name = metadata.builtin_name;
     }
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
@@ -832,6 +837,8 @@ impl<'a> AnalysisPass<'a> {
             semantic_info.mark_builtin();
         }
 
+        semantic_info.builtin_name = builtin_module_get_name(define);
+
         if is_a_require_definition(define) {
             semantic_info.mark_required();
         }
@@ -869,6 +876,8 @@ impl<'a> AnalysisPass<'a> {
         if is_a_builtin_definition(define) {
             semantic_info.mark_builtin();
         }
+
+        semantic_info.builtin_name = builtin_module_get_name(define);
 
         if is_a_require_definition(define) {
             semantic_info.mark_required();
@@ -2771,17 +2780,61 @@ where
 
 struct RemoveUnusedDefineImports<'a> {
     analysis: &'a Analysis,
+    provided: &'a FxHashSet<InternedString>,
     depth: usize,
 }
 
 impl<'a> RemoveUnusedDefineImports<'a> {
-    pub fn new(analysis: &'a Analysis) -> Self {
-        Self { analysis, depth: 0 }
+    pub fn new(analysis: &'a Analysis, provided: &'a FxHashSet<InternedString>) -> Self {
+        Self {
+            analysis,
+            provided,
+            depth: 0,
+        }
+    }
+
+    fn is_unused(&self, define: &Define) -> bool {
+        if !is_a_builtin_definition(define) {
+            return false;
+        }
+        let Some(name) = define.name.atom_identifier() else {
+            return false;
+        };
+        let local = name
+            .resolve()
+            .split_once(MANGLER_SEPARATOR)
+            .map_or(name.resolve(), |(_, local)| local);
+        let renamed = builtin_module_get_name(define).is_some_and(|b| b.resolve() != local);
+        if renamed && self.provided.contains(&InternedString::from(local)) {
+            return false;
+        }
+        self.analysis
+            .get(define.name.atom_syntax_object().unwrap())
+            .is_some_and(|info| info.usage_count == 0)
     }
 }
 
 // This should just be a function on the define, not a method - so that it can be moved
 // into a different crate
+
+fn builtin_module_get_name(def: &Define) -> Option<InternedString> {
+    let list = def.body.list()?;
+    match list.first_ident() {
+        Some(func) if *func == *UNREADABLE_MODULE_GET || *func == *STANDARD_MODULE_GET => {}
+        _ => return None,
+    }
+    if !list
+        .second_ident()?
+        .resolve()
+        .starts_with("%-builtin-module-")
+    {
+        return None;
+    }
+    match list.args.get(2)? {
+        ExprKind::Quote(quote) => quote.expr.atom_identifier().copied(),
+        _ => None,
+    }
+}
 
 #[inline(always)]
 pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
@@ -2842,16 +2895,11 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => {
-                if is_a_builtin_definition(d) {
-                    if let Some(analysis) = self.analysis.get(d.name.atom_syntax_object().unwrap())
-                    {
-                        if analysis.usage_count == 0 {
-                            *expr = ExprKind::Begin(Box::new(Begin::new(
-                                vec![],
-                                RawSyntaxObject::default(TokenType::Begin),
-                            )));
-                        }
-                    }
+                if self.is_unused(d) {
+                    *expr = ExprKind::Begin(Box::new(Begin::new(
+                        vec![],
+                        RawSyntaxObject::default(TokenType::Begin),
+                    )));
                 }
             }
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
@@ -2876,14 +2924,8 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
 
             for (idx, expr) in begin.exprs.iter().enumerate() {
                 if let ExprKind::Define(d) = expr {
-                    if is_a_builtin_definition(d) {
-                        if let Some(analysis) =
-                            self.analysis.get(d.name.atom_syntax_object().unwrap())
-                        {
-                            if analysis.usage_count == 0 {
-                                exprs_to_drop.push(idx);
-                            }
-                        }
+                    if self.is_unused(d) {
+                        exprs_to_drop.push(idx);
                     }
                 }
             }
@@ -4689,7 +4731,7 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
 }
 
 struct ReplaceBuiltinUsagesInsideMacros<'a> {
-    identifiers_to_replace: &'a mut FxHashSet<InternedString>,
+    identifiers_to_replace: &'a mut FxHashMap<InternedString, InternedString>,
     analysis: &'a Analysis,
     changed: bool,
 }
@@ -4709,11 +4751,9 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
         }
 
         if let Some(ident) = a.ident_mut() {
-            if self.identifiers_to_replace.contains(ident) {
-                if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
-                    *ident = builtin_to_reserved(builtin_name);
-                    self.changed = true;
-                }
+            if let Some(reserved) = self.identifiers_to_replace.get(ident) {
+                *ident = *reserved;
+                self.changed = true;
             }
         }
     }
@@ -4750,20 +4790,25 @@ impl<'a> VisitorMutRefUnit for FlattenModuleReferences<'a> {
 
 struct ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     analysis: &'a Analysis,
-    identifiers_to_replace: &'a mut FxHashSet<InternedString>,
+    identifiers_to_replace: &'a mut FxHashMap<InternedString, InternedString>,
     changed: bool,
 }
 
 impl<'a> ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     pub fn new(
         analysis: &'a Analysis,
-        identifiers_to_replace: &'a mut FxHashSet<InternedString>,
+        identifiers_to_replace: &'a mut FxHashMap<InternedString, InternedString>,
     ) -> Self {
         Self {
             analysis,
             identifiers_to_replace,
             changed: false,
         }
+    }
+
+    fn reserved_name(&self, definition: Option<SyntaxObjectId>) -> Option<InternedString> {
+        let name = self.analysis.info.get(&definition?)?.builtin_name?;
+        Some(builtin_to_reserved(name.resolve()))
     }
 }
 
@@ -4802,19 +4847,15 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                 // println!("FOUND UNSHADOWED USAGE OF BUILTIN: {}", a);
 
+                let reserved = self.reserved_name(info.refers_to);
+
                 if let Some(ident) = a.ident_mut() {
-                    if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
-                        // let original = *ident;
-
-                        self.identifiers_to_replace.insert(*ident);
-
-                        // *ident = ("#%prim.".to_string() + builtin_name).into();
-
-                        *ident = builtin_to_reserved(builtin_name);
-
-                        self.changed = true;
-
-                        // println!("top level - MUTATED IDENT TO BE: {} -> {}", original, ident);
+                    if ident.resolve().contains(MANGLER_SEPARATOR) {
+                        if let Some(reserved) = reserved {
+                            self.identifiers_to_replace.insert(*ident, reserved);
+                            *ident = reserved;
+                            self.changed = true;
+                        }
                     }
                 }
             } else {
@@ -4833,22 +4874,17 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                             // println!("FOUND UNSHADOWED USAGE OF BUILTIN: {}", a);
 
+                            let reserved = info
+                                .builtin_name
+                                .map(|name| builtin_to_reserved(name.resolve()));
+
                             if let Some(ident) = a.ident_mut() {
-                                if let Some((_, builtin_name)) =
-                                    ident.resolve().split_once(MANGLER_SEPARATOR)
-                                {
-                                    // let original = *ident;
-
-                                    self.identifiers_to_replace.insert(*ident);
-
-                                    // *ident = ("#%prim.".to_string() + builtin_name).into();
-                                    *ident = builtin_to_reserved(builtin_name);
-
-                                    self.changed = true;
-
-                                    // println!("MUTATED IDENT TO BE: {} -> {}", original, ident);
-
-                                    // println!("{:#?}", info);
+                                if ident.resolve().contains(MANGLER_SEPARATOR) {
+                                    if let Some(reserved) = reserved {
+                                        self.identifiers_to_replace.insert(*ident, reserved);
+                                        *ident = reserved;
+                                        self.changed = true;
+                                    }
                                 }
                             }
                         }
@@ -6004,7 +6040,7 @@ impl<'a> SemanticAnalysis<'a> {
         &mut self,
         macros: &mut FxHashMap<InternedString, SteelMacro>,
         module_manager: &mut ModuleManager,
-        table: &mut FxHashSet<InternedString>,
+        table: &mut FxHashMap<InternedString, InternedString>,
     ) -> &mut Self {
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
@@ -7053,8 +7089,8 @@ impl<'a> SemanticAnalysis<'a> {
         }
     }
 
-    pub fn remove_unused_define_imports(&mut self) {
-        let mut unused = RemoveUnusedDefineImports::new(&self.analysis);
+    pub fn remove_unused_define_imports(&mut self, provided: &FxHashSet<InternedString>) {
+        let mut unused = RemoveUnusedDefineImports::new(&self.analysis, provided);
         for expr in self.exprs.iter_mut() {
             unused.visit(expr);
         }

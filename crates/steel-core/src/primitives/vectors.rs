@@ -461,7 +461,7 @@ fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) ->
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
-                if index > v.len() {
+                if index >= v.len() {
                     stop!(Generic => "immutable-vector-set: index out of bounds - attempted to index at offset: {} with length {}", index, v.len());
                 }
 
@@ -469,7 +469,7 @@ fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) ->
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
-                if index > v.len() {
+                if index >= v.len() {
                     stop!(Generic => "immutable-vector-set: index out of bounds - attempted to index at offset: {} with length {}", index, v.len());
                 }
 
@@ -1068,14 +1068,14 @@ pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal 
 #[steel_derive::native(name = "range-vec", constant = true, arity = "Exact(2)")]
 pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
-        (SteelVal::IntV(lower), SteelVal::IntV(upper)) => Ok(SteelVal::VectorV(
-            Gc::new(
-                (*lower as usize..*upper as usize)
-                    .map(|x| SteelVal::IntV(x as isize))
-                    .collect::<Vector<_>>(),
-            )
-            .into(),
-        )),
+        (SteelVal::IntV(lower), SteelVal::IntV(upper)) => {
+            if *lower < 0 || *upper < 0 {
+                stop!(Generic => "range-vec expects a positive integer");
+            }
+            Ok(SteelVal::VectorV(
+                Gc::new((*lower..*upper).map(SteelVal::IntV).collect::<Vector<_>>()).into(),
+            ))
+        }
         _ => stop!(TypeMismatch => "range expected number"),
     }
 }

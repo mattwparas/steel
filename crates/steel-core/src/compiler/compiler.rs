@@ -33,7 +33,7 @@ use std::{
     path::PathBuf,
 };
 
-use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use serde::{Deserialize, Serialize};
 use steel_parser::{ast::PROVIDE, span::Span};
 
@@ -422,7 +422,7 @@ pub struct Compiler {
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
     memoization_table: MemoizationTable,
-    mangled_identifiers: FxHashSet<InternedString>,
+    mangled_identifiers: FxHashMap<InternedString, InternedString>,
     // Try this out?
     lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
     // Macros that... we need to compile against directly at the top level
@@ -618,7 +618,7 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: None,
             memoization_table: MemoizationTable::new(),
-            mangled_identifiers: FxHashSet::default(),
+            mangled_identifiers: FxHashMap::default(),
             lifted_kernel_environments: HashMap::new(),
             lifted_macro_environments: HashMap::new(),
             analysis: Analysis::pre_allocated(),
@@ -648,7 +648,7 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
-            mangled_identifiers: FxHashSet::default(),
+            mangled_identifiers: FxHashMap::default(),
             lifted_kernel_environments: HashMap::new(),
             lifted_macro_environments: HashMap::new(),
             analysis: Analysis::pre_allocated(),
