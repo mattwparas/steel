@@ -164,7 +164,7 @@ pub struct RawSyntaxObject<T> {
     // or nothing at all.
     pub unresolved: bool,
     pub introduced_via_macro: bool,
-    // The `syntax-rules` expansion that introduced this identifier from a template.
+    // The syntax-rules expansion that introduced this identifier from a template.
     // Identifiers with the same name from different expansions are different variables.
     #[serde(skip)]
     pub mark: ExpansionMark,

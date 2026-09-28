@@ -8,20 +8,11 @@ use crate::parser::{
 
 use super::VisitorMutRefUnit;
 
-// Identifiers in a `syntax-rules` template get a mark unique to each expansion (see
-// `MacroCase::expand`). Identifiers with the same name and different marks are different
-// variables, but the passes after expansion resolve variables by name. This renames local
-// binders where resolving by name would disagree with the marks:
+// Identifiers from a syntax-rules template are marked with the expansion that introduced
+// them. Everything after expansion resolves variables by name, so this renames local binders
+// where resolving by name would pick a different binder than the marks.
 //
-// - A reference with a template mark refers to the innermost binder with the same name
-//   and mark. If another binder with that name is closer, the target binder is renamed.
-// - A reference with `ExpansionMark::NONE` wasn't introduced by a template, so it can't refer
-//   to a binder that was. Template binders with its name that are closer than its binder are
-//   renamed.
-// - A reference with `ExpansionMark::UNKNOWN` is resolved by name.
-//
-// Has to run after expansion and lowering, and before constant evaluation, which resolves
-// local variables by name.
+// Has to run after expansion and lowering, and before constant evaluation.
 
 struct Binder {
     name: InternedString,
