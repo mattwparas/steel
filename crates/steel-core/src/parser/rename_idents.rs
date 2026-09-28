@@ -40,7 +40,7 @@ impl<'a> RenameIdentifiersVisitor<'a> {
         self.visit(expr);
     }
 
-    // Okay so this is annoying: we'll have to handle uoted data in the template.
+    // Okay so this is annoying: we'll have to handle quoted data in the template.
     // A pattern variable is still replaced by its argument, but a name the template introduces stays
     // whatever it was before.
     fn visit_data(&mut self, expr: &mut ExprKind, depth: Option<usize>) {
