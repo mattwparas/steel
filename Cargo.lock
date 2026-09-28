@@ -5368,6 +5368,7 @@ dependencies = [
  "serde_json",
  "steel-core",
  "steel-parser",
+ "tempfile",
  "tokio",
  "tower-lsp",
 ]
