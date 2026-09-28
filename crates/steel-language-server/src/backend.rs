@@ -704,7 +704,7 @@ impl Backend {
             // let modules =  { ENGINE.read().unwrap().modules().clone() };
             // let mut ident = ident;
 
-            let path = PathBuf::from(uri.path());
+            let path = uri_to_module_path(uri)?;
             {
                 // Re run the analysis
                 if let Err(e) = ENGINE
@@ -1266,6 +1266,11 @@ fn uri_to_source_id(uri: &Url) -> Option<steel::parser::parser::SourceId> {
     id
 }
 
+fn uri_to_module_path(uri: &Url) -> Option<PathBuf> {
+    let path = uri.to_file_path().ok()?;
+    Some(std::fs::canonicalize(&path).unwrap_or(path))
+}
+
 fn source_id_to_uri(source_id: SourceId) -> Option<Url> {
     let path = ENGINE.read().ok()?.get_path_for_source_id(&source_id)?;
 
@@ -1742,7 +1747,7 @@ impl Backend {
                         if let Some(ident) = ident {
                             eprintln!("Unable to find a definition for: {}", ident.resolve());
                             // Check if this is a macro invocation:
-                            let path = PathBuf::from(uri.path());
+                            let path = uri_to_module_path(&uri)?;
                             {
                                 let mut guard = ENGINE.write().unwrap();
                                 let macro_env_before: HashSet<InternedString> =
@@ -2095,13 +2100,10 @@ impl Backend {
                 let mut external_module_refs =
                     self.find_references_external_module(identifier, module_path);
                 found_locations.append(&mut external_module_refs);
-            } else {
-                let module_path = uri.to_file_path();
-                if let Ok(module_path) = module_path {
-                    let mut external_module_refs =
-                        self.find_references_external_module(identifier, module_path);
-                    found_locations.append(&mut external_module_refs);
-                }
+            } else if let Some(module_path) = uri_to_module_path(&uri) {
+                let mut external_module_refs =
+                    self.find_references_external_module(identifier, module_path);
+                found_locations.append(&mut external_module_refs);
             }
         }
 
