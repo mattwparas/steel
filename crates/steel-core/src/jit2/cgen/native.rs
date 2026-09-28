@@ -30,7 +30,8 @@ const fn heap_vec_offset() -> i32 {
 }
 
 // A FlatVector carries the BiasedRc box pointer, and the steel_vec::Vec sits in
-// its data. The elements are contiguous, so reading one is a single load.
+// its data. The elements are contiguous, so an element is at the buffer pointer
+// plus a scaled index.
 const fn flat_vec_offset() -> i32 {
     steel_rc::BiasedRc::<steel_vec::Vec<SteelVal>>::data_offset() as i32
 }
@@ -2932,7 +2933,8 @@ fn slow_path_struct_getter(
     }
 }
 
-// lock_ptr is the base of the SpinLock, so the flag has to live at offset 0.
+// `emit_spinlock_inline`'s lock_ptr is the base of the SpinLock, so the flag has
+// to live at offset 0.
 //
 // unbox_value_checked_register reaches the payload with SpinLock<SteelVal>'s
 // data offset, which only lands right while HeapAllocated keeps value first.

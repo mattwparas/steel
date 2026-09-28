@@ -22,7 +22,7 @@ use std::hash::{Hash, Hasher};
 pub mod weak;
 
 /// Width of the owner id in the biased half-word. The owner's count gets the
-/// rest of the word.
+/// rest of the half-word.
 ///
 /// BRC gives the id 18 bits and the count 14 (PACT'18, Fig. 5). We swap that,
 /// since the count is the one that runs out. Every live frame of a recursive
@@ -31,8 +31,8 @@ pub mod weak;
 /// the biased count drains to zero the object merges and loses its owner for
 /// good, so every later count change is atomic and out of line.
 ///
-/// Ids are recycled, and a thread that can't get one gets `SENTINEL` and never
-/// owns anything.
+/// 14 bits of id allow 16382 live threads. Ids are recycled, and a thread that
+/// can't get one gets `SENTINEL` and never owns anything.
 const TID_BITS: u32 = 14;
 const MAX_TID: u32 = (1 << TID_BITS) - 1;
 
@@ -192,8 +192,8 @@ pub const fn biased_offset() -> usize {
 ///
 /// Generated code reads this to decide whether any thread other than the owner
 /// holds a reference. Every non-owner acquire lands here, so a zero word means
-/// every live reference belongs to the owner, and nothing else can be touching
-/// the payload.
+/// every live reference belongs to the owner. A caller holding one is then the
+/// owner thread, and nothing else can be touching the payload.
 pub const fn shared_offset() -> usize {
     core::mem::offset_of!(RcWord, shared)
 }

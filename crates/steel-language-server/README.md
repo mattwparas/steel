@@ -111,6 +111,14 @@ calls to it (wrong argument types, wrong number of arguments) and show the types
 The names are the `ValueType` variants the `steel_derive` function macros use (`Int`, `Float`, `Number`,
 `String`, `Symbol`, `List`, `Pair`, `Vector`, `MutableVector`, `HashMap`, `HashSet`, `Procedure`, `Any`, ...).
 A union is `(or List Pair)`, and `(rest T)` gives the type of every argument past the fixed ones.
+A value of a host type (one implementing `Custom`) is written with its full Rust type name, as
+`core::any::type_name` gives it:
+
+```scheme
+(#%module-add demo "make-counter" (#%signature (args) (returns (custom "my_app::Counter"))))
+(#%module-add demo "counter-value" (#%signature (args (custom "my_app::Counter")) (returns Int)))
+```
+
 The language server trusts these: a signature claiming a type the function does not actually require will
 produce wrong errors.
 
@@ -126,8 +134,10 @@ std::fs::write(
 ```
 
 `emit_lsp_definitions` describes every module the engine has beyond a stock one. Functions registered with
-`register_fn` get signatures read from their Rust argument and return types, so they are always accurate;
-other values are listed with `void`. Regenerate the file when the registered functions change.
+`register_fn` get signatures read from their Rust argument and return types; other values are listed with
+`void`. A function registered with `register_fn_with_ctx` is listed without its context argument, since
+callers never pass it. Functions registered directly on the engine rather than in a module are not included.
+Regenerate the file when the registered functions change.
 
 Any symbol added with `#%ignore-unused-identifier` will escape that symbol from being shown as an unused identifier.
 

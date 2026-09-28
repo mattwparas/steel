@@ -3292,8 +3292,9 @@ impl FunctionSizeEstimator {
         }
 
         // `inline_prim_density` is the share of a body, in percent, that has to be
-        // primitive calls for it to be inlined. 0 judges on size alone. Above
-        // roughly 15 the filter rejects the case-lambda bodies that
+        // primitive calls for it to be inlined. 0 judges on size alone. The
+        // default of 5 did best on the r7rs benchmarks and also cuts compile
+        // time. Above roughly 15 the filter rejects the case-lambda bodies that
         // LowerRestArguments specializes.
         if crate::config::config().inline_prim_density > 0 {
             let prims = self.prim_map.get(&id).copied().unwrap_or(0);
