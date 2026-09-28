@@ -94,9 +94,6 @@ pub struct SemanticInformation {
     /// `(define x (%module-get% %-builtin-module-... 'x))`. Set for any builtin
     /// module, where `builtin` is only set for the ones in `MODULE_IDENTIFIERS`.
     pub from_builtin_module: bool,
-    /// For such a global, the name of the value in its module. With a prefix,
-    /// as in `(require-builtin steel/strings as s.)`, this differs from the
-    /// global's own name.
     pub builtin_name: Option<InternedString>,
 }
 
@@ -3761,8 +3758,6 @@ where
 
 struct RemoveUnusedDefineImports<'a> {
     analysis: &'a Analysis,
-    // Names the module provides. Its exports are generated later, so nothing
-    // in the module refers to a builtin it only provides.
     provided: &'a FxHashSet<InternedString>,
     depth: usize,
 }
@@ -3787,8 +3782,6 @@ impl<'a> RemoveUnusedDefineImports<'a> {
             .resolve()
             .split_once(MANGLER_SEPARATOR)
             .map_or(name.resolve(), |(_, local)| local);
-        // An export under the builtin's own name falls back to the prelude's
-        // binding, which is the same function. Under a prefix it needs this one.
         let renamed = builtin_module_get_name(define).is_some_and(|b| b.resolve() != local);
         if renamed && self.provided.contains(&InternedString::from(local)) {
             return false;
@@ -3817,7 +3810,6 @@ pub(crate) fn is_a_builtin_module_get(def: &Define) -> bool {
     false
 }
 
-/// The name `(define x (%module-get% %-builtin-module-... 'name))` looks up.
 fn builtin_module_get_name(def: &Define) -> Option<InternedString> {
     if !is_a_builtin_module_get(def) {
         return None;
@@ -5996,8 +5988,6 @@ impl<'a> ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
         }
     }
 
-    // The reserved name of the builtin the global `definition` is bound to. A
-    // prefixed `require-builtin` binds it under another name.
     fn reserved_name(&self, definition: Option<SyntaxObjectId>) -> Option<InternedString> {
         let name = self.analysis.info.get(&definition?)?.builtin_name?;
         Some(builtin_to_reserved(name.resolve()))
@@ -9640,8 +9630,6 @@ impl<'a> SemanticAnalysis<'a> {
         }
     }
 
-    /// Removes builtin module imports nothing uses, keeping the ones named in
-    /// `provided`.
     pub fn remove_unused_define_imports(&mut self, provided: &FxHashSet<InternedString>) {
         let mut unused = RemoveUnusedDefineImports::new(&self.analysis, provided);
         for expr in self.exprs.iter_mut() {

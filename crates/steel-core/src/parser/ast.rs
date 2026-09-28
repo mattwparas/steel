@@ -88,8 +88,6 @@ impl TryFromSteelValVisitorForExprKind {
             BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 RealLiteral::Int(IntLiteral::Big(Box::new(x.unwrap()))).into(),
             )))),
-            // Vectors convert back to vector literals. As a list they would be a
-            // different type, which changes the meaning of a constant folded from one.
             VectorV(lst) => {
                 let items: core::result::Result<ThinVec<ExprKind>, _> =
                     lst.iter().map(|x| self.visit(x)).collect();
@@ -258,7 +256,6 @@ impl TryFrom<&SteelVal> for ExprKind {
                 Complex(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     complex_to_literal(x)?.into(),
                 )))),
-                // Vector values become vector literals, as above.
                 VectorV(lst) => {
                     let items: core::result::Result<ThinVec<ExprKind>, &'static str> =
                         lst.iter().map(|x| inner_try_from(x, depth + 1)).collect();

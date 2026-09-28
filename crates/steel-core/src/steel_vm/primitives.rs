@@ -1449,12 +1449,6 @@ pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(args.windows(2).all(|x| x[0] == x[1])))
 }
 
-/// The shared body of `<`, `<=`, `>` and `>=`.
-///
-/// Values that cannot be ordered, such as a number and a string, raise an error
-/// as R7RS requires, matching the jit's fallback helpers. Every pair is checked,
-/// so `(< 3 2 "x")` raises even though the first pair is already false, like
-/// guile.
 #[inline(always)]
 fn ordering_primitive(
     args: &[SteelVal],

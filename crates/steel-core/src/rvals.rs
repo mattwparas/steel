@@ -2909,8 +2909,6 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
             number_equality(&x.re, &y.re)? == BoolV(true)
                 && number_equality(&x.im, &y.im)? == BoolV(true)
         }
-        // A complex equals a real number when its imaginary part is zero (an
-        // inexact zero can survive normalization, e.g. `1+0.0i`).
         (Complex(x), other @ (IntV(_) | NumV(_) | Rational(_) | BigNum(_) | BigRational(_)))
         | (other @ (IntV(_) | NumV(_) | Rational(_) | BigNum(_) | BigRational(_)), Complex(x)) => {
             number_equality(&x.re, other)? == BoolV(true)

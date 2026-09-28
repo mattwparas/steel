@@ -1281,7 +1281,6 @@ pub fn vec_length(args: &[SteelVal]) -> Result<SteelVal> {
 pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::IntV(lower), SteelVal::IntV(upper)) => {
-            // Negative bounds are an error, same as `range`.
             if *lower < 0 || *upper < 0 {
                 stop!(Generic => "range-vec expects a positive integer");
             }

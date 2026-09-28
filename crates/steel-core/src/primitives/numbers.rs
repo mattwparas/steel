@@ -2239,8 +2239,6 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
         .cloned()
         .unwrap_or(SteelVal::NumV(core::f64::consts::E));
 
-    // Check types first, otherwise the `(log 1 base)` shortcut below accepts
-    // any base.
     if !numberp(first) || !numberp(&base) {
         stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
     }

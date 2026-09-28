@@ -422,7 +422,6 @@ pub struct Compiler {
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
     memoization_table: MemoizationTable,
-    // Module references to builtins, by the reserved name each was replaced with.
     mangled_identifiers: FxHashMap<InternedString, InternedString>,
     // Try this out?
     lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
