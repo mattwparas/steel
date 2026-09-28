@@ -142,6 +142,7 @@ test_harness_success! {
     list_append,
     list_functions,
     local_struct,
+    macro_quoted_names,
     matcher,
     maxsubseq,
     merge_sort,

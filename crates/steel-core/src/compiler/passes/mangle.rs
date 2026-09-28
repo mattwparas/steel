@@ -1,6 +1,9 @@
 use compact_str::CompactString;
 use rustc_hash::{FxHashMap, FxHashSet};
-use steel_parser::ast::{List, DEFINE};
+use steel_parser::ast::{
+    List, DEFINE, QUASIQUOTE, QUOTE, RAW_QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, UNQUOTE,
+    UNQUOTE_COMMA, UNQUOTE_SPLICING,
+};
 
 use crate::{
     compiler::{modules::MANGLER_PREFIX, program::BEGIN},
@@ -150,6 +153,40 @@ impl NameMangler {
             self.visit(expr);
         }
     }
+
+    fn visit_quasiquoted(&mut self, expr: &mut ExprKind, depth: usize) {
+        match expr {
+            ExprKind::List(l) => {
+                let depth = match l.first_ident() {
+                    Some(head) if *head == *QUASIQUOTE => depth + 1,
+                    Some(head) if is_unquote(head) => depth - 1,
+                    _ => depth,
+                };
+                for expr in &mut l.args {
+                    if depth == 0 {
+                        self.visit(expr);
+                    } else {
+                        self.visit_quasiquoted(expr, depth);
+                    }
+                }
+            }
+            ExprKind::Vector(v) => {
+                for expr in &mut v.args {
+                    self.visit_quasiquoted(expr, depth);
+                }
+            }
+            ExprKind::Quote(q) => self.visit_quasiquoted(&mut q.expr, depth),
+            _ => {}
+        }
+    }
+}
+
+fn is_unquote(head: &InternedString) -> bool {
+    *head == *UNQUOTE
+        || *head == *UNQUOTE_COMMA
+        || *head == *RAW_UNQUOTE
+        || *head == *UNQUOTE_SPLICING
+        || *head == *RAW_UNQUOTE_SPLICING
 }
 
 pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
@@ -190,10 +227,26 @@ impl VisitorMutRefUnit for NameMangler {
     #[inline]
     fn visit_quote(&mut self, _q: &mut Quote) {}
 
+    // (Unfortunately) A macro template needs to keep `(quote x)` and `(quasiquote x)` as lists
     #[inline]
     fn visit_list(&mut self, l: &mut List) {
-        for expr in &mut l.args {
-            self.visit(expr);
+        let quote_keyword = l
+            .first()
+            .and_then(|head| head.atom_syntax_object())
+            .is_some_and(|head| head.ty == TokenType::Quote);
+        match l.first_ident() {
+            _ if quote_keyword => {}
+            Some(head) if *head == *QUOTE || *head == *RAW_QUOTE => {}
+            Some(head) if *head == *QUASIQUOTE => {
+                for expr in &mut l.args[1..] {
+                    self.visit_quasiquoted(expr, 1);
+                }
+            }
+            _ => {
+                for expr in &mut l.args {
+                    self.visit(expr);
+                }
+            }
         }
     }
 }

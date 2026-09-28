@@ -608,3 +608,38 @@ mod find_closest_match_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod exported_macro_quote_tests {
+    use crate::steel_vm::engine::Engine;
+
+    #[test]
+    fn quoted_names_in_exported_macros() {
+        let mut engine = Engine::new();
+        engine.register_steel_module(
+            "quoting-macros".to_string(),
+            "(provide tick long-quote quoted-list quasi nested)
+             (define (helper x) x)
+             (define counter 10)
+             (define-syntax tick (syntax-rules () [(_) 'helper]))
+             (define-syntax long-quote (syntax-rules () [(_) (quote helper)]))
+             (define-syntax quoted-list (syntax-rules () [(_) (quote (helper counter))]))
+             (define-syntax quasi
+               (syntax-rules () [(_) `(helper ,counter ,@(list (helper 3)))]))
+             (define-syntax nested
+               (syntax-rules () [(_) `(helper `(counter ,(counter ,counter)))]))"
+                .to_string(),
+        );
+        let values = engine
+            .compile_and_run_raw_program(
+                "(require \"quoting-macros\")
+                 (list (tick) (long-quote) (quoted-list) (quasi) (nested))",
+            )
+            .unwrap();
+        assert_eq!(
+            values.last().unwrap().to_string(),
+            "(helper helper (helper counter) (helper 10 3) \
+             (helper (quasiquote (counter (unquote (counter 10))))))"
+        );
+    }
+}
