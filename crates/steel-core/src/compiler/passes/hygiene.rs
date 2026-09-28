@@ -13,7 +13,11 @@ use super::VisitorMutRefUnit;
 // where resolving by name would pick a different binder than the marks.
 //
 // Has to run after expansion and lowering, and before constant evaluation.
-
+//
+// Its a bit odd - we now have a few various implementations of things to enforce hygience.
+// There is the `unresolved` and `introduced_via_macro` flags. At some point, we'll want
+// to do a full on rewrite of this part most likely. But for now, this pass is a decent
+// attempt at fixing some bugs that have been reported.
 struct Binder {
     name: InternedString,
     mark: ExpansionMark,
