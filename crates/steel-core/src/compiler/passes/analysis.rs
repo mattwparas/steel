@@ -3761,12 +3761,41 @@ where
 
 struct RemoveUnusedDefineImports<'a> {
     analysis: &'a Analysis,
+    // Names the module provides. Its exports are generated later, so nothing
+    // in the module refers to a builtin it only provides.
+    provided: &'a FxHashSet<InternedString>,
     depth: usize,
 }
 
 impl<'a> RemoveUnusedDefineImports<'a> {
-    pub fn new(analysis: &'a Analysis) -> Self {
-        Self { analysis, depth: 0 }
+    pub fn new(analysis: &'a Analysis, provided: &'a FxHashSet<InternedString>) -> Self {
+        Self {
+            analysis,
+            provided,
+            depth: 0,
+        }
+    }
+
+    fn is_unused(&self, define: &Define) -> bool {
+        if !is_a_builtin_definition(define) {
+            return false;
+        }
+        let Some(name) = define.name.atom_identifier() else {
+            return false;
+        };
+        let local = name
+            .resolve()
+            .split_once(MANGLER_SEPARATOR)
+            .map_or(name.resolve(), |(_, local)| local);
+        // An export under the builtin's own name falls back to the prelude's
+        // binding, which is the same function. Under a prefix it needs this one.
+        let renamed = builtin_module_get_name(define).is_some_and(|b| b.resolve() != local);
+        if renamed && self.provided.contains(&InternedString::from(local)) {
+            return false;
+        }
+        self.analysis
+            .get(define.name.atom_syntax_object().unwrap())
+            .is_some_and(|info| info.usage_count == 0)
     }
 }
 
@@ -3858,16 +3887,11 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => {
-                if is_a_builtin_definition(d) {
-                    if let Some(analysis) = self.analysis.get(d.name.atom_syntax_object().unwrap())
-                    {
-                        if analysis.usage_count == 0 {
-                            *expr = ExprKind::Begin(Box::new(Begin::new(
-                                vec![],
-                                RawSyntaxObject::default(TokenType::Begin),
-                            )));
-                        }
-                    }
+                if self.is_unused(d) {
+                    *expr = ExprKind::Begin(Box::new(Begin::new(
+                        vec![],
+                        RawSyntaxObject::default(TokenType::Begin),
+                    )));
                 }
             }
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
@@ -3892,14 +3916,8 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
 
             for (idx, expr) in begin.exprs.iter().enumerate() {
                 if let ExprKind::Define(d) = expr {
-                    if is_a_builtin_definition(d) {
-                        if let Some(analysis) =
-                            self.analysis.get(d.name.atom_syntax_object().unwrap())
-                        {
-                            if analysis.usage_count == 0 {
-                                exprs_to_drop.push(idx);
-                            }
-                        }
+                    if self.is_unused(d) {
+                        exprs_to_drop.push(idx);
                     }
                 }
             }
@@ -6114,7 +6132,11 @@ fn collect_redefined_builtins(expr: &ExprKind, redefined: &mut FxHashSet<Interne
     match expr {
         ExprKind::Define(define) => {
             if let Some(name) = define.name.atom_identifier() {
-                if !is_a_builtin_definition(define)
+                // A prefixed `require-builtin` can bind a prelude name to
+                // another builtin, as `string-` does `length` of steel/lists.
+                let redefines = !is_a_builtin_definition(define)
+                    || builtin_module_get_name(define).is_some_and(|builtin| builtin != *name);
+                if redefines
                     && crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS
                         .with(|x| x.contains(name))
                 {
@@ -9618,8 +9640,10 @@ impl<'a> SemanticAnalysis<'a> {
         }
     }
 
-    pub fn remove_unused_define_imports(&mut self) {
-        let mut unused = RemoveUnusedDefineImports::new(&self.analysis);
+    /// Removes builtin module imports nothing uses, keeping the ones named in
+    /// `provided`.
+    pub fn remove_unused_define_imports(&mut self, provided: &FxHashSet<InternedString>) {
+        let mut unused = RemoveUnusedDefineImports::new(&self.analysis, provided);
         for expr in self.exprs.iter_mut() {
             unused.visit(expr);
         }

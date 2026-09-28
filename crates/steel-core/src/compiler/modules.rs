@@ -2633,8 +2633,15 @@ impl<'a> ModuleBuilder<'a> {
             // Remove the unused defines since this module
             // won't need to reference these later from any macros
             {
+                let provided = module
+                    .get_provides()
+                    .iter()
+                    .filter_map(|provide| provide.list())
+                    .flat_map(|provide| provide.args.iter().skip(1))
+                    .filter_map(|name| name.atom_identifier().copied())
+                    .collect();
                 let mut sem = SemanticAnalysis::new(&mut module.ast);
-                sem.remove_unused_define_imports();
+                sem.remove_unused_define_imports(&provided);
             }
 
             // TODO: Revisit with some caching later

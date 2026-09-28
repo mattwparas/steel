@@ -966,6 +966,46 @@ mod typed_host_call_tests {
 }
 
 #[cfg(test)]
+mod prefixed_builtin_tests {
+    use crate::steel_vm::engine::Engine;
+
+    fn run(engine: &mut Engine, src: &str) -> String {
+        let values = engine.compile_and_run_raw_program(src.to_string()).unwrap();
+        values.last().unwrap().to_string()
+    }
+
+    #[test]
+    fn prefixed_prelude_name_in_a_later_compile() {
+        // `string-length` is steel/lists' `length` here, also in later inputs.
+        let mut engine = Engine::new();
+        run(&mut engine, "(require-builtin steel/lists as string-)");
+        assert_eq!(run(&mut engine, "(string-length (list 1 2 3))"), "3");
+    }
+
+    #[test]
+    fn modules_that_only_provide_prefixed_builtins() {
+        let mut engine = Engine::new();
+        engine.register_steel_module(
+            "reexport-strings".to_string(),
+            "(require-builtin steel/strings as s.) (provide s.string-upcase)".to_string(),
+        );
+        engine.register_steel_module(
+            "reexport-lists".to_string(),
+            "(require-builtin steel/lists as string-) (provide string-length)".to_string(),
+        );
+        assert_eq!(
+            run(
+                &mut engine,
+                "(require \"reexport-strings\")
+                 (require \"reexport-lists\")
+                 (list (s.string-upcase \"hi\") (string-length (list 1 2 3)))"
+            ),
+            "(\"HI\" 3)"
+        );
+    }
+}
+
+#[cfg(test)]
 mod set_after_compile_tests {
     //! Each `run` is a separate compile, like input at the repl. Callers are
     //! compiled before a later input `set!`s the global they call. A callee is
