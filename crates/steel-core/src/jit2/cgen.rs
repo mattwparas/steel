@@ -3623,6 +3623,19 @@ enum OperandHelper {
     TwoSafe(Helper<2, true, true, false>),
 }
 
+impl OperandHelper {
+    fn name(&self) -> &'static str {
+        match self {
+            OperandHelper::One(h) => h.name,
+            OperandHelper::Two(h) => h.name,
+            OperandHelper::Three(h) => h.name,
+            OperandHelper::Four(h) => h.name,
+            OperandHelper::OneSafe(h) => h.name,
+            OperandHelper::TwoSafe(h) => h.name,
+        }
+    }
+}
+
 /// The helper for `op` applied to `payload` operands, if there is one at that
 /// arity.
 fn operand_helper(op: OpCode, payload: usize) -> Option<OperandHelper> {
@@ -8945,6 +8958,16 @@ impl FunctionTranslator<'_> {
             }
             panic!("no helper for {op:?} with {payload} operands");
         };
+
+        // The collector only sees the vm stack, so a helper that can collect
+        // needs every value pending below its operands spilled first, as the
+        // vector constructors do.
+        if helper_collects(helper.name()) {
+            let below = self.shadow_stack.len().saturating_sub(payload);
+            for i in 0..below {
+                self.shadow_spill(i);
+            }
+        }
 
         let result = match helper {
             OperandHelper::One(h) => {
