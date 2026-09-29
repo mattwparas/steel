@@ -586,10 +586,15 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         define.body = self.visit(define.body)?;
 
-        if let Some(c) = self.to_constant(&define.body) {
-            self.bindings.borrow_mut().bind(identifier, c);
-        } else {
-            self.bindings.borrow_mut().bind_non_constant(identifier);
+        // Folding a binding is only sound when every `set!` of it is visible in this
+        // compilation unit. That holds for local scopes, but a top-level define is a
+        // global: a later program run against the same engine can `set!` it, and
+        // closures compiled now must observe that rather than an inlined literal.
+        let is_global = self.bindings.borrow().parent.is_none();
+
+        match self.to_constant(&define.body) {
+            Some(c) if !is_global => self.bindings.borrow_mut().bind(identifier, c),
+            _ => self.bindings.borrow_mut().bind_non_constant(identifier),
         }
 
         Ok(ExprKind::Define(define))
