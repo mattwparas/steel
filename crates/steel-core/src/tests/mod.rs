@@ -162,6 +162,7 @@ test_harness_success! {
     set_local,
     set_tail_call,
     shift_reset,
+    local_reset_shadow,
     sicp_example,
     sieve,
     simple_stream,
