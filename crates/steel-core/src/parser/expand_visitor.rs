@@ -203,6 +203,37 @@ fn visit_let_form<V: VisitorMutRef<Output = Result<()>>>(
     Ok(())
 }
 
+// HACK: template identifiers that collide with a local get renamed to `##name`. If that
+// identifier was a reference to a macro, put the original name back so that things
+// behave
+fn restore_hygienic_macro_head(
+    l: &mut List,
+    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+    is_macro: impl Fn(&InternedString) -> bool,
+) {
+    if let Some(ExprKind::Atom(Atom {
+        syn:
+            SyntaxObject {
+                ty: TokenType::Identifier(s),
+                unresolved: true,
+                ..
+            },
+    })) = l.args.first_mut()
+    {
+        if in_scope.contains(s) || is_macro(s) {
+            return;
+        }
+
+        if let Some(original) = s.resolve().strip_prefix("##") {
+            let original: InternedString = original.into();
+
+            if is_macro(&original) {
+                *s = original;
+            }
+        }
+    }
+}
+
 pub struct Expander<'a> {
     map: &'a FxHashMap<InternedString, SteelMacro>,
     exclusions: &'a HashSet<InternedString>,
@@ -305,6 +336,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
+                restore_hygienic_macro_head(l, &self.in_scope_values, |name| {
+                    self.map.contains_key(name) && !self.exclusions.contains(name)
+                });
+
                 match l.first() {
                     // TODO: Come back to this?
                     Some(ExprKind::Atom(
@@ -459,19 +494,39 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             stop!(BadSyntax => "define has neither head nor body"; l.location);
                         }
 
-                        match &l.args[1] {
+                        // The function body gets its own scope, so internal defines
+                        // don't leak out
+                        let is_function = match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
                                 self.in_scope_values.define(*l.first_ident().unwrap());
+                                true
                             }
 
                             ExprKind::Atom(a) if a.ident().is_some() => {
                                 self.in_scope_values.define(*a.ident().unwrap());
+                                false
                             }
-                            _ => {}
+                            _ => false,
+                        };
+
+                        if is_function {
+                            self.in_scope_values.push_layer();
+
+                            if let ExprKind::List(signature) = &l.args[1] {
+                                for arg in signature.args.iter().skip(1) {
+                                    if let Some(ident) = arg.atom_identifier() {
+                                        self.in_scope_values.define(*ident);
+                                    }
+                                }
+                            }
                         }
 
                         for expr in l.args[2..].iter_mut() {
                             self.visit(expr)?;
+                        }
+
+                        if is_function {
+                            self.in_scope_values.pop_layer();
                         }
 
                         return Ok(());
@@ -490,11 +545,12 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         if let Some(m) = self.map.get(s) {
                             if !self.exclusions.contains(s) {
                                 // If this macro has been overwritten by any local value, respect
-                                // the local binding and do not expand the macro
-                                if !self.in_scope_values.contains(s) && self.source_id.is_none()
-                                    || sp.source_id() == m.location.source_id()
-                                    || *unresolved
-                                {
+                                // the local binding and do not expand the macro, unless the
+                                // identifier came from a macro template
+                                let visible = self.source_id.is_none()
+                                    || sp.source_id() == m.location.source_id();
+
+                                if *unresolved || visible && !self.in_scope_values.contains(s) {
                                     let span = *sp;
 
                                     let mut expanded = m.expand(
@@ -559,6 +615,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
     }
 
     fn visit_define(&mut self, define: &mut super::ast::Define) -> Self::Output {
+        if let Some(ident) = define.name.atom_identifier() {
+            self.in_scope_values.define(*ident);
+        }
+
         self.visit(&mut define.body)?;
         Ok(())
     }
@@ -680,6 +740,13 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
+                restore_hygienic_macro_head(l, &self.in_scope_values, |name| {
+                    self.overlays
+                        .iter()
+                        .any(|x| x.map.in_scope_macros.contains_key(name))
+                        || self.map.contains_key(name)
+                });
+
                 match l.first() {
                     // TODO: Come back to this?
                     Some(ExprKind::Atom(
@@ -793,19 +860,39 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             stop!(BadSyntax => "define has neither head nor body"; l.location);
                         }
 
-                        match &l.args[1] {
+                        // The function body gets its own scope, so internal defines
+                        // don't leak out
+                        let is_function = match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
                                 self.in_scope_values.define(*l.first_ident().unwrap());
+                                true
                             }
 
                             ExprKind::Atom(a) if a.ident().is_some() => {
                                 self.in_scope_values.define(*a.ident().unwrap());
+                                false
                             }
-                            _ => {}
+                            _ => false,
+                        };
+
+                        if is_function {
+                            self.in_scope_values.push_layer();
+
+                            if let ExprKind::List(signature) = &l.args[1] {
+                                for arg in signature.args.iter().skip(1) {
+                                    if let Some(ident) = arg.atom_identifier() {
+                                        self.in_scope_values.define(*ident);
+                                    }
+                                }
+                            }
                         }
 
                         for expr in l.args[2..].iter_mut() {
                             self.visit(expr)?;
+                        }
+
+                        if is_function {
+                            self.in_scope_values.pop_layer();
                         }
 
                         return Ok(());
@@ -816,6 +903,7 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             SyntaxObject {
                                 ty: TokenType::Identifier(s),
                                 span: sp,
+                                unresolved,
                                 ..
                             },
                     })) => {
@@ -837,10 +925,12 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             .or_else(|| self.map.get(s))
                         {
                             // If this macro has been overwritten by any local value, respect
-                            // the local binding and do not expand the macro
-                            if !self.in_scope_values.contains(s) && self.source_id.is_none()
-                                || self.source_id == m.location.source_id()
-                            {
+                            // the local binding and do not expand the macro, unless the
+                            // identifier came from a macro template
+                            let visible = self.source_id.is_none()
+                                || self.source_id == m.location.source_id();
+
+                            if *unresolved || visible && !self.in_scope_values.contains(s) {
                                 // if s.resolve().ends_with("skip-compile") {
                                 //     println!("Expanding skip compile: {}", l);
                                 // }
@@ -912,6 +1002,10 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
     }
 
     fn visit_define(&mut self, define: &mut super::ast::Define) -> Self::Output {
+        if let Some(ident) = define.name.atom_identifier() {
+            self.in_scope_values.define(*ident);
+        }
+
         self.visit(&mut define.body)?;
         Ok(())
     }
