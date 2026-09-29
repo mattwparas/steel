@@ -8,6 +8,8 @@
 //! the function can return. [`ValueType::Int`] means a fixnum. A function that
 //! can return a bignum is [`ValueType::Number`].
 
+use crate::gc::shared::ShareableMut;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub enum ValueType {
     /// Nothing known.

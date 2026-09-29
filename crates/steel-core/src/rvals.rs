@@ -1940,7 +1940,9 @@ impl Hash for SteelByteVector {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // `steel_vec::Vec` has no `Hash`, so hash the bytes as a slice, which
         // hashes the same as a `std::vec::Vec<u8>`.
-        self.vec.read().as_ref().hash(state);
+        let guard = self.vec.read();
+        let bytes: &[u8] = &guard;
+        bytes.hash(state);
     }
 }
 

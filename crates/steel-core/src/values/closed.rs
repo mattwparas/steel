@@ -14,13 +14,12 @@ use crate::rvals::cycles::BreadthFirstSearchSteelValReferenceVisitor2;
 #[cfg(feature = "sync")]
 use crate::rvals::SteelValPointer;
 
+#[cfg(feature = "sync")]
+use crate::gc::shared::{MutContainer, StandardShared};
 use crate::values::lock::SpinLock;
 use crate::{
     compiler::map::SymbolMap,
-    gc::{
-        shared::{MutContainer, ShareableMut, StandardShared, StandardSharedMut, WeakShared},
-        GcMut,
-    },
+    gc::{shared::ShareableMut, GcMut},
     rvals::{
         AsRefSteelVal, Custom, IntoSteelVal, OpaqueIterator, RestArgsIter, SteelComplex,
         SteelVector,
@@ -60,7 +59,7 @@ use super::{
     functions::BoxedDynFunction,
     lazy_stream::LazyStream,
     port::SteelPort,
-    structs::{StructRef, UserDefinedStruct},
+    structs::StructRef,
     transducers::{Reducer, Transducer},
 };
 
@@ -1431,7 +1430,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
         // be snatched on demand?
         self.elements.extend(
             core::iter::repeat_with(|| {
-                StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
+                steel_rc::weak::Arc::new(SpinLock::new(HeapAllocated::new(T::empty())))
             })
             .take(current),
         );
@@ -1476,7 +1475,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
         heap_guard.value = value;
 
         heap_guard.mark_reachable();
-        let weak_ptr = StandardShared::downgrade(&guard);
+        let weak_ptr = steel_rc::weak::Arc::downgrade(guard);
         drop(heap_guard);
 
         // self.elements[self.cursor] = pointer;
@@ -1558,7 +1557,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
     // Full weak collection
     fn weak_collection(&mut self) -> usize {
         // Just mark them to be dead
-        let res = self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0);
+        let res = self.collect_on_condition(|inner| steel_rc::weak::Arc::weak_count(inner) == 0);
         #[cfg(debug_assertions)]
         {
             assert!(!self.elements[self.cursor].read().is_reachable());

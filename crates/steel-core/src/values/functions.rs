@@ -211,7 +211,10 @@ impl Default for ByteCodeLambda {
             is_multi_arity: false,
             header: None,
             body_exp: Vec::new().into(),
+            #[cfg(feature = "sync")]
             contract: SharedMut::new(MutContainer::new(None)),
+            #[cfg(not(feature = "sync"))]
+            contract: MutContainer::new(None),
             captures: Default::default(),
             #[cfg(feature = "jit2")]
             super_instructions: JitEntry::new(None),

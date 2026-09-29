@@ -2748,11 +2748,21 @@ fn meta_module() -> BuiltInModule {
     module.register_native_fn_definition(super::vm::jit::JIT_COMPILE_TWO_DEFINITION);
     #[cfg(feature = "jit2")]
     module.register_native_fn_definition(super::vm::jit::JIT_DRAIN_DEFINITION);
+    #[cfg(not(feature = "jit2"))]
+    module.register_native_fn_definition(JIT_DRAIN_NOOP_DEFINITION);
 
     #[cfg(feature = "sync")]
     module.register_native_fn_definition(CLOSURE_TO_BOXED_FUNCTION_DEFINITION);
 
     module
+}
+
+// Without the jit nothing is ever queued for compilation, so there is nothing
+// to wait for.
+#[cfg(not(feature = "jit2"))]
+#[steel_derive::function(name = "#%jit-drain", returns = Void, args(), raises = Never)]
+fn jit_drain_noop() -> SteelVal {
+    SteelVal::Void
 }
 
 /// Returns the command line passed to this process,
