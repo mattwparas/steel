@@ -494,8 +494,6 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             stop!(BadSyntax => "define has neither head nor body"; l.location);
                         }
 
-                        // The function body gets its own scope, so internal defines
-                        // don't leak out
                         let is_function = match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
                                 self.in_scope_values.define(*l.first_ident().unwrap());
@@ -860,8 +858,6 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             stop!(BadSyntax => "define has neither head nor body"; l.location);
                         }
 
-                        // The function body gets its own scope, so internal defines
-                        // don't leak out
                         let is_function = match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
                                 self.in_scope_values.define(*l.first_ident().unwrap());
