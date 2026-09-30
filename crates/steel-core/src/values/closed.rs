@@ -15,7 +15,7 @@ use crate::rvals::cycles::BreadthFirstSearchSteelValReferenceVisitor2;
 use crate::rvals::SteelValPointer;
 
 #[cfg(feature = "sync")]
-use crate::gc::shared::{MutContainer, StandardShared};
+use crate::gc::shared::MutContainer;
 use crate::values::lock::SpinLock;
 use crate::{
     compiler::map::SymbolMap,
@@ -591,22 +591,45 @@ fn slot_is_reachable<T: Clone + core::fmt::Debug + PartialEq + Eq>(slot: &HeapEl
     unsafe { slot.get_value().is_reachable() }
 }
 
+/// A slot can be handed out again only once nothing points at it. An unreachable
+/// cell can still have handles, held by garbage or by something the mark skips
+/// like a weak box, and reusing it would show them an unrelated value.
+fn slot_is_free<T: Clone + core::fmt::Debug + PartialEq + Eq>(slot: &HeapElement<T>) -> bool {
+    !slot_is_reachable(slot) && steel_rc::weak::Arc::weak_count(slot) == 0
+}
+
 #[cfg(feature = "sync")]
 static MARKER: std::sync::LazyLock<ParallelMarker> = std::sync::LazyLock::new(ParallelMarker::new);
 
 #[cfg(feature = "sync")]
+struct Registration {
+    value: SteelVal,
+    finalizer: SteelVal,
+    // Set by a collection that found the value unreachable, for a value that
+    // lives on the heap. Any other value is ready once nothing else holds it.
+    ready: bool,
+}
+
+#[cfg(feature = "sync")]
+struct WillState {
+    registrations: Mutex<Vec<Registration>>,
+    // Signalled when a value is registered or a collection makes one ready.
+    wake: Sender<()>,
+    woken: Receiver<()>,
+}
+
+/// Every live will executor, so a collection can find what they hold.
+#[cfg(feature = "sync")]
+static WILL_EXECUTORS: Lazy<Mutex<Vec<std::sync::Weak<WillState>>>> =
+    Lazy::new(|| Mutex::new(Vec::new()));
+
+/// A will executor, as in Racket. The collector doesn't trace what it holds, so
+/// a registered value nothing else reaches becomes ready and its finalizer runs
+/// on it. Until then the executor keeps the value, and everything it references,
+/// intact.
+#[cfg(feature = "sync")]
 pub struct WillExecutor {
-    // Determining if these are reachable should be either:
-    // * Value is a weak reference: then you use weak references
-    // * value is contained within _other_ will executors, so the will executors need to have references to
-    //   each other to check if ther value is contained within other ones.
-    values: Mutex<Vec<Option<Pair>>>,
-
-    // The incoming queue. We'll drain on this when the reified buffer of values
-    // is empty since we need to scan the values to find the right one.
-    incoming: Receiver<Pair>,
-
-    sender: Sender<Pair>,
+    state: Arc<WillState>,
 }
 
 #[cfg(not(feature = "sync"))]
@@ -614,108 +637,36 @@ pub struct WillExecutor {}
 
 #[cfg(feature = "sync")]
 impl WillExecutor {
-    fn block_until_incoming(&self) {
-        log::debug!(target: "will", "Blocking until something shows in the queue");
-        if let Ok(next) = self.incoming.recv() {
-            self.values.lock().unwrap().push(Some(next));
-        }
+    fn new() -> Self {
+        let (wake, woken) = crossbeam_channel::unbounded();
+        let state = Arc::new(WillState {
+            registrations: Mutex::new(Vec::new()),
+            wake,
+            woken,
+        });
+
+        let mut executors = WILL_EXECUTORS.lock().unwrap();
+        executors.retain(|executor| executor.strong_count() > 0);
+        executors.push(Arc::downgrade(&state));
+
+        Self { state }
     }
 
-    // Returns the pair of values next to be used. Not the best data structure choice.
+    fn wait(&self) {
+        let _ = self.state.woken.recv();
+    }
+
+    // Takes the first registration whose value is ready.
     fn find_next(&self) -> Option<Pair> {
-        log::debug!(target: "will", "Finding the next value in the will executor list");
-        // Proactively check if the value is ready to be received.
-        // TODO: Merge the behavior below and above since we can just return this value
-        // immediately without putting on to the queue.
-        let top_guard = self.values.lock().unwrap();
-        if top_guard.is_empty() && self.incoming.is_empty() {
-            log::debug!(target: "will", "Initial values list is empty. Waiting on the queue.");
-            drop(top_guard);
-
-            // Block until the next thing is pushed on
-            if let Ok(next) = self.incoming.recv() {
-                log::debug!(target: "will", "Found a value off the queue, trying to lock the values.");
-
-                self.values.lock().unwrap().push(Some(next));
-            }
-        } else {
-            drop(top_guard);
-        }
-
-        log::debug!(target: "will", "Done optimistically checking off the queue. Locking the values.");
-
-        let mut guard = self.values.lock().unwrap();
-
-        // Drain the incoming, push them in to the values:
-
-        while let Ok(incoming) = self.incoming.try_recv() {
-            // TODO: Use a free list here instead? That way we can
-            // re-use the space provided from earlier? Run some compaction
-            // every one in a while?
-            guard.push(Some(incoming));
-        }
-
-        log::debug!(target: "will", "Iterating over the values to drop");
-
-        // TODO:
-        // Periodically run a compaction on this
-        for pair_slot in guard.iter_mut() {
-            if let Some(value) = pair_slot {
-                let is_sole_reference = match value.car_ref() {
-                    SteelVal::Closure(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::VectorV(steel_vector) => Gc::strong_count(&steel_vector.0) == 1,
-                    SteelVal::StringV(steel_string) => Gc::strong_count(&steel_string.0) == 1,
-                    SteelVal::SymbolV(steel_string) => Gc::strong_count(&steel_string.0) == 1,
-                    SteelVal::Custom(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::HashMapV(steel_hash_map) => Gc::strong_count(&steel_hash_map.0) == 1,
-                    SteelVal::HashSetV(steel_hash_set) => Gc::strong_count(&steel_hash_set.0) == 1,
-                    SteelVal::CustomStruct(gc) => gc.strong_count() == 1,
-                    SteelVal::PortV(steel_port) => Gc::strong_count(&steel_port.port) == 1,
-                    SteelVal::IterV(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::ReducerV(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::FutureV(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::StreamV(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::BoxedFunction(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::ContinuationFunction(continuation) => {
-                        StandardShared::strong_count(&continuation.inner) == 1
-                    }
-                    SteelVal::ListV(generic_list) => generic_list.strong_count() == 1,
-                    SteelVal::Pair(gc) => Gc::strong_count(gc) == 1,
-
-                    // In theory, if this is a weak value, this can be the thing to check
-                    // the values.
-                    SteelVal::MutableVector(heap_ref) => {
-                        steel_rc::weak::Weak::weak_count(&heap_ref.inner) == 1
-                            || !heap_ref.inner.upgrade().unwrap().lock().is_reachable()
-                    }
-                    SteelVal::BoxedIterator(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::SyntaxObject(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::Boxed(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::HeapAllocated(heap_ref) => {
-                        steel_rc::weak::Weak::weak_count(&heap_ref.inner) == 1
-                            || !heap_ref.inner.upgrade().unwrap().lock().is_reachable()
-                    }
-                    SteelVal::Reference(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::BigNum(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::BigRational(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::Complex(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::ByteVector(steel_byte_vector) => {
-                        Gc::strong_count(&steel_byte_vector.vec) == 1
-                    }
-                    _ => false,
-                };
-
-                if is_sole_reference {
-                    let value = core::mem::take(pair_slot).unwrap();
-                    return Some(value);
-                }
-            }
-        }
-
-        // Compact the values
-        guard.retain(|x| x.is_some());
-
-        None
+        let mut registrations = self.state.registrations.lock().unwrap();
+        let index = registrations
+            .iter()
+            .position(|r| r.ready || only_referenced_here(&r.value))?;
+        let registration = registrations.remove(index);
+        Some(Pair {
+            car: registration.value,
+            cdr: registration.finalizer,
+        })
     }
 
     pub fn register(&self, key: SteelVal, func: SteelVal) -> Result<(), SteelErr> {
@@ -724,14 +675,89 @@ impl WillExecutor {
             stop!(TypeMismatch => "will-register expects a function, found: {}", func)
         }
 
-        self.sender
-            .send(Pair {
-                car: key,
-                cdr: func,
-            })
-            .unwrap();
+        self.state.registrations.lock().unwrap().push(Registration {
+            value: key,
+            finalizer: func,
+            ready: false,
+        });
+        let _ = self.state.wake.send(());
 
         Ok(())
+    }
+}
+
+/// The second half of a mark, as in Racket. A registered value on the heap that
+/// the first half didn't reach is ready. Then every registered value and
+/// finalizer is marked, so the finalizer sees its value intact. Returns what to
+/// mark, holding a reference to each for the duration.
+#[cfg(feature = "sync")]
+fn will_executor_roots() -> Vec<SteelVal> {
+    let mut roots = Vec::new();
+    let executors = WILL_EXECUTORS.lock().unwrap();
+    for executor in executors.iter().filter_map(|executor| executor.upgrade()) {
+        let mut newly_ready = false;
+        let mut registrations = executor.registrations.lock().unwrap();
+        for registration in registrations.iter_mut() {
+            if !registration.ready && heap_value_unreached(&registration.value) {
+                registration.ready = true;
+                newly_ready = true;
+            }
+            roots.push(registration.value.clone());
+            roots.push(registration.finalizer.clone());
+        }
+        drop(registrations);
+
+        if newly_ready {
+            let _ = executor.wake.send(());
+        }
+    }
+    roots
+}
+
+/// Whether `value` is a box or mutable vector the last mark didn't reach.
+#[cfg(feature = "sync")]
+fn heap_value_unreached(value: &SteelVal) -> bool {
+    match value {
+        SteelVal::HeapAllocated(heap_ref) => !heap_ref.is_reachable(),
+        SteelVal::MutableVector(heap_ref) => !heap_ref.is_reachable(),
+        _ => false,
+    }
+}
+
+/// Whether the one reference to `value` being looked at is the only one.
+/// Always false for a value without a reference count.
+fn only_referenced_here(value: &SteelVal) -> bool {
+    match value {
+        SteelVal::Closure(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::VectorV(steel_vector) => Gc::strong_count(&steel_vector.0) == 1,
+        SteelVal::StringV(steel_string) => Gc::strong_count(&steel_string.0) == 1,
+        SteelVal::SymbolV(steel_string) => Gc::strong_count(&steel_string.0) == 1,
+        SteelVal::Custom(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::HashMapV(steel_hash_map) => Gc::strong_count(&steel_hash_map.0) == 1,
+        SteelVal::HashSetV(steel_hash_set) => Gc::strong_count(&steel_hash_set.0) == 1,
+        SteelVal::CustomStruct(gc) => gc.strong_count() == 1,
+        SteelVal::PortV(steel_port) => Gc::strong_count(&steel_port.port) == 1,
+        SteelVal::IterV(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::ReducerV(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::FutureV(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::StreamV(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::BoxedFunction(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::ContinuationFunction(continuation) => {
+            crate::gc::shared::StandardShared::strong_count(&continuation.inner) == 1
+        }
+        SteelVal::ListV(generic_list) => generic_list.strong_count() == 1,
+        SteelVal::Pair(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::MutableVector(heap_ref) => steel_rc::weak::Weak::weak_count(&heap_ref.inner) == 1,
+        SteelVal::BoxedIterator(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::SyntaxObject(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::Boxed(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::HeapAllocated(heap_ref) => steel_rc::weak::Weak::weak_count(&heap_ref.inner) == 1,
+        SteelVal::Reference(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::BigNum(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::BigRational(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::Complex(gc) => Gc::strong_count(gc) == 1,
+        SteelVal::ByteVector(steel_byte_vector) => Gc::strong_count(&steel_byte_vector.vec) == 1,
+        _ => false,
     }
 }
 
@@ -744,13 +770,7 @@ impl Custom for WillExecutor {
 #[cfg(feature = "sync")]
 #[steel_derive::function(name = "make-will-executor", args(), raises = Never)]
 pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
-    let (sender, incoming) = crossbeam_channel::unbounded();
-    WillExecutor {
-        values: Mutex::new(Vec::new()),
-        sender,
-        incoming,
-    }
-    .into_steelval()
+    WillExecutor::new().into_steelval()
 }
 
 #[cfg(not(feature = "sync"))]
@@ -778,9 +798,7 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                 if let Some(value) = executor.find_next() {
                     return Ok(SteelVal::Pair(Gc::new(value)));
                 } else {
-                    // Control frequency here, but for when there is no throughput,
-                    // we want to at least poll a bit
-                    executor.block_until_incoming();
+                    executor.wait();
                 }
             }
         })
@@ -829,9 +847,10 @@ pub fn will_register(
     Ok(SteelVal::Void)
 }
 
-// Not considered part of the reachability graph? i.e. we simply don't traverse it.
+/// A weak box, as in Racket. The collector doesn't trace its value, so once
+/// nothing else holds the value, `weak-box-value` returns the default.
 pub struct WeakBox {
-    value: HeapRef<SteelVal>,
+    value: SpinLock<Option<SteelVal>>,
 }
 
 impl Custom for WeakBox {}
@@ -850,13 +869,13 @@ impl Custom for WeakBox {}
     args(Any),
     raises = Never
 )]
-pub fn make_weak_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
-    let value = args[0].clone();
-    if let SteelVal::HeapAllocated(made_box) = ctx.make_box(value) {
-        Some(WeakBox { value: made_box }.into_steelval())
-    } else {
-        unreachable!()
-    }
+pub fn make_weak_box(_ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
+    Some(
+        WeakBox {
+            value: SpinLock::new(Some(args[0].clone())),
+        }
+        .into_steelval(),
+    )
 }
 
 /// Returns the value contained in the weak box.
@@ -865,11 +884,12 @@ pub fn make_weak_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Steel
 /// then default-value (which defaults to #f) is returned.
 ///
 /// ```scheme
-/// (define value (make-weak-box 10))
-/// (weak-box-value value) ;; => 10
-/// (set! value #f) ;; Wipe out the previous value
+/// (define value (list 1 2 3))
+/// (define weak (make-weak-box value))
+/// (weak-box-value weak) ;; => '(1 2 3)
+/// (set! value #f) ;; Wipe out the other reference
 /// (#%gc-collect)
-/// (weak-box-value value) ;; => #false
+/// (weak-box-value weak) ;; => #false
 /// ```
 #[steel_derive::function(name = "weak-box-value")]
 pub fn weak_box_value(
@@ -877,16 +897,30 @@ pub fn weak_box_value(
     mut rest: RestArgsIter<&SteelVal>,
 ) -> Result<SteelVal, SteelErr> {
     let inner = WeakBox::as_ref(value)?;
+    let mut guard = inner.value.lock();
 
-    // Check if its reachable?
-    if let Some(value) = inner.value.maybe_get_from_weak() {
-        Ok(value)
-    } else {
-        Ok(rest
-            .next()
-            .map(|x| x.unwrap().clone())
-            .unwrap_or(SteelVal::BoolV(false)))
+    // A box or mutable vector is alive if the last mark reached it or it was
+    // allocated since. Anything else is alive while something besides this
+    // weak box holds it.
+    let alive = match guard.as_ref() {
+        None => false,
+        Some(SteelVal::HeapAllocated(heap_ref)) => heap_ref.is_reachable(),
+        Some(SteelVal::MutableVector(heap_ref)) => heap_ref.is_reachable(),
+        Some(value) => !only_referenced_here(value),
+    };
+
+    if alive {
+        return Ok(guard.clone().unwrap());
     }
+
+    // Let go of it, so the collector can reuse its slot.
+    *guard = None;
+    drop(guard);
+
+    Ok(rest
+        .next()
+        .map(|x| x.unwrap().clone())
+        .unwrap_or(SteelVal::BoolV(false)))
 }
 
 // Have free list for vectors and values separately. Can keep some of the vectors pre allocated
@@ -1119,7 +1153,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     fn recount(&mut self) {
         self.alloc_count = 0;
         for element in &mut self.elements {
-            if !slot_is_reachable(element) {
+            if slot_is_free(element) {
                 // Replace with an empty value... for now.
                 // Want to keep the memory counts down.
                 // let value = core::mem::replace(&mut guard.value, T::empty());
@@ -1220,7 +1254,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // Find where to assign the next slot optimistically?
         let next_slot = self.elements[self.cursor..]
             .iter()
-            .position(|x| !slot_is_reachable(x));
+            .position(|x| slot_is_free(x));
 
         if let Some(next_slot) = next_slot {
             self.cursor += next_slot;
@@ -1241,12 +1275,12 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
                 // assert!(!self.elements[self.cursor].read().is_reachable());
             } else {
-                // Move to the beginning.
-                self.cursor = self
-                    .elements
-                    .iter()
-                    .position(|x| !slot_is_reachable(x))
-                    .unwrap();
+                // Move to the beginning, or grow if every unreachable slot
+                // still has handles.
+                match self.elements.iter().position(|x| slot_is_free(x)) {
+                    Some(slot) => self.cursor = slot,
+                    None => self.extend_heap(),
+                }
 
                 // assert!(!self.elements[self.cursor].read().is_reachable());
             }
@@ -1305,6 +1339,23 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         self.elements
             .iter()
             .for_each(|x| unsafe { x.get_value().reset() });
+    }
+
+    /// After a mark, takes the contents of every unreachable cell. A cell can
+    /// still have handles, held by garbage, whose cycles through boxes this
+    /// breaks, or by what the mark skips, like weak boxes, which then read
+    /// nothing. Its slot comes free once those handles are dropped, and mostly
+    /// they are in the contents of other unreachable cells.
+    fn take_unreachable(&mut self) -> Vec<T> {
+        let mut released = Vec::new();
+        for element in &self.elements {
+            if slot_is_reachable(element) {
+                continue;
+            }
+            let mut guard = element.lock();
+            released.push(core::mem::replace(&mut guard.value, T::empty()));
+        }
+        released
     }
 
     // Leaves free slots in proportion to the work the mark just did. Most of
@@ -1387,7 +1438,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
     fn recount(&mut self) {
         self.alloc_count = 0;
         for element in &mut self.elements {
-            if !slot_is_reachable(element) {
+            if slot_is_free(element) {
                 // Replace with an empty value... for now.
                 // Want to keep the memory counts down.
                 // let value = core::mem::replace(&mut guard.value, T::empty());
@@ -1484,7 +1535,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
         // Find where to assign the next slot optimistically?
         let next_slot = self.elements[self.cursor..]
             .iter()
-            .position(|x| !slot_is_reachable(x));
+            .position(|x| slot_is_free(x));
 
         if let Some(next_slot) = next_slot {
             self.cursor += next_slot;
@@ -1505,12 +1556,12 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
                 // assert!(!self.elements[self.cursor].read().is_reachable());
             } else {
-                // Move to the beginning.
-                self.cursor = self
-                    .elements
-                    .iter()
-                    .position(|x| !slot_is_reachable(x))
-                    .unwrap();
+                // Move to the beginning, or grow if every unreachable slot
+                // still has handles.
+                match self.elements.iter().position(|x| slot_is_free(x)) {
+                    Some(slot) => self.cursor = slot,
+                    None => self.extend_heap(),
+                }
 
                 // assert!(!self.elements[self.cursor].read().is_reachable());
             }
@@ -1569,6 +1620,23 @@ impl<T: HeapAble + 'static> FreeList<T> {
         self.elements
             .iter()
             .for_each(|x| unsafe { x.get_value().reset() });
+    }
+
+    /// After a mark, takes the contents of every unreachable cell. A cell can
+    /// still have handles, held by garbage, whose cycles through boxes this
+    /// breaks, or by what the mark skips, like weak boxes, which then read
+    /// nothing. Its slot comes free once those handles are dropped, and mostly
+    /// they are in the contents of other unreachable cells.
+    fn take_unreachable(&mut self) -> Vec<T> {
+        let mut released = Vec::new();
+        for element in &self.elements {
+            if slot_is_reachable(element) {
+                continue;
+            }
+            let mut guard = element.write();
+            released.push(core::mem::replace(&mut guard.value, T::empty()));
+        }
+        released
     }
 
     // Leaves free slots in proportion to the work the mark just did. Most of
@@ -1652,7 +1720,7 @@ impl FreeList<HeapVec> {
         // Find where to assign the next slot optimistically?
         let next_slot = self.elements[self.cursor..]
             .iter()
-            .position(|x| !slot_is_reachable(x));
+            .position(|x| slot_is_free(x));
 
         if let Some(next_slot) = next_slot {
             self.cursor += next_slot;
@@ -1673,12 +1741,12 @@ impl FreeList<HeapVec> {
 
                 // assert!(!self.elements[self.cursor].read().is_reachable());
             } else {
-                // Move to the beginning.
-                self.cursor = self
-                    .elements
-                    .iter()
-                    .position(|x| !slot_is_reachable(x))
-                    .unwrap();
+                // Move to the beginning, or grow if every unreachable slot
+                // still has handles.
+                match self.elements.iter().position(|x| slot_is_free(x)) {
+                    Some(slot) => self.cursor = slot,
+                    None => self.extend_heap(),
+                }
 
                 // assert!(!self.elements[self.cursor].read().is_reachable());
             }
@@ -1943,18 +2011,6 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.memory_free_list.alloc_count = self
-                    .memory_free_list
-                    .elements
-                    .len()
-                    .saturating_sub(stats.memory_reached_count);
-
-                self.vector_free_list.alloc_count = self
-                    .vector_free_list
-                    .elements
-                    .len()
-                    .saturating_sub(stats.vector_reached_count);
-
                 self.memory_free_list
                     .resize_after_collection(stats.object_count);
 
@@ -2044,18 +2100,6 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.vector_free_list.alloc_count = self
-                    .vector_free_list
-                    .elements
-                    .len()
-                    .saturating_sub(stats.vector_reached_count);
-
-                self.memory_free_list.alloc_count = self
-                    .memory_free_list
-                    .elements
-                    .len()
-                    .saturating_sub(stats.memory_reached_count);
-
                 self.vector_free_list
                     .resize_after_collection(stats.object_count);
 
@@ -2110,18 +2154,6 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.vector_free_list.alloc_count = self
-                    .vector_free_list
-                    .elements
-                    .len()
-                    .saturating_sub(stats.vector_reached_count);
-
-                self.memory_free_list.alloc_count = self
-                    .memory_free_list
-                    .elements
-                    .len()
-                    .saturating_sub(stats.memory_reached_count);
-
                 self.vector_free_list
                     .resize_after_collection(stats.object_count);
 
@@ -2173,6 +2205,15 @@ impl Heap {
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
 
         synchronizer.resume_threads();
+
+        // Both lists before dropping anything, since a value in one can hold
+        // handles into the other. Dropped outside the locks, then counted.
+        let values = self.memory_free_list.take_unreachable();
+        let vectors = self.vector_free_list.take_unreachable();
+        drop(values);
+        drop(vectors);
+        self.memory_free_list.recount();
+        self.vector_free_list.recount();
 
         stats
 
@@ -2286,7 +2327,19 @@ impl Heap {
         let count = {
             let count = MARKER.mark(context.queue, root_pointers);
             context.queue.clear();
-            count
+
+            let wills = will_executor_roots();
+            if wills.is_empty() {
+                count
+            } else {
+                let pointers = wills
+                    .iter()
+                    .filter_map(SteelValPointer::from_value)
+                    .collect();
+                let more = MARKER.mark(context.queue, pointers);
+                context.queue.clear();
+                count + more
+            }
         };
 
         #[cfg(not(feature = "sync"))]
@@ -2553,37 +2606,18 @@ impl<T: HeapAble> HeapRef<T> {
         self.inner.upgrade().unwrap().lock().value.clone()
     }
 
+    /// Whether the last mark reached this, or it was allocated since.
+    pub(crate) fn is_reachable(&self) -> bool {
+        self.inner
+            .upgrade()
+            .is_some_and(|inner| inner.lock().is_reachable())
+    }
+
     pub unsafe fn inner_ref(&self) -> Option<&T> {
         if self.inner.weak_count() == 1 {
             Some(&(&*self.inner.as_ptr()).get_value().value)
         } else {
             None
-        }
-    }
-
-    /// Get the value if the pointer is still valid.
-    /// If this is the only thing pointing at it, then we need to drop it.
-    pub(crate) fn maybe_get_from_weak(&self) -> Option<T> {
-        let inner = self.inner.upgrade()?;
-
-        // Check if this thing is reachable? How?
-        if steel_rc::weak::Arc::weak_count(&inner) == 1 {
-            // We can go ahead and nuke this since we're
-            // the only things pointing to it
-            let mut value = inner.write();
-
-            if value.is_reachable() {
-                Some(value.value.clone())
-            } else {
-                value.reset();
-                value.value = T::empty();
-                None
-            }
-        } else {
-            // Get the inner value on this, assuming we are calling
-            // this just from the heap ref. Anywhere else, we'll want
-            // to eliminate this?
-            Some(inner.lock().value.clone())
         }
     }
 

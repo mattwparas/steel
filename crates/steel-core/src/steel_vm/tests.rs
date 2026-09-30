@@ -674,6 +674,154 @@ mod expansion_tests {
         assert_eq!(engine.extract_value("result").unwrap().to_string(), "6");
     }
 
+    /// Allocates and drops enough boxes, collecting as it goes, for the heap
+    /// to hand out the slots of anything it found unreachable again.
+    const CHURN: &str = "(define (churn n)
+                           (let loop ([i 0])
+                             (when (< i n)
+                               (box (list 'intruder i))
+                               (loop (+ i 1)))))
+                         (define (churn-and-collect)
+                           (let loop ([round 0])
+                             (when (< round 50)
+                               (churn 5000)
+                               (#%gc-collect)
+                               (loop (+ round 1)))))";
+
+    /// A weak box keeps its value while something else holds it, and reads
+    /// the default once nothing does, even after the heap has reused slots.
+    #[test]
+    fn weak_boxes_follow_reachability() {
+        let mut engine = Engine::new();
+        engine
+            .compile_and_run_raw_program(format!(
+                "{CHURN}
+                 (define held (list 1 2 3))
+                 (define held-box (box 10))
+                 (define weak-list (make-weak-box held))
+                 (define weak-box (make-weak-box held-box))
+                 (define weak-dropped (make-weak-box (list 'dropped)))
+                 (define weak-dropped-box (make-weak-box (box 'dropped)))
+                 (define weak-number (make-weak-box 42))
+                 (churn-and-collect)
+                 (define result
+                   (list (weak-box-value weak-list)
+                         (unbox (weak-box-value weak-box))
+                         (weak-box-value weak-dropped)
+                         (weak-box-value weak-dropped-box)
+                         (weak-box-value weak-number)
+                         (weak-box-value weak-dropped-box 'gone)))"
+            ))
+            .unwrap();
+        assert_eq!(
+            engine.extract_value("result").unwrap().to_string(),
+            "((1 2 3) 10 #false #false 42 gone)"
+        );
+    }
+
+    /// A box reachable only from a cycle through itself is emptied by a
+    /// collection, which is what lets the cycle be freed.
+    #[test]
+    fn collections_break_cycles_through_boxes() {
+        let mut engine = Engine::new();
+        engine
+            .compile_and_run_raw_program(format!(
+                "{CHURN}
+                 (define (make-cycle)
+                   (let ([b (box #f)])
+                     (set-box! b (lambda () b))
+                     (make-weak-box b)))
+                 (define weak (make-cycle))
+                 (churn-and-collect)
+                 (define result (weak-box-value weak))"
+            ))
+            .unwrap();
+        assert_eq!(engine.extract_value("result").unwrap().to_string(), "#false");
+    }
+
+    /// A will executor's finalizer runs on the value it registered, intact,
+    /// including the boxes behind a mutable struct's fields, however long the
+    /// value waited while the heap reused other slots.
+    #[cfg(feature = "sync")]
+    #[test]
+    fn will_executors_see_their_values_intact() {
+        let mut engine = Engine::new();
+        engine
+            .compile_and_run_raw_program(format!(
+                "{CHURN}
+                 (struct Resource (name handle) #:mutable)
+                 (define executor (make-will-executor))
+                 (define seen '())
+                 (define (register!)
+                   (will-register executor
+                                  (box (list 'original 1 2 3))
+                                  (lambda (b) (set! seen (cons (unbox b) seen))))
+                   (will-register executor
+                                  (Resource 'file (list 'fd 7))
+                                  (lambda (r) (set! seen (cons (list (Resource-name r) (Resource-handle r)) seen)))))
+                 (register!)
+                 (churn-and-collect)
+                 (will-execute executor)
+                 (will-execute executor)
+                 (define result seen)"
+            ))
+            .unwrap();
+        let result = engine.extract_value("result").unwrap().to_string();
+        assert!(result.contains("(original 1 2 3)"), "{result}");
+        assert!(result.contains("(file (fd 7))"), "{result}");
+    }
+
+    /// Jitted code that reads a box, a struct or a list through a local, and
+    /// passes it along in a tail call, leaves its count where it was. Each
+    /// shape here once kept one reference per call.
+    #[test]
+    fn jitted_locals_release_what_they_hold() {
+        let mut engine = Engine::new();
+        engine
+            .compile_and_run_raw_program(
+                "(struct node (next) #:mutable)
+                 (define B (box 0))
+                 (define P (node '()))
+                 (define CHAIN (node (node (node '()))))
+                 (define (take3 a b c) a)
+
+                 ;; set-box! on a box held in a local
+                 (define (poke) (let ([b B]) (set-box! b 1) 0))
+                 ;; a getter reading a struct moved out of a local
+                 (define (peek) (let ([p P]) (node-next p)))
+                 ;; a loop passing an argument through unchanged, next to one
+                 ;; that is read and not moved
+                 (define (walk s)
+                   (let lp ([r s])
+                     (let ([next (node-next r)])
+                       (if (node? next) (lp next) (begin (if (eq? s s) 1 2) r)))))
+                 ;; a tail call passing more arguments than this function
+                 ;; takes, over a slot holding a let bound box
+                 (define (spill x) (let ([t B]) (unbox t) (take3 x 1 2)))
+
+                 (define (run n)
+                   (when (> n 0)
+                     (poke) (peek) (walk CHAIN) (spill 0)
+                     (run (- n 1))))
+                 (run 100)
+                 (#%jit-drain)
+                 (run 100000)",
+            )
+            .unwrap();
+
+        let crate::rvals::SteelVal::HeapAllocated(b) = engine.extract_value("B").unwrap() else {
+            panic!("B is a box")
+        };
+        assert!(b.inner.weak_count() <= 3, "B: {}", b.inner.weak_count());
+
+        for name in ["P", "CHAIN"] {
+            let crate::rvals::SteelVal::CustomStruct(s) = engine.extract_value(name).unwrap() else {
+                panic!("{name} is a struct")
+            };
+            assert!(s.strong_count() <= 3, "{name}: {}", s.strong_count());
+        }
+    }
+
     /// Jitted `vector-ref`, `vector-set!` and `vector-length` on global vectors,
     /// closed and reassigned, leave the vectors' handle counts where they were.
     /// A leaked handle keeps the vector from ever being collected.

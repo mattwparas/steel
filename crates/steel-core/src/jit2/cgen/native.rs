@@ -2739,10 +2739,13 @@ impl<'a> FunctionTranslator<'a> {
                 let res = fast_path_struct_matches(i, struct_ref_ptr, self, fuse, borrow);
 
                 match last_kind {
-                    // The read was a move, so the register gives up the struct.
+                    // The read was a move, so the register gives up the struct,
+                    // and with it this reference. The field was cloned, since
+                    // only a struct left in its register is read borrowed.
                     MaybeStackValue::MutRegister(r) => {
                         let void = self.encode_void();
                         self.write_to_vm_stack(r, void);
+                        self.drop_tagged_value(struct_ref);
 
                         self.properties.props.insert(
                             ValueOrRegister::Register(r),
@@ -2768,6 +2771,10 @@ impl<'a> FunctionTranslator<'a> {
         // Take the operand out of its register up front so every arm starts
         // from the same stack. Otherwise a slow arm would move it again, out of
         // a register that already holds void.
+        let owned = matches!(
+            self.shadow_stack.last(),
+            Some(MaybeStackValue::MutRegister(_))
+        );
         if let Some(MaybeStackValue::MutRegister(p)) = self.shadow_stack.last().copied() {
             let (value, inferred_type) = self.mut_register_to_value(p);
             *self.shadow_stack.last_mut().unwrap() = MaybeStackValue::Value(StackValue {
@@ -2792,6 +2799,7 @@ impl<'a> FunctionTranslator<'a> {
                     function_index,
                     i,
                     struct_ref,
+                    owned,
                     typ,
                     &inner_stack,
                     old_ip,
@@ -2843,6 +2851,7 @@ fn inline_struct_getter(
     function_index: usize,
     i: usize,
     struct_ref: Value,
+    owned: bool,
     typ: Type,
     saved_stack: &[MaybeStackValue],
     old_ip: usize,
@@ -2872,7 +2881,15 @@ fn inline_struct_getter(
 
     ctx.converging_if(
         struct_matches,
-        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx, fuse, borrow),
+        |ctx| {
+            let res = fast_path_struct_matches(i, struct_ref_ptr, ctx, fuse, borrow);
+            // A moved struct is released once its field is read. The slow arm
+            // hands it to the call instead.
+            if owned {
+                ctx.drop_tagged_value(struct_ref);
+            }
+            res
+        },
         move |ctx| {
             // call_global_function takes self.ip as the deopt fallback and then
             // advances one, so this has to enter on the call itself, the same

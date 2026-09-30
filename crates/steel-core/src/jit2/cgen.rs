@@ -5192,21 +5192,15 @@ impl FunctionTranslator<'_> {
         if target == crate::steel_vm::primitives::steel_set_box_mutable as *const () as usize
             && arity == 2
         {
-            // Operand order is (box, new-value); the box is the one whose
-            // ownership we may have to release, matching the read path.
-            let owned = matches!(
-                self.shadow_stack
-                    .get(self.shadow_stack.len().checked_sub(2)?),
-                Some(MaybeStackValue::Value(_))
-            );
-
+            // `split_off` hands back owned operands, cloning a register, so the
+            // box is released after the write.
             let args = self
                 .split_off(arity)
                 .into_iter()
                 .map(|x| x.0)
                 .collect::<Vec<_>>();
 
-            return Some(self.set_box_value_checked_register(args[0], args[1], owned));
+            return Some(self.set_box_value_checked_register(args[0], args[1], true));
         }
 
         None
@@ -5418,11 +5412,9 @@ impl FunctionTranslator<'_> {
     /// definition in a block that no longer dominates the use, which cranelift
     /// rejects.
     fn inline_byte_vector_op(&mut self, function: FunctionSignature, arity: usize) -> Value {
-        let base = self.shadow_stack.len() - arity;
-
-        // A register is a borrow that stays live in its slot; a spilled value is
-        // ours to release.
-        let owned = matches!(self.shadow_stack.get(base), Some(MaybeStackValue::Value(_)));
+        // `split_off` hands back owned operands, cloning a register, so the
+        // bytevector is released after the operation.
+        let owned = true;
 
         let args = self
             .split_off(arity)
@@ -5436,12 +5428,6 @@ impl FunctionTranslator<'_> {
         let fallback = {
             let args = args.clone();
             move |ctx: &mut Self| {
-                // The helper takes ownership, so a borrow has to be cloned
-                // first; a spilled value we already own.
-                if !owned {
-                    ctx.clone_value(bytevector_value);
-                }
-
                 let func = ctx
                     .builder
                     .ins()
@@ -6890,10 +6876,23 @@ impl FunctionTranslator<'_> {
                 let args_before_drop = &self.shadow_stack[self.shadow_stack.len() - payload..];
 
                 // Aggressive optimization: if the value is moved, we don't need to put a drop
-                // call inlined here
+                // call inlined here. That holds only when every slot written over
+                // already gave up its value, as one of the moved arguments or by
+                // an earlier move. In `(lp next s)`, with `s` passing through, the
+                // slot `next` lands in still holds the old `r`.
+                let moved_out = |slot: usize| {
+                    args_before_drop
+                        .iter()
+                        .any(|x| matches!(x, MaybeStackValue::MutRegister(r) if *r == slot))
+                        || matches!(
+                            self.properties.get(&ValueOrRegister::Register(slot)),
+                            Some(Properties::InferredType(InferredType::Void))
+                        )
+                };
                 if args_before_drop
                     .iter()
                     .all(|x| matches!(x, MaybeStackValue::MutRegister(_)))
+                    && (0..payload).all(moved_out)
                 {
                     let args_off_the_stack = self.split_off_all_mut_register(payload);
 
@@ -10754,6 +10753,21 @@ impl FunctionTranslator<'_> {
         // if we're going to re alloc
         let new_length = self.builder.ins().iadd_imm_s(index, args.len() as i64);
 
+        // Passing more arguments than this function takes writes the extras
+        // over slots past its own arguments, which can still hold its let bound
+        // locals and spilled operands. The writes below don't release those, so
+        // release them first. Whatever lies past the new arguments is released
+        // at the end.
+        let live_above = self.let_var_stack.iter().sum::<usize>() + self.shadow_stack.len();
+        if args.len() > self.arity as usize
+            && live_above > 0
+            && !(self.arity as usize..args.len()).all(|slot| self.register_is_immediate(slot))
+        {
+            let from = self.builder.ins().iadd_imm_s(index, self.arity as i64);
+            let to = self.builder.ins().smin(old_length, new_length);
+            self.drop_vm_stack_range(vm_ctx, from, to);
+        }
+
         // Store the _new_ arity
         self.builder.ins().store(
             MemFlagsData::trusted(),
@@ -10857,7 +10871,6 @@ impl FunctionTranslator<'_> {
         // The loop runs on every jitted tail call, so skip it when this frame has
         // nothing above the arguments (no let bindings open and no operands
         // spilled under them), which is the common case.
-        let live_above = self.let_var_stack.iter().sum::<usize>() + self.shadow_stack.len();
 
         // Nor is there anything to release when every slot above the arguments
         // holds an immediate, like a fixnum or the void a move read left behind.
