@@ -659,6 +659,10 @@ pub(super) fn closed_global_operands_enabled() -> bool {
     crate::config::config().jit_closed_global_operands
 }
 
+pub(super) fn box_vector_ref_enabled() -> bool {
+    crate::config::config().jit_box_vector_ref
+}
+
 /// Which of the four integer division operators `inline_int_divmod` is
 /// lowering. The truncating pair round toward zero and take their sign from the
 /// dividend; the flooring pair round down and take it from the divisor.
@@ -2951,6 +2955,11 @@ enum ConstantValue {
     // reassigned, so reading it late gives the same value as reading it when
     // pushed, and a consumer that only looks at it can skip the clone.
     Global(usize),
+
+    // The contents of the box a closed global holds. The box can be set, so
+    // this is only pushed when the `VECTORREF` using it follows with nothing
+    // in between that could run code, see `box_contents_operand_fits`.
+    GlobalBoxContents(usize),
 }
 
 struct StackFrameRepr {
@@ -2968,7 +2977,9 @@ impl ConstantValue {
             ConstantValue::Bool(_) => InferredType::Bool,
             ConstantValue::Char(_) => InferredType::Char,
             ConstantValue::Float(_) => InferredType::Number,
-            ConstantValue::Index(_) | ConstantValue::Global(_) => InferredType::Any,
+            ConstantValue::Index(_)
+            | ConstantValue::Global(_)
+            | ConstantValue::GlobalBoxContents(_) => InferredType::Any,
             ConstantValue::Symbol(_) => InferredType::Symbol,
             ConstantValue::List(_) => InferredType::List,
         }
@@ -2984,6 +2995,12 @@ impl ConstantValue {
                 let value = ctx.inline_lookup_global(index);
                 ctx.clone_value(value);
                 (value, InferredType::Any)
+            }
+
+            ConstantValue::GlobalBoxContents(index) => {
+                let value = ctx.inline_lookup_global(index);
+                let contents = ctx.unbox_value_checked_register(value, false);
+                (contents, InferredType::Any)
             }
 
             ConstantValue::Int(i) => (ctx.encode_integer(i as _), InferredType::Int),
@@ -3925,7 +3942,15 @@ impl FunctionTranslator<'_> {
                         && !self.func_is_join_target(self.ip + 1)
                         && self.global_is_closed(payload) =>
                 {
-                    self.lower_closed_global_unbox(payload)
+                    if box_vector_ref_enabled() && self.box_contents_operand_fits() {
+                        self.shadow_push(MaybeStackValue::Constant(
+                            ConstantValue::GlobalBoxContents(payload),
+                        ));
+                        // Past the `PUSH`, the `UNBOX` and the `FUNC` after it.
+                        self.ip += 3;
+                    } else {
+                        self.lower_closed_global_unbox(payload)
+                    }
                 }
 
                 OpCode::PUSH
@@ -7885,6 +7910,37 @@ impl FunctionTranslator<'_> {
     /// a call can bake that value in (`closed_globals`).
     fn global_is_closed(&self, index: usize) -> bool {
         self.closed_globals.contains(&index)
+    }
+
+    /// Whether the `PUSH` + `UNBOX` at `ip` feeds a `VECTORREF` two
+    /// instructions on, with only a local or constant read for the index
+    /// between them. Nothing in that stretch can run code, so reading the box
+    /// at the `VECTORREF` sees what the `UNBOX` would have.
+    fn box_contents_operand_fits(&self) -> bool {
+        let op = |offset: usize| self.instructions.get(self.ip + offset).map(|x| x.op_code);
+        let index_is_plain_read = matches!(
+            op(3),
+            Some(
+                OpCode::READLOCAL
+                    | OpCode::READLOCAL0
+                    | OpCode::READLOCAL1
+                    | OpCode::READLOCAL2
+                    | OpCode::READLOCAL3
+                    | OpCode::MOVEREADLOCAL
+                    | OpCode::MOVEREADLOCAL0
+                    | OpCode::MOVEREADLOCAL1
+                    | OpCode::MOVEREADLOCAL2
+                    | OpCode::MOVEREADLOCAL3
+                    | OpCode::LOADINT0
+                    | OpCode::LOADINT1
+                    | OpCode::LOADINT2
+                    | OpCode::PUSHCONST
+            )
+        );
+        op(2) == Some(OpCode::FUNC)
+            && index_is_plain_read
+            && op(4) == Some(OpCode::VECTORREF)
+            && (2..=4).all(|offset| !self.func_is_join_target(self.ip + offset))
     }
 
     /// `PUSH` of a closed global, then `UNBOX`. The global is never reassigned,

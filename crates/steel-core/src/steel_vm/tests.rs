@@ -736,7 +736,10 @@ mod expansion_tests {
                  (define result (weak-box-value weak))"
             ))
             .unwrap();
-        assert_eq!(engine.extract_value("result").unwrap().to_string(), "#false");
+        assert_eq!(
+            engine.extract_value("result").unwrap().to_string(),
+            "#false"
+        );
     }
 
     /// A will executor's finalizer runs on the value it registered, intact,
@@ -815,7 +818,8 @@ mod expansion_tests {
         assert!(b.inner.weak_count() <= 3, "B: {}", b.inner.weak_count());
 
         for name in ["P", "CHAIN"] {
-            let crate::rvals::SteelVal::CustomStruct(s) = engine.extract_value(name).unwrap() else {
+            let crate::rvals::SteelVal::CustomStruct(s) = engine.extract_value(name).unwrap()
+            else {
                 panic!("{name} is a struct")
             };
             assert!(s.strong_count() <= 3, "{name}: {}", s.strong_count());
@@ -882,7 +886,11 @@ mod expansion_tests {
                 panic!("{name} is a vector")
             };
             // The global's own handle and the one extracted here.
-            assert!(v.inner.weak_count() <= 3, "{name}: {}", v.inner.weak_count());
+            assert!(
+                v.inner.weak_count() <= 3,
+                "{name}: {}",
+                v.inner.weak_count()
+            );
         }
     }
 
@@ -930,6 +938,63 @@ mod expansion_tests {
         assert_eq!(value("macro-reads"), "(101 102)");
         assert_eq!(value("calls"), "(10 15)");
         assert_eq!(value("others"), "(1001 8)");
+    }
+
+    /// `vector-ref` of a boxed module global reads the vector in place. It
+    /// follows the box across `set!`, raises the usual errors, and leaves the
+    /// vector's handle count where it was.
+    #[test]
+    fn vector_ref_of_a_boxed_module_global() {
+        let mut engine = Engine::new();
+        engine.register_steel_module(
+            "test/boxed-vector".to_string(),
+            "(provide resize! poison! at total table-now)
+             (define table (vector 1 2 3))
+             (define (resize! n) (set! table (make-vector n 2)))
+             (define (poison! v) (set! table v))
+             (define (at i) (vector-ref table i))
+             (define (total n)
+               (let loop ([i 0] [acc 0])
+                 (if (< i n) (loop (+ i 1) (+ acc (vector-ref table i))) acc)))
+             (define (table-now) table)"
+                .to_string(),
+        );
+        engine
+            .compile_and_run_raw_program(
+                r#"(require "test/boxed-vector")
+                   (define (run k) (when (> k 0) (total 3) (at 1) (run (- k 1))))
+                   (run 100)
+                   (#%jit-drain)
+                   (run 100000)
+                   (define before (list (total 3) (at 2)))
+                   (resize! 10)
+                   (define after (list (total 10) (at 9)))"#,
+            )
+            .unwrap();
+        let value =
+            |engine: &mut Engine, name: &str| engine.extract_value(name).unwrap().to_string();
+        assert_eq!(value(&mut engine, "before"), "(6 3)");
+        assert_eq!(value(&mut engine, "after"), "(20 2)");
+
+        engine
+            .compile_and_run_raw_program("(resize! 3) (run 100000) (define v (table-now))")
+            .unwrap();
+        let crate::rvals::SteelVal::MutableVector(v) = engine.extract_value("v").unwrap() else {
+            panic!("the table is a vector")
+        };
+        assert!(v.inner.weak_count() <= 3, "table: {}", v.inner.weak_count());
+
+        assert!(engine.compile_and_run_raw_program("(at 3)").is_err());
+        assert!(engine.compile_and_run_raw_program("(at 'x)").is_err());
+        engine
+            .compile_and_run_raw_program("(poison! (list 1 2))")
+            .unwrap();
+        assert!(engine.compile_and_run_raw_program("(at 0)").is_err());
+        engine.compile_and_run_raw_program("(resize! 2)").unwrap();
+        engine
+            .compile_and_run_raw_program("(define last (at 1))")
+            .unwrap();
+        assert_eq!(value(&mut engine, "last"), "2");
     }
 
     /// A reference's `builtin` flag comes from the definition it resolves to,

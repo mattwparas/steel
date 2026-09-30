@@ -242,6 +242,8 @@ steel_config! {
     jit_borrow: bool = true, "STEEL_JIT_BORROW";
     /// Keep a pushed closed global as a reference to its slot until it is used.
     jit_closed_global_operands: bool = true, "STEEL_JIT_CLOSED_GLOBAL_OPERANDS";
+    /// Read `(vector-ref (unbox G) i)` on a closed global box without cloning the vector.
+    jit_box_vector_ref: bool = true, "STEEL_JIT_BOX_VECTOR_REF";
     /// Inline type predicates.
     jit_predicate: bool = true, "STEEL_JIT_PREDICATE";
     /// Inline `pair?` on a local, and let `car` of a local known to be a pair

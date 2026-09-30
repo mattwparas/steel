@@ -664,6 +664,20 @@ impl FunctionTranslator<'_> {
                 self.ip += 2;
             }
 
+            // The contents of a closed global's box, read in place.
+            &[MaybeStackValue::Constant(ConstantValue::GlobalBoxContents(global)), _]
+                if generic_inline_enabled() =>
+            {
+                let index = self.pop_boxed();
+                self.shadow_stack.pop();
+                let boxed = self.inline_lookup_global(global);
+
+                let res = self.box_contents_vector_ref(boxed, index);
+
+                self.push(res, InferredType::Any);
+                self.ip += 2;
+            }
+
             // A closed global, read from its slot. The global keeps the vector
             // alive, so the read needs no clone, and only the helper gets one.
             &[MaybeStackValue::Constant(ConstantValue::Global(global)), _]

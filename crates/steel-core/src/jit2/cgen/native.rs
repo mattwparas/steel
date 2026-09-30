@@ -1786,6 +1786,98 @@ impl<'a> FunctionTranslator<'a> {
         )
     }
 
+    /// `(vector-ref (unbox boxed) index)` without cloning the vector out of the
+    /// box. The element is read with the box held the way `#%unbox` holds it,
+    /// so a `set-box!` can't drop the vector part way through. Anything the
+    /// inline read doesn't take clones the contents and calls the helper once
+    /// the box is let go, since the helper can raise.
+    pub(super) fn box_contents_vector_ref(&mut self, boxed: Value, index: Value) -> Value {
+        let is_box = self.is_type(boxed, SteelVal::HEAP_REF_VALUE_TAG);
+        let typ = self.int;
+
+        // Set when `res` below is the owned contents, left for the helper.
+        let slow = self.builder.declare_var(types::I8);
+        let no = self.builder.ins().iconst(types::I8, 0);
+        self.builder.def_var(slow, no);
+
+        let res = self.converging_if(
+            is_box,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(boxed);
+
+                let strong_count =
+                    ctx.builder
+                        .ins()
+                        .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
+
+                let is_one = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong_count, 1);
+                let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, heap_box_lock_offset());
+
+                let read = |ctx: &mut Self| {
+                    let vector = ctx.builder.ins().load(
+                        types::I128,
+                        MemFlagsData::trusted(),
+                        lock_pointer,
+                        SpinLock::<SteelVal>::data_offset() as i32,
+                    );
+
+                    ctx.inline_vector_ref(vector, index, false, |ctx| {
+                        ctx.clone_value(vector);
+                        let yes = ctx.builder.ins().iconst(types::I8, 1);
+                        ctx.builder.def_var(slow, yes);
+                        vector
+                    })
+                };
+
+                // One copy of the read, with the lock around it only when the
+                // box is shared.
+                let lock = ctx.builder.create_block();
+                let locked = ctx.builder.create_block();
+                ctx.builder.set_cold_block(lock);
+                ctx.builder.ins().brif(is_one, locked, &[], lock, &[]);
+                ctx.builder.switch_to_block(lock);
+                ctx.builder.seal_block(lock);
+                emit_spinlock_inline(&mut ctx.builder, lock_pointer);
+                ctx.builder.ins().jump(locked, &[]);
+                ctx.builder.switch_to_block(locked);
+                ctx.builder.seal_block(locked);
+
+                let res = read(ctx);
+
+                let unlock = ctx.builder.create_block();
+                let done = ctx.builder.create_block();
+                ctx.builder.set_cold_block(unlock);
+                ctx.builder.ins().brif(is_one, done, &[], unlock, &[]);
+                ctx.builder.switch_to_block(unlock);
+                ctx.builder.seal_block(unlock);
+                emit_spinlock_unlock_inline(&mut ctx.builder, lock_pointer);
+                ctx.builder.ins().jump(done, &[]);
+                ctx.builder.switch_to_block(done);
+                ctx.builder.seal_block(done);
+
+                res
+            },
+            |ctx| {
+                // Not a box, so this raises.
+                ctx.clone_value(boxed);
+                let res = ctx.call_helper_checked(UNBOX_HANDLER, [boxed]);
+                let yes = ctx.builder.ins().iconst(types::I8, 1);
+                ctx.builder.def_var(slow, yes);
+                res
+            },
+            typ,
+        );
+
+        let slow = self.builder.use_var(slow);
+
+        self.converging_if_else_cold(
+            slow,
+            |ctx| ctx.call_helper_checked(VECTOR_REF_VALUE, [res, index]),
+            |_| res,
+            typ,
+        )
+    }
+
     /// Inline `#%set-box!`: store into the box and yield the value that was
     /// there, which is what `HeapRef::set_and_return` does.
     ///
