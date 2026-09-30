@@ -674,6 +674,84 @@ mod expansion_tests {
         assert_eq!(engine.extract_value("result").unwrap().to_string(), "6");
     }
 
+    /// Jitted `vector-ref`, `vector-set!` and `vector-length` on global vectors,
+    /// closed and reassigned, leave the vectors' handle counts where they were.
+    /// A leaked handle keeps the vector from ever being collected.
+    #[test]
+    fn jitted_vector_access_releases_the_vector() {
+        let mut engine = Engine::new();
+        engine
+            .compile_and_run_raw_program(
+                "(define G (vector 1 2 3))
+                 (define H (vector 1 2 3))
+                 (define L (vector 1 2 3))
+                 (define S (vector 1 2 3))
+                 (define (reset!) (set! S (vector 1 2 3)))
+                 (define (go n acc)
+                   (if (= n 0)
+                       acc
+                       (begin
+                         (vector-set! H 1 5)
+                         (go (- n 1) (+ acc (vector-ref G 1) (vector-ref S 1) (vector-length L))))))
+                 (define result (go 100000 0))",
+            )
+            .unwrap();
+        for name in ["G", "H", "L", "S"] {
+            let crate::rvals::SteelVal::MutableVector(v) = engine.extract_value(name).unwrap()
+            else {
+                panic!("{name} is a vector")
+            };
+            // The global's own handle and the one extracted here.
+            assert!(v.inner.weak_count() <= 3, "{name}: {}", v.inner.weak_count());
+        }
+    }
+
+    /// A module's private globals that are reassigned inside functions live in
+    /// boxes. Reads, writes, closures over them, locals that shadow them, and
+    /// the globals that stay plain (used by a macro, functions) all behave as
+    /// before.
+    #[test]
+    fn mutated_module_globals_in_boxes() {
+        let mut engine = Engine::new();
+        engine.register_steel_module(
+            "test/boxed-globals".to_string(),
+            "(provide bump! count exported set-exported! read-in-macro swap-fn!
+                      call-fn shadow make-reader data-ref)
+             (define private 0)
+             (define exported 10)
+             (define macro-var 100)
+             (define (f x) (* x 2))
+             (define data (vector 1 2 3))
+             (define (bump!) (set! private (+ private 1)) private)
+             (define (count) private)
+             (define (set-exported! v) (set! exported v))
+             (define (set-macro-var! v) (set! macro-var v))
+             (define-syntax read-in-macro
+               (syntax-rules () [(_) (begin (set-macro-var! (+ macro-var 1)) macro-var)]))
+             (define (swap-fn!) (set! f (lambda (x) (* x 3))))
+             (define (call-fn x) (f x))
+             (define (shadow private) (+ private 1000))
+             (define (make-reader) (lambda () private))
+             (define (data-ref i) (set! data (vector 7 8 9)) (vector-ref data i))
+             (set! private (+ private 5))"
+                .to_string(),
+        );
+        let src = r#"(require "test/boxed-globals")
+            (define reader (make-reader))
+            (define (loop n) (when (> n 0) (bump!) (loop (- n 1))))
+            (loop 10000)
+            (define counted (list (count) (reader)))
+            (define macro-reads (list (read-in-macro) (read-in-macro)))
+            (define calls (list (call-fn 5) (begin (swap-fn!) (call-fn 5))))
+            (define others (list (shadow 1) (data-ref 1)))"#;
+        engine.compile_and_run_raw_program(src).unwrap();
+        let value = |name: &str| engine.extract_value(name).unwrap().to_string();
+        assert_eq!(value("counted"), "(10005 10005)");
+        assert_eq!(value("macro-reads"), "(101 102)");
+        assert_eq!(value("calls"), "(10 15)");
+        assert_eq!(value("others"), "(1001 8)");
+    }
+
     /// A reference's `builtin` flag comes from the definition it resolves to,
     /// so a program's own global named like a prelude function (`car`) can be
     /// `set!` without "cannot mutate module-required identifier".

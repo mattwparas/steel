@@ -289,10 +289,7 @@ impl Clone for Engine {
         // for the main thread?
         virtual_machine
             .synchronizer
-            .threads
-            .lock()
-            .unwrap()
-            .push(super::vm::ThreadContext {
+            .register(super::vm::ThreadContext {
                 ctx: weak_ctx,
                 handle,
             });

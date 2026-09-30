@@ -52,6 +52,8 @@ pub(super) struct PrimitiveInline {
     /// A check on the operands at this site.
     pub(super) guard: for<'a> fn(&FunctionTranslator<'a>, usize) -> bool,
     pub(super) lower: Lowering,
+    /// The type a `Returns` lowering's result is pushed with.
+    pub(super) result: InferredType,
 }
 
 fn always() -> bool {
@@ -90,6 +92,14 @@ fn divmod() -> bool {
     inline_divmod_enabled()
 }
 
+fn bitwise() -> bool {
+    inline_bitwise_enabled()
+}
+
+fn rounding() -> bool {
+    inline_rounding_enabled()
+}
+
 fn bytevector() -> bool {
     inline_bytevector_enabled()
 }
@@ -112,6 +122,7 @@ fn inline(name: &'static str, target: *const (), lower: Lowering) -> PrimitiveIn
         tail: never,
         guard: any_shape,
         lower,
+        result: InferredType::Any,
     }
 }
 
@@ -135,6 +146,11 @@ impl PrimitiveInline {
         self.guard = guard;
         self
     }
+
+    fn result(mut self, result: InferredType) -> Self {
+        self.result = result;
+        self
+    }
 }
 
 fn divmod_entry(name: &'static str, target: FunctionSignature, mode: DivMode) -> PrimitiveInline {
@@ -147,6 +163,29 @@ fn divmod_entry(name: &'static str, target: FunctionSignature, mode: DivMode) ->
     .arity(2)
     .operand(divmod)
     .tail(divmod)
+}
+
+fn rounding_entry(name: &'static str, target: FunctionSignature, op: RoundOp) -> PrimitiveInline {
+    inline(
+        name,
+        target as *const (),
+        returns(move |t, _| Some(t.inline_rounding(op, target))),
+    )
+    .arity(1)
+    .operand(rounding)
+    .tail(rounding)
+}
+
+fn bitwise_entry(name: &'static str, target: FunctionSignature, op: BitwiseOp) -> PrimitiveInline {
+    inline(
+        name,
+        target as *const (),
+        returns(move |t, _| Some(t.inline_int_bitwise(op, target))),
+    )
+    .arity(2)
+    .operand(bitwise)
+    .tail(bitwise)
+    .result(InferredType::Int)
 }
 
 /// Every primitive with an inline lowering.
@@ -293,6 +332,14 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             divmod_entry("floor-quotient", floor_quotient, DivMode::FloorQuotient),
             divmod_entry("modulo", modulo, DivMode::FloorRemainder),
             divmod_entry("floor-remainder", floor_remainder, DivMode::FloorRemainder),
+            rounding_entry("floor", steel_floor, RoundOp::Floor),
+            rounding_entry("ceiling", steel_ceiling, RoundOp::Ceiling),
+            rounding_entry("truncate", steel_truncate, RoundOp::Truncate),
+            rounding_entry("round", steel_round, RoundOp::Round),
+            rounding_entry("exact", steel_exact, RoundOp::Exact),
+            bitwise_entry("bitwise-and", bitwise_and, BitwiseOp::And),
+            bitwise_entry("bitwise-ior", bitwise_ior, BitwiseOp::Ior),
+            bitwise_entry("bitwise-xor", bitwise_xor, BitwiseOp::Xor),
             // Boxes. Mutable struct fields are boxes, so `(#%unbox (getter ...))`
             // and `#%set-box!` are common.
             inline(
@@ -381,7 +428,7 @@ impl FunctionTranslator<'_> {
                 let Some(value) = lower(self, arity) else {
                     return false;
                 };
-                self.push(value, InferredType::Any);
+                self.push(value, entry.result);
                 self.ip += 1;
             }
         }

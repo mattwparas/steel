@@ -333,6 +333,33 @@ impl<'a> FunctionTranslator<'a> {
                 self.check_deopt();
             }
 
+            // A closed global, read from its slot. The global keeps the vector
+            // alive, so the write needs no clone, and only the helper gets one.
+            &[Constant(ConstantValue::Global(global)), _, _] => {
+                let rest = self
+                    .split_off(2)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+                self.shadow_stack.pop();
+
+                let vector = self.inline_lookup_global(global);
+                let (index, value) = (rest[0], rest[1]);
+
+                let fallback = move |ctx: &mut Self| {
+                    ctx.clone_value(vector);
+                    // Checked by the caller, after the result is pushed.
+                    ctx.call_helper_unchecked(VECTOR_SET_ARGS, [vector, index, value])
+                };
+
+                let res =
+                    self.inline_mut_vector_set(vector, index, value, false, true, true, fallback);
+
+                self.push(res, InferredType::Any);
+                self.ip += 1;
+                self.check_deopt();
+            }
+
             // Spill all by value
             _ => {
                 let args = self
@@ -1996,14 +2023,18 @@ impl<'a> FunctionTranslator<'a> {
     // vector-ref with no call, for either representation. Flat is checked first
     // since its read is cheaper, and a mutable vector falls through to its own
     // inline path before the handler.
+    ///
+    /// `vector_owned` releases the vector after the inline read. The fallback
+    /// is responsible for it otherwise.
     pub(super) fn inline_vector_ref(
         &mut self,
         vector: Value,
         index: Value,
+        vector_owned: bool,
         fallback: impl Fn(&mut Self) -> Value,
     ) -> Value {
-        self.inline_flat_vector_ref(vector, index, |ctx| {
-            ctx.inline_mut_vector_ref(vector, index, &fallback)
+        self.inline_flat_vector_ref(vector, index, vector_owned, |ctx| {
+            ctx.inline_mut_vector_ref(vector, index, vector_owned, &fallback)
         })
     }
 
@@ -2014,6 +2045,7 @@ impl<'a> FunctionTranslator<'a> {
         &mut self,
         vector: Value,
         index: Value,
+        vector_owned: bool,
         fallback: impl Fn(&mut Self) -> Value,
     ) -> Value {
         let both = self.tags_are(&[
@@ -2034,7 +2066,7 @@ impl<'a> FunctionTranslator<'a> {
                 ctx.converging_if_else_cold(
                     in_bounds,
                     |ctx| {
-                        ctx.with_heap_vec_lock(ptr, |ctx| {
+                        let value = ctx.with_heap_vec_lock(ptr, |ctx| {
                             let slot = ctx.heap_vec_element_address(ptr, idx);
 
                             let value = ctx.builder.ins().load(
@@ -2046,7 +2078,14 @@ impl<'a> FunctionTranslator<'a> {
 
                             ctx.clone_value(value);
                             value
-                        })
+                        });
+
+                        // Outside the lock, since a destructor runs arbitrary code
+                        if vector_owned {
+                            ctx.drop_tagged_value(vector);
+                        }
+
+                        value
                     },
                     |ctx| fallback(ctx),
                     types::I128,
@@ -2290,6 +2329,7 @@ impl<'a> FunctionTranslator<'a> {
         &mut self,
         vector: Value,
         index: Value,
+        vector_owned: bool,
         fallback: impl Fn(&mut Self) -> Value,
     ) -> Value {
         let both = self.tags_are(&[
@@ -2333,6 +2373,11 @@ impl<'a> FunctionTranslator<'a> {
                                 .load(types::I128, MemFlagsData::trusted(), slot, 0);
 
                         ctx.clone_value(value);
+
+                        if vector_owned {
+                            ctx.drop_tagged_value(vector);
+                        }
+
                         value
                     },
                     |ctx| fallback(ctx),

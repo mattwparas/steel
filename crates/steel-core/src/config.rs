@@ -223,6 +223,10 @@ steel_config! {
     jit_generic_inline: bool = true, "STEEL_JIT_GENERIC_INLINE";
     /// Inline the integer division operators.
     jit_inline_divmod: bool = true, "STEEL_JIT_INLINE_DIVMOD";
+    /// Inline the bitwise operators on two fixnums.
+    jit_inline_bitwise: bool = true, "STEEL_JIT_INLINE_BITWISE";
+    /// Inline `floor`, `ceiling`, `truncate`, `round` and `exact`.
+    jit_inline_rounding: bool = true, "STEEL_JIT_INLINE_ROUNDING";
     /// Inline `eq?` on two non-constant operands.
     jit_inline_eq: bool = true, "STEEL_JIT_INLINE_EQ";
     /// Inline `bytes-ref` / `bytes-set!`.
@@ -236,6 +240,8 @@ steel_config! {
     /// Leave values read out of containers borrowed until a consumer needs
     /// them owned.
     jit_borrow: bool = true, "STEEL_JIT_BORROW";
+    /// Keep a pushed closed global as a reference to its slot until it is used.
+    jit_closed_global_operands: bool = true, "STEEL_JIT_CLOSED_GLOBAL_OPERANDS";
     /// Inline type predicates.
     jit_predicate: bool = true, "STEEL_JIT_PREDICATE";
     /// Inline `pair?` on a local, and let `car` of a local known to be a pair
@@ -339,6 +345,8 @@ steel_config! {
     topo_log: bool = false, "STEEL_TOPO_LOG";
     /// Lower acyclic internal defines sequentially rather than as `letrec`.
     sequential_defines: bool = true, "STEEL_SEQUENTIAL_DEFINES";
+    /// Keep module globals that are reassigned with `set!` in boxes.
+    box_module_globals: bool = true, "STEEL_BOX_MODULE_GLOBALS";
     /// Log internal defines that couldn't be lowered sequentially.
     seq_defines_log: bool = false, "STEEL_SEQ_DEFINES_LOG";
     /// The flat vector representation.

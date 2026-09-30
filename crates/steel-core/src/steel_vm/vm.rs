@@ -554,6 +554,9 @@ pub struct Synchronizer {
     // in a world in which these kinds of threads might basically
     // share memory space, we probably need to handle this
     pub(crate) threads: Arc<Mutex<Vec<ThreadContext>>>,
+    // How many threads have ever been registered. With only one, nobody
+    // reads the published context, so safepoints can skip publishing it.
+    registered: Arc<std::sync::atomic::AtomicUsize>,
     // The signal to actually tell all the threads to stop
     pub(crate) state: ThreadStateController,
 
@@ -572,6 +575,7 @@ impl Synchronizer {
     pub fn new() -> Self {
         Self {
             threads: Arc::new(Mutex::new(Vec::new())),
+            registered: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             state: ThreadStateController {
                 paused: Arc::new(AtomicBool::new(false)),
                 state: Arc::new(AtomicCell::new(ThreadState::Running)),
@@ -579,6 +583,17 @@ impl Synchronizer {
             ctx: Arc::new(AtomicPtr::new(core::ptr::null_mut())),
             spawned_via_make_thread: false,
         }
+    }
+
+    pub(crate) fn register(&self, context: ThreadContext) {
+        self.threads.lock().unwrap().push(context);
+        self.registered
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[inline(always)]
+    fn has_other_threads(&self) -> bool {
+        self.registered.load(std::sync::atomic::Ordering::Relaxed) > 1
     }
 
     pub(crate) unsafe fn maybe_call_per_ctx(
@@ -817,7 +832,7 @@ impl SteelThread {
 
         // TODO: Entering safepoint should happen often
         // for the main thread?
-        synchronizer.threads.lock().unwrap().push(ThreadContext {
+        synchronizer.register(ThreadContext {
             ctx: weak_ctx,
             handle,
         });
@@ -921,11 +936,11 @@ impl SteelThread {
     // during the duration of the provided thunk
     #[inline(always)]
     pub fn enter_safepoint<T>(&mut self, mut finish: impl FnMut(&SteelThread) -> T) -> T {
-        // TODO:
-        // Only need to actually enter the safepoint if another
-        // thread exists
+        let publish = cfg!(feature = "sync")
+            && self.safepoints_enabled
+            && self.synchronizer.has_other_threads();
 
-        if cfg!(feature = "sync") && self.safepoints_enabled {
+        if publish {
             let ptr = self as _;
             self.synchronizer.ctx.store(ptr, AtomicOrdering::SeqCst);
         }
@@ -951,9 +966,11 @@ impl SteelThread {
                 }
             }
 
-            self.synchronizer
-                .ctx
-                .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
+            if publish {
+                self.synchronizer
+                    .ctx
+                    .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
+            }
         }
 
         res
@@ -963,11 +980,11 @@ impl SteelThread {
         &mut self,
         finish: impl FnOnce(&SteelThread) -> Result<SteelVal>,
     ) -> Result<SteelVal> {
-        // TODO:
-        // Only need to actually enter the safepoint if another
-        // thread exists
+        let publish = cfg!(feature = "sync")
+            && self.safepoints_enabled
+            && self.synchronizer.has_other_threads();
 
-        if cfg!(feature = "sync") && self.safepoints_enabled {
+        if publish {
             let ptr = self as _;
             self.synchronizer.ctx.store(ptr, AtomicOrdering::SeqCst);
         }
@@ -993,9 +1010,11 @@ impl SteelThread {
                 }
             }
 
-            self.synchronizer
-                .ctx
-                .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
+            if publish {
+                self.synchronizer
+                    .ctx
+                    .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
+            }
         }
 
         res
@@ -1757,15 +1776,10 @@ impl<'a> VmCore<'a> {
         .into_steelval()
         .unwrap();
 
-        self.thread
-            .synchronizer
-            .threads
-            .lock()
-            .unwrap()
-            .push(ThreadContext {
-                ctx: weak_ctx,
-                handle: value.clone(),
-            });
+        self.thread.synchronizer.register(ThreadContext {
+            ctx: weak_ctx,
+            handle: value.clone(),
+        });
 
         for frame in &self.thread.stack_frames {
             self.close_continuation_marks(frame);

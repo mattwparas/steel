@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use core::ops::ControlFlow;
 use std::{
     cell::Cell,
@@ -5905,6 +5906,118 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
     }
 }
 
+/// Globals reassigned with `set!` somewhere inside a function body.
+#[derive(Default)]
+struct SetTargetsInFunctions {
+    targets: FxHashSet<InternedString>,
+    depth: usize,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for SetTargetsInFunctions {
+    fn visit_lambda_function(&mut self, lambda: &'a LambdaFunction) {
+        self.depth += 1;
+        self.visit(&lambda.body);
+        self.depth -= 1;
+    }
+
+    fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
+        if self.depth > 0 {
+            if let Some(name) = s.variable.atom_identifier() {
+                self.targets.insert(*name);
+            }
+        }
+
+        self.visit(&s.expr);
+    }
+}
+
+#[derive(Default)]
+struct CollectIdentifiers {
+    idents: FxHashSet<InternedString>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for CollectIdentifiers {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let TokenType::Identifier(ident) = a.syn.ty {
+            self.idents.insert(ident);
+        }
+    }
+}
+
+/// See `box_mutated_module_globals`.
+struct BoxModuleGlobals<'a> {
+    analysis: &'a Analysis,
+    boxed: &'a FxHashSet<InternedString>,
+}
+
+impl BoxModuleGlobals<'_> {
+    fn refers_to_boxed(&self, expr: &ExprKind) -> bool {
+        let ExprKind::Atom(a) = expr else {
+            return false;
+        };
+        let Some(name) = a.ident() else {
+            return false;
+        };
+        // A closure lifted above the define sees the global as free.
+        self.boxed.contains(name)
+            && self.analysis.get(&a.syn).is_none_or(|info| {
+                matches!(info.kind, IdentifierStatus::Global | IdentifierStatus::Free)
+            })
+    }
+}
+
+impl VisitorMutRefUnit for BoxModuleGlobals<'_> {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(_) => {}
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(_) => {
+                if self.refers_to_boxed(expr) {
+                    let global = core::mem::replace(expr, ExprKind::List(List::empty()));
+                    *expr = unbox_argument(global);
+                }
+            }
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => {
+                self.visit(&mut s.expr);
+
+                if self.refers_to_boxed(&s.variable) {
+                    let value = core::mem::replace(&mut s.expr, ExprKind::List(List::empty()));
+                    let global = core::mem::replace(&mut s.variable, ExprKind::List(List::empty()));
+                    *expr = setbox_argument(global, value);
+                }
+            }
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+
+    fn visit_define(&mut self, define: &mut Define) {
+        self.visit(&mut define.body);
+
+        if self.refers_to_boxed(&define.name) {
+            let value = core::mem::replace(&mut define.body, ExprKind::List(List::empty()));
+            define.body = box_argument(value);
+        }
+    }
+
+    fn visit_lambda_function(&mut self, lambda: &mut LambdaFunction) {
+        self.visit(&mut lambda.body);
+    }
+
+    fn visit_let(&mut self, l: &mut Let) {
+        l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
+        self.visit(&mut l.body_expr);
+    }
+}
+
 struct ReplaceBuiltinUsagesInsideMacros<'a> {
     identifiers_to_replace: &'a mut FxHashMap<InternedString, InternedString>,
     analysis: &'a Analysis,
@@ -8267,6 +8380,107 @@ impl<'a> SemanticAnalysis<'a> {
             analysis: &self.analysis,
         };
 
+        for expr in self.exprs.iter_mut() {
+            replacer.visit(expr);
+        }
+
+        self
+    }
+
+    /// Rewrite module globals that are reassigned with `set!` to live in a box:
+    /// `(define x (#%box e))`, `(#%unbox x)` and `(#%set-box! x v)`. The global
+    /// itself is then never reassigned, and writing the box doesn't have to
+    /// pause every other thread the way `set!` on a global does.
+    ///
+    /// Only globals nothing outside the module can name are boxed: not provided,
+    /// and not mentioned by any of the module's macros. Functions are left alone,
+    /// and so are globals only reassigned at the top level, like the bindings a
+    /// struct definition fills in once.
+    pub fn box_mutated_module_globals<'m>(
+        &mut self,
+        modules: impl IntoIterator<Item = &'m CompiledModule>,
+    ) -> &mut Self {
+        let mut reassigned = SetTargetsInFunctions::default();
+        for expr in self.exprs.iter() {
+            reassigned.visit(expr);
+        }
+        let reassigned = reassigned.targets;
+        if reassigned.is_empty() {
+            return self;
+        }
+
+        let mut defines: FxHashMap<InternedString, (usize, bool)> = FxHashMap::default();
+        for expr in self.exprs.iter() {
+            let top_level = match expr {
+                ExprKind::Begin(b) => b.exprs.as_slice(),
+                other => core::slice::from_ref(other),
+            };
+            for expr in top_level {
+                if let ExprKind::Define(d) = expr {
+                    if let Some(name) = d.name.atom_identifier() {
+                        let entry = defines.entry(*name).or_default();
+                        entry.0 += 1;
+                        entry.1 = !matches!(d.body, ExprKind::LambdaFunction(_));
+                    }
+                }
+            }
+        }
+
+        let mut boxed = FxHashSet::default();
+
+        for module in modules {
+            let prefix = module.prefix();
+
+            let mut visible = CollectReferences {
+                idents: FxHashSet::default(),
+            };
+            for steel_macro in module.get_macros().values() {
+                for expr in steel_macro.exprs() {
+                    visible.visit(expr);
+                }
+            }
+            if let Some(exports) =
+                query_top_level_define(self.exprs, CompactString::new(MODULE_PREFIX) + &prefix)
+            {
+                visible.visit(&exports.body);
+            }
+            let mut provided = CollectIdentifiers::default();
+            for provide in module.get_provides() {
+                provided.visit(provide);
+            }
+            let provided: FxHashSet<InternedString> = provided
+                .idents
+                .into_iter()
+                .map(|name| {
+                    (CompactString::new(&prefix) + name.resolve())
+                        .as_str()
+                        .into()
+                })
+                .collect();
+
+            for name in &reassigned {
+                let Some(&(count, is_value)) = defines.get(name) else {
+                    continue;
+                };
+                if count == 1
+                    && is_value
+                    && name.resolve().starts_with(prefix.as_str())
+                    && !visible.idents.contains(name)
+                    && !provided.contains(name)
+                {
+                    boxed.insert(*name);
+                }
+            }
+        }
+
+        if boxed.is_empty() {
+            return self;
+        }
+
+        let mut replacer = BoxModuleGlobals {
+            analysis: &self.analysis,
+            boxed: &boxed,
+        };
         for expr in self.exprs.iter_mut() {
             replacer.visit(expr);
         }

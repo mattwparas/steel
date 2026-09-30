@@ -25,8 +25,9 @@ use crate::{
         bytevectors::{steel_bytes_ref, steel_bytes_set},
         lists::{steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse},
         numbers::{
-            floor_quotient, floor_remainder, modulo, quotient, remainder, truncate_quotient,
-            truncate_remainder,
+            bitwise_and, bitwise_ior, bitwise_xor, floor_quotient, floor_remainder, modulo,
+            quotient, remainder, steel_ceiling, steel_exact, steel_floor, steel_round,
+            steel_truncate, truncate_quotient, truncate_remainder,
         },
         ports::{eof_objectp_jit, steel_eof_objectp},
         strings::steel_char_equals,
@@ -652,6 +653,12 @@ pub(super) fn borrow_enabled() -> bool {
     crate::config::config().jit_borrow
 }
 
+/// `STEEL_JIT_CLOSED_GLOBAL_OPERANDS=0` clones a closed global onto the operand
+/// stack when it is pushed, like any other global.
+pub(super) fn closed_global_operands_enabled() -> bool {
+    crate::config::config().jit_closed_global_operands
+}
+
 /// Which of the four integer division operators `inline_int_divmod` is
 /// lowering. The truncating pair round toward zero and take their sign from the
 /// dividend; the flooring pair round down and take it from the divisor.
@@ -661,6 +668,22 @@ enum DivMode {
     TruncRemainder,
     FloorQuotient,
     FloorRemainder,
+}
+
+#[derive(Clone, Copy)]
+enum RoundOp {
+    Floor,
+    Ceiling,
+    Truncate,
+    Round,
+    Exact,
+}
+
+#[derive(Clone, Copy)]
+enum BitwiseOp {
+    And,
+    Ior,
+    Xor,
 }
 
 /// `STEEL_JIT_INLINE_SETBOX=0` sends the `SETBOX` opcode back out to
@@ -701,6 +724,18 @@ pub(super) fn inline_bytevector_enabled() -> bool {
 /// inlined.
 pub(super) fn inline_divmod_enabled() -> bool {
     crate::config::config().jit_inline_divmod
+}
+
+/// `STEEL_JIT_INLINE_BITWISE=0` sends `bitwise-and` / `bitwise-ior` /
+/// `bitwise-xor` back out through the generic primitive call.
+pub(super) fn inline_bitwise_enabled() -> bool {
+    crate::config::config().jit_inline_bitwise
+}
+
+/// `STEEL_JIT_INLINE_ROUNDING=0` sends `floor` / `ceiling` / `truncate` /
+/// `round` / `exact` back out through the generic primitive call.
+pub(super) fn inline_rounding_enabled() -> bool {
+    crate::config::config().jit_inline_rounding
 }
 
 /// `STEEL_JIT_INLINE_EQ=0` sends `eq?` on two non-constant operands back
@@ -2911,6 +2946,11 @@ enum ConstantValue {
 
     // HeapConstant
     Index(usize),
+
+    // A closed global, read from its slot when it is used. It is never
+    // reassigned, so reading it late gives the same value as reading it when
+    // pushed, and a consumer that only looks at it can skip the clone.
+    Global(usize),
 }
 
 struct StackFrameRepr {
@@ -2928,7 +2968,7 @@ impl ConstantValue {
             ConstantValue::Bool(_) => InferredType::Bool,
             ConstantValue::Char(_) => InferredType::Char,
             ConstantValue::Float(_) => InferredType::Number,
-            ConstantValue::Index(_) => InferredType::Any,
+            ConstantValue::Index(_) | ConstantValue::Global(_) => InferredType::Any,
             ConstantValue::Symbol(_) => InferredType::Symbol,
             ConstantValue::List(_) => InferredType::List,
         }
@@ -2939,6 +2979,12 @@ impl ConstantValue {
             // TODO: We can probably infer the type here though, since we know
             // what the type is based on the values coming in
             ConstantValue::Index(p) => (ctx.push_const_index(p), InferredType::Any),
+
+            ConstantValue::Global(index) => {
+                let value = ctx.inline_lookup_global(index);
+                ctx.clone_value(value);
+                (value, InferredType::Any)
+            }
 
             ConstantValue::Int(i) => (ctx.encode_integer(i as _), InferredType::Int),
 
@@ -3873,6 +3919,22 @@ impl FunctionTranslator<'_> {
                     self.push(value, InferredType::Void);
                     self.ip += 1;
                 }
+                OpCode::PUSH
+                    if self.instructions.get(self.ip + 1).map(|x| x.op_code)
+                        == Some(OpCode::UNBOX)
+                        && !self.func_is_join_target(self.ip + 1)
+                        && self.global_is_closed(payload) =>
+                {
+                    self.lower_closed_global_unbox(payload)
+                }
+
+                OpCode::PUSH
+                    if closed_global_operands_enabled() && self.global_is_closed(payload) =>
+                {
+                    self.shadow_push(MaybeStackValue::Constant(ConstantValue::Global(payload)));
+                    self.ip += 1;
+                }
+
                 OpCode::PUSH => {
                     let result = self.inline_lookup_global(payload);
 
@@ -4285,6 +4347,24 @@ impl FunctionTranslator<'_> {
                         ) =>
                 {
                     self.add_two_values()
+                }
+
+                OpCode::ADD | OpCode::SUB | OpCode::MUL
+                    if matches!(payload, 2 | 3)
+                        && generic_inline_enabled()
+                        && float_inline_enabled() =>
+                {
+                    let res = match operand_helper(op, payload) {
+                        Some(OperandHelper::Two(fallback)) => {
+                            self.inline_number_op::<2>(op, fallback)
+                        }
+                        Some(OperandHelper::Three(fallback)) => {
+                            self.inline_number_op::<3>(op, fallback)
+                        }
+                        _ => unreachable!("{op:?} has a helper for {payload} operands"),
+                    };
+                    self.push(res, InferredType::Number);
+                    self.ip += 2;
                 }
 
                 // TODO: Specialize this a bit more. If we know that the RHS is some kind
@@ -5517,6 +5597,162 @@ impl FunctionTranslator<'_> {
                     ctx.encode_float_value(res)
                 },
                 |ctx, [lhs, rhs]| ctx.call_helper_checked(fallback, [lhs, rhs]),
+                types::I128,
+            )
+    }
+
+    /// `+`, `-` or `*` of `N` operands of unknown type. All fixnums are
+    /// combined inline unless a step overflows, all floats likewise, and
+    /// anything else goes to `fallback`, which folds left to right the same way.
+    fn inline_number_op<const N: usize>(
+        &mut self,
+        op: OpCode,
+        fallback: Helper<N, true, true, true>,
+    ) -> Value {
+        let args = self.pop_boxed_args::<N>();
+        let call = move |ctx: &mut Self| ctx.call_helper_checked(fallback, args);
+
+        let ints = self.tags_are(&args.map(|arg| (arg, SteelVal::INT_TAG)));
+        self.converging_if(
+            ints,
+            |ctx| {
+                let payloads = args.map(|arg| ctx.unbox_value_to_pointer(arg));
+                let mut acc = payloads[0];
+                let mut overflowed = None;
+                for &next in &payloads[1..] {
+                    let (res, flag) = match op {
+                        OpCode::ADD => ctx.builder.ins().sadd_overflow(acc, next),
+                        OpCode::SUB => ctx.builder.ins().ssub_overflow(acc, next),
+                        _ => ctx.builder.ins().smul_overflow(acc, next),
+                    };
+                    acc = res;
+                    overflowed = Some(match overflowed {
+                        Some(any) => ctx.builder.ins().bor(any, flag),
+                        None => flag,
+                    });
+                }
+                ctx.converging_if(
+                    overflowed.unwrap(),
+                    call,
+                    |ctx| ctx.encode_value(SteelVal::INT_TAG as _, acc),
+                    types::I128,
+                )
+            },
+            |ctx| {
+                let floats = ctx.tags_are(&args.map(|arg| (arg, SteelVal::FLOAT_TAG)));
+                ctx.converging_if(
+                    floats,
+                    |ctx| {
+                        let values = args.map(|arg| ctx.unbox_value_to_float(arg));
+                        let res = values[1..].iter().fold(values[0], |acc, &next| match op {
+                            OpCode::ADD => ctx.builder.ins().fadd(acc, next),
+                            OpCode::SUB => ctx.builder.ins().fsub(acc, next),
+                            _ => ctx.builder.ins().fmul(acc, next),
+                        });
+                        ctx.encode_float_value(res)
+                    },
+                    call,
+                    types::I128,
+                )
+            },
+            types::I128,
+        )
+    }
+
+    /// `floor`, `ceiling`, `truncate`, `round` or `exact` inline. A fixnum is
+    /// its own result, a float is rounded in place (for `exact`, one with no
+    /// fractional part is converted the way the primitive's `as isize` does),
+    /// and anything else calls the primitive.
+    fn inline_rounding(&mut self, op: RoundOp, function: FunctionSignature) -> Value {
+        let arg = self.pop_boxed();
+        let call = move |ctx: &mut Self| {
+            let func = ctx
+                .builder
+                .ins()
+                .iconst(ctx.module.target_config().pointer_type(), function as i64);
+            let fallback_ip = ctx.i64_const(ctx.ip as i64);
+
+            let name = CallPrimitiveDefinitions::arity_to_name(1).unwrap();
+            let res = ctx.call_function_returns_value_args(name, &[func, fallback_ip, arg]);
+            ctx.check_deopt();
+            res
+        };
+
+        let int = self.tags_are(&[(arg, SteelVal::INT_TAG)]);
+        self.converging_if(
+            int,
+            move |_| arg,
+            |ctx| {
+                let float = ctx.tags_are(&[(arg, SteelVal::FLOAT_TAG)]);
+                match op {
+                    RoundOp::Exact => {
+                        let x = ctx.unbox_value_to_float(arg);
+                        let whole = ctx.builder.ins().trunc(x);
+                        // Zero only when `x` is finite with no fractional part.
+                        let fraction = ctx.builder.ins().fsub(x, whole);
+                        let zero = ctx.builder.ins().f64const(0.0);
+                        let integral = ctx.builder.ins().fcmp(FloatCC::Equal, fraction, zero);
+                        let fast = ctx.builder.ins().band(float, integral);
+                        ctx.converging_if(
+                            fast,
+                            |ctx| {
+                                let n = ctx.builder.ins().fcvt_to_sint_sat(types::I64, x);
+                                ctx.encode_value(SteelVal::INT_TAG as _, n)
+                            },
+                            call,
+                            types::I128,
+                        )
+                    }
+                    _ => ctx.converging_if(
+                        float,
+                        |ctx| {
+                            let x = ctx.unbox_value_to_float(arg);
+                            let res = match op {
+                                RoundOp::Floor => ctx.builder.ins().floor(x),
+                                RoundOp::Ceiling => ctx.builder.ins().ceil(x),
+                                RoundOp::Truncate => ctx.builder.ins().trunc(x),
+                                _ => ctx.builder.ins().nearest(x),
+                            };
+                            ctx.encode_float_value(res)
+                        },
+                        call,
+                        types::I128,
+                    ),
+                }
+            },
+            types::I128,
+        )
+    }
+
+    /// `bitwise-and`, `bitwise-ior` or `bitwise-xor` of two fixnums inline.
+    /// The primitive raises for anything else, so the result is always a fixnum.
+    fn inline_int_bitwise(&mut self, op: BitwiseOp, function: FunctionSignature) -> Value {
+        self.guarded_op::<2>()
+            .require([SteelVal::INT_TAG, SteelVal::INT_TAG])
+            .emit(
+                |ctx, [lhs, rhs]| {
+                    let l = ctx.unbox_value_to_pointer(lhs);
+                    let r = ctx.unbox_value_to_pointer(rhs);
+                    let res = match op {
+                        BitwiseOp::And => ctx.builder.ins().band(l, r),
+                        BitwiseOp::Ior => ctx.builder.ins().bor(l, r),
+                        BitwiseOp::Xor => ctx.builder.ins().bxor(l, r),
+                    };
+                    ctx.encode_value(SteelVal::INT_TAG as _, res)
+                },
+                |ctx, [lhs, rhs]| {
+                    let func = ctx
+                        .builder
+                        .ins()
+                        .iconst(ctx.module.target_config().pointer_type(), function as i64);
+                    let fallback_ip = ctx.i64_const(ctx.ip as i64);
+
+                    let name = CallPrimitiveDefinitions::arity_to_name(2).unwrap();
+                    let res =
+                        ctx.call_function_returns_value_args(name, &[func, fallback_ip, lhs, rhs]);
+                    ctx.check_deopt();
+                    res
+                },
                 types::I128,
             )
     }
@@ -7644,6 +7880,18 @@ impl FunctionTranslator<'_> {
     /// a call can bake that value in (`closed_globals`).
     fn global_is_closed(&self, index: usize) -> bool {
         self.closed_globals.contains(&index)
+    }
+
+    /// `PUSH` of a closed global, then `UNBOX`. The global is never reassigned,
+    /// so the box it holds stays alive without the clone a `PUSH` takes, and is
+    /// read in place.
+    fn lower_closed_global_unbox(&mut self, index: usize) {
+        let value = self.inline_lookup_global(index);
+        let res = self.unbox_value_checked_register(value, false);
+
+        // Past the `PUSH`, the `UNBOX` and the `FUNC` after it.
+        self.ip += 3;
+        self.push(res, InferredType::Any);
     }
 
     /// The return type recorded for function `id`, when it has only one.

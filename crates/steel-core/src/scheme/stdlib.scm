@@ -879,12 +879,6 @@
 (define fold foldl)
 (define reduce fold)
 
-(define (max x . rest)
-  (fold (lambda (y z) (if (> y z) y z)) x rest))
-
-(define (min x . rest)
-  (fold (lambda (y z) (if (< y z) y z)) x rest))
-
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 
@@ -1363,6 +1357,18 @@
            ?args
            ?l
            ?clause1 ...))]))
+
+(define max
+  (case-lambda
+    [(x) x]
+    [(x y) (if (> y x) y x)]
+    [(x . rest) (fold (lambda (y z) (if (> y z) y z)) x rest)]))
+
+(define min
+  (case-lambda
+    [(x) x]
+    [(x y) (if (< y x) y x)]
+    [(x . rest) (fold (lambda (y z) (if (< y z) y z)) x rest)]))
 
 (define-syntax help
   (syntax-rules ()

@@ -1304,6 +1304,22 @@ impl Compiler {
 
         semantic.replace_mutable_captured_variables_with_boxes();
 
+        // A module that exports defmacros can have its private globals named by
+        // their expansions in other modules, so its globals are left alone.
+        if crate::config::config().box_module_globals {
+            let kernel = self.kernel.as_ref();
+            semantic.box_mutated_module_globals(self.module_manager.modules().values().filter(
+                |module| {
+                    kernel.is_none_or(|kernel| {
+                        module
+                            .name()
+                            .to_str()
+                            .is_none_or(|name| kernel.exported_defmacros(name).is_none())
+                    })
+                },
+            ));
+        }
+
         log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
 
         let mut analysis = semantic.into_analysis();

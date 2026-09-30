@@ -619,7 +619,7 @@ impl FunctionTranslator<'_> {
                             ctx.call_helper_checked(VECTOR_REF_REG_2_UNBOXED_INDEX, [vector, index])
                         };
 
-                        self.inline_vector_ref(vector_value, index_value, fallback)
+                        self.inline_vector_ref(vector_value, index_value, false, fallback)
                     }
 
                     _ => {
@@ -639,7 +639,7 @@ impl FunctionTranslator<'_> {
                             ctx.call_helper_checked(VECTOR_REF_REG_2, [vector, index])
                         };
 
-                        self.inline_vector_ref(vector_value, index_value, fallback)
+                        self.inline_vector_ref(vector_value, index_value, false, fallback)
                     }
                 };
 
@@ -658,7 +658,27 @@ impl FunctionTranslator<'_> {
                     ctx.call_helper_checked(VECTOR_REF_REG_1, [vector, index_value])
                 };
 
-                let res = { self.inline_vector_ref(vector_value, index_value, fallback) };
+                let res = { self.inline_vector_ref(vector_value, index_value, false, fallback) };
+
+                self.push(res, InferredType::Any);
+                self.ip += 2;
+            }
+
+            // A closed global, read from its slot. The global keeps the vector
+            // alive, so the read needs no clone, and only the helper gets one.
+            &[MaybeStackValue::Constant(ConstantValue::Global(global)), _]
+                if generic_inline_enabled() =>
+            {
+                let index = self.pop_boxed();
+                self.shadow_stack.pop();
+                let vector_value = self.inline_lookup_global(global);
+
+                let fallback = move |ctx: &mut Self| {
+                    ctx.clone_value(vector_value);
+                    ctx.call_helper_checked(VECTOR_REF_VALUE, [vector_value, index])
+                };
+
+                let res = self.inline_vector_ref(vector_value, index, false, fallback);
 
                 self.push(res, InferredType::Any);
                 self.ip += 2;
@@ -681,7 +701,7 @@ impl FunctionTranslator<'_> {
                     res
                 };
 
-                let res = self.inline_vector_ref(vector_value, index, fallback);
+                let res = self.inline_vector_ref(vector_value, index, true, fallback);
 
                 self.push(res, InferredType::Any);
                 self.ip += 2;
