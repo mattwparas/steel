@@ -5105,10 +5105,16 @@ impl FunctionTranslator<'_> {
                         let fallback_ip = ctx.i64_const(fallback_ip as i64);
                         // TODO: Set up the closure for multi arity?
                         // Part of the call protocol. An arity error is picked up after the merge.
-                        ctx.call_helper_unchecked(
+                        let res = ctx.call_helper_unchecked(
                             SETUP_CLOSURE_ARITY,
                             [closure, arity, fallback_ip],
-                        )
+                        );
+                        // The helper clones the closure into the frame it pushes,
+                        // so an owned callee is still ours to release.
+                        if !should_clone {
+                            ctx.drop_tagged_value(func);
+                        }
+                        res
                     },
                     typ,
                 );

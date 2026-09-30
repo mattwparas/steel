@@ -2742,15 +2742,12 @@ impl<'a> FunctionTranslator<'a> {
                     // The read was a move, so the register gives up the struct,
                     // and with it this reference. The field was cloned, since
                     // only a struct left in its register is read borrowed.
+                    // `mut_register_to_value` also forgets any cached read of
+                    // the slot, which would otherwise hand the dropped struct
+                    // out again.
                     MaybeStackValue::MutRegister(r) => {
-                        let void = self.encode_void();
-                        self.write_to_vm_stack(r, void);
-                        self.drop_tagged_value(struct_ref);
-
-                        self.properties.props.insert(
-                            ValueOrRegister::Register(r),
-                            vec![Properties::InferredType(InferredType::Void)],
-                        );
+                        let (moved, _) = self.mut_register_to_value(r);
+                        self.drop_tagged_value(moved);
                     }
                     MaybeStackValue::Register(_) => {
                         self.properties.add_property(

@@ -822,6 +822,38 @@ mod expansion_tests {
         }
     }
 
+    /// A jitted call to a closure the call produced itself, here out of a box in
+    /// a local, hands the closure to the interpreter when it has no fixed arity
+    /// code to enter. The call owns that closure, and has to release it there too.
+    #[test]
+    fn jitted_calls_release_an_owned_callee() {
+        let mut engine = Engine::new();
+        engine
+            .compile_and_run_raw_program(
+                "(define K (box (lambda (x . rest) x)))
+                 (define (run b n)
+                   (when (> n 0)
+                     ((unbox b) n)
+                     (run b (- n 1))))
+                 (run K 100)
+                 (#%jit-drain)
+                 (run K 10000)",
+            )
+            .unwrap();
+
+        let crate::rvals::SteelVal::HeapAllocated(b) = engine.extract_value("K").unwrap() else {
+            panic!("K is a box")
+        };
+        let crate::rvals::SteelVal::Closure(c) = b.get() else {
+            panic!("K holds a closure")
+        };
+        assert!(
+            crate::gc::Gc::strong_count(&c) <= 3,
+            "K: {}",
+            crate::gc::Gc::strong_count(&c)
+        );
+    }
+
     /// Jitted `vector-ref`, `vector-set!` and `vector-length` on global vectors,
     /// closed and reassigned, leave the vectors' handle counts where they were.
     /// A leaked handle keeps the vector from ever being collected.
