@@ -3206,6 +3206,7 @@ struct ForkedState {
     if_stack: Vec<usize>,
     if_merge_blocks: Vec<Block>,
     if_merge_flags: Vec<Variable>,
+    if_merge_lazy: Vec<Option<LazyRun>>,
     vm_context: Value,
     function_context: Option<usize>,
     thread_pointer: Option<Value>,
@@ -3254,6 +3255,9 @@ impl<'a> FunctionTranslator<'a> {
                     .last()
                     .expect("if_bound is set but no enclosing if merge block was registered - check translate_if_else_value");
                 let return_value = ctx.shadow_pop().0;
+                if let Some(Some(run)) = ctx.if_merge_lazy.last().cloned() {
+                    ctx.restore_lazy_run(&run);
+                }
                 // `shadow_pop` has materialized it, so it reaches the merge owned.
                 let flag = *ctx.if_merge_flags.last().unwrap();
                 let one = ctx.builder.ins().iconst(types::I8, 1);
@@ -3300,6 +3304,7 @@ impl<'a> FunctionTranslator<'a> {
             if_stack: self.if_stack.clone(),
             if_merge_blocks: self.if_merge_blocks.clone(),
             if_merge_flags: self.if_merge_flags.clone(),
+            if_merge_lazy: self.if_merge_lazy.clone(),
             vm_context: self.vm_context,
             function_context: self.function_context,
             thread_pointer: self.thread_pointer,
@@ -3329,6 +3334,7 @@ impl<'a> FunctionTranslator<'a> {
         self.if_stack = state.if_stack;
         self.if_merge_blocks = state.if_merge_blocks;
         self.if_merge_flags = state.if_merge_flags;
+        self.if_merge_lazy = state.if_merge_lazy;
         self.vm_context = state.vm_context;
         self.function_context = state.function_context;
         self.thread_pointer = state.thread_pointer;

@@ -286,6 +286,10 @@ steel_config! {
     lbbv: bool = false, "STEEL_LBBV";
     /// Unboxed list cursors in loops (experimental).
     jit_list_cursor: bool = false, "STEEL_JIT_LIST_CURSOR";
+    /// Leave a self tail call's argument slot alone when it is passed its own value.
+    jit_skip_unchanged_args: bool = true, "STEEL_JIT_SKIP_UNCHANGED_ARGS";
+    /// Leave the register operands on top of the stack unspilled across an `if`.
+    jit_lazy_branch_spill: bool = true, "STEEL_JIT_LAZY_BRANCH_SPILL";
     /// Cursor only functions whose name contains one of these (comma separated).
     cursor_only: Option<String> = None, "STEEL_CURSOR_ONLY";
     /// Why a function kept or lost its cursors.

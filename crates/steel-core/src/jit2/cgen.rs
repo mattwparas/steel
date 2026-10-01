@@ -659,6 +659,14 @@ pub(super) fn closed_global_operands_enabled() -> bool {
     crate::config::config().jit_closed_global_operands
 }
 
+fn lazy_branch_spill_enabled() -> bool {
+    crate::config::config().jit_lazy_branch_spill
+}
+
+fn skip_unchanged_args_enabled() -> bool {
+    crate::config::config().jit_skip_unchanged_args
+}
+
 pub(super) fn box_vector_ref_enabled() -> bool {
     crate::config::config().jit_box_vector_ref
 }
@@ -2540,6 +2548,7 @@ impl JIT {
             if_bound: None,
             if_merge_blocks: Vec::new(),
             if_merge_flags: Vec::new(),
+            if_merge_lazy: Vec::new(),
             pending_borrow: None,
             vm_context,
             slot,
@@ -2960,6 +2969,14 @@ enum ConstantValue {
     // this is only pushed when the `VECTORREF` using it follows with nothing
     // in between that could run code, see `box_contents_operand_fits`.
     GlobalBoxContents(usize),
+}
+
+/// Register operands an `if` left unspilled, from `start` on the shadow stack,
+/// with what was known about each register at the branch.
+#[derive(Clone, Debug)]
+struct LazyRun {
+    start: usize,
+    entries: Vec<(MaybeStackValue, Option<Vec<Properties>>)>,
 }
 
 struct StackFrameRepr {
@@ -3594,6 +3611,9 @@ struct FunctionTranslator<'a> {
     // Parallel to `if_merge_blocks`: the owned flag for the value each merge
     // receives. Every jump to a merge block defines it.
     if_merge_flags: Vec<Variable>,
+    // Parallel to `if_merge_blocks`: the register operands left unspilled across
+    // that branch, which every jump to its merge puts back the way they were.
+    if_merge_lazy: Vec<Option<LazyRun>>,
     // Set by a struct getter that left its result borrowed, for the caller that
     // pushes the result.
     pending_borrow: Option<Variable>,
@@ -3903,7 +3923,7 @@ impl FunctionTranslator<'_> {
                 self.materialize_borrowed();
             }
 
-            // Only ever set by the self tail call that is carrying cursors, and
+            // Only set by a self tail call, for slots it leaves as they are, and
             // it must not reach any other op's writes.
             self.carry_skip.clear();
 
@@ -6868,6 +6888,10 @@ impl FunctionTranslator<'_> {
             }
         }
 
+        if skip_unchanged_args_enabled() {
+            self.skip_unchanged_args(payload);
+        }
+
         if payload > 0 {
             let mut amount_dropped = 0;
 
@@ -6977,6 +7001,47 @@ impl FunctionTranslator<'_> {
             self.properties.cached_lookups.cursors.insert(*p, *to);
         }
         self.emit_self_tail_jump(&proven);
+    }
+
+    /// A self tail call passing a parameter its own value, as `(loop (+ i 1) k
+    /// acc)` does `k`, would read the slot, clone it, drop what is there and
+    /// write it back. Leave the slot alone instead: the argument becomes a
+    /// placeholder and the write skips it. The trailing run of these is popped
+    /// before the writes anyway, so only the ones before it are handled here.
+    fn skip_unchanged_args(&mut self, payload: usize) {
+        let n = self.shadow_stack.len();
+        if payload == 0 || n < payload {
+            return;
+        }
+        let self_move = |entry: Option<&MaybeStackValue>, pos: usize| {
+            matches!(
+                entry,
+                Some(MaybeStackValue::MutRegister(r) | MaybeStackValue::Register(r)) if *r == pos
+            )
+        };
+
+        let mut first_trailing = payload;
+        while first_trailing > 0
+            && self_move(
+                self.shadow_stack.get(n - payload + first_trailing - 1),
+                first_trailing - 1,
+            )
+        {
+            first_trailing -= 1;
+        }
+
+        for pos in 0..first_trailing {
+            if !self_move(self.shadow_stack.get(n - payload + pos), pos) {
+                continue;
+            }
+            let void = self.encode_void();
+            self.shadow_stack[n - payload + pos] = MaybeStackValue::Value(StackValue {
+                value: void,
+                inferred_type: InferredType::Void,
+                spilled: false,
+            });
+            self.carry_skip.insert(pos);
+        }
     }
 
     /// Back to the top of the loop. The arguments are already written back.
@@ -8240,6 +8305,134 @@ impl FunctionTranslator<'_> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
         self.checked_native_block = Some(then_block);
+    }
+
+    /// `spill_stack_for_branch`, except that the run of register operands on
+    /// top of the stack stays as it is when neither arm can move or set those
+    /// slots. An arm that spills them anyway (around a call) puts them back
+    /// before it jumps to the merge, see `restore_lazy_run`, so the arms still
+    /// agree there. `then_start..end` is both arms, `else_start - 1` the jump
+    /// between them.
+    fn spill_stack_for_branch_lazy(
+        &mut self,
+        then_start: usize,
+        else_start: usize,
+        end: usize,
+    ) -> Option<LazyRun> {
+        let n = self.shadow_stack.len();
+        let mut start = n;
+        while start > 0
+            && matches!(
+                self.shadow_stack[start - 1],
+                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_)
+            )
+        {
+            start -= 1;
+        }
+
+        let slot = |entry: &MaybeStackValue| match entry {
+            MaybeStackValue::MutRegister(p) | MaybeStackValue::Register(p) => Some(*p),
+            _ => None,
+        };
+        let slots: Vec<usize> = self.shadow_stack[start..].iter().filter_map(slot).collect();
+        let distinct = slots
+            .iter()
+            .enumerate()
+            .all(|(i, p)| !slots[..i].contains(p));
+        let referenced_below = self.shadow_stack[..start]
+            .iter()
+            .filter_map(slot)
+            .any(|p| slots.contains(&p));
+        let arms_touch = (then_start..end)
+            .filter(|&ip| ip != else_start - 1)
+            .any(|ip| {
+                let instr = self.instructions[ip];
+                match instr.op_code {
+                    OpCode::MOVEREADLOCAL
+                    | OpCode::MOVEREADLOCAL0
+                    | OpCode::MOVEREADLOCAL1
+                    | OpCode::MOVEREADLOCAL2
+                    | OpCode::MOVEREADLOCAL3
+                    | OpCode::SETLOCAL => slots.contains(&instr.payload_size.to_usize()),
+                    OpCode::SETALLOC => true,
+                    _ => false,
+                }
+            });
+
+        if !lazy_branch_spill_enabled()
+            || self.cursors_on
+            || slots.is_empty()
+            || !distinct
+            || referenced_below
+            || arms_touch
+            || end > self.instructions.len()
+        {
+            self.spill_stack_for_branch();
+            return None;
+        }
+
+        for index in 0..start {
+            self.shadow_spill(index);
+        }
+
+        let entries = self.shadow_stack[start..]
+            .iter()
+            .map(|entry| {
+                let p = slot(entry).unwrap();
+                let props = self
+                    .properties
+                    .props
+                    .get(&ValueOrRegister::Register(p))
+                    .cloned();
+                (*entry, props)
+            })
+            .collect();
+
+        Some(LazyRun { start, entries })
+    }
+
+    /// Before a jump to the merge of a branch that left `run` unspilled: put
+    /// back any of those operands the arm spilled since. Only the spilled ones
+    /// are on the vm stack, the highest on top. A moved register goes back into
+    /// its slot, which the move left void, and a copied one is released.
+    fn restore_lazy_run(&mut self, run: &LazyRun) {
+        assert_eq!(
+            self.shadow_stack.len(),
+            run.start + run.entries.len(),
+            "an arm left the stack at another depth than its branch"
+        );
+        for (k, (frozen, props)) in run.entries.iter().enumerate().rev() {
+            let index = run.start + k;
+            let current = self.shadow_stack[index];
+            if current == *frozen {
+                continue;
+            }
+            let MaybeStackValue::Value(StackValue { spilled: true, .. }) = current else {
+                panic!("an arm changed an operand it left unspilled: {current:?}");
+            };
+            let value = self.pop_value_from_vm_stack();
+            match *frozen {
+                MaybeStackValue::MutRegister(p) => {
+                    self.write_to_vm_stack_starting_at(p, &[value], false);
+                }
+                MaybeStackValue::Register(_) => self.drop_tagged_value(value),
+                _ => unreachable!("only registers are left unspilled"),
+            }
+            if let MaybeStackValue::MutRegister(p) | MaybeStackValue::Register(p) = *frozen {
+                self.properties.cached_lookups.registers.remove(&p);
+                match props {
+                    Some(props) => {
+                        self.properties
+                            .props
+                            .insert(ValueOrRegister::Register(p), props.clone());
+                    }
+                    None => {
+                        self.properties.props.remove(&ValueOrRegister::Register(p));
+                    }
+                }
+            }
+            self.shadow_stack[index] = *frozen;
+        }
     }
 
     // Make the shadow stack uniform before a two way branch.
@@ -9536,7 +9729,12 @@ impl FunctionTranslator<'_> {
         let start = self.ip;
         let depth = self.depth;
 
-        self.spill_stack_for_branch();
+        let lazy = if saved_then_bound.is_some() {
+            self.spill_stack_for_branch_lazy(then_start, else_start, else_offset.unwrap())
+        } else {
+            self.spill_stack_for_branch();
+            None
+        };
 
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
@@ -9555,6 +9753,7 @@ impl FunctionTranslator<'_> {
         self.if_merge_blocks.push(merge_block);
         let merge_flag = self.builder.declare_var(types::I8);
         self.if_merge_flags.push(merge_flag);
+        self.if_merge_lazy.push(lazy.clone());
         let mut merge_borrowed = false;
 
         // Test the if condition and conditionally branch.
@@ -9607,6 +9806,9 @@ impl FunctionTranslator<'_> {
         } else {
             let (v, t) = self.shadow_pop();
             then_type = t;
+            if let Some(run) = &lazy {
+                self.restore_lazy_run(run);
+            }
             BlockArg::Value(v)
         };
 
@@ -9668,6 +9870,9 @@ impl FunctionTranslator<'_> {
         } else {
             let (v, t) = self.shadow_pop();
             else_type = t;
+            if let Some(run) = &lazy {
+                self.restore_lazy_run(run);
+            }
             BlockArg::Value(v)
         };
 
@@ -9805,6 +10010,7 @@ impl FunctionTranslator<'_> {
         let popped = self.if_merge_blocks.pop();
         debug_assert_eq!(popped, Some(merge_block));
         self.if_merge_flags.pop();
+        self.if_merge_lazy.pop();
 
         phi
     }
