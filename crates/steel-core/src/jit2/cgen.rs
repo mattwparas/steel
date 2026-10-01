@@ -4375,7 +4375,7 @@ impl FunctionTranslator<'_> {
                 }
 
                 OpCode::ADD | OpCode::SUB | OpCode::MUL
-                    if matches!(payload, 2 | 3)
+                    if (matches!(payload, 2 | 3) || (op == OpCode::ADD && payload == 4))
                         && generic_inline_enabled()
                         && float_inline_enabled() =>
                 {
@@ -4385,6 +4385,9 @@ impl FunctionTranslator<'_> {
                         }
                         Some(OperandHelper::Three(fallback)) => {
                             self.inline_number_op::<3>(op, fallback)
+                        }
+                        Some(OperandHelper::Four(fallback)) => {
+                            self.inline_number_op::<4>(op, fallback)
                         }
                         _ => unreachable!("{op:?} has a helper for {payload} operands"),
                     };
@@ -4963,7 +4966,7 @@ impl FunctionTranslator<'_> {
                     types::I128,
                 )
             },
-            sp,
+            |ctx| ctx.float_binop_or(OpCode::SUB, local_value_l, local_value_r, sp),
             types::I128,
         );
 

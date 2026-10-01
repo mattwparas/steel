@@ -11,11 +11,30 @@ impl FunctionTranslator<'_> {
         let value = self.shadow_stack_pop().unwrap().into_value(self);
         let register = self.shadow_stack_pop().unwrap().into_index();
 
+        let rhs = value.as_steelval(self);
+        let lhs = self.read_from_vm_stack(register);
         let register = self.register_index(register);
 
-        let args = [register, value.as_steelval(self)];
         // Checked below, once the result is on the stack for the deopt snapshot.
-        let result = self.call_helper_unchecked(SUB_BINOP_REG, args);
+        let slow = move |ctx: &mut Self| ctx.call_helper_unchecked(SUB_BINOP_REG, [register, rhs]);
+
+        let both_int = self.tags_are(&[(lhs, SteelVal::INT_TAG), (rhs, SteelVal::INT_TAG)]);
+        let result = self.converging_if(
+            both_int,
+            |ctx| {
+                let l = ctx.unbox_value_to_pointer(lhs);
+                let r = ctx.unbox_value_to_pointer(rhs);
+                let (diff, overflow) = ctx.builder.ins().ssub_overflow(l, r);
+                ctx.converging_if(
+                    overflow,
+                    slow,
+                    |ctx| ctx.encode_value(SteelVal::INT_TAG as _, diff),
+                    types::I128,
+                )
+            },
+            |ctx| ctx.float_binop_or(OpCode::SUB, lhs, rhs, slow),
+            types::I128,
+        );
 
         // Check the inferred type, if we know of it
         self.push(result, InferredType::Number);

@@ -997,6 +997,60 @@ mod expansion_tests {
         assert_eq!(value(&mut engine, "last"), "2");
     }
 
+    /// `vector-set!` on a vector in a local with a constant or a closed global
+    /// as the value reads the vector in place, and leaves its handle count
+    /// where it was. The inline float paths of `+` and `-` agree with the
+    /// interpreter, overflow included.
+    #[test]
+    fn jitted_register_vector_set_and_float_arithmetic() {
+        let mut engine = Engine::new();
+        engine
+            .compile_and_run_raw_program(
+                "(define BLACK 7)
+                 (define V (make-vector 8 0))
+                 (define (fill v n)
+                   (let loop ([i 0])
+                     (when (< i n)
+                       (if (even? i) (vector-set! v i 1) (vector-set! v i BLACK))
+                       (loop (+ i 1)))))
+                 (define (addf a b) (+ a b))
+                 (define (sub a b) (- a b))
+                 (define (sub-value a b) (- a (* b 1)))
+                 (define (add4 a b c d) (+ a b c d))
+                 (define (run k)
+                   (when (> k 0)
+                     (fill V 8) (addf 1.5 2.0) (sub 3.0 0.5) (sub-value 4 1) (add4 1 2 3 4)
+                     (run (- k 1))))
+                 (run 100)
+                 (#%jit-drain)
+                 (run 100000)
+                 (define big (- 0 (expt 2 62) (expt 2 62)))
+                 (define results
+                   (list (addf 1.5 2.25) (addf 1 2.5) (sub 5.5 2.25) (sub-value 2.5 1)
+                         (sub-value 2 1.5) (sub big 1) (sub-value big 1)
+                         (add4 1 2 3 4) (add4 1.0 2.0 3.0 4.0) (add4 1 2.0 3 4)
+                         (add4 (expt 2 62) (expt 2 62) 1 1)))
+                 (define errors
+                   (list (with-handler (lambda (e) 'err) (sub-value 1 'x))
+                         (with-handler (lambda (e) 'err) (add4 1 2 \"x\" 3))
+                         (with-handler (lambda (e) 'err) (fill 'not-a-vector 1))))",
+            )
+            .unwrap();
+
+        let value = |name: &str| engine.extract_value(name).unwrap().to_string();
+        assert_eq!(value("V"), "#(1 7 1 7 1 7 1 7)");
+        assert_eq!(
+            value("results"),
+            "(3.75 3.5 3.25 1.5 0.5 -9223372036854775809 -9223372036854775809 10 10.0 10.0 9223372036854775810)"
+        );
+        assert_eq!(value("errors"), "(err err err)");
+
+        let crate::rvals::SteelVal::MutableVector(v) = engine.extract_value("V").unwrap() else {
+            panic!("V is a vector")
+        };
+        assert!(v.inner.weak_count() <= 3, "V: {}", v.inner.weak_count());
+    }
+
     /// A reference's `builtin` flag comes from the definition it resolves to,
     /// so a program's own global named like a prelude function (`car`) can be
     /// `set!` without "cannot mutate module-required identifier".

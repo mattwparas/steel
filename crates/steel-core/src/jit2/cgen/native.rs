@@ -307,26 +307,32 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             &[MutRegister(i) | Register(i), _, _] => {
+                // The register keeps the vector alive, so it is read in place
+                // and only the helper gets a clone. Read before the register is
+                // marked as a vector below, which only holds once this succeeds.
+                let vector = self.read_from_vm_stack(i);
+
                 self.properties.add_property(
                     ValueOrRegister::Register(i),
                     Properties::InferredType(InferredType::MutableVector),
                 );
 
-                let args = self
-                    .split_off(3)
+                let rest = self
+                    .split_off(2)
                     .into_iter()
                     .map(|x| x.0)
                     .collect::<Vec<_>>();
-
-                let (vector, index, value) = (args[0], args[1], args[2]);
+                self.shadow_stack.pop();
+                let (index, value) = (rest[0], rest[1]);
 
                 let fallback = move |ctx: &mut Self| {
+                    ctx.clone_value(vector);
                     // Checked by the caller, after the result is pushed.
-                    ctx.call_helper_unchecked(VECTOR_SET_ARGS, args.as_slice().try_into().unwrap())
+                    ctx.call_helper_unchecked(VECTOR_SET_ARGS, [vector, index, value])
                 };
 
                 let res =
-                    self.inline_mut_vector_set(vector, index, value, true, true, true, fallback);
+                    self.inline_mut_vector_set(vector, index, value, false, true, true, fallback);
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
@@ -1446,14 +1452,51 @@ impl<'a> FunctionTranslator<'a> {
                     typ,
                 )
             },
-            |ctx| {
-                let res = sp(ctx);
-                res
-            },
+            |ctx| ctx.float_add_or(left, right, sp),
             typ,
         );
 
         (res, InferredType::Number)
+    }
+
+    /// Adds two floats inline, and calls `slow` for anything else.
+    fn float_add_or(
+        &mut self,
+        left: Value,
+        right: Value,
+        slow: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        self.float_binop_or(OpCode::ADD, left, right, slow)
+    }
+
+    /// `+` or `-` of two floats inline, and `slow` for anything else.
+    pub(super) fn float_binop_or(
+        &mut self,
+        op: OpCode,
+        left: Value,
+        right: Value,
+        slow: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        if !super::float_inline_enabled() {
+            return slow(self);
+        }
+        let both_float =
+            self.tags_are(&[(left, SteelVal::FLOAT_TAG), (right, SteelVal::FLOAT_TAG)]);
+        let typ = self.int;
+        self.converging_if(
+            both_float,
+            |ctx| {
+                let l = ctx.unbox_value_to_float(left);
+                let r = ctx.unbox_value_to_float(right);
+                let res = match op {
+                    OpCode::SUB => ctx.builder.ins().fsub(l, r),
+                    _ => ctx.builder.ins().fadd(l, r),
+                };
+                ctx.encode_float_value(res)
+            },
+            slow,
+            typ,
+        )
     }
 
     pub(super) fn binop_add_value_register(
@@ -1505,9 +1548,11 @@ impl<'a> FunctionTranslator<'a> {
                 )
             },
             |ctx| {
-                let res = sp(ctx);
-                ctx.check_deopt();
-                res
+                ctx.float_add_or(lv, rv, |ctx| {
+                    let res = sp(ctx);
+                    ctx.check_deopt();
+                    res
+                })
             },
             typ,
         );
