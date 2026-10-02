@@ -128,6 +128,7 @@ test_harness_success! {
     jit_helper_error_exits,
     inline_mutated_parameter,
     case_eqv_and_builtin_tails,
+    lift_arity_cap_group,
     jit_pair_predicate,
     primitive_edge_cases,
     jit_primitive_arg_narrowing,

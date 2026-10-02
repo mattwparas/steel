@@ -4871,6 +4871,52 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                 }
             }
 
+            // Lifting turns captures into parameters that every call passes. A
+            // group whose lifted functions would take too many stays as closures,
+            // which capture once when they're made. Captures of the group's own
+            // functions become direct calls, so they don't count.
+            if let Some(max_arity) = crate::config::config()
+                .lift_max_arity
+                .filter(|cap| *cap > 0)
+                .filter(|_| group.len() >= crate::config::config().lift_cap_min_group)
+            {
+                let widest = l
+                    .bindings
+                    .iter()
+                    .filter_map(|(_, expression)| match expression {
+                        ExprKind::LambdaFunction(r) => Some(r),
+                        _ => None,
+                    })
+                    .filter_map(|r| {
+                        let info = self.analysis.get_function_info(r)?;
+                        let captures = info
+                            .captured_vars()
+                            .iter()
+                            .filter(|(name, _)| {
+                                !group.contains(name) && !group_boxes.contains(name)
+                            })
+                            .count();
+                        Some(r.args.len() + captures)
+                    })
+                    .max()
+                    .unwrap_or(0);
+                if crate::config::config().lift_debug {
+                    let names: Vec<String> = l
+                        .bindings
+                        .iter()
+                        .filter_map(|(v, _)| v.atom_identifier().map(|n| n.resolve().to_string()))
+                        .take(6)
+                        .collect();
+                    eprintln!(
+                        "LIFT ARITY: widest={widest} max={max_arity} group={} {names:?}",
+                        group.len()
+                    );
+                }
+                if widest > max_arity {
+                    return;
+                }
+            }
+
             let mut outer_inner_indexes = Vec::new();
 
             // for name in &original_func_names {

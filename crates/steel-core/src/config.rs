@@ -311,6 +311,17 @@ steel_config! {
     lift_dead_captures: bool = true, "STEEL_LIFT_DEAD_CAPTURES";
     /// Log closure lifting.
     lift_debug: bool = false, "STEEL_LIFT_DEBUG";
+    /// Leave a letrec group of local functions as closures when lifting would
+    /// give one of them more than this many parameters. Every call passes all
+    /// of them, and a captured box costs an atomic clone and drop per call.
+    /// 8 was the lowest cap that changed nothing but parsing in the r7rs suite;
+    /// at 6 quicksort ran twice as long. 0 turns the cap off.
+    lift_max_arity: Option<usize> = Some(8), "STEEL_LIFT_MAX_ARITY";
+    /// The cap only applies to groups of at least this many functions. A lone
+    /// self recursive loop passes its captures through unchanged on each
+    /// iteration, so it stays cheap at any arity, and lifting it saves making a
+    /// closure each time its enclosing function runs.
+    lift_cap_min_group: usize = 2, "STEEL_LIFT_CAP_MIN_GROUP";
     /// An extra inlining round with a size budget of 75.
     inline: bool = false, "STEEL_INLINE";
     /// Unroll recursive functions: bare presence unrolls 2 levels, a number that
