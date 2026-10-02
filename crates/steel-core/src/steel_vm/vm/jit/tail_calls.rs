@@ -92,9 +92,60 @@ fn callglobal_native_tail_handler(
     let func = ctx.thread.global_env.repl_lookup_idx(index);
     ctx.ip = fallback_ip;
 
+    if let SteelVal::BuiltIn(f) = &func {
+        return builtin_native_tail(ctx, *f, fallback_ip, args);
+    }
+
     match call_native(ctx, &func, args) {
         Some(result) => stash_error(ctx, result),
         None => callglobal_tail_handler_deopt(ctx, index, fallback_ip, args),
+    }
+}
+
+/// A builtin in tail position. One that just produces a value, like
+/// `string->symbol`, hands it back to the caller to return. One that takes or
+/// replaces a frame, like `apply` or `call/cc`, has already set the frame up,
+/// so the interpreter carries on from it, the same as the deopt handler.
+fn builtin_native_tail(
+    ctx: &mut VmCore,
+    f: BuiltInSignature,
+    fallback_ip: usize,
+    args: &mut [SteelVal],
+) -> SteelVal {
+    let len = args.len();
+    for val in args.iter_mut() {
+        ctx.thread
+            .stack
+            .push(core::mem::replace(val, SteelVal::Void));
+    }
+    let base = ctx.thread.stack.len() - len;
+    let frames_before = ctx.thread.stack_frames.len();
+    let top_before = ctx.thread.stack_frames.last().map(|x| x.function.id);
+
+    match ctx.call_builtin_func_reporting(f, len) {
+        Ok(returned_value) => {
+            // The same checks as the deopt handler, see there.
+            let produced_value = returned_value
+                && ctx.thread.stack_frames.len() == frames_before
+                && ctx.thread.stack_frames.last().map(|x| x.function.id) == top_before
+                && ctx.thread.stack.len() > base;
+
+            if produced_value {
+                ctx.ip = fallback_ip;
+                return ctx.thread.stack.pop().unwrap();
+            }
+
+            if deopt_census_enabled() {
+                record_deopt(&SteelVal::BuiltIn(f), 0, ctx);
+            }
+            ctx.is_native = false;
+            SteelVal::Void
+        }
+        Err(e) => {
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+            SteelVal::Void
+        }
     }
 }
 

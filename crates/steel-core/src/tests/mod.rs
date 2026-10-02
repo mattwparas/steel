@@ -127,6 +127,7 @@ test_harness_success! {
     jit_background_stress,
     jit_helper_error_exits,
     inline_mutated_parameter,
+    case_eqv_and_builtin_tails,
     jit_pair_predicate,
     primitive_edge_cases,
     jit_primitive_arg_narrowing,

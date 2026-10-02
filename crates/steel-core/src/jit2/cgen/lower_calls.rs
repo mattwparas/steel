@@ -344,7 +344,12 @@ impl FunctionTranslator<'_> {
             // at run time and deopts if it holds something else.
             if matches!(
                 func,
-                Some(SteelVal::FuncV(_) | SteelVal::BoxedFunction(_) | SteelVal::MutFunc(_))
+                Some(
+                    SteelVal::FuncV(_)
+                        | SteelVal::BoxedFunction(_)
+                        | SteelVal::MutFunc(_)
+                        | SteelVal::BuiltIn(_)
+                )
             ) {
                 let result = match &func {
                     Some(SteelVal::BoxedFunction(f)) => {

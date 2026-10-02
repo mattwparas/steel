@@ -459,7 +459,7 @@
        [(atoms)
         result1
         result2 ...])
-     (when (equal? key (quote atoms))
+     (when (eqv? key (quote atoms))
        (begin
          result1
          result2 ...))]
@@ -468,7 +468,7 @@
        [(atoms ...)
         result1
         result2 ...])
-     (when (list-contains key '(atoms ...))
+     (when (or (eqv? key (quote atoms)) ...)
        (begin
          result1
          result2 ...))]
@@ -486,7 +486,7 @@
         result2 ...]
        clause
        clauses ...)
-     (if (equal? key (quote atoms))
+     (if (eqv? key (quote atoms))
          (begin
            result1
            result2 ...)
@@ -500,7 +500,7 @@
         result2 ...]
        clause
        clauses ...)
-     (if (list-contains key '(atoms ...))
+     (if (or (eqv? key (quote atoms)) ...)
          (begin
            result1
            result2 ...)

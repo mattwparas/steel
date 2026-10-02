@@ -218,6 +218,22 @@ fn vector_ref_handler_c(ctx: *mut VmCore, mut vec: SteelVal, index: SteelVal) ->
 }
 
 #[cross_platform_fn]
+fn char_whitespace_handler_c(ctx: *mut VmCore, c: SteelVal) -> SteelVal {
+    match crate::primitives::strings::steel_char_is_whitespace(&[c]) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[cross_platform_fn]
 fn vector_length_handler_c(ctx: *mut VmCore, vec: SteelVal) -> SteelVal {
     match crate::primitives::vectors::vec_length(&[vec]) {
         Ok(v) => v,

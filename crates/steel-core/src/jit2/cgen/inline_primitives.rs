@@ -255,6 +255,17 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
                 .arity(2)
                 .tail(extra),
             inline(
+                "char-whitespace?",
+                crate::primitives::strings::steel_char_is_whitespace as *const (),
+                pushes(|t, _| t.char_whitespace()),
+            )
+            .arity(1)
+            .tail(extra_pred),
+            // The same comparison as `eq?`, which is what `case` expands to.
+            inline("eqv?", steel_eqv as *const (), pushes(|t, _| t.eq()))
+                .arity(2)
+                .tail(extra),
+            inline(
                 "char=?",
                 steel_char_equals as *const (),
                 pushes(|t, arity| t.char_equals(arity)),

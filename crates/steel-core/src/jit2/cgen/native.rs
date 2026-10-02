@@ -137,65 +137,51 @@ impl<'a> FunctionTranslator<'a> {
         self.shadow_stack.last().unwrap().clone()
     }
 
+    /// `char=?` of two chars is a compare of their code points. Anything else
+    /// goes to the primitive, which raises for a non-char.
     pub(super) fn char_equals(&mut self, arity: usize) {
         let name = CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
 
-        let _args = self
-            .shadow_stack
-            .get(self.shadow_stack.len() - arity..)
-            .unwrap()
-            .to_vec();
+        let args: Vec<Value> = self.split_off(arity).into_iter().map(|x| x.0).collect();
+        let ip = self.ip;
 
-        // dbg!(args);
+        let checks: Vec<(Value, u8)> = args.iter().map(|v| (*v, SteelVal::CHAR_TAG)).collect();
+        let all_chars = self.tags_are(&checks);
 
-        // attempt to move forward with it
-        let additional_args = self.split_off(arity);
+        let result = self.converging_if(
+            all_chars,
+            |ctx| {
+                let points: Vec<Value> = args
+                    .iter()
+                    .map(|v| {
+                        let payload = ctx.unbox_value(*v);
+                        ctx.builder.ins().ireduce(types::I32, payload)
+                    })
+                    .collect();
+                let mut all = ctx.builder.ins().iconst(types::I8, 1);
+                for pair in points.windows(2) {
+                    let eq = ctx.builder.ins().icmp(IntCC::Equal, pair[0], pair[1]);
+                    all = ctx.builder.ins().band(all, eq);
+                }
+                let all = ctx.builder.ins().uextend(types::I64, all);
+                ctx.encode_value(SteelVal::BOOL_TAG as i64, all)
+            },
+            |ctx| {
+                let function = ctx.builder.ins().iconst(
+                    ctx.module.target_config().pointer_type(),
+                    crate::primitives::strings::char_equals_binop as *const () as i64,
+                );
+                let fallback_ip = ctx.i64_const(ip as i64);
+                let mut call_args = vec![function, fallback_ip];
+                call_args.extend(args.iter().copied());
+                ctx.call_function_returns_value_args(name, &call_args)
+            },
+            types::I128,
+        );
 
-        // dbg!(&additional_args);
-
-        // let f = crate::primitives::ports::read_char_single
-        //     as fn(SteelVal) -> Result<SteelVal, crate::SteelErr>;
-        //
-
-        let all_chars = additional_args.iter().all(|x| x.1 == InferredType::Char);
-
-        if all_chars && false {
-            // println!("Found all characters, applying equality");
-            // Just... compare for equality?
-
-            let left = additional_args[0].0;
-            let right = additional_args[1].0;
-
-            let left = self.unbox_value(left);
-            let right = self.unbox_value(right);
-
-            let left = self.builder.ins().ireduce(types::I8, left);
-            let right = self.builder.ins().ireduce(types::I8, right);
-
-            let comparison = self.builder.ins().icmp(IntCC::Equal, left, right);
-            let res = self.builder.ins().uextend(types::I64, comparison);
-            let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
-            self.push(boolean, InferredType::Bool);
-            self.ip += 1;
-
-            // No need to check deopt here, we're good.
-        } else {
-            let function = self.builder.ins().iconst(
-                self.module.target_config().pointer_type(),
-                crate::primitives::strings::char_equals_binop as *const () as i64,
-            );
-
-            let fallback_ip = self.i64_const(self.ip as i64);
-
-            let mut args = vec![function, fallback_ip];
-
-            args.extend(additional_args.into_iter().map(|x| x.0));
-
-            let result = self.call_function_returns_value_args(name, &args);
-            self.push(result, InferredType::Bool);
-            self.ip += 1;
-            self.check_deopt();
-        }
+        self.push(result, InferredType::Bool);
+        self.ip += 1;
+        self.check_deopt();
     }
 
     pub(super) fn vector_set(&mut self) {
@@ -559,6 +545,44 @@ impl<'a> FunctionTranslator<'a> {
                     |ctx| ctx.builder.ins().iconst(types::I8, 0),
                     types::I8,
                 );
+
+                self.push(res, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+
+            // A char, fixnum or boolean constant compares by value: the tag and
+            // the payload. Only the payload's own width is compared, since the
+            // rest of the word isn't written for a char or a boolean.
+            &[MutRegister(v) | Register(v), Constant(
+                c @ (ConstantValue::Char(_) | ConstantValue::Int(_) | ConstantValue::Bool(_)),
+            )]
+            | &[Constant(
+                c @ (ConstantValue::Char(_) | ConstantValue::Int(_) | ConstantValue::Bool(_)),
+            ), MutRegister(v) | Register(v)] => {
+                self.shadow_stack.pop();
+                self.shadow_stack.pop();
+
+                let left_value = self.read_from_vm_stack(v);
+                let payload = self.unbox_value(left_value);
+                let (tag, same_payload) = match c {
+                    ConstantValue::Char(ch) => {
+                        let low = self.builder.ins().ireduce(types::I32, payload);
+                        let eq = self.builder.ins().icmp_imm(IntCC::Equal, low, ch as i64);
+                        (SteelVal::CHAR_TAG, eq)
+                    }
+                    ConstantValue::Int(n) => {
+                        let eq = self.builder.ins().icmp_imm(IntCC::Equal, payload, n as i64);
+                        (SteelVal::INT_TAG, eq)
+                    }
+                    ConstantValue::Bool(b) => {
+                        let low = self.builder.ins().ireduce(types::I8, payload);
+                        let eq = self.builder.ins().icmp_imm(IntCC::Equal, low, b as i64);
+                        (SteelVal::BOOL_TAG, eq)
+                    }
+                    _ => unreachable!(),
+                };
+                let same_tag = self.is_type(left_value, tag);
+                let res = self.builder.ins().band(same_tag, same_payload);
 
                 self.push(res, InferredType::UnboxedBool);
                 self.ip += 1;
@@ -1088,6 +1112,53 @@ impl<'a> FunctionTranslator<'a> {
                 res
             }
         }
+    }
+
+    /// `char-whitespace?`. An ASCII char is answered inline, anything else, or
+    /// a value that isn't a char, goes to the primitive.
+    pub(super) fn char_whitespace(&mut self) {
+        use MaybeStackValue::*;
+
+        let (value, owned) = match self.shadow_stack.last().copied() {
+            Some(Register(r) | MutRegister(r)) => {
+                self.shadow_stack.pop();
+                (self.read_from_vm_stack(r), false)
+            }
+            _ => (self.pop_boxed(), true),
+        };
+
+        let is_char = self.is_type(value, SteelVal::CHAR_TAG);
+        let payload = self.unbox_value(value);
+        let c = self.builder.ins().ireduce(types::I32, payload);
+        let ascii = self.builder.ins().icmp_imm(IntCC::UnsignedLessThan, c, 128);
+        let fast = self.builder.ins().band(is_char, ascii);
+
+        let res = self.converging_if(
+            fast,
+            |ctx| {
+                // Space, or tab through carriage return.
+                let space = ctx.builder.ins().icmp_imm(IntCC::Equal, c, 32);
+                let from_tab = ctx.builder.ins().iadd_imm(c, -9);
+                let control =
+                    ctx.builder
+                        .ins()
+                        .icmp_imm(IntCC::UnsignedLessThanOrEqual, from_tab, 4);
+                let ws = ctx.builder.ins().bor(space, control);
+                let ws = ctx.builder.ins().uextend(types::I64, ws);
+                ctx.encode_value(SteelVal::BOOL_TAG as i64, ws)
+            },
+            |ctx| {
+                // The primitive takes the value.
+                if !owned {
+                    ctx.clone_value(value);
+                }
+                ctx.call_helper_checked(CHAR_WHITESPACE_VALUE, [value])
+            },
+            types::I128,
+        );
+
+        self.push(res, InferredType::Bool);
+        self.ip += 1;
     }
 
     pub(super) fn is_string(&mut self) {

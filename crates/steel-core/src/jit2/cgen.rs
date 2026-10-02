@@ -35,7 +35,7 @@ use crate::{
     },
     rvals::{FunctionSignature, SteelString},
     steel_vm::{
-        primitives::{steel_eq, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
+        primitives::{steel_eq, steel_eqv, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
         vm::{jit::*, StackFrame, StackFrameAttachments, SteelThread, VmCore},
     },
     values::{
@@ -8592,6 +8592,7 @@ impl FunctionTranslator<'_> {
                     && matches!(
                         self._globals.get(payload),
                         Some(SteelVal::FuncV(f)) if *f as usize == steel_eq as *const () as usize
+                            || *f as usize == steel_eqv as *const () as usize
                     )
             }
             _ => false,
