@@ -208,6 +208,7 @@ jit_helpers! {
     LIST_CONTAINS_REG_CONSTANT = "list-contains-reg-constant" => list_contains_reg_constant: ctx fn(usize, List<SteelVal>) -> bool;
     LIST_CONTAINS_VALUE = "list-contains-value" => list_contains_value: ctx_raises fn(SteelVal, SteelVal) -> bool;
     MEMQ_UNCHECKED_LIST = "memq-unchecked-list" => memq_unchecked_list: plain fn(SteelVal, List<SteelVal>) -> SteelVal;
+    LIST_TAIL_CONSTANT = "list-tail-constant" => list_tail_constant: plain fn(List<SteelVal>, i64) -> SteelVal;
     MEMQ_VALUE = "memq-value" => memq_value: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
     EQ_P_REG_2 = "eq?-reg-2" => eq_reg_2: ctx fn(usize, usize) -> bool;
     EQ_P_REG_1 = "eq?-reg-1" => eq_reg_1: ctx fn(usize, SteelVal) -> bool;

@@ -589,6 +589,7 @@ impl Default for JIT {
 
         // Primitive calls:
         CallPrimitiveDefinitions::register(&mut map);
+        CallPrimitiveBorrowedDefinitions::register(&mut map);
         CallPrimitiveMutDefinitions::register(&mut map);
 
         CallPrimitiveFixedDefinitions::register(&mut map);
@@ -649,6 +650,11 @@ fn inline_weak_clone_enabled() -> bool {
 
 /// `STEEL_JIT_BORROW=0` clones every value read out of a container as it is
 /// read, even when the consumer only needs it borrowed.
+/// `STEEL_JIT_BORROW_PRIMITIVE_ARGS=0` clones locals passed to a primitive.
+pub(super) fn borrow_primitive_args_enabled() -> bool {
+    crate::config::config().jit_borrow_primitive_args
+}
+
 pub(super) fn borrow_enabled() -> bool {
     crate::config::config().jit_borrow
 }
@@ -2969,6 +2975,11 @@ enum ConstantValue {
     // this is only pushed when the `VECTORREF` using it follows with nothing
     // in between that could run code, see `box_contents_operand_fits`.
     GlobalBoxContents(usize),
+
+    // A capture of the running closure, read from it when it is used. A
+    // closure's captures never change, so like a closed global, reading it
+    // late is the same as reading it when pushed.
+    Captured(usize),
 }
 
 /// Register operands an `if` left unspilled, from `start` on the shadow stack,
@@ -2996,7 +3007,8 @@ impl ConstantValue {
             ConstantValue::Float(_) => InferredType::Number,
             ConstantValue::Index(_)
             | ConstantValue::Global(_)
-            | ConstantValue::GlobalBoxContents(_) => InferredType::Any,
+            | ConstantValue::GlobalBoxContents(_)
+            | ConstantValue::Captured(_) => InferredType::Any,
             ConstantValue::Symbol(_) => InferredType::Symbol,
             ConstantValue::List(_) => InferredType::List,
         }
@@ -3018,6 +3030,10 @@ impl ConstantValue {
                 let value = ctx.inline_lookup_global(index);
                 let contents = ctx.unbox_value_checked_register(value, false);
                 (contents, InferredType::Any)
+            }
+
+            ConstantValue::Captured(index) => {
+                (ctx.inline_read_captured(index, true), InferredType::Any)
             }
 
             ConstantValue::Int(i) => (ctx.encode_integer(i as _), InferredType::Int),
@@ -3922,6 +3938,7 @@ impl FunctionTranslator<'_> {
             if !self.op_keeps_borrows(op, payload) {
                 self.materialize_borrowed();
             }
+            self.read_deferred_captures(op, payload);
 
             // Only set by a self tail call, for slots it leaves as they are, and
             // it must not reach any other op's writes.
@@ -4178,6 +4195,13 @@ impl FunctionTranslator<'_> {
                         == Some(OpCode::UNBOX) =>
                 {
                     self.lower_read_captured_unbox(payload)
+                }
+
+                // A capture lives as long as the closure, so a consumer that only
+                // reads it can skip the clone.
+                OpCode::READCAPTURED if crate::config::config().jit_borrow_captures => {
+                    self.shadow_push(MaybeStackValue::Constant(ConstantValue::Captured(payload)));
+                    self.ip += 1;
                 }
 
                 OpCode::READCAPTURED => {
@@ -4447,7 +4471,10 @@ impl FunctionTranslator<'_> {
                     self.compare_register_int(cc, fallback);
                 }
 
-                OpCode::LT | OpCode::LTE if payload == 2 && self.top_operand_is_int() => {
+                // The inline compare below covers this when generic inlining is on.
+                OpCode::LT | OpCode::LTE
+                    if payload == 2 && self.top_operand_is_int() && !generic_inline_enabled() =>
+                {
                     self.mark_operands(payload, InferredType::Number);
                     // TODO: This isn't quite right. This doesn not check the input
                     // type properly
@@ -5254,6 +5281,16 @@ impl FunctionTranslator<'_> {
                 let value = self.split_off(1)[0].0;
                 self.shadow_stack.pop();
                 let boxed = self.read_from_vm_stack(r);
+                return Some(self.set_box_value_checked_register(boxed, value, false));
+            }
+
+            // Likewise a captured box, which the closure keeps alive.
+            if let Some(MaybeStackValue::Constant(ConstantValue::Captured(c))) =
+                self.shadow_stack.get(self.shadow_stack.len() - 2).copied()
+            {
+                let value = self.split_off(1)[0].0;
+                self.shadow_stack.pop();
+                let boxed = self.inline_read_captured(c, false);
                 return Some(self.set_box_value_checked_register(boxed, value, false));
             }
 
@@ -8599,6 +8636,92 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    /// Turn deferred captures among the operands `op` takes into plain values,
+    /// which is what most lowerings expect. Only the ops that read a capture in
+    /// place leave theirs deferred, and operands further down are left for
+    /// whichever op takes them.
+    fn read_deferred_captures(&mut self, op: OpCode, payload: usize) {
+        let len = self.shadow_stack.len();
+        let window = match self.captured_operand_window(op, payload) {
+            Some(n) => n.min(len),
+            None => len,
+        };
+        for i in len - window..len {
+            if let MaybeStackValue::Constant(ConstantValue::Captured(c)) = self.shadow_stack[i] {
+                let value = self.inline_read_captured(c, true);
+                self.shadow_stack[i] = MaybeStackValue::Value(StackValue {
+                    value,
+                    inferred_type: InferredType::Any,
+                    spilled: false,
+                });
+            }
+        }
+    }
+
+    /// How many operands from the top of the stack `op` takes, or `None` for
+    /// the whole stack.
+    fn captured_operand_window(&self, op: OpCode, payload: usize) -> Option<usize> {
+        use OpCode::*;
+        match op {
+            READLOCAL | READLOCAL0 | READLOCAL1 | READLOCAL2 | READLOCAL3 | MOVEREADLOCAL
+            | MOVEREADLOCAL0 | MOVEREADLOCAL1 | MOVEREADLOCAL2 | MOVEREADLOCAL3 | READCAPTURED
+            | PUSHCONST | PUSH | LOADINT0 | LOADINT1 | LOADINT2 | TRUE | FALSE => Some(0),
+            // The box is written in place, the value is stored owned.
+            SETBOX => Some(1),
+            UNBOX | CAR | CDR | NULL | NOT => Some(1),
+            CONS | VECTORREF | EQUAL2 => Some(2),
+            ADD | SUB | MUL | DIV | LT | LTE | GT | GTE | NUMEQUAL | EQUAL | LIST | VEC => {
+                Some(payload)
+            }
+            CALLGLOBAL
+            | CALLGLOBALNOARITY
+            | CALLGLOBALTAIL
+            | CALLGLOBALTAILNOARITY
+            | CALLPRIMITIVE
+            | CALLPRIMITIVETAIL => {
+                let arity = self.instructions.get(self.ip + 1)?.payload_size.to_usize();
+                if self.call_reads_captures_in_place(op, payload, arity) {
+                    Some(0)
+                } else {
+                    Some(arity)
+                }
+            }
+            FUNC | FUNCNOARITY | TAILCALL | TAILCALLNOARITY => Some(payload + 1),
+            _ => None,
+        }
+    }
+
+    /// A struct predicate or getter, or a primitive with no lowering of its
+    /// own, which read a captured operand without a clone.
+    fn call_reads_captures_in_place(&self, op: OpCode, payload: usize, arity: usize) -> bool {
+        if !self.global_is_closed(payload) {
+            return false;
+        }
+        let Some(global) = self._globals.get(payload).cloned() else {
+            return false;
+        };
+        match op {
+            OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY => {
+                arity == 1
+                    && create_struct_spec(global).is_some_and(|spec| {
+                        matches!(
+                            spec.typ,
+                            StructFunctionType::Predicate | StructFunctionType::GetterProtoVec(_)
+                        )
+                    })
+            }
+            OpCode::CALLPRIMITIVE => match global {
+                SteelVal::FuncV(f) => {
+                    borrow_primitive_args_enabled()
+                        && CallPrimitiveBorrowedDefinitions::arity_to_name(arity).is_some()
+                        && inline_primitives::find(f as usize, arity).is_none()
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
     /// A closed global holding `vector-set!` or `vector-length`, whose inline
     /// lowerings take a borrowed vector.
     fn global_takes_borrowed_vector(&self, index: usize) -> bool {
@@ -9342,6 +9465,39 @@ impl FunctionTranslator<'_> {
 
     // TODO: We should coalesce register reads in order to avoid subsequent buf pointer
     // loads?
+    /// `split_off` for a callee that only reads its arguments. A local's
+    /// register or a capture is read without a clone, since its slot keeps the
+    /// value alive for the call. Also returns which arguments were handed over and so are
+    /// the callee's to drop.
+    fn split_off_borrowing(&mut self, payload: usize) -> (Vec<Value>, u64) {
+        let base = self.shadow_stack.len() - payload;
+        let mut owned = 0u64;
+        for i in 0..payload {
+            match self.shadow_stack[base + i] {
+                MaybeStackValue::Register(p) => {
+                    let value = self.read_from_vm_stack(p);
+                    let inferred_type = self.register_type(p).boxed();
+                    self.shadow_stack[base + i] = MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type,
+                        spilled: false,
+                    });
+                }
+                MaybeStackValue::Constant(ConstantValue::Captured(c)) => {
+                    let value = self.inline_read_captured(c, false);
+                    self.shadow_stack[base + i] = MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type: InferredType::Any,
+                        spilled: false,
+                    });
+                }
+                _ => owned |= 1 << i,
+            }
+        }
+        let args = self.split_off(payload).into_iter().map(|x| x.0).collect();
+        (args, owned)
+    }
+
     fn split_off(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
         let mut args = self
             .shadow_stack

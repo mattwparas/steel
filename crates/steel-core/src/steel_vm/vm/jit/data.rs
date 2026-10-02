@@ -572,6 +572,18 @@ fn memq_value(ctx: *mut VmCore, value: SteelVal, lst: SteelVal) -> SteelVal {
     }
 }
 
+// The tail of a baked constant list after `n` elements, which the list still
+// owns.
+#[cross_platform_fn]
+fn list_tail_constant(lst: List<SteelVal>, n: i64) -> SteelVal {
+    let lst = core::mem::ManuallyDrop::new(lst);
+    let mut list = List::clone(&lst);
+    for _ in 0..n {
+        list.cdr_mut();
+    }
+    SteelVal::ListV(list)
+}
+
 #[cross_platform_fn]
 fn memq_unchecked_list(value: SteelVal, lst: List<SteelVal>) -> SteelVal {
     let mut list = lst.clone();

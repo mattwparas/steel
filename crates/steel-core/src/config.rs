@@ -240,6 +240,11 @@ steel_config! {
     /// Leave values read out of containers borrowed until a consumer needs
     /// them owned.
     jit_borrow: bool = true, "STEEL_JIT_BORROW";
+    /// Read a capture without cloning it when a struct predicate or getter
+    /// takes it.
+    jit_borrow_captures: bool = true, "STEEL_JIT_BORROW_CAPTURES";
+    /// Pass locals to a primitive call without cloning them.
+    jit_borrow_primitive_args: bool = true, "STEEL_JIT_BORROW_PRIMITIVE_ARGS";
     /// Keep a pushed closed global as a reference to its slot until it is used.
     jit_closed_global_operands: bool = true, "STEEL_JIT_CLOSED_GLOBAL_OPERANDS";
     /// Read `(vector-ref (unbox G) i)` on a closed global box without cloning the vector.

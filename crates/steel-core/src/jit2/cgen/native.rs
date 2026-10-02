@@ -1068,6 +1068,103 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// `memq` against a short constant list of symbols, chars, fixnums or
+    /// booleans, as a chain of `eq?` compares. A hit returns the matching tail
+    /// of the list, which is baked in like the list itself.
+    pub(super) fn memq_constant_list(&mut self) -> Option<Value> {
+        let Some(&MaybeStackValue::Constant(ConstantValue::List(l))) = self.shadow_stack.last()
+        else {
+            return None;
+        };
+        // Read through the constant map, so nothing is cloned or dropped here.
+        // This can run on the background compile thread.
+        let (elements, list_ptr) = self.constants.get_map(l, |constant| match constant {
+            SteelVal::ListV(list) if memq_inline_elements(list) => {
+                let elements: Vec<MemqElement> = list.iter().map(MemqElement::of).collect();
+                let as_ptr: usize = unsafe {
+                    std::mem::transmute::<crate::values::lists::List<_>, _>(jit_leak(list))
+                };
+                Some((elements, as_ptr))
+            }
+            _ => None,
+        })?;
+
+        // The list is a constant, so there is nothing to drop.
+        self.shadow_stack.pop();
+        let (value, owned) = match self.shadow_stack.last().copied() {
+            Some(MaybeStackValue::Register(index)) => {
+                self.shadow_stack.pop();
+                (self.read_from_vm_stack(index), false)
+            }
+            _ => (self.shadow_pop().0, true),
+        };
+
+        let res = self.memq_chain(value, &elements, 0, list_ptr);
+        if owned {
+            self.drop_tagged_value(value);
+        }
+        Some(res)
+    }
+
+    fn memq_chain(
+        &mut self,
+        value: Value,
+        elements: &[MemqElement],
+        index: usize,
+        list_ptr: usize,
+    ) -> Value {
+        let Some(element) = elements.get(index) else {
+            return self.encode_false();
+        };
+        let matches = self.eq_constant_element(value, *element);
+        let typ = self.int;
+        self.converging_if(
+            matches,
+            |ctx| {
+                let list = ctx.i64_const(list_ptr as i64);
+                if index == 0 {
+                    ctx.increment_ref_count_closure(list);
+                    ctx.encode_value(SteelVal::LIST_TAG as _, list)
+                } else {
+                    let n = ctx.i64_const(index as i64);
+                    ctx.call_helper(LIST_TAIL_CONSTANT, [list, n])
+                }
+            },
+            |ctx| ctx.memq_chain(value, elements, index + 1, list_ptr),
+            typ,
+        )
+    }
+
+    /// `eq?` of a value against one element of a constant list, as an i8.
+    fn eq_constant_element(&mut self, value: Value, element: MemqElement) -> Value {
+        let (tag, same_payload) = match element {
+            MemqElement::Symbol(as_ptr) => {
+                let pointer = self.unbox_value_to_pointer(value);
+                let eq = self.builder.ins().icmp_imm_s(IntCC::Equal, pointer, as_ptr);
+                (SteelVal::SYMBOL_TAG, eq)
+            }
+            MemqElement::Char(ch) => {
+                let payload = self.unbox_value(value);
+                let low = self.builder.ins().ireduce(types::I32, payload);
+                let eq = self.builder.ins().icmp_imm(IntCC::Equal, low, ch as i64);
+                (SteelVal::CHAR_TAG, eq)
+            }
+            MemqElement::Int(n) => {
+                let payload = self.unbox_value(value);
+                let eq = self.builder.ins().icmp_imm(IntCC::Equal, payload, n as i64);
+                (SteelVal::INT_TAG, eq)
+            }
+            MemqElement::Bool(b) => {
+                let payload = self.unbox_value(value);
+                let low = self.builder.ins().ireduce(types::I8, payload);
+                let eq = self.builder.ins().icmp_imm(IntCC::Equal, low, b as i64);
+                (SteelVal::BOOL_TAG, eq)
+            }
+        };
+        let same_tag = self.is_type(value, tag);
+        self.builder.ins().band(same_tag, same_payload)
+    }
+
     pub(super) fn memq(&mut self) -> Value {
         use MaybeStackValue::*;
 
@@ -2859,6 +2956,37 @@ impl<'a> FunctionTranslator<'a> {
         arity: usize,
         function_index: usize,
     ) -> Option<(Value, InferredType)> {
+        // A captured operand is read without a clone, as a borrow.
+        if arity == 1
+            && matches!(
+                spec.typ,
+                StructFunctionType::Predicate | StructFunctionType::GetterProtoVec(_)
+            )
+        {
+            if let Some(&MaybeStackValue::Constant(ConstantValue::Captured(c))) =
+                self.shadow_stack.last()
+            {
+                let value = self.inline_read_captured(c, false);
+                let owned = self.owned_flag(false);
+                *self.shadow_stack.last_mut().unwrap() =
+                    MaybeStackValue::Borrowed(BorrowedValue { value, owned });
+            }
+        }
+        let res = self.inline_struct_call_inner(spec, arity, function_index);
+        // A borrowed operand was kept for an inline lowering that didn't
+        // happen, and the real call takes it owned.
+        if res.is_none() {
+            self.materialize_borrowed();
+        }
+        res
+    }
+
+    fn inline_struct_call_inner(
+        &mut self,
+        spec: StructConstructorRefSpec,
+        arity: usize,
+        function_index: usize,
+    ) -> Option<(Value, InferredType)> {
         // Only the fused getter-proto arm below sets this, and every exit from
         // it returns a result its caller takes. Clear it here so a stale one is
         // never read as another call's.
@@ -2875,7 +3003,9 @@ impl<'a> FunctionTranslator<'a> {
             StructFunctionType::GetterProtoVec(i)
                 if matches!(
                     args,
-                    &[MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_)]
+                    &[MaybeStackValue::Register(_)
+                        | MaybeStackValue::MutRegister(_)
+                        | MaybeStackValue::Borrowed(_)]
                 ) =>
             {
                 // A field a vector operation reads right away is borrowed, since
@@ -2960,7 +3090,10 @@ impl<'a> FunctionTranslator<'a> {
             // need that bookkeeping and is rare, so it takes the generic path.
             StructFunctionType::Predicate
                 if predicate_inlining_enabled()
-                    && matches!(args, &[MaybeStackValue::Register(_)]) =>
+                    && matches!(
+                        args,
+                        &[MaybeStackValue::Register(_) | MaybeStackValue::Borrowed(_)]
+                    ) =>
             {
                 Some(self.inline_struct_predicate(&spec))
             }
@@ -3000,9 +3133,17 @@ impl<'a> FunctionTranslator<'a> {
         &mut self,
         spec: &StructConstructorRefSpec,
     ) -> (Value, InferredType) {
-        let operand_index = self.shadow_stack.last().unwrap().into_index();
-        let value = self.read_from_vm_stack(operand_index);
-        self.shadow_stack_pop();
+        let (value, borrowed) = match self.shadow_stack.last().copied().unwrap() {
+            MaybeStackValue::Borrowed(b) => {
+                self.shadow_stack.pop();
+                (b.value, Some(b))
+            }
+            operand => {
+                let value = self.read_from_vm_stack(operand.into_index());
+                self.shadow_stack_pop();
+                (value, None)
+            }
+        };
 
         let is_struct = self.is_type(value, SteelVal::STRUCT_TAG);
         let typ = self.int;
@@ -3033,6 +3174,10 @@ impl<'a> FunctionTranslator<'a> {
             typ,
         );
 
+        if let Some(b) = borrowed {
+            self.release_borrowed(b);
+        }
+
         self.ip += 1;
 
         (res, InferredType::Bool)
@@ -3051,14 +3196,22 @@ impl<'a> FunctionTranslator<'a> {
         fuse: Option<usize>,
         borrow: Option<Variable>,
     ) -> (Value, InferredType) {
-        let struct_arg_index = self.shadow_stack.last().unwrap().into_index();
-        let struct_ref = self.read_from_vm_stack(struct_arg_index);
+        let (struct_ref, struct_arg_index, borrowed) = match self.shadow_stack.last().copied() {
+            Some(MaybeStackValue::Borrowed(b)) => (b.value, None, Some(b)),
+            operand => {
+                let index = operand.unwrap().into_index();
+                (self.read_from_vm_stack(index), Some(index), None)
+            }
+        };
 
-        let maybe_inferred_type = self
-            .properties
-            .get(&ValueOrRegister::Register(struct_arg_index));
+        let maybe_inferred_type = struct_arg_index
+            .and_then(|index| self.properties.get(&ValueOrRegister::Register(index)));
 
-        if let Some(Properties::InferredType(InferredType::Struct(desc))) = maybe_inferred_type {
+        if let (
+            Some(Properties::InferredType(InferredType::Struct(desc))),
+            Some(struct_arg_index),
+        ) = (maybe_inferred_type, struct_arg_index)
+        {
             if spec.descriptor == desc {
                 let last_kind = self.shadow_stack.pop().unwrap();
                 let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
@@ -3123,6 +3276,7 @@ impl<'a> FunctionTranslator<'a> {
                     i,
                     struct_ref,
                     owned,
+                    borrowed,
                     typ,
                     &inner_stack,
                     old_ip,
@@ -3134,6 +3288,7 @@ impl<'a> FunctionTranslator<'a> {
             move |ctx| {
                 ctx.ip = old_ip;
                 ctx.shadow_stack = stack.clone();
+                ctx.materialize_borrowed();
                 let value = slow_path_struct_getter(slow_arity, function_index, ctx);
                 finish_slow_getter(value, fuse, borrow, ctx)
             },
@@ -3175,6 +3330,7 @@ fn inline_struct_getter(
     i: usize,
     struct_ref: Value,
     owned: bool,
+    borrowed: Option<BorrowedValue>,
     typ: Type,
     saved_stack: &[MaybeStackValue],
     old_ip: usize,
@@ -3211,6 +3367,9 @@ fn inline_struct_getter(
             if owned {
                 ctx.drop_tagged_value(struct_ref);
             }
+            if let Some(b) = borrowed {
+                ctx.release_borrowed(b);
+            }
             res
         },
         move |ctx| {
@@ -3219,6 +3378,7 @@ fn inline_struct_getter(
             // as the outer slow path does.
             ctx.ip = old_ip;
             ctx.shadow_stack = saved.clone();
+            ctx.materialize_borrowed();
             let value = slow_path_struct_getter(slow_arity, function_index, ctx);
             finish_slow_getter(value, fuse, borrow, ctx)
         },
@@ -3539,5 +3699,42 @@ impl<'a> FunctionTranslator<'a> {
         self.pop_count_plus_one = state.pop_count_plus_one;
         self.pop_count_minus_one = state.pop_count_minus_one;
         self.thread_id = state.thread_id;
+    }
+}
+
+/// Whether `memq` over this list is short enough to unroll, with every
+/// element compared by its tag and payload alone.
+pub(super) fn memq_inline_elements(list: &crate::values::lists::List<SteelVal>) -> bool {
+    (1..=8).contains(&list.len())
+        && list.iter().all(|e| {
+            matches!(
+                e,
+                SteelVal::SymbolV(_) | SteelVal::CharV(_) | SteelVal::IntV(_) | SteelVal::BoolV(_)
+            )
+        })
+}
+
+/// One element of an unrolled `memq`: what its `eq?` compares against.
+#[derive(Clone, Copy)]
+pub(super) enum MemqElement {
+    // The symbol's pointer, which the constant list keeps alive.
+    Symbol(i64),
+    Char(char),
+    Int(isize),
+    Bool(bool),
+}
+
+impl MemqElement {
+    fn of(value: &SteelVal) -> Self {
+        match value {
+            // The handle's own bits, which is the payload a symbol carries.
+            SteelVal::SymbolV(s) => MemqElement::Symbol(unsafe {
+                core::ptr::read(s as *const SteelString as *const i64)
+            }),
+            SteelVal::CharV(c) => MemqElement::Char(*c),
+            SteelVal::IntV(n) => MemqElement::Int(*n),
+            SteelVal::BoolV(b) => MemqElement::Bool(*b),
+            _ => unreachable!("checked by memq_inline_elements"),
+        }
     }
 }

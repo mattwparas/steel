@@ -272,6 +272,12 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             )
             .arity(2),
             inline(
+                "memq",
+                steel_memq as *const (),
+                returns(|t, _| t.memq_constant_list()),
+            )
+            .arity(2),
+            inline(
                 "list-contains",
                 steel_list_contains as *const (),
                 pushes(|t, _| t.list_contains()),
@@ -423,7 +429,7 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
     &TABLE
 }
 
-fn find(target: usize, arity: usize) -> Option<&'static PrimitiveInline> {
+pub(super) fn find(target: usize, arity: usize) -> Option<&'static PrimitiveInline> {
     inline_primitives()
         .iter()
         .find(|entry| entry.target == target && entry.arity.is_none_or(|a| a == arity))

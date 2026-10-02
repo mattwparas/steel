@@ -146,6 +146,8 @@ fn jit_compile_lambda_impl(
                     | OpCode::CALLGLOBALTAIL
                     | OpCode::CALLGLOBALNOARITY
                     | OpCode::CALLGLOBALTAILNOARITY
+                    | OpCode::CALLPRIMITIVE
+                    | OpCode::CALLPRIMITIVETAIL
                     | OpCode::PUSH
             ) {
                 eprintln!(

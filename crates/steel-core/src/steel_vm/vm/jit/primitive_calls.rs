@@ -32,6 +32,34 @@ helper_family! {
 }
 
 helper_family! {
+    CallPrimitiveBorrowedDefinitions, mod call_primitive_function_borrowed,
+    names "call_primitive_function_borrowed_" "",
+    add_func fn(
+        ctx: *mut VmCore,
+        func: fn(&[SteelVal]) -> Result<SteelVal>,
+        fallback_ip: usize,
+        owned: u64
+    ) -> SteelVal,
+    arities [1 2 3 4 5 6 7 8],
+    |args| {
+        // Bit `i` of `owned` is set when argument `i` was handed over. The rest
+        // are still held by the caller, so they are read here but not dropped.
+        let ctx = unsafe { &mut *ctx };
+        let args = core::mem::ManuallyDrop::new(args);
+        let res = ctx.thread.enter_safepoint_once(|_: &SteelThread| (func)(&*args));
+        for (i, arg) in args.iter().enumerate() {
+            if owned & (1 << i) != 0 {
+                drop(unsafe { core::ptr::read(arg) });
+            }
+        }
+        match res {
+            Ok(v) => v,
+            Err(e) => raise_at(ctx, fallback_ip, e),
+        }
+    }
+}
+
+helper_family! {
     CallPrimitiveMutDefinitions, mod call_primitive_mut_function_deopt,
     names "call_primitive_mut_function_deopt_" "",
     add_func fn(

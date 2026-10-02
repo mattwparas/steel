@@ -577,12 +577,12 @@ impl FunctionTranslator<'_> {
                 // Primitives with a lowering of their own; see
                 // `inline_primitives.rs`.
                 if !self.try_inline_primitive(f as usize, arity) {
+                    let borrowed_name = CallPrimitiveBorrowedDefinitions::arity_to_name(arity)
+                        .filter(|_| borrow_primitive_args_enabled());
                     let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
                     if let Some(name) = name {
                         let origins = self.argument_origins(arity);
-                        // attempt to move forward with it
-                        let additional_args = self.split_off(arity);
 
                         let function = self.builder.ins().iconst(
                             self.module.target_config().pointer_type(),
@@ -595,7 +595,20 @@ impl FunctionTranslator<'_> {
 
                         let mut args = vec![function, fallback_ip];
 
-                        args.extend(additional_args.into_iter().map(|x| x.0));
+                        // A primitive only reads its arguments, so locals are
+                        // passed without a clone.
+                        let name = match borrowed_name {
+                            Some(borrowed_name) => {
+                                let (values, owned) = self.split_off_borrowing(arity);
+                                args.push(self.i64_const(owned as i64));
+                                args.extend(values);
+                                borrowed_name
+                            }
+                            None => {
+                                args.extend(self.split_off(arity).into_iter().map(|x| x.0));
+                                name
+                            }
+                        };
 
                         let result = self.call_function_returns_value_args(name, &args);
                         self.push(result, primitive_result_type(f));
