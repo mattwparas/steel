@@ -1135,6 +1135,80 @@ impl<'a> FunctionTranslator<'a> {
         )
     }
 
+    /// `#%case-member?` against a constant list, as an unboxed bool. With
+    /// enough chars or fixnums below 128 they are tested against a bitmap, so
+    /// a clause costs the same however many datums it has. Up to 16 other
+    /// elements are compared one by one.
+    pub(super) fn case_member_constant(&mut self) -> Option<Value> {
+        let Some(&MaybeStackValue::Constant(ConstantValue::List(l))) = self.shadow_stack.last()
+        else {
+            return None;
+        };
+        // Read through the constant map, so nothing is cloned or dropped here.
+        let set = self.constants.get_map(l, |constant| match constant {
+            SteelVal::ListV(list) => CaseSet::of(list),
+            _ => None,
+        })?;
+
+        self.shadow_stack.pop();
+        let (value, owned) = match self.shadow_stack.last().copied() {
+            Some(MaybeStackValue::Register(index)) => {
+                self.shadow_stack.pop();
+                (self.read_from_vm_stack(index), false)
+            }
+            _ => (self.shadow_pop().0, true),
+        };
+
+        let mut hit = self.builder.ins().iconst(types::I8, 0);
+        if set.chars != 0 {
+            let in_set = self.in_ascii_bitmap(value, SteelVal::CHAR_TAG, set.chars, true);
+            hit = self.builder.ins().bor(hit, in_set);
+        }
+        if set.ints != 0 {
+            let in_set = self.in_ascii_bitmap(value, SteelVal::INT_TAG, set.ints, false);
+            hit = self.builder.ins().bor(hit, in_set);
+        }
+        for element in set.others {
+            let eq = self.eq_constant_element(value, element);
+            hit = self.builder.ins().bor(hit, eq);
+        }
+
+        if owned {
+            self.drop_tagged_value(value);
+        }
+        Some(hit)
+    }
+
+    /// Whether `value` has `tag` and a payload below 128 whose bit is set in
+    /// `bitmap`, as an i8. A char's payload is only its low 32 bits.
+    fn in_ascii_bitmap(&mut self, value: Value, tag: u8, bitmap: u128, char: bool) -> Value {
+        let same_tag = self.is_type(value, tag);
+        let payload = self.unbox_value(value);
+        let payload = if char {
+            let low = self.builder.ins().ireduce(types::I32, payload);
+            self.builder.ins().uextend(types::I64, low)
+        } else {
+            payload
+        };
+        let in_range = self
+            .builder
+            .ins()
+            .icmp_imm(IntCC::UnsignedLessThan, payload, 128);
+        let low_half = self.i64_const(bitmap as u64 as i64);
+        let high_half = self.i64_const((bitmap >> 64) as u64 as i64);
+        let is_low = self
+            .builder
+            .ins()
+            .icmp_imm(IntCC::UnsignedLessThan, payload, 64);
+        let word = self.builder.ins().select(is_low, low_half, high_half);
+        let shift = self.builder.ins().band_imm_u(payload, 63);
+        let shifted = self.builder.ins().ushr(word, shift);
+        let bit = self.builder.ins().band_imm_u(shifted, 1);
+        let bit = self.builder.ins().ireduce(types::I8, bit);
+        let found = self.builder.ins().band(same_tag, in_range);
+        self.builder.ins().band(found, bit)
+    }
+
     /// `eq?` of a value against one element of a constant list, as an i8.
     fn eq_constant_element(&mut self, value: Value, element: MemqElement) -> Value {
         let (tag, same_payload) = match element {
@@ -3736,5 +3810,45 @@ impl MemqElement {
             SteelVal::BoolV(b) => MemqElement::Bool(*b),
             _ => unreachable!("checked by memq_inline_elements"),
         }
+    }
+}
+
+/// The datums of a `case` clause, split for `case_member_constant`.
+pub(super) struct CaseSet {
+    // Bit `n` is set for the char, or the fixnum, `n`.
+    chars: u128,
+    ints: u128,
+    others: Vec<MemqElement>,
+}
+
+impl CaseSet {
+    // Below this many, compares are cheaper than the bitmap test.
+    const MIN_BITMAP: usize = 4;
+    const MAX_COMPARES: usize = 16;
+
+    fn of(list: &crate::values::lists::List<SteelVal>) -> Option<Self> {
+        let ascii = |e: &SteelVal| match e {
+            SteelVal::CharV(c) => (*c as u32) < 128,
+            SteelVal::IntV(n) => (0..128).contains(n),
+            _ => false,
+        };
+        let use_bitmap = list.iter().filter(|e| ascii(e)).count() >= Self::MIN_BITMAP;
+        let mut set = CaseSet {
+            chars: 0,
+            ints: 0,
+            others: Vec::new(),
+        };
+        for element in list.iter() {
+            match element {
+                SteelVal::CharV(c) if use_bitmap && ascii(element) => set.chars |= 1 << (*c as u32),
+                SteelVal::IntV(n) if use_bitmap && ascii(element) => set.ints |= 1 << *n,
+                SteelVal::SymbolV(_)
+                | SteelVal::CharV(_)
+                | SteelVal::IntV(_)
+                | SteelVal::BoolV(_) => set.others.push(MemqElement::of(element)),
+                _ => return None,
+            }
+        }
+        (set.others.len() <= Self::MAX_COMPARES).then_some(set)
     }
 }

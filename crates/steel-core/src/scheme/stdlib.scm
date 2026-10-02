@@ -468,7 +468,7 @@
        [(atoms ...)
         result1
         result2 ...])
-     (when (or (eqv? key (quote atoms)) ...)
+     (when (#%case-member? key (quote (atoms ...)))
        (begin
          result1
          result2 ...))]
@@ -500,7 +500,7 @@
         result2 ...]
        clause
        clauses ...)
-     (if (or (eqv? key (quote atoms)) ...)
+     (if (#%case-member? key (quote (atoms ...)))
          (begin
            result1
            result2 ...)

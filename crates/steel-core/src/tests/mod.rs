@@ -133,6 +133,7 @@ test_harness_success! {
     memq_constant_list_and_lt_constant,
     captured_reads_deferred,
     set_box_value_first,
+    case_member_dispatch,
     jit_pair_predicate,
     primitive_edge_cases,
     jit_primitive_arg_narrowing,

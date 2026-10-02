@@ -1530,11 +1530,24 @@ pub fn eqv(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(left.ptr_eq(&right)))
 }
 
+/// Whether `value` is `eqv?` to an element of `list`. A `case` clause with
+/// several datums tests its key with this.
+#[steel_derive::function(
+    name = "#%case-member?",
+    returns = Bool,
+    args(Any, List),
+    raises = BadArgs
+)]
+pub fn case_member(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(list.iter().any(|x| x.ptr_eq(value))))
+}
+
 fn equality_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/equality");
     module
         .register_native_fn_definition(EQUALP_DEFINITION)
         .register_native_fn_definition(EQV_DEFINITION)
+        .register_native_fn_definition(CASE_MEMBER_DEFINITION)
         .register_native_fn_definition(EQ_DEFINITION)
         .register_native_fn_definition(NUMBER_EQUALITY_DEFINITION);
 

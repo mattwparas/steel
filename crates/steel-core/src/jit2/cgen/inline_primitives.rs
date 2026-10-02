@@ -272,6 +272,13 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             )
             .arity(2),
             inline(
+                "#%case-member?",
+                crate::steel_vm::primitives::steel_case_member as *const (),
+                returns(|t, _| t.case_member_constant()),
+            )
+            .arity(2)
+            .result(InferredType::UnboxedBool),
+            inline(
                 "memq",
                 steel_memq as *const (),
                 returns(|t, _| t.memq_constant_list()),
