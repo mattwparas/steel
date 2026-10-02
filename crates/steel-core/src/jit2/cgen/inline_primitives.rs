@@ -275,6 +275,13 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             .arity(3)
             .tail(extra),
             inline(
+                "vector-length",
+                crate::primitives::vectors::vec_length as *const (),
+                pushes(|t, _| t.vector_length()),
+            )
+            .arity(1)
+            .tail(extra_vec),
+            inline(
                 "vector-push!",
                 mut_vec_push as *const (),
                 pushes(|t, _| t.vector_push()),

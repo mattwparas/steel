@@ -194,6 +194,7 @@ jit_helpers! {
     SET_BOX_HANDLER = "set-box-handler" => setbox_handler_c: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
     LIST_REF_VALUE = "list-ref-value" => list_ref_handler_c: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
     VECTOR_REF_VALUE = "vector-ref-value" => vector_ref_handler_c: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
+    VECTOR_LENGTH_VALUE = "vector-length-value" => vector_length_handler_c: ctx_raises fn(SteelVal) -> SteelVal;
     VECTOR_REF_REG_1 = "vector-ref-reg-1" => vector_ref_handler_register: ctx_raises fn(u16, SteelVal) -> SteelVal;
     VECTOR_REF_REG_2 = "vector-ref-reg-2" => vector_ref_handler_register_two: ctx_raises fn(usize, usize) -> SteelVal;
     VECTOR_REF_REG_2_UNBOXED_INDEX = "vector-ref-reg-2-unboxed-index" => vector_ref_handler_register_two_unboxed: ctx_raises fn(usize, usize) -> SteelVal;

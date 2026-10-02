@@ -41,10 +41,14 @@
   (vector-set! (mstring-chars s) i c))
 
 (define (string-ref s i)
-  (if (mstring? s) (vector-ref (mstring-chars s) i) (#%prim.string-ref s i)))
+  (if (mstring? s)
+      (vector-ref (mstring-chars s) i)
+      (#%prim.string-ref s i)))
 
 (define (string-length s)
-  (if (mstring? s) (vector-length (mstring-chars s)) (#%prim.string-length s)))
+  (if (mstring? s)
+      (vector-length (mstring-chars s))
+      (#%prim.string-length s)))
 
 (define (string? s)
   (or (mstring? s) (#%prim.string? s)))
@@ -53,7 +57,9 @@
 ;;; `vector->string` builds it straight from the character vector, without a
 ;;; string per character.
 (define (mstring->string s)
-  (if (mstring? s) (#%prim.vector->string (mstring-chars s)) s))
+  (if (mstring? s)
+      (#%prim.vector->string (mstring-chars s))
+      s))
 
 ;;; A benchmark may hand these a list built from mutable pairs, so walk lists
 ;;; with accessors that understand both representations rather than the
@@ -96,17 +102,19 @@
 
 ;; Benchmarks mutate the result, so hand back the mutable representation.
 (define (%list->mlist xs)
-  (if (#%prim.null? xs) '() (mpair (#%prim.car xs) (%list->mlist (#%prim.cdr xs)))))
+  (if (#%prim.null? xs)
+      '()
+      (mpair (#%prim.car xs) (%list->mlist (#%prim.cdr xs)))))
 
 (define (string->list s . rest)
-  (%list->mlist
-   (#%prim.apply #%prim.string->list (#%prim.cons (mstring->string s) rest))))
+  (%list->mlist (#%prim.apply #%prim.string->list (#%prim.cons (mstring->string s) rest))))
 
 ;;; Collect the characters into a vector and convert once, instead of building
 ;;; a string per character and appending them.
 (define (list->string chars)
   (let ([v (make-vector (%chain-length chars) #\space)])
-    (let loop ([i 0] [xs chars])
+    (let loop ([i 0]
+               [xs chars])
       (if (#%prim.null? xs)
           ;; Hand back the mutable representation, like `make-string` does.
           ;; `string-ref` on a native Steel string is O(n) since it indexes by
@@ -119,14 +127,21 @@
 
 ;;; The list may be built from mutable pairs or native ones.
 (define (%chain-car xs)
-  (if (mpair? xs) (mpair-mcar xs) (#%prim.car xs)))
+  (if (mpair? xs)
+      (mpair-mcar xs)
+      (#%prim.car xs)))
 
 (define (%chain-cdr xs)
-  (if (mpair? xs) (mpair-mcdr xs) (#%prim.cdr xs)))
+  (if (mpair? xs)
+      (mpair-mcdr xs)
+      (#%prim.cdr xs)))
 
 (define (%chain-length xs)
-  (let loop ([xs xs] [n 0])
-    (if (#%prim.null? xs) n (loop (%chain-cdr xs) (+ n 1)))))
+  (let loop ([xs xs]
+             [n 0])
+    (if (#%prim.null? xs)
+        n
+        (loop (%chain-cdr xs) (+ n 1)))))
 
 (define (display x . rest)
   (#%prim.apply native-display (#%prim.cons (mstring->string x) rest)))

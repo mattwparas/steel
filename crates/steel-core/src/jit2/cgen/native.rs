@@ -366,6 +366,37 @@ impl<'a> FunctionTranslator<'a> {
                 self.check_deopt();
             }
 
+            // A borrowed vector, e.g. a struct field. A slow path that clones it
+            // owns it afterwards, and the helper takes that clone.
+            &[Borrowed(borrowed), _, _] => {
+                let rest = self
+                    .split_off(2)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+                self.shadow_stack.pop();
+
+                let vector = borrowed.value;
+                let (index, value) = (rest[0], rest[1]);
+
+                let fallback = move |ctx: &mut Self| {
+                    let vector = ctx.materialize(borrowed);
+                    // Checked by the caller, after the result is pushed.
+                    let res = ctx.call_helper_unchecked(VECTOR_SET_ARGS, [vector, index, value]);
+                    let zero = ctx.builder.ins().iconst(types::I8, 0);
+                    ctx.builder.def_var(borrowed.owned, zero);
+                    res
+                };
+
+                let res =
+                    self.inline_mut_vector_set(vector, index, value, false, true, true, fallback);
+                self.release_borrowed(borrowed);
+
+                self.push(res, InferredType::Any);
+                self.ip += 1;
+                self.check_deopt();
+            }
+
             // Spill all by value
             _ => {
                 let args = self
@@ -389,6 +420,77 @@ impl<'a> FunctionTranslator<'a> {
                 self.check_deopt();
             }
         }
+    }
+
+    /// `vector-length` of a mutable or flat vector, read in place. A register or
+    /// borrowed operand is left alone and an owned one released after.
+    pub(super) fn vector_length(&mut self) {
+        use MaybeStackValue::*;
+
+        let operand = match self.shadow_stack.last().copied() {
+            Some(Borrowed(b)) => {
+                self.shadow_stack.pop();
+                b
+            }
+            Some(Register(r)) => {
+                self.shadow_stack.pop();
+                let value = self.read_from_vm_stack(r);
+                BorrowedValue {
+                    value,
+                    owned: self.owned_flag(false),
+                }
+            }
+            _ => {
+                let value = self.pop_boxed();
+                BorrowedValue {
+                    value,
+                    owned: self.owned_flag(true),
+                }
+            }
+        };
+        let vector = operand.value;
+
+        let fallback = move |ctx: &mut Self| {
+            let vector = ctx.materialize(operand);
+            let res = ctx.call_helper_unchecked(VECTOR_LENGTH_VALUE, [vector]);
+            let zero = ctx.builder.ins().iconst(types::I8, 0);
+            ctx.builder.def_var(operand.owned, zero);
+            res
+        };
+
+        let is_mutable = self.is_type(vector, SteelVal::HEAP_REF_VECTOR_TAG);
+        let res = self.converging_if(
+            is_mutable,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(vector);
+                let len = ctx.heap_vec_len(ptr);
+                ctx.encode_value(SteelVal::INT_TAG as _, len)
+            },
+            |ctx| {
+                let is_flat = ctx.is_type(vector, SteelVal::FLAT_VECTOR_TAG);
+                ctx.converging_if(
+                    is_flat,
+                    |ctx| {
+                        let ptr = ctx.unbox_value_to_pointer(vector);
+                        let len = ctx.builder.ins().load(
+                            types::I64,
+                            MemFlagsData::trusted(),
+                            ptr,
+                            flat_vec_len_offset(),
+                        );
+                        ctx.encode_value(SteelVal::INT_TAG as _, len)
+                    },
+                    fallback,
+                    types::I128,
+                )
+            },
+            types::I128,
+        );
+        self.release_borrowed(operand);
+
+        self.push(res, InferredType::Any);
+        self.ip += 1;
+        self.check_deopt();
     }
 
     pub(super) fn eq(&mut self) {
@@ -2006,8 +2108,11 @@ impl<'a> FunctionTranslator<'a> {
             },
             |ctx| {
                 // Not a box: let the existing handler raise, with the operands
-                // in the shape it expects.
-                ctx.clone_value(boxed);
+                // in the shape it expects. It takes the box, so a borrowed one
+                // is cloned for it.
+                if !should_drop {
+                    ctx.clone_value(boxed);
+                }
                 ctx.call_helper_checked(SET_BOX_HANDLER, [boxed, new_value])
             },
             typ,
@@ -2702,6 +2807,19 @@ impl<'a> FunctionTranslator<'a> {
                     &[MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_)]
                 ) =>
             {
+                // A field a vector operation reads right away is borrowed, since
+                // the struct keeps it alive. A moved struct is left in its slot
+                // instead, so it still does.
+                let borrow = (super::borrow_enabled() && self.field_feeds_vector_op())
+                    .then(|| self.builder.declare_var(types::I8));
+                if borrow.is_some() {
+                    if let Some(MaybeStackValue::MutRegister(p)) = self.shadow_stack.last().copied()
+                    {
+                        *self.shadow_stack.last_mut().unwrap() = MaybeStackValue::Register(p);
+                    }
+                }
+                self.pending_borrow = borrow;
+
                 Some(self.inline_struct_getter_call(
                     &spec,
                     arity,
@@ -2709,7 +2827,7 @@ impl<'a> FunctionTranslator<'a> {
                     i,
                     None,
                     None,
-                    None,
+                    borrow,
                 ))
             }
             // A `#:mutable` struct's accessors are generated as closures over a
@@ -3072,8 +3190,14 @@ fn fast_path_struct_matches(
         return value;
     }
 
-    // Clone whatever comes out of this
-    ctx.clone_value(local_value);
+    // Clone whatever comes out of this, unless it is borrowed
+    match borrow {
+        Some(owned) => {
+            let zero = ctx.builder.ins().iconst(types::I8, 0);
+            ctx.builder.def_var(owned, zero);
+        }
+        None => ctx.clone_value(local_value),
+    }
 
     // TODO: @Matt clean up these ip advances
     ctx.ip += 1;

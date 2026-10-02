@@ -678,6 +678,28 @@ impl FunctionTranslator<'_> {
                 self.ip += 2;
             }
 
+            // A borrowed vector, e.g. a struct field. A slow path that clones it
+            // owns it afterwards, and the helper takes that clone.
+            &[MaybeStackValue::Borrowed(borrowed), _] if generic_inline_enabled() => {
+                let index = self.pop_boxed();
+                self.shadow_stack.pop();
+                let vector = borrowed.value;
+
+                let fallback = move |ctx: &mut Self| {
+                    let vector = ctx.materialize(borrowed);
+                    let res = ctx.call_helper_checked(VECTOR_REF_VALUE, [vector, index]);
+                    let zero = ctx.builder.ins().iconst(types::I8, 0);
+                    ctx.builder.def_var(borrowed.owned, zero);
+                    res
+                };
+
+                let res = self.inline_vector_ref(vector, index, false, fallback);
+                self.release_borrowed(borrowed);
+
+                self.push(res, InferredType::Any);
+                self.ip += 2;
+            }
+
             // A closed global, read from its slot. The global keeps the vector
             // alive, so the read needs no clone, and only the helper gets one.
             &[MaybeStackValue::Constant(ConstantValue::Global(global)), _]

@@ -5246,6 +5246,17 @@ impl FunctionTranslator<'_> {
         if target == crate::steel_vm::primitives::steel_set_box_mutable as *const () as usize
             && arity == 2
         {
+            // A box in a register stays alive in its slot, so it is written in
+            // place without a clone.
+            if let Some(MaybeStackValue::Register(r)) =
+                self.shadow_stack.get(self.shadow_stack.len() - 2).copied()
+            {
+                let value = self.split_off(1)[0].0;
+                self.shadow_stack.pop();
+                let boxed = self.read_from_vm_stack(r);
+                return Some(self.set_box_value_checked_register(boxed, value, false));
+            }
+
             // `split_off` hands back owned operands, cloning a register, so the
             // box is released after the write.
             let args = self
@@ -8551,6 +8562,26 @@ impl FunctionTranslator<'_> {
             | OpCode::LOADINT0
             | OpCode::LOADINT1
             | OpCode::LOADINT2 => true,
+            // Reads that only push, and the vector operations that take a
+            // borrowed vector, when they follow a borrowed struct field.
+            OpCode::READLOCAL
+            | OpCode::MOVEREADLOCAL
+            | OpCode::MOVEREADLOCAL0
+            | OpCode::MOVEREADLOCAL1
+            | OpCode::MOVEREADLOCAL2
+            | OpCode::MOVEREADLOCAL3
+            | OpCode::PUSHCONST
+            | OpCode::VECTORREF => true,
+            OpCode::CALLGLOBAL
+            | OpCode::CALLGLOBALTAIL
+            | OpCode::CALLGLOBALNOARITY
+            | OpCode::CALLGLOBALTAILNOARITY
+            | OpCode::CALLPRIMITIVETAIL
+                if self.global_takes_borrowed_vector(payload) =>
+            {
+                true
+            }
+            OpCode::CALLPRIMITIVE if self.global_takes_borrowed_vector(payload) => true,
             OpCode::CALLPRIMITIVE => {
                 inline_eq_enabled()
                     && !self.func_is_join_target(self.ip + 1)
@@ -8565,6 +8596,66 @@ impl FunctionTranslator<'_> {
             }
             _ => false,
         }
+    }
+
+    /// A closed global holding `vector-set!` or `vector-length`, whose inline
+    /// lowerings take a borrowed vector.
+    fn global_takes_borrowed_vector(&self, index: usize) -> bool {
+        self.global_is_closed(index)
+            && matches!(
+                self._globals.get(index),
+                Some(SteelVal::FuncV(f))
+                    if *f as usize == steel_mut_vec_set as *const () as usize
+                        || *f as usize == crate::primitives::vectors::vec_length as *const () as usize
+            )
+    }
+
+    /// Whether the struct getter call ending at `ip` feeds a vector operation,
+    /// with only plain reads for the other operands in between.
+    fn field_feeds_vector_op(&self) -> bool {
+        let mut ip = self.ip + 1;
+        for _ in 0..4 {
+            let Some(ins) = self.instructions.get(ip) else {
+                return false;
+            };
+            if self.func_is_join_target(ip) {
+                return false;
+            }
+            match ins.op_code {
+                OpCode::VECTORREF => return true,
+                OpCode::CALLGLOBAL
+                | OpCode::CALLGLOBALTAIL
+                | OpCode::CALLGLOBALNOARITY
+                | OpCode::CALLGLOBALTAILNOARITY
+                | OpCode::CALLPRIMITIVE
+                | OpCode::CALLPRIMITIVETAIL => {
+                    return self.global_takes_borrowed_vector(ins.payload_size.to_usize())
+                }
+                OpCode::READLOCAL
+                | OpCode::READLOCAL0
+                | OpCode::READLOCAL1
+                | OpCode::READLOCAL2
+                | OpCode::READLOCAL3
+                | OpCode::MOVEREADLOCAL
+                | OpCode::MOVEREADLOCAL0
+                | OpCode::MOVEREADLOCAL1
+                | OpCode::MOVEREADLOCAL2
+                | OpCode::MOVEREADLOCAL3
+                | OpCode::LOADINT0
+                | OpCode::LOADINT1
+                | OpCode::LOADINT2
+                | OpCode::PUSHCONST => ip += 1,
+                _ => return false,
+            }
+        }
+        false
+    }
+
+    /// Release a borrowed value if a slow path left it owned.
+    fn release_borrowed(&mut self, borrowed: BorrowedValue) {
+        let owned = self.builder.use_var(borrowed.owned);
+        let value = borrowed.value;
+        self.converging_if_no_value(owned, |ctx| ctx.drop_tagged_value(value), |_| {});
     }
 
     fn has_borrowed(&self) -> bool {

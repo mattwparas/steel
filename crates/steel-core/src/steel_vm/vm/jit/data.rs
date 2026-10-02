@@ -218,6 +218,22 @@ fn vector_ref_handler_c(ctx: *mut VmCore, mut vec: SteelVal, index: SteelVal) ->
 }
 
 #[cross_platform_fn]
+fn vector_length_handler_c(ctx: *mut VmCore, vec: SteelVal) -> SteelVal {
+    match crate::primitives::vectors::vec_length(&[vec]) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[cross_platform_fn]
 fn vector_ref_handler_register(ctx: *mut VmCore, vec_reg: u16, index: SteelVal) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
