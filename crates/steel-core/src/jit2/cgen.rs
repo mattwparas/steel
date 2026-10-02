@@ -9964,10 +9964,11 @@ impl FunctionTranslator<'_> {
     }
 
     // Remove the tag from a value to get to the underlying type
+    /// The payload half of a value, as an i64. An i128 shift by 64 would give
+    /// the same bits, but cranelift lowers it as a general variable shift.
     fn unbox_value(&mut self, value: Value) -> Value {
-        let amount_to_shift = self.i64_const(64);
-        let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
-        encoded_rhs
+        let (_, high) = self.builder.ins().isplit(value);
+        high
     }
 
     fn unbox_value_to_pointer(&mut self, value: Value) -> Value {

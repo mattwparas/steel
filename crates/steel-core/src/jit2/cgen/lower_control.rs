@@ -76,13 +76,8 @@ impl FunctionTranslator<'_> {
 
                 let test_bool = match typ {
                     InferredType::Bool => {
-                        let amount_to_shift = self.i64_const(64);
-                        let shift_right = self.builder.ins().sshr(test, amount_to_shift);
-
-                        // Do we need to do this at all?
-                        self.builder
-                            .ins()
-                            .ireduce(Type::int(8).unwrap(), shift_right)
+                        let payload = self.unbox_value(test);
+                        self.builder.ins().ireduce(types::I8, payload)
                     }
                     InferredType::List => {
                         self.drop_biased_rc(test);
@@ -91,14 +86,8 @@ impl FunctionTranslator<'_> {
                     }
                     _ => {
                         let is_bool = self.is_type(test, SteelVal::BOOL_TAG);
-                        let amount_to_shift = self.i64_const(64);
-
-                        let shift_right = self.builder.ins().sshr(test, amount_to_shift);
-
-                        let small = self
-                            .builder
-                            .ins()
-                            .ireduce(Type::int(8).unwrap(), shift_right);
+                        let payload = self.unbox_value(test);
+                        let small = self.builder.ins().ireduce(types::I8, payload);
 
                         let is_false = self.builder.ins().icmp_imm_s(IntCC::Equal, small, 0);
 
