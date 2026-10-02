@@ -6542,6 +6542,102 @@ fn hoist_tail_only() -> bool {
     !crate::config::config().hoist_car_all
 }
 
+/// Evaluates a `set-box!`'s value before its box, where computing the value
+/// can spill the operand stack.
+///
+/// `(#%set-box! x e)` reads `x` first, so a `let`, an `if` or a call in `e`
+/// finds the box already on the stack, and the jit has to give the stack an
+/// owned copy of it. `(let ([t e]) (#%set-box! x t))` reads the box right
+/// before the store, where the jit can use it in place. Reading `x` has no
+/// effect, so evaluating `e` first is not observable.
+struct SetBoxValueFirst {
+    rewritten: usize,
+}
+
+impl SetBoxValueFirst {
+    fn run(exprs: &mut Vec<ExprKind>) -> usize {
+        let mut pass = Self { rewritten: 0 };
+        for expr in exprs {
+            pass.visit(expr);
+        }
+        pass.rewritten
+    }
+
+    fn is_set_box(l: &crate::parser::ast::List) -> bool {
+        l.args.len() == 3
+            && matches!(
+                l.first_ident().map(|x| x.resolve()),
+                Some("#%set-box!" | "#%prim.set-box!")
+            )
+            && l.args[1].atom_identifier().is_some()
+    }
+
+    /// Whether computing `expr` can spill the operand stack. A primitive call
+    /// on plain operands can't. A lambda is left alone too, since a named
+    /// `let` expands to `(#%set-box! box (λ ...))` and later passes look for
+    /// that shape.
+    fn spills(expr: &ExprKind) -> bool {
+        match expr {
+            ExprKind::Atom(_) | ExprKind::Quote(_) | ExprKind::LambdaFunction(_) => false,
+            ExprKind::List(l) => match l.first_ident().map(|x| x.resolve()) {
+                Some(head) if head.starts_with("#%prim.") || head == "#%unbox" => {
+                    l.args[1..].iter().any(Self::spills)
+                }
+                _ => true,
+            },
+            _ => true,
+        }
+    }
+
+    fn rewrite(&mut self, expr: &mut ExprKind) {
+        let ExprKind::List(l) = expr else {
+            return;
+        };
+        if !Self::is_set_box(l) || !Self::spills(&l.args[2]) {
+            return;
+        }
+
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let binding = ExprKind::atom(InternedString::from(format!("##%set-box-value{n}")));
+
+        let mut location = SyntaxObject::default(TokenType::Let);
+        location.set_span(l.location);
+        let value = core::mem::replace(&mut l.args[2], binding.clone());
+        let set = core::mem::replace(expr, ExprKind::empty());
+        *expr = ExprKind::Let(Let::new(vec![(binding, value)], set, location).into());
+        self.rewritten += 1;
+    }
+}
+
+impl VisitorMutRefUnit for SetBoxValueFirst {
+    fn visit_quote(&mut self, _quote: &mut crate::parser::ast::Quote) {}
+
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+        self.rewrite(expr);
+    }
+}
+
+fn set_box_value_first_enabled() -> bool {
+    crate::config::config().set_box_value_first
+}
+
 fn hoist_car_enabled() -> bool {
     crate::config::config().hoist_car
 }
@@ -9871,6 +9967,15 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         HoistCarBeforeCdr::hoist(self.exprs)
+    }
+
+    /// See `SetBoxValueFirst`.
+    pub fn set_box_value_first(&mut self) -> usize {
+        if !set_box_value_first_enabled() {
+            return 0;
+        }
+
+        SetBoxValueFirst::run(self.exprs)
     }
 
     /// Drops the binding that `or` expands into, where that is sound.

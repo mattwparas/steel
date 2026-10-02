@@ -1536,6 +1536,7 @@ impl Compiler {
             let mut reboxed = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
             reboxed.populate_captures_twice();
             reboxed.replace_mutable_captured_variables_with_boxes();
+            reboxed.set_box_value_first();
 
             let mut analysis = reboxed.into_analysis();
 

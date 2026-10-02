@@ -1945,14 +1945,21 @@ impl JIT {
                     eprintln!("{:#?}", e);
                     Some(format!("errors: {:#?}", e))
                 }
-                Ok(()) => self
-                    .module
-                    .define_function(inner_id, &mut self.ctx)
-                    .err()
-                    .map(|e| {
+                Ok(()) => {
+                    if crate::config::config()
+                        .jit_dump_asm
+                        .as_ref()
+                        .is_some_and(|filter| inner_name.contains(filter.as_str()))
+                    {
+                        self.ctx.set_disasm(true);
+                    }
+                    let defined = self.module.define_function(inner_id, &mut self.ctx);
+                    self.dump_asm_if_asked(&inner_name);
+                    defined.err().map(|e| {
                         eprintln!("error in defining function: {}", e);
                         e.to_string()
-                    }),
+                    })
+                }
             },
         };
 
@@ -2083,6 +2090,14 @@ impl JIT {
     fn dump_asm_if_asked(&mut self, name: &str) {
         if let Some(code) = self.ctx.compiled_code().and_then(|c| c.vcode.clone()) {
             eprintln!("--- asm for {name} ---\n{code}");
+        }
+        // `STEEL_JIT_DUMP_ASM_DIR` also writes the code bytes, to line up with
+        // a perf map's addresses.
+        if let (Some(dir), Some(compiled)) = (
+            crate::config::config().jit_dump_asm_dir.as_ref(),
+            self.ctx.compiled_code(),
+        ) {
+            let _ = std::fs::write(format!("{dir}/{name}.bin"), compiled.code_buffer());
         }
         self.ctx.set_disasm(false);
     }
@@ -2565,6 +2580,7 @@ impl JIT {
             exit_types: &mut exit_types,
             typed_returns: HashSet::new(),
             thread_pointer: None,
+            captures_pointer: None,
             should_trampoline: None,
             sp: None,
             pop_count: None,
@@ -2590,6 +2606,13 @@ impl JIT {
                 }
             }
             SpecMode::Generic { .. } | SpecMode::None => {}
+        }
+
+        if crate::config::config().jit_cache_captures
+            && bytecode.iter().any(|x| x.op_code == OpCode::READCAPTURED)
+        {
+            let captures = trans.load_captures_pointer();
+            trans.captures_pointer = Some(captures);
         }
 
         // A frameless copy's frame base arrives as its second parameter, and it
@@ -3654,6 +3677,9 @@ struct FunctionTranslator<'a> {
     typed_returns: HashSet<cranelift::codegen::ir::Inst>,
 
     thread_pointer: Option<Value>,
+    // The running closure's captures, loaded once on entry. The closure is the
+    // same for the whole activation, and its captures never change.
+    captures_pointer: Option<Value>,
 
     should_trampoline: Option<Value>,
 
@@ -6737,15 +6763,30 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    /// `POPSINGLE`: discard the top of the stack. A register or a constant
+    /// owns nothing here, so it is just forgotten, and anything else is dropped
+    /// inline, which for an immediate is only the tag check.
     fn pop_single(&mut self) {
-        let last = self.shadow_pop();
-
-        let local_callee = self.helper_callee(DROP_VALUE);
-        let ctx = self.get_ctx();
-
-        let arg_values = vec![ctx, last.0];
-
-        let _ = self.builder.ins().call(local_callee, &arg_values);
+        if !crate::config::config().jit_inline_pop {
+            let last = self.shadow_pop();
+            let local_callee = self.helper_callee(DROP_VALUE);
+            let ctx = self.get_ctx();
+            let _ = self.builder.ins().call(local_callee, &[ctx, last.0]);
+            return;
+        }
+        match self.shadow_stack.last().copied() {
+            Some(MaybeStackValue::Register(_) | MaybeStackValue::Constant(_)) => {
+                self.shadow_stack.pop();
+            }
+            Some(MaybeStackValue::Borrowed(b)) => {
+                self.shadow_stack.pop();
+                self.release_borrowed(b);
+            }
+            _ => {
+                let (value, _) = self.shadow_pop();
+                self.drop_tagged_value(value);
+            }
+        }
     }
 
     fn pop_value_from_vm_stack(&mut self) -> Value {
@@ -12124,7 +12165,8 @@ impl FunctionTranslator<'_> {
         );
     }
 
-    fn inline_read_captured(&mut self, index: usize, clone: bool) -> Value {
+    /// The running closure's captures, from the function in the top stack frame.
+    fn load_captures_pointer(&mut self) -> Value {
         let vm_ctx = self.get_ctx();
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
@@ -12135,14 +12177,20 @@ impl FunctionTranslator<'_> {
 
         let function = self.load_field(types::I64, slot_ptr, offset_of!(StackFrame, function));
 
-        let capture_pointer = self.builder.ins().load(
+        self.builder.ins().load(
             types::I64,
             MemFlagsData::trusted().with_readonly(),
             function,
             closure_field_offset(offset_of!(ByteCodeLambda, captures)),
-        );
+        )
+    }
 
-        // Just load an offset from there:
+    fn inline_read_captured(&mut self, index: usize, clone: bool) -> Value {
+        let capture_pointer = match self.captures_pointer {
+            Some(captures) => captures,
+            None => self.load_captures_pointer(),
+        };
+
         let value = self.builder.ins().load(
             types::I128,
             MemFlagsData::trusted().with_readonly(),

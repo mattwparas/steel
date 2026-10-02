@@ -132,6 +132,7 @@ test_harness_success! {
     captured_struct_reads,
     memq_constant_list_and_lt_constant,
     captured_reads_deferred,
+    set_box_value_first,
     jit_pair_predicate,
     primitive_edge_cases,
     jit_primitive_arg_narrowing,

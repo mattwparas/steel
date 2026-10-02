@@ -168,6 +168,8 @@ steel_config! {
     jit_dump_clif: Option<String> = None, "STEEL_JIT_DUMP_CLIF";
     /// Print the machine code of functions whose name contains this.
     jit_dump_asm: Option<String> = None, "STEEL_JIT_DUMP_ASM";
+    /// Also write the dumped functions' machine code to this directory.
+    jit_dump_asm_dir: Option<String> = None, "STEEL_JIT_DUMP_ASM_DIR";
     /// Append compiled functions to /tmp/perf-<pid>.map for `perf report`.
     jit_perf_map: bool = false, "STEEL_JIT_PERF_MAP";
     /// Write jit-<pid>.dump for `perf inject --jit`.
@@ -245,6 +247,10 @@ steel_config! {
     jit_borrow_captures: bool = true, "STEEL_JIT_BORROW_CAPTURES";
     /// Pass locals to a primitive call without cloning them.
     jit_borrow_primitive_args: bool = true, "STEEL_JIT_BORROW_PRIMITIVE_ARGS";
+    /// Drop a discarded value inline instead of through a helper call.
+    jit_inline_pop: bool = true, "STEEL_JIT_INLINE_POP";
+    /// Load the running closure's captures once on entry.
+    jit_cache_captures: bool = true, "STEEL_JIT_CACHE_CAPTURES";
     /// Keep a pushed closed global as a reference to its slot until it is used.
     jit_closed_global_operands: bool = true, "STEEL_JIT_CLOSED_GLOBAL_OPERANDS";
     /// Read `(vector-ref (unbox G) i)` on a closed global box without cloning the vector.
@@ -357,6 +363,9 @@ steel_config! {
     flatten_empty_lets: bool = true, "STEEL_FLATTEN_EMPTY_LETS";
     /// Bind `(car x)` before a recursive call passing `(cdr x)`.
     hoist_car: bool = true, "STEEL_HOIST_CAR";
+    /// Evaluate a `set-box!`'s value before reading the box when the value
+    /// can spill the stack.
+    set_box_value_first: bool = true, "STEEL_SET_BOX_VALUE_FIRST";
     /// Hoist at every call, not only in tail position.
     hoist_car_all: bool = false, "STEEL_HOIST_CAR_ALL";
     /// Log hoisted sites.
