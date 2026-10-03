@@ -300,6 +300,41 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
                 pushes(|t, arity| t.char_equals(arity)),
             )
             .arity(2),
+            // Type predicates that are a tag check.
+            inline(
+                "exact-integer?",
+                crate::primitives::numbers::steel_exact_integerp as *const (),
+                returns(|t, _| {
+                    Some(t.tag_predicate(&[SteelVal::INT_TAG, SteelVal::BIG_NUM_TAG], false))
+                }),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "integer?",
+                crate::primitives::numbers::steel_integerp as *const (),
+                returns(|t, _| {
+                    Some(t.tag_predicate(&[SteelVal::INT_TAG, SteelVal::BIG_NUM_TAG], true))
+                }),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "vector?",
+                crate::steel_vm::primitives::steel_vectorp as *const (),
+                returns(|t, _| {
+                    Some(t.tag_predicate(
+                        &[
+                            SteelVal::VECTOR_TAG,
+                            SteelVal::HEAP_REF_VECTOR_TAG,
+                            SteelVal::FLAT_VECTOR_TAG,
+                        ],
+                        false,
+                    ))
+                }),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
             inline(
                 "#%case-member?",
                 crate::steel_vm::primitives::steel_case_member as *const (),

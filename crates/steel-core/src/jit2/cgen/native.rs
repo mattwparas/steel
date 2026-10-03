@@ -1293,6 +1293,42 @@ impl<'a> FunctionTranslator<'a> {
 
     /// `char-whitespace?`. An ASCII char is answered inline, anything else, or
     /// a value that isn't a char, goes to the primitive.
+    /// A type predicate that only looks at the tag: whether the value has one of
+    /// `tags`, or, with `integral_float`, is a float with no fractional part, as
+    /// `integer?` counts those. An unboxed bool.
+    pub(super) fn tag_predicate(&mut self, tags: &[u8], integral_float: bool) -> Value {
+        let (value, owned) = match self.shadow_stack.last().copied() {
+            Some(MaybeStackValue::Register(r) | MaybeStackValue::MutRegister(r)) => {
+                self.shadow_stack.pop();
+                (self.read_from_vm_stack(r), false)
+            }
+            _ => (self.pop_boxed(), true),
+        };
+
+        let mut hit = self.builder.ins().iconst(types::I8, 0);
+        for &tag in tags {
+            let has_tag = self.is_type(value, tag);
+            hit = self.builder.ins().bor(hit, has_tag);
+        }
+        if integral_float {
+            // `x - trunc(x)` is zero exactly when `fract` is, and NaN for an
+            // infinity or a NaN.
+            let is_float = self.is_type(value, SteelVal::FLOAT_TAG);
+            let float = self.unbox_value_to_float(value);
+            let whole = self.builder.ins().trunc(float);
+            let fraction = self.builder.ins().fsub(float, whole);
+            let zero = self.builder.ins().f64const(0.0);
+            let integral = self.builder.ins().fcmp(FloatCC::Equal, fraction, zero);
+            let float_hit = self.builder.ins().band(is_float, integral);
+            hit = self.builder.ins().bor(hit, float_hit);
+        }
+
+        if owned {
+            self.drop_tagged_value(value);
+        }
+        hit
+    }
+
     /// A char class predicate. An ascii char is classified inline, and
     /// anything else goes to the primitive, which raises for a non-char.
     pub(super) fn char_class(&mut self, class: CharClass) {

@@ -2336,11 +2336,15 @@ pub(crate) fn make_mutable_struct_from_owned(
 
 /// A mutable struct of a descriptor the caller already has, boxing each of
 /// `fields`.
-pub(crate) fn make_mutable_struct_known(
+pub(crate) fn make_mutable_struct_known<V>(
     ctx: &mut VmCore,
     descriptor: StructTypeDescriptor,
-    fields: smallvec::SmallVec<[SteelVal; 8]>,
-) -> SteelVal {
+    fields: V,
+) -> SteelVal
+where
+    V: AsRef<[SteelVal]> + IntoIterator<Item = SteelVal>,
+    V::IntoIter: ExactSizeIterator,
+{
     let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
 
     let value = heap_lock.allocate_struct_owned(

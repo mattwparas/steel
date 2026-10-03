@@ -1951,18 +1951,22 @@ impl Heap {
     /// which only clones them if a collection runs.
     /// A mutable struct of `descriptor` whose fields are boxes holding
     /// `values`, allocated straight into the struct.
-    pub fn allocate_struct_owned<'a>(
+    pub fn allocate_struct_owned<'a, V>(
         &mut self,
         descriptor: crate::values::structs::StructTypeDescriptor,
-        values: smallvec::SmallVec<[SteelVal; 8]>,
+        values: V,
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
-    ) -> crate::values::structs::StructRef {
+    ) -> crate::values::structs::StructRef
+    where
+        V: AsRef<[SteelVal]> + IntoIterator<Item = SteelVal>,
+        V::IntoIter: ExactSizeIterator,
+    {
         self.value_collection(
-            values.iter().cloned(),
+            values.as_ref().iter().cloned(),
             roots,
             live_functions,
             globals,

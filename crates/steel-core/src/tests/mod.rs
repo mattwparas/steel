@@ -137,6 +137,7 @@ test_harness_success! {
     char_class_predicates,
     apply_tail_native,
     deep_mutable_teardown,
+    type_predicates_inline,
     jit_pair_predicate,
     primitive_edge_cases,
     jit_primitive_arg_narrowing,

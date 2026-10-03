@@ -1063,7 +1063,7 @@ helper_family! {
         crate::steel_vm::primitives::make_mutable_struct_known(
             guard,
             crate::values::structs::StructTypeDescriptor::from_key(descriptor),
-            args.into_iter().collect(),
+            args,
         )
     }
 }
