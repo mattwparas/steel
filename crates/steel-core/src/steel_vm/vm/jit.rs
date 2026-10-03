@@ -359,12 +359,18 @@ pub(crate) fn settle_after_top_level_form() {
 ///
 /// The compiler only looks up a global by an index from this function's bytecode
 /// (a call or push operand, or the function's own slot), and only cares whether
-/// it is a closure, a primitive, a builtin or a struct function. So the snapshot
+/// it is a closure, a primitive, a builtin, a struct function or a struct type
+/// descriptor. So the snapshot
 /// has the same length (`get` past the end still means unbound), those kinds are
 /// copied at the indices the bytecode mentions, and everything else is `Void`,
 /// which only sends the compiler down a generic path. Cloning the shared
 /// environment is O(1), but it is copy on write, so the next `define` would copy
 /// the whole thing once per queued function.
+fn is_struct_descriptor(value: &SteelVal) -> bool {
+    use crate::rvals::FromSteelVal;
+    crate::values::structs::StructTypeDescriptor::from_steelval(value).is_ok()
+}
+
 fn sparse_globals_snapshot(
     ctx: &VmCore,
     body: &[crate::core::instructions::DenseInstruction],
@@ -374,15 +380,19 @@ fn sparse_globals_snapshot(
     let mut globals = vec![SteelVal::Void; roots.len()];
     let mut copy = |index: usize| {
         if let Some(value) = roots.get(index) {
-            if matches!(
-                value,
+            // A struct type descriptor too, which a mutable struct constructor
+            // bakes in.
+            let wanted = match value {
                 SteelVal::Closure(_)
-                    | SteelVal::FuncV(_)
-                    | SteelVal::MutFunc(_)
-                    | SteelVal::BoxedFunction(_)
-                    | SteelVal::BuiltIn(_)
-                    | SteelVal::CustomStruct(_)
-            ) {
+                | SteelVal::FuncV(_)
+                | SteelVal::MutFunc(_)
+                | SteelVal::BoxedFunction(_)
+                | SteelVal::BuiltIn(_)
+                | SteelVal::CustomStruct(_) => true,
+                SteelVal::Custom(_) => is_struct_descriptor(value),
+                _ => false,
+            };
+            if wanted {
                 globals[index] = value.clone();
             }
         }

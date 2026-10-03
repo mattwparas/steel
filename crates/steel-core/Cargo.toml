@@ -119,6 +119,7 @@ shared_vector = "0.4.4"
 
 steel-imbl = { version = "7.1", optional = true, features = ["serde"] }
 icu_casemap = "2.0.0"
+icu_properties = "2.1"
 
 thin-vec = { version = "0.2.14", features = ["serde"] }
 

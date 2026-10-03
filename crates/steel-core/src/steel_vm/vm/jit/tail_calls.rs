@@ -113,6 +113,10 @@ fn builtin_native_tail(
     args: &mut [SteelVal],
 ) -> SteelVal {
     let len = args.len();
+    // For the census, what a builtin like `apply` was handed first.
+    let first = deopt_census_enabled()
+        .then(|| args.first().cloned())
+        .flatten();
     for val in args.iter_mut() {
         ctx.thread
             .stack
@@ -135,8 +139,26 @@ fn builtin_native_tail(
                 return ctx.thread.stack.pop().unwrap();
             }
 
+            // The builtin replaced this frame with a compiled function's, so the
+            // caller can tail call into it instead of handing the frame to the
+            // interpreter. `apply` reads the instruction before `ip` to decide
+            // whether it is in tail position, which jitted code doesn't keep up
+            // to date, so it can push a frame instead. Then the frame under it
+            // is still this one, and only the interpreter can carry on.
+            if ctx.thread.stack_frames.len() == frames_before {
+                if let Some(entry) = compiled_frame_entry(ctx) {
+                    ctx.tail_target = entry;
+                    return SteelVal::Void;
+                }
+            }
+
             if deopt_census_enabled() {
-                record_deopt(&SteelVal::BuiltIn(f), 0, ctx);
+                // Not a global, so no index to name it by.
+                record_deopt(
+                    first.as_ref().unwrap_or(&SteelVal::BuiltIn(f)),
+                    usize::MAX,
+                    ctx,
+                );
             }
             ctx.is_native = false;
             SteelVal::Void
@@ -147,6 +169,21 @@ fn builtin_native_tail(
             SteelVal::Void
         }
     }
+}
+
+/// The entry of the compiled function whose frame is on top, when the
+/// interpreter would enter it right away, at the start of its body.
+fn compiled_frame_entry(ctx: &VmCore) -> Option<usize> {
+    if ctx.ip != 0
+        || ctx.instructions.first().map(|x| x.op_code) != Some(OpCode::DynSuperInstruction)
+    {
+        return None;
+    }
+    let function = &ctx.thread.stack_frames.last()?.function;
+    function
+        .super_instructions()
+        .or_else(|| super::resolve_background_entry(function))
+        .map(|entry| entry.0.as_ptr() as usize)
 }
 
 helper_family! {

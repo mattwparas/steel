@@ -369,6 +369,9 @@ impl FunctionTranslator<'_> {
                 };
 
                 if let Some(v) = result {
+                    if matches!(func, Some(SteelVal::BuiltIn(_))) {
+                        self.continue_builtin_tail_call();
+                    }
                     self.check_deopt();
                     self.return_from_tail_call(v);
                     return;
@@ -661,6 +664,16 @@ impl FunctionTranslator<'_> {
                         &origins,
                     );
                 } else {
+                    self.ip -= 1;
+                    self.call_global_impl(payload);
+                }
+            }
+
+            // A builtin with a lowering of its own; see `inline_primitives.rs`.
+            Some(SteelVal::BuiltIn(b)) => {
+                self.ip += 1;
+                let arity = self.instructions[self.ip].payload_size.to_usize();
+                if !self.try_inline_primitive(b as usize, arity) {
                     self.ip -= 1;
                     self.call_global_impl(payload);
                 }

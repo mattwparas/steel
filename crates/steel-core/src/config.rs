@@ -153,6 +153,8 @@ steel_config! {
     jit_log: bool = false, "STEEL_JIT_LOG";
     /// Log the names of the functions being compiled.
     jit_log_names: bool = false, "STEEL_JIT_LOG_NAMES";
+    /// Print how long each jit compile took.
+    jit_log_time: bool = false, "STEEL_JIT_LOG_TIME";
     /// Compile only the first n candidates (bisect on this).
     jit_max: Option<usize> = None, "STEEL_JIT_MAX";
     /// Compile only these function ids.
@@ -366,6 +368,8 @@ steel_config! {
     /// Evaluate a `set-box!`'s value before reading the box when the value
     /// can spill the stack.
     set_box_value_first: bool = true, "STEEL_SET_BOX_VALUE_FIRST";
+    /// Drop a released box's contents in place while releases nest shallowly.
+    box_release_direct: bool = true, "STEEL_BOX_RELEASE_DIRECT";
     /// Hoist at every call, not only in tail position.
     hoist_car_all: bool = false, "STEEL_HOIST_CAR_ALL";
     /// Log hoisted sites.

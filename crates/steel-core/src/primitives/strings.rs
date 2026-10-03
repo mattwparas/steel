@@ -62,6 +62,10 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(CHAR_FOLDCASE_DEFINITION)
         .register_native_fn_definition(CHAR_IS_DIGIT_DEFINITION)
         .register_native_fn_definition(CHAR_IS_WHITESPACE_DEFINITION)
+        .register_native_fn_definition(CHAR_IS_ALPHABETIC_DEFINITION)
+        .register_native_fn_definition(CHAR_IS_NUMERIC_DEFINITION)
+        .register_native_fn_definition(CHAR_IS_UPPER_CASE_DEFINITION)
+        .register_native_fn_definition(CHAR_IS_LOWER_CASE_DEFINITION)
         .register_native_fn_definition(CHAR_TO_NUMBER_DEFINITION)
         .register_native_fn_definition(CHAR_EQUALS_DEFINITION)
         .register_native_fn_definition(CHAR_CI_EQUALS_DEFINITION)
@@ -1536,6 +1540,75 @@ fn char_foldcase(c: char) -> char {
 #[function(name = "char-whitespace?", args(Char), raises = BadArgs)]
 fn char_is_whitespace(c: char) -> bool {
     c.is_whitespace()
+}
+
+/// Returns `#t` if the character is alphabetic, which is Unicode's
+/// Alphabetic property.
+///
+/// (char-alphabetic? char?) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char-alphabetic? #\a) ;; => #t
+/// > (char-alphabetic? #\λ) ;; => #t
+/// > (char-alphabetic? #\3) ;; => #f
+/// ```
+#[function(name = "char-alphabetic?", args(Char), raises = BadArgs)]
+fn char_is_alphabetic(c: char) -> bool {
+    c.is_alphabetic()
+}
+
+/// Returns `#t` if the character is a decimal digit in any script, which is
+/// Unicode's general category Nd.
+///
+/// (char-numeric? char?) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char-numeric? #\4) ;; => #t
+/// > (char-numeric? #\٣) ;; => #t
+/// > (char-numeric? #\a) ;; => #f
+/// ```
+#[function(name = "char-numeric?", args(Char), raises = BadArgs)]
+fn char_is_numeric(c: char) -> bool {
+    use icu_properties::{props::GeneralCategory, CodePointMapData};
+    c.is_ascii_digit()
+        || (!c.is_ascii()
+            && CodePointMapData::<GeneralCategory>::new().get(c) == GeneralCategory::DecimalNumber)
+}
+
+/// Returns `#t` if the character is upper case, which is Unicode's Uppercase
+/// property.
+///
+/// (char-upper-case? char?) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char-upper-case? #\A) ;; => #t
+/// > (char-upper-case? #\a) ;; => #f
+/// ```
+#[function(name = "char-upper-case?", args(Char), raises = BadArgs)]
+fn char_is_upper_case(c: char) -> bool {
+    c.is_uppercase()
+}
+
+/// Returns `#t` if the character is lower case, which is Unicode's Lowercase
+/// property.
+///
+/// (char-lower-case? char?) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char-lower-case? #\a) ;; => #t
+/// > (char-lower-case? #\A) ;; => #f
+/// ```
+#[function(name = "char-lower-case?", args(Char), raises = BadArgs)]
+fn char_is_lower_case(c: char) -> bool {
+    c.is_lowercase()
 }
 
 /// Returns `#t` if the character is an ascii decimal digit.

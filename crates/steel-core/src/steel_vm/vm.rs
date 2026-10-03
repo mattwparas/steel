@@ -1661,6 +1661,10 @@ pub struct VmCore<'a> {
     pub(crate) return_value: Option<SteelVal>,
     // TODO: This means we've entered the native section of the code
     pub(crate) result: Option<Result<SteelVal>>,
+    // Set by a builtin called in tail position from jitted code, like `apply`,
+    // that set up the frame of a compiled function instead of returning a
+    // value: that function's entry, for the caller to tail call into.
+    pub(crate) tail_target: usize,
 }
 
 impl<'a> VmCore<'a> {
@@ -1684,6 +1688,7 @@ impl<'a> VmCore<'a> {
             return_value: None,
             is_native: false,
             result: None,
+            tail_target: 0,
         }
     }
 
@@ -1711,6 +1716,7 @@ impl<'a> VmCore<'a> {
             return_value: None,
             is_native: false,
             result: None,
+            tail_target: 0,
         })
     }
 

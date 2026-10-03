@@ -2328,28 +2328,34 @@ pub(crate) fn make_mutable_struct_from_owned(
     }
 
     let descriptor = StructTypeDescriptor::from_steelval(&args[0])?;
-    let mut fields: smallvec::SmallVec<[SteelVal; 8]> = args.drain(1..).collect();
+    // The fields are what is left once the descriptor is taken off the front.
+    args.remove(0);
 
-    let mut boxed = Vec::with_capacity(fields.len());
+    Ok(make_mutable_struct_known(ctx, descriptor, args))
+}
 
+/// A mutable struct of a descriptor the caller already has, boxing each of
+/// `fields`.
+pub(crate) fn make_mutable_struct_known(
+    ctx: &mut VmCore,
+    descriptor: StructTypeDescriptor,
+    fields: smallvec::SmallVec<[SteelVal; 8]>,
+) -> SteelVal {
     let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
 
-    heap_lock.allocate_many_owned(
-        &mut fields,
+    let value = heap_lock.allocate_struct_owned(
+        descriptor,
+        fields,
         &ctx.thread.stack,
         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
         ctx.thread.global_env.roots(),
         &ctx.thread.thread_local_storage,
         &mut ctx.thread.synchronizer,
-        &mut boxed,
     );
 
     drop(heap_lock);
 
-    Ok(SteelVal::CustomStruct(StructRef::from_parts(
-        descriptor,
-        boxed.into_iter(),
-    )))
+    SteelVal::CustomStruct(value)
 }
 
 /// `#%make-mutable-struct` without the `BuiltIn` calling convention, so the jit

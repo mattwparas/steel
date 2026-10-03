@@ -5269,6 +5269,7 @@ dependencies = [
  "glob",
  "httparse",
  "icu_casemap",
+ "icu_properties",
  "im",
  "im-lists",
  "im-rc",

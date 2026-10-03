@@ -29,10 +29,17 @@ pub(super) fn record_deopt(func: &SteelVal, index: usize, ctx: &VmCore) {
         SteelVal::ContinuationFunction(_) => "ContinuationFunction",
         _ => "other",
     };
+    // The function making the call, which is the frame on top.
+    let caller = ctx
+        .thread
+        .stack_frames
+        .last()
+        .map(|f| f.function.id)
+        .unwrap_or(0);
     let mut guard = DEOPT_CENSUS.lock().unwrap();
     let map = guard.get_or_insert_with(Default::default);
     let key = match map.get(&format!("@name{index}")) {
-        Some(_) => format!("{kind}|{index}"),
+        Some(_) => format!("{kind}|{index}|caller {caller}"),
         None => {
             // Resolve the global's source name once, so the census shows the
             // primitive's name instead of its index.
@@ -44,10 +51,10 @@ pub(super) fn record_deopt(func: &SteelVal, index: usize, ctx: &VmCore) {
                 .values()
                 .get(index)
                 .map(|x| x.resolve().to_string())
-                .unwrap_or_else(|| "?".into());
+                .unwrap_or_else(|| "(applied by a builtin)".into());
             map.insert(format!("@name{index}"), 0);
             map.insert(format!("#name{index}={name}"), 0);
-            format!("{kind}|{index}")
+            format!("{kind}|{index}|caller {caller}")
         }
     };
     *map.entry(key).or_insert(0) += 1;
@@ -88,7 +95,7 @@ pub fn dump_deopt_census() {
         .collect();
     sites.sort_by_key(|x| std::cmp::Reverse(*x.1));
     eprintln!("  hottest call sites:");
-    for (k, v) in sites.into_iter().take(10) {
+    for (k, v) in sites.into_iter().take(20) {
         let idx = k.split('|').nth(1).unwrap_or("");
         let name = names.get(idx).copied().unwrap_or("?");
         eprintln!("    {v:12}  {:<18}  {k}", name);

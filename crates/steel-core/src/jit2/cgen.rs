@@ -571,6 +571,7 @@ impl Default for JIT {
 
         CallStructConstructorsDefinitions::register(&mut map);
         CallMutableStructConstructorsDefinitions::register(&mut map);
+        CallMutableStructKnownDefinitions::register(&mut map);
         CallMutableVectorConstructorsDefinitions::register(&mut map);
 
         CallFlatVectorConstructorsDefinitions::register(&mut map);
@@ -1608,7 +1609,11 @@ impl JIT {
         top_level_name: Option<InternedString>,
         closed_globals: &HashSet<usize>,
     ) -> Result<JitFnPointer, String> {
-        unsafe {
+        // `STEEL_JIT_LOG_TIME` prints how long each compile took.
+        let timing = crate::config::config()
+            .jit_log_time
+            .then(|| (std::time::Instant::now(), name.clone(), code.len()));
+        let res = unsafe {
             compile_bytecode(
                 self,
                 name,
@@ -1621,7 +1626,15 @@ impl JIT {
                 top_level_name,
                 closed_globals,
             )
+        };
+        if let Some((start, name, len)) = timing {
+            eprintln!(
+                "jit-time: id {name} instrs {len} us {} ok {}",
+                start.elapsed().as_micros(),
+                res.is_ok()
+            );
         }
+        res
     }
 }
 
@@ -5485,23 +5498,48 @@ impl FunctionTranslator<'_> {
         Some(self.call_function_returns_value_args(name, &args))
     }
 
-    /// `#%make-mutable-struct` in tail position, as a direct call to the
-    /// allocation instead of the generic tail call handler.
+    /// `#%make-mutable-struct`, as a direct call to the allocation instead of
+    /// the generic builtin call, which leaves compiled code.
     ///
-    /// Only when the constructor's arguments are the whole operand stack. The
-    /// allocation can run a collection, and the collector's roots are the vm
-    /// stack plus these arguments, so an operand held only in the jitted frame
-    /// would not be a root. In tail position nothing else is usually live, as
-    /// in `(define (cons a b) (mpair a b))`.
-    fn inline_mutable_struct_tail_call(&mut self, builtin: usize, arity: usize) -> Option<Value> {
+    /// The allocation can run a collection, and the collector's roots are the
+    /// vm stack plus these arguments, so any other operand is spilled first. In
+    /// `(define (cons a b) (mpair a b))` there is none, and in a loop's
+    /// `(loop (cdr xs) (mpair (car xs) acc))` the `cdr` usually already is.
+    fn inline_mutable_struct_call(&mut self, builtin: usize, arity: usize) -> Option<Value> {
         if builtin != crate::steel_vm::primitives::make_mutable_struct as *const () as usize {
             return None;
         }
 
         let name = CallMutableStructConstructorsDefinitions::arity_to_name(arity)?;
 
-        if self.shadow_stack.len() != arity {
-            return None;
+        // Operands under the arguments go to the vm stack first, where the
+        // collector sees them. Spilled entries stay a prefix of the stack.
+        let base = self.shadow_stack.len().checked_sub(arity)?;
+        for index in 0..base {
+            self.shadow_spill(index);
+        }
+
+        // A descriptor in a closed global is baked in, which saves checking and
+        // unwrapping it on every call.
+        let known = match self.shadow_stack.get(base) {
+            Some(&MaybeStackValue::Constant(ConstantValue::Global(index)))
+                if self.global_is_closed(index) =>
+            {
+                self._globals.get(index).and_then(|value| {
+                    <StructTypeDescriptor as crate::rvals::FromSteelVal>::from_steelval(value).ok()
+                })
+            }
+            _ => None,
+        };
+        if let (Some(descriptor), Some(name)) = (
+            known,
+            CallMutableStructKnownDefinitions::arity_to_name(arity - 1),
+        ) {
+            // A constant is not on the vm stack, so it is simply dropped here.
+            self.shadow_stack.remove(base);
+            let mut args = vec![self.i64_const(descriptor.key() as i64)];
+            args.extend(self.split_off(arity - 1).into_iter().map(|x| x.0));
+            return Some(self.call_function_returns_value_args(name, &args));
         }
 
         let fallback_ip = self.i64_const(self.ip as i64);
@@ -7878,6 +7916,39 @@ impl FunctionTranslator<'_> {
                 );
                 ctx.push(v, InferredType::Any);
             },
+        );
+    }
+
+    /// After a builtin called in tail position: when it set up the frame of a
+    /// compiled function instead of returning a value, as `apply` does, tail
+    /// call into that function the way `inline_local_tail_call` does, rather
+    /// than leaving it to the interpreter. A frameless copy doesn't own the
+    /// frame on top, so it still leaves.
+    fn continue_builtin_tail_call(&mut self) {
+        let vm_ctx = self.get_ctx();
+        let target = self.load_field(types::I64, vm_ctx, offset_of!(VmCore, tail_target));
+        let has_target = self.builder.ins().icmp_imm_s(IntCC::NotEqual, target, 0);
+        let frameless = self.is_frameless_callee();
+
+        self.converging_if_no_value(
+            has_target,
+            |ctx| {
+                let zero = ctx.i64_const(0);
+                ctx.store_field(zero, vm_ctx, offset_of!(VmCore, tail_target));
+                if frameless {
+                    let no = ctx.builder.ins().iconst(types::I8, 0);
+                    ctx.store_field(no, vm_ctx, offset_of!(VmCore, is_native));
+                } else {
+                    let sig_ref = ctx.create_jit_sig_ref();
+                    ctx.builder
+                        .ins()
+                        .return_call_indirect(sig_ref, target, &[vm_ctx]);
+
+                    let cold_block = ctx.builder.create_block();
+                    ctx.builder.switch_to_block(cold_block);
+                }
+            },
+            |_| {},
         );
     }
 

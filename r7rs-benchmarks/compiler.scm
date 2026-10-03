@@ -1,7 +1,6 @@
 (require "common.scm")
 (require "mutable-lists.scm")
 (require "mutable-strings.scm")
-(require "char-compat.scm")
 
 ;;; Needed for R7RS.
 

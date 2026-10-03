@@ -8,6 +8,7 @@
 //! `try_inline_primitive` and `try_inline_primitive_tail` are the only
 //! dispatchers, so recognising a new primitive is one entry here.
 
+use super::native::CharClass;
 use super::*;
 
 type PushLowering = Box<dyn for<'a> Fn(&mut FunctionTranslator<'a>, usize) + Send + Sync>;
@@ -257,7 +258,35 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             inline(
                 "char-whitespace?",
                 crate::primitives::strings::steel_char_is_whitespace as *const (),
-                pushes(|t, _| t.char_whitespace()),
+                pushes(|t, _| t.char_class(CharClass::Whitespace)),
+            )
+            .arity(1)
+            .tail(extra_pred),
+            inline(
+                "char-alphabetic?",
+                crate::primitives::strings::steel_char_is_alphabetic as *const (),
+                pushes(|t, _| t.char_class(CharClass::Alphabetic)),
+            )
+            .arity(1)
+            .tail(extra_pred),
+            inline(
+                "char-numeric?",
+                crate::primitives::strings::steel_char_is_numeric as *const (),
+                pushes(|t, _| t.char_class(CharClass::Numeric)),
+            )
+            .arity(1)
+            .tail(extra_pred),
+            inline(
+                "char-upper-case?",
+                crate::primitives::strings::steel_char_is_upper_case as *const (),
+                pushes(|t, _| t.char_class(CharClass::UpperCase)),
+            )
+            .arity(1)
+            .tail(extra_pred),
+            inline(
+                "char-lower-case?",
+                crate::primitives::strings::steel_char_is_lower_case as *const (),
+                pushes(|t, _| t.char_class(CharClass::LowerCase)),
             )
             .arity(1)
             .tail(extra_pred),
@@ -404,13 +433,10 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
                 "#%make-mutable-struct",
                 make_mutable_struct as *const (),
                 returns(|t, arity| {
-                    t.inline_mutable_struct_tail_call(
-                        make_mutable_struct as *const () as usize,
-                        arity,
-                    )
+                    t.inline_mutable_struct_call(make_mutable_struct as *const () as usize, arity)
                 }),
             )
-            .operand(never)
+            .operand(extra)
             .tail(extra),
             // Lists.
             inline(

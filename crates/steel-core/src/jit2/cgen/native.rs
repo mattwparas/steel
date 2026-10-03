@@ -567,16 +567,19 @@ impl<'a> FunctionTranslator<'a> {
                 let (tag, same_payload) = match c {
                     ConstantValue::Char(ch) => {
                         let low = self.builder.ins().ireduce(types::I32, payload);
-                        let eq = self.builder.ins().icmp_imm(IntCC::Equal, low, ch as i64);
+                        let eq = self.builder.ins().icmp_imm_u(IntCC::Equal, low, ch as i64);
                         (SteelVal::CHAR_TAG, eq)
                     }
                     ConstantValue::Int(n) => {
-                        let eq = self.builder.ins().icmp_imm(IntCC::Equal, payload, n as i64);
+                        let eq = self
+                            .builder
+                            .ins()
+                            .icmp_imm_s(IntCC::Equal, payload, n as i64);
                         (SteelVal::INT_TAG, eq)
                     }
                     ConstantValue::Bool(b) => {
                         let low = self.builder.ins().ireduce(types::I8, payload);
-                        let eq = self.builder.ins().icmp_imm(IntCC::Equal, low, b as i64);
+                        let eq = self.builder.ins().icmp_imm_u(IntCC::Equal, low, b as i64);
                         (SteelVal::BOOL_TAG, eq)
                     }
                     _ => unreachable!(),
@@ -1193,13 +1196,13 @@ impl<'a> FunctionTranslator<'a> {
         let in_range = self
             .builder
             .ins()
-            .icmp_imm(IntCC::UnsignedLessThan, payload, 128);
+            .icmp_imm_u(IntCC::UnsignedLessThan, payload, 128);
         let low_half = self.i64_const(bitmap as u64 as i64);
         let high_half = self.i64_const((bitmap >> 64) as u64 as i64);
         let is_low = self
             .builder
             .ins()
-            .icmp_imm(IntCC::UnsignedLessThan, payload, 64);
+            .icmp_imm_u(IntCC::UnsignedLessThan, payload, 64);
         let word = self.builder.ins().select(is_low, low_half, high_half);
         let shift = self.builder.ins().band_imm_u(payload, 63);
         let shifted = self.builder.ins().ushr(word, shift);
@@ -1220,18 +1223,21 @@ impl<'a> FunctionTranslator<'a> {
             MemqElement::Char(ch) => {
                 let payload = self.unbox_value(value);
                 let low = self.builder.ins().ireduce(types::I32, payload);
-                let eq = self.builder.ins().icmp_imm(IntCC::Equal, low, ch as i64);
+                let eq = self.builder.ins().icmp_imm_u(IntCC::Equal, low, ch as i64);
                 (SteelVal::CHAR_TAG, eq)
             }
             MemqElement::Int(n) => {
                 let payload = self.unbox_value(value);
-                let eq = self.builder.ins().icmp_imm(IntCC::Equal, payload, n as i64);
+                let eq = self
+                    .builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, payload, n as i64);
                 (SteelVal::INT_TAG, eq)
             }
             MemqElement::Bool(b) => {
                 let payload = self.unbox_value(value);
                 let low = self.builder.ins().ireduce(types::I8, payload);
-                let eq = self.builder.ins().icmp_imm(IntCC::Equal, low, b as i64);
+                let eq = self.builder.ins().icmp_imm_u(IntCC::Equal, low, b as i64);
                 (SteelVal::BOOL_TAG, eq)
             }
         };
@@ -1287,11 +1293,11 @@ impl<'a> FunctionTranslator<'a> {
 
     /// `char-whitespace?`. An ASCII char is answered inline, anything else, or
     /// a value that isn't a char, goes to the primitive.
-    pub(super) fn char_whitespace(&mut self) {
-        use MaybeStackValue::*;
-
+    /// A char class predicate. An ascii char is classified inline, and
+    /// anything else goes to the primitive, which raises for a non-char.
+    pub(super) fn char_class(&mut self, class: CharClass) {
         let (value, owned) = match self.shadow_stack.last().copied() {
-            Some(Register(r) | MutRegister(r)) => {
+            Some(MaybeStackValue::Register(r) | MaybeStackValue::MutRegister(r)) => {
                 self.shadow_stack.pop();
                 (self.read_from_vm_stack(r), false)
             }
@@ -1301,29 +1307,50 @@ impl<'a> FunctionTranslator<'a> {
         let is_char = self.is_type(value, SteelVal::CHAR_TAG);
         let payload = self.unbox_value(value);
         let c = self.builder.ins().ireduce(types::I32, payload);
-        let ascii = self.builder.ins().icmp_imm(IntCC::UnsignedLessThan, c, 128);
+        let ascii = self
+            .builder
+            .ins()
+            .icmp_imm_u(IntCC::UnsignedLessThan, c, 128);
         let fast = self.builder.ins().band(is_char, ascii);
 
         let res = self.converging_if(
             fast,
             |ctx| {
-                // Space, or tab through carriage return.
-                let space = ctx.builder.ins().icmp_imm(IntCC::Equal, c, 32);
-                let from_tab = ctx.builder.ins().iadd_imm(c, -9);
-                let control =
-                    ctx.builder
-                        .ins()
-                        .icmp_imm(IntCC::UnsignedLessThanOrEqual, from_tab, 4);
-                let ws = ctx.builder.ins().bor(space, control);
-                let ws = ctx.builder.ins().uextend(types::I64, ws);
-                ctx.encode_value(SteelVal::BOOL_TAG as i64, ws)
+                // `c - first <= last - first`, unsigned, for a range of chars.
+                let in_range = |ctx: &mut Self, c: Value, first: char, last: char| {
+                    let from = ctx.builder.ins().iadd_imm_s(c, -(first as i64));
+                    ctx.builder.ins().icmp_imm_u(
+                        IntCC::UnsignedLessThanOrEqual,
+                        from,
+                        last as i64 - first as i64,
+                    )
+                };
+                let hit = match class {
+                    // Space, or tab through carriage return.
+                    CharClass::Whitespace => {
+                        let space = ctx.builder.ins().icmp_imm_u(IntCC::Equal, c, 32);
+                        let control = in_range(ctx, c, '\t', '\r');
+                        ctx.builder.ins().bor(space, control)
+                    }
+                    // Setting bit 5 lowercases an ascii letter.
+                    CharClass::Alphabetic => {
+                        let lower = ctx.builder.ins().bor_imm(c, 0x20);
+                        in_range(ctx, lower, 'a', 'z')
+                    }
+                    CharClass::Numeric => in_range(ctx, c, '0', '9'),
+                    CharClass::UpperCase => in_range(ctx, c, 'A', 'Z'),
+                    CharClass::LowerCase => in_range(ctx, c, 'a', 'z'),
+                };
+                let hit = ctx.builder.ins().uextend(types::I64, hit);
+                ctx.encode_value(SteelVal::BOOL_TAG as i64, hit)
             },
             |ctx| {
                 // The primitive takes the value.
                 if !owned {
                     ctx.clone_value(value);
                 }
-                ctx.call_helper_checked(CHAR_WHITESPACE_VALUE, [value])
+                let class = ctx.i64_const(class as i64);
+                ctx.call_helper_checked(CHAR_CLASS_VALUE, [value, class])
             },
             types::I128,
         );
@@ -3851,4 +3878,15 @@ impl CaseSet {
         }
         (set.others.len() <= Self::MAX_COMPARES).then_some(set)
     }
+}
+
+/// The char predicates `char_class` lowers. The discriminant is what
+/// `char_class_handler_c` dispatches on.
+#[derive(Clone, Copy)]
+pub(super) enum CharClass {
+    Whitespace = 0,
+    Alphabetic = 1,
+    Numeric = 2,
+    UpperCase = 3,
+    LowerCase = 4,
 }

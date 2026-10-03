@@ -154,6 +154,11 @@ impl StructTypeDescriptor {
     pub fn key(&self) -> usize {
         self.0
     }
+
+    /// The descriptor whose `key` this is.
+    pub(crate) fn from_key(key: usize) -> Self {
+        Self(key)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,6 +191,27 @@ pub struct StructDropHandler;
 impl steel_rc::PackedDropHandler<SteelVal> for StructDropHandler {
     unsafe fn drop_elements(elements: *mut SteelVal, len: usize) {
         if len == 0 {
+            return;
+        }
+
+        // A box handle's drop is a count decrement, and the last handle hands
+        // the contents to the work list itself, so a struct of boxes and
+        // immediates, which every mutable struct is, can skip the list.
+        let flat = (0..len).all(|i| {
+            matches!(
+                unsafe { &*elements.add(i) },
+                SteelVal::HeapAllocated(_)
+                    | SteelVal::IntV(_)
+                    | SteelVal::BoolV(_)
+                    | SteelVal::CharV(_)
+                    | SteelVal::NumV(_)
+                    | SteelVal::Void
+            )
+        });
+        if flat {
+            for i in 0..len {
+                unsafe { core::ptr::drop_in_place(elements.add(i)) };
+            }
             return;
         }
 

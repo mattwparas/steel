@@ -1172,6 +1172,12 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         percent
     }
 
+    /// `percent_full() > 0.95` without the division, since it is checked on
+    /// every allocation: fewer than 1 in 20 slots free.
+    fn nearly_full(&self) -> bool {
+        self.alloc_count * 20 < self.elements.len()
+    }
+
     fn is_heap_full(&self) -> bool {
         self.alloc_count == 0
     }
@@ -1455,6 +1461,12 @@ impl<T: HeapAble + 'static> FreeList<T> {
         assert!(percent < 1.01);
 
         percent
+    }
+
+    /// `percent_full() > 0.95` without the division, since it is checked on
+    /// every allocation: fewer than 1 in 20 slots free.
+    fn nearly_full(&self) -> bool {
+        self.alloc_count * 20 < self.elements.len()
     }
 
     fn is_heap_full(&self) -> bool {
@@ -1937,6 +1949,37 @@ impl Heap {
     /// boxes instead of cloned. Nothing collects between the collection below
     /// and the moves, so the values only have to be visible to that one call,
     /// which only clones them if a collection runs.
+    /// A mutable struct of `descriptor` whose fields are boxes holding
+    /// `values`, allocated straight into the struct.
+    pub fn allocate_struct_owned<'a>(
+        &mut self,
+        descriptor: crate::values::structs::StructTypeDescriptor,
+        values: smallvec::SmallVec<[SteelVal; 8]>,
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+    ) -> crate::values::structs::StructRef {
+        self.value_collection(
+            values.iter().cloned(),
+            roots,
+            live_functions,
+            globals,
+            tls,
+            synchronizer,
+            false,
+        );
+
+        let free_list = &mut self.memory_free_list;
+        crate::values::structs::StructRef::from_parts(
+            descriptor,
+            values
+                .into_iter()
+                .map(|value| SteelVal::HeapAllocated(free_list.allocate(value))),
+        )
+    }
+
     pub fn allocate_many_owned<'a>(
         &mut self,
         values: &mut smallvec::SmallVec<[SteelVal; 8]>,
@@ -1976,7 +2019,7 @@ impl Heap {
         synchronizer: &mut Synchronizer,
         force: bool,
     ) {
-        if self.memory_free_list.percent_full() > 0.95 || force {
+        if self.memory_free_list.nearly_full() || force {
             run_explicit_merge();
             // let now = crate::time::Instant::now();
             // Attempt a weak collection
@@ -1995,7 +2038,7 @@ impl Heap {
             log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
             // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
-            if self.memory_free_list.percent_full() > 0.95 || force {
+            if self.memory_free_list.nearly_full() || force {
                 // New generation
                 self.memory_free_list.mark_all_unreachable();
                 self.vector_free_list.mark_all_unreachable();
@@ -2077,7 +2120,7 @@ impl Heap {
             }
         }
 
-        if self.vector_free_list.percent_full() > 0.95 || force {
+        if self.vector_free_list.nearly_full() || force {
             // let now = crate::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
@@ -2086,7 +2129,7 @@ impl Heap {
             // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
             // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
-            if self.vector_free_list.percent_full() > 0.95 || force {
+            if self.vector_free_list.nearly_full() || force {
                 self.vector_free_list.mark_all_unreachable();
                 self.memory_free_list.mark_all_unreachable();
 
@@ -2130,7 +2173,7 @@ impl Heap {
             }
         }
 
-        if self.vector_free_list.percent_full() > 0.95 {
+        if self.vector_free_list.nearly_full() {
             run_explicit_merge();
             // let now = crate::time::Instant::now();
             // Attempt a weak collection
@@ -2140,7 +2183,7 @@ impl Heap {
             // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
             // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
-            if self.vector_free_list.percent_full() > 0.95 {
+            if self.vector_free_list.nearly_full() {
                 self.vector_free_list.mark_all_unreachable();
                 self.memory_free_list.mark_all_unreachable();
 
@@ -2473,10 +2516,23 @@ impl HeapAble for SteelVal {
         if !needs_release(&self) {
             return;
         }
-        // A box's value is usually a struct or a list, whose own drop would start
-        // a separate drain. Queueing it lets a whole tree go in a single drain.
-        let _ = crate::rvals::cycles::drop_fields_iteratively(core::iter::once(self));
+        // A box's value is usually a struct or a list. Dropping it in place
+        // skips the work list, and a chain of them, like a list of mutable
+        // pairs, only nests so far before the rest goes through the list.
+        if box_release_direct_enabled() {
+            release_bounded(self, |value| {
+                let _ = crate::rvals::cycles::drop_fields_iteratively(core::iter::once(value));
+            });
+        } else {
+            let _ = crate::rvals::cycles::drop_fields_iteratively(core::iter::once(self));
+        }
     }
+}
+
+/// `STEEL_BOX_RELEASE_DIRECT=0` queues a released box's contents on the drop
+/// work list instead of dropping them in place.
+fn box_release_direct_enabled() -> bool {
+    crate::config::config().box_release_direct
 }
 
 // How many releases may nest on the native stack before the rest go through

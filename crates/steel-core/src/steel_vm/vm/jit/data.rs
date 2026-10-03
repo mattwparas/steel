@@ -217,9 +217,20 @@ fn vector_ref_handler_c(ctx: *mut VmCore, mut vec: SteelVal, index: SteelVal) ->
     }
 }
 
+// A char class predicate on anything the inline test does not cover: a
+// non-ascii char, or a value that is not a char, which raises. `class` is a
+// `CharClass` discriminant.
 #[cross_platform_fn]
-fn char_whitespace_handler_c(ctx: *mut VmCore, c: SteelVal) -> SteelVal {
-    match crate::primitives::strings::steel_char_is_whitespace(&[c]) {
+fn char_class_handler_c(ctx: *mut VmCore, c: SteelVal, class: i64) -> SteelVal {
+    use crate::primitives::strings::*;
+    let predicate = match class {
+        0 => steel_char_is_whitespace,
+        1 => steel_char_is_alphabetic,
+        2 => steel_char_is_numeric,
+        3 => steel_char_is_upper_case,
+        _ => steel_char_is_lower_case,
+    };
+    match predicate(&[c]) {
         Ok(v) => v,
         Err(e) => {
             unsafe {
@@ -1037,6 +1048,23 @@ helper_family! {
                 SteelVal::Void
             }
         }
+    }
+}
+
+// `#%make-mutable-struct` with a descriptor the jit baked in, so the call
+// only boxes the fields. It cannot fail.
+helper_family! {
+    CallMutableStructKnownDefinitions, mod call_mutable_struct_known,
+    names "call_mutable_struct_known_" "",
+    add_func fn(ctx: *mut VmCore, descriptor: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| {
+        let guard = unsafe { &mut *ctx };
+        crate::steel_vm::primitives::make_mutable_struct_known(
+            guard,
+            crate::values::structs::StructTypeDescriptor::from_key(descriptor),
+            args.into_iter().collect(),
+        )
     }
 }
 
