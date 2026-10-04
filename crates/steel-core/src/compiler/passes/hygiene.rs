@@ -6,7 +6,8 @@ use crate::parser::{
     parser::{ExpansionMark, SyntaxObject},
 };
 
-use super::VisitorMutRefUnit;
+use super::{mangle::is_prelude_builtin, VisitorMutRefUnit};
+use crate::steel_vm::primitives::builtin_to_reserved;
 
 // Identifiers from a syntax-rules template are marked with the expansion that introduced
 // them. Everything after expansion resolves variables by name, so this renames local binders
@@ -181,6 +182,16 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
                 .rev()
                 .find(|b| b.name == *name && b.mark == mark)
         };
+
+        // A builtin's name from a template that was resolved where its macro
+        // was defined, and that the template doesn't bind itself, is the
+        // builtin. Its reserved name can't be captured by a definition or a
+        // local of the same name where the macro is used.
+        if by_mark.is_none() && mark.is_definition_resolved() && is_prelude_builtin(name) {
+            *name = builtin_to_reserved(name.resolve());
+            a.syn.unresolved = false;
+            return;
+        }
 
         if !self.renaming {
             if let Some(binder) = by_mark {

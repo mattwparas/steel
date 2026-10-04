@@ -93,14 +93,37 @@ impl ExpansionMark {
     // instead of syntax objects.
     pub const UNKNOWN: Self = ExpansionMark(u32::MAX);
 
+    // Set on the marks of a macro whose template was resolved where the macro
+    // was defined, which is every macro of the prelude or provided by a
+    // module. The definer's own names were rewritten in the template, so a
+    // plain name left in it is a local of the template or a builtin.
+    const DEFINITION_RESOLVED: u32 = 1 << 31;
+
     pub fn fresh() -> Self {
         loop {
-            let mark = ExpansionMark(EXPANSION_MARK_COUNTER.fetch_add(1, Ordering::Relaxed));
+            let count = EXPANSION_MARK_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let mark = ExpansionMark(count & !Self::DEFINITION_RESOLVED);
 
             if mark.is_template() {
                 return mark;
             }
         }
+    }
+
+    pub fn fresh_definition_resolved() -> Self {
+        loop {
+            let mark = ExpansionMark(Self::fresh().0 | Self::DEFINITION_RESOLVED);
+
+            if mark.is_template() {
+                return mark;
+            }
+        }
+    }
+
+    // Whether the template this identifier came from was resolved where its
+    // macro was defined.
+    pub fn is_definition_resolved(self) -> bool {
+        self.is_template() && self.0 & Self::DEFINITION_RESOLVED != 0
     }
 
     // Whether the identifier with this mark was introduced by a template

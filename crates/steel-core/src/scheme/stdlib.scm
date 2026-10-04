@@ -1243,6 +1243,8 @@
                                          (lambda ()
                                            expr ...)))]))
 
+;; The names this expands into are the primitives' own, so a module that
+;; defines its own `length` or `apply` doesn't change what a clause dispatch does.
 (define-syntax case-lambda
   (syntax-rules ()
     [(case-lambda) (lambda args (error "CASE-LAMBDA without any clauses."))]
@@ -1251,7 +1253,7 @@
         ?e1 ...]
        ?clause1 ...)
      (lambda args
-       (let ([l (length args)])
+       (let ([l (#%prim.length args)])
          (case-lambda
            "CLAUSE"
            args
@@ -1265,14 +1267,14 @@
        ?l
        [(?a1 ...)
         ?e1 ...])
-     (if (= ?l (length '(?a1 ...)))
-         (apply (lambda (?a1 ...)
+     (if (#%prim.= ?l (#%prim.length '(?a1 ...)))
+         (#%prim.apply (lambda (?a1 ...)
                   ?e1 ...)
                 ?args)
          (error! "Arity mismatch in case lambda: attempted to call function with arg length: "
                  ?l
                  "expecting length: "
-                 (length '(?a1 ...))))]
+                 (#%prim.length '(?a1 ...))))]
     [(case-lambda
        "CLAUSE"
        ?args
@@ -1280,8 +1282,8 @@
        [(?a1 ...)
         ?e1 ...]
        ?clause1 ...)
-     (if (= ?l (length '(?a1 ...)))
-         (apply (lambda (?a1 ...)
+     (if (#%prim.= ?l (#%prim.length '(?a1 ...)))
+         (#%prim.apply (lambda (?a1 ...)
                   ?e1 ...)
                 ?args)
          (case-lambda
@@ -1332,7 +1334,7 @@
        "IMPROPER"
        ?args
        ?l
-       [+
+       [#%prim.+
         ?k
         1]
        ?al
@@ -1348,8 +1350,8 @@
        [?ar
         ?e1 ...]
        ?clause1 ...)
-     (if (>= ?l ?k)
-         (apply (lambda ?al
+     (if (#%prim.>= ?l ?k)
+         (#%prim.apply (lambda ?al
                   ?e1 ...)
                 ?args)
          (case-lambda

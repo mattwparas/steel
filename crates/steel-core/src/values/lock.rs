@@ -57,6 +57,12 @@ impl<T> SpinLock<T> {
         unsafe { &*self.data.get() }
     }
 
+    // Writes the payload without taking the lock, under the same condition.
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn get_value_mut(&self) -> &mut T {
+        unsafe { &mut *self.data.get() }
+    }
+
     // Not reentrant. Taking this twice on one thread spins forever, so don't keep
     // a guard alive across a call that might reach the same lock.
     pub fn lock(&self) -> SpinGuard<'_, T> {

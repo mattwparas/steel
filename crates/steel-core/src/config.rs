@@ -153,6 +153,8 @@ steel_config! {
     jit_log: bool = false, "STEEL_JIT_LOG";
     /// Log the names of the functions being compiled.
     jit_log_names: bool = false, "STEEL_JIT_LOG_NAMES";
+    /// Compile functions that build a lambda with no captures.
+    jit_purefunc: bool = false, "STEEL_JIT_PUREFUNC";
     /// Print how long each jit compile took.
     jit_log_time: bool = false, "STEEL_JIT_LOG_TIME";
     /// Compile only the first n candidates (bisect on this).

@@ -1242,17 +1242,18 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // is that expensive?
         let guard = &mut self.elements[self.cursor];
 
-        // Allocate into this field
-        let mut heap_guard = guard.lock();
+        // A free slot has no handles, so nothing else can reach it, and the
+        // collector only runs under the heap lock this caller holds. Its own
+        // lock would only add two atomic updates to every allocation.
+        let cell = unsafe { guard.get_value_mut() };
 
         // TODO: If the guard is registered with a will executor,
         // then we shouldn't mark this value as eligible to be
         // freed?
-        heap_guard.value = value;
+        cell.value = value;
 
-        heap_guard.mark_reachable();
+        cell.mark_reachable();
         let weak_ptr = steel_rc::weak::Arc::downgrade(guard);
-        drop(heap_guard);
 
         // self.elements[self.cursor] = pointer;
         self.alloc_count -= 1;
@@ -1308,16 +1309,19 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             // help. Allocations can now be genuinely reused since we're manipulating
             // what is inside the pointer
             if func(x) {
+                // The only caller passes "has no handles", so nothing else can
+                // reach this slot, and the heap lock is held. The slot's own
+                // lock would only add two atomic updates per dead slot.
                 let dropped = {
-                    let mut guard = x.lock();
+                    let cell = unsafe { x.get_value_mut() };
 
-                    if !guard.is_reachable() {
+                    if !cell.is_reachable() {
                         return;
                     }
 
-                    guard.reset();
+                    cell.reset();
                     amount_dropped += 1;
-                    core::mem::replace(&mut guard.value, T::empty())
+                    core::mem::replace(&mut cell.value, T::empty())
                 };
 
                 drop(dropped);
@@ -2646,10 +2650,17 @@ impl<T: HeapAble> HeapRef<T> {
     /// box empty.
     #[inline]
     pub(crate) fn take_if_last(&self) -> Option<T> {
+        // This also means the heap still holds the cell: `weak_count` reads
+        // zero once it has been released.
         if self.inner.weak_count() != 1 {
             return None;
         }
-        let inner = self.inner.upgrade()?;
+        // So the cell is used in place, without upgrading the handle, which
+        // would cost two more atomic updates on every box drop. The heap only
+        // releases a cell during a collection, which stops the other threads,
+        // so it can't go away between the check above and this. Jitted code
+        // reads a box by its address on the same grounds.
+        let inner = unsafe { &*self.inner.as_ptr() };
         // Only if the lock is free. The collector emptying a dead slot and `set`
         // drop a box's old value while holding that box's lock, and when the
         // value cycles back through the same box (a closure capturing it), the

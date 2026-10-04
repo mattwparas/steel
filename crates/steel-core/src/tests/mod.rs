@@ -138,6 +138,7 @@ test_harness_success! {
     apply_tail_native,
     deep_mutable_teardown,
     type_predicates_inline,
+    macro_template_builtins,
     jit_pair_predicate,
     primitive_edge_cases,
     jit_primitive_arg_narrowing,
@@ -236,6 +237,7 @@ test_harness_success! {
 test_harness_success_module! {
     abc_problem,
     prefixed_require_builtin,
+    macro_template_builtins,
     jit_arithmetic_errors,
     jit_branch_in_argument_list,
     jit_compare_register_int,

@@ -3264,6 +3264,126 @@ where
     fn visit_quote(&mut self, _quote: &mut Quote) {}
 }
 
+/// The clauses of a `case-lambda`, read off its expansion:
+/// `(lambda args (let ([l (length args)]) (if (= l n) (apply clause args) ...)))`.
+/// Each entry is the argument count a clause takes and the clause's size.
+struct ArityDispatch {
+    clauses: Vec<(ArityTest, usize)>,
+}
+
+#[derive(Clone, Copy)]
+enum ArityTest {
+    Exactly(usize),
+    AtLeast(usize),
+}
+
+impl ArityDispatch {
+    fn of(lambda: &LambdaFunction, estimator: &FunctionSizeEstimator) -> Option<Self> {
+        if !lambda.rest || lambda.args.len() != 1 {
+            return None;
+        }
+        let rest = lambda.args[0].atom_identifier()?;
+
+        // `(let ([l (length args)]) chain)`, which is still an applied lambda
+        // when the inliner first sees it.
+        let (count, value, mut chain) = match &lambda.body {
+            ExprKind::Let(binding) => match binding.bindings.as_slice() {
+                [(count, value)] => (count, value, &binding.body_expr),
+                _ => return None,
+            },
+            ExprKind::List(call) => match call.args.as_slice() {
+                [ExprKind::LambdaFunction(inner), value]
+                    if !inner.rest && inner.args.len() == 1 =>
+                {
+                    (&inner.args[0], value, &inner.body)
+                }
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let count = count.atom_identifier()?;
+        if !is_call_to(value, &["#%prim.length", "length"])
+            .is_some_and(|args| matches!(args, [arg] if arg.atom_identifier() == Some(rest)))
+        {
+            return None;
+        }
+
+        let mut clauses = Vec::new();
+        while let ExprKind::If(branch) = chain {
+            let test = if let Some([l, n]) = is_call_to(&branch.test_expr, &["#%prim.=", "="]) {
+                (l.atom_identifier() == Some(count)).then(|| small_int(n).map(ArityTest::Exactly))
+            } else if let Some([l, n]) = is_call_to(&branch.test_expr, &["#%prim.>=", ">="]) {
+                (l.atom_identifier() == Some(count)).then(|| small_int(n).map(ArityTest::AtLeast))
+            } else {
+                None
+            };
+            let Some(Some(test)) = test else {
+                break;
+            };
+            // `(apply (lambda (a b) ...) args)`, or a clause with no captures
+            // that was already lifted to a name.
+            let Some([clause, applied]) = is_call_to(&branch.then_expr, &["#%prim.apply", "apply"])
+            else {
+                break;
+            };
+            if applied.atom_identifier() != Some(rest) {
+                break;
+            }
+            let id = match clause {
+                ExprKind::LambdaFunction(clause) => SyntaxObjectId(clause.syntax_object_id),
+                ExprKind::Atom(_) => *estimator.names.get(clause.atom_identifier()?)?,
+                _ => break,
+            };
+            let size = estimator.map.get(&id).copied()?;
+            clauses.push((test, size));
+            chain = &branch.else_expr;
+        }
+
+        (!clauses.is_empty()).then_some(Self { clauses })
+    }
+
+    /// The size of the clause a call with `count` arguments runs.
+    fn selected(&self, count: usize) -> Option<usize> {
+        self.clauses
+            .iter()
+            .find(|(test, _)| match test {
+                ArityTest::Exactly(n) => count == *n,
+                ArityTest::AtLeast(n) => count >= *n,
+            })
+            .map(|(_, size)| *size)
+    }
+}
+
+/// The arguments of a call whose head is one of `names`.
+fn is_call_to<'a>(expr: &'a ExprKind, names: &[&str]) -> Option<&'a [ExprKind]> {
+    let ExprKind::List(l) = expr else {
+        return None;
+    };
+    let head = l.first_ident()?.resolve();
+    names.contains(&head).then(|| &l.args[1..])
+}
+
+/// A non-negative fixnum literal, or the length of a quoted list, which is
+/// how `case-lambda` spells a clause's argument count before const folding.
+fn small_int(expr: &ExprKind) -> Option<usize> {
+    if let Some([ExprKind::Quote(q)]) = is_call_to(expr, &["#%prim.length", "length"]) {
+        return match &q.expr {
+            ExprKind::List(l) => Some(l.args.len()),
+            _ => None,
+        };
+    }
+    let ExprKind::Atom(a) = expr else {
+        return None;
+    };
+    match &a.syn.ty {
+        TokenType::Number(n) => match n.resolve() {
+            NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(i))) => usize::try_from(i).ok(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 // NOTE: We want to pessimize anything that encounters a return statement. That makes it a no go.
 #[derive(Default)]
 struct FunctionSizeEstimator {
@@ -8357,6 +8477,35 @@ impl<'a> SemanticAnalysis<'a> {
 
         if let ExprKind::LambdaFunction(l) = &d.body {
             let size = estimator.inline_size(SyntaxObjectId(l.syntax_object_id));
+
+            // A `case-lambda` is too big as a whole, but a call picks one of
+            // its clauses by argument count, and inlining it there leaves only
+            // that clause once `LowerRestArguments` and const folding are done.
+            // So it is judged by the size of the clause the call selects.
+            if !size.is_some_and(|count| count < threshold) {
+                if let Some(dispatch) = ArityDispatch::of(l, estimator) {
+                    let original_id = l.syntax_object_id;
+                    let l = l.clone();
+                    let changed = Rc::clone(changed);
+
+                    funcs.insert(
+                        *d.name.atom_identifier().unwrap(),
+                        Box::new(move |_: &Analysis, lst: &mut List| {
+                            if lst.syntax_object_id > original_id
+                                && dispatch
+                                    .selected(lst.args.len() - 1)
+                                    .is_some_and(|size| size < threshold)
+                            {
+                                let mut copy = l.clone();
+                                FreshenBinders::run(&mut copy);
+                                lst.args[0] = ExprKind::LambdaFunction(copy);
+                                changed.set(true);
+                            }
+                        }),
+                    );
+                    return ControlFlow::Continue(());
+                }
+            }
 
             // Too big or too call-heavy on its own, but it calls one of its
             // parameters, as in `(define (%member-by eq x xs) (let loop ...))`.

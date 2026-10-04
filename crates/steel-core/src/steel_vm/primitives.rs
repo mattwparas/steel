@@ -2345,9 +2345,28 @@ where
     V: AsRef<[SteelVal]> + IntoIterator<Item = SteelVal>,
     V::IntoIter: ExactSizeIterator,
 {
-    let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+    // The heap lock is nearly always free, and taking it directly skips the
+    // safepoint and a clone of the heap's handle. Only when another thread
+    // holds it does this wait at a safepoint, so that thread's collection can
+    // go ahead.
+    {
+        let free = ctx.thread.heap.try_lock();
+        if let Some(mut heap) = free {
+            let value = heap.allocate_struct_owned(
+                descriptor,
+                fields,
+                &ctx.thread.stack,
+                ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+                ctx.thread.global_env.roots(),
+                &ctx.thread.thread_local_storage,
+                &mut ctx.thread.synchronizer,
+            );
+            return SteelVal::CustomStruct(value);
+        }
+    }
 
-    let value = heap_lock.allocate_struct_owned(
+    let mut heap = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+    let value = heap.allocate_struct_owned(
         descriptor,
         fields,
         &ctx.thread.stack,
@@ -2356,8 +2375,6 @@ where
         &ctx.thread.thread_local_storage,
         &mut ctx.thread.synchronizer,
     );
-
-    drop(heap_lock);
 
     SteelVal::CustomStruct(value)
 }

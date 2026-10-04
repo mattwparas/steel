@@ -637,6 +637,11 @@ impl Engine {
         // values won't leak when top level macros are defined - and modules can clone from
         // this to begin seeding their environment.
 
+        // The prelude defines these where a builtin's name means the builtin.
+        for prelude_macro in vm.in_scope_macros_mut().values_mut() {
+            prelude_macro.mark_definition_resolved();
+        }
+
         set_default_prelude_macros(vm.in_scope_macros().clone(), sandbox);
 
         #[cfg(feature = "profiling")]

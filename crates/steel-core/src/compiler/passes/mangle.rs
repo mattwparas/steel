@@ -132,6 +132,11 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
     }
 }
 
+/// Whether `name` is one of the prelude's builtins.
+pub(crate) fn is_prelude_builtin(name: &InternedString) -> bool {
+    crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS.with(|names| names.contains(name))
+}
+
 #[derive(Clone, Debug)]
 pub struct NameMangler {
     pub(crate) globals: FxHashSet<InternedString>,
@@ -206,7 +211,17 @@ pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
 impl VisitorMutRefUnit for NameMangler {
     #[inline]
     fn visit_atom(&mut self, a: &mut Atom) {
+        // A builtin's name from a template that was resolved where its macro
+        // was defined means the builtin, whatever this module calls by that
+        // name. `ResolveExpansionMarks` settles it, once it can tell a
+        // reference from a local the template binds.
+        let resolved_elsewhere = a.syn.mark.is_definition_resolved();
+
         if let TokenType::Identifier(i) = &mut a.syn.ty {
+            if resolved_elsewhere && is_prelude_builtin(i) {
+                return;
+            }
+
             if self.globals.contains(i) {
                 if let Some(new) = self.mangle_cache.get(i) {
                     *i = *new;

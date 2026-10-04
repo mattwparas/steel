@@ -821,6 +821,7 @@ impl ModuleManager {
                             name_mangler.visit(expr);
                         }
                         smacro.mark_mangled();
+                        smacro.mark_definition_resolved();
                     }
                 }
             }

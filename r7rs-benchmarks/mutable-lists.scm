@@ -169,16 +169,9 @@
         (mpair (#%prim.car args) (loop (#%prim.cdr args))))))
 
 ;;; R7RS vectors are mutable; Steel's `vector` builds an immutable one, so
-;;; benchmarks that `vector-set!` a vector they built need this instead.
-(define (vector . args)
-  (let* ([n (#%prim.length args)]
-         [v (make-vector n 0)])
-    (let loop ([i 0] [xs args])
-      (if (#%prim.null? xs)
-          v
-          (begin
-            (vector-set! v i (#%prim.car xs))
-            (loop (+ i 1) (#%prim.cdr xs)))))))
+;;; benchmarks that `vector-set!` a vector they built need the mutable
+;;; constructor instead.
+(define vector #%prim.mutable-vector)
 
 (define (list->vector xs)
   (#%prim.apply vector (%native-list xs)))

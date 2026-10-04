@@ -96,10 +96,13 @@ fn jit_compile_lambda_impl(
     maybe_index: Option<usize>,
     defer: bool,
 ) -> (ByteCodeLambda, Option<BackgroundJob>) {
-    if func
-        .body_exp
-        .iter()
-        .any(|x| matches!(x.op_code, OpCode::PUREFUNC))
+    // A function that builds a lambda with no captures stays interpreted
+    // unless `STEEL_JIT_PUREFUNC` is on.
+    if !crate::config::config().jit_purefunc
+        && func
+            .body_exp
+            .iter()
+            .any(|x| matches!(x.op_code, OpCode::PUREFUNC))
     {
         return (func, None);
     }
