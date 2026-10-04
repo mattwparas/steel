@@ -6508,10 +6508,112 @@ const BOOLEAN_PRIMITIVES: &[&str] = &[
     "cdr-null?",
 ];
 
-fn is_boolean_valued(expr: &ExprKind, bound: &FxHashSet<InternedString>) -> bool {
+/// The top level names that hold a struct's predicate, which is what the
+/// `struct` form binds from `(list-ref (make-struct-type ...) 2)`, and the
+/// names defined as one of those. A name that is assigned or defined twice
+/// isn't one.
+fn struct_predicate_names(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
+    #[derive(Default)]
+    struct Collector {
+        tables: FxHashSet<InternedString>,
+        predicates: FxHashSet<InternedString>,
+        defined: FxHashSet<InternedString>,
+        unstable: FxHashSet<InternedString>,
+    }
+
+    impl Collector {
+        fn top_level(&mut self, expr: &ExprKind) {
+            match expr {
+                ExprKind::Begin(b) => b.exprs.iter().for_each(|e| self.top_level(e)),
+                ExprKind::Define(d) => {
+                    let Some(name) = d.name.atom_identifier() else {
+                        return;
+                    };
+                    if !self.defined.insert(*name) {
+                        self.unstable.insert(*name);
+                    }
+                    match &d.body {
+                        ExprKind::Atom(_) => {
+                            if d.body
+                                .atom_identifier()
+                                .is_some_and(|alias| self.predicates.contains(alias))
+                            {
+                                self.predicates.insert(*name);
+                            }
+                        }
+                        body => {
+                            if is_call_to(body, &["#%prim.make-struct-type", "make-struct-type"])
+                                .is_some()
+                            {
+                                self.tables.insert(*name);
+                            } else if let Some([table, index]) =
+                                is_call_to(body, &["#%prim.list-ref"])
+                            {
+                                if table
+                                    .atom_identifier()
+                                    .is_some_and(|table| self.tables.contains(table))
+                                    && small_int(index) == Some(2)
+                                {
+                                    self.predicates.insert(*name);
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    impl<'a> VisitorMutUnitRef<'a> for Collector {
+        fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
+            if let Some(name) = s.variable.atom_identifier() {
+                self.unstable.insert(*name);
+            }
+            self.visit(&s.expr);
+        }
+    }
+
+    let mut collector = Collector::default();
+    for expr in exprs {
+        collector.visit(expr);
+    }
+    for expr in exprs {
+        collector.top_level(expr);
+    }
+
+    let Collector {
+        mut predicates,
+        tables,
+        unstable,
+        ..
+    } = collector;
+    // An assigned table or alias source could have changed what a later
+    // define saw, so drop everything when any of them is unstable.
+    if tables
+        .iter()
+        .chain(predicates.iter())
+        .any(|name| unstable.contains(name))
+    {
+        predicates.clear();
+    }
+    predicates
+}
+
+fn is_boolean_valued(
+    expr: &ExprKind,
+    bound: &FxHashSet<InternedString>,
+    struct_predicates: &FxHashSet<InternedString>,
+) -> bool {
     let ExprKind::List(l) = expr else {
         return false;
     };
+
+    if l.first_ident()
+        .is_some_and(|name| struct_predicates.contains(name))
+    {
+        return true;
+    }
 
     // The operator is either bare or `#%prim.<name>`. A bare name the program
     // binds itself is not the builtin.
@@ -6558,6 +6660,7 @@ fn reference_count(expr: &ExprKind, var: &InternedString) -> usize {
 struct SimplifyOrBindings {
     rewritten: usize,
     bound: FxHashSet<InternedString>,
+    struct_predicates: FxHashSet<InternedString>,
 }
 
 impl SimplifyOrBindings {
@@ -6565,6 +6668,7 @@ impl SimplifyOrBindings {
         let mut pass = Self {
             rewritten: 0,
             bound: bound_names(exprs),
+            struct_predicates: struct_predicate_names(exprs),
         };
         for expr in exprs {
             pass.visit(expr);
@@ -6576,6 +6680,7 @@ impl SimplifyOrBindings {
     fn rewrite(
         l: &mut crate::parser::ast::Let,
         bound: &FxHashSet<InternedString>,
+        struct_predicates: &FxHashSet<InternedString>,
     ) -> Option<ExprKind> {
         if l.bindings.len() != 1 {
             return None;
@@ -6602,7 +6707,7 @@ impl SimplifyOrBindings {
         }
 
         let cheap_to_repeat = matches!(value, ExprKind::Atom(_));
-        if !cheap_to_repeat && !is_boolean_valued(value, bound) {
+        if !cheap_to_repeat && !is_boolean_valued(value, bound, struct_predicates) {
             return None;
         }
 
@@ -6648,7 +6753,7 @@ impl VisitorMutRefUnit for SimplifyOrBindings {
                 }
                 self.visit(&mut l.body_expr);
 
-                if let Some(replacement) = Self::rewrite(l, &self.bound) {
+                if let Some(replacement) = Self::rewrite(l, &self.bound, &self.struct_predicates) {
                     *expr = replacement;
                     self.rewritten += 1;
                 }
@@ -7286,6 +7391,9 @@ impl VisitorMutRefUnit for FlattenEmptyLets {
                     *expr = core::mem::replace(&mut l.body_expr, ExprKind::empty());
                     self.visit(expr)
                 } else {
+                    for (_, value) in l.bindings.iter_mut() {
+                        self.visit(value);
+                    }
                     self.visit(&mut l.body_expr)
                 }
             }
