@@ -129,6 +129,19 @@ impl<T: ?Sized> Arc<T> {
         }
     }
 
+    /// `downgrade` without the atomic update.
+    ///
+    /// # Safety
+    /// There are no weak handles, and nothing else can make or drop one
+    /// while this runs.
+    #[inline]
+    pub unsafe fn downgrade_unshared(this: &Self) -> Weak<T> {
+        let weak = &this.inner().weak;
+        debug_assert_eq!(weak.load(Ordering::Relaxed), 1);
+        weak.store(2, Ordering::Relaxed);
+        Weak { ptr: this.ptr }
+    }
+
     pub fn ptr_eq(a: &Self, b: &Self) -> bool {
         ptr::eq(a.ptr.as_ptr(), b.ptr.as_ptr())
     }

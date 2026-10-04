@@ -402,6 +402,9 @@ steel_config! {
     gc_weak_yield: usize = 32, "STEEL_GC_WEAK_YIELD";
     /// Ceiling on the heap's headroom, in slots.
     gc_max_headroom: usize = 256 * 100 * 128, "STEEL_GC_MAX_HEADROOM";
+    /// How many emptied boxes a thread keeps for its next allocations. 0 keeps
+    /// none.
+    gc_spare_handles: usize = 1024, "STEEL_GC_SPARE_HANDLES";
     /// Threads marking in parallel (0 means 1).
     gc_mark_threads: usize = 1, "STEEL_GC_MARK_THREADS";
 }

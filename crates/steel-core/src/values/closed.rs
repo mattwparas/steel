@@ -929,6 +929,33 @@ pub fn weak_box_value(
 // Also -> implement will / executor functionality for implementing destructors for objects.
 // This should be _relatively_ straightforward. When allocating a value, send it on the destructor
 // thread.
+fn next_free_list_id() -> u32 {
+    static NEXT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// The handle of a box that a thread dropped the last handle to, kept so the
+/// box can be handed out again.
+///
+/// A freed slot otherwise waits for the allocation cursor to come around, by
+/// which time it has left the cache. The box a thread just emptied is the one
+/// it can write most cheaply. While the handle is kept the heap counts the
+/// slot as in use, so reusing it needs no bookkeeping, and the handle itself
+/// becomes the new box's.
+pub struct SpareHandle<T: HeapAble> {
+    owner: u32,
+    handle: steel_rc::weak::Weak<SpinLock<HeapAllocated<T>>>,
+}
+
+// How many a thread keeps.
+fn spare_handles() -> usize {
+    crate::config::config().gc_spare_handles
+}
+
+thread_local! {
+    static SPARE_BOXES: RefCell<Vec<SpareHandle<SteelVal>>> = const { RefCell::new(Vec::new()) };
+}
+
 #[derive(Debug)]
 struct FreeList<T: HeapAble> {
     // TODO: Make this a linked list of vectors. Can reuse im-lists?
@@ -937,6 +964,9 @@ struct FreeList<T: HeapAble> {
     // copying everything.
     elements: Vec<HeapElement<T>>,
     cursor: usize,
+
+    // Which list this is, stamped on its cells.
+    id: u32,
 
     // Available count
     alloc_count: usize,
@@ -953,8 +983,10 @@ struct FreeList<T: HeapAble> {
 
 impl<T: HeapAble> Clone for FreeList<T> {
     fn clone(&self) -> Self {
+        let id = next_free_list_id();
         Self {
             cursor: self.cursor,
+            id,
             alloc_count: self.alloc_count,
             grow_count: self.grow_count,
             elements: self
@@ -966,6 +998,7 @@ impl<T: HeapAble> Clone for FreeList<T> {
                     steel_rc::weak::Arc::new(SpinLock::new(HeapAllocated {
                         reachable: AtomicBool::new(guard.is_reachable()),
                         finalizer: guard.finalizer,
+                        owner: id,
                         value: inner,
                     }))
                 })
@@ -1133,6 +1166,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         let mut res = FreeList {
             elements: Vec::new(),
             cursor: 0,
+            id: next_free_list_id(),
             alloc_count: 0,
             grow_count: 0,
             // #[cfg(feature = "sync")]
@@ -1200,9 +1234,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
         // be snatched on demand?
+        let id = self.id;
         self.elements.extend(
             core::iter::repeat_with(|| {
-                steel_rc::weak::Arc::new(SpinLock::new(HeapAllocated::new(T::empty())))
+                steel_rc::weak::Arc::new(SpinLock::new(HeapAllocated::owned_by(id, T::empty())))
             })
             .take(current),
         );
@@ -1237,7 +1272,46 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         todo!()
     }
 
+    /// Gives up the handles this thread kept, so a collection sees their
+    /// slots as free. Counted as in use, they would make the heap look fuller
+    /// than it is and grow it.
+    fn return_spares() {
+        T::with_spare_handles(|spares| spares.clear());
+    }
+
+    /// A box of this list that the thread emptied and kept the handle of.
+    #[inline]
+    fn take_spare(&self) -> Option<steel_rc::weak::Weak<SpinLock<HeapAllocated<T>>>> {
+        let id = self.id;
+        T::with_spare_handles(|spares| {
+            while let Some(spare) = spares.pop() {
+                // Another list's box is no use here. One that a collection
+                // released since has no heap behind it, and reads a count of
+                // zero.
+                if spare.owner == id && spare.handle.weak_count() == 1 {
+                    return Some(spare.handle);
+                }
+            }
+            None
+        })
+        .flatten()
+    }
+
+    #[inline]
     fn allocate(&mut self, value: T) -> HeapRef<T> {
+        if let Some(handle) = self.take_spare() {
+            // Nothing else has a handle to it, and the collector only runs
+            // under the heap lock this caller holds.
+            let cell = unsafe { (*handle.as_ptr()).get_value_mut() };
+            // It was emptied when it was kept.
+            unsafe { core::ptr::write(&mut cell.value, value) };
+            // A collection since then would have cleared this.
+            cell.mark_reachable();
+            return HeapRef {
+                inner: core::mem::ManuallyDrop::new(handle),
+            };
+        }
+
         // Drain, moving values around...
         // is that expensive?
         let guard = &mut self.elements[self.cursor];
@@ -1250,10 +1324,13 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // TODO: If the guard is registered with a will executor,
         // then we shouldn't mark this value as eligible to be
         // freed?
-        cell.value = value;
+        //
+        // A free slot holds the empty value, which has nothing to drop.
+        unsafe { core::ptr::write(&mut cell.value, value) };
 
         cell.mark_reachable();
-        let weak_ptr = steel_rc::weak::Arc::downgrade(guard);
+        // For the same reason the handle count can't change under this.
+        let weak_ptr = unsafe { steel_rc::weak::Arc::downgrade_unshared(guard) };
 
         // self.elements[self.cursor] = pointer;
         self.alloc_count -= 1;
@@ -1265,11 +1342,6 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         if let Some(next_slot) = next_slot {
             self.cursor += next_slot;
-
-            // #[cfg(debug_assertions)]
-            // {
-            // assert!(!self.elements[self.cursor].read().is_reachable());
-            // }
         } else {
             // TODO: Handle compaction and moving things around so the
             // cursor has a chance to actually find stuff that has been
@@ -1295,7 +1367,9 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         // assert!(!self.elements[self.cursor].read().is_reachable());
 
-        HeapRef { inner: weak_ptr }
+        HeapRef {
+            inner: core::mem::ManuallyDrop::new(weak_ptr),
+        }
     }
 
     // Can incrementally collect with the from / to space, assuming that the collections
@@ -1336,6 +1410,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
     // Full weak collection
     fn weak_collection(&mut self) -> usize {
+        Self::return_spares();
         // Just mark them to be dead
         let res = self.collect_on_condition(|inner| steel_rc::weak::Arc::weak_count(inner) == 0);
         #[cfg(debug_assertions)]
@@ -1346,6 +1421,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     }
 
     fn mark_all_unreachable(&mut self) {
+        Self::return_spares();
         self.elements
             .iter()
             .for_each(|x| unsafe { x.get_value().reset() });
@@ -1430,6 +1506,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
         let mut res = FreeList {
             elements: Vec::new(),
             cursor: 0,
+            id: next_free_list_id(),
             alloc_count: 0,
             grow_count: 0,
             #[cfg(feature = "sync")]
@@ -1585,7 +1662,9 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
         // assert!(!self.elements[self.cursor].read().is_reachable());
 
-        HeapRef { inner: weak_ptr }
+        HeapRef {
+            inner: core::mem::ManuallyDrop::new(weak_ptr),
+        }
     }
 
     // Can incrementally collect with the from / to space, assuming that the collections
@@ -1770,7 +1849,9 @@ impl FreeList<HeapVec> {
 
         // assert!(!self.elements[self.cursor].read().is_reachable());
 
-        HeapRef { inner: weak_ptr }
+        HeapRef {
+            inner: core::mem::ManuallyDrop::new(weak_ptr),
+        }
     }
 
     fn calculate_slots_reachable(&self) -> usize {
@@ -2263,6 +2344,9 @@ impl Heap {
         let vectors = self.vector_free_list.take_unreachable();
         drop(values);
         drop(vectors);
+        // Dropping those refilled this thread's spare handles.
+        #[cfg(feature = "sync")]
+        FreeList::<SteelVal>::return_spares();
         self.memory_free_list.recount();
         self.vector_free_list.recount();
 
@@ -2510,6 +2594,16 @@ impl ParallelMarker {
 pub trait HeapAble: Clone + core::fmt::Debug + PartialEq + Eq {
     fn empty() -> Self;
 
+    /// Runs `f` on this thread's spare handles for boxes of this type, when it
+    /// keeps any. See `SpareHandle`.
+    #[inline]
+    fn with_spare_handles<R>(_f: impl FnOnce(&mut Vec<SpareHandle<Self>>) -> R) -> Option<R>
+    where
+        Self: Sized,
+    {
+        None
+    }
+
     /// Drops a value taken out of a box whose last handle went away, without
     /// recursing through whatever it holds. Otherwise a chain of boxes, such as
     /// a mutable list built from mutable structs, drops one box per native frame.
@@ -2518,6 +2612,19 @@ pub trait HeapAble: Clone + core::fmt::Debug + PartialEq + Eq {
 impl HeapAble for SteelVal {
     fn empty() -> Self {
         SteelVal::Void
+    }
+
+    #[inline]
+    fn with_spare_handles<R>(f: impl FnOnce(&mut Vec<SpareHandle<Self>>) -> R) -> Option<R> {
+        SPARE_BOXES
+            .try_with(|spares| {
+                spares
+                    .try_borrow_mut()
+                    .ok()
+                    .map(|mut spares| f(&mut spares))
+            })
+            .ok()
+            .flatten()
     }
 
     fn release(self) {
@@ -2625,7 +2732,8 @@ impl HeapAble for HeapVec {
 pub struct HeapRef<T: HeapAble> {
     // TODO: Replace the inner value with a spin lock?
     // Shouldn't really be possible to have this be an issue
-    pub(crate) inner: steel_rc::weak::Weak<SpinLock<HeapAllocated<T>>>,
+    // Taken out by `drop` when the handle is kept as a spare.
+    pub(crate) inner: core::mem::ManuallyDrop<steel_rc::weak::Weak<SpinLock<HeapAllocated<T>>>>,
 }
 
 /// A box can only be read through a handle, so once the last handle is gone
@@ -2639,9 +2747,26 @@ pub struct HeapRef<T: HeapAble> {
 impl<T: HeapAble> Drop for HeapRef<T> {
     #[inline]
     fn drop(&mut self) {
-        if let Some(value) = self.take_if_last() {
-            value.release();
+        let Some(value) = self.take_if_last() else {
+            unsafe { core::mem::ManuallyDrop::drop(&mut self.inner) };
+            return;
+        };
+
+        value.release();
+
+        // The box is empty and this is its only handle, so keep the handle
+        // for the next allocation instead of giving the slot back.
+        let handle = unsafe { core::mem::ManuallyDrop::take(&mut self.inner) };
+        let cell = unsafe { (*handle.as_ptr()).get_value() };
+        if cell.finalizer {
+            return;
         }
+        let owner = cell.owner;
+        T::with_spare_handles(move |spares| {
+            if spares.len() < spare_handles() {
+                spares.push(SpareHandle { owner, handle });
+            }
+        });
     }
 }
 
@@ -2742,6 +2867,8 @@ impl<T: HeapAble> HeapRef<T> {
 pub struct HeapAllocated<T: Clone + core::fmt::Debug + PartialEq + Eq> {
     pub(crate) reachable: AtomicBool,
     pub(crate) finalizer: bool,
+    // The free list this cell belongs to. See `SpareHandle`.
+    pub(crate) owner: u32,
     pub(crate) value: T,
 }
 
@@ -2750,6 +2877,7 @@ impl<T: Clone + core::fmt::Debug + PartialEq + Eq> Clone for HeapAllocated<T> {
         Self {
             reachable: AtomicBool::new(self.is_reachable()),
             finalizer: self.finalizer,
+            owner: self.owner,
             value: self.value.clone(),
         }
     }
@@ -2775,7 +2903,15 @@ impl<T: Clone + core::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
         Self {
             reachable: AtomicBool::new(false),
             finalizer: false,
+            owner: 0,
             value,
+        }
+    }
+
+    fn owned_by(owner: u32, value: T) -> Self {
+        Self {
+            owner,
+            ..Self::new(value)
         }
     }
 
