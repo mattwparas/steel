@@ -12,6 +12,7 @@ pub(super) fn takes_frame(func: &SteelVal) -> bool {
             | SteelVal::ContinuationFunction(_)
             | SteelVal::BuiltIn(_)
             | SteelVal::CustomStruct(_)
+            | SteelVal::MutableStruct(_)
     )
 }
 
@@ -131,6 +132,10 @@ pub(super) fn call_frame<const TAIL: bool, const CHECK_ARITY: bool>(
         }
         SteelVal::CustomStruct(s) => {
             ctx.call_custom_struct(&s, arity)?;
+            Ok(SteelVal::Void)
+        }
+        SteelVal::MutableStruct(s) => {
+            ctx.call_mutable_struct(&s, arity)?;
             Ok(SteelVal::Void)
         }
         _ => not_a_procedure(ctx, &func),

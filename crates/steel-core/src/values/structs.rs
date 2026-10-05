@@ -31,6 +31,7 @@ use crate::{steel_vm::builtin::BuiltInModule, stop};
 use alloc::sync::Arc;
 use core::hash::Hash;
 use core::ops::Deref;
+use core::sync::atomic::Ordering;
 use rustc_hash::FxHashSet;
 use std::collections::VecDeque;
 use std::{
@@ -129,14 +130,30 @@ impl Custom for StructTypeDescriptor {
     }
 }
 
+// How many struct types there are, which is one past the largest key.
+static STRUCT_TYPE_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
 impl StructTypeDescriptor {
+    /// The descriptor a `#%struct-type-key` result stands for.
+    #[inline]
+    pub(crate) fn from_key_value(key: &SteelVal) -> Result<Self> {
+        match key {
+            SteelVal::IntV(key)
+                if *key >= 0 && (*key as usize) < STRUCT_TYPE_COUNT.load(Ordering::Acquire) =>
+            {
+                Ok(Self(*key as usize))
+            }
+            _ => stop!(TypeMismatch => "expected a struct type key, found: {}", key),
+        }
+    }
+
     #[cfg(not(feature = "sync"))]
     fn name(&self) -> InternedString {
         VTABLE.with(|x| x.borrow().entries[self.0].name)
     }
 
     #[cfg(feature = "sync")]
-    fn name(&self) -> InternedString {
+    pub(crate) fn name(&self) -> InternedString {
         STATIC_VTABLE.read().entries[self.0].name
     }
 
@@ -228,6 +245,388 @@ impl steel_rc::PackedDropHandler<SteelVal> for StructDropHandler {
 
 pub type StructStorage = steel_rc::PackedRc<StructTypeDescriptor, SteelVal, StructDropHandler>;
 
+/// The header of a mutable struct, after the count and the field count.
+///
+/// The descriptor comes first so it sits where an immutable struct keeps its
+/// own, and code that addresses a struct directly, like the jit, finds it at
+/// one offset for both.
+#[repr(C)]
+pub struct MutableStructHeader {
+    pub(crate) descriptor: StructTypeDescriptor,
+    // The heap list the cell belongs to.
+    pub(crate) owner: u32,
+    // Guards the fields once there is more than one thread.
+    pub(crate) lock: core::sync::atomic::AtomicU8,
+    // Set by a mark that reached the struct, and on allocation.
+    pub(crate) reachable: core::sync::atomic::AtomicBool,
+    pub(crate) state: core::sync::atomic::AtomicU8,
+    // The heap that owned the cell is gone, so the cell frees itself.
+    pub(crate) orphaned: core::sync::atomic::AtomicBool,
+}
+
+/// Has handles, or is waiting on the collector to empty it.
+pub(crate) const MUTABLE_STRUCT_LIVE: u8 = 0;
+/// Emptied, with no handles, and kept by a thread to hand out again.
+pub(crate) const MUTABLE_STRUCT_SPARE: u8 = 1;
+/// Emptied, with no handles. The heap frees it.
+pub(crate) const MUTABLE_STRUCT_DEAD: u8 = 2;
+
+pub struct MutableStructDrop;
+
+impl steel_rc::PackedDropHandler<SteelVal> for MutableStructDrop {
+    unsafe fn drop_elements(elements: *mut SteelVal, len: usize) {
+        unsafe { StructDropHandler::drop_elements(elements, len) }
+    }
+
+    // The heap owns the memory, so the last handle going away empties the
+    // struct and leaves the cell for the heap, or for the next allocation.
+    unsafe fn keep_block(block: *mut u8) -> bool {
+        let cell = MutableStructCell(unsafe {
+            core::ptr::NonNull::new_unchecked(block as *mut MutableStructBlock)
+        });
+
+        if cell.header().orphaned.load(Ordering::Acquire) {
+            return false;
+        }
+
+        cell.release_fields();
+
+        crate::values::closed::retire_mutable_struct(cell);
+
+        true
+    }
+}
+
+pub type MutableStructStorage =
+    steel_rc::PackedRc<MutableStructHeader, SteelVal, MutableStructDrop>;
+
+pub(crate) type MutableStructBlock = steel_rc::PackedHeader<MutableStructHeader>;
+
+const _: () = {
+    assert!(MutableStructStorage::header_offset() == StructStorage::header_offset());
+};
+
+/// A mutable struct's allocation, as the heap sees it: without a count.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(transparent)]
+pub(crate) struct MutableStructCell(pub(crate) core::ptr::NonNull<MutableStructBlock>);
+
+unsafe impl Send for MutableStructCell {}
+unsafe impl Sync for MutableStructCell {}
+
+impl MutableStructCell {
+    #[inline]
+    pub(crate) fn header(&self) -> &MutableStructHeader {
+        unsafe { &self.0.as_ref().header }
+    }
+
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        unsafe { self.0.as_ref().len as usize }
+    }
+
+    #[inline]
+    fn fields_ptr(&self) -> *mut SteelVal {
+        unsafe {
+            (self.0.as_ptr() as *mut u8).add(MutableStructStorage::data_offset()) as *mut SteelVal
+        }
+    }
+
+    #[inline]
+    pub(crate) fn state(&self) -> u8 {
+        self.header().state.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    pub(crate) fn set_state(&self, state: u8) {
+        self.header().state.store(state, Ordering::Release);
+    }
+
+    #[inline]
+    pub(crate) fn is_reachable(&self) -> bool {
+        self.header().reachable.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub(crate) fn set_reachable(&self, reachable: bool) {
+        self.header().reachable.store(reachable, Ordering::Relaxed);
+    }
+
+    // Marks and reports whether it was already marked.
+    #[inline]
+    pub(crate) fn mark_reachable_was_set(&self) -> bool {
+        self.header().reachable.swap(true, Ordering::Relaxed)
+    }
+
+    #[inline]
+    fn lock(&self) {
+        let lock = &self.header().lock;
+        while lock
+            .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            core::hint::spin_loop();
+        }
+    }
+
+    #[inline]
+    fn unlock(&self) {
+        self.header().lock.store(0, Ordering::Release);
+    }
+
+    /// Moves the fields out, leaving void behind. The values are returned so
+    /// that nothing is dropped under the lock.
+    pub(crate) fn take_fields(&self) -> SmallVec<[SteelVal; 4]> {
+        let len = self.len();
+        let fields = self.fields_ptr();
+        let mut taken = SmallVec::with_capacity(len);
+
+        self.lock();
+        for i in 0..len {
+            taken.push(unsafe { core::ptr::replace(fields.add(i), SteelVal::Void) });
+        }
+        self.unlock();
+
+        taken
+    }
+
+    /// Empties a struct that has no handles left. A field that holds nothing
+    /// is left as it is, since the next `fill` writes over it.
+    fn release_fields(&self) {
+        let len = self.len();
+        let fields = self.fields_ptr();
+        let mut taken: SmallVec<[SteelVal; 4]> = SmallVec::new();
+
+        self.lock();
+        for i in 0..len {
+            let field = unsafe { &mut *fields.add(i) };
+            if !matches!(
+                field,
+                SteelVal::Void
+                    | SteelVal::IntV(_)
+                    | SteelVal::BoolV(_)
+                    | SteelVal::CharV(_)
+                    | SteelVal::NumV(_)
+            ) {
+                taken.push(core::mem::replace(field, SteelVal::Void));
+            }
+        }
+        self.unlock();
+
+        for value in taken {
+            crate::values::closed::HeapAble::release(value);
+        }
+    }
+
+    /// The fields, for the marker. The mutators are stopped while it runs.
+    #[inline]
+    pub(crate) unsafe fn fields_unlocked<'a>(&self) -> &'a [SteelVal] {
+        unsafe { core::slice::from_raw_parts(self.fields_ptr(), self.len()) }
+    }
+
+    /// A new cell holding `fields`, and the first handle to it.
+    pub(crate) fn allocate(
+        descriptor: StructTypeDescriptor,
+        owner: u32,
+        fields: impl ExactSizeIterator<Item = SteelVal>,
+    ) -> (Self, MutableStructRef) {
+        let handle = MutableStructRef(MutableStructStorage::new(
+            MutableStructHeader {
+                descriptor,
+                owner,
+                lock: core::sync::atomic::AtomicU8::new(0),
+                reachable: core::sync::atomic::AtomicBool::new(true),
+                state: core::sync::atomic::AtomicU8::new(MUTABLE_STRUCT_LIVE),
+                orphaned: core::sync::atomic::AtomicBool::new(false),
+            },
+            fields,
+        ));
+
+        (handle.cell(), handle)
+    }
+
+    /// The first handle to a cell that has none, filled with `fields`.
+    ///
+    /// # Safety
+    /// The cell has no handles and was emptied, and nothing else is using
+    /// it.
+    pub(crate) unsafe fn fill(
+        &self,
+        descriptor: StructTypeDescriptor,
+        fields: impl Iterator<Item = SteelVal>,
+    ) -> MutableStructRef {
+        unsafe {
+            core::ptr::addr_of_mut!((*self.0.as_ptr()).header.descriptor).write(descriptor);
+        }
+        let slots = self.fields_ptr();
+        for (i, value) in fields.enumerate() {
+            debug_assert!(i < self.len());
+            unsafe { slots.add(i).write(value) };
+        }
+        self.set_reachable(true);
+        self.set_state(MUTABLE_STRUCT_LIVE);
+
+        MutableStructRef(unsafe { MutableStructStorage::revive(self.0.as_ptr()) })
+    }
+
+    /// # Safety
+    /// The cell has no handles and nothing else points at it.
+    pub(crate) unsafe fn free(self) {
+        unsafe { MutableStructStorage::free_raw(self.0.as_ptr()) }
+    }
+}
+
+/// A handle to a mutable struct.
+///
+/// Laid out like [`StructRef`], one allocation with the fields inline, but the
+/// fields can be assigned, so a struct can end up in a cycle. The heap keeps a
+/// list of every one and collects those that a mark doesn't reach. A handle
+/// is counted like any other, and the last one going away empties the struct
+/// on the spot.
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct MutableStructRef(MutableStructStorage);
+
+impl MutableStructRef {
+    #[inline]
+    pub(crate) fn cell(&self) -> MutableStructCell {
+        MutableStructCell(unsafe {
+            core::ptr::NonNull::new_unchecked(self.0.as_raw() as *mut MutableStructBlock)
+        })
+    }
+
+    #[inline]
+    pub fn as_ptr(&self) -> *const u8 {
+        self.0.as_raw() as *const u8
+    }
+
+    #[inline]
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
+    }
+
+    #[inline]
+    pub fn strong_count(&self) -> usize {
+        self.0.meta().strong_count()
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[inline]
+    pub fn descriptor(&self) -> StructTypeDescriptor {
+        self.0.header().descriptor
+    }
+
+    #[inline]
+    pub fn name(&self) -> InternedString {
+        self.descriptor().name()
+    }
+
+    #[inline]
+    pub fn is_transparent(&self) -> bool {
+        self.get_property(&STATIC_TRANSPARENT_KEY)
+            .and_then(|x| x.as_bool())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn get_property(&self, val: &SteelVal) -> Option<SteelVal> {
+        STATIC_VTABLE.read().entries[self.descriptor().0]
+            .properties
+            .get(val)
+            .cloned()
+    }
+
+    // Runs `f` on the fields, under the struct's lock once there is more
+    // than one thread. `f` must not drop a field, since a drop can run code
+    // that comes back to the same struct.
+    #[inline]
+    fn with_fields<R>(&self, f: impl FnOnce(&mut [SteelVal]) -> R) -> R {
+        let cell = self.cell();
+        let fields = unsafe { core::slice::from_raw_parts_mut(cell.fields_ptr(), cell.len()) };
+
+        if !crate::values::closed::cells_shared() {
+            return f(fields);
+        }
+
+        cell.lock();
+        let result = f(fields);
+        cell.unlock();
+        result
+    }
+
+    #[inline]
+    pub fn get_index(&self, index: usize) -> Option<SteelVal> {
+        self.with_fields(|fields| fields.get(index).cloned())
+    }
+
+    /// Stores `value` and returns what the field held.
+    #[inline]
+    pub fn set_index(&self, index: usize, value: SteelVal) -> Option<SteelVal> {
+        self.with_fields(|fields| {
+            fields
+                .get_mut(index)
+                .map(|slot| core::mem::replace(slot, value))
+        })
+    }
+
+    /// A copy of the fields as they are now.
+    pub fn fields(&self) -> SmallVec<[SteelVal; 4]> {
+        self.with_fields(|fields| fields.iter().cloned().collect())
+    }
+
+    /// The field that holds the procedure an applicable struct runs.
+    pub(crate) fn maybe_proc(&self) -> Option<SteelVal> {
+        let index = STATIC_VTABLE.read().entries[self.descriptor().0].proc?;
+        self.get_index(index)
+    }
+
+    pub(crate) fn is_reachable(&self) -> bool {
+        self.cell().is_reachable()
+    }
+
+    /// The fields, read back from the pointer `as_ptr` returns.
+    ///
+    /// # Safety
+    /// `ptr` came from a live handle, and the mutators are stopped.
+    #[inline]
+    pub unsafe fn fields_from_ptr<'a>(ptr: *const u8) -> &'a [SteelVal] {
+        unsafe { MutableStructStorage::slice_from_raw(ptr as *const MutableStructBlock) }
+    }
+
+    #[inline]
+    pub fn fast_decrement_post_ref_count_dec(&mut self) {
+        self.0.fast_decrement_post_ref_count_dec()
+    }
+
+    #[inline]
+    pub fn raw_slow_increment(&mut self) {
+        self.0.raw_slow_increment()
+    }
+
+    #[inline]
+    pub fn raw_slow_decrement(&mut self) {
+        self.0.raw_slow_decrement()
+    }
+}
+
+impl core::fmt::Debug for MutableStructRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "({}", self.name())?;
+        for field in self.fields() {
+            write!(f, " {:?}", field)?;
+        }
+        write!(f, ")")
+    }
+}
+
 /// A handle to a struct value.
 ///
 /// One allocation holding the type descriptor, the field count and the fields
@@ -297,7 +696,7 @@ impl StructRef {
 
     #[inline]
     pub fn strong_count(&self) -> usize {
-        self.0.meta().biased_count() as usize
+        self.0.meta().strong_count()
     }
 
     #[inline]
@@ -749,6 +1148,7 @@ impl UserDefinedStruct {
             }
             Ok(SteelVal::BoolV(match &args[0] {
                 SteelVal::CustomStruct(my_struct) if my_struct.descriptor() == descriptor => true,
+                SteelVal::MutableStruct(my_struct) if my_struct.descriptor() == descriptor => true,
                 _ => false,
             }))
         };
@@ -882,6 +1282,32 @@ pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
                 Ok(SteelVal::CustomStruct(copy))
             }
         }
+    } else if let Some((SteelVal::MutableStruct(s), fields)) = args.split_first_mut() {
+        let struct_fields = s.descriptor().fields();
+
+        let struct_fields_list = struct_fields
+            .list()
+            .ok_or_else(throw!(TypeMismatch => "struct fields are not a list!"))?;
+
+        let mut fields_to_update = smallvec::SmallVec::<[(usize, &mut SteelVal); 5]>::new();
+        populate_fields_offsets(fields.iter_mut(), struct_fields_list, &mut fields_to_update)?;
+
+        // The copy gets its own fields. Assigning one of them leaves the
+        // original alone.
+        let mut values = s.fields();
+        for (idx, value) in fields_to_update {
+            if let Some(slot) = values.get_mut(idx) {
+                core::mem::swap(slot, value);
+            }
+        }
+
+        Ok(SteelVal::MutableStruct(
+            crate::values::closed::detached_mutable_struct(
+                s.descriptor(),
+                s.cell().header().owner,
+                values.into_iter(),
+            ),
+        ))
     } else {
         stop!(TypeMismatch => "struct-copy expects a struct in the first position, found: {:?}", args);
     }
@@ -1374,6 +1800,7 @@ impl VTable {
         let mut guard = STATIC_VTABLE.write();
         let length = guard.entries.len();
         guard.entries.push(VTableEntry::new(name, proc, module));
+        STRUCT_TYPE_COUNT.store(length + 1, Ordering::Release);
         StructTypeDescriptor(length)
     }
 
@@ -1477,11 +1904,9 @@ pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
 pub static STATIC_TRANSPARENT_KEY: Lazy<SteelVal> =
     Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
 #[cfg(feature = "sync")]
-pub static STATIC_MUTABLE_KEY: Lazy<SteelVal> =
-    Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
+pub static STATIC_MUTABLE_KEY: Lazy<SteelVal> = Lazy::new(|| SteelVal::SymbolV("#:mutable".into()));
 #[cfg(feature = "sync")]
-pub static STATIC_FIELDS_KEY: Lazy<SteelVal> =
-    Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
+pub static STATIC_FIELDS_KEY: Lazy<SteelVal> = Lazy::new(|| SteelVal::SymbolV("#:fields".into()));
 
 pub static STATIC_OK_DESCRIPTOR: Lazy<StructTypeDescriptor> =
     Lazy::new(|| VTable::new_entry(*OK_RESULT_LABEL, None, None));

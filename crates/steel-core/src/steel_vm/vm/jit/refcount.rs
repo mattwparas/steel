@@ -67,6 +67,10 @@ fn drop_value_post_fast_decrement(arg: SteelVal) {
             gc.fast_decrement_post_ref_count_dec();
         }
 
+        MutableStruct(gc) => {
+            gc.fast_decrement_post_ref_count_dec();
+        }
+
         PortV(gc) => {
             gc.port.0.fast_decrement_post_ref_count_dec();
         }
@@ -194,6 +198,10 @@ fn drop_value_slow_decrement(arg: SteelVal) {
         }
 
         CustomStruct(gc) => {
+            gc.raw_slow_decrement();
+        }
+
+        MutableStruct(gc) => {
             gc.raw_slow_decrement();
         }
 

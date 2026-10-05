@@ -6772,7 +6772,7 @@ fn hoist_tail_only() -> bool {
 ///
 /// `(#%set-box! x e)` reads `x` first, so a `let`, an `if` or a call in `e`
 /// finds the box already on the stack, and the jit has to give the stack an
-/// owned copy of it. `(let ([t e]) (#%set-box! x t))` reads the box right
+/// owned copy of it. The same goes for the struct of a `#%mstruct-set!`. `(let ([t e]) (#%set-box! x t))` reads the box right
 /// before the store, where the jit can use it in place. Reading `x` has no
 /// effect, so evaluating `e` first is not observable.
 struct SetBoxValueFirst {
@@ -6788,13 +6788,21 @@ impl SetBoxValueFirst {
         pass.rewritten
     }
 
-    fn is_set_box(l: &crate::parser::ast::List) -> bool {
-        l.args.len() == 3
-            && matches!(
-                l.first_ident().map(|x| x.resolve()),
-                Some("#%set-box!" | "#%prim.set-box!")
-            )
-            && l.args[1].atom_identifier().is_some()
+    /// Where the stored value sits in a `(#%set-box! box value)` or a
+    /// `(#%mstruct-set! key struct index value)`, when what it is stored into
+    /// is a plain variable.
+    fn value_index(l: &crate::parser::ast::List) -> Option<usize> {
+        match (l.first_ident().map(|x| x.resolve())?, l.args.len()) {
+            ("#%set-box!" | "#%prim.set-box!", 3) if l.args[1].atom_identifier().is_some() => {
+                Some(2)
+            }
+            ("#%mstruct-set!" | "#%prim.#%mstruct-set!", 5)
+                if l.args[2].atom_identifier().is_some() =>
+            {
+                Some(4)
+            }
+            _ => None,
+        }
     }
 
     /// Whether computing `expr` can spill the operand stack. A primitive call
@@ -6818,7 +6826,10 @@ impl SetBoxValueFirst {
         let ExprKind::List(l) = expr else {
             return;
         };
-        if !Self::is_set_box(l) || !Self::spills(&l.args[2]) {
+        let Some(index) = Self::value_index(l) else {
+            return;
+        };
+        if !Self::spills(&l.args[index]) {
             return;
         }
 
@@ -6828,7 +6839,7 @@ impl SetBoxValueFirst {
 
         let mut location = SyntaxObject::default(TokenType::Let);
         location.set_span(l.location);
-        let value = core::mem::replace(&mut l.args[2], binding.clone());
+        let value = core::mem::replace(&mut l.args[index], binding.clone());
         let set = core::mem::replace(expr, ExprKind::empty());
         *expr = ExprKind::Let(Let::new(vec![(binding, value)], set, location).into());
         self.rewritten += 1;

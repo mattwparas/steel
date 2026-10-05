@@ -600,6 +600,14 @@ impl RcWord {
     pub fn fast_decrement_drop_impl(&self) -> DecrementAction {
         let mut new;
 
+        // Once the merge below is published, another thread dropping the last
+        // shared reference frees this, so nothing here may touch it after
+        // that. The owner id goes first. This thread holds no reference any
+        // more, so nothing uses the biased half again either way. Until the
+        // merge shows, no other thread frees or takes this, whatever the
+        // shared count says.
+        self.clear_owner();
+
         let mut old = self.shared.load(Ordering::Relaxed);
 
         loop {
@@ -621,7 +629,6 @@ impl RcWord {
         if new.get_counter() == 0 {
             DecrementAction::Deallocate
         } else {
-            self.clear_owner();
             DecrementAction::DoNothing
         }
     }
@@ -682,7 +689,8 @@ impl RcWord {
         std::sync::atomic::fence(Ordering::Acquire);
 
         if old.get_queued() != new.get_queued() {
-            DecrementAction::Queue
+            self.merge_for_exited_owner()
+                .unwrap_or(DecrementAction::Queue)
         } else if new.get_merged() && new.get_counter() == 0 {
             DecrementAction::Deallocate
         } else {
@@ -704,43 +712,89 @@ impl RcWord {
 }
 
 impl RcWord {
-    /// Consumes the shared count when it succeeds, so the caller then holds the
-    /// only reference.
+    /// For a thread that is not the owner and has just taken the shared count
+    /// below zero: if the owner has exited, merges the counts in its place and
+    /// says what is left to do. `None` means the owner may still be running,
+    /// and the value goes on its queue as usual.
+    ///
+    /// Without this, a value that outlives the thread that made it is never
+    /// freed, since the queue of a thread that is gone is never read.
+    fn merge_for_exited_owner(&self) -> Option<DecrementAction> {
+        let tid = self.biased.get() & TID_MASK;
+        if tid == 0 || tid == SENTINEL {
+            return None;
+        }
+
+        // An id on the free list belongs to no thread, and can't be handed
+        // out again while the list is locked. So nothing else reads or writes
+        // the biased half during the merge.
+        let free = FREE_TIDS.lock().ok()?;
+        if !free.contains(&tid) {
+            return None;
+        }
+
+        let biased = self.biased_count() as i32;
+        // As in `fast_decrement_drop_impl`, before the merge is published.
+        self.clear_owner();
+
+        let mut old = self.shared.load(Ordering::Acquire);
+        let mut new;
+        loop {
+            new = old;
+            new.update_counter(|x| x + biased);
+            new.set_merged(true);
+
+            match self
+                .shared
+                .compare_exchange(old, new, Ordering::AcqRel, Ordering::Relaxed)
+            {
+                Ok(_) => break,
+                Err(e) => old = Packed(e),
+            }
+        }
+        drop(free);
+
+        Some(if new.get_counter() == 0 {
+            DecrementAction::Deallocate
+        } else {
+            DecrementAction::DoNothing
+        })
+    }
+
+    /// How many references there are, counting the caller's. Never less than
+    /// the real number, so `== 1` means the caller holds the only one. It can
+    /// be more for a moment, while another thread is changing the count.
+    pub fn strong_count(&self) -> usize {
+        // The biased half first. Read in this order, a reference the owner
+        // gives up between the two reads is counted and one it takes is
+        // counted too, so the sum can only err upward.
+        let biased = self.biased.get();
+        let shared = self.shared.load(Ordering::Acquire);
+
+        // After a merge the biased references are in the shared count, and
+        // the biased half keeps its old value.
+        let biased = if shared.is_merged() {
+            0
+        } else {
+            (biased >> COUNTER_SHIFT) as i32
+        };
+
+        (biased + shared.get_counter()).max(0) as usize
+    }
+
+    /// Whether the caller's reference is the only one. The count is left
+    /// as it is, since the caller keeps its reference.
     pub fn has_unique_ref(&self) -> bool {
         let owner = self.owner();
         match owner {
+            // Once merged, nothing is biased any more, so the shared count is
+            // the whole count, and one of it is the caller's. Nobody else can
+            // raise it without a reference of their own to copy. An owner id
+            // that is cleared without the merge showing yet is a merge in
+            // progress, whose biased references are not in the count.
             None => {
-                let meta = self;
-                let mut new;
-                let mut old;
-
-                // loop {
-                old = meta.shared.load(Ordering::Relaxed);
-                new = old;
-
-                old.set_counter(1);
-                new.set_counter(0);
-
-                std::sync::atomic::fence(Ordering::Acquire);
-
-                if meta
-                    .shared
-                    .compare_exchange(old, new, Ordering::AcqRel, Ordering::Relaxed)
-                    .is_err()
-                {
-                    false
-                } else {
-                    // let owner = self.owner();
-                    // match owner {
-                    //     None => false,
-                    //     Some(tid) if tid == ThreadId::current_thread() => {
-                    //         self.biased_count() as i32 == 1
-                    //     }
-                    //     Some(_) => false,
-                    // }
-
-                    true
-                }
+                let shared = self.shared.load(Ordering::Acquire);
+                shared.is_merged() && shared.get_counter() == 1
             }
             Some(tid) if tid == ThreadId::current_thread() => {
                 let local_count = self.biased_count();
@@ -854,11 +908,16 @@ impl<T: ?Sized> BiasedMerge for BiasedRc<T> {
         //     }
         // }
 
+        // Read and give up before the merge is published, after which
+        // another thread can free this. See `fast_decrement_drop_impl`.
+        let biased = self.meta().biased_count() as i32;
+        self.meta().clear_owner();
+
         let mut old = self.meta().shared.load(Ordering::Acquire);
         let mut new;
         loop {
             new = old;
-            new.update_counter(|x| x + self.meta().biased_count() as i32);
+            new.update_counter(|x| x + biased);
             new.set_merged(true);
 
             match self
@@ -875,9 +934,6 @@ impl<T: ?Sized> BiasedMerge for BiasedRc<T> {
 
         if new.get_counter() == 0 {
             unsafe { self.drop_contents_and_maybe_box() };
-        } else {
-            // self.meta().thread_id.store(None, Ordering::Relaxed);
-            self.meta().clear_owner();
         }
 
         std::mem::forget(self);
@@ -1022,11 +1078,16 @@ impl QueueHandle {
             //     }
             // }
 
+            // Read and give up before the merge is published, after which
+            // another thread can free this. See `fast_decrement_drop_impl`.
+            let biased = value.meta_outer().biased_count() as i32;
+            value.meta_outer().clear_owner();
+
             let mut old = value.meta_outer().shared.load(Ordering::Acquire);
             let mut new;
             loop {
                 new = old;
-                new.update_counter(|x| x + value.meta_outer().biased_count() as i32);
+                new.update_counter(|x| x + biased);
                 new.set_merged(true);
 
                 match value.meta_outer().shared.compare_exchange(
@@ -1045,9 +1106,6 @@ impl QueueHandle {
             if new.get_counter() == 0 {
                 // println!("invoking the destructor");
                 unsafe { value.drop_contents_and_maybe_box_outer() };
-            } else {
-                // value.meta_outer().thread_id.store(None, Ordering::Relaxed);
-                value.meta_outer().clear_owner();
             }
 
             drop(value);
@@ -1428,27 +1486,7 @@ impl<T: ?Sized> BiasedRc<T> {
 
     #[inline]
     pub fn strong_count(this: &Self) -> usize {
-        let meta = this.meta();
-
-        let word = meta.shared.load(Ordering::Acquire);
-        let mut count = word.get_counter();
-
-        // If the counter is 0, then we have to get the count from somewhere else
-        if word.get_counter() == 0 {
-            // let owner = self.rcword.thread_id.load(Ordering::Relaxed);
-            let owner = meta.owner();
-            match owner {
-                None => {}
-                Some(tid) if tid == ThreadId::current_thread() => {
-                    count = meta.biased_count() as i32;
-                }
-                Some(_) => {
-                    count = 2;
-                }
-            }
-        }
-
-        count as _
+        this.meta().strong_count()
     }
 
     /// Gets the approximate number of strong pointers to the pinned inner value.
@@ -1578,6 +1616,13 @@ impl<T> BiasedRc<T> {
         // loop {
         old = meta.shared.load(Ordering::Relaxed);
         new = old;
+
+        // An owner id that is cleared before the merge shows is an owner in
+        // the middle of merging, which goes on to write the shared count.
+        // Only once that is done is the shared count the whole count.
+        if !old.is_merged() {
+            return Err(this);
+        }
 
         old.set_counter(1);
         new.set_counter(0);
@@ -2306,6 +2351,19 @@ pub trait PackedDropHandler<T> {
     ///
     /// The elements are live and owned on entry, and must not be read after.
     unsafe fn drop_elements(elements: *mut T, len: usize);
+
+    /// Called with the block when its last reference goes away. Returning
+    /// true keeps the block: nothing is dropped and nothing is freed, and
+    /// whoever owns the memory releases it with [`PackedRc::free_raw`] or
+    /// hands it out again with [`PackedRc::revive`].
+    ///
+    /// # Safety
+    ///
+    /// `block` is the header pointer of a live allocation with no references.
+    #[inline]
+    unsafe fn keep_block(_block: *mut u8) -> bool {
+        false
+    }
 }
 
 /// Drops each element in place.
@@ -2469,11 +2527,59 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
         core::ptr::eq(self.ptr.as_ptr(), other.ptr.as_ptr())
     }
 
+    /// A handle from a raw header pointer, without touching the count.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` is a live block, and the caller owns one of its references.
+    #[inline]
+    pub unsafe fn from_raw(ptr: *const PackedHeader<H>) -> Self {
+        Self {
+            ptr: NonNull::new_unchecked(ptr as *mut PackedHeader<H>),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Gives up the handle without lowering the count.
+    #[inline]
+    pub fn into_raw(self) -> *const PackedHeader<H> {
+        let ptr = self.ptr.as_ptr();
+        core::mem::forget(self);
+        ptr
+    }
+
+    /// The first reference to a block that [`PackedDropHandler::keep_block`]
+    /// kept. The calling thread becomes its owner.
+    ///
+    /// # Safety
+    ///
+    /// The block has no references, and its elements are initialized.
+    #[inline]
+    pub unsafe fn revive(ptr: *mut PackedHeader<H>) -> Self {
+        core::ptr::addr_of_mut!((*ptr).rcword).write(RcWord::new());
+        Self::from_raw(ptr)
+    }
+
+    /// Drops the header and elements of a kept block and frees it.
+    ///
+    /// # Safety
+    ///
+    /// The block has no references and nothing else points at it.
+    pub unsafe fn free_raw(ptr: *mut PackedHeader<H>) {
+        let len = (*ptr).len as usize;
+        let data = (ptr as *mut u8).add(Self::data_offset()) as *mut T;
+
+        D::drop_elements(data, len);
+
+        core::ptr::drop_in_place(core::ptr::addr_of_mut!((*ptr).header));
+
+        std::alloc::dealloc(ptr as *mut u8, Self::layout(len));
+    }
+
     /// A mutable view of the elements, if this is the only live reference.
     ///
     /// Mirrors `Gc::get_mut`, callers that need to modify a shared value clone
-    /// it instead. The uniqueness check consumes the shared count when it
-    /// succeeds, so a `Some` result means this handle owns the block outright.
+    /// it instead.
     #[inline]
     pub fn get_mut(&mut self) -> Option<&mut [T]> {
         if self.meta().has_unique_ref() {
@@ -2537,6 +2643,10 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
     ///
     /// The caller must hold the last reference.
     unsafe fn drop_contents_and_dealloc(&mut self) {
+        if D::keep_block(self.ptr.as_ptr() as *mut u8) {
+            return;
+        }
+
         let len = self.len();
 
         let data = (self.ptr.as_ptr() as *mut u8).add(Self::data_offset()) as *mut T;
@@ -3249,5 +3359,169 @@ mod counter_overflow {
             MAX_SHARED_COUNT - 10,
             "exact both ways while there is headroom"
         );
+    }
+}
+
+#[cfg(test)]
+mod cross_thread_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::{Arc, Mutex};
+
+    struct Canary<'a>(&'a AtomicUsize);
+
+    impl Drop for Canary<'_> {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    // A value whose owner let go of it while another thread still holds a
+    // reference: made on one thread, copied on this one, then dropped by the
+    // thread that made it.
+    fn unowned(drops: &'static AtomicUsize) -> BiasedRc<Canary<'static>> {
+        let slot = Arc::new(Mutex::new(None));
+        let (made, wait_made) = std::sync::mpsc::channel();
+        let (copied, wait_copied) = std::sync::mpsc::channel();
+
+        let theirs = slot.clone();
+        let owner = with_explicit_merge(move || {
+            *theirs.lock().unwrap() = Some(BiasedRc::new(Canary(drops)));
+            made.send(()).unwrap();
+            wait_copied.recv().unwrap();
+            drop(theirs.lock().unwrap().take());
+        });
+
+        wait_made.recv().unwrap();
+        let mine: BiasedRc<Canary<'static>> = slot.lock().unwrap().as_ref().unwrap().clone();
+        copied.send(()).unwrap();
+        owner.join().unwrap();
+
+        assert!(mine.meta().owner().is_none());
+        mine
+    }
+
+    #[test]
+    fn get_mut_leaves_the_count_of_an_unowned_value_alone() {
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+
+        let mut only = unowned(&DROPS);
+        assert!(BiasedRc::get_mut(&mut only).is_some());
+
+        // The handle is still a reference. A copy coming and going must not
+        // take the value with it.
+        let copy = only.clone();
+        drop(copy);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 0);
+
+        drop(only);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn get_mut_refuses_an_unowned_value_with_two_references() {
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+
+        let mut first = unowned(&DROPS);
+        let second = first.clone();
+        assert!(BiasedRc::get_mut(&mut first).is_none());
+
+        drop(second);
+        assert!(BiasedRc::get_mut(&mut first).is_some());
+        drop(first);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 1);
+    }
+
+    // One thread keeps replacing the value in a slot while another copies
+    // what is there, asks whether its copy is the only reference, and drops
+    // it. Every value has to be dropped exactly once.
+    #[test]
+    fn values_handed_between_threads_are_dropped_once() {
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+        const ROUNDS: usize = 200_000;
+
+        let slot = Arc::new(Mutex::new(Some(BiasedRc::new(Canary(&DROPS)))));
+
+        let theirs = slot.clone();
+        let writer = with_explicit_merge(move || {
+            for _ in 0..ROUNDS {
+                let fresh = BiasedRc::new(Canary(&DROPS));
+                let old = theirs.lock().unwrap().replace(fresh);
+                drop(old);
+                QueueHandle::run_explicit_merge();
+            }
+        });
+
+        for _ in 0..ROUNDS {
+            let mut copy = slot.lock().unwrap().as_ref().unwrap().clone();
+            let _ = BiasedRc::get_mut(&mut copy);
+            let again = copy.clone();
+            drop(copy);
+            drop(again);
+        }
+
+        writer.join().unwrap();
+        drop(slot.lock().unwrap().take());
+        QueueHandle::run_explicit_merge();
+
+        // The value the writer left behind is dropped here, unless a thread
+        // of another test picked up the writer's id in the meantime, in which
+        // case that thread drops it when it next merges.
+        let drops = DROPS.load(Ordering::SeqCst);
+        assert!(drops == ROUNDS + 1 || drops == ROUNDS, "{drops}");
+    }
+}
+
+#[cfg(test)]
+mod cross_thread_unwrap_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::{Arc, Mutex};
+
+    struct Canary(&'static AtomicUsize);
+
+    impl Drop for Canary {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    // As `values_handed_between_threads_are_dropped_once`, with the reader
+    // trying to take the value out of its copy, the way a list cell takes the
+    // next cell out when it is torn down.
+    #[test]
+    fn values_unwrapped_on_another_thread_are_dropped_once() {
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+        const ROUNDS: usize = 200_000;
+
+        let slot = Arc::new(Mutex::new(Some(BiasedRc::new(Canary(&DROPS)))));
+
+        let theirs = slot.clone();
+        let writer = with_explicit_merge(move || {
+            for _ in 0..ROUNDS {
+                let fresh = BiasedRc::new(Canary(&DROPS));
+                let old = theirs.lock().unwrap().replace(fresh);
+                drop(old);
+                QueueHandle::run_explicit_merge();
+            }
+        });
+
+        for _ in 0..ROUNDS {
+            let copy = slot.lock().unwrap().as_ref().unwrap().clone();
+            match BiasedRc::try_unwrap(copy) {
+                Ok(value) => drop(value),
+                Err(copy) => drop(copy),
+            }
+        }
+
+        writer.join().unwrap();
+        drop(slot.lock().unwrap().take());
+        QueueHandle::run_explicit_merge();
+
+        // The value the writer left behind is dropped here, unless a thread
+        // of another test picked up the writer's id in the meantime, in which
+        // case that thread drops it when it next merges.
+        let drops = DROPS.load(Ordering::SeqCst);
+        assert!(drops == ROUNDS + 1 || drops == ROUNDS, "{drops}");
     }
 }

@@ -587,8 +587,12 @@ impl Synchronizer {
 
     pub(crate) fn register(&self, context: ThreadContext) {
         self.threads.lock().unwrap().push(context);
-        self.registered
+        let before = self
+            .registered
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if before > 0 {
+            crate::values::closed::share_cells();
+        }
     }
 
     #[inline(always)]
@@ -1130,6 +1134,13 @@ impl SteelThread {
                     stop!(TypeMismatch => format!("application not a procedure: {function}"))
                 }
             }
+            SteelVal::MutableStruct(ref s) => {
+                if let Some(procedure) = s.maybe_proc() {
+                    self.call_function_from_mut_slice(constant_map, procedure, args)
+                } else {
+                    stop!(TypeMismatch => format!("application not a procedure: {function}"))
+                }
+            }
 
             SteelVal::Closure(closure) => {
                 // Create phony span vec
@@ -1184,6 +1195,13 @@ impl SteelThread {
                     } else {
                         self.call_function(constant_map, procedure.clone(), args)
                     }
+                } else {
+                    stop!(TypeMismatch => format!("application not a procedure: {function}"))
+                }
+            }
+            SteelVal::MutableStruct(ref s) => {
+                if let Some(procedure) = s.maybe_proc() {
+                    self.call_function(constant_map, procedure, args)
                 } else {
                     stop!(TypeMismatch => format!("application not a procedure: {function}"))
                 }
@@ -3543,6 +3561,7 @@ impl<'a> VmCore<'a> {
                         }
                         BuiltIn(f) => self.call_builtin_func(f, payload_size),
                         CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+                        MutableStruct(s) => self.call_mutable_struct(&s, payload_size),
                         ContinuationFunction(cc) => self.call_continuation(cc),
                         _ => {
                             // println!("{:?}", self.stack);
@@ -3601,6 +3620,7 @@ impl<'a> VmCore<'a> {
                         }
                         BuiltIn(f) => self.call_builtin_func(f, payload_size),
                         CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+                        MutableStruct(s) => self.call_mutable_struct(&s, payload_size),
                         ContinuationFunction(cc) => self.call_continuation(cc),
                         _ => {
                             // println!("{:?}", self.stack);
@@ -4887,6 +4907,7 @@ impl<'a> VmCore<'a> {
             Closure(closure) => self.new_handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+            MutableStruct(s) => self.call_mutable_struct(&s, payload_size),
             ContinuationFunction(cc) => self.call_continuation(cc),
             _ => {
                 // println!("{:?}", self.stack);
@@ -5001,6 +5022,18 @@ impl<'a> VmCore<'a> {
             } else {
                 self.handle_global_function_call(procedure.clone(), payload_size)
             }
+        } else {
+            stop!(Generic => "Attempted to call struct as a function - no procedure found!");
+        }
+    }
+
+    pub(crate) fn call_mutable_struct(
+        &mut self,
+        s: &crate::values::structs::MutableStructRef,
+        payload_size: usize,
+    ) -> Result<()> {
+        if let Some(procedure) = s.maybe_proc() {
+            self.handle_global_function_call(procedure, payload_size)
         } else {
             stop!(Generic => "Attempted to call struct as a function - no procedure found!");
         }
@@ -5247,6 +5280,7 @@ impl<'a> VmCore<'a> {
             ContinuationFunction(cc) => self.call_continuation(cc),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+            MutableStruct(s) => self.call_mutable_struct(&s, payload_size),
             _ => {
                 cold();
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
@@ -5271,6 +5305,7 @@ impl<'a> VmCore<'a> {
             ContinuationFunction(cc) => self.call_continuation(cc),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+            MutableStruct(s) => self.call_mutable_struct(&s, payload_size),
             _ => {
                 cold();
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
@@ -5398,6 +5433,13 @@ impl<'a> VmCore<'a> {
                     stop!(Generic => "Attempted to call struct as a function - no procedure found!");
                 }
             }
+            MutableStruct(s) => {
+                if let Some(procedure) = s.maybe_proc() {
+                    self.handle_global_function_call_no_stack(procedure, payload_size)
+                } else {
+                    stop!(Generic => "Attempted to call struct as a function - no procedure found!");
+                }
+            }
             _ => {
                 cold();
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
@@ -5418,6 +5460,7 @@ impl<'a> VmCore<'a> {
             ContinuationFunction(cc) => self.call_continuation(cc),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+            MutableStruct(s) => self.call_mutable_struct(&s, payload_size),
             _ => {
                 log::error!("{stack_func:?}");
                 log::error!("stack: {:?}", self.thread.stack);

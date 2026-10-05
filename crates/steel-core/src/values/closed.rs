@@ -59,7 +59,10 @@ use super::{
     functions::BoxedDynFunction,
     lazy_stream::LazyStream,
     port::SteelPort,
-    structs::StructRef,
+    structs::{
+        MutableStructCell, MutableStructRef, StructRef, StructTypeDescriptor, MUTABLE_STRUCT_DEAD,
+        MUTABLE_STRUCT_LIVE, MUTABLE_STRUCT_SPARE,
+    },
     transducers::{Reducer, Transducer},
 };
 
@@ -125,6 +128,7 @@ impl GlobalSlotRecycler {
         // collection.
         heap.memory_free_list.mark_all_unreachable();
         heap.vector_free_list.mark_all_unreachable();
+        heap.mutable_structs.mark_all_unreachable();
 
         // Actually walk the tree, looking for unreachable stuff
         self.visit();
@@ -194,6 +198,7 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                MutableStruct(c) => self.visit_mutable_struct(c),
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -412,6 +417,19 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
 
     fn visit_steel_struct(&mut self, steel_struct: StructRef) -> Self::Output {
         for field in steel_struct.fields().iter() {
+            self.push_back(field.clone());
+        }
+    }
+
+    // The reachable flag keeps a struct from being walked twice, which is
+    // also what ends the walk on a cycle.
+    fn visit_mutable_struct(&mut self, steel_struct: MutableStructRef) -> Self::Output {
+        let cell = steel_struct.cell();
+        if cell.mark_reachable_was_set() {
+            return;
+        }
+
+        for field in unsafe { cell.fields_unlocked() } {
             self.push_back(field.clone());
         }
     }
@@ -720,6 +738,7 @@ fn heap_value_unreached(value: &SteelVal) -> bool {
     match value {
         SteelVal::HeapAllocated(heap_ref) => !heap_ref.is_reachable(),
         SteelVal::MutableVector(heap_ref) => !heap_ref.is_reachable(),
+        SteelVal::MutableStruct(s) => !s.is_reachable(),
         _ => false,
     }
 }
@@ -736,6 +755,7 @@ fn only_referenced_here(value: &SteelVal) -> bool {
         SteelVal::HashMapV(steel_hash_map) => Gc::strong_count(&steel_hash_map.0) == 1,
         SteelVal::HashSetV(steel_hash_set) => Gc::strong_count(&steel_hash_set.0) == 1,
         SteelVal::CustomStruct(gc) => gc.strong_count() == 1,
+        SteelVal::MutableStruct(gc) => gc.strong_count() == 1,
         SteelVal::PortV(steel_port) => Gc::strong_count(&steel_port.port) == 1,
         SteelVal::IterV(gc) => Gc::strong_count(gc) == 1,
         SteelVal::ReducerV(gc) => Gc::strong_count(gc) == 1,
@@ -906,6 +926,10 @@ pub fn weak_box_value(
         None => false,
         Some(SteelVal::HeapAllocated(heap_ref)) => heap_ref.is_reachable(),
         Some(SteelVal::MutableVector(heap_ref)) => heap_ref.is_reachable(),
+        // A struct that a mark didn't reach has been emptied.
+        Some(value @ SteelVal::MutableStruct(s)) => {
+            s.is_reachable() && !only_referenced_here(value)
+        }
         Some(value) => !only_referenced_here(value),
     };
 
@@ -1898,6 +1922,304 @@ fn spawn_background_dropper<T: HeapAble + Sync + Send + 'static>(
 /// allocating simply pushes and allocates a value at the end. When we do a collection,
 /// we attempt to do a small collection by just dropping any values with no weak counts
 /// pointing to it.
+/// The handles of emptied mutable structs a thread keeps, by field count.
+/// The mutable struct counterpart of `SpareHandle`: the struct a thread just
+/// emptied is the cheapest one for it to fill again. A spare has no handles,
+/// so the entry is the cell itself, and its state says a thread holds it.
+struct SpareStructs {
+    by_len: [Vec<MutableStructCell>; SPARE_STRUCT_LENGTHS],
+}
+
+// Structs with more fields than this go back to the heap.
+const SPARE_STRUCT_LENGTHS: usize = 9;
+
+thread_local! {
+    static SPARE_STRUCTS: RefCell<SpareStructs> = const {
+        RefCell::new(SpareStructs {
+            by_len: [const { Vec::new() }; SPARE_STRUCT_LENGTHS],
+        })
+    };
+}
+
+/// Called when the last handle to a mutable struct went away and it has
+/// been emptied. Keeps the cell for this thread's next allocation of the same
+/// size, or leaves it for the heap to free.
+pub(crate) fn retire_mutable_struct(cell: MutableStructCell) {
+    let len = cell.len();
+    let kept = len < SPARE_STRUCT_LENGTHS
+        && SPARE_STRUCTS
+            .try_with(|spares| {
+                let Ok(mut spares) = spares.try_borrow_mut() else {
+                    return false;
+                };
+                let stack = &mut spares.by_len[len];
+                if stack.len() >= spare_handles() {
+                    return false;
+                }
+                cell.set_state(MUTABLE_STRUCT_SPARE);
+                stack.push(cell);
+                true
+            })
+            .unwrap_or(false);
+
+    if !kept {
+        // Nothing may touch the cell after this, since the heap can free it.
+        cell.set_state(MUTABLE_STRUCT_DEAD);
+    }
+}
+
+// Set for good once a second thread is started.
+//
+// A box, a mutable vector and a mutable struct each have a lock around their
+// contents, and a thread that is alone skips it. Reading a slot is a load and
+// then a count increment on what was loaded, and the slot's own reference is
+// all that keeps that alive in between, so a second thread storing into the
+// slot at that point frees it under the reader. Nothing a thread checks on
+// the cell can rule that out, since the other thread can arrive after the
+// check. So the lock is only skipped while there is nobody to arrive.
+//
+// The flag is set by the thread that starts the second one, before it starts.
+// That thread is in the call that does so, which is not in the middle of
+// using a cell.
+static CELLS_SHARED: AtomicBool = AtomicBool::new(false);
+
+/// Whether more than one thread has ever run, so that cells have to be locked.
+#[inline(always)]
+pub(crate) fn cells_shared() -> bool {
+    CELLS_SHARED.load(Ordering::Relaxed)
+}
+
+/// Called before another thread is started.
+pub(crate) fn share_cells() {
+    CELLS_SHARED.store(true, Ordering::SeqCst);
+}
+
+/// Where `cells_shared` reads from, for code that checks it inline.
+pub(crate) fn cells_shared_address() -> usize {
+    &CELLS_SHARED as *const AtomicBool as usize
+}
+
+// Structs made where the heap wasn't at hand, waiting to join the list of
+// the heap they were made for.
+static DETACHED_STRUCTS: Mutex<Vec<MutableStructCell>> = Mutex::new(Vec::new());
+
+/// A mutable struct for the heap list `owner`, made without access to that
+/// heap. The list picks it up at its next collection. Until then no mark
+/// clears its reachable flag, so nothing collects it.
+pub(crate) fn detached_mutable_struct(
+    descriptor: StructTypeDescriptor,
+    owner: u32,
+    fields: impl ExactSizeIterator<Item = SteelVal>,
+) -> MutableStructRef {
+    let (cell, handle) = MutableStructCell::allocate(descriptor, owner, fields);
+    DETACHED_STRUCTS.lock().unwrap().push(cell);
+    handle
+}
+
+// Hands a spare back to whichever heap owns it.
+fn release_spare_struct(cell: MutableStructCell) {
+    if cell.header().orphaned.load(Ordering::Acquire) {
+        unsafe { cell.free() };
+    } else {
+        cell.set_state(MUTABLE_STRUCT_DEAD);
+    }
+}
+
+/// Every mutable struct the heap owns.
+///
+/// Unlike the boxes of a `FreeList` the cells differ in size, so they are
+/// allocated as they are needed and freed once they are dead, and the list
+/// only records them for the mark and the sweep.
+struct MutableStructList {
+    cells: Vec<MutableStructCell>,
+    id: u32,
+    // Cells added since the list was last scanned for dead ones.
+    since_scan: usize,
+    scan_budget: usize,
+    // The size after the last mark, and how far past it the list may grow
+    // before the next.
+    floor: usize,
+    mark_budget: usize,
+    should_run_weak: bool,
+}
+
+impl MutableStructList {
+    const INITIAL_BUDGET: usize = 256 * 100;
+
+    fn new() -> Self {
+        Self {
+            cells: Vec::new(),
+            id: next_free_list_id(),
+            since_scan: 0,
+            scan_budget: Self::INITIAL_BUDGET,
+            floor: 0,
+            mark_budget: Self::INITIAL_BUDGET,
+            should_run_weak: true,
+        }
+    }
+
+    #[inline]
+    fn due_for_scan(&self) -> bool {
+        self.since_scan >= self.scan_budget
+    }
+
+    #[inline]
+    fn due_for_mark(&self) -> bool {
+        self.cells.len() >= self.floor + self.mark_budget
+    }
+
+    #[inline]
+    fn take_spare(&self, len: usize) -> Option<MutableStructCell> {
+        if len >= SPARE_STRUCT_LENGTHS {
+            return None;
+        }
+        let id = self.id;
+        SPARE_STRUCTS
+            .try_with(|spares| {
+                let mut spares = spares.try_borrow_mut().ok()?;
+                let stack = &mut spares.by_len[len];
+                while let Some(cell) = stack.pop() {
+                    if cell.header().owner == id {
+                        return Some(cell);
+                    }
+                    release_spare_struct(cell);
+                }
+                None
+            })
+            .ok()
+            .flatten()
+    }
+
+    #[inline]
+    fn allocate(
+        &mut self,
+        descriptor: StructTypeDescriptor,
+        fields: impl ExactSizeIterator<Item = SteelVal>,
+    ) -> MutableStructRef {
+        let len = fields.len();
+        if let Some(cell) = self.take_spare(len) {
+            // The cell has no handles, and the collector only runs under the
+            // heap lock this caller holds.
+            return unsafe { cell.fill(descriptor, fields) };
+        }
+
+        let (cell, handle) = MutableStructCell::allocate(descriptor, self.id, fields);
+        self.cells.push(cell);
+        self.since_scan += 1;
+        handle
+    }
+
+    /// Takes in the structs that were made for this list from outside it.
+    fn adopt_detached(&mut self) {
+        let mut detached = DETACHED_STRUCTS.lock().unwrap();
+        if detached.is_empty() {
+            return;
+        }
+        let id = self.id;
+        let cells = &mut self.cells;
+        detached.retain(|cell| {
+            if cell.header().owner == id {
+                cells.push(*cell);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    /// Gives up the cells this thread kept, so a collection can free them.
+    fn return_spares() {
+        let _ = SPARE_STRUCTS.try_with(|spares| {
+            if let Ok(mut spares) = spares.try_borrow_mut() {
+                for stack in spares.by_len.iter_mut() {
+                    for cell in stack.drain(..) {
+                        release_spare_struct(cell);
+                    }
+                }
+            }
+        });
+    }
+
+    /// Frees the cells that have no handles left. Returns how many.
+    fn free_dead(&mut self) -> usize {
+        Self::return_spares();
+        self.adopt_detached();
+
+        let before = self.cells.len();
+        self.cells.retain(|cell| {
+            if cell.state() == MUTABLE_STRUCT_DEAD {
+                unsafe { cell.free() };
+                false
+            } else {
+                true
+            }
+        });
+        self.since_scan = 0;
+        self.scan_budget = Self::INITIAL_BUDGET.max(self.cells.len() / 2);
+
+        before - self.cells.len()
+    }
+
+    fn mark_all_unreachable(&mut self) {
+        Self::return_spares();
+        self.adopt_detached();
+        for cell in &self.cells {
+            cell.set_reachable(false);
+        }
+    }
+
+    /// After a mark, takes the fields of every struct it didn't reach. Those
+    /// can still have handles, held by other garbage, and emptying them is
+    /// what breaks a cycle. The cell is freed once those handles are gone.
+    fn take_unreachable(&self) -> Vec<SteelVal> {
+        let mut released = Vec::new();
+        for cell in &self.cells {
+            if !cell.is_reachable() && cell.state() == MUTABLE_STRUCT_LIVE {
+                released.extend(cell.take_fields());
+            }
+        }
+        released
+    }
+
+    fn resize_after_collection(&mut self, marking_work: usize) {
+        self.floor = self.cells.len();
+        self.mark_budget = (marking_work / gc_work_ratio())
+            .max(Self::INITIAL_BUDGET)
+            .min(gc_max_headroom());
+    }
+}
+
+// A copied heap starts without any. The values of the copy still point at
+// the cells of the original, which stays their owner.
+impl Clone for MutableStructList {
+    fn clone(&self) -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for MutableStructList {
+    fn drop(&mut self) {
+        Self::return_spares();
+        self.adopt_detached();
+
+        // A handle or another thread's spare stack can outlive the heap. Those
+        // cells free themselves from here on.
+        for cell in &self.cells {
+            cell.header().orphaned.store(true, Ordering::Release);
+        }
+
+        let mut released = Vec::new();
+        for cell in core::mem::take(&mut self.cells) {
+            match cell.state() {
+                MUTABLE_STRUCT_DEAD => unsafe { cell.free() },
+                MUTABLE_STRUCT_LIVE => released.extend(cell.take_fields()),
+                _ => {}
+            }
+        }
+        drop(released);
+    }
+}
+
 #[derive(Clone)]
 pub struct Heap {
     count: usize,
@@ -1908,6 +2230,7 @@ pub struct Heap {
     skip_minor_collection: bool,
     memory_free_list: FreeList<SteelVal>,
     vector_free_list: FreeList<HeapVec>,
+    mutable_structs: MutableStructList,
 }
 
 #[cfg(feature = "sync")]
@@ -1928,6 +2251,7 @@ impl Heap {
 
             memory_free_list: FreeList::new(),
             vector_free_list: FreeList::new(),
+            mutable_structs: MutableStructList::new(),
         }
     }
 
@@ -1939,6 +2263,7 @@ impl Heap {
             skip_minor_collection: false,
             memory_free_list: FreeList::new(),
             vector_free_list: FreeList::new(),
+            mutable_structs: MutableStructList::new(),
         }
     }
 
@@ -2069,6 +2394,90 @@ impl Heap {
         )
     }
 
+    /// A mutable struct holding `values`.
+    pub fn allocate_mutable_struct<'a, V>(
+        &mut self,
+        descriptor: StructTypeDescriptor,
+        values: V,
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+    ) -> MutableStructRef
+    where
+        V: AsRef<[SteelVal]> + IntoIterator<Item = SteelVal>,
+        V::IntoIter: ExactSizeIterator,
+    {
+        if self.mutable_structs.due_for_scan() {
+            self.mutable_struct_collection(
+                values.as_ref().iter().cloned(),
+                roots,
+                live_functions,
+                globals,
+                tls,
+                synchronizer,
+            );
+        }
+
+        self.mutable_structs
+            .allocate(descriptor, values.into_iter())
+    }
+
+    pub fn allocate_mutable_struct_without_collection(
+        &mut self,
+        descriptor: StructTypeDescriptor,
+        values: impl ExactSizeIterator<Item = SteelVal>,
+    ) -> MutableStructRef {
+        self.mutable_structs.allocate(descriptor, values)
+    }
+
+    #[inline(never)]
+    fn mutable_struct_collection<'a>(
+        &mut self,
+        // The fields about to be stored. They are not reachable from any root
+        // yet, so a mark here has to be told about them.
+        pending: impl Iterator<Item = SteelVal>,
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &mut Synchronizer,
+    ) {
+        run_explicit_merge();
+
+        // The cheap pass, which frees the structs whose handles are all gone.
+        let before = self.mutable_structs.cells.len();
+        let reclaimed = self.mutable_structs.free_dead();
+        if self.mutable_structs.should_run_weak
+            && reclaimed.saturating_mul(weak_yield_ratio()) < before
+        {
+            self.mutable_structs.should_run_weak = false;
+        }
+
+        // What it can't free is live or in a cycle, and only a mark tells
+        // those apart.
+        if self.mutable_structs.due_for_mark() {
+            self.memory_free_list.mark_all_unreachable();
+            self.vector_free_list.mark_all_unreachable();
+            self.mutable_structs.mark_all_unreachable();
+
+            self.mark_and_sweep_new(
+                None,
+                pending,
+                roots,
+                live_functions,
+                globals,
+                tls,
+                synchronizer,
+            );
+
+            self.memory_free_list.should_run_weak = true;
+            self.vector_free_list.should_run_weak = true;
+            self.mutable_structs.should_run_weak = true;
+        }
+    }
+
     pub fn allocate_many_owned<'a>(
         &mut self,
         values: &mut smallvec::SmallVec<[SteelVal; 8]>,
@@ -2131,6 +2540,7 @@ impl Heap {
                 // New generation
                 self.memory_free_list.mark_all_unreachable();
                 self.vector_free_list.mark_all_unreachable();
+                self.mutable_structs.mark_all_unreachable();
 
                 // Just reset the counter
                 let stats = self.mark_and_sweep_new(
@@ -2221,6 +2631,7 @@ impl Heap {
             if self.vector_free_list.nearly_full() || force {
                 self.vector_free_list.mark_all_unreachable();
                 self.memory_free_list.mark_all_unreachable();
+                self.mutable_structs.mark_all_unreachable();
 
                 let stats = self.mark_and_sweep_new(
                     None,
@@ -2275,6 +2686,7 @@ impl Heap {
             if self.vector_free_list.nearly_full() {
                 self.vector_free_list.mark_all_unreachable();
                 self.memory_free_list.mark_all_unreachable();
+                self.mutable_structs.mark_all_unreachable();
 
                 let stats = self.mark_and_sweep_new(
                     None,
@@ -2342,8 +2754,13 @@ impl Heap {
         // handles into the other. Dropped outside the locks, then counted.
         let values = self.memory_free_list.take_unreachable();
         let vectors = self.vector_free_list.take_unreachable();
+        let fields = self.mutable_structs.take_unreachable();
         drop(values);
         drop(vectors);
+        drop(fields);
+        self.mutable_structs.free_dead();
+        self.mutable_structs
+            .resize_after_collection(stats.object_count);
         // Dropping those refilled this thread's spare handles.
         #[cfg(feature = "sync")]
         FreeList::<SteelVal>::return_spares();
@@ -2810,7 +3227,7 @@ impl<T: HeapAble> HeapRef<T> {
     }
 
     pub unsafe fn inner_ref(&self) -> Option<&T> {
-        if self.inner.weak_count() == 1 {
+        if self.inner.weak_count() == 1 && !cells_shared() {
             Some(&(&*self.inner.as_ptr()).get_value().value)
         } else {
             None
@@ -3216,6 +3633,19 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
 
+    // The reachable flag keeps a struct from being walked twice, which is
+    // also what ends the walk on a cycle.
+    fn visit_mutable_struct(&mut self, steel_struct: MutableStructRef) -> Self::Output {
+        let cell = steel_struct.cell();
+        if cell.mark_reachable_was_set() {
+            return;
+        }
+
+        for field in unsafe { cell.fields_unlocked() } {
+            self.push_back(field.clone());
+        }
+    }
+
     fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
         self.push_back(stream.initial_value.clone());
         self.push_back(stream.stream_thunk.clone());
@@ -3450,6 +3880,18 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
 
     fn visit_steel_struct(&mut self, fields: &[SteelVal]) -> Self::Output {
         for field in fields.iter() {
+            self.push_back(field);
+        }
+    }
+
+    fn visit_mutable_struct(&mut self, cell: MutableStructCell) -> Self::Output {
+        if cell.mark_reachable_was_set() {
+            return;
+        }
+
+        self.stats.memory_reached_count += 1;
+
+        for field in unsafe { cell.fields_unlocked() } {
             self.push_back(field);
         }
     }

@@ -405,6 +405,9 @@ steel_config! {
     /// How many emptied boxes a thread keeps for its next allocations. 0 keeps
     /// none.
     gc_spare_handles: usize = 1024, "STEEL_GC_SPARE_HANDLES";
+    /// Whether `struct` with `#:mutable` makes structs with their fields
+    /// inline. Off, each field is a box.
+    packed_mutable_structs: bool = true, "STEEL_PACKED_MUTABLE_STRUCTS";
     /// Threads marking in parallel (0 means 1).
     gc_mark_threads: usize = 1, "STEEL_GC_MARK_THREADS";
 }

@@ -710,6 +710,7 @@ impl<'a> FunctionTranslator<'a> {
             SteelVal::HASHMAP_TAG,
             SteelVal::HASHSET_TAG,
             SteelVal::STRUCT_TAG,
+            SteelVal::MUTABLE_STRUCT_TAG,
             SteelVal::PORT_TAG,
             SteelVal::ITER_TAG,
             SteelVal::REDUCER_TAG,
@@ -2110,12 +2111,9 @@ impl<'a> FunctionTranslator<'a> {
                 // have some rogue values around.
                 let ptr = ctx.unbox_value_to_pointer(value);
 
-                let strong_count =
-                    ctx.builder
-                        .ins()
-                        .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
-
-                let is_one = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong_count, 1);
+                // While this is the only thread, nothing else can be using
+                // the box, so its lock is skipped. See `CELLS_SHARED`.
+                let is_one = ctx.single_threaded();
                 let offset = heap_box_lock_offset();
 
                 let data = ctx.converging_if(
@@ -2186,12 +2184,9 @@ impl<'a> FunctionTranslator<'a> {
             |ctx| {
                 let ptr = ctx.unbox_value_to_pointer(value);
 
-                let strong_count =
-                    ctx.builder
-                        .ins()
-                        .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
-
-                let is_one = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong_count, 1);
+                // While this is the only thread, nothing else can be using
+                // the box, so its lock is skipped. See `CELLS_SHARED`.
+                let is_one = ctx.single_threaded();
                 let offset = heap_box_lock_offset();
 
                 ctx.converging_if(
@@ -2257,12 +2252,9 @@ impl<'a> FunctionTranslator<'a> {
             |ctx| {
                 let ptr = ctx.unbox_value_to_pointer(boxed);
 
-                let strong_count =
-                    ctx.builder
-                        .ins()
-                        .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
-
-                let is_one = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong_count, 1);
+                // While this is the only thread, nothing else can be using
+                // the box, so its lock is skipped. See `CELLS_SHARED`.
+                let is_one = ctx.single_threaded();
                 let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, heap_box_lock_offset());
 
                 let read = |ctx: &mut Self| {
@@ -2352,12 +2344,9 @@ impl<'a> FunctionTranslator<'a> {
             |ctx| {
                 let ptr = ctx.unbox_value_to_pointer(boxed);
 
-                let strong_count =
-                    ctx.builder
-                        .ins()
-                        .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
-
-                let is_one = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong_count, 1);
+                // While this is the only thread, nothing else can be using
+                // the box, so its lock is skipped. See `CELLS_SHARED`.
+                let is_one = ctx.single_threaded();
                 let offset = heap_box_lock_offset();
 
                 let old = ctx.converging_if(
@@ -2492,13 +2481,9 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.ins().iadd_imm_s(ptr, offset)
     }
 
-    // Nothing else can reach the value at a strong count of one.
+    // Nothing else can reach the vector while this is the only thread.
     fn with_heap_vec_lock(&mut self, ptr: Value, body: impl Fn(&mut Self) -> Value) -> Value {
-        let strong = self
-            .builder
-            .ins()
-            .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
-        let is_one = self.builder.ins().icmp_imm_s(IntCC::Equal, strong, 1);
+        let is_one = self.single_threaded();
 
         self.converging_if(
             is_one,
@@ -2658,15 +2643,10 @@ impl<'a> FunctionTranslator<'a> {
     /// needed for soundness, since several references on one thread cannot
     /// race. It is there for comparison.
     fn byte_vec_unshared(&mut self, ptr: Value, strict: bool) -> Value {
-        let shared_ptr = self
-            .builder
-            .ins()
-            .iadd_imm_s(ptr, steel_rc::shared_offset() as i64);
-        let shared =
-            self.builder
-                .ins()
-                .atomic_load(types::I32, MemFlagsData::trusted(), shared_ptr);
-        let unshared = self.builder.ins().icmp_imm_s(IntCC::Equal, shared, 0);
+        // The counts say who holds a reference, not who can reach one: a
+        // second thread can use the owner's reference where it sits. So the
+        // lock is only skipped while there is no second thread.
+        let unshared = self.single_threaded();
 
         if !strict {
             return unshared;
@@ -2951,12 +2931,8 @@ impl<'a> FunctionTranslator<'a> {
             |ctx| {
                 let ptr = ctx.unbox_value_to_pointer(vector);
 
-                // At a strong count of one, len and cap can't move under us
-                let strong =
-                    ctx.builder
-                        .ins()
-                        .atomic_load(ref_count_type(), MemFlagsData::trusted(), ptr);
-                let exclusive = ctx.builder.ins().icmp_imm_s(IntCC::Equal, strong, 1);
+                // With no other thread, len and cap can't move under us
+                let exclusive = ctx.single_threaded();
 
                 let len = ctx.heap_vec_len(ptr);
                 let cap = ctx.heap_vec_cap(ptr);
@@ -3282,7 +3258,11 @@ impl<'a> FunctionTranslator<'a> {
             }
         };
 
-        let is_struct = self.is_type(value, SteelVal::STRUCT_TAG);
+        // A mutable struct keeps its descriptor at the same offset, so one
+        // compare covers both kinds once the tag is either of theirs.
+        let is_plain = self.is_type(value, SteelVal::STRUCT_TAG);
+        let is_mutable = self.is_type(value, SteelVal::MUTABLE_STRUCT_TAG);
+        let is_struct = self.builder.ins().bor(is_plain, is_mutable);
         let typ = self.int;
         let descriptor = spec.descriptor.key();
 

@@ -415,6 +415,9 @@ enum StructPiece {
     Constructor,
     Predicate,
     GetterPrototype,
+    /// `(#%struct-type-key descriptor)`, how the accessors and constructor of a
+    /// struct with inline fields name its type.
+    Key,
     Getters,
     /// The getter of field `i`.
     Getter(usize),
@@ -662,6 +665,15 @@ impl<'a> Collector<'a> {
                     StructPiece::Table,
                 ))
             }
+            ("#%struct-type-key", [ExprKind::Atom(source)]) => {
+                let source = self.reference(source)?;
+                match self.facts.known.get(&source)? {
+                    Known::Struct(ty, StructPiece::Descriptor) => {
+                        Some(Known::Struct(*ty, StructPiece::Key))
+                    }
+                    _ => None,
+                }
+            }
             ("list-ref", [ExprKind::Atom(source), index]) => {
                 let index = integer_literal(index)?;
                 let source = self.reference(source)?;
@@ -715,11 +727,15 @@ impl<'a> Collector<'a> {
         Some(Known::ModuleFunction(module.into(), *name))
     }
 
-    /// For a lambda shaped like a mutable struct's accessor or setter,
-    /// `(λ (this) (#%unbox (getter this i)))` or
-    /// `(λ (this value) (#%set-box! (getter this i) value))`, the binding of
-    /// `getter` (which has to turn out to be a getter prototype), `i`, and
-    /// whether it is a setter.
+    /// For a lambda shaped like a mutable struct's accessor or setter, the
+    /// binding that names the type, the field, and whether it is a setter.
+    ///
+    /// With boxed fields that is `(λ (this) (#%unbox (getter this i)))` or
+    /// `(λ (this value) (#%set-box! (getter this i) value))`, and `getter` has
+    /// to turn out to be a getter prototype. With inline fields it is
+    /// `(λ (this) (#%mstruct-ref key this i))` or
+    /// `(λ (this value) (#%mstruct-set! key this i value))`, and `key` has to
+    /// turn out to be a type's key.
     fn field_access(&self, lambda: &LambdaFunction) -> Option<(SyntaxObjectId, usize, bool)> {
         if lambda.rest {
             return None;
@@ -729,6 +745,25 @@ impl<'a> Collector<'a> {
             return None;
         };
         let (operator, args) = body.args.split_first()?;
+        let inline = match (operator_name(Some(operator))?, args, lambda.args.len()) {
+            ("#%mstruct-ref", [ExprKind::Atom(key), ExprKind::Atom(object), index], 1) => {
+                Some((key, object, index, false))
+            }
+            (
+                "#%mstruct-set!",
+                [ExprKind::Atom(key), ExprKind::Atom(object), index, ExprKind::Atom(value)],
+                2,
+            ) => {
+                (self.reference(value)? == binding_site(&lambda.args[1])?).then_some(())?;
+                Some((key, object, index, true))
+            }
+            _ => None,
+        };
+        if let Some((key, object, index, set)) = inline {
+            let index = integer_literal(index)?;
+            (self.reference(object)? == this).then_some(())?;
+            return Some((self.reference(key)?, index, set));
+        }
         let (field, set) = match (operator_name(Some(operator))?, args, lambda.args.len()) {
             ("#%unbox", [field], 1) => (field, false),
             // The value stored is the second parameter.
@@ -750,8 +785,9 @@ impl<'a> Collector<'a> {
     }
 
     /// For a lambda shaped like a mutable struct's constructor,
-    /// `(λ (a b) (#%make-mutable-struct descriptor a b))`, the binding of
-    /// `descriptor` and the id of the call.
+    /// `(λ (a b) (#%make-mutable-struct descriptor a b))` or
+    /// `(λ (a b) (#%mstruct key a b))`, the binding of `descriptor` or `key`
+    /// and the id of the call.
     fn construction(&self, lambda: &LambdaFunction) -> Option<(SyntaxObjectId, u32)> {
         if lambda.rest {
             return None;
@@ -760,7 +796,10 @@ impl<'a> Collector<'a> {
             return None;
         };
         let (operator, args) = body.args.split_first()?;
-        if operator_name(Some(operator))? != "#%make-mutable-struct" {
+        if !matches!(
+            operator_name(Some(operator))?,
+            "#%make-mutable-struct" | "#%mstruct"
+        ) {
             return None;
         }
         let (ExprKind::Atom(descriptor), fields) = args.split_first()? else {
@@ -837,9 +876,14 @@ impl<'a> Collector<'a> {
                     return;
                 };
                 match operator_name(Some(operator)) {
-                    Some("#%make-mutable-struct" | "#%vtable-update-entry!")
-                        if matches!(args.first(), Some(ExprKind::Atom(_))) =>
-                    {
+                    Some(
+                        "#%make-mutable-struct"
+                        | "#%vtable-update-entry!"
+                        | "#%mstruct"
+                        | "#%mstruct-ref"
+                        | "#%mstruct-set!"
+                        | "#%struct-type-key",
+                    ) if matches!(args.first(), Some(ExprKind::Atom(_))) => {
                         self.expr(operator, Position::Operator);
                         self.expr(&args[0], Position::DescriptorUse);
                         for arg in &args[1..] {
@@ -925,6 +969,7 @@ impl<'a> Collector<'a> {
             Call,
             Descriptor,
             Prototype,
+            Key,
         }
         let mut roles: FxHashMap<SyntaxObjectId, (usize, Role)> = FxHashMap::default();
         for (id, known) in &self.facts.known {
@@ -932,6 +977,7 @@ impl<'a> Collector<'a> {
                 Known::Struct(ty, StructPiece::Constructor) => (*ty, Role::Call),
                 Known::Struct(ty, StructPiece::Descriptor) => (*ty, Role::Descriptor),
                 Known::Struct(ty, StructPiece::GetterPrototype) => (*ty, Role::Prototype),
+                Known::Struct(ty, StructPiece::Key) => (*ty, Role::Key),
                 Known::Lambda(lambda) => {
                     if let Some(&ty) = self.facts.struct_constructors.get(lambda) {
                         (ty, Role::Call)
@@ -955,6 +1001,11 @@ impl<'a> Collector<'a> {
         for &(_, getter, _, _) in &self.accessor_candidates {
             *prototype_calls.entry(getter).or_default() += 1;
         }
+        // A key is also named by the constructor.
+        let mut key_uses = prototype_calls.clone();
+        for &(_, key, _) in &self.constructor_candidates {
+            *key_uses.entry(key).or_default() += 1;
+        }
         for (id, (ty, role)) in &roles {
             let uses = self.uses.get(id).map(Vec::as_slice).unwrap_or(&[]);
             let allowed = match role {
@@ -967,6 +1018,11 @@ impl<'a> Collector<'a> {
                 Role::Prototype => {
                     uses.iter().all(|p| matches!(p, Position::Operator))
                         && prototype_calls.get(id).copied().unwrap_or(0) == uses.len()
+                }
+                // Every use of a key is inside an accessor or the constructor.
+                Role::Key => {
+                    uses.iter().all(|p| matches!(p, Position::DescriptorUse))
+                        && key_uses.get(id).copied().unwrap_or(0) == uses.len()
                 }
             };
             let exported = match self.exports {
@@ -1039,7 +1095,7 @@ impl<'a> Collector<'a> {
             self.facts.known.remove(id);
         }
         for &(lambda, getter, field, set) in &self.accessor_candidates {
-            if let Some(&Known::Struct(ty, StructPiece::GetterPrototype)) =
+            if let Some(&Known::Struct(ty, StructPiece::GetterPrototype | StructPiece::Key)) =
                 self.facts.known.get(&getter)
             {
                 if field < self.facts.structs[ty].fields {
@@ -1050,7 +1106,7 @@ impl<'a> Collector<'a> {
             }
         }
         for &(lambda, descriptor, call) in &self.constructor_candidates {
-            if let Some(&Known::Struct(ty, StructPiece::Descriptor)) =
+            if let Some(&Known::Struct(ty, StructPiece::Descriptor | StructPiece::Key)) =
                 self.facts.known.get(&descriptor)
             {
                 if self.facts.arity.get(&lambda) == Some(&(self.facts.structs[ty].fields, false)) {
@@ -1676,7 +1732,10 @@ impl<'a> Inference<'a> {
                         }
                     }
                     // Calling these raises, but nothing else is claimed.
-                    StructPiece::Table | StructPiece::Descriptor | StructPiece::Getters => Ty::TOP,
+                    StructPiece::Table
+                    | StructPiece::Descriptor
+                    | StructPiece::Getters
+                    | StructPiece::Key => Ty::TOP,
                 }
             }
             Callee::Lambda(lambda) => {
@@ -1762,9 +1821,10 @@ impl<'a> Inference<'a> {
                     StructPiece::Constructor => self.facts.structs[*ty].fields,
                     StructPiece::Predicate | StructPiece::Getter(_) => 1,
                     StructPiece::GetterPrototype => 2,
-                    StructPiece::Table | StructPiece::Descriptor | StructPiece::Getters => {
-                        return None
-                    }
+                    StructPiece::Table
+                    | StructPiece::Descriptor
+                    | StructPiece::Getters
+                    | StructPiece::Key => return None,
                 };
                 (count != expected).then(|| format!("{expected} {}", plural(expected)))
             }
@@ -1853,11 +1913,13 @@ impl<'a> Inference<'a> {
         operator: &ExprKind,
         args: &[ExprKind],
     ) -> Option<usize> {
-        if operator_name(Some(operator))? != "#%make-mutable-struct"
-            || self
-                .facts
-                .constructor_bodies
-                .contains(&list.syntax_object_id)
+        if !matches!(
+            operator_name(Some(operator))?,
+            "#%make-mutable-struct" | "#%mstruct"
+        ) || self
+            .facts
+            .constructor_bodies
+            .contains(&list.syntax_object_id)
         {
             return None;
         }
@@ -1869,7 +1931,7 @@ impl<'a> Inference<'a> {
             .known
             .get(&reference(self.analysis, descriptor)?)?
         {
-            Known::Struct(ty, StructPiece::Descriptor) => Some(*ty),
+            Known::Struct(ty, StructPiece::Descriptor | StructPiece::Key) => Some(*ty),
             _ => None,
         }
     }
@@ -1893,8 +1955,10 @@ impl<'a> Inference<'a> {
             _ => None,
         };
         match (operator_name(Some(operator))?, args) {
-            ("#%make-mutable-struct", [descriptor, ..]) => match known(descriptor)? {
-                Known::Struct(ty, StructPiece::Descriptor) => Some(Ty::structure(ty)),
+            ("#%make-mutable-struct" | "#%mstruct", [descriptor, ..]) => match known(descriptor)? {
+                Known::Struct(ty, StructPiece::Descriptor | StructPiece::Key) => {
+                    Some(Ty::structure(ty))
+                }
                 _ => None,
             },
             ("list-ref", [table, _]) => match known(table)? {

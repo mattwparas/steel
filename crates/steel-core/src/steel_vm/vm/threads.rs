@@ -1092,6 +1092,10 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 
     let func = args[0].clone();
 
+    // The new thread can reach what this one can, so from here on nothing
+    // uses a cell without its lock. This has to come before the thread starts.
+    crate::values::closed::share_cells();
+
     // TODO: Continuations should not cross thread barriers.
     // Install continuation barriers here?
 

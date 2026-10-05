@@ -818,11 +818,12 @@ mod expansion_tests {
         assert!(b.inner.weak_count() <= 3, "B: {}", b.inner.weak_count());
 
         for name in ["P", "CHAIN"] {
-            let crate::rvals::SteelVal::CustomStruct(s) = engine.extract_value(name).unwrap()
-            else {
-                panic!("{name} is a struct")
+            let count = match engine.extract_value(name).unwrap() {
+                crate::rvals::SteelVal::CustomStruct(s) => s.strong_count(),
+                crate::rvals::SteelVal::MutableStruct(s) => s.strong_count(),
+                _ => panic!("{name} is a struct"),
             };
-            assert!(s.strong_count() <= 3, "{name}: {}", s.strong_count());
+            assert!(count <= 3, "{name}: {count}");
         }
     }
 

@@ -67,6 +67,10 @@ impl CycleDetector {
                     let ptr_addr = c.as_ptr() as usize;
                     self.cycles.get(&(ptr_addr, 0)).unwrap()
                 }
+                SteelVal::MutableStruct(c) => {
+                    let ptr_addr = c.as_ptr() as usize;
+                    self.cycles.get(&(ptr_addr, 0)).unwrap()
+                }
                 SteelVal::HeapAllocated(b) => {
                     // Get the object that THIS points to
                     let ptr_addr = b.get().as_ptr_usize().unwrap();
@@ -309,6 +313,24 @@ impl CycleDetector {
                     }
                 }
             },
+            MutableStruct(s) => {
+                if let (FormatType::Normal, Some(id)) =
+                    (&format_type, self.cycles.get(&(s.as_ptr() as usize, 0)))
+                {
+                    write!(f, "#{id}#")
+                } else if s.is_transparent() {
+                    write!(f, "({}", s.name())?;
+
+                    for i in s.fields().iter() {
+                        write!(f, " ")?;
+                        self.format_with_cycles(i, f, FormatType::Normal)?;
+                    }
+
+                    write!(f, ")")
+                } else {
+                    write!(f, "({})", s.name())
+                }
+            }
             PortV(port) => write!(f, "{}", port),
             Closure(_) => write!(f, "#<bytecode-closure>"),
             HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
@@ -479,6 +501,10 @@ impl SteelCycleCollector {
     pub fn get(&self, node: SteelVal) -> Option<usize> {
         match node {
             SteelVal::CustomStruct(c) => {
+                let ptr_addr = (c.as_ptr() as usize, 0);
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::MutableStruct(c) => {
                 let ptr_addr = (c.as_ptr() as usize, 0);
                 self.cycles.get(&ptr_addr)
             }
@@ -658,6 +684,22 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         ) {
             for value in steel_struct.fields().iter() {
                 self.push_back(value.clone())
+            }
+        }
+    }
+
+    fn visit_mutable_struct(
+        &mut self,
+        steel_struct: crate::values::structs::MutableStructRef,
+    ) -> Self::Output {
+        self.found_mutable = true;
+
+        if !self.add(
+            (steel_struct.as_ptr() as usize, 0),
+            &SteelVal::MutableStruct(steel_struct.clone()),
+        ) {
+            for value in steel_struct.fields() {
+                self.push_back(value)
             }
         }
     }
@@ -1059,6 +1101,12 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
+    // The last handle going away empties the struct itself, and hands what
+    // it held to this same work list once that nests deeply.
+    fn visit_mutable_struct(&mut self, steel_struct: crate::values::structs::MutableStructRef) {
+        drop(steel_struct);
+    }
+
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) {
         if let Ok(inner) = transducer.try_unwrap() {
             for transducer in inner.ops {
@@ -1250,6 +1298,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                MutableStruct(c) => self.visit_mutable_struct(c),
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1444,6 +1493,12 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
         }
     }
 
+    // The last handle going away empties the struct itself, and hands what
+    // it held to this same work list once that nests deeply.
+    fn visit_mutable_struct(&mut self, steel_struct: crate::values::structs::MutableStructRef) {
+        drop(steel_struct);
+    }
+
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) {
         if let Ok(inner) = transducer.try_unwrap() {
             for transducer in inner.ops {
@@ -1631,6 +1686,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                MutableStruct(c) => self.visit_mutable_struct(c),
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1704,6 +1760,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                MutableStruct(c) => self.visit_mutable_struct(c),
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1747,6 +1804,10 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: StructRef) -> Self::Output;
+    fn visit_mutable_struct(
+        &mut self,
+        steel_struct: crate::values::structs::MutableStructRef,
+    ) -> Self::Output;
     fn visit_port(&mut self, port: SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
@@ -1808,6 +1869,7 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                MutableStruct(c) => self.visit_mutable_struct(c),
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1851,6 +1913,10 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: StructRef) -> Self::Output;
+    fn visit_mutable_struct(
+        &mut self,
+        steel_struct: crate::values::structs::MutableStructRef,
+    ) -> Self::Output;
     fn visit_port(&mut self, port: SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
@@ -1912,6 +1978,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                MutableStruct(c) => self.visit_mutable_struct(c),
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1956,6 +2023,10 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_hash_map(&mut self, hashmap: &'a SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: &'a SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: &'a StructRef) -> Self::Output;
+    fn visit_mutable_struct(
+        &mut self,
+        steel_struct: &'a crate::values::structs::MutableStructRef,
+    ) -> Self::Output;
     fn visit_port(&mut self, port: &'a SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: &'a Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: &'a Gc<Reducer>) -> Self::Output;
@@ -2002,6 +2073,7 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
                 SteelValPointer::CustomStruct(p) => {
                     self.visit_steel_struct(unsafe { StructRef::fields_from_ptr(p) })
                 }
+                SteelValPointer::MutableStruct(cell) => self.visit_mutable_struct(cell),
                 SteelValPointer::IterV(p) => self.visit_transducer(unsafe { &(*p) }),
                 SteelValPointer::ReducerV(p) => self.visit_reducer(unsafe { &(*p) }),
                 SteelValPointer::StreamV(p) => self.visit_stream(unsafe { &(*p) }),
@@ -2027,6 +2099,10 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
     fn visit_hash_map(&mut self, hashmap: &'a crate::HashMap<SteelVal, SteelVal>) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: &'a crate::HashSet<SteelVal>) -> Self::Output;
     fn visit_steel_struct(&mut self, fields: &'a [SteelVal]) -> Self::Output;
+    fn visit_mutable_struct(
+        &mut self,
+        cell: crate::values::structs::MutableStructCell,
+    ) -> Self::Output;
     fn visit_transducer(&mut self, transducer: &'a Transducer) -> Self::Output;
     fn visit_reducer(&mut self, reducer: &'a Reducer) -> Self::Output;
     fn visit_stream(&mut self, stream: &'a LazyStream) -> Self::Output;
@@ -2485,6 +2561,24 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
+                (MutableStruct(l), MutableStruct(r)) => {
+                    if l.ptr_eq(&r) {
+                        continue;
+                    }
+
+                    if self.should_visit((l.as_ptr() as usize, 0))
+                        && self.should_visit((r.as_ptr() as usize, 0))
+                    {
+                        if l.descriptor() != r.descriptor() || l.len() != r.len() {
+                            return false;
+                        }
+
+                        self.left.visit_mutable_struct(l);
+                        self.right.visit_mutable_struct(r);
+                    }
+
+                    continue;
+                }
                 (CustomStruct(l), CustomStruct(r)) => {
                     // If these are the same object, just continue
                     if l.ptr_eq(&r) {
@@ -2717,6 +2811,15 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
             self.push_back(value.clone());
         }
         // }
+    }
+
+    fn visit_mutable_struct(
+        &mut self,
+        steel_struct: crate::values::structs::MutableStructRef,
+    ) -> Self::Output {
+        for value in steel_struct.fields() {
+            self.push_back(value);
+        }
     }
 
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output {

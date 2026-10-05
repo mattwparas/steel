@@ -82,6 +82,9 @@ impl MetaOperations {
                 SteelVal::CustomStruct(gc) => {
                     Ok(SteelVal::StringV(format!("{:p}", gc.clone()).into()))
                 }
+                SteelVal::MutableStruct(gc) => {
+                    Ok(SteelVal::StringV(format!("{:p}", gc.as_ptr()).into()))
+                }
                 SteelVal::PortV(steel_port) => {
                     Ok(SteelVal::StringV(format!("{:p}", steel_port.port).into()))
                 }

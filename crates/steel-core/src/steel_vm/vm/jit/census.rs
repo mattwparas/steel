@@ -26,6 +26,7 @@ pub(super) fn record_deopt(func: &SteelVal, index: usize, ctx: &VmCore) {
         SteelVal::MutFunc(_) => "MutFunc",
         SteelVal::BoxedFunction(_) => "BoxedFunction",
         SteelVal::CustomStruct(_) => "CustomStruct",
+        SteelVal::MutableStruct(_) => "MutableStruct",
         SteelVal::ContinuationFunction(_) => "ContinuationFunction",
         _ => "other",
     };

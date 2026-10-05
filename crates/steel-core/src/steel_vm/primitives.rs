@@ -476,6 +476,11 @@ pub fn bootstrap_globals(engine: &mut Engine) {
         "#%make-mutable-struct",
         SteelVal::BuiltIn(make_mutable_struct),
     );
+    engine
+        .register_value("#%mstruct", SteelVal::BuiltIn(make_packed_struct))
+        .register_value("#%mstruct-ref", SteelVal::FuncV(packed_struct_ref))
+        .register_value("#%mstruct-set!", SteelVal::FuncV(packed_struct_set))
+        .register_value("#%struct-type-key", SteelVal::FuncV(struct_type_key));
 
     engine.register_fn("#%void", || SteelVal::Void);
 
@@ -1225,10 +1230,10 @@ pub fn voidp(value: &SteelVal) -> bool {
 
 #[steel_derive::function(name = "struct?", constant = true, args(Any), raises = Never)]
 pub fn structp(value: &SteelVal) -> bool {
-    if let SteelVal::CustomStruct(s) = value {
-        s.is_transparent()
-    } else {
-        false
+    match value {
+        SteelVal::CustomStruct(s) => s.is_transparent(),
+        SteelVal::MutableStruct(s) => s.is_transparent(),
+        _ => false,
     }
 }
 
@@ -1244,7 +1249,10 @@ pub fn portp(value: &SteelVal) -> bool {
     raises = Never
 )]
 pub fn private_structp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::CustomStruct(_))
+    matches!(
+        value,
+        SteelVal::CustomStruct(_) | SteelVal::MutableStruct(_)
+    )
 }
 
 #[steel_derive::function(
@@ -1302,6 +1310,10 @@ pub fn functionp(value: &SteelVal) -> bool {
 pub fn procedurep(value: &SteelVal) -> bool {
     if let SteelVal::CustomStruct(s) = value {
         return s.maybe_proc().map(|x| procedurep(x)).unwrap_or(false);
+    }
+
+    if let SteelVal::MutableStruct(s) = value {
+        return s.maybe_proc().map(|x| procedurep(&x)).unwrap_or(false);
     }
 
     matches!(
@@ -2316,6 +2328,178 @@ pub(crate) fn make_mutable_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     Some(make_mutable_struct_from_args(ctx, args))
 }
 
+/// Builds a mutable struct with its fields inline. `args` is the descriptor
+/// followed by the fields.
+#[steel_derive::context(name = "#%mstruct", arity = AtLeast(1))]
+pub(crate) fn make_packed_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn inner(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let Some((descriptor, fields)) = args.split_first() else {
+            stop!(ArityMismatch => "#%mstruct expects a struct type descriptor");
+        };
+
+        let descriptor = StructTypeDescriptor::from_key_value(descriptor)?;
+        let fields: smallvec::SmallVec<[SteelVal; 8]> = fields.iter().cloned().collect();
+
+        Ok(make_packed_struct_known(ctx, descriptor, fields))
+    }
+
+    Some(inner(ctx, args))
+}
+
+/// `#%mstruct` for a caller that owns the arguments, which are the type's key
+/// followed by the fields.
+pub(crate) fn make_packed_struct_from_owned(
+    ctx: &mut VmCore,
+    mut args: smallvec::SmallVec<[SteelVal; 8]>,
+) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "#%mstruct expects a struct type key");
+    }
+
+    let descriptor = StructTypeDescriptor::from_key_value(&args[0])?;
+    args.remove(0);
+
+    Ok(make_packed_struct_known(ctx, descriptor, args))
+}
+
+/// `(#%struct-type-key descriptor)`. The accessors of a mutable struct name
+/// their type by this, which they can compare without unwrapping anything.
+pub(crate) fn struct_type_key(args: &[SteelVal]) -> Result<SteelVal> {
+    let [descriptor] = args else {
+        stop!(ArityMismatch => "#%struct-type-key expects 1 argument, found: {}", args.len());
+    };
+
+    Ok(SteelVal::IntV(
+        StructTypeDescriptor::from_steelval(descriptor)?.key() as isize,
+    ))
+}
+
+/// A mutable struct of a known type, for a caller that owns the fields.
+#[inline]
+pub(crate) fn make_packed_struct_known<V>(
+    ctx: &mut VmCore,
+    descriptor: StructTypeDescriptor,
+    fields: V,
+) -> SteelVal
+where
+    V: AsRef<[SteelVal]> + IntoIterator<Item = SteelVal>,
+    V::IntoIter: ExactSizeIterator,
+{
+    // See `make_mutable_struct_known` for why the lock is tried first.
+    {
+        let free = ctx.thread.heap.try_lock();
+        if let Some(mut heap) = free {
+            let value = heap.allocate_mutable_struct(
+                descriptor,
+                fields,
+                &ctx.thread.stack,
+                ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+                ctx.thread.global_env.roots(),
+                &ctx.thread.thread_local_storage,
+                &mut ctx.thread.synchronizer,
+            );
+            return SteelVal::MutableStruct(value);
+        }
+    }
+
+    let mut heap = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+    let value = heap.allocate_mutable_struct(
+        descriptor,
+        fields,
+        &ctx.thread.stack,
+        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+        ctx.thread.global_env.roots(),
+        &ctx.thread.thread_local_storage,
+        &mut ctx.thread.synchronizer,
+    );
+
+    SteelVal::MutableStruct(value)
+}
+
+// The struct of an accessor call, once it is known to be of the type the
+// accessor was made for and to have the field.
+#[inline]
+fn packed_struct_field<'a>(
+    name: &str,
+    descriptor: StructTypeDescriptor,
+    value: &'a SteelVal,
+    index: usize,
+) -> Result<&'a crate::values::structs::MutableStructRef> {
+    let SteelVal::MutableStruct(s) = value else {
+        stop!(TypeMismatch => "{} expected a {}, found: {}", name, descriptor.name().resolve(), value);
+    };
+
+    if s.descriptor() != descriptor {
+        stop!(TypeMismatch => "{} expected a {}, found: {}", name, descriptor.name().resolve(), value);
+    }
+
+    if index >= s.len() {
+        stop!(Generic => "{}: {} - index out of bounds: {}", name, descriptor.name().resolve(), index);
+    }
+
+    Ok(s)
+}
+
+fn packed_struct_index(name: &str, index: &SteelVal) -> Result<usize> {
+    match index {
+        SteelVal::IntV(i) if *i >= 0 => Ok(*i as usize),
+        _ => stop!(TypeMismatch => "{} expected a non negative index, found: {}", name, index),
+    }
+}
+
+/// The field `index` of `value`, a mutable struct of the type `descriptor`.
+#[inline]
+pub(crate) fn packed_struct_ref_known(
+    descriptor: StructTypeDescriptor,
+    value: &SteelVal,
+    index: usize,
+) -> Result<SteelVal> {
+    let s = packed_struct_field("#%mstruct-ref", descriptor, value, index)?;
+
+    Ok(s.get_index(index).unwrap_or(SteelVal::Void))
+}
+
+/// Stores `new` in the field `index` of `value`, and returns what it held.
+#[inline]
+pub(crate) fn packed_struct_set_known(
+    descriptor: StructTypeDescriptor,
+    value: &SteelVal,
+    index: usize,
+    new: SteelVal,
+) -> Result<SteelVal> {
+    let s = packed_struct_field("#%mstruct-set!", descriptor, value, index)?;
+
+    Ok(s.set_index(index, new).unwrap_or(SteelVal::Void))
+}
+
+/// `(#%mstruct-ref descriptor struct index)`, the field of a mutable struct.
+pub(crate) fn packed_struct_ref(args: &[SteelVal]) -> Result<SteelVal> {
+    let [descriptor, value, index] = args else {
+        stop!(ArityMismatch => "#%mstruct-ref expects 3 arguments, found: {}", args.len());
+    };
+
+    packed_struct_ref_known(
+        StructTypeDescriptor::from_key_value(descriptor)?,
+        value,
+        packed_struct_index("#%mstruct-ref", index)?,
+    )
+}
+
+/// `(#%mstruct-set! descriptor struct index value)`. Returns what the field
+/// held.
+pub(crate) fn packed_struct_set(args: &[SteelVal]) -> Result<SteelVal> {
+    let [descriptor, value, index, new] = args else {
+        stop!(ArityMismatch => "#%mstruct-set! expects 4 arguments, found: {}", args.len());
+    };
+
+    packed_struct_set_known(
+        StructTypeDescriptor::from_key_value(descriptor)?,
+        value,
+        packed_struct_index("#%mstruct-set!", index)?,
+        new.clone(),
+    )
+}
+
 /// Like `make_mutable_struct_from_args`, for a caller that owns the arguments
 /// (the jit's constructor helpers), so the fields are moved into their boxes
 /// instead of cloned.
@@ -2526,12 +2710,16 @@ pub fn black_box(a: &[SteelVal]) -> Result<SteelVal> {
 }
 
 #[steel_derive::function(name = "struct->list")]
-pub fn struct_to_list(value: &StructRef) -> Result<SteelVal> {
-    if value.is_transparent() {
-        // Ok(SteelVal::ListV((*value.fields).clone().into()))
-        Ok(SteelVal::ListV(value.fields().iter().cloned().collect()))
-    } else {
-        Ok(SteelVal::BoolV(false))
+pub fn struct_to_list(value: &SteelVal) -> Result<SteelVal> {
+    match value {
+        SteelVal::CustomStruct(value) if value.is_transparent() => {
+            Ok(SteelVal::ListV(value.fields().iter().cloned().collect()))
+        }
+        SteelVal::MutableStruct(value) if value.is_transparent() => {
+            Ok(SteelVal::ListV(value.fields().into_iter().collect()))
+        }
+        SteelVal::CustomStruct(_) | SteelVal::MutableStruct(_) => Ok(SteelVal::BoolV(false)),
+        _ => stop!(TypeMismatch => "struct->list expects a struct, found: {}", value),
     }
 }
 
@@ -2642,7 +2830,15 @@ fn meta_module() -> BuiltInModule {
         .register_value("futures-join-all", MetaOperations::join_futures())
         .register_fn(
             "#%struct-property-ref",
-            |value: &StructRef, key: SteelVal| StructRef::get(value, &key),
+            |value: SteelVal, key: SteelVal| -> Result<Option<SteelVal>> {
+                match &value {
+                    SteelVal::CustomStruct(s) => Ok(StructRef::get(s, &key)),
+                    SteelVal::MutableStruct(s) => Ok(s.get_property(&key)),
+                    _ => {
+                        stop!(TypeMismatch => "#%struct-property-ref expects a struct, found: {}", value)
+                    }
+                }
+            },
         )
         .register_native_fn_definition(STRUCT_TO_LIST_DEFINITION)
         .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
@@ -2730,6 +2926,13 @@ fn meta_module() -> BuiltInModule {
             "#%make-mutable-struct",
             SteelVal::BuiltIn(make_mutable_struct),
         )
+        .register_value("#%mstruct", SteelVal::BuiltIn(make_packed_struct))
+        .register_value("#%mstruct-ref", SteelVal::FuncV(packed_struct_ref))
+        .register_value("#%mstruct-set!", SteelVal::FuncV(packed_struct_set))
+        .register_value("#%struct-type-key", SteelVal::FuncV(struct_type_key))
+        .register_fn("#%packed-mutable-structs?", || {
+            crate::config::config().packed_mutable_structs
+        })
         .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
         .register_native_fn_definition(MAKE_MUTABLE_BOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_MUTABLE_DEFINITION)

@@ -1068,6 +1068,99 @@ helper_family! {
     }
 }
 
+// `#%mstruct` with a descriptor the jit baked in. It cannot fail.
+helper_family! {
+    CallPackedStructKnownDefinitions, mod call_packed_struct_known,
+    names "call_packed_struct_known_" "",
+    add_func fn(ctx: *mut VmCore, descriptor: usize) -> SteelVal,
+    arities [0 1 2 3 4 5 6 7 8],
+    |args| {
+        let guard = unsafe { &mut *ctx };
+        crate::steel_vm::primitives::make_packed_struct_known(
+            guard,
+            crate::values::structs::StructTypeDescriptor::from_key(descriptor),
+            args,
+        )
+    }
+}
+
+// `#%mstruct` when the type isn't known at compile time. The first argument
+// is the type's key. On an error the frame is handed back to the interpreter
+// at `fallback_ip`.
+helper_family! {
+    CallPackedStructConstructorsDefinitions, mod call_packed_struct_constructor,
+    names "call_packed_struct_constructor_" "",
+    add_func fn(ctx: *mut VmCore, fallback_ip: usize) -> SteelVal,
+    arities [1 2 3 4 5 6 7 8],
+    |args| {
+        let guard = unsafe { &mut *ctx };
+        let args: smallvec::SmallVec<[SteelVal; 8]> = args.into_iter().collect();
+        match crate::steel_vm::primitives::make_packed_struct_from_owned(guard, args) {
+            Ok(v) => v,
+            Err(e) => {
+                guard.ip = fallback_ip;
+                guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+                guard.is_native = false;
+                SteelVal::Void
+            }
+        }
+    }
+}
+
+// The out of line arm of an inlined `#%mstruct-ref`: a struct another thread
+// can reach, which needs its lock, or an argument of the wrong type. `value`
+// is only lent, so it is not dropped here.
+#[cross_platform_fn]
+fn mstruct_ref_slow(
+    ctx: *mut VmCore,
+    descriptor: usize,
+    value: SteelVal,
+    index: usize,
+) -> SteelVal {
+    let this = unsafe { &mut *ctx };
+    let value = core::mem::ManuallyDrop::new(value);
+
+    match crate::steel_vm::primitives::packed_struct_ref_known(
+        crate::values::structs::StructTypeDescriptor::from_key(descriptor),
+        &value,
+        index,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            this.is_native = false;
+            this.result = Some(Err(e.set_span_if_none(this.current_span())));
+            SteelVal::Void
+        }
+    }
+}
+
+// The same for `#%mstruct-set!`. `new` is handed over.
+#[cross_platform_fn]
+fn mstruct_set_slow(
+    ctx: *mut VmCore,
+    descriptor: usize,
+    value: SteelVal,
+    index: usize,
+    new: SteelVal,
+) -> SteelVal {
+    let this = unsafe { &mut *ctx };
+    let value = core::mem::ManuallyDrop::new(value);
+
+    match crate::steel_vm::primitives::packed_struct_set_known(
+        crate::values::structs::StructTypeDescriptor::from_key(descriptor),
+        &value,
+        index,
+        new,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            this.is_native = false;
+            this.result = Some(Err(e.set_span_if_none(this.current_span())));
+            SteelVal::Void
+        }
+    }
+}
+
 // `mutable-vector` in tail position, called directly from jitted code. It is a
 // `BuiltIn`, so otherwise every `(vector a b c)` goes through the generic tail
 // call handler and deopts to the interpreter.

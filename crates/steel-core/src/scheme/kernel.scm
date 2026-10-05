@@ -301,6 +301,14 @@
     (define getter-proto-gensym (gensym))
     (define getter-proto-list-gensym (gensym))
     (define struct-prop-name-gensym (gensym))
+    (define struct-key-gensym (gensym))
+
+    ;; A mutable struct keeps its fields inline, unless that has been turned
+    ;; off, in which case each field is a box.
+    (define make-mutable (if (#%packed-mutable-structs?) '#%mstruct '#%make-mutable-struct))
+    ;; The inline kind names its type by key, the boxed kind by descriptor.
+    (define mutable-type
+      (if (#%packed-mutable-structs?) struct-key-gensym struct-prop-name-gensym))
 
     `(begin
        (define ,struct-proto-gensym
@@ -317,6 +325,7 @@
          (#%prim.hash ,@(option-arguments options-map option-keys)))
 
        (define ,struct-prop-name ,struct-prop-name-gensym)
+       (define ,struct-key-gensym (#%struct-type-key ,struct-prop-name-gensym))
        (#%vtable-update-entry! ,struct-prop-name-gensym ,maybe-procedure-field ,struct-options-name)
        (if ,(not (bool? maybe-finalizer))
            (#%start-will-executor)
@@ -328,14 +337,13 @@
                 `(define ,struct-name
                    (lambda ,fields
                      ;; TODO: Put the right thing on here
-                     (#%register-struct-finalizer (#%make-mutable-struct ,struct-prop-name-gensym
-                                                                         ,@fields)
+                     (#%register-struct-finalizer (,make-mutable ,mutable-type ,@fields)
                                                   ,maybe-finalizer)))
 
                 `(define ,struct-name
                    (lambda ,fields
                      ;; TODO: Put the right thing on here
-                     (#%make-mutable-struct ,struct-prop-name-gensym ,@fields))))
+                     (,make-mutable ,mutable-type ,@fields))))
 
             (if maybe-finalizer
                 `(define ,struct-name
@@ -345,13 +353,17 @@
 
                 `(define ,struct-name ,constructor-proto-gensym)))
        ,(new-make-predicate struct-predicate predicate-proto-gensym)
-       ,@(if mutable?
-             (mutable-make-getters struct-name fields getter-proto-gensym)
-             (new-make-getters struct-name fields getter-proto-list-gensym))
+       ,@(cond
+           [(not mutable?) (new-make-getters struct-name fields getter-proto-list-gensym)]
+           [(#%packed-mutable-structs?)
+            (packed-make-getters struct-name fields struct-key-gensym)]
+           [else (mutable-make-getters struct-name fields getter-proto-gensym)])
        ;; If this is a mutable struct, generate the setters
-       ,@(if mutable?
-             (mutable-make-setters struct-name fields getter-proto-gensym)
-             (list))
+       ,@(cond
+           [(not mutable?) (list)]
+           [(#%packed-mutable-structs?)
+            (packed-make-setters struct-name fields struct-key-gensym)]
+           [else (mutable-make-setters struct-name fields getter-proto-gensym)])
        void)))
 
 (define (new-make-predicate struct-predicate-name predicate-proto-gensym)
@@ -368,6 +380,21 @@
          `(define ,(concat-symbols 'set- struct-name '- (car field) '!)
             (lambda (this value)
               (#%set-box! (,getter-proto-gensym this ,(#%prim.list-ref field 1)) value))))
+       (enumerate 0 '() fields)))
+
+;; The accessors of a struct with its fields inline. They name the type, so
+;; the access checks the struct against it.
+(define (packed-make-getters struct-name fields key-gensym)
+  (map (lambda (field)
+         `(define ,(concat-symbols struct-name '- (car field))
+            (lambda (this) (#%mstruct-ref ,key-gensym this ,(#%prim.list-ref field 1)))))
+       (enumerate 0 '() fields)))
+
+(define (packed-make-setters struct-name fields key-gensym)
+  (map (lambda (field)
+         `(define ,(concat-symbols 'set- struct-name '- (car field) '!)
+            (lambda (this value)
+              (#%mstruct-set! ,key-gensym this ,(#%prim.list-ref field 1) value))))
        (enumerate 0 '() fields)))
 
 (define (new-make-getters struct-name fields getter-proto-list-gensym)

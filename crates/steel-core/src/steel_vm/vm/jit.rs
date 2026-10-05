@@ -384,14 +384,17 @@ fn sparse_globals_snapshot(
     let mut copy = |index: usize| {
         if let Some(value) = roots.get(index) {
             // A struct type descriptor too, which a mutable struct constructor
-            // bakes in.
+            // bakes in, and an integer, which is how the accessors of a struct
+            // with inline fields name its type.
             let wanted = match value {
-                SteelVal::Closure(_)
+                SteelVal::IntV(_)
+                | SteelVal::Closure(_)
                 | SteelVal::FuncV(_)
                 | SteelVal::MutFunc(_)
                 | SteelVal::BoxedFunction(_)
                 | SteelVal::BuiltIn(_)
-                | SteelVal::CustomStruct(_) => true,
+                | SteelVal::CustomStruct(_)
+                | SteelVal::MutableStruct(_) => true,
                 SteelVal::Custom(_) => is_struct_descriptor(value),
                 _ => false,
             };

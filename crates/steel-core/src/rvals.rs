@@ -1029,6 +1029,9 @@ pub enum SerializableSteelVal {
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
     HeapAllocatedVector(usize),
+    // A mutable struct, by its address. The fields are in the serialized
+    // heap under that key, so two references to one struct stay one struct.
+    MutableStruct(usize),
     // Ports can't really be serialized either?
     Port(SendablePort),
     Rational(Rational32),
@@ -1061,6 +1064,7 @@ impl std::fmt::Debug for SerializableSteelVal {
             SerializableSteelVal::VectorV(x) => write!(f, "{:?}", x),
             SerializableSteelVal::ByteVectorV(items) => write!(f, "{:?}", items),
             SerializableSteelVal::SymbolV(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::MutableStruct(x) => write!(f, "#<mutable-struct {:x}>", x),
             SerializableSteelVal::CustomStruct(x) => write!(f, "{:?}", x),
             SerializableSteelVal::HeapAllocated(x) => write!(f, "{:?}", x),
             SerializableSteelVal::Rational(x) => write!(f, "{:?}", x),
@@ -1212,6 +1216,41 @@ pub fn from_serializable_value(
                 },
                 type_descriptor: s.type_descriptor,
             })))
+        }
+        SerializableSteelVal::MutableStruct(key) => {
+            let record = match ctx.fake_heap.get_mut(&key) {
+                Some(SerializedHeapRef::Closed(built)) => return Ok(built.get()),
+                Some(SerializedHeapRef::Serialized(value)) => value.take(),
+                None => None,
+            };
+
+            let Some(SerializableSteelVal::CustomStruct(record)) = record else {
+                stop!(Generic => "a mutable struct was sent without its fields");
+            };
+
+            // The struct exists before its fields do, so a field that
+            // refers back to it finds it.
+            let handle = ctx
+                .thread
+                .heap
+                .lock()
+                .allocate_mutable_struct_without_collection(
+                    record.type_descriptor,
+                    core::iter::repeat_n(SteelVal::Void, record.fields.len()),
+                );
+            let built = ctx
+                .thread
+                .heap
+                .lock()
+                .allocate_without_collection(SteelVal::MutableStruct(handle.clone()));
+            ctx.fake_heap.insert(key, SerializedHeapRef::Closed(built));
+
+            for (index, field) in record.fields.into_iter().enumerate() {
+                let field = from_serializable_value(ctx, field)?;
+                handle.set_index(index, field);
+            }
+
+            Ok(SteelVal::MutableStruct(handle))
         }
         SerializableSteelVal::HeapAllocated(v) => {
             if let Some(mut guard) = ctx.fake_heap.get_mut(&v) {
@@ -1501,6 +1540,31 @@ pub fn into_serializable_value(
 
         SteelVal::PortV(p) => SendablePort::from_port(p).map(SerializableSteelVal::Port),
         // SteelVal::PortV(p) => Ok(SerializableSteelVal::Void),
+        SteelVal::MutableStruct(s) => {
+            let key = s.as_ptr() as usize;
+
+            // A struct seen before is already on its way, or being built
+            // further up this same walk.
+            if ctx.visited.insert(key) {
+                ctx.reachable_structs.insert(s.descriptor());
+
+                let fields = s
+                    .fields()
+                    .into_iter()
+                    .map(|x| into_serializable_value(x, ctx))
+                    .collect::<Result<Vec<_>>>()?;
+
+                ctx.serialized_heap.insert(
+                    key,
+                    SerializableSteelVal::CustomStruct(SerializableUserDefinedStruct {
+                        fields,
+                        type_descriptor: s.descriptor(),
+                    }),
+                );
+            }
+
+            Ok(SerializableSteelVal::MutableStruct(key))
+        }
 
         // If there is a cycle, this could cause problems?
         SteelVal::HeapAllocated(h) => {
@@ -1774,6 +1838,9 @@ pub enum SteelVal {
     // immutable and so can't form a cycle, which is why it is reference counted
     // and not registered with the collector.
     FlatVector(Gc<steel_vec::Vec<SteelVal>>),
+    // A struct whose fields can be assigned. Laid out like CustomStruct, but
+    // owned by the heap, since assignment can make a cycle.
+    MutableStruct(crate::values::structs::MutableStructRef),
 }
 
 impl Clone for SteelVal {
@@ -1795,6 +1862,7 @@ impl Clone for SteelVal {
             HashMapV(steel_hash_map) => SteelVal::HashMapV(steel_hash_map.clone()),
             HashSetV(steel_hash_set) => SteelVal::HashSetV(steel_hash_set.clone()),
             CustomStruct(gc) => SteelVal::CustomStruct(gc.clone()),
+            MutableStruct(s) => SteelVal::MutableStruct(s.clone()),
             PortV(steel_port) => SteelVal::PortV(steel_port.clone()),
             IterV(gc) => SteelVal::IterV(gc.clone()),
             ReducerV(gc) => SteelVal::ReducerV(gc.clone()),
@@ -1841,6 +1909,7 @@ pub(crate) enum SteelValPointer {
     HashMapV(*const HashMap<SteelVal, SteelVal>),
     HashSetV(*const HashSet<SteelVal>),
     CustomStruct(*const u8),
+    MutableStruct(crate::values::structs::MutableStructCell),
     IterV(*const Transducer),
     ReducerV(*const Reducer),
     StreamV(*const LazyStream),
@@ -1869,6 +1938,7 @@ impl SteelValPointer {
             HashMapV(steel_hash_map) => Some(Self::HashMapV(steel_hash_map.0.as_ptr())),
             HashSetV(steel_hash_set) => Some(Self::HashSetV(steel_hash_set.0.as_ptr())),
             CustomStruct(gc) => Some(Self::CustomStruct(gc.as_ptr())),
+            MutableStruct(s) => Some(Self::MutableStruct(s.cell())),
             IterV(gc) => Some(Self::IterV(gc.as_ptr())),
             ReducerV(gc) => Some(Self::ReducerV(gc.as_ptr())),
             StreamV(gc) => Some(Self::StreamV(gc.as_ptr())),
@@ -2064,6 +2134,7 @@ impl SteelVal {
             // ContinuationFunction(_) => todo!(),
             ListV(l) => Some(l.as_ptr_usize()),
             MutableVector(v) => Some(v.as_ptr_usize()),
+            MutableStruct(s) => Some(s.as_ptr() as usize),
             Custom(c) => Some(c.as_ptr() as usize),
             // BoxedIterator(_) => todo!(),
             // SteelVal::SyntaxObject(_) => todo!(),
@@ -2334,6 +2405,7 @@ impl SteelVal {
             (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
             (MutableVector(l), MutableVector(r)) => HeapRef::ptr_eq(l, r),
+            (MutableStruct(l), MutableStruct(r)) => l.ptr_eq(r),
             (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
             (ByteVector(l), ByteVector(r)) => Gc::ptr_eq(&l.vec, &r.vec),
             (Pair(l), Pair(r)) => Gc::ptr_eq(l, r),
@@ -2439,6 +2511,12 @@ impl Hash for SteelVal {
             HashMapV(hm) => hm.hash(state),
             HashSetV(hs) => hs.hash(state),
             CustomStruct(s) => s.hash(state),
+            MutableStruct(s) => {
+                s.descriptor().hash(state);
+                for field in s.fields() {
+                    field.hash(state);
+                }
+            }
             PortV(port) => port.hash(state),
             IterV(s) => s.hash(state),
             ReducerV(r) => r.hash(state),
@@ -2758,8 +2836,10 @@ impl SteelVal {
     pub const COMPLEX_TAG: u8 = 35;
     pub const BYTEVECTOR_TAG: u8 = 36;
     pub const FLAT_VECTOR_TAG: u8 = 37;
+    pub const MUTABLE_STRUCT_TAG: u8 = 38;
 
-    pub const SPECIAL_RC_TAGS: [u8; 25] = [
+    pub const SPECIAL_RC_TAGS: [u8; 26] = [
+        SteelVal::MUTABLE_STRUCT_TAG,
         SteelVal::CLOSURE_TAG,
         SteelVal::VECTOR_TAG,
         SteelVal::STRING_TAG,
@@ -2845,7 +2925,8 @@ impl SteelVal {
         | (1 << SteelVal::BIG_RATIONAL_TAG)
         | (1 << SteelVal::COMPLEX_TAG)
         | (1 << SteelVal::BYTEVECTOR_TAG)
-        | (1 << SteelVal::BOXED_FUNCTION_TAG);
+        | (1 << SteelVal::BOXED_FUNCTION_TAG)
+        | (1 << SteelVal::MUTABLE_STRUCT_TAG);
 
     pub const WEAK_RC_MASK: u64 =
         (1 << SteelVal::HEAP_REF_VECTOR_TAG) | (1 << SteelVal::HEAP_REF_VALUE_TAG);

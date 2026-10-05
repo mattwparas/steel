@@ -41,7 +41,9 @@ use crate::{
     values::{
         functions::{ByteCodeLambda, RootedInstructions},
         lists::{List, SteelList},
-        structs::{create_struct_spec, StructFunctionType, StructTypeDescriptor},
+        structs::{
+            create_struct_spec, MutableStructStorage, StructFunctionType, StructTypeDescriptor,
+        },
     },
     SteelVal,
 };
@@ -572,6 +574,8 @@ impl Default for JIT {
         CallStructConstructorsDefinitions::register(&mut map);
         CallMutableStructConstructorsDefinitions::register(&mut map);
         CallMutableStructKnownDefinitions::register(&mut map);
+        CallPackedStructKnownDefinitions::register(&mut map);
+        CallPackedStructConstructorsDefinitions::register(&mut map);
         CallMutableVectorConstructorsDefinitions::register(&mut map);
 
         CallFlatVectorConstructorsDefinitions::register(&mut map);
@@ -1002,6 +1006,7 @@ enum SpecType {
     List,
     MutableVector,
     Struct(StructTypeDescriptor),
+    MutableStruct(StructTypeDescriptor),
 }
 
 impl SpecType {
@@ -1012,6 +1017,7 @@ impl SpecType {
             Self::List => SteelVal::LIST_TAG,
             Self::MutableVector => SteelVal::HEAP_REF_VECTOR_TAG,
             Self::Struct(_) => SteelVal::STRUCT_TAG,
+            Self::MutableStruct(_) => SteelVal::MUTABLE_STRUCT_TAG,
         }
     }
 
@@ -1022,6 +1028,7 @@ impl SpecType {
             Self::List => InferredType::List,
             Self::MutableVector => InferredType::MutableVector,
             Self::Struct(d) => InferredType::Struct(d),
+            Self::MutableStruct(d) => InferredType::MutableStruct(d),
         }
     }
 
@@ -1057,7 +1064,8 @@ fn emit_slot_type_checks(
         builder.seal_block(next);
         builder.switch_to_block(next);
 
-        if let SpecType::Struct(descriptor) = ty {
+        // Both kinds of struct keep the descriptor at the same offset.
+        if let SpecType::Struct(descriptor) | SpecType::MutableStruct(descriptor) = ty {
             let payload =
                 builder
                     .ins()
@@ -1127,6 +1135,8 @@ fn loop_type_seed(
         Slot(usize),
         IntLit,
         FloatLit,
+        // A global holding an integer, which may be a struct type's key.
+        IntGlobal(isize),
         Other,
     }
     #[derive(Default)]
@@ -1135,6 +1145,7 @@ fn loop_type_seed(
         list: bool,
         vector: bool,
         structs: BTreeSet<StructTypeDescriptor>,
+        mutable_structs: BTreeSet<StructTypeDescriptor>,
         // The body asks what type the slot holds, so it expects more than one.
         type_tested: bool,
     }
@@ -1188,7 +1199,11 @@ fn loop_type_seed(
                 SteelVal::NumV(_) => Entry::FloatLit,
                 _ => Entry::Other,
             }),
-            OpCode::PUSH | OpCode::READCAPTURED | OpCode::TRUE | OpCode::FALSE | OpCode::VOID => {
+            OpCode::PUSH => stack.push(match globals.get(payload) {
+                Some(SteelVal::IntV(i)) => Entry::IntGlobal(*i),
+                _ => Entry::Other,
+            }),
+            OpCode::READCAPTURED | OpCode::TRUE | OpCode::FALSE | OpCode::VOID => {
                 stack.push(Entry::Other)
             }
             OpCode::PASS | OpCode::BEGINSCOPE => {}
@@ -1271,6 +1286,25 @@ fn loop_type_seed(
                         if let (Some(spec), Some(Entry::Slot(k))) = (getter, args.first()) {
                             uses.entry(*k).or_default().structs.insert(spec.descriptor);
                         }
+                        // `(#%mstruct-ref key slot i)` and its setter.
+                        let field_access = matches!(globals.get(payload), Some(SteelVal::FuncV(f))
+                            if [
+                                crate::steel_vm::primitives::packed_struct_ref as FunctionSignature,
+                                crate::steel_vm::primitives::packed_struct_set as FunctionSignature,
+                            ]
+                            .contains(f));
+                        if let (true, [Entry::IntGlobal(key), Entry::Slot(k), ..]) =
+                            (field_access, args.as_slice())
+                        {
+                            if let Ok(descriptor) =
+                                StructTypeDescriptor::from_key_value(&SteelVal::IntV(*key))
+                            {
+                                uses.entry(*k)
+                                    .or_default()
+                                    .mutable_structs
+                                    .insert(descriptor);
+                            }
+                        }
                         // `null?` is a separate opcode and stays compatible, since
                         // the empty list is a list.
                         let is_type_test = n == 1
@@ -1333,8 +1367,9 @@ fn loop_type_seed(
         let kinds = u.numeric as usize
             + u.list as usize
             + u.vector as usize
-            + (!u.structs.is_empty()) as usize;
-        if kinds != 1 || u.structs.len() > 1 {
+            + (!u.structs.is_empty()) as usize
+            + (!u.mutable_structs.is_empty()) as usize;
+        if kinds != 1 || u.structs.len() > 1 || u.mutable_structs.len() > 1 {
             continue;
         }
         let ty = if u.numeric {
@@ -1347,6 +1382,8 @@ fn loop_type_seed(
             SpecType::List
         } else if u.vector {
             SpecType::MutableVector
+        } else if let Some(descriptor) = u.mutable_structs.iter().next() {
+            SpecType::MutableStruct(*descriptor)
         } else {
             SpecType::Struct(*u.structs.iter().next().unwrap())
         };
@@ -2806,6 +2843,8 @@ pub enum InferredType {
 
     // TODO: See if we can lift this out, as it inflates the size
     Struct(StructTypeDescriptor),
+    // A struct of this type with its fields inline.
+    MutableStruct(StructTypeDescriptor),
 
     MutableVector,
 }
@@ -2892,6 +2931,7 @@ impl InferredType {
             Self::List => Some(SteelVal::LIST_TAG),
             Self::MutableVector => Some(SteelVal::HEAP_REF_VECTOR_TAG),
             Self::Struct(_) => Some(SteelVal::STRUCT_TAG),
+            Self::MutableStruct(_) => Some(SteelVal::MUTABLE_STRUCT_TAG),
             _ => None,
         }
     }
@@ -5549,6 +5589,327 @@ impl FunctionTranslator<'_> {
 
         let result = self.call_function_returns_value_args(name, &args);
         self.check_deopt();
+
+        Some(result)
+    }
+
+    /// `#%mstruct`, a mutable struct with its fields inline, as a direct call
+    /// to the allocation when the type is known. Like
+    /// `inline_mutable_struct_call`, operands under the arguments are spilled
+    /// for the collector.
+    fn inline_packed_struct_call(&mut self, arity: usize) -> Option<Value> {
+        let base = self.shadow_stack.len().checked_sub(arity)?;
+
+        let known = match self.shadow_stack.get(base) {
+            Some(&MaybeStackValue::Constant(ConstantValue::Global(index)))
+                if self.global_is_closed(index) =>
+            {
+                self._globals
+                    .get(index)
+                    .and_then(|value| StructTypeDescriptor::from_key_value(value).ok())
+            }
+            _ => None,
+        };
+        let generic = CallPackedStructConstructorsDefinitions::arity_to_name(arity)?;
+
+        for index in 0..base {
+            self.shadow_spill(index);
+        }
+
+        if let (Some(descriptor), Some(name)) = (
+            known,
+            CallPackedStructKnownDefinitions::arity_to_name(arity - 1),
+        ) {
+            self.shadow_stack.remove(base);
+            let mut args = vec![self.i64_const(descriptor.key() as i64)];
+            args.extend(self.split_off(arity - 1).into_iter().map(|x| x.0));
+            return Some(self.call_function_returns_value_args(name, &args));
+        }
+
+        // A struct type made at run time, like one defined inside a function.
+        let fallback_ip = self.i64_const(self.ip as i64);
+        let mut args = vec![fallback_ip];
+        args.extend(self.split_off(arity).into_iter().map(|x| x.0));
+
+        let result = self.call_function_returns_value_args(generic, &args);
+        self.check_deopt();
+
+        Some(result)
+    }
+
+    /// The type and field of a `(#%mstruct-ref key struct index)` or
+    /// `(#%mstruct-set! key struct index value)` call, when both are known
+    /// here: the type's key is a closed global and the index a literal.
+    /// `after` is how many operands follow the index.
+    fn mstruct_access_shape(
+        &self,
+        arity: usize,
+        after: usize,
+    ) -> Option<(StructTypeDescriptor, usize)> {
+        let base = self.shadow_stack.len().checked_sub(arity)?;
+
+        let descriptor = match self.shadow_stack.get(base)? {
+            &MaybeStackValue::Constant(ConstantValue::Global(index))
+                if self.global_is_closed(index) =>
+            {
+                self._globals
+                    .get(index)
+                    .and_then(|value| StructTypeDescriptor::from_key_value(value).ok())?
+            }
+            _ => return None,
+        };
+
+        self.shadow_stack.get(base + 1)?;
+
+        let index = match self.shadow_stack.get(base + 2)? {
+            &MaybeStackValue::Constant(ConstantValue::Int(i)) if i >= 0 => i as usize,
+            _ => return None,
+        };
+
+        // Anything after the index is the value to store, which has to be
+        // something `split_off` hands back.
+        debug_assert_eq!(arity, 3 + after);
+
+        Some((descriptor, index))
+    }
+
+    // Takes the struct operand of a field access off the shadow stack. Returns
+    // the value, whether this code now owns it, the borrow to release, and
+    // the local it is still in, if any.
+    fn take_mstruct_operand(&mut self) -> (Value, bool, Option<BorrowedValue>, Option<usize>) {
+        match self.shadow_stack.last().copied().unwrap() {
+            MaybeStackValue::Register(i) => {
+                self.shadow_stack.pop();
+                (self.read_from_vm_stack(i), false, None, Some(i))
+            }
+            MaybeStackValue::Borrowed(b) => {
+                self.shadow_stack.pop();
+                (b.value, false, Some(b), None)
+            }
+            // A local at its last use moves out, and anything else is made
+            // into a value this code owns.
+            _ => {
+                let (value, _) = self.shadow_pop();
+                (value, true, None, None)
+            }
+        }
+    }
+
+    // Whether the local is already known to hold a struct of this type.
+    fn mstruct_proven(&self, register: Option<usize>, descriptor: StructTypeDescriptor) -> bool {
+        register.is_some_and(|register| {
+            matches!(
+                self.properties.get(&ValueOrRegister::Register(register)),
+                Some(Properties::InferredType(InferredType::MutableStruct(known)))
+                    if known == descriptor
+            )
+        })
+    }
+
+    // After an access that got past its checks, the local holds this type.
+    fn mstruct_record(&mut self, register: Option<usize>, descriptor: StructTypeDescriptor) {
+        if let Some(register) = register {
+            self.properties.add_property(
+                ValueOrRegister::Register(register),
+                Properties::InferredType(InferredType::MutableStruct(descriptor)),
+            );
+        }
+    }
+
+    // Whether this is the only thread, so that a cell's contents can be used
+    // without its lock. See `CELLS_SHARED`.
+    pub(super) fn single_threaded(&mut self) -> Value {
+        let address = self.builder.ins().iconst(
+            types::I64,
+            crate::values::closed::cells_shared_address() as i64,
+        );
+        let shared = self
+            .builder
+            .ins()
+            .load(types::I8, MemFlagsData::trusted(), address, 0);
+        self.builder.ins().icmp_imm_s(IntCC::Equal, shared, 0)
+    }
+
+    // Whether `value` is a struct of the type `descriptor`, with a field
+    // `index`, and no other thread is running. Such a struct's fields can be
+    // read and written in place.
+    fn mstruct_fast_check(
+        &mut self,
+        ptr: Value,
+        descriptor: StructTypeDescriptor,
+        index: usize,
+    ) -> Value {
+        let found = self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            ptr,
+            MutableStructStorage::header_offset() as i32,
+        );
+        let right_type =
+            self.builder
+                .ins()
+                .icmp_imm_s(IntCC::Equal, found, descriptor.key() as i64);
+
+        let len = self.builder.ins().load(
+            types::I32,
+            MemFlagsData::trusted(),
+            ptr,
+            core::mem::offset_of!(steel_rc::PackedHeader<()>, len) as i32,
+        );
+        let in_bounds =
+            self.builder
+                .ins()
+                .icmp_imm_u(IntCC::UnsignedGreaterThan, len, index as i64);
+
+        let unshared = self.single_threaded();
+
+        let ok = self.builder.ins().band(right_type, in_bounds);
+        self.builder.ins().band(ok, unshared)
+    }
+
+    fn mstruct_field_offset(index: usize) -> i32 {
+        (MutableStructStorage::data_offset() + index * core::mem::size_of::<SteelVal>()) as i32
+    }
+
+    /// `#%mstruct-ref` with no call: a tag check, the checks above, and one
+    /// load. Anything else, a shared struct included, takes the helper.
+    ///
+    /// A field that a vector operation reads straight away is not cloned
+    /// while the struct stays in its local, which keeps the field alive.
+    /// Nothing can assign the field in between, since every operation that
+    /// could run code makes borrowed operands owned first.
+    fn lower_mstruct_ref(&mut self, arity: usize) {
+        let (descriptor, index) = self
+            .mstruct_access_shape(arity, 0)
+            .expect("the guard checked the shape");
+
+        let feeds_vector = borrow_enabled() && self.primitive_feeds_vector_op();
+
+        // The index, then the struct, then the type's key. The two constants
+        // are not on the vm stack, so they are simply dropped.
+        self.shadow_stack.pop();
+        let (value, owned, borrowed, register) = self.take_mstruct_operand();
+        self.shadow_stack.pop();
+
+        let borrow =
+            (feeds_vector && register.is_some()).then(|| self.builder.declare_var(types::I8));
+
+        let slow = move |ctx: &mut Self| {
+            let key = ctx.i64_const(descriptor.key() as i64);
+            let field = ctx.i64_const(index as i64);
+            let result = ctx.call_helper_checked(MSTRUCT_REF_SLOW, [key, value, field]);
+            if let Some(flag) = borrow {
+                let one = ctx.builder.ins().iconst(types::I8, 1);
+                ctx.builder.def_var(flag, one);
+            }
+            result
+        };
+        let read = move |ctx: &mut Self, ptr: Value| {
+            let field = ctx.builder.ins().load(
+                types::I128,
+                MemFlagsData::trusted(),
+                ptr,
+                Self::mstruct_field_offset(index),
+            );
+            match borrow {
+                Some(flag) => {
+                    let zero = ctx.builder.ins().iconst(types::I8, 0);
+                    ctx.builder.def_var(flag, zero);
+                }
+                None => ctx.clone_value(field),
+            }
+            field
+        };
+
+        let result = if self.mstruct_proven(register, descriptor) {
+            // The type was checked on the way in, and a struct's type and
+            // field count never change.
+            let ptr = self.unbox_value_to_pointer(value);
+            let unshared = self.single_threaded();
+            self.converging_if(unshared, |ctx| read(ctx, ptr), slow, types::I128)
+        } else {
+            let is_struct = self.is_type(value, SteelVal::MUTABLE_STRUCT_TAG);
+            let result = self.converging_if(
+                is_struct,
+                |ctx| {
+                    let ptr = ctx.unbox_value_to_pointer(value);
+                    let fast = ctx.mstruct_fast_check(ptr, descriptor, index);
+                    ctx.converging_if(fast, |ctx| read(ctx, ptr), slow, types::I128)
+                },
+                slow,
+                types::I128,
+            );
+            self.mstruct_record(register, descriptor);
+            result
+        };
+
+        if owned {
+            self.drop_tagged_value(value);
+        }
+        if let Some(b) = borrowed {
+            self.release_borrowed(b);
+        }
+
+        match borrow {
+            Some(flag) => self.push_borrowed(result, flag),
+            None => self.push(result, InferredType::Any),
+        }
+        self.ip += 1;
+    }
+
+    /// `#%mstruct-set!` with no call. The result is what the field held,
+    /// which the caller now owns.
+    fn inline_mstruct_set(&mut self, arity: usize) -> Option<Value> {
+        let (descriptor, index) = self.mstruct_access_shape(arity, 1)?;
+
+        let new = self.split_off(1).pop()?.0;
+        self.shadow_stack.pop();
+        let (value, owned, borrowed, register) = self.take_mstruct_operand();
+        self.shadow_stack.pop();
+
+        let slow = move |ctx: &mut Self| {
+            let key = ctx.i64_const(descriptor.key() as i64);
+            let field = ctx.i64_const(index as i64);
+            ctx.call_helper_checked(MSTRUCT_SET_SLOW, [key, value, field, new])
+        };
+        let write = move |ctx: &mut Self, ptr: Value| {
+            let offset = Self::mstruct_field_offset(index);
+            let old = ctx
+                .builder
+                .ins()
+                .load(types::I128, MemFlagsData::trusted(), ptr, offset);
+            ctx.builder
+                .ins()
+                .store(MemFlagsData::trusted(), new, ptr, offset);
+            old
+        };
+
+        let result = if self.mstruct_proven(register, descriptor) {
+            let ptr = self.unbox_value_to_pointer(value);
+            let unshared = self.single_threaded();
+            self.converging_if(unshared, |ctx| write(ctx, ptr), slow, types::I128)
+        } else {
+            let is_struct = self.is_type(value, SteelVal::MUTABLE_STRUCT_TAG);
+            let result = self.converging_if(
+                is_struct,
+                |ctx| {
+                    let ptr = ctx.unbox_value_to_pointer(value);
+                    let fast = ctx.mstruct_fast_check(ptr, descriptor, index);
+                    ctx.converging_if(fast, |ctx| write(ctx, ptr), slow, types::I128)
+                },
+                slow,
+                types::I128,
+            );
+            self.mstruct_record(register, descriptor);
+            result
+        };
+
+        if owned {
+            self.drop_tagged_value(value);
+        }
+        if let Some(b) = borrowed {
+            self.release_borrowed(b);
+        }
 
         Some(result)
     }
@@ -8849,7 +9210,22 @@ impl FunctionTranslator<'_> {
     /// Whether the struct getter call ending at `ip` feeds a vector operation,
     /// with only plain reads for the other operands in between.
     fn field_feeds_vector_op(&self) -> bool {
-        let mut ip = self.ip + 1;
+        self.feeds_vector_op_from(self.ip + 1)
+    }
+
+    /// The same for a primitive call at `ip`, whose arity sits in the
+    /// instruction after it.
+    fn primitive_feeds_vector_op(&self) -> bool {
+        let after_call = self.ip + 1;
+        let skip = matches!(
+            self.instructions.get(after_call).map(|ins| ins.op_code),
+            Some(OpCode::FUNC | OpCode::FUNCNOARITY)
+        );
+        self.feeds_vector_op_from(after_call + skip as usize)
+    }
+
+    fn feeds_vector_op_from(&self, start: usize) -> bool {
+        let mut ip = start;
         for _ in 0..4 {
             let Some(ins) = self.instructions.get(ip) else {
                 return false;

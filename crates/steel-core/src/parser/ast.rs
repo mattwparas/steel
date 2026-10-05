@@ -322,6 +322,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                 ReducerV(_) => Err("Can't convert from reducer to expression!"),
                 MutableVector(_) => Err("Can't convert from vector to expression!"),
                 CustomStruct(_) => Err("Can't convert from struct to expression!"),
+                MutableStruct(_) => Err("Can't convert from struct to expression!"),
                 BoxedIterator(_) => Err("Can't convert from boxed iterator to expression!"),
                 Boxed(_) => Err("Can't convert from boxed steel val to expression!"),
                 Reference(_) => Err("Can't convert from opaque reference type to expression!"),
