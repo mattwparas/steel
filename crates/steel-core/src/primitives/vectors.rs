@@ -5,7 +5,9 @@ use crate::rvals::SteelVector;
 use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::vm::VmCore;
-use crate::values::closed::{HeapRef, HeapVec};
+use crate::values::closed::{
+    clear_shared, reserve_shared, retire_removed, retire_swapped, HeapRef, HeapVec,
+};
 use crate::values::lists::Pair;
 use crate::values::Vector;
 use crate::{stop, throw};
@@ -447,7 +449,10 @@ fn vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
         },
 
         SteelVal::MutableVector(m) => {
-            m.strong_ptr().write().value.push(value);
+            let ptr = m.strong_ptr();
+            let guard = &mut ptr.write().value;
+            reserve_shared(guard, 1);
+            guard.push(value);
             Ok(SteelVal::Void)
         }
 
@@ -713,7 +718,7 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 )]
 fn mutable_vector_clear(vec: &HeapRef<HeapVec>) {
     // Snag the interior value
-    vec.strong_ptr().write().value.clear()
+    clear_shared(&mut vec.strong_ptr().write().value)
 }
 
 /// Converts a vector of characters into a string.
@@ -765,7 +770,7 @@ fn mutable_vector_to_string(vec: &HeapRef<HeapVec>) -> Result<SteelVal> {
     raises = BadArgs
 )]
 fn mutable_vector_pop(vec: &HeapRef<HeapVec>) -> Result<SteelVal> {
-    let last = vec.strong_ptr().write().value.pop();
+    let last = vec.strong_ptr().write().value.pop().map(retire_swapped);
 
     last.into_steelval()
 }
@@ -922,7 +927,7 @@ pub fn mut_vector_copy(
                     .skip(dest_start)
                     .zip(temporary_buffer)
                     .for_each(|(dest, src)| {
-                        *dest = src;
+                        retire_removed(core::mem::replace(dest, src));
                     })
             } else {
                 // Source range
@@ -944,7 +949,7 @@ pub fn mut_vector_copy(
                     .take(src_end - src_start)
                     .zip(dest_guard.iter_mut().skip(dest_start))
                     .for_each(|(src, dest)| {
-                        *dest = src.clone();
+                        retire_removed(core::mem::replace(dest, src.clone()));
                     });
             }
         }
@@ -965,7 +970,7 @@ pub fn mut_vector_copy(
                 .take(src_end - src_start)
                 .zip(dest_guard.iter_mut().skip(dest_start))
                 .for_each(|(src, dest)| {
-                    *dest = src.clone();
+                    retire_removed(core::mem::replace(dest, src.clone()));
                 });
         }
     }
@@ -1007,7 +1012,7 @@ pub fn vector_fill(
         .iter_mut()
         .skip(start)
         .take(end - start)
-        .for_each(|x| *x = element.clone());
+        .for_each(|x| retire_removed(core::mem::replace(x, element.clone())));
 
     Ok(SteelVal::Void)
 }
@@ -1089,7 +1094,7 @@ pub fn mut_vec_set(vec: &HeapRef<HeapVec>, i: usize, value: SteelVal) -> Result<
     // let guard = &mut (unsafe { &(*vec.inner.as_ptr()) }.write()).value;
 
     if let Some(v) = guard.get_mut(i) {
-        *v = value;
+        retire_removed(core::mem::replace(v, value));
     } else {
         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
     }
@@ -1372,7 +1377,10 @@ pub fn mut_vec_push(args: &[SteelVal]) -> Result<SteelVal> {
         // }
 
         // TODO: disallow cyclical references on construction
-        v.strong_ptr().write().value.push(args[1].clone());
+        let ptr = v.strong_ptr();
+        let guard = &mut ptr.write().value;
+        reserve_shared(guard, 1);
+        guard.push(args[1].clone());
         Ok(SteelVal::Void)
     } else {
         stop!(TypeMismatch => "vector-push! expects a vector, found: {:?}", vec);
@@ -1408,10 +1416,12 @@ pub fn mut_vec_append(args: &[SteelVal]) -> Result<SteelVal> {
 
     if let SteelVal::MutableVector(left) = vec {
         if let SteelVal::MutableVector(right) = other_vec {
-            left.strong_ptr()
-                .write()
-                .value
-                .append(&mut right.strong_ptr().write().value);
+            let left = left.strong_ptr();
+            let right = right.strong_ptr();
+            let left = &mut left.write().value;
+            let right = &mut right.write().value;
+            reserve_shared(left, right.len());
+            left.append(right);
             Ok(SteelVal::Void)
         } else {
             stop!(TypeMismatch => "vector-append! expects a vector in the second position, found: {:?}", other_vec);

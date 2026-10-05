@@ -2104,7 +2104,7 @@ pub(crate) fn check_in() {
 
 // Values waiting on these threads to each check in once more.
 struct AwaitedBatch {
-    values: Vec<SteelVal>,
+    values: Vec<Deferred>,
     seen: Vec<(Mutator, usize)>,
     // The thread that put the values aside.
     requester: Option<Arc<MutatorState>>,
@@ -2166,12 +2166,20 @@ const DEFERRED_DROP_BACKLOG: usize = 4096;
 static MUTATORS: Mutex<Vec<Mutator>> = Mutex::new(Vec::new());
 
 // Values other threads put aside and exited before they could drop.
-static ORPHANED_DROPS: Mutex<Vec<SteelVal>> = Mutex::new(Vec::new());
+static ORPHANED_DROPS: Mutex<Vec<Deferred>> = Mutex::new(Vec::new());
 
 // How many values a thread puts aside between attempts to drop them.
 const DEFERRED_DROP_BATCH: usize = 64;
 
-struct DeferredDrops(Vec<SteelVal>);
+// Something a thread took out of a cell that another thread may still be
+// reading.
+enum Deferred {
+    Value(#[allow(dead_code)] SteelVal),
+    // The emptied storage of a vector that grew.
+    Buffer(#[allow(dead_code)] HeapVec),
+}
+
+struct DeferredDrops(Vec<Deferred>);
 
 impl Drop for DeferredDrops {
     fn drop(&mut self) {
@@ -2430,22 +2438,71 @@ pub(crate) fn retire_swapped(old: SteelVal) -> SteelVal {
     }
 
     let kept = old.clone();
+    defer(Deferred::Value(old));
+    kept
+}
+
+fn defer(item: Deferred) {
+    let mut item = Some(item);
     let due = DEFERRED_DROPS
         .try_with(|deferred| match deferred.try_borrow_mut() {
             Ok(mut deferred) => {
-                deferred.0.push(old);
+                deferred.0.extend(item.take());
                 deferred.0.len() % DEFERRED_DROP_BATCH == 0
             }
-            // Only while this thread is tearing down. Leaked instead of
-            // dropped under a reader.
             Err(_) => false,
         })
         .unwrap_or(false);
+    // Only while this thread is tearing down. Leaked instead of dropped
+    // under a reader.
+    core::mem::forget(item);
     if due {
         drop_deferred();
     }
+}
 
-    kept
+/// Takes a value that was just removed from a cell and is not wanted. See
+/// `retire_swapped`.
+#[inline]
+pub(crate) fn retire_removed(old: SteelVal) {
+    if cells_shared() && needs_release(&old) {
+        defer(Deferred::Value(old));
+    }
+}
+
+/// Makes room for `additional` more elements in a vector that other threads
+/// read without its lock.
+///
+/// Such a reader may be about to load an element out of the storage it found
+/// in the vector. Growing in place would free that storage under it, so the
+/// elements are moved to new storage here and the old is freed once every
+/// other thread has been seen at a safepoint. With room already there, or
+/// with no other thread, this does nothing and the vector grows by itself.
+pub(crate) fn reserve_shared(vector: &mut HeapVec, additional: usize) {
+    let len = vector.len();
+    let needed = len.saturating_add(additional);
+    if !cells_shared() || needed <= vector.capacity() {
+        return;
+    }
+
+    let capacity = needed.max(vector.capacity().saturating_mul(2)).max(4);
+    let mut grown = HeapVec::with_capacity(capacity);
+    unsafe {
+        core::ptr::copy_nonoverlapping(vector.as_ptr(), grown.as_mut_ptr(), len);
+        grown.set_len(len);
+        // The elements belong to the new storage now.
+        vector.set_len(0);
+    }
+    defer(Deferred::Buffer(core::mem::replace(vector, grown)));
+}
+
+/// Empties a vector that other threads read without its lock.
+pub(crate) fn clear_shared(vector: &mut HeapVec) {
+    if cells_shared() {
+        vector.drain(..).for_each(retire_removed);
+    } else {
+        vector.clear();
+    }
 }
 
 // Structs made where the heap wasn't at hand, waiting to join the list of
@@ -3586,6 +3643,16 @@ fn needs_release(value: &SteelVal) -> bool {
 pub type HeapVec = steel_vec::Vec<SteelVal>;
 
 impl HeapAble for HeapVec {
+    #[inline]
+    fn retire(mut self) -> Self {
+        if cells_shared() {
+            self.drain(..).for_each(retire_removed);
+            defer(Deferred::Buffer(self));
+            return HeapVec::new();
+        }
+        self
+    }
+
     fn empty() -> Self {
         Self::new()
     }

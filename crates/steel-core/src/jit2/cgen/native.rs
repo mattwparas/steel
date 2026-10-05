@@ -2504,17 +2504,76 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.ins().iadd_imm_s(ptr, offset)
     }
 
-    // Nothing else can reach the vector while this is the only thread.
-    fn with_heap_vec_lock(&mut self, ptr: Value, body: impl Fn(&mut Self) -> Value) -> Value {
-        let is_one = self.single_threaded();
+    /// The element at `index` of a mutable vector, with a reference taken,
+    /// while other threads may be writing the vector, handed to `read`.
+    /// `fallback` runs instead if the index is out of bounds or a write got
+    /// in the way, and has to go and ask under the lock.
+    ///
+    /// The length and the storage are read as a pair that the sequence
+    /// number vouches for before the storage is touched, so the index is in
+    /// bounds of that storage. A vector that grows meanwhile keeps its old
+    /// storage allocated until this thread is next at a safepoint (see
+    /// `reserve_shared`), and so is an element that is swapped out, which is
+    /// what makes taking the reference safe.
+    fn shared_vec_read(
+        &mut self,
+        ptr: Value,
+        index: Value,
+        read: impl Fn(&mut Self, Value) -> Value,
+        fallback: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let sequence = self.heap_vec_lock_pointer(ptr);
 
-        self.converging_if(
-            is_one,
-            |ctx| body(ctx),
+        let before = self
+            .builder
+            .ins()
+            .atomic_load(types::I32, MemFlagsData::trusted(), sequence);
+        let len = self.heap_vec_len(ptr);
+        let buf = self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            ptr,
+            heap_vec_buf_offset(),
+        );
+        let paired = self
+            .builder
+            .ins()
+            .atomic_load(types::I32, MemFlagsData::trusted(), sequence);
+
+        let unchanged = self.builder.ins().icmp(IntCC::Equal, before, paired);
+        let low = self.builder.ins().band_imm_u(before, 1);
+        let unlocked = self.builder.ins().icmp_imm_s(IntCC::Equal, low, 0);
+        // Unsigned, so a negative index fails the same comparison
+        let in_bounds = self.builder.ins().icmp(IntCC::UnsignedLessThan, index, len);
+        let readable = self.builder.ins().band(unchanged, unlocked);
+        let readable = self.builder.ins().band(readable, in_bounds);
+
+        self.converging_if_else_cold(
+            readable,
             |ctx| {
-                let lock = ctx.heap_vec_lock_pointer(ptr);
-                ctx.with_spinlock(lock, |ctx| body(ctx))
+                let byte_offset = ctx.builder.ins().ishl_imm_u(index, 4);
+                let slot = ctx.builder.ins().iadd(buf, byte_offset);
+                let value = ctx
+                    .builder
+                    .ins()
+                    .load(types::I128, MemFlagsData::trusted(), slot, 0);
+                let after =
+                    ctx.builder
+                        .ins()
+                        .atomic_load(types::I32, MemFlagsData::trusted(), sequence);
+                let steady = ctx.builder.ins().icmp(IntCC::Equal, before, after);
+
+                ctx.converging_if_else_cold(
+                    steady,
+                    |ctx| {
+                        ctx.clone_value(value);
+                        read(ctx, value)
+                    },
+                    |ctx| fallback(ctx),
+                    types::I128,
+                )
             },
+            |ctx| fallback(ctx),
             types::I128,
         )
     }
@@ -2538,36 +2597,61 @@ impl<'a> FunctionTranslator<'a> {
             (vector, SteelVal::HEAP_REF_VECTOR_TAG),
             (index, SteelVal::INT_TAG),
         ]);
+        let finish = move |ctx: &mut Self| {
+            if vector_owned {
+                ctx.drop_tagged_value(vector);
+            }
+
+            if index_owned {
+                ctx.drop_tagged_value(index);
+            }
+
+            ctx.encode_void()
+        };
 
         let body = |ctx: &mut Self| {
             let ptr = ctx.unbox_value_to_pointer(vector);
             let idx = ctx.unbox_value_to_pointer(index);
-            let len = ctx.heap_vec_len(ptr);
+            let alone = ctx.single_threaded();
 
-            // Unsigned, so a negative index fails the same comparison
-            let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
-
-            ctx.converging_if_else_cold(
-                in_bounds,
+            ctx.converging_if(
+                alone,
                 |ctx| {
-                    let old = ctx.with_heap_vec_lock(ptr, |ctx| {
-                        ctx.heap_vec_replace(ptr, idx, value, value_owned)
-                    });
+                    let len = ctx.heap_vec_len(ptr);
 
-                    // Drop outside the lock, since a destructor runs arbitrary code
-                    ctx.drop_tagged_value(old);
+                    // Unsigned, so a negative index fails the same comparison
+                    let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
 
-                    if vector_owned {
-                        ctx.drop_tagged_value(vector);
-                    }
-
-                    if index_owned {
-                        ctx.drop_tagged_value(index);
-                    }
-
-                    ctx.encode_void()
+                    ctx.converging_if_else_cold(
+                        in_bounds,
+                        |ctx| {
+                            let old = ctx.heap_vec_replace(ptr, idx, value, value_owned);
+                            ctx.drop_tagged_value(old);
+                            finish(ctx)
+                        },
+                        |ctx| fallback(ctx),
+                        types::I128,
+                    )
                 },
-                |ctx| fallback(ctx),
+                // Another thread may be part way through reading the value
+                // this replaces, so it can't be dropped here. The out of
+                // line store sees to that, and takes a reference of its own
+                // to the new value.
+                |ctx| {
+                    let stored = ctx.call_helper(VECTOR_SET_SHARED, [vector, idx, value]);
+
+                    ctx.converging_if_else_cold(
+                        stored,
+                        |ctx| {
+                            if value_owned {
+                                ctx.drop_tagged_value(value);
+                            }
+                            finish(ctx)
+                        },
+                        |ctx| fallback(ctx),
+                        types::I128,
+                    )
+                },
                 types::I128,
             )
         };
@@ -2594,8 +2678,8 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     // vector-ref on a mutable vector with no call: check the tags, bounds check,
-    // then load under the lock. A clone only bumps a refcount, so unlike a drop it
-    // is safe to run while the lock is held.
+    // then load. With other threads around the load is checked against the
+    // vector's sequence number instead, see `shared_vec_read`.
     pub(super) fn inline_mut_vector_ref(
         &mut self,
         vector: Value,
@@ -2613,36 +2697,52 @@ impl<'a> FunctionTranslator<'a> {
             |ctx| {
                 let ptr = ctx.unbox_value_to_pointer(vector);
                 let idx = ctx.unbox_value_to_pointer(index);
-                let len = ctx.heap_vec_len(ptr);
+                let alone = ctx.single_threaded();
 
-                // Unsigned, so a negative index fails the same comparison
-                let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
-
-                ctx.converging_if_else_cold(
-                    in_bounds,
+                ctx.converging_if(
+                    alone,
                     |ctx| {
-                        let value = ctx.with_heap_vec_lock(ptr, |ctx| {
-                            let slot = ctx.heap_vec_element_address(ptr, idx);
+                        let len = ctx.heap_vec_len(ptr);
 
-                            let value = ctx.builder.ins().load(
-                                types::I128,
-                                MemFlagsData::trusted(),
-                                slot,
-                                0,
-                            );
+                        // Unsigned, so a negative index fails the same comparison
+                        let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
 
-                            ctx.clone_value(value);
-                            value
-                        });
+                        ctx.converging_if_else_cold(
+                            in_bounds,
+                            |ctx| {
+                                let slot = ctx.heap_vec_element_address(ptr, idx);
+                                let value = ctx.builder.ins().load(
+                                    types::I128,
+                                    MemFlagsData::trusted(),
+                                    slot,
+                                    0,
+                                );
+                                ctx.clone_value(value);
 
-                        // Outside the lock, since a destructor runs arbitrary code
-                        if vector_owned {
-                            ctx.drop_tagged_value(vector);
-                        }
+                                if vector_owned {
+                                    ctx.drop_tagged_value(vector);
+                                }
 
-                        value
+                                value
+                            },
+                            |ctx| fallback(ctx),
+                            types::I128,
+                        )
                     },
-                    |ctx| fallback(ctx),
+                    |ctx| {
+                        ctx.shared_vec_read(
+                            ptr,
+                            idx,
+                            |ctx, value| {
+                                if vector_owned {
+                                    ctx.drop_tagged_value(vector);
+                                }
+
+                                value
+                            },
+                            |ctx| fallback(ctx),
+                        )
+                    },
                     types::I128,
                 )
             },

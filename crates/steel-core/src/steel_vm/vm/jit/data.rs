@@ -791,6 +791,30 @@ fn set_box_shared(arg: SteelVal, value: SteelVal) -> SteelVal {
     }
 }
 
+// `vector-set!` on a vector other threads may be reading. Both values are
+// only lent, and `vector` is known to be a mutable vector. Stores nothing and
+// says so if the index is out of bounds.
+#[cross_platform_fn]
+fn vector_set_shared(vector: SteelVal, index: usize, value: SteelVal) -> bool {
+    let vector = core::mem::ManuallyDrop::new(vector);
+    let value = core::mem::ManuallyDrop::new(value);
+
+    let SteelVal::MutableVector(handle) = &*vector else {
+        unreachable!("checked by the caller")
+    };
+
+    let old = {
+        let mut guard = unsafe { &*handle.inner.as_ptr() }.write();
+        match guard.value.get_mut(index) {
+            Some(slot) => core::mem::replace(slot, (*value).clone()),
+            None => return false,
+        }
+    };
+    crate::values::closed::retire_removed(old);
+
+    true
+}
+
 // TODO: Lets optimize this?
 #[cross_platform_fn]
 fn cons_handler_value_register(ctx: *mut VmCore, arg: SteelVal, arg2: usize) {
