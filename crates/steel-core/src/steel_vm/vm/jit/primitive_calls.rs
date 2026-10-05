@@ -24,7 +24,7 @@ helper_family! {
     arities [0 1 2 3 4 5 6 7 8],
     |args| {
         let ctx = unsafe { &mut *ctx };
-        match ctx.thread.enter_safepoint_once(move |_: &SteelThread| (func)(&args)) {
+        match ctx.thread.enter_safepoint_holding(&args, |_: &SteelThread| (func)(&args)) {
             Ok(v) => v,
             Err(e) => raise_at(ctx, fallback_ip, e),
         }
@@ -46,7 +46,7 @@ helper_family! {
         // are still held by the caller, so they are read here but not dropped.
         let ctx = unsafe { &mut *ctx };
         let args = core::mem::ManuallyDrop::new(args);
-        let res = ctx.thread.enter_safepoint_once(|_: &SteelThread| (func)(&*args));
+        let res = ctx.thread.enter_safepoint_holding(&*args, |_: &SteelThread| (func)(&*args));
         for (i, arg) in args.iter().enumerate() {
             if owned & (1 << i) != 0 {
                 drop(unsafe { core::ptr::read(arg) });

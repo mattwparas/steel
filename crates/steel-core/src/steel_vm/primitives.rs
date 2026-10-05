@@ -2402,7 +2402,7 @@ where
         }
     }
 
-    let mut heap = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+    let mut heap = ctx.thread.lock_heap_holding(fields.as_ref());
     let value = heap.allocate_mutable_struct(
         descriptor,
         fields,
@@ -2549,7 +2549,7 @@ where
         }
     }
 
-    let mut heap = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+    let mut heap = ctx.thread.lock_heap_holding(fields.as_ref());
     let value = heap.allocate_struct_owned(
         descriptor,
         fields,
@@ -2577,7 +2577,7 @@ pub(crate) fn make_mutable_struct_from_args(
 
     let mut boxed = Vec::with_capacity(fields.len());
 
-    let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+    let mut heap_lock = ctx.thread.lock_heap_holding(fields);
 
     // The fields go in as roots, so a collection part way through the batch
     // cannot reclaim the boxes already made or anything only they reach.
@@ -2623,7 +2623,7 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         ));
     }
 
-    let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+    let mut heap_lock = ctx.thread.lock_heap_holding(args);
 
     let allocated_var = heap_lock.allocate(
         args[0].clone(), // TODO: Could actually move off of the stack entirely

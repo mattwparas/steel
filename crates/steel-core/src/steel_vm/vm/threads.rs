@@ -137,7 +137,7 @@ pub(crate) fn thread_suspend(handle: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "thread-resume", returns = Void)]
 pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
     let handle = ThreadHandle::as_mut_ref(handle)?;
-    handle.thread_state_manager.resume();
+    handle.thread_state_manager.unsuspend();
     handle.thread.unpark();
     Ok(SteelVal::Void)
 }
@@ -147,9 +147,10 @@ pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
 /// at the next bytecode instruction that is running.
 #[steel_derive::function(name = "thread-interrupt", returns = Void)]
 pub(crate) fn thread_interrupt(handle: &SteelVal) -> Result<SteelVal> {
-    ThreadHandle::as_mut_ref(handle)?
-        .thread_state_manager
-        .interrupt();
+    let handle = ThreadHandle::as_mut_ref(handle)?;
+    handle.thread_state_manager.interrupt();
+    // It may be parked, suspended.
+    handle.thread.unpark();
     Ok(SteelVal::Void)
 }
 

@@ -366,6 +366,10 @@ pub struct SteelThread {
     // This will be static, for the thread.
     pub(crate) thread_local_storage: Vec<SteelVal>,
 
+    // Values native code is holding while it waits at a safepoint, where
+    // another thread's collection would otherwise not find them.
+    pub(crate) pending_roots: Vec<SteelVal>,
+
     // Store... more stuff here
     pub(crate) compiler: alloc::sync::Arc<RwLock<Compiler>>,
 
@@ -533,6 +537,11 @@ impl ThreadStateController {
     pub fn resume_from_safepoint(&self) {
         self.flags
             .fetch_and(!STOP_REQUESTED, AtomicOrdering::SeqCst);
+    }
+
+    /// Undoes `suspend`, leaving an interrupt for the thread to find.
+    pub fn unsuspend(&self) {
+        self.flags.fetch_and(!SUSPENDED, AtomicOrdering::SeqCst);
     }
 
     /// Undoes `suspend` and `interrupt`.
@@ -778,6 +787,10 @@ impl Synchronizer {
                                 context.push_back(value.clone());
                             }
 
+                            for value in &live_ctx.pending_roots {
+                                context.push_back(value.clone());
+                            }
+
                             context.visit();
                         }
 
@@ -806,6 +819,10 @@ impl Synchronizer {
                                             }
 
                                             for value in &live_ctx.thread_local_storage {
+                                                context.push_back(value.clone());
+                                            }
+
+                                            for value in &live_ctx.pending_roots {
                                                 context.push_back(value.clone());
                                             }
 
@@ -908,6 +925,7 @@ impl SteelThread {
             interrupted: Default::default(),
             synchronizer,
             thread_local_storage: Vec::new(),
+            pending_roots: Vec::new(),
             compiler,
             id: EngineId::new(),
 
@@ -938,6 +956,23 @@ impl SteelThread {
 
     #[cfg(feature = "sync")]
     pub(crate) fn with_locked_env<T, F: FnOnce(&mut Self, &mut SharedVectorWrapper) -> T>(
+        &mut self,
+        thunk: F,
+    ) -> T {
+        // A collection stops every thread as well, and two threads each
+        // waiting for the other to stop would wait forever. The collector
+        // holds the heap's lock, so with it held here there is only one of
+        // the two at a time, and the wait for it is at a safepoint.
+        let _one_at_a_time = self.lock_heap_holding(&[]);
+        self.with_locked_env_holding_heap(thunk)
+    }
+
+    /// `with_locked_env` for a caller that has the heap's lock already.
+    #[cfg(feature = "sync")]
+    pub(crate) fn with_locked_env_holding_heap<
+        T,
+        F: FnOnce(&mut Self, &mut SharedVectorWrapper) -> T,
+    >(
         &mut self,
         thunk: F,
     ) -> T {
@@ -1008,6 +1043,66 @@ impl SteelThread {
                 .ctx
                 .store(self as *const _ as *mut _, AtomicOrdering::SeqCst);
         }
+    }
+
+    /// Takes the heap's lock in order to allocate something that will hold
+    /// `held`.
+    ///
+    /// The thread that has the lock may be collecting, and waiting for this
+    /// one to stop, so unless the lock is free it is waited for at a
+    /// safepoint. `held` is not on the stack any more, and is kept where
+    /// that collection can find it.
+    pub(crate) fn lock_heap_holding(
+        &mut self,
+        held: &[SteelVal],
+    ) -> parking_lot::ArcMutexGuard<parking_lot::RawMutex, Heap> {
+        if let Some(heap) = self.heap.try_lock_arc() {
+            return heap;
+        }
+
+        self.enter_safepoint_holding(held, |thread| thread.heap.lock_arc())
+    }
+
+    /// `enter_safepoint_once` for native code that holds `held` somewhere
+    /// other than the stack, such as arguments that were passed to it in
+    /// registers. They are kept where another thread's collection can find
+    /// them for as long as this thread can be read.
+    pub(crate) fn enter_safepoint_holding<T>(
+        &mut self,
+        held: &[SteelVal],
+        finish: impl FnOnce(&SteelThread) -> T,
+    ) -> T {
+        let publish = cfg!(feature = "sync")
+            && self.safepoints_enabled
+            && self.synchronizer.has_other_threads();
+
+        // Copies of the values and not references to them, so they are
+        // forgotten below and never dropped. Calls nest, and each takes
+        // away only its own.
+        let outer = self.pending_roots.len();
+        if publish {
+            self.pending_roots.reserve(held.len());
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    held.as_ptr(),
+                    self.pending_roots.as_mut_ptr().add(outer),
+                    held.len(),
+                );
+                self.pending_roots.set_len(outer + held.len());
+            }
+
+            let ptr = self as _;
+            self.synchronizer.ctx.store(ptr, AtomicOrdering::SeqCst);
+        }
+
+        let res = finish(self);
+
+        if publish {
+            self.leave_safepoint(false);
+            unsafe { self.pending_roots.set_len(outer) };
+        }
+
+        res
     }
 
     // Allow this thread to be available for garbage collection
@@ -1906,7 +2001,7 @@ impl<'a> VmCore<'a> {
     }
 
     pub fn make_box(&mut self, value: SteelVal) -> SteelVal {
-        let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+        let mut heap_lock = self.thread.lock_heap_holding(core::slice::from_ref(&value));
         let allocated_var = heap_lock.allocate(
             value,
             &self.thread.stack,
@@ -1922,7 +2017,7 @@ impl<'a> VmCore<'a> {
     // TODO: Accept a slice instead, or an iterator with a known size.
     // That way we can take advantage of a pre allocation.
     pub fn make_mutable_vector(&mut self, values: HeapVec) -> SteelVal {
-        let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+        let mut heap_lock = self.thread.lock_heap_holding(&values);
         let allocated_var = heap_lock.allocate_vector(
             values,
             &self.thread.stack,
@@ -6604,7 +6699,8 @@ impl crate::rvals::Custom for CallStackCapture {}
 pub(crate) fn sample_stacks(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut capture = CallStackCapture::as_mut_ref(&args[0]).unwrap();
 
-    // if let Ok(_) = ctx.thread.heap.try_lock() {
+    // See `with_locked_env`.
+    let _one_at_a_time = ctx.thread.lock_heap_holding(&[]);
     ctx.thread.synchronizer.stop_threads();
     unsafe {
         ctx.thread.synchronizer.maybe_call_per_ctx(
@@ -7602,7 +7698,7 @@ fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let last = ctx.thread.stack.pop().unwrap();
 
-    let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+    let mut heap_lock = ctx.thread.lock_heap_holding(core::slice::from_ref(&last));
     let allocated_var = heap_lock.allocate(
         last,
         &ctx.thread.stack,

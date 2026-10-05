@@ -1,0 +1,56 @@
+;; Vectors that threads append to, copy into, swap within and replace whole,
+;; while others read them, including through a vector of vectors.
+(define (triple n) (list n n n))
+(define (whole? v) (and (list? v) (= (length v) 3) (equal? (car v) (caddr v))))
+(define (row n) (mutable-vector (triple n) (triple n) (triple n) (triple n)))
+
+(define wide (row 0))
+(define source (row 1))
+(define outer (mutable-vector (row 2) (row 3)))
+(define growing (mutable-vector (triple 0)))
+(define scratch (mutable-vector))
+
+(define (reshape n)
+  (when (> n 0)
+    (vector-swap! wide 0 3)
+    (vector-swap! wide 1 2)
+    (vector-copy! wide 0 source 0 4)
+    (vector-fill! source (triple n))
+    (vector-set! outer (modulo n 2) (row n))
+    (let ([extra (row n)])
+      (vector-append! growing extra))
+    (when (= 0 (modulo n 500))
+      (mutable-vector->clear scratch))
+    (vector-push! scratch (triple n))
+    (when (> (vector-length growing) 64)
+      (mutable-vector-pop! growing)
+      (mutable-vector-pop! growing))
+    (reshape (- n 1))))
+
+(define (read n ok)
+  (if (= n 0)
+      ok
+      (let ([i (modulo n 4)])
+        (read (- n 1)
+              (and ok
+                   (whole? (vector-ref wide i))
+                   (whole? (vector-ref source i))
+                   (whole? (vector-ref (vector-ref outer (modulo n 2)) i))
+                   (whole? (vector-ref growing 0))
+                   (>= (vector-length scratch) 0))))))
+
+;; Run alone first, so the compiled code is older than the threads.
+(reshape 1000)
+(assert! (read 1000 #t))
+
+(define reshapers
+  (list (spawn-native-thread (lambda () (reshape 15000)))
+        (spawn-native-thread (lambda () (reshape 15000)))))
+(define readers
+  (list (spawn-native-thread (lambda () (read 60000 #t)))
+        (spawn-native-thread (lambda () (read 60000 #t)))))
+(assert! (read 60000 #t))
+(for-each thread-join! reshapers)
+(for-each (lambda (reader) (assert! (thread-join! reader))) readers)
+(assert! (read 100 #t))
+(assert! (= (vector-length wide) 4))

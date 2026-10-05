@@ -725,7 +725,8 @@ fn vector_set_handler_register_two(
 fn box_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     let this = unsafe { &mut *ctx };
 
-    let allocated_var = this.thread.heap.lock().allocate(
+    let mut heap = this.thread.lock_heap_holding(core::slice::from_ref(&arg));
+    let allocated_var = heap.allocate(
         arg,
         &this.thread.stack,
         this.thread.stack_frames.iter().map(|x| x.function.as_ref()),

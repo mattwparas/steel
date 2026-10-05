@@ -59,8 +59,8 @@ pub(super) fn call_native(
     args: &mut [SteelVal],
 ) -> Option<Result<SteelVal>> {
     let result = match func {
-        SteelVal::FuncV(f) => ctx.thread.enter_safepoint_once(|_| f(args)),
-        SteelVal::BoxedFunction(f) => ctx.thread.enter_safepoint_once(|_| f.func()(args)),
+        SteelVal::FuncV(f) => ctx.thread.enter_safepoint_holding(args, |_| f(args)),
+        SteelVal::BoxedFunction(f) => ctx.thread.enter_safepoint_holding(args, |_| f.func()(args)),
         SteelVal::MutFunc(f) => f(args),
         _ => return None,
     };
@@ -392,7 +392,7 @@ fn call_boxed_function_handler<const TAIL: bool>(
 
     let result = ctx
         .thread
-        .enter_safepoint_once(|_| func.func()(args))
+        .enter_safepoint_holding(args, |_| func.func()(args))
         .map_err(|e| e.set_span_if_none(ctx.current_span()));
     stash_error(ctx, result)
 }
