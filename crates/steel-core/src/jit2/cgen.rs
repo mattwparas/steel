@@ -660,6 +660,11 @@ pub(super) fn borrow_primitive_args_enabled() -> bool {
     crate::config::config().jit_borrow_primitive_args
 }
 
+/// `STEEL_JIT_CHECK_IN=0` leaves the safepoint polls out of jitted loops.
+fn check_in_polls_enabled() -> bool {
+    crate::config::config().jit_check_in
+}
+
 pub(super) fn borrow_enabled() -> bool {
     crate::config::config().jit_borrow
 }
@@ -2541,6 +2546,18 @@ impl JIT {
             .iter()
             .any(|x| matches!(x.op_code, OpCode::TCOJMP | OpCode::SELFTAILCALLNOARITY));
 
+        // A tail call into another function takes no native stack, so a
+        // cycle of them is a loop as well.
+        let tail_calls_out = bytecode.iter().any(|x| {
+            matches!(
+                x.op_code,
+                OpCode::TAILCALL
+                    | OpCode::TAILCALLNOARITY
+                    | OpCode::CALLGLOBALTAIL
+                    | OpCode::CALLGLOBALTAILNOARITY
+            )
+        });
+
         // vmctx is the first signature param, so it arrives as the entry block's
         // first block param.
         let vm_context = builder.block_params(entry_block)[0];
@@ -2698,6 +2715,13 @@ impl JIT {
             trans.builder.ins().jump(fake_entry, &[]);
             trans.builder.switch_to_block(fake_entry);
             trans.forget_entry_block_caches();
+        }
+
+        // Each time a loop jumps back to the block above, and on the way into
+        // a function that could be part of a cycle of tail calls. Nothing
+        // else in a loop that makes no calls stops for another thread.
+        if (fake_entry_block.is_some() || tail_calls_out) && check_in_polls_enabled() {
+            trans.emit_check_in_poll();
         }
 
         {
@@ -5716,6 +5740,32 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    // A loop that calls nothing never looks at the stack limit, so it does
+    // here, each time round. One compare of a word the thread already has
+    // nearby, and a branch that is not taken unless another thread asked.
+    // See `CHECK_IN_STACK_LIMIT`.
+    fn emit_check_in_poll(&mut self) {
+        let ctx = self.get_ctx();
+        let thread_pointer = self.get_thread_pointer(ctx);
+        let limit = self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            thread_pointer,
+            offset_of!(SteelThread, native_stack_limit) as i32,
+        );
+        let quiet = self.builder.ins().icmp_imm_s(
+            IntCC::NotEqual,
+            limit,
+            crate::values::closed::CHECK_IN_STACK_LIMIT as i64,
+        );
+
+        self.converging_if_no_value_else_cold(
+            quiet,
+            |_| {},
+            |ctx| ctx.call_helper_void_checked(CHECK_IN, []),
+        );
+    }
+
     // Whether this is the only thread, so that a cell's contents can be used
     // without its lock. See `CELLS_SHARED`.
     pub(super) fn single_threaded(&mut self) -> Value {
@@ -5730,10 +5780,9 @@ impl FunctionTranslator<'_> {
         self.builder.ins().icmp_imm_s(IntCC::Equal, shared, 0)
     }
 
-    // Whether `value` is a struct of the type `descriptor`, with a field
-    // `index`, and no other thread is running. Such a struct's fields can be
-    // read and written in place.
-    fn mstruct_fast_check(
+    // Whether the struct at `ptr` is of the type `descriptor` and has a
+    // field `index`.
+    fn mstruct_type_check(
         &mut self,
         ptr: Value,
         descriptor: StructTypeDescriptor,
@@ -5761,10 +5810,20 @@ impl FunctionTranslator<'_> {
                 .ins()
                 .icmp_imm_u(IntCC::UnsignedGreaterThan, len, index as i64);
 
-        let unshared = self.single_threaded();
+        self.builder.ins().band(right_type, in_bounds)
+    }
 
-        let ok = self.builder.ins().band(right_type, in_bounds);
-        self.builder.ins().band(ok, unshared)
+    // The same, and no other thread is running, so the fields can be
+    // written in place.
+    fn mstruct_fast_check(
+        &mut self,
+        ptr: Value,
+        descriptor: StructTypeDescriptor,
+        index: usize,
+    ) -> Value {
+        let checked = self.mstruct_type_check(ptr, descriptor, index);
+        let alone = self.single_threaded();
+        self.builder.ins().band(checked, alone)
     }
 
     fn mstruct_field_offset(index: usize) -> i32 {
@@ -5804,37 +5863,75 @@ impl FunctionTranslator<'_> {
             }
             result
         };
+        // The field of a struct that passed its checks. Alone, it is read in
+        // place. With other threads running, the read is checked against
+        // the struct's sequence number and a reference is taken, as for a
+        // box in `shared_box_read`, and a read that a write got in the way
+        // of takes the helper.
         let read = move |ctx: &mut Self, ptr: Value| {
-            let field = ctx.builder.ins().load(
+            let alone = ctx.single_threaded();
+            ctx.converging_if(
+                alone,
+                |ctx| {
+                    let field = ctx.builder.ins().load(
+                        types::I128,
+                        MemFlagsData::trusted(),
+                        ptr,
+                        Self::mstruct_field_offset(index),
+                    );
+                    match borrow {
+                        Some(flag) => {
+                            let zero = ctx.builder.ins().iconst(types::I8, 0);
+                            ctx.builder.def_var(flag, zero);
+                        }
+                        None => ctx.clone_value(field),
+                    }
+                    field
+                },
+                |ctx| {
+                    let sequence = ctx
+                        .builder
+                        .ins()
+                        .iadd_imm_s(ptr, MutableStructStorage::aux_offset() as i64);
+                    let (field, steady) = ctx.sequence_read(sequence, |ctx| {
+                        ctx.builder.ins().load(
+                            types::I128,
+                            MemFlagsData::trusted(),
+                            ptr,
+                            Self::mstruct_field_offset(index),
+                        )
+                    });
+                    ctx.converging_if(
+                        steady,
+                        |ctx| {
+                            ctx.clone_value(field);
+                            if let Some(flag) = borrow {
+                                let one = ctx.builder.ins().iconst(types::I8, 1);
+                                ctx.builder.def_var(flag, one);
+                            }
+                            field
+                        },
+                        slow,
+                        types::I128,
+                    )
+                },
                 types::I128,
-                MemFlagsData::trusted(),
-                ptr,
-                Self::mstruct_field_offset(index),
-            );
-            match borrow {
-                Some(flag) => {
-                    let zero = ctx.builder.ins().iconst(types::I8, 0);
-                    ctx.builder.def_var(flag, zero);
-                }
-                None => ctx.clone_value(field),
-            }
-            field
+            )
         };
 
         let result = if self.mstruct_proven(register, descriptor) {
             // The type was checked on the way in, and a struct's type and
             // field count never change.
             let ptr = self.unbox_value_to_pointer(value);
-            let unshared = self.single_threaded();
-            self.converging_if(unshared, |ctx| read(ctx, ptr), slow, types::I128)
+            read(self, ptr)
         } else {
             let is_struct = self.is_type(value, SteelVal::MUTABLE_STRUCT_TAG);
             let result = self.converging_if(
                 is_struct,
                 |ctx| {
                     let ptr = ctx.unbox_value_to_pointer(value);
-                    let fast = ctx.mstruct_fast_check(ptr, descriptor, index);
-                    ctx.converging_if(fast, |ctx| read(ctx, ptr), slow, types::I128)
+                    let checked = ctx.mstruct_type_check(ptr, descriptor, index);
+                    ctx.converging_if(checked, |ctx| read(ctx, ptr), slow, types::I128)
                 },
                 slow,
                 types::I128,
@@ -13075,7 +13172,6 @@ impl FunctionTranslator<'_> {
     }
 
     /// `call_helper_checked` for a helper that returns nothing.
-    #[allow(dead_code)] // the rest of the typed call api; no void helper raises yet
     fn call_helper_void_checked<const N: usize, const CTX: bool>(
         &mut self,
         helper: Helper<N, CTX, false, true>,

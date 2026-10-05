@@ -2401,6 +2401,9 @@ pub struct PackedRc<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static = 
 pub struct PackedHeader<H> {
     pub rcword: RcWord,
     pub len: u32,
+    /// A word for the owner's use, in what would otherwise be padding before
+    /// a pointer sized header. Starts at zero.
+    pub aux: AtomicU32,
     pub header: H,
 }
 
@@ -2412,6 +2415,12 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
     #[inline]
     pub const fn header_offset() -> usize {
         core::mem::offset_of!(PackedHeader<H>, header)
+    }
+
+    /// Where the owner's spare word sits, relative to the pointer.
+    #[inline]
+    pub const fn aux_offset() -> usize {
+        core::mem::offset_of!(PackedHeader<H>, aux)
     }
 
     /// Where the elements start, relative to the header pointer.
@@ -2452,6 +2461,7 @@ impl<H: 'static, T: 'static, D: PackedDropHandler<T> + 'static> PackedRc<H, T, D
             ptr.as_ptr().write(PackedHeader {
                 rcword: RcWord::new(),
                 len: len as u32,
+                aux: AtomicU32::new(0),
                 header,
             });
 

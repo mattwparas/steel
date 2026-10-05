@@ -255,8 +255,6 @@ pub struct MutableStructHeader {
     pub(crate) descriptor: StructTypeDescriptor,
     // The heap list the cell belongs to.
     pub(crate) owner: u32,
-    // Guards the fields once there is more than one thread.
-    pub(crate) lock: core::sync::atomic::AtomicU8,
     // Set by a mark that reached the struct, and on allocation.
     pub(crate) reachable: core::sync::atomic::AtomicBool,
     pub(crate) state: core::sync::atomic::AtomicU8,
@@ -358,20 +356,39 @@ impl MutableStructCell {
         self.header().reachable.swap(true, Ordering::Relaxed)
     }
 
+    // The lock that guards the fields once there is more than one thread. It
+    // is a sequence number like `SpinLock`'s: odd while held, and one more for
+    // each acquire and release, so a reader can tell whether anything was
+    // written while it read.
+    #[inline]
+    fn sequence(&self) -> &core::sync::atomic::AtomicU32 {
+        unsafe { &self.0.as_ref().aux }
+    }
+
     #[inline]
     fn lock(&self) {
-        let lock = &self.header().lock;
-        while lock
-            .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
+        let sequence = self.sequence();
+        loop {
+            let current = sequence.load(Ordering::Relaxed);
+            if current & 1 == 0
+                && sequence
+                    .compare_exchange_weak(
+                        current,
+                        current.wrapping_add(1),
+                        Ordering::Acquire,
+                        Ordering::Relaxed,
+                    )
+                    .is_ok()
+            {
+                return;
+            }
             core::hint::spin_loop();
         }
     }
 
     #[inline]
     fn unlock(&self) {
-        self.header().lock.store(0, Ordering::Release);
+        self.sequence().fetch_add(1, Ordering::Release);
     }
 
     /// Moves the fields out, leaving void behind. The values are returned so
@@ -434,7 +451,6 @@ impl MutableStructCell {
             MutableStructHeader {
                 descriptor,
                 owner,
-                lock: core::sync::atomic::AtomicU8::new(0),
                 reachable: core::sync::atomic::AtomicBool::new(true),
                 state: core::sync::atomic::AtomicU8::new(MUTABLE_STRUCT_LIVE),
                 orphaned: core::sync::atomic::AtomicBool::new(false),
@@ -575,6 +591,7 @@ impl MutableStructRef {
                 .get_mut(index)
                 .map(|slot| core::mem::replace(slot, value))
         })
+        .map(crate::values::closed::retire_swapped)
     }
 
     /// A copy of the fields as they are now.

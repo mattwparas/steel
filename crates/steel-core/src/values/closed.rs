@@ -1,4 +1,5 @@
-use core::cell::RefCell;
+use crate::steel_vm::vm::SteelThread;
+use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashSet;
 
@@ -1991,12 +1992,460 @@ pub(crate) fn cells_shared() -> bool {
 
 /// Called before another thread is started.
 pub(crate) fn share_cells() {
-    CELLS_SHARED.store(true, Ordering::SeqCst);
+    if CELLS_SHARED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    // The calling thread got here from inside a run that wasn't counted, so
+    // count it as running for good. It is then only taken to be idle when it
+    // is at a safepoint.
+    MY_RUNNING.with(|current| {
+        if let Some((_, state)) = &*current.borrow() {
+            state.running.fetch_add(1, Ordering::SeqCst);
+        }
+    });
 }
 
 /// Where `cells_shared` reads from, for code that checks it inline.
 pub(crate) fn cells_shared_address() -> usize {
     &CELLS_SHARED as *const AtomicBool as usize
+}
+
+// A thread that runs steel code: the slot it publishes its context in while
+// it is at a safepoint, and how many runs of the interpreter it is inside.
+// An engine that isn't running anything has an empty slot too, which is why
+// the count is kept.
+struct Mutator {
+    slot: std::sync::Weak<core::sync::atomic::AtomicPtr<SteelThread>>,
+    state: Arc<MutatorState>,
+}
+
+#[derive(Default)]
+pub(crate) struct MutatorState {
+    running: core::sync::atomic::AtomicUsize,
+    // How many times the thread has checked in. See `request_check_ins`.
+    check_ins: core::sync::atomic::AtomicUsize,
+    // The thread's state while it is inside a run, for `send_to_safepoint`.
+    thread: core::sync::atomic::AtomicPtr<SteelThread>,
+    // Held to write through `thread`, and to take it away.
+    thread_in_use: Mutex<()>,
+}
+
+impl MutatorState {
+    /// Gets the thread to its next safepoint soon, if it is inside a run.
+    /// Whoever calls this has already left something for it to find there.
+    pub(crate) fn send_to_safepoint(&self) {
+        let _held = self.thread_in_use.lock();
+        let thread = self.thread.load(Ordering::SeqCst);
+        if thread.is_null() {
+            return;
+        }
+        // The thread reads this word without synchronization, which is
+        // fine for a word.
+        unsafe {
+            let limit = core::ptr::addr_of_mut!((*thread).native_stack_limit);
+            core::sync::atomic::AtomicUsize::from_ptr(limit)
+                .store(CHECK_IN_STACK_LIMIT, Ordering::SeqCst);
+        }
+    }
+}
+
+// What a thread's native stack limit is set to when another thread is waiting
+// on it to check in.
+//
+// Jitted code only reaches a safepoint when it calls out, so a thread in a
+// loop or a recursion that calls nothing is never seen at one, and what other
+// threads have put aside to drop would wait on it for as long as it runs. Its
+// calls already compare the stack pointer with this limit, and with the limit
+// here they find no room and continue in the interpreter, which checks in at
+// its next poll and puts the limit back. A jitted loop compares the limit
+// with this value each time round. So asking costs a thread nothing until it
+// is asked.
+//
+// A check in is a point where the thread holds no value it read out of a
+// cell without a reference, the same as a safepoint, so a thread whose count
+// has moved since a value was put aside can't still be reading that value.
+pub(crate) const CHECK_IN_STACK_LIMIT: usize = usize::MAX;
+
+/// Asks every other thread that is inside a run to check in. Also how a
+/// collection gets a thread out of jitted code, which never looks at the
+/// flag that asks it to stop: in the interpreter the thread does.
+pub(crate) fn request_check_ins() {
+    let mine = MY_SAFEPOINT_SLOT.with(|mine| mine.get());
+    let Ok(mutators) = MUTATORS.lock() else {
+        return;
+    };
+    for mutator in mutators.iter() {
+        if mutator.slot.as_ptr() as usize == mine {
+            continue;
+        }
+        mutator.state.send_to_safepoint();
+    }
+}
+
+/// Notes that the calling thread is at a point where it holds nothing it
+/// read out of a cell without taking a reference.
+pub(crate) fn check_in() {
+    let turn = MY_RUNNING
+        .try_with(|current| {
+            let current = current.try_borrow().ok()?;
+            let (_, state) = current.as_ref()?;
+            Some(state.check_ins.fetch_add(1, Ordering::SeqCst))
+        })
+        .ok()
+        .flatten();
+
+    // The thread that asked may not come back for a while, so the request
+    // is closed from here.
+    if turn.is_some() {
+        resolve_awaited(false);
+    }
+}
+
+// Values waiting on these threads to each check in once more.
+struct AwaitedBatch {
+    values: Vec<SteelVal>,
+    seen: Vec<(Mutator, usize)>,
+    // The thread that put the values aside.
+    requester: Option<Arc<MutatorState>>,
+    // Whether the request for check ins is still open.
+    open: bool,
+}
+
+static AWAITED: Mutex<Vec<AwaitedBatch>> = Mutex::new(Vec::new());
+
+// Closes the requests whose threads have all checked in, and drops the
+// batches among them that this thread put aside.
+//
+// The batches of other threads are left for those threads. Most of what is
+// in one was made by the thread that put it aside, and dropping another
+// thread's values only queues them for that thread, which would move the
+// backlog instead of freeing it. `any` takes them regardless, for a
+// collection, since their thread may be gone.
+fn resolve_awaited(any: bool) {
+    let me = MY_RUNNING
+        .try_with(|current| {
+            let current = current.try_borrow().ok()?;
+            current.as_ref().map(|(_, state)| state.clone())
+        })
+        .ok()
+        .flatten();
+
+    let ready: Vec<AwaitedBatch> = {
+        let Ok(mut awaited) = AWAITED.try_lock() else {
+            return;
+        };
+        let mut ready = Vec::new();
+        let mut index = 0;
+        while index < awaited.len() {
+            let batch = &mut awaited[index];
+            if batch.open && batch.seen.iter().all(|(m, seen)| has_passed(m, *seen)) {
+                batch.open = false;
+            }
+
+            let mine = match (&batch.requester, &me) {
+                (Some(requester), Some(me)) => Arc::ptr_eq(requester, me),
+                _ => false,
+            };
+            if !batch.open && (mine || any) {
+                ready.push(awaited.swap_remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        ready
+    };
+
+    // Outside the lock, since dropping them can put more aside.
+    drop(ready);
+}
+
+// How many values a thread puts aside before it asks the others to check in.
+const DEFERRED_DROP_BACKLOG: usize = 4096;
+
+static MUTATORS: Mutex<Vec<Mutator>> = Mutex::new(Vec::new());
+
+// Values other threads put aside and exited before they could drop.
+static ORPHANED_DROPS: Mutex<Vec<SteelVal>> = Mutex::new(Vec::new());
+
+// How many values a thread puts aside between attempts to drop them.
+const DEFERRED_DROP_BATCH: usize = 64;
+
+struct DeferredDrops(Vec<SteelVal>);
+
+impl Drop for DeferredDrops {
+    fn drop(&mut self) {
+        if !self.0.is_empty() {
+            if let Ok(mut orphaned) = ORPHANED_DROPS.lock() {
+                orphaned.append(&mut self.0);
+            } else {
+                // Leaking is the only safe thing left to do with them.
+                core::mem::forget(core::mem::take(&mut self.0));
+            }
+        }
+    }
+}
+
+thread_local! {
+    // The slot this thread publishes its own context in.
+    static MY_SAFEPOINT_SLOT: Cell<usize> = const { Cell::new(0) };
+
+    // The slot and count of the engine this thread last ran.
+    static MY_RUNNING: RefCell<Option<(usize, Arc<MutatorState>)>> = const { RefCell::new(None) };
+
+    static DEFERRED_DROPS: RefCell<DeferredDrops> = const { RefCell::new(DeferredDrops(Vec::new())) };
+}
+
+// The running count for a slot, adding the slot if it isn't known yet.
+fn running_count(slot: &Arc<core::sync::atomic::AtomicPtr<SteelThread>>) -> Arc<MutatorState> {
+    let address = Arc::as_ptr(slot) as usize;
+    let mut mutators = MUTATORS.lock().unwrap_or_else(|e| e.into_inner());
+    mutators.retain(|mutator| mutator.slot.strong_count() > 0);
+    if let Some(mutator) = mutators
+        .iter()
+        .find(|mutator| mutator.slot.as_ptr() as usize == address)
+    {
+        return mutator.state.clone();
+    }
+    let state = Arc::new(MutatorState::default());
+    mutators.push(Mutator {
+        slot: Arc::downgrade(slot),
+        state: state.clone(),
+    });
+    state
+}
+
+/// Records a thread that will run steel code.
+pub(crate) fn register_mutator(slot: &Arc<core::sync::atomic::AtomicPtr<SteelThread>>) {
+    running_count(slot);
+}
+
+/// Held while a thread is inside a run of the interpreter. Runs nest, and a
+/// nested one can belong to another engine, so leaving one puts back what
+/// the thread was running before.
+pub(crate) struct Running {
+    state: Arc<MutatorState>,
+    counted: bool,
+    outer: Option<(usize, Arc<MutatorState>)>,
+    outer_thread: *mut SteelThread,
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        if self.counted {
+            self.state.running.fetch_sub(1, Ordering::SeqCst);
+        }
+        {
+            let _held = self.state.thread_in_use.lock();
+            self.state.thread.store(self.outer_thread, Ordering::SeqCst);
+        }
+        let outer = self.outer.take();
+        MY_SAFEPOINT_SLOT.with(|mine| mine.set(outer.as_ref().map(|x| x.0).unwrap_or(0)));
+        let _ = MY_RUNNING.try_with(|current| *current.borrow_mut() = outer);
+    }
+}
+
+impl Running {
+    pub(crate) fn state(&self) -> &Arc<MutatorState> {
+        &self.state
+    }
+}
+
+/// Called on the thread that is about to run steel code with this slot.
+#[inline]
+pub(crate) fn enter_mutator(
+    slot: &Arc<core::sync::atomic::AtomicPtr<SteelThread>>,
+    thread: *mut SteelThread,
+) -> Running {
+    let address = Arc::as_ptr(slot) as usize;
+
+    let (running, outer) = MY_RUNNING.with(|current| {
+        let mut current = current.borrow_mut();
+        let running = match &*current {
+            Some((known, running)) if *known == address => running.clone(),
+            _ => running_count(slot),
+        };
+        let outer = current.replace((address, running.clone()));
+        (running, outer)
+    });
+    MY_SAFEPOINT_SLOT.with(|mine| mine.set(address));
+
+    // Alone, nobody looks at the count. The thread that starts a second one
+    // is counted as running from then on, see `share_cells`.
+    let outer_thread = running.thread.swap(thread, Ordering::SeqCst);
+
+    let counted = cells_shared();
+    if counted {
+        running.running.fetch_add(1, Ordering::SeqCst);
+        // Starting a run is a point with nothing in hand, and a thread
+        // that wasn't running when another asked was never told.
+        running.check_ins.fetch_add(1, Ordering::SeqCst);
+    }
+
+    Running {
+        state: running,
+        counted,
+        outer,
+        outer_thread,
+    }
+}
+
+// Whether every other thread was seen at a safepoint, not running, or gone.
+//
+// Jitted code reads a cell without its lock, and between loading a value and
+// taking a reference to it nothing but the cell keeps the value alive. That
+// stretch has no safepoint in it. So a thread seen at a safepoint after a
+// value left its cell is not in the middle of reading that value, and what it
+// reads next comes from the cell as it is now. The thread's own store on the
+// way out of a safepoint and this load are both sequentially consistent, so
+// one of them sees the other.
+fn others_at_safepoints() -> bool {
+    let mine = MY_SAFEPOINT_SLOT.with(|mine| mine.get());
+    let Ok(mutators) = MUTATORS.lock() else {
+        return false;
+    };
+    mutators.iter().all(|mutator| match mutator.slot.upgrade() {
+        None => true,
+        Some(slot) => {
+            Arc::as_ptr(&slot) as usize == mine
+                || mutator.state.running.load(Ordering::SeqCst) == 0
+                || !slot.load(Ordering::SeqCst).is_null()
+        }
+    })
+}
+
+// The other threads that are running and not at a safepoint, with their
+// check in counts as they are now.
+fn threads_to_await() -> Vec<(Mutator, usize)> {
+    let mine = MY_SAFEPOINT_SLOT.with(|mine| mine.get());
+    let Ok(mutators) = MUTATORS.lock() else {
+        return Vec::new();
+    };
+    mutators
+        .iter()
+        .filter(|mutator| mutator.slot.as_ptr() as usize != mine)
+        .map(|mutator| {
+            (
+                Mutator {
+                    slot: mutator.slot.clone(),
+                    state: mutator.state.clone(),
+                },
+                mutator.state.check_ins.load(Ordering::SeqCst),
+            )
+        })
+        .collect()
+}
+
+// Whether a thread has been somewhere it holds nothing unprotected since
+// its count was `seen`.
+fn has_passed(mutator: &Mutator, seen: usize) -> bool {
+    match mutator.slot.upgrade() {
+        None => true,
+        Some(slot) => {
+            mutator.state.running.load(Ordering::SeqCst) == 0
+                || !slot.load(Ordering::SeqCst).is_null()
+                || mutator.state.check_ins.load(Ordering::SeqCst) != seen
+        }
+    }
+}
+
+/// Drops what has been put aside, if no other thread can still be reading
+/// it. A backlog the others are keeping alive is handed over to wait on
+/// them checking in.
+pub(crate) fn drop_deferred() {
+    drop_deferred_from(false)
+}
+
+/// The same from a collection, which also takes what other threads left.
+pub(crate) fn drop_deferred_at_collection() {
+    drop_deferred_from(true)
+}
+
+fn drop_deferred_from(collection: bool) {
+    resolve_awaited(collection);
+
+    let ready = DEFERRED_DROPS
+        .try_with(|deferred| {
+            let Ok(mut deferred) = deferred.try_borrow_mut() else {
+                return Vec::new();
+            };
+            if deferred.0.is_empty() {
+                return Vec::new();
+            }
+
+            if others_at_safepoints() {
+                return core::mem::take(&mut deferred.0);
+            }
+
+            if deferred.0.len() >= DEFERRED_DROP_BACKLOG {
+                let batch = AwaitedBatch {
+                    values: core::mem::take(&mut deferred.0),
+                    seen: threads_to_await(),
+                    requester: MY_RUNNING
+                        .with(|current| current.borrow().as_ref().map(|(_, state)| state.clone())),
+                    open: true,
+                };
+                match AWAITED.lock() {
+                    Ok(mut awaited) => {
+                        awaited.push(batch);
+                        drop(awaited);
+                        // After the counts were read, so a check in that
+                        // answers this is seen as one.
+                        request_check_ins();
+                    }
+                    Err(_) => deferred.0 = batch.values,
+                }
+            }
+
+            Vec::new()
+        })
+        .unwrap_or_default();
+
+    if ready.is_empty() {
+        return;
+    }
+
+    let orphaned = ORPHANED_DROPS
+        .lock()
+        .map(|mut orphaned| core::mem::take(&mut *orphaned))
+        .unwrap_or_default();
+
+    // Outside the borrow, since dropping them can put more aside.
+    drop(ready);
+    drop(orphaned);
+}
+
+/// Takes a value that was just swapped out of a cell and returns it for the
+/// caller to keep.
+///
+/// With other threads running, one of them may have read the value out of
+/// the cell and not yet taken its reference. The cell's own reference is what
+/// that reader is relying on, so it is put aside here and dropped once every
+/// other thread has been seen at a safepoint, and the caller gets a reference
+/// of its own.
+#[inline]
+pub(crate) fn retire_swapped(old: SteelVal) -> SteelVal {
+    if !cells_shared() || !needs_release(&old) {
+        return old;
+    }
+
+    let kept = old.clone();
+    let due = DEFERRED_DROPS
+        .try_with(|deferred| match deferred.try_borrow_mut() {
+            Ok(mut deferred) => {
+                deferred.0.push(old);
+                deferred.0.len() % DEFERRED_DROP_BATCH == 0
+            }
+            // Only while this thread is tearing down. Leaked instead of
+            // dropped under a reader.
+            Err(_) => false,
+        })
+        .unwrap_or(false);
+    if due {
+        drop_deferred();
+    }
+
+    kept
 }
 
 // Structs made where the heap wasn't at hand, waiting to join the list of
@@ -2445,6 +2894,7 @@ impl Heap {
         synchronizer: &mut Synchronizer,
     ) {
         run_explicit_merge();
+        drop_deferred_at_collection();
 
         // The cheap pass, which frees the structs whose handles are all gone.
         let before = self.mutable_structs.cells.len();
@@ -2519,6 +2969,7 @@ impl Heap {
     ) {
         if self.memory_free_list.nearly_full() || force {
             run_explicit_merge();
+            drop_deferred_at_collection();
             // let now = crate::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "SteelVal gc invocation");
@@ -3011,6 +3462,13 @@ impl ParallelMarker {
 pub trait HeapAble: Clone + core::fmt::Debug + PartialEq + Eq {
     fn empty() -> Self;
 
+    /// What `set` returns for a value it swapped out of a cell that other
+    /// threads read without its lock. See `retire_swapped`.
+    #[inline]
+    fn retire(self) -> Self {
+        self
+    }
+
     /// Runs `f` on this thread's spare handles for boxes of this type, when it
     /// keeps any. See `SpareHandle`.
     #[inline]
@@ -3029,6 +3487,11 @@ pub trait HeapAble: Clone + core::fmt::Debug + PartialEq + Eq {
 impl HeapAble for SteelVal {
     fn empty() -> Self {
         SteelVal::Void
+    }
+
+    #[inline]
+    fn retire(self) -> Self {
+        retire_swapped(self)
     }
 
     #[inline]
@@ -3245,28 +3708,21 @@ impl<T: HeapAble> HeapRef<T> {
     }
 
     pub fn set(&mut self, value: T) -> T {
-        let inner = self.inner.upgrade().unwrap();
-
-        let ret = { inner.lock().value.clone() };
-
-        inner.write().value = value;
-        ret
+        self.set_and_return(value)
     }
 
     pub fn set_and_return(&self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
-        let mut guard = inner.write();
-        core::mem::replace(&mut guard.value, value)
+        let old = {
+            let mut guard = inner.write();
+            core::mem::replace(&mut guard.value, value)
+        };
+        old.retire()
     }
 
     pub(crate) fn set_interior_mut(&self, value: T) -> T {
-        let inner = self.inner.upgrade().unwrap();
-
-        let ret = { inner.lock().value.clone() };
-
-        inner.write().value = value;
-        ret
+        self.set_and_return(value)
     }
 
     pub(crate) fn strong_ptr(&self) -> steel_rc::weak::Arc<SpinLock<HeapAllocated<T>>> {

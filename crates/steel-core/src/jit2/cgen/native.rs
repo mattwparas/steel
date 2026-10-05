@@ -2134,21 +2134,7 @@ impl<'a> FunctionTranslator<'a> {
                     },
                     |ctx| {
                         let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
-
-                        let data = ctx.with_spinlock(lock_pointer, |ctx| {
-                            let data = ctx.builder.ins().load(
-                                types::I128,
-                                MemFlagsData::trusted(),
-                                lock_pointer,
-                                SpinLock::<SteelVal>::data_offset() as i32,
-                            );
-
-                            ctx.clone_value(data);
-
-                            data
-                        });
-
-                        data
+                        ctx.shared_box_read(lock_pointer)
                     },
                     typ,
                 );
@@ -2205,16 +2191,7 @@ impl<'a> FunctionTranslator<'a> {
                     },
                     |ctx| {
                         let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
-                        let data = ctx.with_spinlock(lock_pointer, |ctx| {
-                            let data = ctx.builder.ins().load(
-                                types::I128,
-                                MemFlagsData::trusted(),
-                                lock_pointer,
-                                SpinLock::<SteelVal>::data_offset() as i32,
-                            );
-                            ctx.clone_value(data);
-                            data
-                        });
+                        let data = ctx.shared_box_read(lock_pointer);
                         let one = ctx.builder.ins().iconst(types::I8, 1);
                         ctx.builder.def_var(owned, one);
                         data
@@ -2370,27 +2347,11 @@ impl<'a> FunctionTranslator<'a> {
 
                         old
                     },
-                    |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
-                        let data_offset = SpinLock::<SteelVal>::data_offset() as i32;
-
-                        ctx.with_spinlock(lock_pointer, |ctx| {
-                            let old = ctx.builder.ins().load(
-                                types::I128,
-                                MemFlagsData::trusted(),
-                                lock_pointer,
-                                data_offset,
-                            );
-                            ctx.builder.ins().store(
-                                MemFlagsData::trusted(),
-                                new_value,
-                                lock_pointer,
-                                data_offset,
-                            );
-
-                            old
-                        })
-                    },
+                    // With other threads running, the value that comes out
+                    // can't be handed straight back, since one of them may be
+                    // part way through reading it. The out of line store sees
+                    // to that.
+                    |ctx| ctx.call_helper(SET_BOX_SHARED, [boxed, new_value]),
                     typ,
                 );
 
@@ -2415,6 +2376,68 @@ impl<'a> FunctionTranslator<'a> {
 
     // TODO: Replace the spin lock with an actual mutex implementation,
     // eventually.
+    /// Reads the sequence number at `sequence`, runs `load`, and reads the
+    /// number again. The second value returned says whether the two matched
+    /// and were even, which means nothing wrote what `load` read while it was
+    /// being read. `load` must only read memory that stays allocated.
+    pub(super) fn sequence_read(
+        &mut self,
+        sequence: Value,
+        load: impl FnOnce(&mut Self) -> Value,
+    ) -> (Value, Value) {
+        let before = self
+            .builder
+            .ins()
+            .atomic_load(types::I32, MemFlagsData::trusted(), sequence);
+        let value = load(self);
+        let after = self
+            .builder
+            .ins()
+            .atomic_load(types::I32, MemFlagsData::trusted(), sequence);
+
+        let unchanged = self.builder.ins().icmp(IntCC::Equal, before, after);
+        let low = self.builder.ins().band_imm_u(before, 1);
+        let unlocked = self.builder.ins().icmp_imm_s(IntCC::Equal, low, 0);
+
+        (value, self.builder.ins().band(unchanged, unlocked))
+    }
+
+    /// A box's contents, with a reference taken, while other threads may be
+    /// writing it. The read is checked against the lock's sequence number
+    /// and only takes the lock if a write got in the way. A value that a
+    /// write swaps out in the meantime is kept alive until this thread is
+    /// next at a safepoint, which is what makes taking the reference safe.
+    fn shared_box_read(&mut self, lock_pointer: Value) -> Value {
+        let offset = SpinLock::<SteelVal>::data_offset() as i32;
+
+        let (data, steady) = self.sequence_read(lock_pointer, |ctx| {
+            ctx.builder
+                .ins()
+                .load(types::I128, MemFlagsData::trusted(), lock_pointer, offset)
+        });
+
+        self.converging_if(
+            steady,
+            |ctx| {
+                ctx.clone_value(data);
+                data
+            },
+            |ctx| {
+                ctx.with_spinlock(lock_pointer, |ctx| {
+                    let data = ctx.builder.ins().load(
+                        types::I128,
+                        MemFlagsData::trusted(),
+                        lock_pointer,
+                        offset,
+                    );
+                    ctx.clone_value(data);
+                    data
+                })
+            },
+            types::I128,
+        )
+    }
+
     pub(super) fn with_spinlock<O>(
         &mut self,
         lock_pointer: Value,
@@ -3625,41 +3648,45 @@ const _: () = {
 // Acquire/Release. They interoperate, and generated code pays a bit more.
 fn emit_spinlock_inline(builder: &mut FunctionBuilder, lock_ptr: Value) {
     let spin_entry = builder.create_block();
-    let spin_wait = builder.create_block();
+    let attempt = builder.create_block();
     let acquired = builder.create_block();
 
     builder.ins().jump(spin_entry, &[]);
 
-    // Attempt CAS
+    // The lock word is a sequence number, odd while held. Wait for an even
+    // one, then try to take it by adding one.
     builder.switch_to_block(spin_entry);
-    let zero = builder.ins().iconst(types::I32, 0);
-    let one = builder.ins().iconst(types::I32, 1);
-    let old = builder
-        .ins()
-        .atomic_cas(MemFlagsData::trusted(), lock_ptr, zero, one);
-    let cas_ok = builder.ins().icmp(IntCC::Equal, old, zero);
-    builder.ins().brif(cas_ok, acquired, &[], spin_wait, &[]);
-
-    // load until zero
-    builder.switch_to_block(spin_wait);
-    let val = builder
+    let current = builder
         .ins()
         .atomic_load(types::I32, MemFlagsData::trusted(), lock_ptr);
-    let is_free = builder.ins().icmp(IntCC::Equal, val, zero);
-    builder.ins().brif(is_free, spin_entry, &[], spin_wait, &[]);
+    let low = builder.ins().band_imm_u(current, 1);
+    let is_free = builder.ins().icmp_imm_s(IntCC::Equal, low, 0);
+    builder.ins().brif(is_free, attempt, &[], spin_entry, &[]);
 
-    // Acquired
+    builder.switch_to_block(attempt);
+    builder.seal_block(attempt);
+    let held = builder.ins().iadd_imm_s(current, 1);
+    let old = builder
+        .ins()
+        .atomic_cas(MemFlagsData::trusted(), lock_ptr, current, held);
+    let cas_ok = builder.ins().icmp(IntCC::Equal, old, current);
+    builder.ins().brif(cas_ok, acquired, &[], spin_entry, &[]);
+
     builder.switch_to_block(acquired);
     builder.seal_block(spin_entry);
-    builder.seal_block(spin_wait);
     builder.seal_block(acquired);
 }
 
+// Releasing adds one more, which makes the number even again.
 fn emit_spinlock_unlock_inline(builder: &mut FunctionBuilder, lock_ptr: Value) {
-    let zero = builder.ins().iconst(types::I32, 0);
-    builder
-        .ins()
-        .atomic_store(MemFlagsData::trusted(), zero, lock_ptr);
+    let one = builder.ins().iconst(types::I32, 1);
+    builder.ins().atomic_rmw(
+        types::I32,
+        MemFlagsData::trusted(),
+        AtomicRmwOp::Add,
+        lock_ptr,
+        one,
+    );
 }
 
 struct ForkedState {

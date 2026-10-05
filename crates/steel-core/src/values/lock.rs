@@ -11,6 +11,11 @@ const SPINS_BEFORE_YIELD: u32 = 128;
 // TODO: @Matt
 // This needs to have a proper mutex backing.
 //
+// `locked` is a sequence number. It is odd while the lock is held, and taking
+// and releasing the lock each add one. A reader that sees the same even number
+// before and after reading the payload knows nothing was written in between,
+// which lets it read without taking the lock. See `read_unlocked`.
+//
 // locked has to stay first, since the jit emits its own inline acquire and
 // release (emit_spinlock_inline) which does an atomic_cas at the base of this
 // struct. lock_offset and data_offset are how it finds the two halves.
@@ -68,27 +73,43 @@ impl<T> SpinLock<T> {
     pub fn lock(&self) -> SpinGuard<'_, T> {
         let mut spins: u32 = 0;
 
-        while self
-            .locked
-            .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            while self.locked.load(Ordering::Relaxed) != 0 {
-                if spins < SPINS_BEFORE_YIELD {
-                    spins += 1;
-                    std::hint::spin_loop();
-                } else {
-                    std::thread::yield_now();
-                }
+        loop {
+            let current = self.locked.load(Ordering::Relaxed);
+            if current & 1 == 0
+                && self
+                    .locked
+                    .compare_exchange_weak(
+                        current,
+                        current.wrapping_add(1),
+                        Ordering::Acquire,
+                        Ordering::Relaxed,
+                    )
+                    .is_ok()
+            {
+                return SpinGuard::new(self);
+            }
+
+            if spins < SPINS_BEFORE_YIELD {
+                spins += 1;
+                std::hint::spin_loop();
+            } else {
+                std::thread::yield_now();
             }
         }
-
-        SpinGuard::new(self)
     }
 
     pub fn try_lock(&self) -> Option<SpinGuard<'_, T>> {
+        let current = self.locked.load(Ordering::Relaxed);
+        if current & 1 != 0 {
+            return None;
+        }
         self.locked
-            .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+            .compare_exchange(
+                current,
+                current.wrapping_add(1),
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            )
             .ok()
             .map(|_| SpinGuard::new(self))
     }
@@ -141,7 +162,9 @@ impl<T> std::ops::DerefMut for SpinGuard<'_, T> {
 
 impl<T> Drop for SpinGuard<'_, T> {
     fn drop(&mut self) {
-        self.lock.locked.store(0, Ordering::Release);
+        // Only the holder changes an odd number, so this is the acquire's
+        // number plus one.
+        self.lock.locked.fetch_add(1, Ordering::Release);
     }
 }
 

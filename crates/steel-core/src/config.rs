@@ -253,6 +253,11 @@ steel_config! {
     jit_borrow_primitive_args: bool = true, "STEEL_JIT_BORROW_PRIMITIVE_ARGS";
     /// Drop a discarded value inline instead of through a helper call.
     jit_inline_pop: bool = true, "STEEL_JIT_INLINE_POP";
+    /// Have jitted loops look for another thread waiting on them, either
+    /// to collect or to release values it has put aside. Off, a thread in a
+    /// loop that calls nothing holds up every other thread's collections
+    /// until the loop ends. See `CHECK_IN_STACK_LIMIT`.
+    jit_check_in: bool = true, "STEEL_JIT_CHECK_IN";
     /// Load the running closure's captures once on entry.
     jit_cache_captures: bool = true, "STEEL_JIT_CACHE_CAPTURES";
     /// Keep a pushed closed global as a reference to its slot until it is used.

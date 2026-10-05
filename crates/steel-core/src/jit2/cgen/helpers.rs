@@ -191,6 +191,8 @@ jit_helpers! {
     CAR_REG = "car-reg" => car_handler_reg: ctx_raises fn(usize) -> SteelVal;
     BOX_HANDLER = "box-handler" => box_handler_c: ctx fn(SteelVal) -> SteelVal;
     UNBOX_HANDLER = "unbox-handler" => unbox_handler_c: ctx_raises fn(SteelVal) -> SteelVal;
+    CHECK_IN = "check-in" => jit_check_in: ctx_raises fn();
+    SET_BOX_SHARED = "set-box-shared" => set_box_shared: plain fn(SteelVal, SteelVal) -> SteelVal;
     MSTRUCT_REF_SLOW = "mstruct-ref-slow" => mstruct_ref_slow: ctx_raises fn(usize, SteelVal, usize) -> SteelVal;
     MSTRUCT_SET_SLOW = "mstruct-set-slow" => mstruct_set_slow: ctx_raises fn(usize, SteelVal, usize, SteelVal) -> SteelVal;
     SET_BOX_HANDLER = "set-box-handler" => setbox_handler_c: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
@@ -274,6 +276,7 @@ jit_helpers! {
 /// stack buffer pointer survives a call to one. Everything else is assumed to
 /// move it.
 pub(super) const KEEPS_STACK: &[&str] = &[
+    CHECK_IN.name,
     // arithmetic and comparison slow paths, which only operate on values
     ADD_BINOP.name,
     ADD_BINOP_INT_REG.name,

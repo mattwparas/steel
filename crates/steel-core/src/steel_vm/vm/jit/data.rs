@@ -767,6 +767,30 @@ fn setbox_handler_c(ctx: *mut VmCore, arg: SteelVal, value: SteelVal) -> SteelVa
     }
 }
 
+// Called from a jitted loop that found another thread waiting on this one,
+// for a check in or to stop, or that the thread has been interrupted. See
+// `CHECK_IN_STACK_LIMIT`.
+#[cross_platform_fn]
+fn jit_check_in(ctx: *mut VmCore) {
+    let this = unsafe { &mut *ctx };
+    if let Err(e) = this.safepoint_or_interrupt() {
+        this.result = Some(Err(e));
+        this.is_native = false;
+    }
+}
+
+// `#%set-box!` on a box other threads may be reading. `arg` is only lent, and
+// is known to be a box.
+#[cross_platform_fn]
+fn set_box_shared(arg: SteelVal, value: SteelVal) -> SteelVal {
+    let arg = core::mem::ManuallyDrop::new(arg);
+
+    match &*arg {
+        SteelVal::HeapAllocated(h) => h.set_and_return(value),
+        _ => unreachable!("checked by the caller"),
+    }
+}
+
 // TODO: Lets optimize this?
 #[cross_platform_fn]
 fn cons_handler_value_register(ctx: *mut VmCore, arg: SteelVal, arg2: usize) {

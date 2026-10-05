@@ -3092,6 +3092,32 @@ mod resolver_tests {
     }
 
     #[test]
+    fn interrupt_reaches_a_loop_that_calls_nothing() {
+        let mut engine = Engine::new();
+        let controller = engine.get_thread_state_controller();
+        engine.run("(define (spin n) (spin (+ n 1)))").unwrap();
+
+        let interrupter = std::thread::spawn({
+            let controller = controller.clone();
+            move || {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                controller.interrupt();
+            }
+        });
+        let err = engine
+            .run("(spin 0)")
+            .expect_err("the loop only ends by being interrupted");
+        assert!(err.to_string().contains("Interrupted"), "got: {}", err);
+        interrupter.join().unwrap();
+
+        // Still interrupted, so the next run is stopped as it starts.
+        assert!(engine.run("(spin 0)").is_err());
+
+        controller.resume();
+        assert!(engine.run("(+ 1 2)").is_ok());
+    }
+
+    #[test]
     fn resolvers_are_not_shared_between_engines() {
         let mut with_resolver = engine_with_resolver(ModuleContainer::default());
         assert!(with_resolver.run("(require-builtin foo)").is_ok());

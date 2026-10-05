@@ -340,15 +340,6 @@ thread_local! {
     pub(crate) static DEFAULT_CONSTANT_MAP: ConstantMap = ConstantMap::new();
 }
 
-#[derive(Copy, Clone, Default, Debug)]
-pub enum ThreadState {
-    #[default]
-    Running,
-    Interrupted,
-    Suspended,
-    PausedAtSafepoint,
-}
-
 /// The thread execution context
 #[derive(Clone)]
 #[repr(C)]
@@ -509,35 +500,77 @@ pub struct FunctionInterner {
     jit_funcs: rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
 }
 
+// What a thread has been asked to do, as bits, since more than one can be
+// asked of it at a time and none of them undoes another.
+const STOP_REQUESTED: u8 = 1;
+const SUSPENDED: u8 = 2;
+const INTERRUPTED: u8 = 4;
+
 #[derive(Clone, Default)]
 pub struct ThreadStateController {
-    paused: Arc<AtomicBool>,
-    state: Arc<AtomicCell<ThreadState>>,
+    flags: Arc<std::sync::atomic::AtomicU8>,
+    // The thread this controls, once it has run something.
+    mutator: Arc<std::sync::OnceLock<Arc<crate::values::closed::MutatorState>>>,
 }
 
 impl ThreadStateController {
     pub fn suspend(&self) {
-        self.paused
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        self.state.store(ThreadState::Suspended)
+        self.flags.fetch_or(SUSPENDED, AtomicOrdering::SeqCst);
+        self.send_to_safepoint();
     }
 
+    /// Stops the thread at its next safepoint, where its stack can be read,
+    /// until `resume_from_safepoint`.
     pub fn pause_for_safepoint(&self) {
-        self.paused
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        self.state.store(ThreadState::PausedAtSafepoint)
+        self.mark_paused_for_safepoint();
+        self.send_to_safepoint();
     }
 
+    fn mark_paused_for_safepoint(&self) {
+        self.flags.fetch_or(STOP_REQUESTED, AtomicOrdering::SeqCst);
+    }
+
+    pub fn resume_from_safepoint(&self) {
+        self.flags
+            .fetch_and(!STOP_REQUESTED, AtomicOrdering::SeqCst);
+    }
+
+    /// Undoes `suspend` and `interrupt`.
     pub fn resume(&self) {
-        self.paused
-            .store(false, std::sync::atomic::Ordering::Relaxed);
-        self.state.store(ThreadState::Running)
+        self.flags
+            .fetch_and(!(SUSPENDED | INTERRUPTED), AtomicOrdering::SeqCst);
     }
 
     pub fn interrupt(&self) {
-        self.paused
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        self.state.store(ThreadState::Interrupted)
+        self.flags.fetch_or(INTERRUPTED, AtomicOrdering::SeqCst);
+        self.send_to_safepoint();
+    }
+
+    // Jitted code doesn't look at the flags. This gets a thread that is in
+    // some out to where it does.
+    fn send_to_safepoint(&self) {
+        if let Some(mutator) = self.mutator.get() {
+            mutator.send_to_safepoint();
+        }
+    }
+
+    // Called by the thread itself as it starts a run. A request made before
+    // the run started found no thread to send anywhere.
+    #[inline]
+    fn entered(
+        &self,
+        running: &crate::values::closed::Running,
+        #[allow(unused)] thread: *mut SteelThread,
+    ) {
+        if self.mutator.get().is_none() {
+            let _ = self.mutator.set(running.state().clone());
+        }
+        #[cfg(feature = "jit2")]
+        if self.flags.load(AtomicOrdering::SeqCst) != 0 {
+            unsafe {
+                (*thread).native_stack_limit = crate::values::closed::CHECK_IN_STACK_LIMIT;
+            }
+        }
     }
 }
 
@@ -577,8 +610,8 @@ impl Synchronizer {
             threads: Arc::new(Mutex::new(Vec::new())),
             registered: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             state: ThreadStateController {
-                paused: Arc::new(AtomicBool::new(false)),
-                state: Arc::new(AtomicCell::new(ThreadState::Running)),
+                flags: Default::default(),
+                mutator: Default::default(),
             },
             ctx: Arc::new(AtomicPtr::new(core::ptr::null_mut())),
             spawned_via_make_thread: false,
@@ -586,6 +619,9 @@ impl Synchronizer {
     }
 
     pub(crate) fn register(&self, context: ThreadContext) {
+        if let Some(slot) = context.ctx.upgrade() {
+            crate::values::closed::register_mutator(&slot);
+        }
         self.threads.lock().unwrap().push(context);
         let before = self
             .registered
@@ -792,12 +828,16 @@ impl Synchronizer {
     /// Stops all threads within the context of this virtual machine, and
     /// waits for all of those threads to stop before continuing on.
     pub fn stop_threads(&mut self) {
-        self.state.pause_for_safepoint();
+        // This thread is the one collecting, so it is told nothing.
+        self.state.mark_paused_for_safepoint();
 
         // Stop other threads, wait until we've gathered acknowledgements
         self.threads.lock().unwrap().iter().for_each(|x| {
             if let SteelVal::Custom(c) = &x.handle {
                 if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
+                    if Arc::ptr_eq(&inner.thread_state_manager.flags, &self.state.flags) {
+                        return;
+                    }
                     inner.thread_state_manager.pause_for_safepoint();
                 }
             }
@@ -805,13 +845,13 @@ impl Synchronizer {
     }
 
     pub fn resume_threads(&mut self) {
-        self.state.resume();
+        self.state.resume_from_safepoint();
 
         // Go through, and resume all of the threads
         self.threads.lock().unwrap().iter().for_each(|x| {
             if let SteelVal::Custom(c) = &x.handle {
                 if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
-                    inner.thread_state_manager.resume();
+                    inner.thread_state_manager.resume_from_safepoint();
                     inner.thread.unpark();
                 }
             }
@@ -936,6 +976,40 @@ impl SteelThread {
         thunk(self)
     }
 
+    // Takes back the context published for other threads to read, once none
+    // of them wants this thread stopped. `suspended` also waits out a suspend
+    // that hasn't been interrupted.
+    fn leave_safepoint(&self, suspended: bool) {
+        let flags = &self.synchronizer.state.flags;
+        loop {
+            loop {
+                let found = flags.load(AtomicOrdering::SeqCst);
+                let wait = found & STOP_REQUESTED != 0
+                    || (suspended && found & SUSPENDED != 0 && found & INTERRUPTED == 0);
+                if !wait {
+                    break;
+                }
+                // Only park the thread if we actually have the ability to unpark it
+                if !self.synchronizer.spawned_via_make_thread {
+                    std::thread::park();
+                }
+            }
+
+            self.synchronizer
+                .ctx
+                .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
+
+            // A thread that asked just now may have read the context before
+            // it was taken back, and be reading the stack.
+            if flags.load(AtomicOrdering::SeqCst) & STOP_REQUESTED == 0 {
+                break;
+            }
+            self.synchronizer
+                .ctx
+                .store(self as *const _ as *mut _, AtomicOrdering::SeqCst);
+        }
+    }
+
     // Allow this thread to be available for garbage collection
     // during the duration of the provided thunk
     #[inline(always)]
@@ -951,30 +1025,8 @@ impl SteelThread {
 
         let res = finish(self);
 
-        if cfg!(feature = "sync") && self.safepoints_enabled {
-            // Just block here until we're out - this only applies if we're not the main thread and
-            // not in garbage collection
-            while self
-                .synchronizer
-                .state
-                .paused
-                .load(std::sync::atomic::Ordering::Relaxed)
-            {
-                if let ThreadState::Interrupted = self.synchronizer.state.state.load() {
-                    break;
-                }
-
-                // Only park the thread if we actually have the ability to unpark it
-                if !self.synchronizer.spawned_via_make_thread {
-                    std::thread::park();
-                }
-            }
-
-            if publish {
-                self.synchronizer
-                    .ctx
-                    .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
-            }
+        if publish {
+            self.leave_safepoint(false);
         }
 
         res
@@ -995,30 +1047,8 @@ impl SteelThread {
 
         let res = finish(self);
 
-        if cfg!(feature = "sync") && self.safepoints_enabled {
-            // Just block here until we're out - this only applies if we're not the main thread and
-            // not in garbage collection
-            while self
-                .synchronizer
-                .state
-                .paused
-                .load(std::sync::atomic::Ordering::Relaxed)
-            {
-                if let ThreadState::Interrupted = self.synchronizer.state.state.load() {
-                    break;
-                }
-
-                // Only park the thread if we actually have the ability to unpark it
-                if !self.synchronizer.spawned_via_make_thread {
-                    std::thread::park();
-                }
-            }
-
-            if publish {
-                self.synchronizer
-                    .ctx
-                    .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
-            }
+        if publish {
+            self.leave_safepoint(false);
         }
 
         res
@@ -1150,6 +1180,10 @@ impl SteelThread {
                     .map(|_| Span::default())
                     .collect::<Vec<_>>();
 
+                let this_thread = self as *mut SteelThread;
+                let _running =
+                    crate::values::closed::enter_mutator(&self.synchronizer.ctx, this_thread);
+                self.synchronizer.state.entered(&_running, this_thread);
                 let mut vm_instance = VmCore::new_unchecked(
                     // Shared::new([]),
                     RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
@@ -1207,6 +1241,10 @@ impl SteelThread {
                 }
             }
             SteelVal::ContinuationFunction(c) => {
+                let this_thread = self as *mut SteelThread;
+                let _running =
+                    crate::values::closed::enter_mutator(&self.synchronizer.ctx, this_thread);
+                self.synchronizer.state.entered(&_running, this_thread);
                 let mut vm_instance = VmCore::new_unchecked(
                     RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
                     constant_map,
@@ -1224,6 +1262,10 @@ impl SteelThread {
                     .map(|_| Span::default())
                     .collect::<Vec<_>>();
 
+                let this_thread = self as *mut SteelThread;
+                let _running =
+                    crate::values::closed::enter_mutator(&self.synchronizer.ctx, this_thread);
+                self.synchronizer.state.entered(&_running, this_thread);
                 let mut vm_instance = VmCore::new_unchecked(
                     RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
                     constant_map,
@@ -1261,6 +1303,9 @@ impl SteelThread {
         // TODO: Figure out how to keep the first set of instructions around
         // during a continuation? Does it get allocated into something? If its the
         // root one, we should move it into a function?
+        let this_thread = self as *mut SteelThread;
+        let _running = crate::values::closed::enter_mutator(&self.synchronizer.ctx, this_thread);
+        self.synchronizer.state.entered(&_running, this_thread);
         let mut vm_instance = VmCore::new(
             RootedInstructions::new(instructions),
             constant_map,
@@ -1777,6 +1822,11 @@ impl<'a> VmCore<'a> {
     #[cfg(feature = "sync")]
     pub fn make_thread(&self) -> Arc<Mutex<SteelThread>> {
         let mut thread = self.thread.clone();
+        // It runs on a stack of its own. See `spawn_native_thread`.
+        #[cfg(feature = "jit2")]
+        {
+            thread.native_stack_limit = 0;
+        }
 
         let controller = ThreadStateController::default();
         thread.synchronizer.state = controller.clone();
@@ -1813,53 +1863,42 @@ impl<'a> VmCore<'a> {
         forked_thread
     }
 
-    fn park_thread_while_paused(&self) {
-        // TODO: Consider using condvar instead here
-        while self
-            .thread
-            .synchronizer
-            .state
-            .paused
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            if !self.thread.synchronizer.spawned_via_make_thread {
-                std::thread::park();
-            }
-        }
-    }
-
     #[inline(always)]
     pub fn safepoint_or_interrupt(&mut self) -> Result<()> {
-        // Check if we need to be paused?
-        if self
+        // The interpreter takes a reference to everything it reads, so any
+        // instruction boundary will do.
+        #[cfg(feature = "jit2")]
+        if self.thread.native_stack_limit == crate::values::closed::CHECK_IN_STACK_LIMIT {
+            self.thread.native_stack_limit = crate::steel_vm::vm::native_stack_limit();
+            crate::values::closed::check_in();
+        }
+
+        let found = self
             .thread
             .synchronizer
             .state
-            .paused
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            match self.thread.synchronizer.state.state.load() {
-                ThreadState::Interrupted => {
-                    stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
-                }
-                ThreadState::Suspended => {
-                    self.park_thread_while_paused();
-                }
-                ThreadState::PausedAtSafepoint => {
-                    // TODO:
-                    // Insert the code to do the stack things here
-                    let ptr = self.thread as _;
-                    self.thread
-                        .synchronizer
-                        .ctx
-                        .store(ptr, AtomicOrdering::SeqCst);
-                    self.park_thread_while_paused();
-                    self.thread
-                        .synchronizer
-                        .ctx
-                        .store(core::ptr::null_mut(), AtomicOrdering::SeqCst);
-                }
-                ThreadState::Running => {}
+            .flags
+            .load(AtomicOrdering::Relaxed);
+
+        if found != 0 {
+            let interrupted = found & INTERRUPTED != 0;
+            if found & STOP_REQUESTED != 0 || (found & SUSPENDED != 0 && !interrupted) {
+                let ptr = self.thread as *mut SteelThread;
+                self.thread
+                    .synchronizer
+                    .ctx
+                    .store(ptr, AtomicOrdering::SeqCst);
+                self.thread.leave_safepoint(true);
+            }
+
+            let found = self
+                .thread
+                .synchronizer
+                .state
+                .flags
+                .load(AtomicOrdering::SeqCst);
+            if found & INTERRUPTED != 0 {
+                stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
             }
         }
 
