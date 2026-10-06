@@ -723,6 +723,7 @@ impl<'a> FunctionTranslator<'a> {
             SteelVal::MUT_FUNCTION_TAG,
             SteelVal::BUILTIN_FUNCTION_TAG,
             SteelVal::HEAP_REF_VECTOR_TAG,
+            SteelVal::HEAP_REF_VALUE_TAG,
             SteelVal::BIG_NUM_TAG,
             SteelVal::BYTEVECTOR_TAG,
             SteelVal::FLAT_VECTOR_TAG,

@@ -54,3 +54,21 @@
 (for-each (lambda (reader) (assert! (thread-join! reader))) readers)
 (assert! (read 100 #t))
 (assert! (= (vector-length wide) 4))
+
+;; Two threads that each move one vector's elements into the other's, in
+;; opposite directions, and copy between them the same way.
+(define left (mutable-vector (triple 1) (triple 2)))
+(define right (mutable-vector (triple 3) (triple 4)))
+(define (shuttle from to n)
+  (when (> n 0)
+    (vector-append! to from)
+    (vector-push! from (triple n))
+    ;; The other thread may have just emptied the source.
+    (with-handler (lambda (e) #f) (vector-copy! from 0 to 0 1))
+    (shuttle from to (- n 1))))
+(define shuttler (spawn-native-thread (lambda () (shuttle left right 2000))))
+(shuttle right left 2000)
+(thread-join! shuttler)
+(assert! (= (+ (vector-length left) (vector-length right)) 4004))
+(assert! (eq? 'refused (with-handler (lambda (e) 'refused) (vector-append! left left))))
+

@@ -6,9 +6,10 @@ use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::vm::VmCore;
 use crate::values::closed::{
-    clear_shared, reserve_shared, retire_removed, retire_swapped, HeapRef, HeapVec,
+    clear_shared, reserve_shared, retire_removed, retire_swapped, HeapAllocated, HeapRef, HeapVec,
 };
 use crate::values::lists::Pair;
+use crate::values::lock::{SpinGuard, SpinLock};
 use crate::values::Vector;
 use crate::{stop, throw};
 
@@ -752,6 +753,27 @@ fn mutable_vector_to_string(vec: &HeapRef<HeapVec>) -> Result<SteelVal> {
     Ok(buf.into())
 }
 
+// Takes the locks of two different vectors. Two threads that each took a pair
+// in the order they were handed it could each end up holding one and waiting
+// for the other, so the pair is always taken in the order of the addresses.
+fn lock_pair<'a>(
+    first: &'a SpinLock<HeapAllocated<HeapVec>>,
+    second: &'a SpinLock<HeapAllocated<HeapVec>>,
+) -> (
+    SpinGuard<'a, HeapAllocated<HeapVec>>,
+    SpinGuard<'a, HeapAllocated<HeapVec>>,
+) {
+    if (first as *const _ as usize) < (second as *const _ as usize) {
+        let first = first.write();
+        let second = second.write();
+        (first, second)
+    } else {
+        let second = second.write();
+        let first = first.write();
+        (first, second)
+    }
+}
+
 /// Removes and returns the last element of the vector.
 ///
 /// (mutable-vector-pop! vec) -> any?
@@ -932,11 +954,11 @@ pub fn mut_vector_copy(
             } else {
                 // Source range
                 let ptr = src.strong_ptr();
-                let src_guard = &ptr.lock().value;
-                let (src_start, src_end) = bounds_mut(rest, "vector-copy!", 5, src_guard)?;
-
                 let dest_ptr = dest.strong_ptr();
-                let dest_guard = &mut dest_ptr.write().value;
+                let (src_guard, mut dest_guard) = lock_pair(&ptr, &dest_ptr);
+                let src_guard = &src_guard.value;
+                let dest_guard = &mut dest_guard.value;
+                let (src_start, src_end) = bounds_mut(rest, "vector-copy!", 5, src_guard)?;
 
                 if dest_start > dest_guard.len() {
                     stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector.
@@ -1407,8 +1429,7 @@ pub fn mut_vec_push(args: &[SteelVal]) -> Result<SteelVal> {
     constant = true,
     arity = Exact(2),
     returns = Void,
-    args(MutableVector, MutableVector),
-    raises = BadArgs
+    args(MutableVector, MutableVector)
 )]
 pub fn mut_vec_append(args: &[SteelVal]) -> Result<SteelVal> {
     let vec = args[0].clone();
@@ -1416,12 +1437,14 @@ pub fn mut_vec_append(args: &[SteelVal]) -> Result<SteelVal> {
 
     if let SteelVal::MutableVector(left) = vec {
         if let SteelVal::MutableVector(right) = other_vec {
+            if HeapRef::ptr_eq(&left, &right) {
+                stop!(Generic => "vector-append! expects two different vectors");
+            }
             let left = left.strong_ptr();
             let right = right.strong_ptr();
-            let left = &mut left.write().value;
-            let right = &mut right.write().value;
-            reserve_shared(left, right.len());
-            left.append(right);
+            let (mut left, mut right) = lock_pair(&left, &right);
+            reserve_shared(&mut left.value, right.value.len());
+            left.value.append(&mut right.value);
             Ok(SteelVal::Void)
         } else {
             stop!(TypeMismatch => "vector-append! expects a vector in the second position, found: {:?}", other_vec);

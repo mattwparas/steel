@@ -1631,6 +1631,24 @@ impl VTable {
         VTABLE.with(|x| x.borrow().map.get(name).cloned())
     }
 
+    /// Whether `descriptor` is a struct type with the name and module of
+    /// `entry`.
+    #[cfg(feature = "sync")]
+    pub(crate) fn matches_sendable_entry(
+        descriptor: StructTypeDescriptor,
+        entry: &SendableVTableEntry,
+    ) -> bool {
+        STATIC_VTABLE
+            .read()
+            .entries
+            .get(descriptor.0)
+            .is_some_and(|existing| {
+                existing.module.as_ref().map(|x| x.as_str())
+                    == entry.module.as_ref().map(|x| x.as_str())
+                    && existing.name == entry.name
+            })
+    }
+
     #[cfg(feature = "sync")]
     pub fn get_by_sendable_entry(entry: &SendableVTableEntry) -> Option<StructTypeDescriptor> {
         let guard = STATIC_VTABLE.read();
@@ -1667,7 +1685,7 @@ impl VTable {
 
     #[cfg(feature = "sync")]
     pub(crate) fn sendable_entries_for(
-        ctx: &mut SerializationContext,
+        _ctx: &mut SerializationContext,
         reachable_structs: FxHashSet<StructTypeDescriptor>,
     ) -> Result<Vec<SendableVTableEntry>> {
         STATIC_VTABLE
@@ -1684,16 +1702,11 @@ impl VTable {
                     proc: entry.proc,
                     transparent: entry.transparent,
                     mutable: entry.mutable,
-                    properties: entry
-                        .properties
-                        .iter()
-                        .map(|(key, value)| {
-                            Ok((
-                                into_serializable_value(key.clone(), ctx)?,
-                                into_serializable_value(value.clone(), ctx)?,
-                            ))
-                        })
-                        .collect::<Result<Vec<_>>>()?,
+                    // Whoever reads this has to have the struct type
+                    // already, and finds it by name. Its properties stay
+                    // behind: a printer, say, is a function that would take
+                    // every global it uses along with it.
+                    properties: Vec::new(),
                 })
             })
             .collect()

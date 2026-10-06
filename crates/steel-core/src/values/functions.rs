@@ -453,17 +453,18 @@ impl ByteCodeLambda {
                 | OpCode::CALLGLOBALTAIL
                 | OpCode::CALLGLOBALNOARITY
                 | OpCode::CALLGLOBALTAILNOARITY => {
-                    instr.payload_size = u24::from_usize(
-                        *heap
-                            .global_mapping
-                            .get(&instr.payload_size.to_usize())
-                            .unwrap(),
-                    );
+                    let Some(index) = heap.global_mapping.get(&instr.payload_size.to_usize())
+                    else {
+                        stop!(Generic => "a function was sent without a global it refers to");
+                    };
+                    instr.payload_size = u24::from_usize(*index);
                 }
 
                 OpCode::PUSHCONST => {
                     let old_index = instr.payload_size.to_usize();
-                    let old_value = value.constants.get(&old_index).cloned().unwrap();
+                    let Some(old_value) = value.constants.get(&old_index).cloned() else {
+                        stop!(Generic => "a function was sent without a constant it refers to");
+                    };
                     let deserialized_constant = from_serializable_value(heap, old_value)?;
                     let new_index = heap
                         .thread
@@ -478,7 +479,10 @@ impl ByteCodeLambda {
                 // for this one, since the values are going to now be rewritten.
                 OpCode::NEWSCLOSURE => {
                     // closure IP
-                    let closure_id = value.body_exp.get(idx + 2).unwrap().payload_size.to_u32();
+                    let Some(closure_id) = value.body_exp.get(idx + 2) else {
+                        stop!(Generic => "a function was sent with its body cut short");
+                    };
+                    let closure_id = closure_id.payload_size.to_u32();
 
                     if let Some(old) = heap.function_mapping.get(&closure_id) {
                         closures_to_rewrite.push((idx + 2, *old));

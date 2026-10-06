@@ -2,6 +2,11 @@ use alloc::borrow::Cow;
 
 use crate::steel_vm::engine::Engine;
 
+#[cfg(feature = "sync")]
+mod history;
+#[cfg(feature = "sync")]
+mod serialization;
+
 fn generate_asserting_machine() -> Engine {
     // Background compilation is on by default, so a test program could finish
     // before the worker compiles any of it. Settling after each top level form
@@ -152,6 +157,11 @@ test_harness_success! {
     values_dropped_on_other_threads,
     threads_come_and_go,
     swapped_values_are_released,
+    will_executors_and_cycles,
+    serialization_round_trips,
+    serialization_refusals,
+    serialization_across_threads,
+    identity_and_equality,
     jit_pair_predicate,
     primitive_edge_cases,
     jit_primitive_arg_narrowing,
@@ -264,6 +274,11 @@ test_harness_success_module! {
     values_dropped_on_other_threads,
     threads_come_and_go,
     swapped_values_are_released,
+    will_executors_and_cycles,
+    serialization_round_trips,
+    serialization_refusals,
+    serialization_across_threads,
+    identity_and_equality,
     jit_arithmetic_errors,
     jit_branch_in_argument_list,
     jit_compare_register_int,

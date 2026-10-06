@@ -154,43 +154,28 @@ pub(crate) fn thread_interrupt(handle: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
-thread_local! {
-    static CACHED_CLOSURES: RefCell<FxHashMap<u32, SerializedLambdaPrototype>> = RefCell::new(FxHashMap::default());
-}
-
 pub fn closure_into_serializable(
     c: &ByteCodeLambda,
     ctx: &mut SerializationContext,
 ) -> Result<SerializedLambda> {
-    if let Some(prototype) = CACHED_CLOSURES.with(|x| x.borrow().get(&c.id).cloned()) {
-        let mut prototype = SerializedLambda {
-            id: prototype.id,
-            body_exp: prototype.body_exp,
-            arity: prototype.arity,
-            is_multi_arity: prototype.is_multi_arity,
-            captures: Vec::new(),
-            constants: HashMap::new(),
-        };
-
-        prototype.captures = c
-            .captures
-            .iter()
-            .cloned()
-            .map(|x| into_serializable_value(x, ctx))
-            .collect::<Result<_>>()?;
-
-        Ok(prototype)
-    } else {
+    {
         let mut constants = HashMap::new();
 
-        for instr in c.body_exp.iter() {
-            if instr.op_code == OpCode::PUSHCONST {
+        for (position, instr) in c.body_exp.iter().enumerate() {
+            // The first instruction is sent as what it was before the
+            // function was compiled, which is kept in the header.
+            let op_code = match c.header {
+                Some(header) if position == 0 => header,
+                _ => instr.op_code,
+            };
+
+            if op_code == OpCode::PUSHCONST {
                 let index = instr.payload_size.to_usize();
                 let value = ctx.constants.get(index);
-                constants.insert(index, into_serializable_value(value, ctx).unwrap());
+                constants.insert(index, into_serializable_value(value, ctx)?);
             }
 
-            match instr.op_code {
+            match op_code {
                 // If this instruction touches this global variable,
                 // then we want to mark it as possibly referenced here.
                 OpCode::CALLGLOBAL
@@ -219,8 +204,6 @@ pub fn closure_into_serializable(
         if let Some(header) = c.header {
             prototype.body_exp[0].op_code = header;
         }
-
-        CACHED_CLOSURES.with(|x| x.borrow_mut().insert(c.id, prototype.clone()));
 
         let mut prototype = SerializedLambda {
             id: prototype.id,
@@ -326,51 +309,82 @@ struct SerializedValue {
 
 impl Custom for SerializedValue {}
 
+// The struct type here that a struct sent from elsewhere belongs to.
+//
+// Struct types are kept in one table for the whole process, and two engines
+// that each define a struct of one name have a type each in it. So the one
+// this engine means by the name is asked for first, through the `struct:`
+// binding a struct definition makes, and only failing that is the table
+// searched.
+fn struct_type_here(
+    thread: &SteelThread,
+    entry: &SendableVTableEntry,
+) -> Option<crate::values::structs::StructTypeDescriptor> {
+    use crate::rvals::FromSteelVal;
+    use crate::values::structs::StructTypeDescriptor;
+
+    let binding = InternedString::from_string(format!("struct:{}", entry.name.resolve()));
+    let index = thread.compiler.read().symbol_map.get(&binding).ok();
+    let known = index
+        .and_then(|index| thread.global_env.roots().get(index).cloned())
+        .and_then(|value| StructTypeDescriptor::from_steelval(&value).ok())
+        .filter(|descriptor| VTable::matches_sendable_entry(*descriptor, entry));
+
+    known.or_else(|| VTable::get_by_sendable_entry(entry))
+}
+
 fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let value = args[0].clone();
 
-    let mut inner = SerializedValue::as_mut_ref(&value)?;
+    // Read and not taken apart, so that it can be deserialized again.
+    let inner = SerializedValue::as_ref(&value)?;
 
-    let mut mapping = std::mem::take(&mut inner.serialized_heap)
+    let mut mapping = inner
+        .serialized_heap
+        .clone()
         .into_iter()
         .map(|(key, value)| (key, SerializedHeapRef::Serialized(Some(value))))
         .collect();
 
-    let mut vector_mapping = std::mem::take(&mut inner.serialized_vec_heap)
+    let mut vector_mapping = inner
+        .serialized_vec_heap
+        .clone()
         .into_iter()
         .map(|(key, value)| (key, SerializedHeapRefVector::Serialized(Some(value))))
         .collect();
 
-    // Have these values point to the new place
-    let mut patcher = FxHashMap::default();
-    let mut vector_patcher = FxHashMap::default();
     let mut built_functions = FxHashMap::default();
 
+    // Waited for at a safepoint, since the thread that has it may be
+    // collecting and waiting for this one to stop.
+    let heap = ctx.thread.lock_heap_holding(&[]);
+
     let mut serializer = HeapSerializer {
+        heap,
         fake_heap: &mut mapping,
-        values_to_fill_in: &mut patcher,
         built_functions: &mut built_functions,
         thread: &mut ctx.thread,
         function_mapping: FxHashMap::default(),
         global_mapping: FxHashMap::default(),
         fake_vector_heap: &mut vector_mapping,
-        vectors_to_fill_in: &mut vector_patcher,
         struct_map: FxHashMap::default(),
     };
 
     // Map the struct type descriptors between the two
 
-    for entry in std::mem::take(&mut inner.vtable_entries) {
+    for entry in inner.vtable_entries.iter() {
         // Assert that the things in the vtable are the same.
 
         let old = entry.desc;
 
-        let new = VTable::get_by_sendable_entry(&entry).ok_or_else(
+        let new = struct_type_here(serializer.thread, entry).ok_or_else(
             throw!(Generic => "Struct not defined yet in this environment: {:?}", entry),
         )?;
 
         serializer.struct_map.insert(old, new);
     }
+
+    let mut already_here = FxHashSet::default();
 
     // Populate the symbol maps, using all of the values
     // that exist.
@@ -400,54 +414,47 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
             continue;
         }
 
+        // A global this engine has already is the one that is used. What
+        // was sent with a function is what it referred to where it came
+        // from, and binding that here would change the global under
+        // everything else that uses it: a function read back by the engine
+        // that wrote it would leave that engine's globals pointing at
+        // copies. Two programs with the same definitions get each their
+        // own, the struct types among them.
+        let existing = serializer.thread.compiler.read().symbol_map.get(name).ok();
+        let existing = existing.filter(|idx| serializer.thread.extract_value(*idx).is_some());
+        if let Some(existing) = existing {
+            serializer.global_mapping.insert(*index, existing);
+            already_here.insert(*index);
+            continue;
+        }
+
         let idx = serializer.thread.compiler.write().symbol_map.add(&name);
         serializer.global_mapping.insert(*index, idx);
     }
 
-    for (index, global) in inner.referenced_globals.drain() {
+    for (index, global) in inner.referenced_globals.clone() {
         if let SerializableSteelVal::BuiltinSteelModuleRef(_, _) = global {
+            continue;
+        }
+        if already_here.contains(&index) {
             continue;
         }
 
         let deserialized = from_serializable_value(&mut serializer, global)?;
         let idx = serializer.global_mapping[&index];
 
-        // Make the new global point to the new, deserialized value
-        serializer.thread.insert_binding(idx, deserialized);
+        // Make the new global point to the new, deserialized value. The
+        // heap's lock is held already.
+        serializer
+            .thread
+            .with_locked_env_holding_heap(move |_, env| env.repl_define_idx(idx, deserialized));
     }
 
     // let original_value = std::mem::replace(&mut inner.value, SerializableSteelVal::Void);
     // let deserialized = from_serializable_value(&mut serializer, original_value);
 
-    for (key, value) in serializer.values_to_fill_in.iter_mut() {
-        if let Some(cycled) = serializer.fake_heap.get(key) {
-            match cycled {
-                SerializedHeapRef::Serialized(_) => todo!(),
-                // Patch over the cycle
-                SerializedHeapRef::Closed(c) => {
-                    value.set(c.get());
-                }
-            }
-        } else {
-            todo!()
-        }
-    }
-
-    for (key, value) in serializer.vectors_to_fill_in.iter_mut() {
-        if let Some(cycled) = serializer.fake_vector_heap.get(key) {
-            match cycled {
-                SerializedHeapRefVector::Serialized(_) => todo!(),
-                // Patch over the cycle
-                SerializedHeapRefVector::Closed(c) => {
-                    value.set(c.get());
-                }
-            }
-        } else {
-            todo!()
-        }
-    }
-
-    let original_value = std::mem::replace(&mut inner.value, SerializableSteelVal::Void);
+    let original_value = inner.value.clone();
     let deserialized = from_serializable_value(&mut serializer, original_value)?;
 
     Ok(deserialized)

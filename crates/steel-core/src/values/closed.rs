@@ -706,7 +706,9 @@ impl WillExecutor {
 }
 
 /// The second half of a mark, as in Racket. A registered value on the heap that
-/// the first half didn't reach is ready. Then every registered value and
+/// the first half didn't reach is ready, and so is a reference counted one
+/// that only a cycle through such values still refers to (see
+/// `held_only_by_own_cycle`). Then every registered value and
 /// finalizer is marked, so the finalizer sees its value intact. Returns what to
 /// mark, holding a reference to each for the duration.
 #[cfg(feature = "sync")]
@@ -717,7 +719,10 @@ fn will_executor_roots() -> Vec<SteelVal> {
         let mut newly_ready = false;
         let mut registrations = executor.registrations.lock().unwrap();
         for registration in registrations.iter_mut() {
-            if !registration.ready && heap_value_unreached(&registration.value) {
+            if !registration.ready
+                && (heap_value_unreached(&registration.value)
+                    || held_only_by_own_cycle(&registration.value))
+            {
                 registration.ready = true;
                 newly_ready = true;
             }
@@ -780,6 +785,300 @@ fn only_referenced_here(value: &SteelVal) -> bool {
         SteelVal::ByteVector(steel_byte_vector) => Gc::strong_count(&steel_byte_vector.vec) == 1,
         _ => false,
     }
+}
+
+/// Something a value can be told apart by: which kind it is and where it
+/// lives. Only for the kinds that hold other values.
+#[cfg(feature = "sync")]
+fn identity(value: &SteelVal) -> Option<(u8, usize)> {
+    Some(match value {
+        SteelVal::Closure(gc) => (0, gc.as_ptr() as usize),
+        SteelVal::VectorV(vector) => (1, vector.0.as_ptr() as usize),
+        SteelVal::HashMapV(map) => (2, map.0.as_ptr() as usize),
+        SteelVal::HashSetV(set) => (3, set.0.as_ptr() as usize),
+        SteelVal::CustomStruct(s) => (4, s.as_ptr() as usize),
+        SteelVal::MutableStruct(s) => (5, s.as_ptr() as usize),
+        SteelVal::IterV(gc) => (6, gc.as_ptr() as usize),
+        SteelVal::ReducerV(gc) => (7, gc.as_ptr() as usize),
+        SteelVal::StreamV(gc) => (8, gc.as_ptr() as usize),
+        SteelVal::ListV(list) => (9, list.as_ptr_usize()),
+        SteelVal::Pair(gc) => (10, gc.as_ptr() as usize),
+        SteelVal::ContinuationFunction(continuation) => (
+            11,
+            crate::gc::shared::StandardShared::as_ptr(&continuation.inner) as *const u8 as usize,
+        ),
+        SteelVal::MutableVector(heap_ref) => (12, heap_ref.as_ptr_usize()),
+        SteelVal::BoxedIterator(gc) => (13, gc.as_ptr() as *const u8 as usize),
+        SteelVal::SyntaxObject(gc) => (14, gc.as_ptr() as usize),
+        SteelVal::Boxed(gc) => (15, gc.as_ptr() as *const u8 as usize),
+        SteelVal::HeapAllocated(heap_ref) => (16, heap_ref.as_ptr_usize()),
+        _ => return None,
+    })
+}
+
+/// How many references there are to a reference counted value that can be
+/// part of a cycle. None for anything else.
+#[cfg(feature = "sync")]
+fn cycle_candidate_count(value: &SteelVal) -> Option<usize> {
+    Some(match value {
+        SteelVal::Closure(gc) => Gc::strong_count(gc),
+        SteelVal::VectorV(vector) => Gc::strong_count(&vector.0),
+        SteelVal::HashMapV(map) => Gc::strong_count(&map.0),
+        SteelVal::HashSetV(set) => Gc::strong_count(&set.0),
+        SteelVal::CustomStruct(s) => s.strong_count(),
+        SteelVal::ListV(list) => list.strong_count(),
+        SteelVal::Pair(gc) => Gc::strong_count(gc),
+        _ => return None,
+    })
+}
+
+/// Whether every reference to `value`, other than the one being looked at,
+/// is held by something `value` itself keeps alive and nothing else does.
+/// Called between the two halves of a mark, with the first half's marks in
+/// place.
+///
+/// A reference counted value can't refer back to itself through values of
+/// its own kind, which are made once and never changed. A cycle has to pass
+/// through a box, a mutable vector or a mutable struct, and those the mark
+/// has an answer for. So this walks out from the value, only through cells
+/// the mark didn't reach, and counts the references back that it finds.
+///
+/// If anything live refers to the value, the mark got from there to the
+/// value and on to every cell it holds, so the walk stops at the first cell
+/// and finds nothing. A reference held outside the heap, by a thread's stack
+/// or by native code, is not found either. Either way the count falls short
+/// and the value is left alone.
+#[cfg(feature = "sync")]
+fn held_only_by_own_cycle(value: &SteelVal) -> bool {
+    let (Some(target), Some(count)) = (identity(value), cycle_candidate_count(value)) else {
+        return false;
+    };
+    // Just the one being looked at. `only_referenced_here` covers that.
+    if count < 2 {
+        return false;
+    }
+
+    let mut walk = OwnCycleWalk {
+        queue: Vec::new(),
+        target,
+        found: 0,
+        seen: rustc_hash::FxHashSet::default(),
+    };
+    // Its contents, and not the value itself, which would count as a
+    // reference back.
+    walk.queue.push(value.clone());
+    walk.visit();
+    drop(walk.queue);
+
+    walk.found == count - 1
+}
+
+/// The walk `held_only_by_own_cycle` does.
+#[cfg(feature = "sync")]
+struct OwnCycleWalk {
+    queue: Vec<SteelVal>,
+    target: (u8, usize),
+    // References to the target met so far.
+    found: usize,
+    // What has been walked into, so that each reference is met once.
+    seen: rustc_hash::FxHashSet<(u8, usize)>,
+}
+
+#[cfg(feature = "sync")]
+impl BreadthFirstSearchSteelValVisitor for OwnCycleWalk {
+    type Output = ();
+
+    fn default_output(&mut self) -> Self::Output {}
+
+    fn pop_front(&mut self) -> Option<SteelVal> {
+        self.queue.pop()
+    }
+
+    fn push_back(&mut self, value: SteelVal) {
+        let Some(identity) = identity(&value) else {
+            // Nothing that holds a value the walk could follow.
+            if let SteelVal::FlatVector(_) = value {
+                self.queue.push(value);
+            }
+            return;
+        };
+
+        if identity == self.target {
+            self.found += 1;
+        } else if self.seen.insert(identity) {
+            self.queue.push(value);
+        }
+    }
+
+    fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output {
+        for capture in closure.captures() {
+            self.push_back(capture.clone());
+        }
+
+        if let Some(contract) = closure.get_contract_information().as_ref() {
+            self.push_back(contract.clone());
+        }
+    }
+
+    fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output {
+        let continuation = (*continuation.inner.read()).clone();
+
+        match continuation {
+            ContinuationMark::Closed(continuation) => {
+                for value in &continuation.stack {
+                    self.push_back(value.clone());
+                }
+
+                for value in &continuation.current_frame.function.captures {
+                    self.push_back(value.clone());
+                }
+
+                for frame in &continuation.stack_frames {
+                    for value in &frame.function.captures {
+                        self.push_back(value.clone());
+                    }
+
+                    if let Some(handler) =
+                        frame.attachments.as_ref().and_then(|x| x.handler.clone())
+                    {
+                        self.push_back(handler);
+                    }
+                }
+            }
+
+            ContinuationMark::Open(continuation) => {
+                for value in &continuation.current_stack_values {
+                    self.push_back(value.clone());
+                }
+
+                for value in &continuation.current_frame.function.captures {
+                    self.push_back(value.clone());
+                }
+            }
+        }
+    }
+
+    // What one of these holds is its own business, so nothing in it is
+    // counted, and a value held by one is taken to be in use.
+    fn visit_custom_type(&mut self, _custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {}
+
+    fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output {
+        for (key, value) in hashmap.iter() {
+            self.push_back(key.clone());
+            self.push_back(value.clone());
+        }
+    }
+
+    fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output {
+        for value in hashset.iter() {
+            self.push_back(value.clone());
+        }
+    }
+
+    // A cell the mark reached is held by something live. The walk doesn't
+    // go through it.
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
+        if !heap_ref.is_reachable() {
+            self.push_back(heap_ref.get());
+        }
+    }
+
+    fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output {
+        if !vector.is_reachable() {
+            let cell = vector.strong_ptr();
+            for value in cell.lock().value.iter() {
+                self.push_back(value.clone());
+            }
+        }
+    }
+
+    fn visit_mutable_struct(&mut self, steel_struct: MutableStructRef) -> Self::Output {
+        if !steel_struct.is_reachable() {
+            for field in unsafe { steel_struct.cell().fields_unlocked() } {
+                self.push_back(field.clone());
+            }
+        }
+    }
+
+    fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output {
+        for value in vector.iter() {
+            self.push_back(value.clone());
+        }
+    }
+
+    fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
+        for value in list {
+            self.push_back(value);
+        }
+    }
+
+    fn visit_pair(&mut self, pair: Gc<super::lists::Pair>) -> Self::Output {
+        self.push_back(pair.car());
+        self.push_back(pair.cdr());
+    }
+
+    fn visit_steel_struct(&mut self, steel_struct: StructRef) -> Self::Output {
+        for field in steel_struct.fields().iter() {
+            self.push_back(field.clone());
+        }
+    }
+
+    fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output {
+        self.push_back(iterator.read().root.clone());
+    }
+
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
+        self.push_back(boxed_value.read().clone());
+    }
+
+    fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output {
+        match reducer.as_ref().clone() {
+            Reducer::ForEach(f) => self.push_back(f),
+            Reducer::Generic(rf) => {
+                self.push_back(rf.initial_value);
+                self.push_back(rf.function);
+            }
+            _ => {}
+        }
+    }
+
+    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
+        self.push_back(stream.initial_value.clone());
+        self.push_back(stream.stream_thunk.clone());
+    }
+
+    fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
+        if let Some(raw) = syntax_object.raw.clone() {
+            self.push_back(raw);
+        }
+
+        self.push_back(syntax_object.syntax.clone());
+    }
+
+    // A transducer's functions are counted as in use, like a custom type's
+    // contents.
+    fn visit_transducer(&mut self, _transducer: Gc<Transducer>) -> Self::Output {}
+
+    fn visit_bytevector(&mut self, _bytevector: crate::rvals::SteelByteVector) -> Self::Output {}
+    fn visit_bignum(&mut self, _: Gc<BigInt>) -> Self::Output {}
+    fn visit_complex(&mut self, _: Gc<SteelComplex>) -> Self::Output {}
+    fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
+    fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
+    fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
+    fn visit_char(&mut self, _c: char) -> Self::Output {}
+    fn visit_float(&mut self, _float: f64) -> Self::Output {}
+    fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
+    fn visit_future(&mut self, _future: Gc<FutureResult>) -> Self::Output {}
+    fn visit_future_function(&mut self, _function: BoxedAsyncFunctionSignature) -> Self::Output {}
+    fn visit_int(&mut self, _int: isize) -> Self::Output {}
+    fn visit_rational(&mut self, _: Rational32) -> Self::Output {}
+    fn visit_bigrational(&mut self, _: Gc<BigRational>) -> Self::Output {}
+    fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}
+    fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
+    fn visit_reference_value(&mut self, _reference: Gc<OpaqueReference<'static>>) -> Self::Output {}
+    fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
+    fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
+    fn visit_void(&mut self) -> Self::Output {}
 }
 
 impl Custom for WillExecutor {
@@ -2793,11 +3092,19 @@ impl Heap {
         );
     }
 
+    // With no collection to make room, a full list has to grow, or the
+    // allocation would be handed a slot that is in use.
     pub fn allocate_without_collection(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
+        if self.memory_free_list.is_heap_full() {
+            self.memory_free_list.grow();
+        }
         self.memory_free_list.allocate(value)
     }
 
     pub fn allocate_vec_without_collection(&mut self, value: HeapVec) -> HeapRef<HeapVec> {
+        if self.vector_free_list.is_heap_full() {
+            self.vector_free_list.grow();
+        }
         self.vector_free_list.allocate(value)
     }
 
