@@ -14,7 +14,7 @@ use crate::parser::interner::InternedString;
 use crate::rerrs::ErrorKind;
 use crate::rvals::{
     from_serializable_value, into_serializable_value, Custom, HeapSerializer, SerializableSteelVal,
-    SerializationContext, SerializedHeapRef, SteelHashMap,
+    SerializationContext, SteelHashMap,
 };
 use crate::rvals::{FromSteelVal, IntoSteelVal};
 use crate::steel_vm::register_fn::RegisterFn;
@@ -65,7 +65,7 @@ pub(crate) struct SendableVTableEntry {
     pub(crate) desc: StructTypeDescriptor,
     pub(crate) module: Option<String>,
     pub(crate) name: InternedString,
-    pub(crate) properties: Vec<(SerializableSteelVal, SerializableSteelVal)>,
+    pub(crate) properties: Vec<(crate::rvals::SerializedId, crate::rvals::SerializedId)>,
     pub(crate) proc: Option<usize>,
     pub(crate) transparent: bool,
     pub(crate) mutable: bool,
@@ -180,7 +180,8 @@ impl StructTypeDescriptor {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableUserDefinedStruct {
-    pub(crate) fields: Vec<SerializableSteelVal>,
+    // Places in the serialized value's table.
+    pub(crate) fields: Vec<crate::rvals::SerializedId>,
 
     pub(crate) type_descriptor: StructTypeDescriptor,
 }

@@ -48,27 +48,42 @@ fn holds(engine: &mut Engine, check: &str) -> bool {
     }
 }
 
-/// Sends `expression` from one new engine to another and checks it there.
-fn arrives(expression: &str, check: &str) {
-    let mut from = engine();
-    let mut to = engine();
-    send(&mut from, &mut to, expression)
-        .unwrap_or_else(|e| panic!("sending `{}` failed: {}", expression, e));
-    assert!(
-        holds(&mut to, check),
-        "`{}` arrived as something `{}` doesn't hold of",
-        expression,
-        check
-    );
+/// Two engines with the shared definitions, one to send from and one to read
+/// in. Made once for a test, since starting an engine is most of the cost.
+struct Ends {
+    from: Engine,
+    to: Engine,
 }
 
-/// The same value made at both ends is `equal?`.
-fn arrives_equal(expression: &str) {
-    arrives(expression, &format!("(equal? received {})", expression));
+impl Ends {
+    fn new() -> Self {
+        Ends {
+            from: engine(),
+            to: engine(),
+        }
+    }
+
+    /// Sends `expression` from one end to the other and checks it there.
+    fn arrives(&mut self, expression: &str, check: &str) {
+        send(&mut self.from, &mut self.to, expression)
+            .unwrap_or_else(|e| panic!("sending `{}` failed: {}", expression, e));
+        assert!(
+            holds(&mut self.to, check),
+            "`{}` arrived as something `{}` doesn't hold of",
+            expression,
+            check
+        );
+    }
+
+    /// The same value made at both ends is `equal?`.
+    fn arrives_equal(&mut self, expression: &str) {
+        self.arrives(expression, &format!("(equal? received {})", expression));
+    }
 }
 
 #[test]
 fn plain_data_crosses_engines() {
+    let mut ends = Ends::new();
     for expression in [
         "0",
         "-17",
@@ -96,21 +111,22 @@ fn plain_data_crosses_engines() {
         "(hashset 1 2 \"three\")",
         "(range 0 2000)",
     ] {
-        arrives_equal(expression);
+        ends.arrives_equal(expression);
     }
 }
 
 #[test]
 fn symbols_arrive_as_the_symbols_they_are_there() {
-    arrives("'a-symbol", "(eq? received 'a-symbol)");
-    arrives(
+    let mut ends = Ends::new();
+    ends.arrives("'a-symbol", "(eq? received 'a-symbol)");
+    ends.arrives(
         "(list 'one (list 'two) (hash 'key 'three))",
         "(and (eq? (car received) 'one)
               (eq? (car (cadr received)) 'two)
               (eq? (hash-ref (caddr received) 'key) 'three))",
     );
     // One the other end has never seen.
-    arrives(
+    ends.arrives(
         "'a-symbol-made-up-for-this-test",
         "(equal? (symbol->string received) \"a-symbol-made-up-for-this-test\")",
     );
@@ -118,30 +134,31 @@ fn symbols_arrive_as_the_symbols_they_are_there() {
 
 #[test]
 fn cells_cross_engines() {
-    arrives(
+    let mut ends = Ends::new();
+    ends.arrives(
         "(box (list 1 2))",
         "(and (equal? (unbox received) (list 1 2))
               (begin (set-box! received 'changed) (eq? (unbox received) 'changed)))",
     );
-    arrives(
+    ends.arrives(
         "(mutable-vector 1 2 3)",
         "(begin (vector-push! received 4) (vector-set! received 0 'changed)
                 (and (= (vector-length received) 4) (eq? (vector-ref received 0) 'changed)))",
     );
-    arrives(
+    ends.arrives(
         "(let ([shared (box 1)]) (list shared shared))",
         "(begin (set-box! (car received) 'changed)
                 (and (eq? (unbox (cadr received)) 'changed) (eq? (car received) (cadr received))))",
     );
-    arrives(
+    ends.arrives(
         "(list (box 1) (box 1))",
         "(not (eq? (car received) (cadr received)))",
     );
-    arrives(
+    ends.arrives(
         "(let ([b (box #f)]) (set-box! b (list b 1)) b)",
         "(eq? (car (unbox received)) received)",
     );
-    arrives(
+    ends.arrives(
         "(let ([v (mutable-vector #f 1)]) (vector-set! v 0 v) v)",
         "(and (eq? (vector-ref received 0) received) (= (vector-length received) 2))",
     );
@@ -149,34 +166,35 @@ fn cells_cross_engines() {
 
 #[test]
 fn structs_cross_engines() {
-    arrives_equal("(point 1 2)");
-    arrives_equal("(list (point 1 (point 2 3)) (point \"a\" 'b))");
-    arrives(
+    let mut ends = Ends::new();
+    ends.arrives_equal("(point 1 2)");
+    ends.arrives_equal("(list (point 1 (point 2 3)) (point \"a\" 'b))");
+    ends.arrives(
         "(point 1 2)",
         "(and (point? received) (= (point-x received) 1) (not (counter? received)))",
     );
-    arrives(
+    ends.arrives(
         "(counter 5)",
         "(and (counter? received)
               (= (counter-n received) 5)
               (begin (set-counter-n! received 6) (= (counter-n received) 6)))",
     );
-    arrives_equal("(record \"name\" (list 1 2) (point 3 4))");
-    arrives(
+    ends.arrives_equal("(record \"name\" (list 1 2) (point 3 4))");
+    ends.arrives(
         "(record \"name\" (list 1 2) #f)",
         "(begin (set-record-extra! received 'set) (eq? (record-extra received) 'set))",
     );
-    arrives(
+    ends.arrives(
         "(let ([c (counter 1)]) (list c (box c) (mutable-vector c)))",
         "(begin (set-counter-n! (car received) 'changed)
                 (and (eq? (counter-n (unbox (cadr received))) 'changed)
                      (eq? (counter-n (vector-ref (caddr received) 0)) 'changed)))",
     );
-    arrives(
+    ends.arrives(
         "(let* ([a (counter #f)] [b (counter a)]) (set-counter-n! a b) a)",
         "(eq? (counter-n (counter-n received)) received)",
     );
-    arrives(
+    ends.arrives(
         "(let* ([cell (box #f)] [p (point cell 'cyclic)]) (set-box! cell p) p)",
         "(eq? (point-y (unbox (point-x received))) 'cyclic)",
     );
@@ -184,38 +202,39 @@ fn structs_cross_engines() {
 
 #[test]
 fn functions_cross_engines() {
-    arrives("car", "(= (received (list 1 2)) 1)");
-    arrives("(lambda (x) (* x 2))", "(= (received 21) 42)");
-    arrives("(lambda args (length args))", "(= (received 1 2 3) 3)");
-    arrives(
+    let mut ends = Ends::new();
+    ends.arrives("car", "(= (received (list 1 2)) 1)");
+    ends.arrives("(lambda (x) (* x 2))", "(= (received 21) 42)");
+    ends.arrives("(lambda args (length args))", "(= (received 1 2 3) 3)");
+    ends.arrives(
         "(lambda () (list \"a constant\" 'quoted 1/3 12345678901234567890))",
         "(equal? (received) (list \"a constant\" 'quoted 1/3 12345678901234567890))",
     );
-    arrives("(let ([n 5]) (lambda (m) (+ n m)))", "(= (received 6) 11)");
-    arrives(
+    ends.arrives("(let ([n 5]) (lambda (m) (+ n m)))", "(= (received 6) 11)");
+    ends.arrives(
         "(let ([data (list 1 2 3)]) (lambda () (apply + data)))",
         "(= (received) 6)",
     );
-    arrives(
+    ends.arrives(
         "(let ([count (box 0)]) (lambda () (set-box! count (+ 1 (unbox count))) (unbox count)))",
         "(and (= (received) 1) (= (received) 2))",
     );
-    arrives(
+    ends.arrives(
         "(let ([state (counter 10)]) (lambda () (set-counter-n! state (+ 1 (counter-n state))) (counter-n state)))",
         "(and (= (received) 11) (= (received) 12))",
     );
-    arrives(
+    ends.arrives(
         "(lambda (xs) (map (lambda (x) (+ x 1)) xs))",
         "(equal? (received (list 1 2 3)) (list 2 3 4))",
     );
-    arrives("(lambda (x) (point x x))", "(= (point-y (received 3)) 3)");
-    arrives("point-x", "(= (received (point 8 9)) 8)");
-    arrives("point", "(= (point-y (received 8 9)) 9)");
-    arrives(
+    ends.arrives("(lambda (x) (point x x))", "(= (point-y (received 3)) 3)");
+    ends.arrives("point-x", "(= (received (point 8 9)) 8)");
+    ends.arrives("point", "(= (point-y (received 8 9)) 9)");
+    ends.arrives(
         "counter?",
         "(and (received (counter 1)) (not (received 1)))",
     );
-    arrives(
+    ends.arrives(
         "(let ([cell (box 0)])
            (list (lambda () (set-box! cell (+ 1 (unbox cell)))) (lambda () (unbox cell))))",
         "(begin ((car received)) ((car received)) (= ((cadr received)) 2))",
@@ -439,4 +458,52 @@ fn the_same_value_gives_the_same_bytes_as_data() {
         );
         assert!(holds(&mut engine, &check), "`{}`", expression);
     }
+}
+
+#[test]
+fn what_is_shared_arrives_shared() {
+    let mut ends = Ends::new();
+    // One value referred to from two places is one entry of what is sent.
+    ends.arrives(
+        "(let ([shared (immutable-vector 1 2 3)]) (list shared shared))",
+        "(eq? (car received) (cadr received))",
+    );
+    ends.arrives(
+        "(let ([shared (hash 'a 1)]) (list shared (box shared)))",
+        "(eq? (car received) (unbox (cadr received)))",
+    );
+    ends.arrives(
+        "(let ([shared (point 1 2)]) (mutable-vector shared shared))",
+        "(eq? (vector-ref received 0) (vector-ref received 1))",
+    );
+    ends.arrives(
+        "(let ([shared (lambda (x) x)]) (list shared shared))",
+        "(eq? (car received) (cadr received))",
+    );
+    ends.arrives(
+        "(let ([shared (cons 1 2)]) (list shared shared))",
+        "(eq? (car received) (cadr received))",
+    );
+    // And two that only look alike arrive as two.
+    ends.arrives(
+        "(list (immutable-vector 1 2 3) (immutable-vector 1 2 3))",
+        "(not (eq? (car received) (cadr received)))",
+    );
+}
+
+#[test]
+fn very_deep_values_cross_engines() {
+    let mut from = engine();
+    let mut to = engine();
+    let define = "(define (pair-chain n acc) (if (= n 0) acc (pair-chain (- n 1) (cons n acc))))
+                  (define (lists-in-lists n acc) (if (= n 0) acc (lists-in-lists (- n 1) (list acc))))
+                  (define (down-cdrs v n) (if (pair? v) (down-cdrs (cdr v) (+ n 1)) n))
+                  (define (down-lists v n) (if (and (list? v) (not (null? v))) (down-lists (car v) (+ n 1)) n))";
+    from.run(define).unwrap();
+    to.run(define).unwrap();
+
+    send(&mut from, &mut to, "(pair-chain 300000 'end)").unwrap();
+    assert!(holds(&mut to, "(= (down-cdrs received 0) 300000)"));
+    send(&mut from, &mut to, "(lists-in-lists 300000 'end)").unwrap();
+    assert!(holds(&mut to, "(= (down-lists received 0) 300000)"));
 }

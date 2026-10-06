@@ -146,7 +146,7 @@ mod serialization_tests {
     use crate::{
         rvals::{
             from_serializable_value, into_serializable_value, FromSteelVal, IntoSteelVal,
-            SerializableSteelVal,
+            SerializedId,
         },
         steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
     };
@@ -162,7 +162,7 @@ mod serialization_tests {
 
     #[derive(Serialize, Deserialize)]
     struct SerializableTestValue {
-        value: SerializableSteelVal,
+        value: SerializedId,
         foo: u64,
         baz: String,
     }

@@ -93,7 +93,10 @@ impl ConstantMap {
         SerializableConstantMap(self.to_bytes().unwrap())
     }
 
-    pub fn to_serializable_vec(&self, ctx: &mut SerializationContext) -> Vec<SerializableSteelVal> {
+    pub fn to_serializable_vec(
+        &self,
+        ctx: &mut SerializationContext,
+    ) -> Vec<crate::rvals::SerializedId> {
         self.values
             .read()
             .iter()

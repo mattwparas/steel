@@ -891,6 +891,23 @@ pub(crate) mod drop_impls {
         }
     }
 
+    impl Drop for Pair {
+        fn drop(&mut self) {
+            // A pair that holds a pair is a link of what may be a long
+            // chain, and dropping each half in place would go one level
+            // down the stack for every link. Other pairs are left to drop
+            // as they are, which is most of them and costs nothing here.
+            if !matches!(self.car, SteelVal::Pair(_)) && !matches!(self.cdr, SteelVal::Pair(_)) {
+                return;
+            }
+
+            let car = core::mem::replace(&mut self.car, SteelVal::Void);
+            let cdr = core::mem::replace(&mut self.cdr, SteelVal::Void);
+            // With no work list to give them to, they drop here.
+            let _ = drop_fields_iteratively([car, cdr].into_iter());
+        }
+    }
+
     impl Drop for SteelHashMap {
         fn drop(&mut self) {
             if self.0.is_empty() {
@@ -1372,8 +1389,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output {
         if let Ok(inner) = Gc::try_unwrap(pair) {
-            self.push_back(inner.car);
-            self.push_back(inner.cdr);
+            let (car, cdr) = inner.into_parts();
+            self.push_back(car);
+            self.push_back(cdr);
         }
     }
 }
@@ -1714,8 +1732,9 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output {
         if let Ok(inner) = Gc::try_unwrap(pair) {
-            self.push_back(inner.car);
-            self.push_back(inner.cdr);
+            let (car, cdr) = inner.into_parts();
+            self.push_back(car);
+            self.push_back(cdr);
         }
     }
 }

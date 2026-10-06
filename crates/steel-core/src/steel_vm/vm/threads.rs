@@ -1,21 +1,16 @@
-use core::ops::Deref;
-
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use steel_derive::function;
 
-use crate::rvals::{from_serializable_value, SerializedHeapRefVector};
+use crate::rvals::{from_serializable_value, SerializedId};
 use crate::{
     compiler::modules::{BUILT_INS, MANGLER_PREFIX, MANGLER_SEPARATOR},
     rvals::{
         AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, NativeRefSpec,
-        SerializableSteelVal, SerializationContext, SerializedHeapRef, SteelByteVector,
+        SerializableSteelVal, SerializationContext, SteelByteVector,
     },
     steel_vm::{builtin::BuiltInModule, engine::ModuleContainer, register_fn::RegisterFn},
-    values::{
-        functions::SerializedLambdaPrototype,
-        structs::{SendableVTableEntry, VTable},
-    },
+    values::structs::{SendableVTableEntry, VTable},
 };
 use crate::{steel_deserialize, steel_serialize};
 
@@ -158,93 +153,53 @@ pub fn closure_into_serializable(
     c: &ByteCodeLambda,
     ctx: &mut SerializationContext,
 ) -> Result<SerializedLambda> {
-    {
-        let mut constants = HashMap::new();
+    let mut constants = HashMap::new();
 
-        for (position, instr) in c.body_exp.iter().enumerate() {
-            // The first instruction is sent as what it was before the
-            // function was compiled, which is kept in the header.
-            let op_code = match c.header {
-                Some(header) if position == 0 => header,
-                _ => instr.op_code,
-            };
+    for (position, instr) in c.body_exp.iter().enumerate() {
+        // The first instruction is sent as what it was before the function
+        // was compiled, which is kept in the header.
+        let op_code = match c.header {
+            Some(header) if position == 0 => header,
+            _ => instr.op_code,
+        };
 
-            if op_code == OpCode::PUSHCONST {
+        match op_code {
+            OpCode::PUSHCONST => {
                 let index = instr.payload_size.to_usize();
                 let value = ctx.constants.get(index);
-                constants.insert(index, into_serializable_value(value, ctx)?);
+                constants.insert(index, ctx.place(value)?);
             }
-
-            match op_code {
-                // If this instruction touches this global variable,
-                // then we want to mark it as possibly referenced here.
-                OpCode::CALLGLOBAL
-                | OpCode::CALLPRIMITIVE
-                | OpCode::PUSH
-                | OpCode::CALLGLOBALTAIL
-                | OpCode::CALLGLOBALNOARITY
-                | OpCode::CALLGLOBALTAILNOARITY => {
-                    let idx = instr.payload_size.to_usize();
-                    ctx.reachable_globals.insert(idx);
-                }
-                _ => {}
+            // The globals it refers to have to be sent with it.
+            OpCode::CALLGLOBAL
+            | OpCode::CALLPRIMITIVE
+            | OpCode::PUSH
+            | OpCode::CALLGLOBALTAIL
+            | OpCode::CALLGLOBALNOARITY
+            | OpCode::CALLGLOBALTAILNOARITY => {
+                ctx.reachable_globals.insert(instr.payload_size.to_usize());
             }
+            _ => {}
         }
-
-        let mut prototype = SerializedLambdaPrototype {
-            id: c.id,
-
-            body_exp: c.body_exp.iter().cloned().collect(),
-
-            arity: c.arity as _,
-            is_multi_arity: c.is_multi_arity,
-            constants,
-        };
-
-        if let Some(header) = c.header {
-            prototype.body_exp[0].op_code = header;
-        }
-
-        let mut prototype = SerializedLambda {
-            id: prototype.id,
-            body_exp: prototype.body_exp,
-            arity: prototype.arity,
-            is_multi_arity: prototype.is_multi_arity,
-            captures: Vec::new(),
-            constants: prototype.constants,
-        };
-
-        prototype.captures = c
-            .captures
-            .iter()
-            .cloned()
-            .map(|x| into_serializable_value(x, ctx))
-            .collect::<Result<_>>()?;
-
-        Ok(prototype)
     }
-}
 
-#[allow(unused)]
-struct MovableThread {
-    constants: Vec<SerializableSteelVal>,
-    global_env: Vec<SerializableSteelVal>,
-    function_interner: MovableFunctionInterner,
-    _runtime_options: RunTimeOptions,
-}
+    let mut body_exp: Vec<_> = c.body_exp.iter().cloned().collect();
+    if let (Some(header), Some(first)) = (c.header, body_exp.first_mut()) {
+        first.op_code = header;
+    }
 
-#[allow(unused)]
-struct MovableFunctionInterner {
-    closure_interner: FxHashMap<u32, SerializedLambda>,
-    pure_function_interner: FxHashMap<u32, SerializedLambda>,
-    spans: FxHashMap<u32, Vec<Span>>,
-}
+    let mut captures = Vec::with_capacity(c.captures.len());
+    for capture in c.captures.iter() {
+        captures.push(ctx.place(capture.clone())?);
+    }
 
-#[allow(unused)]
-struct EngineImage {
-    vtable: Vec<SendableVTableEntry>,
-    heap_map: HashMap<usize, SerializedHeapRef>,
-    thread: MovableThread,
+    Ok(SerializedLambda {
+        id: c.id,
+        body_exp,
+        arity: c.arity as _,
+        is_multi_arity: c.is_multi_arity,
+        captures,
+        constants,
+    })
 }
 
 #[steel_derive::context(name = "deserialize-value", arity = Exact(1))]
@@ -291,23 +246,29 @@ pub(crate) fn create_native_ref(ctx: &ModuleContainer, v: SteelVal) -> Option<Na
     None
 }
 
+// A value as it is sent: the table of everything it is made of, which entry
+// of that is the value itself, and what a function among them needs to be
+// found where it is read.
 #[derive(Debug, Serialize, Deserialize)]
 struct SerializedValue {
-    value: SerializableSteelVal,
+    nodes: Vec<SerializableSteelVal>,
+    value: SerializedId,
     // Map the index of something to the name of it, so that we can
     // build a new reverse mapping when deserializing the bytecode
     symbol_index_map: HashMap<usize, InternedString>,
 
-    referenced_globals: HashMap<usize, SerializableSteelVal>,
+    // The globals the functions refer to, by the index they have here.
+    referenced_globals: HashMap<usize, SerializedId>,
 
     vtable_entries: Vec<SendableVTableEntry>,
-
-    serialized_heap: FxHashMap<usize, SerializableSteelVal>,
-
-    serialized_vec_heap: FxHashMap<usize, Vec<SerializableSteelVal>>,
 }
 
 impl Custom for SerializedValue {}
+
+// What the bytes of a serialized value start with. A table whose entries
+// name each other by place came in with 2. What was written before that
+// nested them, and is not read.
+const SERIALIZED_FORMAT: u8 = 2;
 
 // The struct type here that a struct sent from elsewhere belongs to.
 //
@@ -339,36 +300,14 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     // Read and not taken apart, so that it can be deserialized again.
     let inner = SerializedValue::as_ref(&value)?;
 
-    let mut mapping = inner
-        .serialized_heap
-        .clone()
-        .into_iter()
-        .map(|(key, value)| (key, SerializedHeapRef::Serialized(Some(value))))
-        .collect();
-
-    let mut vector_mapping = inner
-        .serialized_vec_heap
-        .clone()
-        .into_iter()
-        .map(|(key, value)| (key, SerializedHeapRefVector::Serialized(Some(value))))
-        .collect();
-
     let mut built_functions = FxHashMap::default();
 
     // Waited for at a safepoint, since the thread that has it may be
     // collecting and waiting for this one to stop.
     let heap = ctx.thread.lock_heap_holding(&[]);
 
-    let mut serializer = HeapSerializer {
-        heap,
-        fake_heap: &mut mapping,
-        built_functions: &mut built_functions,
-        thread: &mut ctx.thread,
-        function_mapping: FxHashMap::default(),
-        global_mapping: FxHashMap::default(),
-        fake_vector_heap: &mut vector_mapping,
-        struct_map: FxHashMap::default(),
-    };
+    let mut serializer =
+        HeapSerializer::new(&inner.nodes, heap, &mut built_functions, &mut ctx.thread);
 
     // Map the struct type descriptors between the two
 
@@ -389,9 +328,12 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     // Populate the symbol maps, using all of the values
     // that exist.
     for (index, name) in &inner.symbol_index_map {
-        if let Some(SerializableSteelVal::BuiltinSteelModuleRef(m, k)) =
-            inner.referenced_globals.get(index)
-        {
+        let sent = match inner.referenced_globals.get(index) {
+            Some(id) => Some(serializer.node(*id)?),
+            None => None,
+        };
+
+        if let Some(SerializableSteelVal::BuiltinSteelModuleRef(m, k)) = sent {
             // Find the existing index
             let key = format!(
                 "{}{}{}{}",
@@ -410,6 +352,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
                 .get(&interned)?;
 
             serializer.global_mapping.insert(*index, existing_index);
+            already_here.insert(*index);
 
             continue;
         }
@@ -433,16 +376,15 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         serializer.global_mapping.insert(*index, idx);
     }
 
-    for (index, global) in inner.referenced_globals.clone() {
-        if let SerializableSteelVal::BuiltinSteelModuleRef(_, _) = global {
+    for (index, global) in inner.referenced_globals.iter() {
+        if already_here.contains(index) {
             continue;
         }
-        if already_here.contains(&index) {
-            continue;
-        }
+        let Some(idx) = serializer.global_mapping.get(index).copied() else {
+            stop!(Generic => "a global was sent without its name");
+        };
 
-        let deserialized = from_serializable_value(&mut serializer, global)?;
-        let idx = serializer.global_mapping[&index];
+        let deserialized = from_serializable_value(&mut serializer, *global)?;
 
         // Make the new global point to the new, deserialized value. The
         // heap's lock is held already.
@@ -451,19 +393,16 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
             .with_locked_env_holding_heap(move |_, env| env.repl_define_idx(idx, deserialized));
     }
 
-    // let original_value = std::mem::replace(&mut inner.value, SerializableSteelVal::Void);
-    // let deserialized = from_serializable_value(&mut serializer, original_value);
-
-    let original_value = inner.value.clone();
-    let deserialized = from_serializable_value(&mut serializer, original_value)?;
-
-    Ok(deserialized)
+    from_serializable_value(&mut serializer, inner.value)
 }
 
 #[steel_derive::function(name = "serialized->bytes", returns = ByteVector)]
 fn serialized_to_bytes(value: &SteelVal) -> Result<SteelVal> {
     let inner = SerializedValue::as_ref(value)?;
-    let bytes = steel_serialize(inner.deref())?;
+
+    let mut bytes = vec![SERIALIZED_FORMAT];
+    bytes.extend(steel_serialize(&*inner)?);
+
     Ok(SteelVal::ByteVector(crate::rvals::SteelByteVector::new(
         bytes,
     )))
@@ -471,38 +410,33 @@ fn serialized_to_bytes(value: &SteelVal) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "bytes->serialized", args(ByteVector))]
 fn bytes_to_serialized(value: &SteelByteVector) -> Result<SteelVal> {
-    let serde = steel_deserialize::<SerializedValue>(&value.vec.read()[..])?;
-    serde.into_steelval()
+    let guard = value.vec.read();
+
+    let Some((format, table)) = guard.split_first() else {
+        stop!(Generic => "no bytes are not a serialized value");
+    };
+    if *format != SERIALIZED_FORMAT {
+        stop!(Generic => "these bytes are not a serialized value that this can read");
+    }
+
+    steel_deserialize::<SerializedValue>(table)?.into_steelval()
 }
 
 // Serialize one individual value.
 fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let value = args[0].clone();
 
-    let mut initial_map = FxHashMap::default();
-    let mut initial_vector_map = FxHashMap::default();
-    let mut visited = FxHashSet::default();
-    let _sources = ctx.thread.compiler.read().sources.clone();
     let compiler_guard = ctx.thread.compiler.read();
     let builtin_modules = compiler_guard.builtin_modules.clone();
-    let mut sctx = SerializationContext {
-        builtin_modules: &builtin_modules,
-        serialized_heap: &mut initial_map,
-        serialized_heap_vectors: &mut initial_vector_map,
-        visited: &mut visited,
-        globals: ctx.thread.global_env.roots(),
-        symbol_map: &compiler_guard.symbol_map,
-        constants: &compiler_guard.constant_map,
-        reachable_globals: FxHashSet::default(),
-        reachable_structs: FxHashSet::default(),
-        compiled_modules: &compiler_guard.module_manager,
-    };
+    let mut sctx = SerializationContext::new(
+        &builtin_modules,
+        ctx.thread.global_env.roots(),
+        &compiler_guard.symbol_map,
+        &compiler_guard.constant_map,
+        &compiler_guard.module_manager,
+    );
 
     let serialized_value = into_serializable_value(value, &mut sctx)?;
-
-    // Somehow, figure out structs as well
-    // println!("Succeeded in serializing the value");
-    // println!("Going through the reachable globals");
 
     let mut symbol_index_map = HashMap::new();
 
@@ -510,6 +444,9 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
 
     let mut entries = Vec::new();
 
+    // A function names the globals it uses, a global can be a function,
+    // and either can hold a struct, so this goes around until nothing new
+    // turns up.
     loop {
         for idx in std::mem::take(&mut sctx.reachable_globals) {
             let ident = sctx.symbol_map.values()[idx];
@@ -533,28 +470,20 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
 
                         let global = sctx.globals[idx].clone();
 
-                        if matches!(global, SteelVal::Custom(_) | SteelVal::PortV(_)) {
-                            println!(
-                                "Found unserializable value @ path: {} -> {} - {}",
-                                module,
-                                path.resolve(),
-                                name
-                            );
-
-                            // If this is a built in, then just record the fact that we should
-                            // resolve to the original built in (or something)
-                            if BUILT_INS.iter().find(|x| x.0 == path.resolve()).is_some() {
-                                old_mapping.insert(
-                                    idx,
-                                    SerializableSteelVal::BuiltinSteelModuleRef(
-                                        path.resolve().to_string(),
-                                        name.to_string(),
-                                    ),
-                                );
-
-                                symbol_index_map.insert(idx, ident);
-                                continue;
-                            }
+                        // If this is a built in that can't be sent, then
+                        // just record the fact that we should resolve to
+                        // the original built in.
+                        if matches!(global, SteelVal::Custom(_) | SteelVal::PortV(_))
+                            && BUILT_INS.iter().any(|x| x.0 == path.resolve())
+                        {
+                            let reference =
+                                sctx.push(SerializableSteelVal::BuiltinSteelModuleRef(
+                                    path.resolve().to_string(),
+                                    name.to_string(),
+                                ))?;
+                            old_mapping.insert(idx, reference);
+                            symbol_index_map.insert(idx, ident);
+                            continue;
                         }
                     }
                 }
@@ -568,48 +497,23 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
             symbol_index_map.insert(idx, ident);
         }
 
-        // println!("Finished serializing globals");
-        // println!(
-        //     "Remaining globals to check: {}",
-        //     sctx.reachable_globals.len()
-        // );
-
         let reachable_structs = std::mem::take(&mut sctx.reachable_structs);
-
-        // println!("Checking structs: {}", reachable_structs.len());
-
         let local_entries = VTable::sendable_entries_for(&mut sctx, reachable_structs)?;
-
         entries.extend(local_entries);
 
-        // println!("Entries: {}", entries.len());
-
-        // println!("Checking if we need to do another pass...");
-        // println!(
-        //     "Remaining globals to check: {}",
-        //     sctx.reachable_globals.len()
-        // );
-        // println!("Checking structs: {}", sctx.reachable_structs.len());
-
-        if sctx.reachable_globals.len() == 0 && sctx.reachable_structs.len() == 0 {
+        if sctx.reachable_globals.is_empty() && sctx.reachable_structs.is_empty() {
             break;
         }
     }
 
-    // println!("Done");
-
-    let value = SerializedValue {
+    SerializedValue {
+        nodes: sctx.nodes,
         value: serialized_value,
         symbol_index_map,
         referenced_globals: old_mapping,
         vtable_entries: entries,
-        serialized_heap: initial_map,
-        serialized_vec_heap: initial_vector_map,
-    };
-
-    // dbg!(&value);
-
-    value.into_steelval()
+    }
+    .into_steelval()
 }
 
 /*

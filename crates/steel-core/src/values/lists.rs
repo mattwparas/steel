@@ -19,6 +19,15 @@ pub struct Pair {
 }
 
 impl Pair {
+    /// The two halves. A pair has a `Drop`, so they can't be moved out of
+    /// it any other way.
+    pub(crate) fn into_parts(mut self) -> (SteelVal, SteelVal) {
+        (
+            core::mem::replace(&mut self.car, SteelVal::Void),
+            core::mem::replace(&mut self.cdr, SteelVal::Void),
+        )
+    }
+
     pub fn cons(car: SteelVal, cdr: SteelVal) -> Self {
         Pair { car, cdr }
     }

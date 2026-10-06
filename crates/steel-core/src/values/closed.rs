@@ -631,6 +631,10 @@ struct Registration {
 
 #[cfg(feature = "sync")]
 struct WillState {
+    // The heap of the engine that made this, by its address. A collection
+    // only has an answer for values on its own heap, and an engine only
+    // collects its own.
+    heap: usize,
     registrations: Mutex<Vec<Registration>>,
     // Signalled when a value is registered or a collection makes one ready.
     wake: Sender<()>,
@@ -656,9 +660,10 @@ pub struct WillExecutor {}
 
 #[cfg(feature = "sync")]
 impl WillExecutor {
-    fn new() -> Self {
+    fn new(heap: usize) -> Self {
         let (wake, woken) = crossbeam_channel::unbounded();
         let state = Arc::new(WillState {
+            heap,
             registrations: Mutex::new(Vec::new()),
             wake,
             woken,
@@ -712,10 +717,14 @@ impl WillExecutor {
 /// finalizer is marked, so the finalizer sees its value intact. Returns what to
 /// mark, holding a reference to each for the duration.
 #[cfg(feature = "sync")]
-fn will_executor_roots() -> Vec<SteelVal> {
+fn will_executor_roots(heap: usize) -> Vec<SteelVal> {
     let mut roots = Vec::new();
     let executors = WILL_EXECUTORS.lock().unwrap();
-    for executor in executors.iter().filter_map(|executor| executor.upgrade()) {
+    for executor in executors
+        .iter()
+        .filter_map(|executor| executor.upgrade())
+        .filter(|executor| executor.heap == heap)
+    {
         let mut newly_ready = false;
         let mut registrations = executor.registrations.lock().unwrap();
         for registration in registrations.iter_mut() {
@@ -1088,9 +1097,13 @@ impl Custom for WillExecutor {
 }
 
 #[cfg(feature = "sync")]
-#[steel_derive::function(name = "make-will-executor", args(), raises = Never)]
-pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
-    WillExecutor::new().into_steelval()
+#[steel_derive::context(name = "make-will-executor", arity = Exact(0))]
+pub fn make_will_executor(
+    ctx: &mut VmCore,
+    _args: &[SteelVal],
+) -> Option<Result<SteelVal, SteelErr>> {
+    let heap = ctx.thread.heap.data_ptr() as usize;
+    Some(WillExecutor::new(heap).into_steelval())
 }
 
 #[cfg(not(feature = "sync"))]
@@ -1124,7 +1137,7 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         })
         .unwrap()
     {
-        let Pair { car, cdr } = pair.try_unwrap().unwrap();
+        let (car, cdr) = pair.try_unwrap().unwrap().into_parts();
         apply(ctx, &[cdr, SteelVal::ListV(vec![car].into())])
     } else {
         unreachable!()
@@ -2328,6 +2341,31 @@ pub(crate) struct MutatorState {
     thread: core::sync::atomic::AtomicPtr<SteelThread>,
     // Held to write through `thread`, and to take it away.
     thread_in_use: Mutex<()>,
+    // The heap the thread allocates from, by its address. Threads read
+    // each other's cells only if they share one, so those are the only
+    // threads that wait on each other. Two engines in one process don't.
+    family: core::sync::atomic::AtomicUsize,
+}
+
+// Whether `mutator` shares a heap with the thread asking, and so could be
+// reading one of its cells. With no run under way to say which heap that
+// is, every thread is taken to.
+fn in_my_family(mutator: &Mutator, mine: Option<usize>) -> bool {
+    match mine {
+        Some(mine) => mutator.state.family.load(Ordering::SeqCst) == mine,
+        None => true,
+    }
+}
+
+fn my_family() -> Option<usize> {
+    MY_RUNNING
+        .try_with(|current| {
+            let current = current.try_borrow().ok()?;
+            let (_, state) = current.as_ref()?;
+            Some(state.family.load(Ordering::SeqCst))
+        })
+        .ok()
+        .flatten()
 }
 
 impl MutatorState {
@@ -2371,11 +2409,12 @@ pub(crate) const CHECK_IN_STACK_LIMIT: usize = usize::MAX;
 /// flag that asks it to stop: in the interpreter the thread does.
 pub(crate) fn request_check_ins() {
     let mine = MY_SAFEPOINT_SLOT.with(|mine| mine.get());
+    let family = my_family();
     let Ok(mutators) = MUTATORS.lock() else {
         return;
     };
     for mutator in mutators.iter() {
-        if mutator.slot.as_ptr() as usize == mine {
+        if mutator.slot.as_ptr() as usize == mine || !in_my_family(mutator, family) {
             continue;
         }
         mutator.state.send_to_safepoint();
@@ -2580,6 +2619,8 @@ pub(crate) fn enter_mutator(
     // Alone, nobody looks at the count. The thread that starts a second one
     // is counted as running from then on, see `share_cells`.
     let outer_thread = running.thread.swap(thread, Ordering::SeqCst);
+    let family = unsafe { (*thread).heap.data_ptr() as usize };
+    running.family.store(family, Ordering::SeqCst);
 
     let counted = cells_shared();
     if counted {
@@ -2608,6 +2649,7 @@ pub(crate) fn enter_mutator(
 // one of them sees the other.
 fn others_at_safepoints() -> bool {
     let mine = MY_SAFEPOINT_SLOT.with(|mine| mine.get());
+    let family = my_family();
     let Ok(mutators) = MUTATORS.lock() else {
         return false;
     };
@@ -2615,6 +2657,7 @@ fn others_at_safepoints() -> bool {
         None => true,
         Some(slot) => {
             Arc::as_ptr(&slot) as usize == mine
+                || !in_my_family(mutator, family)
                 || mutator.state.running.load(Ordering::SeqCst) == 0
                 || !slot.load(Ordering::SeqCst).is_null()
         }
@@ -2628,9 +2671,11 @@ fn threads_to_await() -> Vec<(Mutator, usize)> {
     let Ok(mutators) = MUTATORS.lock() else {
         return Vec::new();
     };
+    let family = my_family();
     mutators
         .iter()
         .filter(|mutator| mutator.slot.as_ptr() as usize != mine)
+        .filter(|mutator| in_my_family(mutator, family))
         .map(|mutator| {
             (
                 Mutator {
@@ -2684,7 +2729,12 @@ fn drop_deferred_from(collection: bool) {
                 return core::mem::take(&mut deferred.0);
             }
 
-            if deferred.0.len() >= DEFERRED_DROP_BACKLOG {
+            // A collection hands over however few there are. Left here, a
+            // short list would wait for a moment when every other thread
+            // happens to be at a safepoint, which in a busy process may
+            // never come, and a value on it is one more reference to that
+            // value for as long.
+            if collection || deferred.0.len() >= DEFERRED_DROP_BACKLOG {
                 let batch = AwaitedBatch {
                     values: core::mem::take(&mut deferred.0),
                     seen: threads_to_await(),
@@ -3603,6 +3653,9 @@ impl Heap {
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
 
+        #[cfg(feature = "sync")]
+        let this_heap = self as *const Heap as usize;
+
         let mut context = MarkAndSweepContext {
             queue: &mut self.mark_and_sweep_queue,
             stats: MarkAndSweepStats::default(),
@@ -3695,7 +3748,7 @@ impl Heap {
             let count = MARKER.mark(context.queue, root_pointers);
             context.queue.clear();
 
-            let wills = will_executor_roots();
+            let wills = will_executor_roots(this_heap);
             if wills.is_empty() {
                 count
             } else {

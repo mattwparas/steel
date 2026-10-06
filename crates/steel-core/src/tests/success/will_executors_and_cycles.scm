@@ -13,9 +13,12 @@
     (#%gc-collect)
     (collect (- n 1))))
 
-;; Runs one finalizer, which has to be there, and says which it was.
+;; Runs one finalizer, which has to be there, and says which it was. With
+;; other threads about, a value just let go of is kept until each of them has
+;; been seen somewhere safe, which takes a collection to ask and another to
+;; find out.
 (define (next-ready)
-  (collect 2)
+  (collect 6)
   (will-execute executor)
   (car (unbox ran)))
 
@@ -77,7 +80,7 @@
                    s
                    (lambda (v) (set-box! seen (eq? (frozen-label (unbox (frozen-cell v))) 'whole))))))
 (checked)
-(collect 2)
+(collect 6)
 (will-execute executor)
 (assert! (unbox seen))
 
@@ -91,7 +94,7 @@
     (will-register executor s (note! 'released))))
 (released)
 (assert! (eq? (next-ready) 'released))
-(collect 2)
+(collect 6)
 (assert! (not (weak-box-value (unbox weak-to-cell))))
 
 ;; Each of these is still in use, in a different way. They are registered

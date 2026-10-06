@@ -254,18 +254,11 @@ pub struct SerializedLambda {
     pub is_multi_arity: bool,
     // TODO: Go ahead and create a ThreadSafeSteelVal where we will just deep clone everything, move
     // it across the thread, and reconstruct on the other side.
-    pub captures: Vec<SerializableSteelVal>,
+    // What it closes over, and the constants its body refers to by their
+    // index in the constant map, as places in the serialized value's table.
+    pub captures: Vec<crate::rvals::SerializedId>,
 
-    pub constants: HashMap<usize, SerializableSteelVal>,
-}
-
-#[derive(Clone)]
-pub struct SerializedLambdaPrototype {
-    pub id: u32,
-    pub body_exp: Vec<DenseInstruction>,
-    pub arity: usize,
-    pub is_multi_arity: bool,
-    pub constants: HashMap<usize, SerializableSteelVal>,
+    pub constants: HashMap<usize, crate::rvals::SerializedId>,
 }
 
 // The instruction slice a frame is currently executing.
@@ -426,9 +419,11 @@ impl ByteCodeLambda {
         }
     }
 
+    /// Makes the function `value` describes. What it captures and its
+    /// constants have been made already.
     pub(crate) fn from_serialized(
         heap: &mut HeapSerializer,
-        mut value: SerializedLambda,
+        value: &SerializedLambda,
     ) -> Result<Self, SteelErr> {
         // Map the old to the new
         let id = fresh_function_id();
@@ -462,10 +457,10 @@ impl ByteCodeLambda {
 
                 OpCode::PUSHCONST => {
                     let old_index = instr.payload_size.to_usize();
-                    let Some(old_value) = value.constants.get(&old_index).cloned() else {
+                    let Some(constant) = value.constants.get(&old_index) else {
                         stop!(Generic => "a function was sent without a constant it refers to");
                     };
-                    let deserialized_constant = from_serializable_value(heap, old_value)?;
+                    let deserialized_constant = heap.built(*constant)?;
                     let new_index = heap
                         .thread
                         .compiler
@@ -507,8 +502,8 @@ impl ByteCodeLambda {
             value.is_multi_arity,
             value
                 .captures
-                .into_iter()
-                .map(|x| from_serializable_value(heap, x))
+                .iter()
+                .map(|capture| heap.built(*capture))
                 .collect::<Result<_, _>>()?,
         ))
     }
