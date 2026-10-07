@@ -195,8 +195,8 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
         use crate::primitives::lists::{steel_cdr, steel_reverse};
         use crate::primitives::vectors::{list_vec_null, mut_vec_construct};
         use crate::steel_vm::primitives::{
-            make_mutable_struct, make_packed_struct, packed_struct_ref, packed_struct_set,
-            steel_set_box_mutable, steel_unbox_mutable,
+            make_packed_struct, packed_struct_ref, packed_struct_set, steel_set_box_mutable,
+            steel_unbox_mutable,
         };
 
         vec![
@@ -464,16 +464,6 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             .guard(|t, arity| {
                 t.box_primitive_inlinable(steel_set_box_mutable as *const () as usize, arity)
             }),
-            // Structs.
-            inline(
-                "#%make-mutable-struct",
-                make_mutable_struct as *const (),
-                returns(|t, arity| {
-                    t.inline_mutable_struct_call(make_mutable_struct as *const () as usize, arity)
-                }),
-            )
-            .operand(extra)
-            .tail(extra),
             // Structs with their fields inline.
             inline(
                 "#%mstruct",

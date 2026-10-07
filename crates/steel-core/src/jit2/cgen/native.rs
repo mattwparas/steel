@@ -123,6 +123,18 @@ fn report_branch_divergence(
     }
 }
 
+/// Several arms on their way to one block. See `join_begin`.
+pub(super) struct Join {
+    done: Block,
+    entry: BranchState,
+    arms: Vec<(
+        PropertyMap,
+        HashMap<usize, InferredType>,
+        HashMap<Value, usize>,
+    )>,
+}
+
+#[derive(Clone)]
 pub(super) struct BranchState {
     ip: usize,
     shadow_stack: Vec<MaybeStackValue>,
@@ -2117,27 +2129,21 @@ impl<'a> FunctionTranslator<'a> {
                 let is_one = ctx.single_threaded();
                 let offset = heap_box_lock_offset();
 
-                let data = ctx.converging_if(
-                    is_one,
-                    |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
+                let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
 
-                        let data = ctx.builder.ins().load(
+                let data = ctx.versioned_read(
+                    is_one,
+                    lock_pointer,
+                    None,
+                    |ctx| {
+                        ctx.builder.ins().load(
                             types::I128,
                             MemFlagsData::trusted(),
                             lock_pointer,
                             SpinLock::<SteelVal>::data_offset() as i32,
-                        );
-
-                        ctx.clone_value(data);
-
-                        data
+                        )
                     },
-                    |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
-                        ctx.shared_box_read(lock_pointer)
-                    },
-                    typ,
+                    |ctx| ctx.call_helper(UNBOX_SHARED, [value]),
                 );
 
                 // The data lives at an offset of 16 from the pointer
@@ -2152,59 +2158,6 @@ impl<'a> FunctionTranslator<'a> {
                 // Slow path, check deopt too
                 ctx.clone_value(value);
                 let res = ctx.call_helper_checked(UNBOX_HANDLER, [value]);
-                res
-            },
-            typ,
-        )
-    }
-
-    /// `unbox_value_checked_register` for a box borrowed from something that
-    /// stays alive, leaving the contents borrowed too where it can. On the
-    /// unshared fast path nothing is cloned and `owned` is set to 0. The locked
-    /// and slow paths clone and set it to 1.
-    pub(super) fn unbox_value_borrowed(&mut self, value: Value, owned: Variable) -> Value {
-        let is_box = self.is_type(value, SteelVal::HEAP_REF_VALUE_TAG);
-        let typ = self.int;
-
-        self.converging_if(
-            is_box,
-            |ctx| {
-                let ptr = ctx.unbox_value_to_pointer(value);
-
-                // While this is the only thread, nothing else can be using
-                // the box, so its lock is skipped. See `CELLS_SHARED`.
-                let is_one = ctx.single_threaded();
-                let offset = heap_box_lock_offset();
-
-                ctx.converging_if(
-                    is_one,
-                    |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
-                        let data = ctx.builder.ins().load(
-                            types::I128,
-                            MemFlagsData::trusted(),
-                            lock_pointer,
-                            SpinLock::<SteelVal>::data_offset() as i32,
-                        );
-                        let zero = ctx.builder.ins().iconst(types::I8, 0);
-                        ctx.builder.def_var(owned, zero);
-                        data
-                    },
-                    |ctx| {
-                        let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, offset);
-                        let data = ctx.shared_box_read(lock_pointer);
-                        let one = ctx.builder.ins().iconst(types::I8, 1);
-                        ctx.builder.def_var(owned, one);
-                        data
-                    },
-                    typ,
-                )
-            },
-            |ctx| {
-                ctx.clone_value(value);
-                let res = ctx.call_helper_checked(UNBOX_HANDLER, [value]);
-                let one = ctx.builder.ins().iconst(types::I8, 1);
-                ctx.builder.def_var(owned, one);
                 res
             },
             typ,
@@ -2377,66 +2330,161 @@ impl<'a> FunctionTranslator<'a> {
 
     // TODO: Replace the spin lock with an actual mutex implementation,
     // eventually.
-    /// Reads the sequence number at `sequence`, runs `load`, and reads the
-    /// number again. The second value returned says whether the two matched
-    /// and were even, which means nothing wrote what `load` read while it was
-    /// being read. `load` must only read memory that stays allocated.
-    pub(super) fn sequence_read(
-        &mut self,
-        sequence: Value,
-        load: impl FnOnce(&mut Self) -> Value,
-    ) -> (Value, Value) {
-        let before = self
-            .builder
-            .ins()
-            .atomic_load(types::I32, MemFlagsData::trusted(), sequence);
-        let value = load(self);
-        let after = self
-            .builder
-            .ins()
-            .atomic_load(types::I32, MemFlagsData::trusted(), sequence);
+    /// Starts a join of several arms that each end in a value. Every arm
+    /// starts from what the translator knows now, and only what all of them
+    /// agree on is kept once they have joined.
+    pub(super) fn join_begin(&mut self) -> Join {
+        let done = self.builder.create_block();
+        self.builder.append_block_param(done, types::I128);
 
+        Join {
+            done,
+            entry: self.snapshot_branch_state(),
+            arms: Vec::new(),
+        }
+    }
+
+    /// Moves to `block`, which every branch to has already been emitted for.
+    pub(super) fn join_block(&mut self, join: &Join, block: Block) {
+        self.builder.switch_to_block(block);
+        self.builder.seal_block(block);
+        self.restore_branch_state(join.entry.clone());
+    }
+
+    /// Ends an arm with `value`.
+    pub(super) fn join_arm(&mut self, join: &mut Join, value: Value) {
+        join.arms.push((
+            self.properties.clone(),
+            self.local_to_value_map.clone(),
+            self.value_to_local_map.clone(),
+        ));
+        self.builder
+            .ins()
+            .jump(join.done, &[BlockArg::Value(value)]);
+    }
+
+    /// The value the arms joined on. The arm that ended last is the one the
+    /// rest are met with.
+    pub(super) fn join_finish(&mut self, join: Join) -> Value {
+        self.builder.switch_to_block(join.done);
+        self.builder.seal_block(join.done);
+
+        for (properties, locals, values) in &join.arms {
+            self.cursor_bail |= self.properties.meet(properties);
+            self.meet_register_maps(locals, values);
+        }
+
+        self.builder.block_params(join.done)[0]
+    }
+
+    /// Whether nothing was written between two reads of a sequence number,
+    /// which is so if they match and are even.
+    fn sequence_steady(&mut self, before: Value, after: Value) -> Value {
         let unchanged = self.builder.ins().icmp(IntCC::Equal, before, after);
         let low = self.builder.ins().band_imm_u(before, 1);
         let unlocked = self.builder.ins().icmp_imm_s(IntCC::Equal, low, 0);
-
-        (value, self.builder.ins().band(unchanged, unlocked))
+        self.builder.ins().band(unchanged, unlocked)
     }
 
-    /// A box's contents, with a reference taken, while other threads may be
-    /// writing it. The read is checked against the lock's sequence number
-    /// and only takes the lock if a write got in the way. A value that a
-    /// write swaps out in the meantime is kept alive until this thread is
-    /// next at a safepoint, which is what makes taking the reference safe.
-    fn shared_box_read(&mut self, lock_pointer: Value) -> Value {
-        let offset = SpinLock::<SteelVal>::data_offset() as i32;
+    fn sequence_load(&mut self, sequence: Value) -> Value {
+        self.builder
+            .ins()
+            .atomic_load(types::I32, MemFlagsData::trusted(), sequence)
+    }
 
-        let (data, steady) = self.sequence_read(lock_pointer, |ctx| {
-            ctx.builder
-                .ins()
-                .load(types::I128, MemFlagsData::trusted(), lock_pointer, offset)
-        });
+    /// Reads a sequence number that this code has read before, to see
+    /// whether it moved.
+    ///
+    /// Cranelift takes a second load of an address to be the first one over
+    /// again when it sees no store in between, atomic or not, and in a loop
+    /// that folds the comparison away. So each read after the first goes
+    /// through an address it can't tell is the same. `alone` is false here,
+    /// which only the running code knows, and `nth` says which reread of the
+    /// number this is, since two of them must not look alike either.
+    fn sequence_reload(&mut self, sequence: Value, alone: Value, nth: i64) -> Value {
+        let never = self.builder.ins().iconst(types::I64, nth);
+        let address = self.builder.ins().select(alone, never, sequence);
+        self.builder
+            .ins()
+            .atomic_load(types::I32, MemFlagsData::trusted(), address)
+    }
 
-        self.converging_if(
+    /// Reads a value out of a cell with `load`, and takes a reference to it.
+    ///
+    /// Alone, that is all there is to it. With other threads running the
+    /// read is checked against the sequence number at `sequence`, and a read
+    /// that a write got in the way of asks `contended` instead, which hands
+    /// back a value with the reference already taken. A value that a write
+    /// swaps out meanwhile is kept alive until this thread is next at a
+    /// safepoint, which is what makes taking the reference safe. `load` must
+    /// only read memory that stays allocated.
+    ///
+    /// Both ways of reading share one copy of the clone. With `borrow`, the
+    /// value read alone is not cloned, and the flag says whether the result
+    /// is owned.
+    pub(super) fn versioned_read(
+        &mut self,
+        alone: Value,
+        sequence: Value,
+        borrow: Option<Variable>,
+        load: impl Fn(&mut Self) -> Value,
+        contended: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let alone_block = self.builder.create_block();
+        let shared = self.builder.create_block();
+        let contended_block = self.builder.create_block();
+        let clone = self.builder.create_block();
+
+        self.builder.set_cold_block(shared);
+        self.builder.set_cold_block(contended_block);
+        self.builder.append_block_param(clone, types::I128);
+
+        let owned = |ctx: &mut Self, yes: bool| {
+            if let Some(flag) = borrow {
+                let value = ctx.builder.ins().iconst(types::I8, yes as i64);
+                ctx.builder.def_var(flag, value);
+            }
+        };
+
+        let mut join = self.join_begin();
+        self.builder
+            .ins()
+            .brif(alone, alone_block, &[], shared, &[]);
+
+        self.join_block(&join, alone_block);
+        let value = load(self);
+        if borrow.is_some() {
+            owned(self, false);
+            self.join_arm(&mut join, value);
+        } else {
+            self.builder.ins().jump(clone, &[BlockArg::Value(value)]);
+        }
+
+        self.join_block(&join, shared);
+        let before = self.sequence_load(sequence);
+        let value = load(self);
+        let after = self.sequence_reload(sequence, alone, 0);
+        let steady = self.sequence_steady(before, after);
+        self.builder.ins().brif(
             steady,
-            |ctx| {
-                ctx.clone_value(data);
-                data
-            },
-            |ctx| {
-                ctx.with_spinlock(lock_pointer, |ctx| {
-                    let data = ctx.builder.ins().load(
-                        types::I128,
-                        MemFlagsData::trusted(),
-                        lock_pointer,
-                        offset,
-                    );
-                    ctx.clone_value(data);
-                    data
-                })
-            },
-            types::I128,
-        )
+            clone,
+            &[BlockArg::Value(value)],
+            contended_block,
+            &[],
+        );
+
+        self.join_block(&join, contended_block);
+        let value = contended(self);
+        owned(self, true);
+        self.join_arm(&mut join, value);
+
+        self.join_block(&join, clone);
+        let value = self.builder.block_params(clone)[0];
+        self.clone_value(value);
+        owned(self, true);
+        self.join_arm(&mut join, value);
+
+        self.join_finish(join)
     }
 
     pub(super) fn with_spinlock<O>(
@@ -2503,80 +2551,6 @@ impl<'a> FunctionTranslator<'a> {
         let offset = (steel_rc::weak::Weak::<SpinLock<HeapAllocated<HeapVec>>>::data_offset()
             + SpinLock::<HeapAllocated<HeapVec>>::lock_offset()) as i64;
         self.builder.ins().iadd_imm_s(ptr, offset)
-    }
-
-    /// The element at `index` of a mutable vector, with a reference taken,
-    /// while other threads may be writing the vector, handed to `read`.
-    /// `fallback` runs instead if the index is out of bounds or a write got
-    /// in the way, and has to go and ask under the lock.
-    ///
-    /// The length and the storage are read as a pair that the sequence
-    /// number vouches for before the storage is touched, so the index is in
-    /// bounds of that storage. A vector that grows meanwhile keeps its old
-    /// storage allocated until this thread is next at a safepoint (see
-    /// `reserve_shared`), and so is an element that is swapped out, which is
-    /// what makes taking the reference safe.
-    fn shared_vec_read(
-        &mut self,
-        ptr: Value,
-        index: Value,
-        read: impl Fn(&mut Self, Value) -> Value,
-        fallback: impl Fn(&mut Self) -> Value,
-    ) -> Value {
-        let sequence = self.heap_vec_lock_pointer(ptr);
-
-        let before = self
-            .builder
-            .ins()
-            .atomic_load(types::I32, MemFlagsData::trusted(), sequence);
-        let len = self.heap_vec_len(ptr);
-        let buf = self.builder.ins().load(
-            types::I64,
-            MemFlagsData::trusted(),
-            ptr,
-            heap_vec_buf_offset(),
-        );
-        let paired = self
-            .builder
-            .ins()
-            .atomic_load(types::I32, MemFlagsData::trusted(), sequence);
-
-        let unchanged = self.builder.ins().icmp(IntCC::Equal, before, paired);
-        let low = self.builder.ins().band_imm_u(before, 1);
-        let unlocked = self.builder.ins().icmp_imm_s(IntCC::Equal, low, 0);
-        // Unsigned, so a negative index fails the same comparison
-        let in_bounds = self.builder.ins().icmp(IntCC::UnsignedLessThan, index, len);
-        let readable = self.builder.ins().band(unchanged, unlocked);
-        let readable = self.builder.ins().band(readable, in_bounds);
-
-        self.converging_if_else_cold(
-            readable,
-            |ctx| {
-                let byte_offset = ctx.builder.ins().ishl_imm_u(index, 4);
-                let slot = ctx.builder.ins().iadd(buf, byte_offset);
-                let value = ctx
-                    .builder
-                    .ins()
-                    .load(types::I128, MemFlagsData::trusted(), slot, 0);
-                let after =
-                    ctx.builder
-                        .ins()
-                        .atomic_load(types::I32, MemFlagsData::trusted(), sequence);
-                let steady = ctx.builder.ins().icmp(IntCC::Equal, before, after);
-
-                ctx.converging_if_else_cold(
-                    steady,
-                    |ctx| {
-                        ctx.clone_value(value);
-                        read(ctx, value)
-                    },
-                    |ctx| fallback(ctx),
-                    types::I128,
-                )
-            },
-            |ctx| fallback(ctx),
-            types::I128,
-        )
     }
 
     // vector-set! with no call: check the tags, bounds check, then store.
@@ -2679,8 +2653,20 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     // vector-ref on a mutable vector with no call: check the tags, bounds check,
-    // then load. With other threads around the load is checked against the
-    // vector's sequence number instead, see `shared_vec_read`.
+    // then load.
+    //
+    // With other threads around, the length and the storage are read as a
+    // pair that the vector's sequence number vouches for before the storage
+    // is touched, so the index is in bounds of that storage, and the element
+    // is checked against the number again. A vector that grows meanwhile
+    // keeps its old storage allocated until this thread is next at a
+    // safepoint (see `reserve_shared`), and so is an element that is swapped
+    // out, which is what makes taking the reference safe. A read that a write
+    // got in the way of is done out of line.
+    //
+    // There is one copy of the clone and one of `fallback` whichever way the
+    // read went, so the blocks are laid out by hand. Nothing before a branch
+    // to the fallback changes what the translator knows.
     pub(super) fn inline_mut_vector_ref(
         &mut self,
         vector: Value,
@@ -2693,63 +2679,107 @@ impl<'a> FunctionTranslator<'a> {
             (index, SteelVal::INT_TAG),
         ]);
 
-        self.converging_if_else_cold(
-            both,
-            |ctx| {
-                let ptr = ctx.unbox_value_to_pointer(vector);
-                let idx = ctx.unbox_value_to_pointer(index);
-                let alone = ctx.single_threaded();
+        if self.const_bool(both) == Some(false) {
+            return fallback(self);
+        }
 
-                ctx.converging_if(
-                    alone,
-                    |ctx| {
-                        let len = ctx.heap_vec_len(ptr);
+        let checked = self.builder.create_block();
+        let alone_block = self.builder.create_block();
+        let load = self.builder.create_block();
+        let shared = self.builder.create_block();
+        let shared_load = self.builder.create_block();
+        let contended = self.builder.create_block();
+        let clone = self.builder.create_block();
+        let read = self.builder.create_block();
+        let fail = self.builder.create_block();
 
-                        // Unsigned, so a negative index fails the same comparison
-                        let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
+        for cold in [shared, shared_load, contended, fail] {
+            self.builder.set_cold_block(cold);
+        }
+        self.builder.append_block_param(clone, types::I128);
+        self.builder.append_block_param(read, types::I128);
 
-                        ctx.converging_if_else_cold(
-                            in_bounds,
-                            |ctx| {
-                                let slot = ctx.heap_vec_element_address(ptr, idx);
-                                let value = ctx.builder.ins().load(
-                                    types::I128,
-                                    MemFlagsData::trusted(),
-                                    slot,
-                                    0,
-                                );
-                                ctx.clone_value(value);
+        let mut join = self.join_begin();
+        self.builder.ins().brif(both, checked, &[], fail, &[]);
 
-                                if vector_owned {
-                                    ctx.drop_tagged_value(vector);
-                                }
+        self.join_block(&join, checked);
+        let ptr = self.unbox_value_to_pointer(vector);
+        let idx = self.unbox_value_to_pointer(index);
+        let alone = self.single_threaded();
+        self.builder
+            .ins()
+            .brif(alone, alone_block, &[], shared, &[]);
 
-                                value
-                            },
-                            |ctx| fallback(ctx),
-                            types::I128,
-                        )
-                    },
-                    |ctx| {
-                        ctx.shared_vec_read(
-                            ptr,
-                            idx,
-                            |ctx, value| {
-                                if vector_owned {
-                                    ctx.drop_tagged_value(vector);
-                                }
+        self.join_block(&join, alone_block);
+        let len = self.heap_vec_len(ptr);
+        // Unsigned, so a negative index fails the same comparison
+        let in_bounds = self.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
+        self.builder.ins().brif(in_bounds, load, &[], fail, &[]);
 
-                                value
-                            },
-                            |ctx| fallback(ctx),
-                        )
-                    },
-                    types::I128,
-                )
-            },
-            |ctx| fallback(ctx),
-            types::I128,
-        )
+        self.join_block(&join, load);
+        let slot = self.heap_vec_element_address(ptr, idx);
+        let value = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlagsData::trusted(), slot, 0);
+        self.builder.ins().jump(clone, &[BlockArg::Value(value)]);
+
+        self.join_block(&join, shared);
+        let sequence = self.heap_vec_lock_pointer(ptr);
+        let before = self.sequence_load(sequence);
+        let len = self.heap_vec_len(ptr);
+        let buf = self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            ptr,
+            heap_vec_buf_offset(),
+        );
+        let paired = self.sequence_reload(sequence, alone, 0);
+        let steady = self.sequence_steady(before, paired);
+        let in_bounds = self.builder.ins().icmp(IntCC::UnsignedLessThan, idx, len);
+        let readable = self.builder.ins().band(steady, in_bounds);
+        self.builder
+            .ins()
+            .brif(readable, shared_load, &[], contended, &[]);
+
+        self.join_block(&join, shared_load);
+        let byte_offset = self.builder.ins().ishl_imm_u(idx, 4);
+        let slot = self.builder.ins().iadd(buf, byte_offset);
+        let value = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlagsData::trusted(), slot, 0);
+        let after = self.sequence_reload(sequence, alone, 1);
+        let steady = self.builder.ins().icmp(IntCC::Equal, before, after);
+        self.builder
+            .ins()
+            .brif(steady, clone, &[BlockArg::Value(value)], contended, &[]);
+
+        // Out of bounds comes here too, and the out of line read says so.
+        self.join_block(&join, contended);
+        let value = self.call_helper(VECTOR_REF_SHARED, [vector, idx]);
+        let missing = self.is_type(value, crate::steel_vm::vm::jit::NO_ELEMENT_TAG);
+        self.builder
+            .ins()
+            .brif(missing, fail, &[], read, &[BlockArg::Value(value)]);
+
+        self.join_block(&join, clone);
+        let value = self.builder.block_params(clone)[0];
+        self.clone_value(value);
+        self.builder.ins().jump(read, &[BlockArg::Value(value)]);
+
+        self.join_block(&join, read);
+        let value = self.builder.block_params(read)[0];
+        if vector_owned {
+            self.drop_tagged_value(vector);
+        }
+        self.join_arm(&mut join, value);
+
+        self.join_block(&join, fail);
+        let value = fallback(self);
+        self.join_arm(&mut join, value);
+
+        self.join_finish(join)
     }
 
     /// Whether nothing but this thread can be looking at the bytevector, in
@@ -3132,61 +3162,6 @@ impl<'a> FunctionTranslator<'a> {
         self.ip += 1;
     }
 
-    /// A `#:mutable` struct field is a box, and its accessor is
-    /// `(lambda (this) (#%unbox (getter-proto this i)))`, so the getter call is
-    /// followed immediately by a one argument call to `#%unbox`. Reading the
-    /// box out of the struct only to unbox it costs a refcount increment on the
-    /// box (an out-of-line call, since boxes are not biased) and a drop right
-    /// after. When that pair comes next, this returns the instruction to resume
-    /// at once both are done. That is past the unbox's FUNC, or at the POPPURE
-    /// after a tail call's TAILCALL.
-    ///
-    /// Called with `ip` at the getter's FUNC. Nothing between the two calls may
-    /// be a branch target, since the pair is compiled as one operation.
-    fn fused_unbox_target(&self) -> Option<usize> {
-        if !getter_unbox_fusion_enabled() {
-            return None;
-        }
-
-        let call = self.ip + 1;
-        let apply = call + 1;
-        if self.join_targets.contains(&call) || self.join_targets.contains(&apply) {
-            return None;
-        }
-
-        let call_ins = self.instructions.get(call)?;
-        let apply_ins = self.instructions.get(apply)?;
-
-        let calls_unbox = matches!(
-            call_ins.op_code,
-            OpCode::CALLGLOBAL
-                | OpCode::CALLGLOBALNOARITY
-                | OpCode::CALLGLOBALTAIL
-                | OpCode::CALLGLOBALTAILNOARITY
-                | OpCode::CALLPRIMITIVE
-                | OpCode::CALLPRIMITIVETAIL
-        ) && matches!(
-            self._globals.get(call_ins.payload_size.to_usize()),
-            Some(SteelVal::FuncV(f))
-                if *f as usize == crate::steel_vm::primitives::steel_unbox_mutable as *const () as usize
-        );
-
-        if !calls_unbox || apply_ins.payload_size.to_usize() != 1 {
-            return None;
-        }
-
-        match apply_ins.op_code {
-            OpCode::FUNC | OpCode::FUNCNOARITY => Some(apply + 1),
-            OpCode::TAILCALL | OpCode::TAILCALLNOARITY => {
-                let ret = apply + 1;
-                (!self.join_targets.contains(&ret)
-                    && matches!(self.instructions.get(ret)?.op_code, OpCode::POPPURE))
-                .then_some(ret)
-            }
-            _ => None,
-        }
-    }
-
     pub(super) fn inline_struct_call_no_drop(
         &mut self,
         spec: StructConstructorRefSpec,
@@ -3224,9 +3199,9 @@ impl<'a> FunctionTranslator<'a> {
         arity: usize,
         function_index: usize,
     ) -> Option<(Value, InferredType)> {
-        // Only the fused getter-proto arm below sets this, and every exit from
-        // it returns a result its caller takes. Clear it here so a stale one is
-        // never read as another call's.
+        // Set below for a field that is read borrowed, and taken by whoever
+        // takes the result. Cleared here so a stale one is never read as
+        // another call's.
         self.pending_borrow = None;
 
         let args = self.shadow_stack.get(self.shadow_stack.len() - arity..)?;
@@ -3258,64 +3233,7 @@ impl<'a> FunctionTranslator<'a> {
                 }
                 self.pending_borrow = borrow;
 
-                Some(self.inline_struct_getter_call(
-                    &spec,
-                    arity,
-                    function_index,
-                    i,
-                    None,
-                    None,
-                    borrow,
-                ))
-            }
-            // A `#:mutable` struct's accessors are generated as closures over a
-            // box, `(lambda (this) (#%unbox (getter-proto this 0)))`. After the
-            // wrapper is inlined, the call left behind is the generic two
-            // argument prototype with a literal index, instead of the one
-            // argument specialised prototype an immutable struct gets. Past
-            // pulling that index out, this is the same as `GetterProtoVec` above.
-            StructFunctionType::GetterProto
-                if getter_proto_inlining_enabled()
-                    && matches!(
-                        args,
-                        &[
-                            MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_),
-                            MaybeStackValue::Constant(ConstantValue::Int(_))
-                        ]
-                    ) =>
-            {
-                let index_operand = *self.shadow_stack.last().unwrap();
-                let i = match index_operand.into_constant_int(self) {
-                    Some(i) if i >= 0 => i as usize,
-                    _ => return None,
-                };
-
-                let fuse = self.fused_unbox_target();
-
-                // A fused read of a struct that stays in its register leaves the
-                // box's contents borrowed.
-                let borrow = (fuse.is_some()
-                    && super::borrow_enabled()
-                    && matches!(
-                        self.shadow_stack.get(self.shadow_stack.len() - 2),
-                        Some(MaybeStackValue::Register(_))
-                    ))
-                .then(|| self.builder.declare_var(types::I8));
-                self.pending_borrow = borrow;
-
-                // The index is a compile time constant, so nothing is lost by
-                // never materialising it.
-                self.shadow_stack.pop();
-
-                Some(self.inline_struct_getter_call(
-                    &spec,
-                    GETTER_PROTO_ARITY,
-                    function_index,
-                    i,
-                    Some(index_operand),
-                    fuse,
-                    borrow,
-                ))
+                Some(self.inline_struct_getter_call(&spec, arity, function_index, i, borrow))
             }
             // A struct predicate is a tag check and a descriptor compare, with no
             // field access, no allocation, and at the correct arity no error
@@ -3423,18 +3341,13 @@ impl<'a> FunctionTranslator<'a> {
 
         (res, InferredType::Bool)
     }
-    /// A struct field read with the struct in a register. The operands the
-    /// getter doesn't need, like the prototype's literal index, are already
-    /// popped and passed as `dropped`, so a slow arm can put them back.
-    #[allow(clippy::too_many_arguments)]
+    /// A struct field read with the struct in a register.
     fn inline_struct_getter_call(
         &mut self,
         spec: &StructConstructorRefSpec,
         slow_arity: usize,
         function_index: usize,
         i: usize,
-        dropped: Option<MaybeStackValue>,
-        fuse: Option<usize>,
         borrow: Option<Variable>,
     ) -> (Value, InferredType) {
         let (struct_ref, struct_arg_index, borrowed) = match self.shadow_stack.last().copied() {
@@ -3456,7 +3369,7 @@ impl<'a> FunctionTranslator<'a> {
             if spec.descriptor == desc {
                 let last_kind = self.shadow_stack.pop().unwrap();
                 let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
-                let res = fast_path_struct_matches(i, struct_ref_ptr, self, fuse, borrow);
+                let res = fast_path_struct_matches(i, struct_ref_ptr, self, borrow);
 
                 match last_kind {
                     // The read was a move, so the register gives up the struct,
@@ -3503,8 +3416,7 @@ impl<'a> FunctionTranslator<'a> {
 
         // What every slow arm restores to re-enter the real call.
         let old_ip = self.ip;
-        let mut stack = self.shadow_stack.clone();
-        stack.extend(dropped);
+        let stack = self.shadow_stack.clone();
         let inner_stack = stack.clone();
 
         let res = self.converging_if(
@@ -3521,7 +3433,6 @@ impl<'a> FunctionTranslator<'a> {
                     typ,
                     &inner_stack,
                     old_ip,
-                    fuse,
                     borrow,
                     ctx,
                 )
@@ -3531,7 +3442,7 @@ impl<'a> FunctionTranslator<'a> {
                 ctx.shadow_stack = stack.clone();
                 ctx.materialize_borrowed();
                 let value = slow_path_struct_getter(slow_arity, function_index, ctx);
-                finish_slow_getter(value, fuse, borrow, ctx)
+                finish_slow_getter(value, borrow, ctx)
             },
             typ,
         );
@@ -3540,29 +3451,13 @@ impl<'a> FunctionTranslator<'a> {
     }
 }
 
-/// The generic struct getter prototype always takes `(struct, index)`.
-const GETTER_PROTO_ARITY: usize = 2;
-
 /// `STEEL_JIT_PREDICATE=0` turns off inlining of struct predicates.
 fn predicate_inlining_enabled() -> bool {
     crate::config::config().jit_predicate
 }
 
-/// `STEEL_JIT_FUSE_GETTER_UNBOX=0` turns off reading a mutable struct field
-/// straight through its box. On by default.
-fn getter_unbox_fusion_enabled() -> bool {
-    crate::config::config().jit_fuse_getter_unbox
-}
-
-/// `STEEL_JIT_GETTER_PROTO=0` turns off inlining of the two argument struct
-/// getter prototype, for A/B measurement.
-fn getter_proto_inlining_enabled() -> bool {
-    crate::config::config().jit_getter_proto
-}
-
 /// Checks the descriptor, then reads field `i`. The slow arm restores the
-/// saved operand stack, since the call may have had operands the getter
-/// already dropped.
+/// saved operand stack and makes the real call.
 #[allow(clippy::too_many_arguments)]
 fn inline_struct_getter(
     spec: &StructConstructorRefSpec,
@@ -3575,7 +3470,6 @@ fn inline_struct_getter(
     typ: Type,
     saved_stack: &[MaybeStackValue],
     old_ip: usize,
-    fuse: Option<usize>,
     borrow: Option<Variable>,
     ctx: &mut FunctionTranslator,
 ) -> Value {
@@ -3602,7 +3496,7 @@ fn inline_struct_getter(
     ctx.converging_if(
         struct_matches,
         |ctx| {
-            let res = fast_path_struct_matches(i, struct_ref_ptr, ctx, fuse, borrow);
+            let res = fast_path_struct_matches(i, struct_ref_ptr, ctx, borrow);
             // A moved struct is released once its field is read. The slow arm
             // hands it to the call instead.
             if owned {
@@ -3621,7 +3515,7 @@ fn inline_struct_getter(
             ctx.shadow_stack = saved.clone();
             ctx.materialize_borrowed();
             let value = slow_path_struct_getter(slow_arity, function_index, ctx);
-            finish_slow_getter(value, fuse, borrow, ctx)
+            finish_slow_getter(value, borrow, ctx)
         },
         typ,
     )
@@ -3631,7 +3525,6 @@ fn fast_path_struct_matches(
     i: usize,
     struct_ref_ptr: Value,
     ctx: &mut FunctionTranslator<'_>,
-    fuse: Option<usize>,
     borrow: Option<Variable>,
 ) -> Value {
     // The fields sit inline right after the header, so the element address is a
@@ -3646,21 +3539,6 @@ fn fast_path_struct_matches(
         .builder
         .ins()
         .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
-
-    if let Some(resume) = fuse {
-        // The field is the box and the unbox comes straight after. Read through
-        // it while it is still borrowed from the struct, which keeps it alive
-        // for the read, so only the value inside is cloned. The box itself is
-        // never cloned, and so never dropped.
-        let value = match borrow {
-            // With the struct still in its register, the contents can stay
-            // borrowed as well.
-            Some(owned) => ctx.unbox_value_borrowed(local_value, owned),
-            None => ctx.unbox_value_checked_register(local_value, false),
-        };
-        ctx.ip = resume;
-        return value;
-    }
 
     // Clone whatever comes out of this, unless it is borrowed
     match borrow {
@@ -3677,13 +3555,10 @@ fn fast_path_struct_matches(
     local_value
 }
 
-/// The slow arm of a fused `(#%unbox (getter-proto ...))`: the real getter call
-/// hands back an owned box, so unbox it here and release it. Both arms then end
-/// on the same instruction holding the same kind of value, which the
-/// `converging_if` around them requires.
+/// The slow arm of a field read: the real getter call hands back a value
+/// this code owns, where the fast arm may have left it borrowed.
 fn finish_slow_getter(
     value: Value,
-    fuse: Option<usize>,
     borrow: Option<Variable>,
     ctx: &mut FunctionTranslator<'_>,
 ) -> Value {
@@ -3691,14 +3566,7 @@ fn finish_slow_getter(
         let one = ctx.builder.ins().iconst(types::I8, 1);
         ctx.builder.def_var(owned, one);
     }
-    match fuse {
-        Some(resume) => {
-            let unboxed = ctx.unbox_value_checked_register(value, true);
-            ctx.ip = resume;
-            unboxed
-        }
-        None => value,
-    }
+    value
 }
 
 fn slow_path_struct_getter(

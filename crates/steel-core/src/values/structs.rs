@@ -123,6 +123,15 @@ impl Properties {
 // Wrap the usize, store this and this only. We use this as an index into the VTable.
 pub struct StructTypeDescriptor(usize);
 
+#[cfg(test)]
+impl StructTypeDescriptor {
+    /// A descriptor that names no struct type, for a test that only needs
+    /// something to tell two apart by.
+    pub(crate) fn for_test(index: usize) -> Self {
+        StructTypeDescriptor(index)
+    }
+}
+
 impl Custom for StructTypeDescriptor {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         // Some(SerializableSteelVal::Custom(Box::new(*self)))
@@ -581,6 +590,43 @@ impl MutableStructRef {
 
     #[inline]
     pub fn get_index(&self, index: usize) -> Option<SteelVal> {
+        let cell = self.cell();
+        if index >= cell.len() {
+            return None;
+        }
+
+        if !crate::values::closed::cells_shared() {
+            return Some(unsafe { &*cell.fields_ptr().add(index) }.clone());
+        }
+
+        Some(unsafe { self.read_shared(index) })
+    }
+
+    /// The field at `index`, which the struct must have, with a reference
+    /// taken, while other threads may be writing the struct. The read is
+    /// checked against the struct's sequence number and only takes the lock
+    /// if a write got in the way. A field that a write swaps out meanwhile
+    /// is kept alive until this thread is next at a safepoint.
+    #[inline(always)]
+    pub(crate) unsafe fn read_shared(&self, index: usize) -> SteelVal {
+        let cell = self.cell();
+        let sequence = cell.sequence();
+
+        let before = sequence.load(Ordering::Acquire);
+        if before & 1 == 0 {
+            let field =
+                unsafe { crate::values::closed::read_unsteady(cell.fields_ptr().add(index)) };
+            if sequence.load(Ordering::Acquire) == before {
+                return (*field).clone();
+            }
+        }
+
+        self.get_index_locked(index).unwrap_or(SteelVal::Void)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn get_index_locked(&self, index: usize) -> Option<SteelVal> {
         self.with_fields(|fields| fields.get(index).cloned())
     }
 
@@ -962,18 +1008,6 @@ impl UserDefinedStruct {
     fn new(type_descriptor: StructTypeDescriptor, raw_fields: &[SteelVal]) -> Self {
         let fields = raw_fields.into_iter().cloned().collect();
 
-        Self {
-            fields,
-            type_descriptor,
-        }
-    }
-
-    // Fields arrive already boxed from #%make-mutable-struct, which allocates
-    // them all under a single heap lock.
-    pub fn from_boxed_fields(
-        type_descriptor: StructTypeDescriptor,
-        fields: steel_vec::Vec<SteelVal>,
-    ) -> Self {
         Self {
             fields,
             type_descriptor,
@@ -2436,5 +2470,181 @@ impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for core::result::Result<T, 
         } else {
             stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type - value is not a struct: {val:?}"));
         }
+    }
+}
+
+// Generated code reads a struct's memory directly: the type at one offset,
+// the field count at another, each field at a third. It asks this module for
+// the offsets, so the two can't disagree about a number, but it also takes
+// for granted what is found there, and that a struct value's payload is the
+// address of that memory. These read a struct the same way and compare what
+// they find with what the struct says about itself.
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    const VALUE: usize = core::mem::size_of::<SteelVal>();
+
+    // The half of a value that isn't its tag, as generated code takes it.
+    fn payload(value: &SteelVal) -> usize {
+        let halves: &[usize; 2] = unsafe { &*(value as *const SteelVal as *const [usize; 2]) };
+        halves[1]
+    }
+
+    unsafe fn read<T: Copy>(block: *const u8, offset: usize) -> T {
+        unsafe { core::ptr::read_unaligned(block.add(offset) as *const T) }
+    }
+
+    fn ints(values: &[isize]) -> impl ExactSizeIterator<Item = SteelVal> {
+        values
+            .iter()
+            .map(|n| SteelVal::IntV(*n))
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    fn is_int(value: &SteelVal, n: isize) -> bool {
+        matches!(value, SteelVal::IntV(found) if *found == n)
+    }
+
+    #[test]
+    fn a_value_is_two_words() {
+        assert_eq!(VALUE, 16);
+        assert_eq!(core::mem::align_of::<SteelVal>(), 8);
+    }
+
+    #[test]
+    fn both_kinds_keep_the_type_in_the_same_place() {
+        assert_eq!(StructStorage::header_offset(), 16);
+        assert_eq!(MutableStructStorage::header_offset(), 16);
+        // The descriptor is the first thing in a mutable struct's header.
+        assert_eq!(core::mem::offset_of!(MutableStructHeader, descriptor), 0);
+        // And is one word, which is what the type check compares.
+        assert_eq!(
+            core::mem::size_of::<StructTypeDescriptor>(),
+            core::mem::size_of::<usize>()
+        );
+    }
+
+    #[test]
+    fn the_field_count_is_in_the_same_place_whatever_the_header() {
+        let len = core::mem::offset_of!(steel_rc::PackedHeader<()>, len);
+        assert_eq!(len, 8);
+        assert_eq!(
+            core::mem::offset_of!(steel_rc::PackedHeader<StructTypeDescriptor>, len),
+            len
+        );
+        assert_eq!(
+            core::mem::offset_of!(steel_rc::PackedHeader<MutableStructHeader>, len),
+            len
+        );
+    }
+
+    #[test]
+    fn the_fields_start_on_a_value_boundary() {
+        assert_eq!(StructStorage::data_offset(), 24);
+        assert_eq!(MutableStructStorage::data_offset(), 32);
+        assert_eq!(StructStorage::data_offset() % 8, 0);
+        assert_eq!(MutableStructStorage::data_offset() % 8, 0);
+    }
+
+    #[test]
+    fn the_lock_word_is_between_the_field_count_and_the_type() {
+        assert_eq!(MutableStructStorage::aux_offset(), 12);
+        assert!(MutableStructStorage::aux_offset() + 4 <= MutableStructStorage::header_offset());
+    }
+
+    #[test]
+    fn an_immutable_struct_reads_as_it_is_laid_out() {
+        let descriptor = StructTypeDescriptor::for_test(41);
+        let handle = StructRef::from_parts(descriptor, ints(&[10, 20, 30]));
+        let value = SteelVal::CustomStruct(handle.clone());
+
+        let block = payload(&value) as *const u8;
+        assert_eq!(block, handle.as_ptr(), "the payload is the address");
+
+        unsafe {
+            let found: usize = read(block, StructStorage::header_offset());
+            assert_eq!(found, descriptor.key());
+
+            let len: u32 = read(
+                block,
+                core::mem::offset_of!(steel_rc::PackedHeader<()>, len),
+            );
+            assert_eq!(len, 3);
+
+            for (index, expected) in [10, 20, 30].into_iter().enumerate() {
+                let field =
+                    &*(block.add(StructStorage::data_offset() + index * VALUE) as *const SteelVal);
+                assert!(is_int(field, expected));
+            }
+
+            assert_eq!(StructRef::fields_from_ptr(block).len(), 3);
+        }
+    }
+
+    #[test]
+    fn a_mutable_struct_reads_as_it_is_laid_out() {
+        let descriptor = StructTypeDescriptor::for_test(42);
+        let (cell, handle) = MutableStructCell::allocate(descriptor, 7, ints(&[1, 2, 3, 4]));
+        let value = SteelVal::MutableStruct(handle.clone());
+
+        let block = payload(&value) as *const u8;
+        assert_eq!(block, handle.as_ptr(), "the payload is the address");
+        assert_eq!(block, cell.0.as_ptr() as *const u8);
+
+        unsafe {
+            let found: usize = read(block, MutableStructStorage::header_offset());
+            assert_eq!(found, descriptor.key());
+
+            let len: u32 = read(
+                block,
+                core::mem::offset_of!(steel_rc::PackedHeader<()>, len),
+            );
+            assert_eq!(len, 4);
+
+            let lock: u32 = read(block, MutableStructStorage::aux_offset());
+            assert_eq!(lock, 0, "not held, and never written");
+
+            for (index, expected) in [1, 2, 3, 4].into_iter().enumerate() {
+                let field = &*(block.add(MutableStructStorage::data_offset() + index * VALUE)
+                    as *const SteelVal);
+                assert!(is_int(field, expected));
+            }
+
+            assert_eq!(MutableStructRef::fields_from_ptr(block).len(), 4);
+        }
+
+        // A store shows through the same address, and leaves the lock word
+        // even, which is what a reader that doesn't take the lock checks.
+        handle.set_index(2, SteelVal::IntV(99));
+        unsafe {
+            let field =
+                &*(block.add(MutableStructStorage::data_offset() + 2 * VALUE) as *const SteelVal);
+            assert!(is_int(field, 99));
+            let lock: u32 = read(block, MutableStructStorage::aux_offset());
+            assert_eq!(lock % 2, 0);
+        }
+    }
+
+    #[test]
+    fn a_type_and_its_key_are_the_same_number_both_ways() {
+        for n in [0, 1, 7, 4096] {
+            let descriptor = StructTypeDescriptor::for_test(n);
+            assert_eq!(StructTypeDescriptor::from_key(descriptor.key()), descriptor);
+        }
+    }
+
+    #[test]
+    fn the_two_kinds_of_struct_are_different_kinds_of_value() {
+        let descriptor = StructTypeDescriptor::for_test(43);
+        let immutable = SteelVal::CustomStruct(StructRef::from_parts(descriptor, ints(&[1])));
+        let (_, handle) = MutableStructCell::allocate(descriptor, 7, ints(&[1]));
+        let mutable = SteelVal::MutableStruct(handle);
+
+        let tag = |value: &SteelVal| unsafe { *(value as *const SteelVal as *const u8) };
+        assert_eq!(tag(&immutable), SteelVal::STRUCT_TAG as u8);
+        assert_eq!(tag(&mutable), SteelVal::MUTABLE_STRUCT_TAG as u8);
+        assert_ne!(tag(&immutable), tag(&mutable));
     }
 }

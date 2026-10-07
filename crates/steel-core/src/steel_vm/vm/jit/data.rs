@@ -792,6 +792,54 @@ fn set_box_shared(arg: SteelVal, value: SteelVal) -> SteelVal {
     }
 }
 
+// `#%unbox` on a box other threads may be writing. The box is only lent,
+// and is known to be a box.
+#[cross_platform_fn]
+fn unbox_shared(arg: SteelVal) -> SteelVal {
+    let arg = core::mem::ManuallyDrop::new(arg);
+
+    match &*arg {
+        SteelVal::HeapAllocated(h) => h.read_shared(),
+        _ => unreachable!("checked by the caller"),
+    }
+}
+
+// `#%mstruct-ref` on a struct other threads may be writing. The struct is
+// only lent, and is known to be of the right type and to have the field.
+#[cross_platform_fn]
+fn mstruct_ref_shared(value: SteelVal, index: usize) -> SteelVal {
+    let value = core::mem::ManuallyDrop::new(value);
+
+    match &*value {
+        SteelVal::MutableStruct(s) => unsafe { s.read_shared(index) },
+        _ => unreachable!("checked by the caller"),
+    }
+}
+
+// The tag `vector_ref_shared` hands back in place of an element when the
+// index is out of bounds. No value has it.
+pub(crate) const NO_ELEMENT_TAG: u8 = u8::MAX;
+
+// `vector-ref` on a vector other threads may be writing. The vector is only
+// lent, and is known to be a mutable vector.
+#[cross_platform_fn]
+fn vector_ref_shared(vector: SteelVal, index: usize) -> core::mem::MaybeUninit<SteelVal> {
+    let vector = core::mem::ManuallyDrop::new(vector);
+
+    let SteelVal::MutableVector(handle) = &*vector else {
+        unreachable!("checked by the caller")
+    };
+
+    match handle.read_shared(index) {
+        Some(value) => core::mem::MaybeUninit::new(value),
+        None => {
+            let mut none = core::mem::MaybeUninit::<SteelVal>::uninit();
+            unsafe { (none.as_mut_ptr() as *mut u8).write(NO_ELEMENT_TAG) };
+            none
+        }
+    }
+}
+
 // `vector-set!` on a vector other threads may be reading. Both values are
 // only lent, and `vector` is known to be a mutable vector. Stores nothing and
 // says so if the index is out of bounds.
@@ -1073,48 +1121,6 @@ helper_family! {
     add_func2 fn(type_descriptor: StructTypeDescriptor) -> SteelVal,
     arities [0 1 2 3 4 5 6 7 8],
     |args| SteelVal::CustomStruct(StructRef::from_parts(type_descriptor, args.into_iter()))
-}
-
-// `#%make-mutable-struct` in tail position, called directly from jitted code
-// to skip the generic tail call handler's global lookup and `BuiltIn` calling
-// convention. The first argument is the struct type descriptor; the rest are
-// the fields. On an error the frame is handed back to the interpreter at
-// `fallback_ip`, which `check_deopt` after the call looks for.
-helper_family! {
-    CallMutableStructConstructorsDefinitions, mod call_mutable_struct_constructor,
-    names "call_mutable_struct_constructor_" "",
-    add_func fn(ctx: *mut VmCore, fallback_ip: usize) -> SteelVal,
-    arities [1 2 3 4 5 6 7 8],
-    |args| {
-        let guard = unsafe { &mut *ctx };
-        let args: smallvec::SmallVec<[SteelVal; 8]> = args.into_iter().collect();
-        match crate::steel_vm::primitives::make_mutable_struct_from_owned(guard, args) {
-            Ok(v) => v,
-            Err(e) => {
-                guard.ip = fallback_ip;
-                guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
-                guard.is_native = false;
-                SteelVal::Void
-            }
-        }
-    }
-}
-
-// `#%make-mutable-struct` with a descriptor the jit baked in, so the call
-// only boxes the fields. It cannot fail.
-helper_family! {
-    CallMutableStructKnownDefinitions, mod call_mutable_struct_known,
-    names "call_mutable_struct_known_" "",
-    add_func fn(ctx: *mut VmCore, descriptor: usize) -> SteelVal,
-    arities [0 1 2 3 4 5 6 7 8],
-    |args| {
-        let guard = unsafe { &mut *ctx };
-        crate::steel_vm::primitives::make_mutable_struct_known(
-            guard,
-            crate::values::structs::StructTypeDescriptor::from_key(descriptor),
-            args,
-        )
-    }
 }
 
 // `#%mstruct` with a descriptor the jit baked in. It cannot fail.

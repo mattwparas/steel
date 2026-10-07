@@ -96,16 +96,20 @@
                                                       (predicate-proto3 (list-ref prototypes2 2))
                                                       (getter-proto3 (list-ref prototypes2 3))
                                                       (getter-proto-list3 (list-ref prototypes2 4)))
-  (begin
-    (set! struct:Parameter struct-type-descriptor3)
-    (#%vtable-update-entry! struct-type-descriptor3 0 ___Parameter-options___)
-    (set! Parameter (λ (getter4 value4) (constructor-proto3 (#%box getter4) (#%box value4))))
-    (set! Parameter? predicate-proto3)
-    (set! Parameter-getter (λ (this4) (#%unbox (getter-proto3 this4 0))))
-    (set! Parameter-value (λ (this4) (#%unbox (getter-proto3 this4 1))))
-    (set! set-Parameter-getter! (λ (this4 value4) (#%set-box! (getter-proto3 this4 0) value4)))
-    (set! set-Parameter-value! (λ (this4 value4) (#%set-box! (getter-proto3 this4 1) value4)))
-    void)))
+  ;; A mutable struct, with its fields inline and its type named by key, as
+  ;; `struct` with `#:mutable` expands.
+  (%plain-let
+   ((struct-key3 (#%struct-type-key struct-type-descriptor3)))
+   (begin
+     (set! struct:Parameter struct-type-descriptor3)
+     (#%vtable-update-entry! struct-type-descriptor3 0 ___Parameter-options___)
+     (set! Parameter (λ (getter4 value4) (#%mstruct struct-key3 getter4 value4)))
+     (set! Parameter? predicate-proto3)
+     (set! Parameter-getter (λ (this4) (#%mstruct-ref struct-key3 this4 0)))
+     (set! Parameter-value (λ (this4) (#%mstruct-ref struct-key3 this4 1)))
+     (set! set-Parameter-getter! (λ (this4 value4) (#%mstruct-set! struct-key3 this4 0 value4)))
+     (set! set-Parameter-value! (λ (this4 value4) (#%mstruct-set! struct-key3 this4 1 value4)))
+     void))))
 
 (define (make-parameter value)
   (define param (Parameter 'uninitialized value))

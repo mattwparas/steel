@@ -775,7 +775,8 @@ fn variadic_numeric_spilled(ctx: *mut VmCore<'_>, code: usize, arity: usize) -> 
         4 => lt_primitive,
         5 => crate::steel_vm::primitives::lte_primitive,
         6 => gt_primitive,
-        _ => gte_primitive,
+        7 => gte_primitive,
+        _ => crate::steel_vm::primitives::equality_primitive,
     };
 
     let len = ctx.thread.stack.len();

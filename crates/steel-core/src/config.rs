@@ -221,7 +221,7 @@ steel_config! {
     jit_tail_rev: bool = true, "STEEL_JIT_TAIL_REV";
     /// Of those, `mutable-vector`.
     jit_tail_vec: bool = true, "STEEL_JIT_TAIL_VEC";
-    /// `eq?`, `vector-set!` and `#%make-mutable-struct` in tail position.
+    /// `eq?` and `vector-set!` in tail position.
     jit_prim_tail_extra: bool = true, "STEEL_JIT_PRIM_TAIL_EXTRA";
     /// Inline float arithmetic.
     jit_float_inline: bool = true, "STEEL_JIT_FLOAT_INLINE";
@@ -269,10 +269,6 @@ steel_config! {
     /// Inline `pair?` on a local, and let `car` of a local known to be a pair
     /// or non-empty list skip its checks.
     jit_inline_pair_p: bool = true, "STEEL_JIT_INLINE_PAIR_P";
-    /// Inline mutable struct getters.
-    jit_getter_proto: bool = true, "STEEL_JIT_GETTER_PROTO";
-    /// Read a mutable struct field straight through its box.
-    jit_fuse_getter_unbox: bool = true, "STEEL_JIT_FUSE_GETTER_UNBOX";
     /// Type the result of a primitive call by the return type its definition
     /// declares.
     jit_primitive_types: bool = true, "STEEL_JIT_PRIMITIVE_TYPES";
@@ -410,9 +406,6 @@ steel_config! {
     /// How many emptied boxes a thread keeps for its next allocations. 0 keeps
     /// none.
     gc_spare_handles: usize = 1024, "STEEL_GC_SPARE_HANDLES";
-    /// Whether `struct` with `#:mutable` makes structs with their fields
-    /// inline. Off, each field is a box.
-    packed_mutable_structs: bool = true, "STEEL_PACKED_MUTABLE_STRUCTS";
     /// Threads marking in parallel (0 means 1).
     gc_mark_threads: usize = 1, "STEEL_GC_MARK_THREADS";
 }

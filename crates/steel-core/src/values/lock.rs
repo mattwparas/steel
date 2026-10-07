@@ -68,6 +68,21 @@ impl<T> SpinLock<T> {
         unsafe { &mut *self.data.get() }
     }
 
+    // The lock's count. It is odd while the lock is held, and every hold
+    // leaves it different. A reader that sees the same even count before and
+    // after it copies something out of the payload knows no writer was in
+    // between.
+    #[inline]
+    pub fn sequence(&self) -> u32 {
+        self.locked.load(Ordering::Acquire)
+    }
+
+    // Where the payload is, for a read checked against `sequence`.
+    #[inline]
+    pub fn data_ptr(&self) -> *const T {
+        self.data.get()
+    }
+
     // Not reentrant. Taking this twice on one thread spins forever, so don't keep
     // a guard alive across a call that might reach the same lock.
     pub fn lock(&self) -> SpinGuard<'_, T> {

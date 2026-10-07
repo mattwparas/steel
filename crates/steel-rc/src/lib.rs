@@ -2945,6 +2945,232 @@ mod packed_rc_tests {
     }
 }
 
+// A block whose memory belongs to something other than its handles: a heap
+// that hands it out, takes it back when the last handle goes, and frees it
+// or hands it out again when it sees fit. This is how mutable structs are
+// kept.
+#[cfg(test)]
+mod kept_block_tests {
+    use super::*;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use std::cell::RefCell;
+
+    static ELEMENTS_DROPPED: AtomicUsize = AtomicUsize::new(0);
+    static HEADERS_DROPPED: AtomicUsize = AtomicUsize::new(0);
+
+    // The tests share the counts above, so they take turns.
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct Element(#[allow(dead_code)] u64);
+    impl Drop for Element {
+        fn drop(&mut self) {
+            ELEMENTS_DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct Header(u64);
+    impl Drop for Header {
+        fn drop(&mut self) {
+            HEADERS_DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    thread_local! {
+        // Blocks this thread was asked whether to keep, in order.
+        static KEPT: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    }
+
+    struct Keep;
+    impl PackedDropHandler<Element> for Keep {
+        unsafe fn drop_elements(elements: *mut Element, len: usize) {
+            for i in 0..len {
+                unsafe { core::ptr::drop_in_place(elements.add(i)) };
+            }
+        }
+
+        unsafe fn keep_block(block: *mut u8) -> bool {
+            KEPT.with(|kept| kept.borrow_mut().push(block as usize));
+            true
+        }
+    }
+
+    type Kept = PackedRc<Header, Element, Keep>;
+
+    fn block(header: u64, len: u64) -> Kept {
+        PackedRc::new(Header(header), (0..len as u32).map(|n| Element(n as u64)))
+    }
+
+    fn start() -> std::sync::MutexGuard<'static, ()> {
+        let turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        ELEMENTS_DROPPED.store(0, Ordering::SeqCst);
+        HEADERS_DROPPED.store(0, Ordering::SeqCst);
+        KEPT.with(|kept| kept.borrow_mut().clear());
+        turn
+    }
+
+    fn kept() -> Vec<usize> {
+        KEPT.with(|kept| kept.borrow().clone())
+    }
+
+    fn dropped() -> (usize, usize) {
+        (
+            ELEMENTS_DROPPED.load(Ordering::SeqCst),
+            HEADERS_DROPPED.load(Ordering::SeqCst),
+        )
+    }
+
+    #[test]
+    fn the_last_handle_hands_the_block_over_whole() {
+        let _turn = start();
+
+        let handle = block(7, 3);
+        let raw = handle.as_raw() as *mut PackedHeader<Header>;
+        drop(handle);
+
+        assert_eq!(kept(), vec![raw as usize]);
+        assert_eq!(dropped(), (0, 0), "nothing in it was dropped");
+        // And it can still be read, which a freed block could not.
+        unsafe {
+            assert_eq!((*raw).len, 3);
+            assert_eq!((*raw).header.0, 7);
+            Kept::free_raw(raw);
+        }
+        assert_eq!(dropped(), (3, 1));
+    }
+
+    #[test]
+    fn handles_before_the_last_do_not_ask() {
+        let _turn = start();
+
+        let first = block(1, 2);
+        let second = first.clone();
+        let third = first.clone();
+        let raw = first.as_raw() as *mut PackedHeader<Header>;
+
+        drop(first);
+        drop(third);
+        assert!(kept().is_empty());
+        drop(second);
+        assert_eq!(kept(), vec![raw as usize]);
+
+        unsafe { Kept::free_raw(raw) };
+        assert_eq!(dropped(), (2, 1));
+    }
+
+    #[test]
+    fn a_kept_block_can_be_handed_out_again() {
+        let _turn = start();
+
+        let handle = block(5, 4);
+        let raw = handle.as_raw() as *mut PackedHeader<Header>;
+        drop(handle);
+
+        let again = unsafe { Kept::revive(raw) };
+        assert_eq!(again.as_raw() as usize, raw as usize, "the same memory");
+        assert_eq!(again.len(), 4);
+        assert_eq!(again.header().0, 5);
+        assert_eq!(again.meta().strong_count(), 1);
+        assert_eq!(dropped(), (0, 0));
+
+        // It counts handles again, and asks again when they are gone.
+        let more = again.clone();
+        drop(again);
+        assert_eq!(kept().len(), 1);
+        drop(more);
+        assert_eq!(kept(), vec![raw as usize, raw as usize]);
+
+        unsafe { Kept::free_raw(raw) };
+        assert_eq!(dropped(), (4, 1));
+    }
+
+    #[test]
+    fn an_empty_block_is_kept_and_freed_like_any_other() {
+        let _turn = start();
+
+        let handle = block(9, 0);
+        let raw = handle.as_raw() as *mut PackedHeader<Header>;
+        drop(handle);
+
+        assert_eq!(kept(), vec![raw as usize]);
+        unsafe { Kept::free_raw(raw) };
+        assert_eq!(dropped(), (0, 1));
+    }
+
+    #[test]
+    fn the_spare_word_starts_at_zero_and_is_the_owners_to_use() {
+        let _turn = start();
+
+        let handle = block(1, 2);
+        let raw = handle.as_raw() as *mut PackedHeader<Header>;
+        let aux = unsafe { &(*raw).aux };
+        assert_eq!(aux.load(Ordering::SeqCst), 0);
+
+        // It is where `aux_offset` says, which is what generated code uses.
+        let by_offset = unsafe { (raw as *const u8).add(Kept::aux_offset()) as *const AtomicU32 };
+        assert_eq!(by_offset, aux as *const AtomicU32);
+
+        aux.store(41, Ordering::SeqCst);
+        let other = handle.clone();
+        aux.fetch_add(1, Ordering::SeqCst);
+        drop(other);
+        assert_eq!(
+            aux.load(Ordering::SeqCst),
+            42,
+            "handles coming and going leave it alone"
+        );
+
+        // So does the block being kept and handed out again.
+        drop(handle);
+        let again = unsafe { Kept::revive(raw) };
+        assert_eq!(unsafe { (*raw).aux.load(Ordering::SeqCst) }, 42);
+        drop(again);
+
+        unsafe { Kept::free_raw(raw) };
+    }
+
+    #[test]
+    fn the_spare_word_fits_in_what_was_padding() {
+        // The count is one word, the length half of the next, and the spare
+        // word the other half, so a pointer sized header starts where it
+        // did before there was a spare word.
+        assert_eq!(core::mem::offset_of!(PackedHeader<u64>, rcword), 0);
+        assert_eq!(core::mem::offset_of!(PackedHeader<u64>, len), 8);
+        assert_eq!(PackedRc::<u64, u64>::aux_offset(), 12);
+        assert_eq!(PackedRc::<u64, u64>::header_offset(), 16);
+        assert_eq!(PackedRc::<u64, u64>::data_offset(), 24);
+        // Sixteen byte elements, as values are, start on their alignment.
+        assert_eq!(PackedRc::<u64, u128>::data_offset(), 32);
+    }
+
+    #[test]
+    fn a_handle_dropped_on_another_thread_is_still_kept_once() {
+        let _turn = start();
+
+        let handle = block(3, 2);
+        let raw = handle.as_raw() as usize;
+        let elsewhere = handle.clone();
+
+        // Not the owner, so its drop is only noted for the owner to take
+        // off its own count later.
+        std::thread::spawn(move || drop(elsewhere)).join().unwrap();
+        assert!(kept().is_empty());
+
+        // The owner still counts the handle it made for the other thread,
+        // so its own going is not yet the last.
+        drop(handle);
+        assert!(kept().is_empty());
+        assert_eq!(dropped(), (0, 0));
+
+        // Until it settles up, on this thread, and is asked once.
+        QueueHandle::run_explicit_merge();
+        assert_eq!(kept(), vec![raw]);
+        assert_eq!(dropped(), (0, 0));
+
+        unsafe { Kept::free_raw(raw as *mut PackedHeader<Header>) };
+        assert_eq!(dropped(), (2, 1));
+    }
+}
+
 #[cfg(test)]
 mod rcword_layout {
     use super::*;

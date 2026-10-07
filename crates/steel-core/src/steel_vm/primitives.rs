@@ -468,15 +468,6 @@ pub fn bootstrap_globals(engine: &mut Engine) {
 
     engine
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
-        .register_value(
-            "#%make-mutable-struct",
-            SteelVal::BuiltIn(make_mutable_struct),
-        );
-    engine.register_value(
-        "#%make-mutable-struct",
-        SteelVal::BuiltIn(make_mutable_struct),
-    );
-    engine
         .register_value("#%mstruct", SteelVal::BuiltIn(make_packed_struct))
         .register_value("#%mstruct-ref", SteelVal::FuncV(packed_struct_ref))
         .register_value("#%mstruct-set!", SteelVal::FuncV(packed_struct_set))
@@ -2319,15 +2310,6 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
     Some(Ok(SteelVal::Void))
 }
 
-/// Builds a mutable struct, boxing every field.
-///
-/// Boxing the fields together takes one VM dispatch, safepoint entry and heap
-/// lock instead of one per field with `#%box`.
-#[steel_derive::context(name = "#%make-mutable-struct", arity = AtLeast(1))]
-pub(crate) fn make_mutable_struct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    Some(make_mutable_struct_from_args(ctx, args))
-}
-
 /// Builds a mutable struct with its fields inline. `args` is the descriptor
 /// followed by the fields.
 #[steel_derive::context(name = "#%mstruct", arity = AtLeast(1))]
@@ -2498,105 +2480,6 @@ pub(crate) fn packed_struct_set(args: &[SteelVal]) -> Result<SteelVal> {
         packed_struct_index("#%mstruct-set!", index)?,
         new.clone(),
     )
-}
-
-/// Like `make_mutable_struct_from_args`, for a caller that owns the arguments
-/// (the jit's constructor helpers), so the fields are moved into their boxes
-/// instead of cloned.
-pub(crate) fn make_mutable_struct_from_owned(
-    ctx: &mut VmCore,
-    mut args: smallvec::SmallVec<[SteelVal; 8]>,
-) -> Result<SteelVal> {
-    if args.is_empty() {
-        stop!(ArityMismatch => "#%make-mutable-struct expects a struct type descriptor");
-    }
-
-    let descriptor = StructTypeDescriptor::from_steelval(&args[0])?;
-    // The fields are what is left once the descriptor is taken off the front.
-    args.remove(0);
-
-    Ok(make_mutable_struct_known(ctx, descriptor, args))
-}
-
-/// A mutable struct of a descriptor the caller already has, boxing each of
-/// `fields`.
-pub(crate) fn make_mutable_struct_known<V>(
-    ctx: &mut VmCore,
-    descriptor: StructTypeDescriptor,
-    fields: V,
-) -> SteelVal
-where
-    V: AsRef<[SteelVal]> + IntoIterator<Item = SteelVal>,
-    V::IntoIter: ExactSizeIterator,
-{
-    // The heap lock is nearly always free, and taking it directly skips the
-    // safepoint and a clone of the heap's handle. Only when another thread
-    // holds it does this wait at a safepoint, so that thread's collection can
-    // go ahead.
-    {
-        let free = ctx.thread.heap.try_lock();
-        if let Some(mut heap) = free {
-            let value = heap.allocate_struct_owned(
-                descriptor,
-                fields,
-                &ctx.thread.stack,
-                ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-                ctx.thread.global_env.roots(),
-                &ctx.thread.thread_local_storage,
-                &mut ctx.thread.synchronizer,
-            );
-            return SteelVal::CustomStruct(value);
-        }
-    }
-
-    let mut heap = ctx.thread.lock_heap_holding(fields.as_ref());
-    let value = heap.allocate_struct_owned(
-        descriptor,
-        fields,
-        &ctx.thread.stack,
-        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-        ctx.thread.global_env.roots(),
-        &ctx.thread.thread_local_storage,
-        &mut ctx.thread.synchronizer,
-    );
-
-    SteelVal::CustomStruct(value)
-}
-
-/// `#%make-mutable-struct` without the `BuiltIn` calling convention, so the jit
-/// can call it directly. `args` is the descriptor followed by the fields.
-pub(crate) fn make_mutable_struct_from_args(
-    ctx: &mut VmCore,
-    args: &[SteelVal],
-) -> Result<SteelVal> {
-    let Some((descriptor, fields)) = args.split_first() else {
-        stop!(ArityMismatch => "#%make-mutable-struct expects a struct type descriptor");
-    };
-
-    let descriptor = StructTypeDescriptor::from_steelval(descriptor)?;
-
-    let mut boxed = Vec::with_capacity(fields.len());
-
-    let mut heap_lock = ctx.thread.lock_heap_holding(fields);
-
-    // The fields go in as roots, so a collection part way through the batch
-    // cannot reclaim the boxes already made or anything only they reach.
-    heap_lock.allocate_many(
-        fields,
-        &ctx.thread.stack,
-        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-        ctx.thread.global_env.roots(),
-        &ctx.thread.thread_local_storage,
-        &mut ctx.thread.synchronizer,
-        &mut boxed,
-    );
-
-    drop(heap_lock);
-
-    Ok(SteelVal::CustomStruct(StructRef::from_parts(
-        descriptor,
-        boxed.into_iter(),
-    )))
 }
 
 /// Creates a mutable box holding the given value. The box is tracked by the
@@ -2922,17 +2805,10 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(MAKE_WEAK_BOX_DEFINITION)
         .register_native_fn_definition(WEAK_BOX_VALUE_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
-        .register_value(
-            "#%make-mutable-struct",
-            SteelVal::BuiltIn(make_mutable_struct),
-        )
         .register_value("#%mstruct", SteelVal::BuiltIn(make_packed_struct))
         .register_value("#%mstruct-ref", SteelVal::FuncV(packed_struct_ref))
         .register_value("#%mstruct-set!", SteelVal::FuncV(packed_struct_set))
         .register_value("#%struct-type-key", SteelVal::FuncV(struct_type_key))
-        .register_fn("#%packed-mutable-structs?", || {
-            crate::config::config().packed_mutable_structs
-        })
         .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
         .register_native_fn_definition(MAKE_MUTABLE_BOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_MUTABLE_DEFINITION)

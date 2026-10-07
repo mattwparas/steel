@@ -444,8 +444,8 @@ enum Position {
     BoxStore(SyntaxObjectId),
     /// A `define` / `let` whose value is this variable, an alias of it.
     AliasInit,
-    /// The descriptor argument of `#%make-mutable-struct` or
-    /// `#%vtable-update-entry!`.
+    /// The argument that names the type in `#%mstruct` and the calls like
+    /// it, or the descriptor of `#%vtable-update-entry!`.
     DescriptorUse,
     /// Anywhere else, where the value escapes.
     Value,
@@ -730,10 +730,7 @@ impl<'a> Collector<'a> {
     /// For a lambda shaped like a mutable struct's accessor or setter, the
     /// binding that names the type, the field, and whether it is a setter.
     ///
-    /// With boxed fields that is `(λ (this) (#%unbox (getter this i)))` or
-    /// `(λ (this value) (#%set-box! (getter this i) value))`, and `getter` has
-    /// to turn out to be a getter prototype. With inline fields it is
-    /// `(λ (this) (#%mstruct-ref key this i))` or
+    /// That is `(λ (this) (#%mstruct-ref key this i))` or
     /// `(λ (this value) (#%mstruct-set! key this i value))`, and `key` has to
     /// turn out to be a type's key.
     fn field_access(&self, lambda: &LambdaFunction) -> Option<(SyntaxObjectId, usize, bool)> {
@@ -745,49 +742,30 @@ impl<'a> Collector<'a> {
             return None;
         };
         let (operator, args) = body.args.split_first()?;
-        let inline = match (operator_name(Some(operator))?, args, lambda.args.len()) {
-            ("#%mstruct-ref", [ExprKind::Atom(key), ExprKind::Atom(object), index], 1) => {
-                Some((key, object, index, false))
-            }
-            (
-                "#%mstruct-set!",
-                [ExprKind::Atom(key), ExprKind::Atom(object), index, ExprKind::Atom(value)],
-                2,
-            ) => {
-                (self.reference(value)? == binding_site(&lambda.args[1])?).then_some(())?;
-                Some((key, object, index, true))
-            }
-            _ => None,
-        };
-        if let Some((key, object, index, set)) = inline {
-            let index = integer_literal(index)?;
-            (self.reference(object)? == this).then_some(())?;
-            return Some((self.reference(key)?, index, set));
-        }
-        let (field, set) = match (operator_name(Some(operator))?, args, lambda.args.len()) {
-            ("#%unbox", [field], 1) => (field, false),
-            // The value stored is the second parameter.
-            ("#%set-box!", [field, ExprKind::Atom(value)], 2) => {
-                (self.reference(value)? == binding_site(&lambda.args[1])?).then_some(())?;
-                (field, true)
-            }
-            _ => return None,
-        };
-        let ExprKind::List(field) = field else {
-            return None;
-        };
-        let [ExprKind::Atom(getter), ExprKind::Atom(object), index] = field.args.as_slice() else {
-            return None;
-        };
+        let (key, object, index, set) =
+            match (operator_name(Some(operator))?, args, lambda.args.len()) {
+                ("#%mstruct-ref", [ExprKind::Atom(key), ExprKind::Atom(object), index], 1) => {
+                    (key, object, index, false)
+                }
+                (
+                    "#%mstruct-set!",
+                    [ExprKind::Atom(key), ExprKind::Atom(object), index, ExprKind::Atom(value)],
+                    2,
+                ) => {
+                    // The value stored is the second parameter.
+                    (self.reference(value)? == binding_site(&lambda.args[1])?).then_some(())?;
+                    (key, object, index, true)
+                }
+                _ => return None,
+            };
         let index = integer_literal(index)?;
         (self.reference(object)? == this).then_some(())?;
-        Some((self.reference(getter)?, index, set))
+        Some((self.reference(key)?, index, set))
     }
 
     /// For a lambda shaped like a mutable struct's constructor,
-    /// `(λ (a b) (#%make-mutable-struct descriptor a b))` or
-    /// `(λ (a b) (#%mstruct key a b))`, the binding of `descriptor` or `key`
-    /// and the id of the call.
+    /// `(λ (a b) (#%mstruct key a b))`, the binding of `key` and the id of
+    /// the call.
     fn construction(&self, lambda: &LambdaFunction) -> Option<(SyntaxObjectId, u32)> {
         if lambda.rest {
             return None;
@@ -796,10 +774,7 @@ impl<'a> Collector<'a> {
             return None;
         };
         let (operator, args) = body.args.split_first()?;
-        if !matches!(
-            operator_name(Some(operator))?,
-            "#%make-mutable-struct" | "#%mstruct"
-        ) {
+        if operator_name(Some(operator))? != "#%mstruct" {
             return None;
         }
         let (ExprKind::Atom(descriptor), fields) = args.split_first()? else {
@@ -877,8 +852,7 @@ impl<'a> Collector<'a> {
                 };
                 match operator_name(Some(operator)) {
                     Some(
-                        "#%make-mutable-struct"
-                        | "#%vtable-update-entry!"
+                        "#%vtable-update-entry!"
                         | "#%mstruct"
                         | "#%mstruct-ref"
                         | "#%mstruct-set!"
@@ -1095,9 +1069,7 @@ impl<'a> Collector<'a> {
             self.facts.known.remove(id);
         }
         for &(lambda, getter, field, set) in &self.accessor_candidates {
-            if let Some(&Known::Struct(ty, StructPiece::GetterPrototype | StructPiece::Key)) =
-                self.facts.known.get(&getter)
-            {
+            if let Some(&Known::Struct(ty, StructPiece::Key)) = self.facts.known.get(&getter) {
                 if field < self.facts.structs[ty].fields {
                     self.facts
                         .struct_accessors
@@ -1904,8 +1876,7 @@ impl<'a> Inference<'a> {
         }
     }
 
-    /// The struct type a `(#%make-mutable-struct descriptor fields ...)` call
-    /// makes, unless it is the one inside a recognized constructor, whose
+    /// The struct type a `(#%mstruct key fields ...)` call makes, unless it is the one inside a recognized constructor, whose
     /// fields are its parameters (the calls of the constructor are counted).
     fn mutable_construction(
         &self,
@@ -1913,13 +1884,11 @@ impl<'a> Inference<'a> {
         operator: &ExprKind,
         args: &[ExprKind],
     ) -> Option<usize> {
-        if !matches!(
-            operator_name(Some(operator))?,
-            "#%make-mutable-struct" | "#%mstruct"
-        ) || self
-            .facts
-            .constructor_bodies
-            .contains(&list.syntax_object_id)
+        if operator_name(Some(operator))? != "#%mstruct"
+            || self
+                .facts
+                .constructor_bodies
+                .contains(&list.syntax_object_id)
         {
             return None;
         }
@@ -1946,7 +1915,7 @@ impl<'a> Inference<'a> {
 
     /// What a native function call builds when it takes apart a struct type or
     /// makes a struct: `(list-ref table i)` of a `make-struct-type` result, and
-    /// `(#%make-mutable-struct descriptor fields ...)`.
+    /// `(#%mstruct key fields ...)`.
     fn struct_result(&self, operator: &ExprKind, args: &[ExprKind]) -> Option<Ty> {
         let known = |expr: &ExprKind| match expr {
             ExprKind::Atom(atom) => {
@@ -1955,7 +1924,7 @@ impl<'a> Inference<'a> {
             _ => None,
         };
         match (operator_name(Some(operator))?, args) {
-            ("#%make-mutable-struct" | "#%mstruct", [descriptor, ..]) => match known(descriptor)? {
+            ("#%mstruct", [descriptor, ..]) => match known(descriptor)? {
                 Known::Struct(ty, StructPiece::Descriptor | StructPiece::Key) => {
                     Some(Ty::structure(ty))
                 }

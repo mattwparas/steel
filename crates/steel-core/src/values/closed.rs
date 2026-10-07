@@ -3184,79 +3184,6 @@ impl Heap {
         self.memory_free_list.allocate(value)
     }
 
-    /// Allocates a box per value, checking for a collection once for the whole
-    /// batch.
-    ///
-    /// The values are passed to that collection as roots, since none of them is
-    /// reachable from a root set while the batch is in flight (the caller has
-    /// usually just taken them off the value stack). A collection part way
-    /// through would otherwise reclaim the boxes already made, along with
-    /// anything only they refer to.
-    pub fn allocate_many<'a>(
-        &mut self,
-        values: &[SteelVal],
-        roots: &'a [SteelVal],
-        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: &'a [SteelVal],
-        tls: &'a [SteelVal],
-        synchronizer: &'a mut Synchronizer,
-        out: &mut Vec<SteelVal>,
-    ) {
-        self.value_collection(
-            values.iter().cloned(),
-            roots,
-            live_functions,
-            globals,
-            tls,
-            synchronizer,
-            false,
-        );
-
-        for value in values {
-            let allocated = self.memory_free_list.allocate(value.clone());
-            out.push(SteelVal::HeapAllocated(allocated));
-        }
-    }
-
-    /// Like `allocate_many`, for values the caller owns. They are moved into the
-    /// boxes instead of cloned. Nothing collects between the collection below
-    /// and the moves, so the values only have to be visible to that one call,
-    /// which only clones them if a collection runs.
-    /// A mutable struct of `descriptor` whose fields are boxes holding
-    /// `values`, allocated straight into the struct.
-    pub fn allocate_struct_owned<'a, V>(
-        &mut self,
-        descriptor: crate::values::structs::StructTypeDescriptor,
-        values: V,
-        roots: &'a [SteelVal],
-        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: &'a [SteelVal],
-        tls: &'a [SteelVal],
-        synchronizer: &'a mut Synchronizer,
-    ) -> crate::values::structs::StructRef
-    where
-        V: AsRef<[SteelVal]> + IntoIterator<Item = SteelVal>,
-        V::IntoIter: ExactSizeIterator,
-    {
-        self.value_collection(
-            values.as_ref().iter().cloned(),
-            roots,
-            live_functions,
-            globals,
-            tls,
-            synchronizer,
-            false,
-        );
-
-        let free_list = &mut self.memory_free_list;
-        crate::values::structs::StructRef::from_parts(
-            descriptor,
-            values
-                .into_iter()
-                .map(|value| SteelVal::HeapAllocated(free_list.allocate(value))),
-        )
-    }
-
     /// A mutable struct holding `values`.
     pub fn allocate_mutable_struct<'a, V>(
         &mut self,
@@ -3339,32 +3266,6 @@ impl Heap {
             self.memory_free_list.should_run_weak = true;
             self.vector_free_list.should_run_weak = true;
             self.mutable_structs.should_run_weak = true;
-        }
-    }
-
-    pub fn allocate_many_owned<'a>(
-        &mut self,
-        values: &mut smallvec::SmallVec<[SteelVal; 8]>,
-        roots: &'a [SteelVal],
-        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: &'a [SteelVal],
-        tls: &'a [SteelVal],
-        synchronizer: &'a mut Synchronizer,
-        out: &mut Vec<SteelVal>,
-    ) {
-        self.value_collection(
-            values.iter().cloned(),
-            roots,
-            live_functions,
-            globals,
-            tls,
-            synchronizer,
-            false,
-        );
-
-        for value in values.drain(..) {
-            let allocated = self.memory_free_list.allocate(value);
-            out.push(SteelVal::HeapAllocated(allocated));
         }
     }
 
@@ -4051,6 +3952,95 @@ pub struct HeapRef<T: HeapAble> {
 ///
 /// Cycles through boxes keep their handles alive and are left to mark and
 /// sweep.
+/// Copies a value out of memory that another thread may be writing. What
+/// comes back can be half of one value and half of another, so it must not
+/// be used until the caller has checked that no write was in the way.
+#[inline(always)]
+pub(crate) unsafe fn read_unsteady(slot: *const SteelVal) -> core::mem::ManuallyDrop<SteelVal> {
+    const _: () = assert!(core::mem::size_of::<SteelVal>() == 16);
+
+    unsafe { core::mem::transmute(core::ptr::read_volatile(slot as *const [u64; 2])) }
+}
+
+impl HeapRef<SteelVal> {
+    /// The contents, with a reference taken, while other threads may be
+    /// writing the box. The read is checked against the lock's count, and
+    /// only takes the lock if a write got in the way. A value that a write
+    /// swaps out meanwhile is kept alive until this thread is next at a
+    /// safepoint, which is what makes taking the reference safe.
+    #[inline]
+    pub(crate) fn read_shared(&self) -> SteelVal {
+        let lock = unsafe { &*self.inner.as_ptr() };
+
+        let before = lock.sequence();
+        if before & 1 == 0 {
+            let value = unsafe { read_unsteady(core::ptr::addr_of!((*lock.data_ptr()).value)) };
+            if lock.sequence() == before {
+                return (*value).clone();
+            }
+        }
+
+        self.read_locked()
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn read_locked(&self) -> SteelVal {
+        unsafe { &*self.inner.as_ptr() }.lock().value.clone()
+    }
+}
+
+impl HeapRef<HeapVec> {
+    /// The element at `index`, with a reference taken, while other threads
+    /// may be writing the vector. `None` if the index is out of bounds.
+    ///
+    /// The length and the storage are read as a pair that the lock's count
+    /// vouches for before the storage is touched, so the index is in bounds
+    /// of that storage. A vector that grows meanwhile keeps its old storage
+    /// allocated until this thread is next at a safepoint (see
+    /// `reserve_shared`), and so is an element that is swapped out.
+    #[inline]
+    pub(crate) fn read_shared(&self, index: usize) -> Option<SteelVal> {
+        let lock = unsafe { &*self.inner.as_ptr() };
+
+        let before = lock.sequence();
+        if before & 1 == 0 {
+            let vector = unsafe { core::ptr::addr_of!((*lock.data_ptr()).value) as *const u8 };
+            let (len, buf) = unsafe {
+                (
+                    core::ptr::read_volatile(vector.add(HeapVec::len_offset()) as *const usize),
+                    core::ptr::read_volatile(
+                        vector.add(HeapVec::buf_offset()) as *const *const SteelVal
+                    ),
+                )
+            };
+
+            if lock.sequence() == before {
+                if index >= len {
+                    return None;
+                }
+
+                let value = unsafe { read_unsteady(buf.add(index)) };
+                if lock.sequence() == before {
+                    return Some((*value).clone());
+                }
+            }
+        }
+
+        self.read_locked(index)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn read_locked(&self, index: usize) -> Option<SteelVal> {
+        unsafe { &*self.inner.as_ptr() }
+            .lock()
+            .value
+            .get(index)
+            .cloned()
+    }
+}
+
 impl<T: HeapAble> Drop for HeapRef<T> {
     #[inline]
     fn drop(&mut self) {
@@ -4059,6 +4049,19 @@ impl<T: HeapAble> Drop for HeapRef<T> {
             return;
         };
 
+        self.release_last(value);
+    }
+}
+
+impl<T: HeapAble> HeapRef<T> {
+    // What the last handle to a box does with what the box held, and with
+    // itself.
+    //
+    // Kept out of line. Dropping a handle is part of dropping any value, and
+    // this, built into that, makes it save more registers on the way in,
+    // which every value dropped then pays for, a box or not.
+    #[inline(never)]
+    fn release_last(&mut self, value: T) {
         value.release();
 
         // The box is empty and this is its only handle, so keep the handle
@@ -4817,5 +4820,316 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
     fn visit_pair(&mut self, pair: &super::lists::Pair) -> Self::Output {
         self.push_back(pair.car_ref());
         self.push_back(pair.cdr_ref());
+    }
+}
+
+// A mutable struct's memory belongs to the heap's list of them. The cells go
+// from in use, to spare on the thread that emptied one, to dead and freed,
+// and these follow one through each of those.
+#[cfg(all(test, feature = "sync"))]
+mod mutable_struct_list_tests {
+    use super::*;
+
+    fn descriptor(n: usize) -> StructTypeDescriptor {
+        StructTypeDescriptor::for_test(n)
+    }
+
+    fn ints(values: &[isize]) -> impl ExactSizeIterator<Item = SteelVal> {
+        values
+            .iter()
+            .map(|n| SteelVal::IntV(*n))
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    // Something whose references can be counted from outside.
+    fn counted() -> (SteelVal, Gc<crate::values::lists::Pair>) {
+        let pair = Gc::new(crate::values::lists::Pair::cons(
+            SteelVal::IntV(1),
+            SteelVal::IntV(2),
+        ));
+        (SteelVal::Pair(pair.clone()), pair)
+    }
+
+    fn int_at(handle: &MutableStructRef, index: usize) -> isize {
+        match handle.get_index(index) {
+            Some(SteelVal::IntV(n)) => n,
+            other => panic!("expected an integer in field {}, found {:?}", index, other),
+        }
+    }
+
+    #[test]
+    fn a_new_struct_is_in_use_and_holds_what_it_was_given() {
+        let mut list = MutableStructList::new();
+        let handle = list.allocate(descriptor(3), ints(&[10, 20, 30]));
+
+        assert_eq!(list.cells.len(), 1);
+        assert_eq!(handle.cell().state(), MUTABLE_STRUCT_LIVE);
+        assert_eq!(handle.len(), 3);
+        assert_eq!(handle.descriptor(), descriptor(3));
+        assert_eq!(handle.strong_count(), 1);
+        assert_eq!(int_at(&handle, 0), 10);
+        assert_eq!(int_at(&handle, 2), 30);
+        assert!(handle.get_index(3).is_none());
+    }
+
+    #[test]
+    fn fields_can_be_set_and_hand_back_what_they_held() {
+        let mut list = MutableStructList::new();
+        let handle = list.allocate(descriptor(1), ints(&[1, 2]));
+
+        assert!(matches!(
+            handle.set_index(1, SteelVal::IntV(99)),
+            Some(SteelVal::IntV(2))
+        ));
+        assert_eq!(int_at(&handle, 1), 99);
+        assert_eq!(int_at(&handle, 0), 1);
+        assert!(handle.set_index(2, SteelVal::IntV(0)).is_none());
+    }
+
+    #[test]
+    fn handles_share_one_struct() {
+        let mut list = MutableStructList::new();
+        let handle = list.allocate(descriptor(1), ints(&[1]));
+        let other = handle.clone();
+
+        assert!(handle.ptr_eq(&other));
+        assert_eq!(handle.strong_count(), 2);
+        other.set_index(0, SteelVal::IntV(5));
+        assert_eq!(int_at(&handle, 0), 5);
+
+        drop(other);
+        assert_eq!(handle.strong_count(), 1);
+        assert_eq!(handle.cell().state(), MUTABLE_STRUCT_LIVE);
+        assert_eq!(int_at(&handle, 0), 5);
+    }
+
+    #[test]
+    fn the_last_handle_empties_it_and_keeps_it_spare() {
+        let mut list = MutableStructList::new();
+        let (value, pair) = counted();
+        let handle = list.allocate(descriptor(1), [value, SteelVal::IntV(1)].into_iter());
+        let cell = handle.cell();
+        assert_eq!(Gc::strong_count(&pair), 2);
+
+        drop(handle);
+
+        assert_eq!(Gc::strong_count(&pair), 1, "what it held was let go of");
+        assert_eq!(cell.state(), MUTABLE_STRUCT_SPARE);
+        assert_eq!(list.cells.len(), 1, "the heap still has the cell");
+    }
+
+    #[test]
+    fn a_spare_is_what_the_next_struct_of_its_size_is_made_in() {
+        let mut list = MutableStructList::new();
+        let first = list.allocate(descriptor(1), ints(&[1, 2]));
+        let address = first.as_ptr();
+        drop(first);
+
+        // Of another type, which makes no difference to the memory.
+        let second = list.allocate(descriptor(2), ints(&[7, 8]));
+
+        assert_eq!(second.as_ptr(), address);
+        assert_eq!(list.cells.len(), 1);
+        assert_eq!(second.cell().state(), MUTABLE_STRUCT_LIVE);
+        assert_eq!(second.descriptor(), descriptor(2));
+        assert_eq!(second.strong_count(), 1);
+        assert_eq!(int_at(&second, 0), 7);
+        assert_eq!(int_at(&second, 1), 8);
+    }
+
+    #[test]
+    fn a_spare_is_not_used_for_a_struct_of_another_size() {
+        let mut list = MutableStructList::new();
+        let two = list.allocate(descriptor(1), ints(&[1, 2]));
+        let address = two.as_ptr();
+        drop(two);
+
+        let three = list.allocate(descriptor(1), ints(&[1, 2, 3]));
+        assert_ne!(three.as_ptr(), address);
+        assert_eq!(list.cells.len(), 2);
+
+        // The one of two fields is still there for the next of two.
+        let two_again = list.allocate(descriptor(1), ints(&[5, 6]));
+        assert_eq!(two_again.as_ptr(), address);
+        assert_eq!(list.cells.len(), 2);
+    }
+
+    #[test]
+    fn a_struct_with_no_fields_goes_through_the_same_states() {
+        let mut list = MutableStructList::new();
+        let empty = list.allocate(descriptor(1), ints(&[]));
+        let cell = empty.cell();
+        assert_eq!(empty.len(), 0);
+        drop(empty);
+        assert_eq!(cell.state(), MUTABLE_STRUCT_SPARE);
+
+        let again = list.allocate(descriptor(2), ints(&[]));
+        assert_eq!(again.as_ptr(), cell.0.as_ptr() as *const u8);
+    }
+
+    #[test]
+    fn a_large_struct_is_not_kept_spare() {
+        let mut list = MutableStructList::new();
+        let fields: Vec<isize> = (0..SPARE_STRUCT_LENGTHS as isize).collect();
+        let large = list.allocate(descriptor(1), ints(&fields));
+        let cell = large.cell();
+        drop(large);
+
+        assert_eq!(cell.state(), MUTABLE_STRUCT_DEAD);
+        assert_eq!(list.free_dead(), 1);
+        assert!(list.cells.is_empty());
+    }
+
+    #[test]
+    fn only_so_many_spares_are_kept() {
+        let mut list = MutableStructList::new();
+        let kept = spare_handles();
+        let handles: Vec<_> = (0..kept + 5)
+            .map(|n| list.allocate(descriptor(1), ints(&[n as isize])))
+            .collect();
+        let cells: Vec<_> = handles.iter().map(|handle| handle.cell()).collect();
+        drop(handles);
+
+        let spare = cells
+            .iter()
+            .filter(|cell| cell.state() == MUTABLE_STRUCT_SPARE)
+            .count();
+        let dead = cells
+            .iter()
+            .filter(|cell| cell.state() == MUTABLE_STRUCT_DEAD)
+            .count();
+        assert_eq!(spare, kept);
+        assert_eq!(dead, 5);
+    }
+
+    #[test]
+    fn freeing_the_dead_takes_the_spares_too() {
+        let mut list = MutableStructList::new();
+        let handles: Vec<_> = (0..4)
+            .map(|n| list.allocate(descriptor(1), ints(&[n])))
+            .collect();
+        let kept = handles[0].clone();
+        drop(handles);
+        assert_eq!(list.cells.len(), 4);
+
+        // Three were spare and one is in use.
+        assert_eq!(list.free_dead(), 3);
+        assert_eq!(list.cells.len(), 1);
+        assert_eq!(kept.cell().state(), MUTABLE_STRUCT_LIVE);
+        assert_eq!(int_at(&kept, 0), 0);
+
+        // With no spare left the next one is new memory.
+        let next = list.allocate(descriptor(1), ints(&[9]));
+        assert_eq!(list.cells.len(), 2);
+        assert_eq!(int_at(&next, 0), 9);
+    }
+
+    #[test]
+    fn a_cycle_is_only_found_by_what_the_mark_did_not_reach() {
+        let mut list = MutableStructList::new();
+        let a = list.allocate(descriptor(1), ints(&[0]));
+        let b = list.allocate(descriptor(1), ints(&[0]));
+        a.set_index(0, SteelVal::MutableStruct(b.clone()));
+        b.set_index(0, SteelVal::MutableStruct(a.clone()));
+        let (a_cell, b_cell) = (a.cell(), b.cell());
+
+        drop(a);
+        drop(b);
+        // Each is held by the other, so neither was emptied.
+        assert_eq!(a_cell.state(), MUTABLE_STRUCT_LIVE);
+        assert_eq!(b_cell.state(), MUTABLE_STRUCT_LIVE);
+
+        // A mark that reaches neither.
+        list.mark_all_unreachable();
+        let released = list.take_unreachable();
+        assert_eq!(released.len(), 2);
+        drop(released);
+
+        // Letting go of what they held let go of them.
+        assert_ne!(a_cell.state(), MUTABLE_STRUCT_LIVE);
+        assert_ne!(b_cell.state(), MUTABLE_STRUCT_LIVE);
+        assert_eq!(list.free_dead(), 2);
+        assert!(list.cells.is_empty());
+    }
+
+    #[test]
+    fn what_the_mark_reached_is_left_alone() {
+        let mut list = MutableStructList::new();
+        let reached = list.allocate(descriptor(1), ints(&[1]));
+        let missed = list.allocate(descriptor(1), ints(&[2]));
+
+        list.mark_all_unreachable();
+        assert!(!reached.cell().is_reachable());
+        assert!(
+            !reached.cell().mark_reachable_was_set(),
+            "the first mark finds it unset"
+        );
+        assert!(reached.cell().mark_reachable_was_set(), "and sets it");
+
+        let released = list.take_unreachable();
+        assert_eq!(released.len(), 1);
+        assert_eq!(int_at(&reached, 0), 1);
+        // A struct that was missed while something still has a handle to it
+        // has been emptied, and reads as holding nothing.
+        assert!(matches!(missed.get_index(0), Some(SteelVal::Void)));
+    }
+
+    #[test]
+    fn one_heaps_spare_is_not_used_by_another() {
+        let mut first = MutableStructList::new();
+        let mut second = MutableStructList::new();
+
+        let handle = first.allocate(descriptor(1), ints(&[1, 2]));
+        let cell = handle.cell();
+        drop(handle);
+        assert_eq!(cell.state(), MUTABLE_STRUCT_SPARE);
+
+        let other = second.allocate(descriptor(1), ints(&[3, 4]));
+        assert_ne!(other.as_ptr(), cell.0.as_ptr() as *const u8);
+        assert_eq!(second.cells.len(), 1);
+        // It was handed back to the heap it came from, to free.
+        assert_eq!(cell.state(), MUTABLE_STRUCT_DEAD);
+        assert_eq!(first.free_dead(), 1);
+    }
+
+    #[test]
+    fn a_handle_that_outlives_its_heap_is_safe_and_empty() {
+        let (value, pair) = counted();
+        let handle = {
+            let mut list = MutableStructList::new();
+            list.allocate(descriptor(1), [value, SteelVal::IntV(7)].into_iter())
+        };
+
+        // A heap that goes away empties what it owns, since a cycle among
+        // them could not be found afterwards. The handle is still good to
+        // use, on a struct that holds nothing.
+        assert_eq!(Gc::strong_count(&pair), 1);
+        assert_eq!(handle.len(), 2);
+        assert!(matches!(handle.get_index(0), Some(SteelVal::Void)));
+        assert!(matches!(handle.get_index(1), Some(SteelVal::Void)));
+
+        handle.set_index(1, SteelVal::IntV(8));
+        assert_eq!(int_at(&handle, 1), 8);
+        let other = handle.clone();
+        assert_eq!(other.strong_count(), 2);
+        drop(other);
+
+        // With no heap to keep the memory for, the last handle frees it.
+        drop(handle);
+    }
+
+    #[test]
+    fn a_heap_that_goes_away_lets_go_of_what_its_structs_hold() {
+        let (value, pair) = counted();
+        {
+            let mut list = MutableStructList::new();
+            let a = list.allocate(descriptor(1), [value, SteelVal::IntV(0)].into_iter());
+            let b = list.allocate(descriptor(1), ints(&[0, 0]));
+            // A cycle, which no handle going away would have found.
+            a.set_index(1, SteelVal::MutableStruct(b.clone()));
+            b.set_index(1, SteelVal::MutableStruct(a.clone()));
+        }
+        assert_eq!(Gc::strong_count(&pair), 1);
     }
 }

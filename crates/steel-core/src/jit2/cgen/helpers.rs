@@ -193,6 +193,9 @@ jit_helpers! {
     UNBOX_HANDLER = "unbox-handler" => unbox_handler_c: ctx_raises fn(SteelVal) -> SteelVal;
     CHECK_IN = "check-in" => jit_check_in: ctx_raises fn();
     SET_BOX_SHARED = "set-box-shared" => set_box_shared: plain fn(SteelVal, SteelVal) -> SteelVal;
+    UNBOX_SHARED = "unbox-shared" => unbox_shared: plain fn(SteelVal) -> SteelVal;
+    MSTRUCT_REF_SHARED = "mstruct-ref-shared" => mstruct_ref_shared: plain fn(SteelVal, usize) -> SteelVal;
+    VECTOR_REF_SHARED = "vector-ref-shared" => vector_ref_shared: plain fn(SteelVal, usize) -> core::mem::MaybeUninit<SteelVal>;
     VECTOR_SET_SHARED = "vector-set-shared" => vector_set_shared: plain fn(SteelVal, usize, SteelVal) -> bool;
     MSTRUCT_REF_SLOW = "mstruct-ref-slow" => mstruct_ref_slow: ctx_raises fn(usize, SteelVal, usize) -> SteelVal;
     MSTRUCT_SET_SLOW = "mstruct-set-slow" => mstruct_set_slow: ctx_raises fn(usize, SteelVal, usize, SteelVal) -> SteelVal;

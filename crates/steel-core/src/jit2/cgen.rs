@@ -572,8 +572,6 @@ impl Default for JIT {
         // TODO: Inline this!
 
         CallStructConstructorsDefinitions::register(&mut map);
-        CallMutableStructConstructorsDefinitions::register(&mut map);
-        CallMutableStructKnownDefinitions::register(&mut map);
         CallPackedStructKnownDefinitions::register(&mut map);
         CallPackedStructConstructorsDefinitions::register(&mut map);
         CallMutableVectorConstructorsDefinitions::register(&mut map);
@@ -1282,11 +1280,7 @@ fn loop_type_seed(
                             .cloned()
                             .and_then(create_struct_spec)
                             .filter(|spec| {
-                                matches!(
-                                    spec.typ,
-                                    StructFunctionType::GetterProto
-                                        | StructFunctionType::GetterProtoVec(_)
-                                )
+                                matches!(spec.typ, StructFunctionType::GetterProtoVec(_))
                             });
                         if let (Some(spec), Some(Entry::Slot(k))) = (getter, args.first()) {
                             uses.entry(*k).or_default().structs.insert(spec.descriptor);
@@ -3809,6 +3803,7 @@ fn variadic_numeric_code(op: OpCode) -> Option<usize> {
         OpCode::LTE => 5,
         OpCode::GT => 6,
         OpCode::GTE => 7,
+        OpCode::EQUAL => 8,
         _ => return None,
     })
 }
@@ -5562,65 +5557,14 @@ impl FunctionTranslator<'_> {
         Some(self.call_function_returns_value_args(name, &args))
     }
 
-    /// `#%make-mutable-struct`, as a direct call to the allocation instead of
-    /// the generic builtin call, which leaves compiled code.
+    /// `#%mstruct`, a mutable struct with its fields inline, as a direct call
+    /// to the allocation instead of the generic builtin call, which leaves
+    /// compiled code.
     ///
     /// The allocation can run a collection, and the collector's roots are the
     /// vm stack plus these arguments, so any other operand is spilled first. In
     /// `(define (cons a b) (mpair a b))` there is none, and in a loop's
     /// `(loop (cdr xs) (mpair (car xs) acc))` the `cdr` usually already is.
-    fn inline_mutable_struct_call(&mut self, builtin: usize, arity: usize) -> Option<Value> {
-        if builtin != crate::steel_vm::primitives::make_mutable_struct as *const () as usize {
-            return None;
-        }
-
-        let name = CallMutableStructConstructorsDefinitions::arity_to_name(arity)?;
-
-        // Operands under the arguments go to the vm stack first, where the
-        // collector sees them. Spilled entries stay a prefix of the stack.
-        let base = self.shadow_stack.len().checked_sub(arity)?;
-        for index in 0..base {
-            self.shadow_spill(index);
-        }
-
-        // A descriptor in a closed global is baked in, which saves checking and
-        // unwrapping it on every call.
-        let known = match self.shadow_stack.get(base) {
-            Some(&MaybeStackValue::Constant(ConstantValue::Global(index)))
-                if self.global_is_closed(index) =>
-            {
-                self._globals.get(index).and_then(|value| {
-                    <StructTypeDescriptor as crate::rvals::FromSteelVal>::from_steelval(value).ok()
-                })
-            }
-            _ => None,
-        };
-        if let (Some(descriptor), Some(name)) = (
-            known,
-            CallMutableStructKnownDefinitions::arity_to_name(arity - 1),
-        ) {
-            // A constant is not on the vm stack, so it is simply dropped here.
-            self.shadow_stack.remove(base);
-            let mut args = vec![self.i64_const(descriptor.key() as i64)];
-            args.extend(self.split_off(arity - 1).into_iter().map(|x| x.0));
-            return Some(self.call_function_returns_value_args(name, &args));
-        }
-
-        let fallback_ip = self.i64_const(self.ip as i64);
-
-        let mut args = vec![fallback_ip];
-        args.extend(self.split_off(arity).into_iter().map(|x| x.0));
-
-        let result = self.call_function_returns_value_args(name, &args);
-        self.check_deopt();
-
-        Some(result)
-    }
-
-    /// `#%mstruct`, a mutable struct with its fields inline, as a direct call
-    /// to the allocation when the type is known. Like
-    /// `inline_mutable_struct_call`, operands under the arguments are spilled
-    /// for the collector.
     fn inline_packed_struct_call(&mut self, arity: usize) -> Option<Value> {
         let base = self.shadow_stack.len().checked_sub(arity)?;
 
@@ -5744,15 +5688,22 @@ impl FunctionTranslator<'_> {
     // here, each time round. One compare of a word the thread already has
     // nearby, and a branch that is not taken unless another thread asked.
     // See `CHECK_IN_STACK_LIMIT`.
+    //
+    // The load is an atomic one so that it is done again each time. Cranelift
+    // is free to reuse an earlier plain load of the limit, such as the one
+    // the stack check makes, in a loop that stores nothing and calls nothing,
+    // which is the loop this is here for.
     fn emit_check_in_poll(&mut self) {
         let ctx = self.get_ctx();
         let thread_pointer = self.get_thread_pointer(ctx);
-        let limit = self.builder.ins().load(
-            types::I64,
-            MemFlagsData::trusted(),
+        let address = self.builder.ins().iadd_imm_s(
             thread_pointer,
-            offset_of!(SteelThread, native_stack_limit) as i32,
+            offset_of!(SteelThread, native_stack_limit) as i64,
         );
+        let limit = self
+            .builder
+            .ins()
+            .atomic_load(types::I64, MemFlagsData::trusted(), address);
         let quiet = self.builder.ins().icmp_imm_s(
             IntCC::NotEqual,
             limit,
@@ -5831,7 +5782,7 @@ impl FunctionTranslator<'_> {
     }
 
     /// `#%mstruct-ref` with no call: a tag check, the checks above, and one
-    /// load. Anything else, a shared struct included, takes the helper.
+    /// load. Anything else takes the helper.
     ///
     /// A field that a vector operation reads straight away is not cloned
     /// while the struct stays in its local, which keeps the field alive.
@@ -5864,58 +5815,31 @@ impl FunctionTranslator<'_> {
             result
         };
         // The field of a struct that passed its checks. Alone, it is read in
-        // place. With other threads running, the read is checked against
-        // the struct's sequence number and a reference is taken, as for a
-        // box in `shared_box_read`, and a read that a write got in the way
-        // of takes the helper.
+        // place. With other threads running the read is checked against the
+        // struct's sequence number and a reference is taken.
         let read = move |ctx: &mut Self, ptr: Value| {
             let alone = ctx.single_threaded();
-            ctx.converging_if(
+            let sequence = ctx
+                .builder
+                .ins()
+                .iadd_imm_s(ptr, MutableStructStorage::aux_offset() as i64);
+
+            ctx.versioned_read(
                 alone,
+                sequence,
+                borrow,
                 |ctx| {
-                    let field = ctx.builder.ins().load(
+                    ctx.builder.ins().load(
                         types::I128,
                         MemFlagsData::trusted(),
                         ptr,
                         Self::mstruct_field_offset(index),
-                    );
-                    match borrow {
-                        Some(flag) => {
-                            let zero = ctx.builder.ins().iconst(types::I8, 0);
-                            ctx.builder.def_var(flag, zero);
-                        }
-                        None => ctx.clone_value(field),
-                    }
-                    field
-                },
-                |ctx| {
-                    let sequence = ctx
-                        .builder
-                        .ins()
-                        .iadd_imm_s(ptr, MutableStructStorage::aux_offset() as i64);
-                    let (field, steady) = ctx.sequence_read(sequence, |ctx| {
-                        ctx.builder.ins().load(
-                            types::I128,
-                            MemFlagsData::trusted(),
-                            ptr,
-                            Self::mstruct_field_offset(index),
-                        )
-                    });
-                    ctx.converging_if(
-                        steady,
-                        |ctx| {
-                            ctx.clone_value(field);
-                            if let Some(flag) = borrow {
-                                let one = ctx.builder.ins().iconst(types::I8, 1);
-                                ctx.builder.def_var(flag, one);
-                            }
-                            field
-                        },
-                        slow,
-                        types::I128,
                     )
                 },
-                types::I128,
+                |ctx| {
+                    let field_index = ctx.i64_const(index as i64);
+                    ctx.call_helper(MSTRUCT_REF_SHARED, [value, field_index])
+                },
             )
         };
 

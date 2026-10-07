@@ -785,7 +785,8 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
                 x if x == *PRIM_STAR && payload_size > 0 => Some(OpCode::MUL),
                 x if x == *PRIM_NUM_EQUAL && payload_size == 2 => Some(OpCode::NUMEQUAL),
                 x if x == *PRIM_EQUAL && payload_size == 2 => Some(OpCode::EQUAL2),
-                x if x == *PRIM_EQUAL && payload_size > 0 => Some(OpCode::EQUAL),
+                // With any other number of arguments it is left a call, which
+                // `equal?` refuses.
                 x if x == *PRIM_LTE && payload_size > 0 => Some(OpCode::LTE),
                 x if x == *PRIM_GTE && payload_size > 0 => Some(OpCode::GTE),
                 x if x == *PRIM_GT && payload_size > 0 => Some(OpCode::GT),

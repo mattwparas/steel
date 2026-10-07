@@ -298,17 +298,9 @@
     (define struct-proto-gensym (gensym))
     (define constructor-proto-gensym (gensym))
     (define predicate-proto-gensym (gensym))
-    (define getter-proto-gensym (gensym))
     (define getter-proto-list-gensym (gensym))
     (define struct-prop-name-gensym (gensym))
     (define struct-key-gensym (gensym))
-
-    ;; A mutable struct keeps its fields inline, unless that has been turned
-    ;; off, in which case each field is a box.
-    (define make-mutable (if (#%packed-mutable-structs?) '#%mstruct '#%make-mutable-struct))
-    ;; The inline kind names its type by key, the boxed kind by descriptor.
-    (define mutable-type
-      (if (#%packed-mutable-structs?) struct-key-gensym struct-prop-name-gensym))
 
     `(begin
        (define ,struct-proto-gensym
@@ -319,7 +311,6 @@
        (define ,struct-prop-name-gensym (#%prim.list-ref ,struct-proto-gensym 0))
        (define ,constructor-proto-gensym (#%prim.list-ref ,struct-proto-gensym 1))
        (define ,predicate-proto-gensym (#%prim.list-ref ,struct-proto-gensym 2))
-       (define ,getter-proto-gensym (#%prim.list-ref ,struct-proto-gensym 3))
        (define ,getter-proto-list-gensym (#%prim.list-ref ,struct-proto-gensym 4))
        (define ,struct-options-name
          (#%prim.hash ,@(option-arguments options-map option-keys)))
@@ -331,19 +322,17 @@
            (#%start-will-executor)
            void)
        ,(if mutable?
-            ;; #%make-mutable-struct boxes every field in one call, under a single
-            ;; heap lock and safepoint.
+            ;; A mutable struct keeps its fields inline, and names its type
+            ;; by key.
             (if maybe-finalizer
                 `(define ,struct-name
                    (lambda ,fields
-                     ;; TODO: Put the right thing on here
-                     (#%register-struct-finalizer (,make-mutable ,mutable-type ,@fields)
+                     (#%register-struct-finalizer (#%mstruct ,struct-key-gensym ,@fields)
                                                   ,maybe-finalizer)))
 
                 `(define ,struct-name
                    (lambda ,fields
-                     ;; TODO: Put the right thing on here
-                     (,make-mutable ,mutable-type ,@fields))))
+                     (#%mstruct ,struct-key-gensym ,@fields))))
 
             (if maybe-finalizer
                 `(define ,struct-name
@@ -353,34 +342,17 @@
 
                 `(define ,struct-name ,constructor-proto-gensym)))
        ,(new-make-predicate struct-predicate predicate-proto-gensym)
-       ,@(cond
-           [(not mutable?) (new-make-getters struct-name fields getter-proto-list-gensym)]
-           [(#%packed-mutable-structs?)
-            (packed-make-getters struct-name fields struct-key-gensym)]
-           [else (mutable-make-getters struct-name fields getter-proto-gensym)])
+       ,@(if mutable?
+             (packed-make-getters struct-name fields struct-key-gensym)
+             (new-make-getters struct-name fields getter-proto-list-gensym))
        ;; If this is a mutable struct, generate the setters
-       ,@(cond
-           [(not mutable?) (list)]
-           [(#%packed-mutable-structs?)
-            (packed-make-setters struct-name fields struct-key-gensym)]
-           [else (mutable-make-setters struct-name fields getter-proto-gensym)])
+       ,@(if mutable?
+             (packed-make-setters struct-name fields struct-key-gensym)
+             (list))
        void)))
 
 (define (new-make-predicate struct-predicate-name predicate-proto-gensym)
   `(define ,struct-predicate-name ,predicate-proto-gensym))
-
-(define (mutable-make-getters struct-name fields getter-proto-gensym)
-  (map (lambda (field)
-         `(define ,(concat-symbols struct-name '- (car field))
-            (lambda (this) (#%unbox (,getter-proto-gensym this ,(#%prim.list-ref field 1))))))
-       (enumerate 0 '() fields)))
-
-(define (mutable-make-setters struct-name fields getter-proto-gensym)
-  (map (lambda (field)
-         `(define ,(concat-symbols 'set- struct-name '- (car field) '!)
-            (lambda (this value)
-              (#%set-box! (,getter-proto-gensym this ,(#%prim.list-ref field 1)) value))))
-       (enumerate 0 '() fields)))
 
 ;; The accessors of a struct with its fields inline. They name the type, so
 ;; the access checks the struct against it.
