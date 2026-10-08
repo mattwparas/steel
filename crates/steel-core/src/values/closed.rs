@@ -2410,11 +2410,17 @@ impl MutatorState {
         }
         // The thread reads this word without synchronization, which is
         // fine for a word.
+        #[cfg(feature = "jit2")]
         unsafe {
             let limit = core::ptr::addr_of_mut!((*thread).native_stack_limit);
             core::sync::atomic::AtomicUsize::from_ptr(limit)
                 .store(CHECK_IN_STACK_LIMIT, Ordering::SeqCst);
         }
+        // Without the jit there is no limit to set and nothing reads a cell
+        // without its lock, so nothing is waiting on a check in. What was
+        // put aside is let go of at the next collection.
+        #[cfg(not(feature = "jit2"))]
+        let _ = thread;
     }
 }
 

@@ -6,6 +6,7 @@ use crate::steel_vm::engine::Engine;
 mod compiled_shape;
 #[cfg(feature = "sync")]
 mod history;
+mod malformed_bindings;
 #[cfg(feature = "sync")]
 mod serialization;
 

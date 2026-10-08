@@ -428,6 +428,16 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         &mut self,
         lambda_function: &crate::parser::ast::LambdaFunction,
     ) -> Self::Output {
+        // By now every macro has been expanded, so what is left in the
+        // parameter list has to be a name.
+        if let Some(parameter) = lambda_function
+            .args
+            .iter()
+            .find(|arg| arg.atom_identifier().is_none())
+        {
+            stop!(BadSyntax => format!("a function's parameters have to be identifiers, found: {}", parameter); lambda_function.location.span);
+        }
+
         let idx = self.len();
 
         // Grab the function information from the analysis - this is going to tell us what the captured

@@ -1726,3 +1726,54 @@ mod offset_encoding_tests {
         );
     }
 }
+
+mod malformed_source_tests {
+    use super::*;
+
+    // Each of these was a panic in the compiler, which ended the server.
+    // They are what a form looks like part way through being typed.
+    const MALFORMED: &[&str] = &[
+        "(define (foo 10)\n  \n  10)\n",
+        "(define (foo \"x\") 1)\n",
+        "(define (foo 'x) 1)\n",
+        "(define (10 a) 1)\n",
+        "(define 10 1)\n",
+        "(lambda (10) 10)\n",
+        "(lambda 5 1)\n",
+        "(let ([10 1]) 2)\n",
+        "(let loop ([10 1]) 2)\n",
+    ];
+
+    #[test]
+    fn a_literal_where_a_name_goes_is_reported() {
+        for source in MALFORMED {
+            let mut server = TestServer::new();
+            let uri = server.open("malformed.scm", source);
+
+            assert!(
+                !server.diagnostics(&uri).is_empty(),
+                "expected a diagnostic for {:?}",
+                source
+            );
+        }
+    }
+
+    #[test]
+    fn the_server_carries_on_after_one() {
+        let mut server = TestServer::new();
+        let uri = server.open("typing.scm", "(define (foo x)\n  x)\n");
+        assert!(server.diagnostics(&uri).is_empty());
+
+        for source in MALFORMED {
+            server.did_change(uri.clone(), source);
+            assert!(!server.diagnostics(&uri).is_empty());
+        }
+
+        let fixed = "(define (foo x)\n  x)\n";
+        server.did_change(uri.clone(), fixed);
+        assert!(server.diagnostics(&uri).is_empty());
+
+        let location = server.definition_location(&uri, find_nth(fixed, "x", 1));
+        assert_eq!(location.range, range_of_nth(fixed, "x", 0));
+    }
+}

@@ -1655,14 +1655,6 @@ impl ContinuationMark {
         }
     }
 
-    fn into_open_mark(self) -> Option<OpenContinuationMark> {
-        if let Self::Open(open) = self {
-            Some(open)
-        } else {
-            None
-        }
-    }
-
     fn into_closed(self) -> Option<ClosedContinuation> {
         if let Self::Closed(closed) = self {
             Some(closed)
