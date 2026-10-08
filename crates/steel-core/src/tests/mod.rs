@@ -2,6 +2,8 @@ use alloc::borrow::Cow;
 
 use crate::steel_vm::engine::Engine;
 
+#[cfg(all(feature = "sync", feature = "jit2"))]
+mod compiled_shape;
 #[cfg(feature = "sync")]
 mod history;
 #[cfg(feature = "sync")]
@@ -152,6 +154,8 @@ test_harness_success! {
     structs_across_threads,
     boxes_across_threads,
     vectors_of_many_kinds_across_threads,
+    counted_loops,
+    values_read_while_collecting,
     structs_of_many_kinds_across_threads,
     vectors_reshaped_across_threads,
     collections_with_busy_threads,
@@ -274,6 +278,8 @@ test_harness_success_module! {
     structs_across_threads,
     boxes_across_threads,
     vectors_of_many_kinds_across_threads,
+    counted_loops,
+    values_read_while_collecting,
     structs_of_many_kinds_across_threads,
     vectors_reshaped_across_threads,
     collections_with_busy_threads,

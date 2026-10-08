@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Run the R7RS benchmark suite against Steel (JIT on/off) and optionally Guile,
-# and emit a CSV of results.
+# Run the R7RS benchmark suite against Steel (JIT on/off) and optionally Guile
+# and Chicken, and emit a CSV of results.
 #
-#   ./r7rs-benchmarks/run.sh --size small --config both --systems steel,guile
+#   ./r7rs-benchmarks/run.sh --size small --config both --systems steel,guile,chicken
 #
 # Must be run from the Steel repo root (benchmark input paths are relative to it).
 
@@ -14,6 +14,7 @@ UPSTREAM="${UPSTREAM:-${HOME}/code/r7rs-benchmarks}"
 STEEL_BIN="${STEEL_BIN:-${STEEL_ROOT}/target/release/steel}"
 GUILE_BIN="${GUILE_BIN:-guile}"
 GUILD_BIN="${GUILD_BIN:-guild}"
+CHICKEN_CSC="${CHICKEN_CSC:-csc}"
 
 SIZES="small"
 CONFIGS="nojit,jit"
@@ -31,7 +32,7 @@ Usage: run.sh [options]
 
   --size    small|full|both     input size (default: small)
   --config  nojit|jit|both      Steel JIT configuration (default: both)
-  --systems steel,guile         systems to run (default: steel)
+  --systems steel,guile,chicken systems to run (default: steel)
   --benches a,b,c               benchmarks to run (default: contents of enabled.txt)
   --all                         run every .scm in r7rs-benchmarks/ (ignores enabled.txt)
   --repeat  N                   runs per benchmark (default: 1)
@@ -215,6 +216,52 @@ run_guile() {
     record guile "-" "$size" "$bench" "$run" "$w"
 }
 
+# ---------------------------------------------------------------- Chicken
+
+# Chicken compiles the unmodified upstream sources to a native executable,
+# with the flags upstream's bench script uses. Compiling is not timed, same
+# as upstream. Prints the executable's path, or nothing if it did not build.
+chicken_program() {
+    local bench="$1"
+    local src="${UPSTREAM}/src/${bench}.scm"
+    [[ -f "$src" ]] || src="${UPSTREAM}/src/mbrotZ.scm"
+    [[ -f "$src" ]] || return 1
+    local out="${TMPDIR_RUN}/chicken-${bench}"
+    cat "${UPSTREAM}/src/Chicken-prelude.scm" \
+        "$src" \
+        "${UPSTREAM}/src/common.scm" \
+        "${UPSTREAM}/src/common-postlude.scm" > "${out}.scm"
+
+    "$CHICKEN_CSC" -R r7rs -X r7rs -block -O3 -C -O3 -d0 "${out}.scm" -o "$out" \
+        > "${LOGDIR}/chicken-compile-${bench}.log" 2>&1 || return 1
+
+    printf '%s' "$out"
+}
+
+run_chicken() {
+    local bench="$1" size="$2" run="$3"
+    local input
+    input="$(bench_input_path "$bench" "$size")"
+    local prog="${TMPDIR_RUN}/chicken-${bench}"
+    # Built once and kept for the repeats.
+    [[ -x "$prog" ]] || prog="$(chicken_program "$bench")"
+    if [[ -z "$prog" || -z "$input" ]]; then
+        R_STATUS="missing"; R_SECS=""
+        R_NOTE="did not compile"
+        [[ -z "$input" ]] && R_NOTE="no input file"
+        record chicken "-" "$size" "$bench" "$run" ""
+        return
+    fi
+    local log="${LOGDIR}/chicken-${size}-${bench}-${run}.log"
+    local t0; t0="$(date +%s%N)"
+    ( cd "$STEEL_ROOT" && timeout -k 5 "$TIMEOUT" "$prog" < "$input" ) \
+        > "$log" 2>&1
+    local rc=$?
+    local w; w="$(wall "$t0")"
+    parse_output "$log" "$rc"
+    record chicken "-" "$size" "$bench" "$run" "$w"
+}
+
 # Resolve which input file a benchmark uses for a given size.
 bench_input_path() {
     local bench="$1" size="$2"
@@ -229,6 +276,7 @@ bench_input_path() {
 
 echo "Steel:  $STEEL_BIN"
 echo "Guile:  $($GUILE_BIN --version 2>/dev/null | head -1)"
+echo "Chicken: $($CHICKEN_CSC -version 2>/dev/null | grep -m1 Version)"
 echo "Output: $CSV"
 echo
 
@@ -257,6 +305,11 @@ run_bench() {
             guile)
                 for ((r=1; r<=REPEAT; r++)); do
                     run_guile "$bench" "$size" "$r"
+                    [[ "$R_STATUS" == "timeout" ]] && break
+                done ;;
+            chicken)
+                for ((r=1; r<=REPEAT; r++)); do
+                    run_chicken "$bench" "$size" "$r"
                     [[ "$R_STATUS" == "timeout" ]] && break
                 done ;;
             *) echo "unknown system: $sys" >&2 ;;

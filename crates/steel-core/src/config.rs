@@ -258,6 +258,11 @@ steel_config! {
     /// loop that calls nothing holds up every other thread's collections
     /// until the loop ends. See `CHECK_IN_STACK_LIMIT`.
     jit_check_in: bool = true, "STEEL_JIT_CHECK_IN";
+    /// How many times round a counted loop goes between looks for another
+    /// thread. Such a loop has the look taken out of each trip round and
+    /// done once a stretch instead. 0 leaves it in every trip. See
+    /// `counted_loop` in the jit.
+    jit_strip_mine: usize = 1024, "STEEL_JIT_STRIP_MINE";
     /// Load the running closure's captures once on entry.
     jit_cache_captures: bool = true, "STEEL_JIT_CACHE_CAPTURES";
     /// Keep a pushed closed global as a reference to its slot until it is used.

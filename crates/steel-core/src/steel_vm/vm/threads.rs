@@ -970,6 +970,29 @@ pub(crate) fn spawn_native_thread(
 /// ```scheme
 /// (define thread (spawn-native-thread (lambda () (displayln "Hello world!"))))
 /// ```
+/// Holds a thread that has just been started until the thread that started
+/// it has registered it.
+///
+/// A collection stops and scans the threads on the list, and no others. The
+/// handle that goes on the list can only be made once the thread exists, so
+/// there is a stretch where it exists and is not listed, and a thread that
+/// ran steel code then would have its stack missed and what only it holds
+/// collected under it. So it waits here first, at a safepoint with nothing
+/// but the function it is to call, which a collection can see.
+#[cfg(feature = "sync")]
+fn wait_to_be_registered(
+    thread: &mut SteelThread,
+    func: &SteelVal,
+    registered: &(Mutex<bool>, std::sync::Condvar),
+) {
+    thread.enter_safepoint_holding(core::slice::from_ref(func), |_| {
+        let mut open = registered.0.lock().unwrap();
+        while !*open {
+            open = registered.1.wait(open).unwrap();
+        }
+    });
+}
+
 #[cfg(feature = "sync")]
 #[steel_derive::context(
     name = "spawn-native-thread",
@@ -1015,6 +1038,10 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // uses a cell without its lock. This has to come before the thread starts.
     crate::values::closed::share_cells();
 
+    // Counted before it starts as well, so that this thread publishes itself
+    // at its next safepoint. See `Synchronizer::announce`.
+    ctx.thread.synchronizer.announce();
+
     // TODO: Continuations should not cross thread barriers.
     // Install continuation barriers here?
 
@@ -1027,8 +1054,16 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
         steel_rc::register_thread();
     }
 
+    // Opened once this thread has put the new one on the list a collection
+    // goes by. See `wait_to_be_registered`.
+    let registered = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let opened = registered.clone();
+
     #[cfg(feature = "biased")]
     let handle = steel_rc::with_explicit_merge(move || {
+        let mut thread = thread;
+        wait_to_be_registered(&mut thread, &func, &registered);
+
         let constant_map = thread.compiler.read().constant_map.clone();
 
         // TODO: We have to use the `execute` function in vm.rs - this sets up
@@ -1041,6 +1076,9 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 
     #[cfg(not(feature = "biased"))]
     let handle = std::thread::spawn(move || {
+        let mut thread = thread;
+        wait_to_be_registered(&mut thread, &func, &registered);
+
         let constant_map = thread.compiler.read().constant_map.clone();
 
         // TODO: We have to use the `execute` function in vm.rs - this sets up
@@ -1064,11 +1102,14 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 
     ctx.thread.enter_safepoint(|thread| {
         // Store for the shared runtime
-        thread.synchronizer.register(ThreadContext {
+        thread.synchronizer.register_announced(ThreadContext {
             ctx: weak_ctx.clone(),
             handle: value.clone(),
         });
     });
+
+    *opened.0.lock().unwrap() = true;
+    opened.1.notify_all();
 
     log::debug!(target: "threads", "Time to spawn thread: {:?}", thread_time.elapsed());
 

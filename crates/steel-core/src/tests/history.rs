@@ -39,17 +39,35 @@ const VECTOR_APPEND: i64 = 12;
 // Only there to show that the check notices.
 const BOX_SET_IN_TWO_STEPS: i64 = 13;
 
+// A value read from one cell and stored in another. These are two operations
+// each, a read and then a write of what was read, and are checked as two.
+const BOX_TO_SLOT: i64 = 14;
+const SLOT_TO_BOX: i64 = 15;
+const FIELD_TO_BOX: i64 = 16;
+const BOX_TO_FIELD: i64 = 17;
+const SLOT_TO_SLOT: i64 = 18;
+const FIELD_TO_FIELD: i64 = 19;
+
 // What an operation returns when it has nothing else to say, and when it
 // was refused: an index out of bounds, or a pop from an empty vector.
 const DONE: i64 = 0;
 const REFUSED: i64 = -1;
 // A value that was not one of the ones the test stores.
 const BROKEN: i64 = -2;
+// The write half of a copy whose read found nothing to copy.
+const SKIPPED: i64 = -3;
 
-/// The program the threads run. Every value stored is a list of the same id
-/// twice, so that it is something with a reference count, and a read can
-/// tell a whole one from anything else.
+/// The program the threads run. Every value stored carries its id twice, so
+/// a read can tell a whole one from anything else, and is one of six kinds
+/// that each need releasing, picked by the id. With one kind only, a read
+/// that took the tag of one value and the rest of another would still look
+/// like a value.
+///
+/// It is a module, which is where the jit reads and writes struct fields with
+/// no call.
 const HARNESS: &str = r#"
+(provide run-round)
+
 (struct cell (a b) #:mutable)
 
 (define box0 (box #f))
@@ -59,12 +77,36 @@ const HARNESS: &str = r#"
 (define vector1 (mutable-vector))
 (define gate (box #f))
 
-(define (value id) (list id id))
+(struct labelled (n again) #:mutable)
+
+(define (value id)
+  (let ([kind (modulo id 6)])
+    (cond
+      [(= kind 0) (list id id)]
+      [(= kind 1) (string-append (number->string id) ":" (number->string id))]
+      [(= kind 2) (lambda () (list id id))]
+      [(= kind 3) (mutable-vector id id)]
+      [(= kind 4) (labelled id id)]
+      [else (box (list id id))])))
+
+(define (twice-id a b) (if (and (integer? a) (equal? a b)) a -2))
+(define (pair-id v) (if (and (list? v) (= (length v) 2)) (twice-id (car v) (cadr v)) -2))
+(define (string-id v)
+  (let ([parts (split-many v ":")])
+    (if (= (length parts) 2)
+        (twice-id (string->number (car parts)) (string->number (cadr parts)))
+        -2)))
 (define (id-of v)
   (cond
-    [(and (list? v) (= (length v) 2) (equal? (car v) (cadr v))) (car v)]
     [(not v) -1]
-    [else -2]))
+    [(list? v) (pair-id v)]
+    [(string? v) (string-id v)]
+    [(function? v) (pair-id (v))]
+    [(vector? v) (if (= (vector-length v) 2) (twice-id (vector-ref v 0) (vector-ref v 1)) -2)]
+    [(labelled? v) (twice-id (labelled-n v) (labelled-again v))]
+    [(symbol? v) -2]
+    ;; Only a box is left.
+    [else (pair-id (unbox v))]))
 
 (define (reset!)
   (set-box! box0 (value 1))
@@ -121,14 +163,51 @@ const HARNESS: &str = r#"
          (set-box! b (value id))
          (id-of old))])))
 
+(define (field which) (if (= which 0) (cell-a fields) (cell-b fields)))
+(define (set-field! which x) (if (= which 0) (set-cell-a! fields x) (set-cell-b! fields x)))
+
+;; Reads one cell and stores what it found in another. The entry has the
+;; times of both halves, and the id that was read.
+(define (copy code which i j)
+  (let* ([b (if (= which 0) box0 box1)]
+         [v (if (= which 0) vector0 vector1)]
+         [start (history-tick)]
+         [x (cond
+              [(or (= code 14) (= code 17)) (unbox b)]
+              [(or (= code 15) (= code 18)) (with-handler (lambda (e) 'none) (vector-ref v i))]
+              [else (field which)])]
+         [read-end (history-tick)]
+         [write-start (history-tick)]
+         [result (cond
+                   [(symbol? x) -3]
+                   [(= code 14)
+                    (with-handler (lambda (e) -1)
+                                  (begin
+                                    (vector-set! v i x)
+                                    0))]
+                   [(or (= code 15) (= code 16)) (id-of (set-box! b x))]
+                   [(= code 17) (id-of (set-field! which x))]
+                   [(= code 18)
+                    (with-handler (lambda (e) -1)
+                                  (begin
+                                    (vector-set! v j x)
+                                    0))]
+                   [else (id-of (set-field! (- 1 which) x))])]
+         [end (history-tick)])
+    (list start end result read-end write-start (if (symbol? x) -1 (id-of x)))))
+
 (define (run ops log)
   (if (null? ops)
       (reverse log)
       (let* ([op (car ops)]
-             [start (history-tick)]
-             [result (perform (list-ref op 0) (list-ref op 1) (list-ref op 2) (list-ref op 3) (list-ref op 4))]
-             [end (history-tick)])
-        (run (cdr ops) (cons (list start end result) log)))))
+             [code (list-ref op 0)]
+             [entry (if (>= code 14)
+                        (copy code (list-ref op 1) (list-ref op 2) (list-ref op 3))
+                        (let* ([start (history-tick)]
+                               [result (perform code (list-ref op 1) (list-ref op 2) (list-ref op 3) (list-ref op 4))]
+                               [end (history-tick)])
+                          (list start end result)))])
+        (run (cdr ops) (cons entry log)))))
 
 (define (wait-for-gate)
   (unless (unbox gate)
@@ -373,6 +452,33 @@ const VECTORS_IN_PLACE: Mix = Mix(&[
     VECTOR_LENGTH,
 ]);
 
+// Copies, with enough plain writes that there is always something new to
+// copy. Each copy is two events, so these lists are kept short.
+const COPIES: Mix = Mix(&[
+    BOX_TO_SLOT,
+    SLOT_TO_BOX,
+    FIELD_TO_BOX,
+    BOX_TO_FIELD,
+    SLOT_TO_SLOT,
+    FIELD_TO_FIELD,
+    BOX_SET,
+    FIELD_SET,
+    VECTOR_SET,
+    VECTOR_PUSH,
+    VECTOR_POP,
+]);
+
+const COPIES_IN_PLACE: Mix = Mix(&[
+    BOX_TO_SLOT,
+    SLOT_TO_BOX,
+    SLOT_TO_SLOT,
+    SLOT_TO_SLOT,
+    FIELD_TO_FIELD,
+    BOX_SET,
+    VECTOR_SET,
+    VECTOR_SWAP,
+]);
+
 fn random_ops(random: &mut Random, mix: Mix, thread: usize, count: usize) -> Vec<Op> {
     (0..count)
         .map(|n| Op {
@@ -426,16 +532,66 @@ fn run_round(engine: &mut Engine, threads: &[Vec<Op>]) -> Vec<Event> {
         assert_eq!(entries.len(), ops.len());
         for (entry, op) in entries.iter().zip(ops) {
             let entry = as_list(entry);
+            let (start, end, result) = (as_int(&entry[0]), as_int(&entry[1]), as_int(&entry[2]));
+
+            let Some((read, write)) = copy_halves(*op) else {
+                events.push(Event {
+                    thread,
+                    op: *op,
+                    start,
+                    end,
+                    result,
+                });
+                continue;
+            };
+
+            let (read_end, write_start, read_id) =
+                (as_int(&entry[3]), as_int(&entry[4]), as_int(&entry[5]));
             events.push(Event {
                 thread,
-                op: *op,
-                start: as_int(&entry[0]),
-                end: as_int(&entry[1]),
-                result: as_int(&entry[2]),
+                op: read,
+                start,
+                end: read_end,
+                result: read_id,
             });
+            if result != SKIPPED {
+                events.push(Event {
+                    thread,
+                    op: Op {
+                        id: read_id,
+                        ..write
+                    },
+                    start: write_start,
+                    end,
+                    result,
+                });
+            }
         }
     }
     events
+}
+
+/// The read and the write a copy is made of. The write's id is whatever the
+/// read turns out to find.
+fn copy_halves(op: Op) -> Option<(Op, Op)> {
+    let Op { which, i, j, .. } = op;
+    let half = |code, which, i| Op {
+        code,
+        which,
+        i,
+        j: 0,
+        id: 0,
+    };
+
+    Some(match op.code {
+        BOX_TO_SLOT => (half(BOX_REF, which, 0), half(VECTOR_SET, which, i)),
+        SLOT_TO_BOX => (half(VECTOR_REF, which, i), half(BOX_SET, which, 0)),
+        FIELD_TO_BOX => (half(FIELD_REF, which, 0), half(BOX_SET, which, 0)),
+        BOX_TO_FIELD => (half(BOX_REF, which, 0), half(FIELD_SET, which, 0)),
+        SLOT_TO_SLOT => (half(VECTOR_REF, which, i), half(VECTOR_SET, which, j)),
+        FIELD_TO_FIELD => (half(FIELD_REF, which, 0), half(FIELD_SET, 1 - which, 0)),
+        _ => return None,
+    })
 }
 
 fn describe(events: &[Event]) -> String {
@@ -505,7 +661,10 @@ fn rounds() -> usize {
 fn engine() -> Engine {
     let mut engine = Engine::new();
     engine.register_fn("history-tick", tick);
-    engine.run(HARNESS).expect("the harness loads");
+    engine.register_steel_module("history-harness".to_owned(), HARNESS.to_owned());
+    engine
+        .run(r#"(require "history-harness")"#)
+        .expect("the harness loads");
     engine
 }
 
@@ -602,6 +761,21 @@ fn histories_of_vectors_changed_in_place() {
 #[test]
 fn histories_of_two_threads_at_length() {
     check_histories(0x2545F4914F6CDD1D, EVERYTHING, 2, 30);
+}
+
+#[test]
+fn histories_of_values_copied_between_cells() {
+    check_histories(0xA0761D6478BD642F, COPIES, 3, 9);
+}
+
+#[test]
+fn histories_of_values_copied_in_place() {
+    check_histories(0xE7037ED1A0B428DB, COPIES_IN_PLACE, 4, 7);
+}
+
+#[test]
+fn histories_of_copies_by_two_threads() {
+    check_histories(0x8EBC6AF09C88C6E3, COPIES, 2, 14);
 }
 
 // The checker has to refuse what it is there to catch.

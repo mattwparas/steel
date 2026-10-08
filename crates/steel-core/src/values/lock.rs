@@ -77,6 +77,16 @@ impl<T> SpinLock<T> {
         self.locked.load(Ordering::Acquire)
     }
 
+    // The count again, after copying something out of the payload. The
+    // fence keeps the copy ahead of this load on a machine that is free to
+    // do two loads in either order. It costs nothing where loads stay in
+    // order anyway.
+    #[inline]
+    pub fn sequence_after_read(&self) -> u32 {
+        core::sync::atomic::fence(Ordering::Acquire);
+        self.locked.load(Ordering::Relaxed)
+    }
+
     // Where the payload is, for a read checked against `sequence`.
     #[inline]
     pub fn data_ptr(&self) -> *const T {
@@ -141,6 +151,12 @@ pub struct SpinGuard<'a, T> {
 
 impl<'a, T> SpinGuard<'a, T> {
     fn new(lock: &'a SpinLock<T>) -> Self {
+        // The count is odd from here. The fence keeps the writes that follow
+        // from reaching another thread before that does, on a machine that
+        // is free to let two stores land in either order, so a reader that
+        // checks the count can't see half a write under an even one.
+        core::sync::atomic::fence(Ordering::Release);
+
         Self {
             lock,
             _marker: PhantomData,

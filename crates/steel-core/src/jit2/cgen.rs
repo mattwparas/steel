@@ -132,6 +132,11 @@ pub struct JIT {
     /// bailed. See `FunctionTranslator::cursor_bail`.
     allow_cursors: bool,
 
+    /// Whether the next `translate` may strip mine a counted loop. Set around
+    /// the specialized-copy compile only, and cleared again when that
+    /// translation bailed. See `counted_loop`.
+    allow_strip_mine: bool,
+
     // perf inject --jit support. None unless STEEL_JIT_DUMP is set, since opening
     // it writes a jit-<pid>.dump into the cwd of every process that builds a JIT.
     #[cfg(target_os = "linux")]
@@ -331,6 +336,23 @@ macro_rules! abi {
             }
         }
     };
+}
+
+/// The atomic loads each jitted function had before cranelift optimised it
+/// and after, for functions that had any. A re-read of a sequence number
+/// that cranelift takes for the first read over again leaves a check that
+/// always passes, and nothing that runs can tell. See
+/// `tests/compiled_shape.rs`.
+#[cfg(test)]
+pub(crate) mod atomic_load_watch {
+    use std::cell::Cell;
+    use std::sync::Mutex;
+
+    pub(crate) static SEEN: Mutex<Vec<(String, usize, usize)>> = Mutex::new(Vec::new());
+
+    thread_local! {
+        pub(super) static BEFORE: Cell<usize> = const { Cell::new(0) };
+    }
 }
 
 mod helpers;
@@ -624,6 +646,7 @@ impl Default for JIT {
         Self {
             builder_context: FunctionBuilderContext::new(),
             allow_cursors: false,
+            allow_strip_mine: false,
             ctx: module.make_context(),
             module,
             function_map,
@@ -661,6 +684,11 @@ pub(super) fn borrow_primitive_args_enabled() -> bool {
 /// `STEEL_JIT_CHECK_IN=0` leaves the safepoint polls out of jitted loops.
 fn check_in_polls_enabled() -> bool {
     crate::config::config().jit_check_in
+}
+
+/// `STEEL_JIT_STRIP_MINE=0` keeps the poll in every trip round a counted loop.
+fn strip_mine_enabled() -> bool {
+    crate::config::config().jit_strip_mine > 0
 }
 
 pub(super) fn borrow_enabled() -> bool {
@@ -992,6 +1020,10 @@ struct TranslateInfo {
     /// The translation met something it could not keep a list cursor sound
     /// across, so it has to be redone without cursors.
     cursor_bailed: bool,
+    /// A counted loop had its poll taken out of each trip, and the test that
+    /// was to stand in for it was not compiled the way that needs. It has to
+    /// be redone with the poll left where it was.
+    strip_mine_bailed: bool,
 }
 
 /// Body of a placeholder function; see `define_stub`.
@@ -1389,6 +1421,293 @@ fn loop_type_seed(
         seed.push((slot, ty));
     }
     seed
+}
+
+/// What a counted loop's counter is tested against.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum CountBound {
+    Const(i64),
+    /// A parameter that every trip round passes on as it is.
+    Slot(usize),
+}
+
+/// A loop that `counted_loop` found it can count the trips of.
+#[derive(Clone, Copy, Debug)]
+struct CountedLoop {
+    /// The parameter that counts.
+    counter: usize,
+    bound: CountBound,
+    /// The loop goes round again while the counter is this to the bound.
+    while_cc: IntCC,
+    /// What each trip adds to the counter.
+    step: i64,
+    /// Where the arm of the test that runs when it holds starts. This is how
+    /// the translator knows the test when it comes to it.
+    then_start: usize,
+    /// Whether that arm is the one that goes round again.
+    loops_when_true: bool,
+}
+
+/// Finds a loop that can be strip mined: one whose trips can be counted
+/// ahead of time, so that the look for another thread it would make on every
+/// trip (`emit_check_in_poll`) can be made once a stretch instead.
+///
+/// The shape is narrow, to keep what has to be proven small. The body opens
+/// with a comparison of a fixnum parameter against a fixnum constant, or
+/// against another fixnum parameter. One arm of that test leaves. The other is
+/// straight line code that ends in the only self tail call, which passes the
+/// counter on with a constant added or taken away, in the direction of the
+/// bound, and passes a parameter it was compared against on untouched.
+///
+/// Anything this does not model in the arm that goes round means no.
+fn counted_loop(
+    code: &[DenseInstruction],
+    arity: u16,
+    constants: &ConstantMap,
+    seed: &[(usize, SpecType)],
+) -> Option<CountedLoop> {
+    let arity = arity as usize;
+    let fixnum = |slot: usize| {
+        slot < arity
+            && seed
+                .iter()
+                .any(|(seeded, ty)| *seeded == slot && *ty == SpecType::Fixnum)
+    };
+    let read_of = |ins: &DenseInstruction| match ins.op_code {
+        OpCode::READLOCAL0 => Some(0),
+        OpCode::READLOCAL1 => Some(1),
+        OpCode::READLOCAL2 => Some(2),
+        OpCode::READLOCAL3 => Some(3),
+        OpCode::READLOCAL => Some(ins.payload_size.to_usize()),
+        _ => None,
+    };
+    let slot_of = |ins: &DenseInstruction| match ins.op_code {
+        OpCode::MOVEREADLOCAL0 => Some(0),
+        OpCode::MOVEREADLOCAL1 => Some(1),
+        OpCode::MOVEREADLOCAL2 => Some(2),
+        OpCode::MOVEREADLOCAL3 => Some(3),
+        OpCode::MOVEREADLOCAL => Some(ins.payload_size.to_usize()),
+        _ => read_of(ins),
+    };
+    let int_of = |ins: &DenseInstruction| match ins.op_code {
+        OpCode::LOADINT0 => Some(0),
+        OpCode::LOADINT1 => Some(1),
+        OpCode::LOADINT2 => Some(2),
+        OpCode::PUSHCONST => match constants.get(ins.payload_size.to_usize()) {
+            SteelVal::IntV(n) => Some(n as i64),
+            _ => None,
+        },
+        _ => None,
+    };
+
+    // One way round, and it is a self tail call.
+    let mut ways_round = code
+        .iter()
+        .enumerate()
+        .filter(|(_, ins)| matches!(ins.op_code, OpCode::TCOJMP | OpCode::SELFTAILCALLNOARITY));
+    let (tail, tail_call) = ways_round.next()?;
+    if ways_round.next().is_some() || tail_call.op_code != OpCode::SELFTAILCALLNOARITY {
+        return None;
+    }
+
+    // The test the body opens with. Both operands are only read, so going
+    // back to the top of the loop from the test leaves nothing undone.
+    let counter = read_of(code.first()?).filter(|slot| fixnum(*slot))?;
+    let second = code.get(1)?;
+    let bound = match int_of(second) {
+        Some(n) => CountBound::Const(n),
+        None => {
+            let slot = read_of(second).filter(|slot| fixnum(*slot) && *slot != counter)?;
+            CountBound::Slot(slot)
+        }
+    };
+    let comparison = code.get(2)?;
+    if comparison.payload_size.to_usize() != 2 {
+        return None;
+    }
+    let holds_cc = match comparison.op_code {
+        OpCode::LT => IntCC::SignedLessThan,
+        OpCode::LTE => IntCC::SignedLessThanOrEqual,
+        OpCode::GT => IntCC::SignedGreaterThan,
+        OpCode::GTE => IntCC::SignedGreaterThanOrEqual,
+        OpCode::NUMEQUAL => IntCC::Equal,
+        _ => return None,
+    };
+    let mut test = 3;
+    while code.get(test)?.op_code == OpCode::PASS {
+        test += 1;
+    }
+    if code[test].op_code != OpCode::IF {
+        return None;
+    }
+    let then_start = test + 1;
+    let else_start = code[test].payload_size.to_usize();
+    if else_start <= then_start || else_start > code.len() {
+        return None;
+    }
+
+    let (arm_start, loops_when_true) = if tail >= else_start {
+        (else_start, false)
+    } else {
+        (then_start, true)
+    };
+
+    // The arm that goes round is one run of code, with no way in or out of
+    // the middle of it.
+    let jumps_into_arm = code.iter().any(|ins| {
+        matches!(ins.op_code, OpCode::IF | OpCode::JMP | OpCode::POPJMP) && {
+            let target = ins.payload_size.to_usize();
+            target > arm_start && target <= tail
+        }
+    });
+    if jumps_into_arm {
+        return None;
+    }
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Entry {
+        Slot(usize),
+        Int(i64),
+        Stepped(usize, i64),
+        Other,
+    }
+    let mut stack: Vec<Entry> = Vec::new();
+    // Set by an op whose trailing FUNC/FUNCNOARITY only carries metadata.
+    let mut skip_meta = false;
+
+    for idx in arm_start..tail {
+        let ins = &code[idx];
+        let payload = ins.payload_size.to_usize();
+        let meta = std::mem::take(&mut skip_meta);
+
+        if let Some(slot) = slot_of(ins) {
+            stack.push(if slot < arity {
+                Entry::Slot(slot)
+            } else {
+                Entry::Other
+            });
+            continue;
+        }
+        if let Some(n) = int_of(ins) {
+            stack.push(Entry::Int(n));
+            continue;
+        }
+
+        match ins.op_code {
+            OpCode::PUSHCONST
+            | OpCode::PUSH
+            | OpCode::READCAPTURED
+            | OpCode::TRUE
+            | OpCode::FALSE
+            | OpCode::VOID => stack.push(Entry::Other),
+            OpCode::PASS => {}
+            OpCode::FUNC | OpCode::FUNCNOARITY if meta => {}
+
+            OpCode::ADD | OpCode::SUB if payload == 2 && stack.len() >= 2 => {
+                let right = stack.pop()?;
+                let left = stack.pop()?;
+                stack.push(match (ins.op_code, left, right) {
+                    (OpCode::ADD, Entry::Slot(slot), Entry::Int(n))
+                    | (OpCode::ADD, Entry::Int(n), Entry::Slot(slot)) => Entry::Stepped(slot, n),
+                    (OpCode::SUB, Entry::Slot(slot), Entry::Int(n)) => {
+                        Entry::Stepped(slot, n.checked_neg()?)
+                    }
+                    _ => Entry::Other,
+                });
+            }
+
+            OpCode::ADD
+            | OpCode::SUB
+            | OpCode::MUL
+            | OpCode::LT
+            | OpCode::LTE
+            | OpCode::GT
+            | OpCode::GTE
+            | OpCode::NUMEQUAL
+                if payload >= 1 && payload <= stack.len() =>
+            {
+                stack.truncate(stack.len() - payload);
+                stack.push(Entry::Other);
+            }
+
+            OpCode::CAR | OpCode::CDR | OpCode::NULL | OpCode::NOT if !stack.is_empty() => {
+                stack.pop();
+                stack.push(Entry::Other);
+                skip_meta = true;
+            }
+
+            OpCode::VECTORREF if stack.len() >= 2 => {
+                stack.truncate(stack.len() - 2);
+                stack.push(Entry::Other);
+                skip_meta = true;
+            }
+
+            OpCode::CALLPRIMITIVE => {
+                let call_arity = code
+                    .get(idx + 1)
+                    .filter(|n| matches!(n.op_code, OpCode::FUNC | OpCode::FUNCNOARITY))
+                    .map(|n| n.payload_size.to_usize())
+                    .filter(|n| *n <= stack.len())?;
+                stack.truncate(stack.len() - call_arity);
+                stack.push(Entry::Other);
+                skip_meta = true;
+            }
+
+            _ => return None,
+        }
+    }
+
+    if stack.len() != tail_call.payload_size.to_usize() || stack.len() != arity {
+        return None;
+    }
+    let step = match stack[counter] {
+        Entry::Stepped(slot, step) if slot == counter && step != 0 => step,
+        _ => return None,
+    };
+    if let CountBound::Slot(slot) = bound {
+        if stack[slot] != Entry::Slot(slot) {
+            return None;
+        }
+    }
+
+    // The counter has to be on its way to where the test lets go of it. One
+    // that is tested for being equal to the bound can step over it unless it
+    // moves by one.
+    let while_cc = if loops_when_true {
+        holds_cc
+    } else {
+        cranelift::codegen::ir::condcodes::CondCode::complement(holds_cc)
+    };
+    let toward_bound = match while_cc {
+        IntCC::SignedLessThan | IntCC::SignedLessThanOrEqual => step > 0,
+        IntCC::SignedGreaterThan | IntCC::SignedGreaterThanOrEqual => step < 0,
+        IntCC::NotEqual => step == 1 || step == -1,
+        _ => false,
+    };
+    if !toward_bound {
+        return None;
+    }
+
+    Some(CountedLoop {
+        counter,
+        bound,
+        while_cc,
+        step,
+        then_start,
+        loops_when_true,
+    })
+}
+
+/// A counted loop being strip mined. See `enter_counted_loop`.
+struct StripMine {
+    plan: CountedLoop,
+    /// Polls, works out how far the next stretch goes, and enters the loop.
+    poll_header: Block,
+    /// Where the stretch under way ends.
+    limit: Variable,
+    /// The loop's test was reached and compiled against `limit`. Until then
+    /// nothing in the loop polls.
+    applied: bool,
 }
 
 /// At the top of a generic copy, tail call into the specialized copy when every
@@ -2002,6 +2321,7 @@ impl JIT {
                     {
                         self.ctx.set_disasm(true);
                     }
+                    self.watch_before_define();
                     let defined = self.module.define_function(inner_id, &mut self.ctx);
                     self.dump_asm_if_asked(&inner_name);
                     defined.err().map(|e| {
@@ -2116,6 +2436,26 @@ impl JIT {
             .push(AbiParam::new(types::I64));
     }
 
+    /// How many atomic loads the function has, for `atomic_load_watch`.
+    #[cfg(test)]
+    fn count_atomic_loads(&self) -> usize {
+        let func = &self.ctx.func;
+        func.layout
+            .blocks()
+            .flat_map(|block| func.layout.block_insts(block))
+            .filter(|inst| {
+                func.dfg.insts[*inst].opcode() == cranelift::codegen::ir::Opcode::AtomicLoad
+            })
+            .count()
+    }
+
+    /// Notes the function as it goes into cranelift. `dump_asm_if_asked`
+    /// notes it as it comes out.
+    fn watch_before_define(&mut self) {
+        #[cfg(test)]
+        atomic_load_watch::BEFORE.with(|before| before.set(self.count_atomic_loads()));
+    }
+
     /// `STEEL_JIT_DUMP_CLIF=<substring>`, applied to the specialized and
     /// frameless copies too.
     fn dump_clif_if_asked(&mut self, name: &str) {
@@ -2137,6 +2477,15 @@ impl JIT {
 
     /// The machine code `dump_clif_if_asked` asked cranelift to keep.
     fn dump_asm_if_asked(&mut self, name: &str) {
+        #[cfg(test)]
+        {
+            let before = atomic_load_watch::BEFORE.with(|before| before.get());
+            if before > 0 {
+                if let Ok(mut seen) = atomic_load_watch::SEEN.lock() {
+                    seen.push((name.to_string(), before, self.count_atomic_loads()));
+                }
+            }
+        }
         if let Some(code) = self.ctx.compiled_code().and_then(|c| c.vcode.clone()) {
             eprintln!("--- asm for {name} ---\n{code}");
         }
@@ -2250,6 +2599,7 @@ impl JIT {
             self.dump_clif_if_asked(&name);
         }
         if result.is_some() && {
+            self.watch_before_define();
             let defined = self.module.define_function(frameless_id, &mut self.ctx);
             self.dump_asm_if_asked(&name);
             defined.is_err()
@@ -2319,6 +2669,7 @@ impl JIT {
         };
 
         self.allow_cursors = list_cursor_enabled();
+        self.allow_strip_mine = strip_mine_enabled();
         let mut translated = translate_with(self, None);
 
         // A cursor the translator could not keep sound spoils the whole
@@ -2331,6 +2682,19 @@ impl JIT {
             self.builder_context = FunctionBuilderContext::new();
             self.init_jit_signature();
             self.allow_cursors = false;
+            translated = translate_with(self, None);
+        }
+
+        // A counted loop whose test did not come out as strip mining needs has
+        // no poll left in it, so redo it as an ordinary loop.
+        if matches!(&translated, Ok(Ok(info)) if info.strip_mine_bailed) {
+            if spec_debug_enabled() {
+                eprintln!("[spec] {spec_name}: strip mining bailed, retranslating without");
+            }
+            self.module.clear_context(&mut self.ctx);
+            self.builder_context = FunctionBuilderContext::new();
+            self.init_jit_signature();
+            self.allow_strip_mine = false;
             translated = translate_with(self, None);
         }
 
@@ -2369,6 +2733,7 @@ impl JIT {
             let holds = matches!(&second, Ok(Ok(info))
                 if !info.untyped_non_deopt_exit
                     && !info.cursor_bailed
+                    && !info.strip_mine_bailed
                     && info.returned.iter().all(|t| t.boxed() == assumed));
             if spec_debug_enabled() {
                 eprintln!(
@@ -2387,12 +2752,14 @@ impl JIT {
         }
 
         self.allow_cursors = false;
+        self.allow_strip_mine = false;
 
         let failure = match translated {
             Ok(Ok(_)) => {
                 match cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
                     Ok(()) => match {
                         self.dump_clif_if_asked(&spec_name);
+                        self.watch_before_define();
                         let defined = self.module.define_function(spec_id, &mut self.ctx);
                         self.dump_asm_if_asked(&spec_name);
                         defined
@@ -2582,6 +2949,7 @@ impl JIT {
             None
         };
         let allow_cursors = self.allow_cursors;
+        let allow_strip_mine = self.allow_strip_mine;
 
         let exit_block = builder.create_block();
         let mut exit_types = HashSet::new();
@@ -2612,6 +2980,7 @@ impl JIT {
             checked_native_block: None,
             pending_deopt_exits: Vec::new(),
             cursors_on: false,
+            strip: None,
             cursor_bail: false,
             cursor_advances: 0,
             cursor_carries: 0,
@@ -2702,9 +3071,28 @@ impl JIT {
             && matches!(spec_mode, SpecMode::Specialized { .. })
             && fake_entry_block.is_some();
 
+        // A loop whose trips can be counted polls once a stretch, from a block
+        // of its own ahead of the loop, and not on every trip.
+        let counted = match &spec_mode {
+            SpecMode::Specialized { seed, .. }
+                if allow_strip_mine
+                    && fake_entry_block.is_some()
+                    && check_in_polls_enabled()
+                    && frameless.is_none()
+                    && !trans.cursors_on
+                    && !trans.use_lbbv =>
+            {
+                counted_loop(bytecode, arity, constants, seed)
+            }
+            _ => None,
+        };
+
         if let Some(fake_entry) = fake_entry_block {
             if trans.cursors_on {
                 trans.seed_header_cursors();
+            }
+            if let Some(plan) = counted {
+                trans.enter_counted_loop(plan);
             }
             trans.builder.ins().jump(fake_entry, &[]);
             trans.builder.switch_to_block(fake_entry);
@@ -2714,7 +3102,10 @@ impl JIT {
         // Each time a loop jumps back to the block above, and on the way into
         // a function that could be part of a cycle of tail calls. Nothing
         // else in a loop that makes no calls stops for another thread.
-        if (fake_entry_block.is_some() || tail_calls_out) && check_in_polls_enabled() {
+        if (fake_entry_block.is_some() || tail_calls_out)
+            && check_in_polls_enabled()
+            && trans.strip.is_none()
+        {
             trans.emit_check_in_poll();
         }
 
@@ -2756,6 +3147,7 @@ impl JIT {
         let frameless_bail = trans.frameless_bail;
         let cursor_bailed = trans.cursor_bail
             || (trans.cursors_on && (trans.cursor_advances == 0 || trans.cursor_carries == 0));
+        let strip_mine_bailed = trans.strip.as_ref().is_some_and(|strip| !strip.applied);
 
         // `STEEL_CURSOR_STATS=1` reports why a function kept or lost its cursors.
         if trans.cursors_on && crate::config::config().cursor_stats {
@@ -2801,6 +3193,7 @@ impl JIT {
             untyped_non_deopt_exit,
             direct_self_calls,
             cursor_bailed,
+            strip_mine_bailed,
         })
     }
 }
@@ -3683,6 +4076,9 @@ struct FunctionTranslator<'a> {
     /// be lists on entry.
     cursors_on: bool,
 
+    /// The counted loop this translation is strip mining, if it is.
+    strip: Option<StripMine>,
+
     /// Something happened while a cursor was live that the translator cannot
     /// keep sound, usually branch arms disagreeing about cursors. The caller
     /// throws this translation away and redoes it without cursors.
@@ -3803,7 +4199,6 @@ fn variadic_numeric_code(op: OpCode) -> Option<usize> {
         OpCode::LTE => 5,
         OpCode::GT => 6,
         OpCode::GTE => 7,
-        OpCode::EQUAL => 8,
         _ => return None,
     })
 }
@@ -5715,6 +6110,149 @@ impl FunctionTranslator<'_> {
             |_| {},
             |ctx| ctx.call_helper_void_checked(CHECK_IN, []),
         );
+    }
+
+    /// Starts strip mining the loop `plan` describes. Called in the entry
+    /// block, and leaves the builder in a block that is ready to jump to the
+    /// loop.
+    ///
+    /// The loop is run a stretch at a time. This block polls, and works out
+    /// where the stretch that starts at the counter's present value ends:
+    /// at the bound, or a set number of trips on, whichever the counter gets
+    /// to first. The loop's own test is then compiled against that
+    /// (`counted_loop_branch`), which costs what it did against the bound,
+    /// and when the counter gets there the loop either leaves or comes back
+    /// here. So nothing in a trip round looks for another thread, and no more
+    /// than a stretch of trips goes by without a look.
+    fn enter_counted_loop(&mut self, plan: CountedLoop) {
+        let poll_header = self.builder.create_block();
+        let limit = self.builder.declare_var(types::I64);
+
+        self.builder.ins().jump(poll_header, &[]);
+        self.builder.switch_to_block(poll_header);
+        self.forget_entry_block_caches();
+
+        self.emit_check_in_poll();
+
+        let counter = self.read_from_vm_stack_unboxed(plan.counter);
+        let bound = self.counted_loop_bound(&plan);
+
+        // As far as a stretch can go, in the counter's direction. One that
+        // would run off the end of the integers stops there.
+        let trips = crate::config::config()
+            .jit_strip_mine
+            .min(i32::MAX as usize) as i64;
+        let reach = self
+            .builder
+            .ins()
+            .iconst(types::I64, trips.saturating_mul(plan.step.saturating_abs()));
+        let rising = plan.step > 0;
+        let (far, overflowed) = if rising {
+            self.builder.ins().sadd_overflow(counter, reach)
+        } else {
+            self.builder.ins().ssub_overflow(counter, reach)
+        };
+        let end = self
+            .builder
+            .ins()
+            .iconst(types::I64, if rising { i64::MAX } else { i64::MIN });
+        let far = self.builder.ins().select(overflowed, end, far);
+
+        let stretch = match plan.while_cc {
+            IntCC::NotEqual => {
+                // The bound only ends the stretch if the counter meets it on
+                // the way.
+                let (behind, ahead) = if rising {
+                    (
+                        IntCC::SignedGreaterThanOrEqual,
+                        IntCC::SignedLessThanOrEqual,
+                    )
+                } else {
+                    (
+                        IntCC::SignedLessThanOrEqual,
+                        IntCC::SignedGreaterThanOrEqual,
+                    )
+                };
+                let not_passed = self.builder.ins().icmp(behind, bound, counter);
+                let in_reach = self.builder.ins().icmp(ahead, bound, far);
+                let met = self.builder.ins().band(not_passed, in_reach);
+                self.builder.ins().select(met, bound, far)
+            }
+            _ if rising => self.builder.ins().smin(bound, far),
+            _ => self.builder.ins().smax(bound, far),
+        };
+        self.builder.def_var(limit, stretch);
+
+        self.strip = Some(StripMine {
+            plan,
+            poll_header,
+            limit,
+            applied: false,
+        });
+    }
+
+    fn counted_loop_bound(&mut self, plan: &CountedLoop) -> Value {
+        match plan.bound {
+            CountBound::Const(n) => self.builder.ins().iconst(types::I64, n),
+            CountBound::Slot(slot) => self.read_from_vm_stack_unboxed(slot),
+        }
+    }
+
+    /// The branch of a counted loop's test, which is the `if` whose arms are
+    /// `then_block` and `else_block`. Says whether it emitted one.
+    ///
+    /// The loop goes round while the counter has not got to the end of its
+    /// stretch. When it has, the real test decides: out of the loop, or back
+    /// to the block that polls and sets the next stretch, which comes round
+    /// to this test again with the counter short of the new end. Going back
+    /// there is sound because nothing between the top of the loop and here
+    /// has done anything but read two locals.
+    fn counted_loop_branch(
+        &mut self,
+        then_start: usize,
+        then_block: Block,
+        else_block: Block,
+    ) -> bool {
+        let Some(strip) = self.strip.as_ref() else {
+            return false;
+        };
+        if strip.applied
+            || strip.plan.then_start != then_start
+            || !self.shadow_stack.is_empty()
+            || !self.let_var_stack.is_empty()
+        {
+            return false;
+        }
+        let (plan, poll_header, limit) = (strip.plan, strip.poll_header, strip.limit);
+
+        let (again, leave) = if plan.loops_when_true {
+            (then_block, else_block)
+        } else {
+            (else_block, then_block)
+        };
+
+        let counter = self.read_from_vm_stack_unboxed(plan.counter);
+        let stretch_end = self.builder.use_var(limit);
+        let short_of_end = self.builder.ins().icmp(plan.while_cc, counter, stretch_end);
+
+        let at_end = self.builder.create_block();
+        self.builder.set_cold_block(at_end);
+        self.builder
+            .ins()
+            .brif(short_of_end, again, &[], at_end, &[]);
+
+        self.builder.switch_to_block(at_end);
+        self.builder.seal_block(at_end);
+        let bound = self.counted_loop_bound(&plan);
+        let goes_on = self.builder.ins().icmp(plan.while_cc, counter, bound);
+        self.builder
+            .ins()
+            .brif(goes_on, poll_header, &[], leave, &[]);
+
+        if let Some(strip) = self.strip.as_mut() {
+            strip.applied = true;
+        }
+        true
     }
 
     // Whether this is the only thread, so that a cell's contents can be used
@@ -10514,10 +11052,13 @@ impl FunctionTranslator<'_> {
         self.if_merge_lazy.push(lazy.clone());
         let mut merge_borrowed = false;
 
-        // Test the if condition and conditionally branch.
-        self.builder
-            .ins()
-            .brif(condition_value, then_block, &[], else_block, &[]);
+        // Test the if condition and conditionally branch. A counted loop's
+        // test goes by where its stretch ends instead.
+        if !self.counted_loop_branch(then_start, then_block, else_block) {
+            self.builder
+                .ins()
+                .brif(condition_value, then_block, &[], else_block, &[]);
+        }
 
         self.builder.switch_to_block(then_block);
 

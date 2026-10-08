@@ -2257,9 +2257,11 @@ thread_local! {
 /// Called when the last handle to a mutable struct went away and it has
 /// been emptied. Keeps the cell for this thread's next allocation of the same
 /// size, or leaves it for the heap to free.
-pub(crate) fn retire_mutable_struct(cell: MutableStructCell) {
+///
+/// Returns false if the heap is gone, and the caller is to free the cell.
+pub(crate) fn retire_mutable_struct(cell: MutableStructCell) -> bool {
     let len = cell.len();
-    let kept = len < SPARE_STRUCT_LENGTHS
+    let spare = len < SPARE_STRUCT_LENGTHS
         && SPARE_STRUCTS
             .try_with(|spares| {
                 let Ok(mut spares) = spares.try_borrow_mut() else {
@@ -2269,16 +2271,18 @@ pub(crate) fn retire_mutable_struct(cell: MutableStructCell) {
                 if stack.len() >= spare_handles() {
                     return false;
                 }
-                cell.set_state(MUTABLE_STRUCT_SPARE);
+                // A spare is this thread's to free if the heap goes, so it
+                // goes on the stack only once it is one.
+                if !cell.move_state(MUTABLE_STRUCT_LIVE, MUTABLE_STRUCT_SPARE) {
+                    return false;
+                }
                 stack.push(cell);
                 true
             })
             .unwrap_or(false);
 
-    if !kept {
-        // Nothing may touch the cell after this, since the heap can free it.
-        cell.set_state(MUTABLE_STRUCT_DEAD);
-    }
+    // Nothing may touch the cell after it is dead, since the heap can free it.
+    spare || cell.move_state(MUTABLE_STRUCT_LIVE, MUTABLE_STRUCT_DEAD)
 }
 
 // Set for good once a second thread is started.
@@ -2302,20 +2306,47 @@ pub(crate) fn cells_shared() -> bool {
     CELLS_SHARED.load(Ordering::Relaxed)
 }
 
+/// Called by anything that is about to read or write a cell other threads
+/// can reach, before it takes the cell's lock.
+///
+/// A thread that calls a primitive is at a safepoint for as long as the call
+/// lasts, which lets a collection go ahead while the primitive waits on
+/// something. But a primitive that works on a cell is not waiting. A value
+/// it has read out of the cell, or swapped out of it, is in nobody's stack
+/// until the primitive returns it, and a collection that runs meanwhile does
+/// not find it. Another primitive can be changing the same cells while the
+/// collection is marking them, too.
+///
+/// So such a primitive leaves the safepoint first, and is an ordinary
+/// running thread for the rest of the call. That waits out a collection that
+/// is under way, and one that starts later waits for this thread's next
+/// safepoint, by which time what it read is on its stack.
+#[inline]
+pub(crate) fn leave_safepoint_for_cells() {
+    if cells_shared() {
+        leave_published_safepoint();
+    }
+}
+
+#[inline(never)]
+fn leave_published_safepoint() {
+    let thread = MY_RUNNING
+        .try_with(|current| {
+            let current = current.try_borrow().ok()?;
+            let (_, state) = current.as_ref()?;
+            Some(state.thread.load(Ordering::SeqCst))
+        })
+        .ok()
+        .flatten();
+
+    if let Some(thread) = thread.filter(|thread| !thread.is_null()) {
+        unsafe { (*thread).leave_safepoint_early() };
+    }
+}
+
 /// Called before another thread is started.
 pub(crate) fn share_cells() {
-    if CELLS_SHARED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
-    // The calling thread got here from inside a run that wasn't counted, so
-    // count it as running for good. It is then only taken to be idle when it
-    // is at a safepoint.
-    MY_RUNNING.with(|current| {
-        if let Some((_, state)) = &*current.borrow() {
-            state.running.fetch_add(1, Ordering::SeqCst);
-        }
-    });
+    CELLS_SHARED.store(true, Ordering::SeqCst);
 }
 
 /// Where `cells_shared` reads from, for code that checks it inline.
@@ -2616,19 +2647,19 @@ pub(crate) fn enter_mutator(
     });
     MY_SAFEPOINT_SLOT.with(|mine| mine.set(address));
 
-    // Alone, nobody looks at the count. The thread that starts a second one
-    // is counted as running from then on, see `share_cells`.
     let outer_thread = running.thread.swap(thread, Ordering::SeqCst);
     let family = unsafe { (*thread).heap.data_ptr() as usize };
     running.family.store(family, Ordering::SeqCst);
 
-    let counted = cells_shared();
-    if counted {
-        running.running.fetch_add(1, Ordering::SeqCst);
-        // Starting a run is a point with nothing in hand, and a thread
-        // that wasn't running when another asked was never told.
-        running.check_ins.fetch_add(1, Ordering::SeqCst);
-    }
+    // Counted whether or not there is another thread yet. One can be started
+    // part way through this run, by this thread or by another engine in the
+    // process, and from then on a thread that was left out would be taken to
+    // be idle for as long as its run lasted.
+    let counted = true;
+    running.running.fetch_add(1, Ordering::SeqCst);
+    // Starting a run is a point with nothing in hand, and a thread that
+    // wasn't running when another asked was never told.
+    running.check_ins.fetch_add(1, Ordering::SeqCst);
 
     Running {
         state: running,
@@ -2873,10 +2904,10 @@ pub(crate) fn detached_mutable_struct(
 
 // Hands a spare back to whichever heap owns it.
 fn release_spare_struct(cell: MutableStructCell) {
-    if cell.header().orphaned.load(Ordering::Acquire) {
+    // Dead, the heap frees it and it is not touched here again. If the heap
+    // is gone the cell is still this thread's.
+    if !cell.move_state(MUTABLE_STRUCT_SPARE, MUTABLE_STRUCT_DEAD) {
         unsafe { cell.free() };
-    } else {
-        cell.set_state(MUTABLE_STRUCT_DEAD);
     }
 }
 
@@ -3057,18 +3088,23 @@ impl Drop for MutableStructList {
         Self::return_spares();
         self.adopt_detached();
 
-        // A handle or another thread's spare stack can outlive the heap. Those
-        // cells free themselves from here on.
-        for cell in &self.cells {
-            cell.header().orphaned.store(true, Ordering::Release);
-        }
-
+        // A handle or another thread's spare stack can outlive the heap, and
+        // the last handle to a cell can be dropped on another thread while
+        // this runs.
+        //
+        // Until a cell is orphaned nobody but this heap frees it, so its
+        // fields can be taken, which is what breaks a cycle of structs that
+        // hold each other. Orphaning it then says what it was at that
+        // moment. Dead, it has no handles and is on no thread's stack, so it
+        // is freed here. Otherwise whoever holds it frees it, and it is not
+        // touched here again.
         let mut released = Vec::new();
         for cell in core::mem::take(&mut self.cells) {
-            match cell.state() {
-                MUTABLE_STRUCT_DEAD => unsafe { cell.free() },
-                MUTABLE_STRUCT_LIVE => released.extend(cell.take_fields()),
-                _ => {}
+            if cell.state() == MUTABLE_STRUCT_LIVE {
+                released.extend(cell.take_fields());
+            }
+            if cell.orphan() == MUTABLE_STRUCT_DEAD {
+                unsafe { cell.free() };
             }
         }
         drop(released);
@@ -3967,7 +4003,9 @@ impl HeapRef<SteelVal> {
     /// writing the box. The read is checked against the lock's count, and
     /// only takes the lock if a write got in the way. A value that a write
     /// swaps out meanwhile is kept alive until this thread is next at a
-    /// safepoint, which is what makes taking the reference safe.
+    /// safepoint, which is what makes taking the reference safe. So this
+    /// must not be called by a thread that is at one, which a thread in a
+    /// primitive is. Jitted code calls it directly.
     #[inline]
     pub(crate) fn read_shared(&self) -> SteelVal {
         let lock = unsafe { &*self.inner.as_ptr() };
@@ -3975,7 +4013,7 @@ impl HeapRef<SteelVal> {
         let before = lock.sequence();
         if before & 1 == 0 {
             let value = unsafe { read_unsteady(core::ptr::addr_of!((*lock.data_ptr()).value)) };
-            if lock.sequence() == before {
+            if lock.sequence_after_read() == before {
                 return (*value).clone();
             }
         }
@@ -3998,7 +4036,9 @@ impl HeapRef<HeapVec> {
     /// vouches for before the storage is touched, so the index is in bounds
     /// of that storage. A vector that grows meanwhile keeps its old storage
     /// allocated until this thread is next at a safepoint (see
-    /// `reserve_shared`), and so is an element that is swapped out.
+    /// `reserve_shared`), and so is an element that is swapped out. So this
+    /// must not be called by a thread that is at one, which a thread in a
+    /// primitive is. Jitted code calls it directly.
     #[inline]
     pub(crate) fn read_shared(&self, index: usize) -> Option<SteelVal> {
         let lock = unsafe { &*self.inner.as_ptr() };
@@ -4015,13 +4055,13 @@ impl HeapRef<HeapVec> {
                 )
             };
 
-            if lock.sequence() == before {
+            if lock.sequence_after_read() == before {
                 if index >= len {
                     return None;
                 }
 
                 let value = unsafe { read_unsteady(buf.add(index)) };
-                if lock.sequence() == before {
+                if lock.sequence_after_read() == before {
                     return Some((*value).clone());
                 }
             }
@@ -4109,6 +4149,7 @@ impl<T: HeapAble> HeapRef<T> {
 
     #[inline(always)]
     pub fn get(&self) -> T {
+        leave_safepoint_for_cells();
         self.inner.upgrade().unwrap().lock().value.clone()
     }
 
@@ -4128,6 +4169,7 @@ impl<T: HeapAble> HeapRef<T> {
     }
 
     pub fn borrow<O>(&self, thunk: impl FnOnce(&T) -> O) -> O {
+        leave_safepoint_for_cells();
         let value = self.inner.upgrade().unwrap();
         let value = value.lock();
         thunk(&value.value)
@@ -4142,6 +4184,7 @@ impl<T: HeapAble> HeapRef<T> {
     }
 
     pub fn set_and_return(&self, value: T) -> T {
+        leave_safepoint_for_cells();
         let inner = self.inner.upgrade().unwrap();
 
         let old = {
@@ -4156,6 +4199,7 @@ impl<T: HeapAble> HeapRef<T> {
     }
 
     pub(crate) fn strong_ptr(&self) -> steel_rc::weak::Arc<SpinLock<HeapAllocated<T>>> {
+        leave_safepoint_for_cells();
         self.inner.upgrade().unwrap()
     }
 

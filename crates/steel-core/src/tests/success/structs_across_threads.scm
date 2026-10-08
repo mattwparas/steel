@@ -1,18 +1,41 @@
-;; Threads read and write the fields of the same mutable structs. Every value
-;; stored is a three element list, so every read has to see one whole, and
-;; most are made on one thread and dropped on another.
-(define (triple n) (list n n n))
-(define (whole? v) (and (list? v) (= (length v) 3) (equal? (car v) (caddr v))))
+;; Threads read and write the fields of the same mutable structs. Every read
+;; has to see one whole value, and most are made on one thread and dropped on
+;; another.
+;; Values of every kind that needs releasing, so that a read which took the
+;; tag of one and the rest of another does not still look like a value.
+(struct tagged (n twice) #:mutable)
+(define (payload n)
+  (let ([kind (modulo n 6)])
+    (cond
+      [(= kind 0) (list n n n)]
+      [(= kind 1) (string-append (number->string n) ":" (number->string n))]
+      [(= kind 2) (lambda () (list n n))]
+      [(= kind 3) (mutable-vector n n)]
+      [(= kind 4) (tagged n (* 2 n))]
+      [else (box (list n n))])))
+(define (whole? v)
+  (cond
+    [(list? v) (and (= (length v) 3) (equal? (car v) (caddr v)))]
+    [(string? v) (> (string-length v) 2)]
+    [(function? v)
+     (let ([made (v)])
+       (equal? (car made) (cadr made)))]
+    [(vector? v) (and (= (vector-length v) 2) (equal? (vector-ref v 0) (vector-ref v 1)))]
+    [(tagged? v) (= (tagged-twice v) (* 2 (tagged-n v)))]
+    ;; Only a box is left.
+    [else
+     (let ([inner (unbox v)])
+       (equal? (car inner) (cadr inner)))]))
 
 (struct node (left right tag) #:mutable)
 (struct holder (current) #:mutable)
 
-(define shared (node (triple 0) (triple 0) (triple 0)))
+(define shared (node (payload 0) (payload 0) (payload 0)))
 (define (write-fields n)
   (when (> n 0)
-    (set-node-left! shared (triple n))
-    (set-node-right! shared (triple n))
-    (set-node-tag! shared (triple n))
+    (set-node-left! shared (payload n))
+    (set-node-right! shared (payload n))
+    (set-node-tag! shared (payload n))
     (write-fields (- n 1))))
 (define (read-fields n ok)
   (if (= n 0)
@@ -40,10 +63,10 @@
 
 ;; The struct itself is what gets replaced here, so its last handle can be
 ;; dropped by a thread that didn't make it while another is reading a field.
-(define held (holder (node (triple 0) (triple 0) (triple 0))))
+(define held (holder (node (payload 0) (payload 0) (payload 0))))
 (define (replace-node n)
   (when (> n 0)
-    (set-holder-current! held (node (triple n) (triple n) (triple n)))
+    (set-holder-current! held (node (payload n) (payload n) (payload n)))
     (replace-node (- n 1))))
 (define (read-through n ok)
   (if (= n 0)
@@ -59,15 +82,15 @@
 (for-each thread-join! replacers)
 
 ;; A ring of structs that the threads keep relinking while one collects.
-(define a (node #f #f (triple 1)))
-(define b (node a #f (triple 2)))
-(define c (node b a (triple 3)))
+(define a (node #f #f (payload 1)))
+(define b (node a #f (payload 2)))
+(define c (node b a (payload 3)))
 (set-node-left! a c)
 (set-node-right! a b)
 (set-node-right! b c)
 (define (relink n)
   (when (> n 0)
-    (let ([fresh (node a b (triple n))])
+    (let ([fresh (node a b (payload n))])
       (set-node-left! a fresh)
       (set-node-right! fresh fresh)
       (set-node-left! b (node-left a)))

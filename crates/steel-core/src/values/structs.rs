@@ -268,9 +268,14 @@ pub struct MutableStructHeader {
     // Set by a mark that reached the struct, and on allocation.
     pub(crate) reachable: core::sync::atomic::AtomicBool,
     pub(crate) state: core::sync::atomic::AtomicU8,
-    // The heap that owned the cell is gone, so the cell frees itself.
-    pub(crate) orphaned: core::sync::atomic::AtomicBool,
 }
+
+// Who frees a cell is decided by one exchange of its state, since the heap
+// that owns it can go away on one thread while the last handle to it is
+// dropped on another. The heap swaps `ORPHAN` in and frees the cell only if
+// it was `DEAD`. Whoever holds the cell otherwise tries to move it on from
+// the state they know it to be in, and frees it themselves if they find it
+// orphaned instead. Neither touches the cell again once the other may have.
 
 /// Has handles, or is waiting on the collector to empty it.
 pub(crate) const MUTABLE_STRUCT_LIVE: u8 = 0;
@@ -278,6 +283,8 @@ pub(crate) const MUTABLE_STRUCT_LIVE: u8 = 0;
 pub(crate) const MUTABLE_STRUCT_SPARE: u8 = 1;
 /// Emptied, with no handles. The heap frees it.
 pub(crate) const MUTABLE_STRUCT_DEAD: u8 = 2;
+/// The heap that owned the cell is gone, so whoever has the cell frees it.
+pub(crate) const MUTABLE_STRUCT_ORPHAN: u8 = 3;
 
 pub struct MutableStructDrop;
 
@@ -293,15 +300,15 @@ impl steel_rc::PackedDropHandler<SteelVal> for MutableStructDrop {
             core::ptr::NonNull::new_unchecked(block as *mut MutableStructBlock)
         });
 
-        if cell.header().orphaned.load(Ordering::Acquire) {
+        if cell.state() == MUTABLE_STRUCT_ORPHAN {
             return false;
         }
 
         cell.release_fields();
 
-        crate::values::closed::retire_mutable_struct(cell);
-
-        true
+        // The heap can have gone in the meantime, and then nobody is left
+        // to keep the block for.
+        crate::values::closed::retire_mutable_struct(cell)
     }
 }
 
@@ -350,6 +357,26 @@ impl MutableStructCell {
         self.header().state.store(state, Ordering::Release);
     }
 
+    /// Moves the cell from `from` to `to`, unless the heap has orphaned it
+    /// meanwhile. Says whether it moved. After a move to `DEAD` the heap can
+    /// free the cell, so the caller must not touch it again.
+    #[inline]
+    pub(crate) fn move_state(&self, from: u8, to: u8) -> bool {
+        self.header()
+            .state
+            .compare_exchange(from, to, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    /// Hands the cell over to whoever holds it, and gives the state it was
+    /// in. Only the heap that owns the cell does this, as it goes away.
+    #[inline]
+    pub(crate) fn orphan(&self) -> u8 {
+        self.header()
+            .state
+            .swap(MUTABLE_STRUCT_ORPHAN, Ordering::AcqRel)
+    }
+
     #[inline]
     pub(crate) fn is_reachable(&self) -> bool {
         self.header().reachable.load(Ordering::Relaxed)
@@ -390,6 +417,8 @@ impl MutableStructCell {
                     )
                     .is_ok()
             {
+                // See `SpinGuard::new`.
+                core::sync::atomic::fence(Ordering::Release);
                 return;
             }
             core::hint::spin_loop();
@@ -463,7 +492,6 @@ impl MutableStructCell {
                 owner,
                 reachable: core::sync::atomic::AtomicBool::new(true),
                 state: core::sync::atomic::AtomicU8::new(MUTABLE_STRUCT_LIVE),
-                orphaned: core::sync::atomic::AtomicBool::new(false),
             },
             fields,
         ));
@@ -575,6 +603,8 @@ impl MutableStructRef {
     // that comes back to the same struct.
     #[inline]
     fn with_fields<R>(&self, f: impl FnOnce(&mut [SteelVal]) -> R) -> R {
+        crate::values::closed::leave_safepoint_for_cells();
+
         let cell = self.cell();
         let fields = unsafe { core::slice::from_raw_parts_mut(cell.fields_ptr(), cell.len()) };
 
@@ -588,6 +618,14 @@ impl MutableStructRef {
         result
     }
 
+    /// The field at `index`, read under the struct's lock when other threads
+    /// are running.
+    ///
+    /// This is what primitives use, and a thread in a primitive counts as
+    /// being at a safepoint, so a value another thread swaps out of the field
+    /// can be released while it is in here. Holding the lock while taking
+    /// the reference is what keeps that from happening. `read_shared` does
+    /// without the lock and is only for code that is not at a safepoint.
     #[inline]
     pub fn get_index(&self, index: usize) -> Option<SteelVal> {
         let cell = self.cell();
@@ -599,14 +637,18 @@ impl MutableStructRef {
             return Some(unsafe { &*cell.fields_ptr().add(index) }.clone());
         }
 
-        Some(unsafe { self.read_shared(index) })
+        self.get_index_locked(index)
     }
 
     /// The field at `index`, which the struct must have, with a reference
     /// taken, while other threads may be writing the struct. The read is
     /// checked against the struct's sequence number and only takes the lock
-    /// if a write got in the way. A field that a write swaps out meanwhile
-    /// is kept alive until this thread is next at a safepoint.
+    /// if a write got in the way.
+    ///
+    /// A field that a write swaps out meanwhile is kept alive until this
+    /// thread is next at a safepoint, which is what makes taking the
+    /// reference safe. So this must not be called by a thread that is at
+    /// one, which a thread in a primitive is. Jitted code calls it directly.
     #[inline(always)]
     pub(crate) unsafe fn read_shared(&self, index: usize) -> SteelVal {
         let cell = self.cell();
@@ -616,7 +658,9 @@ impl MutableStructRef {
         if before & 1 == 0 {
             let field =
                 unsafe { crate::values::closed::read_unsteady(cell.fields_ptr().add(index)) };
-            if sequence.load(Ordering::Acquire) == before {
+            // See `SpinLock::sequence_after_read`.
+            core::sync::atomic::fence(Ordering::Acquire);
+            if sequence.load(Ordering::Relaxed) == before {
                 return (*field).clone();
             }
         }
@@ -624,7 +668,6 @@ impl MutableStructRef {
         self.get_index_locked(index).unwrap_or(SteelVal::Void)
     }
 
-    #[cold]
     #[inline(never)]
     fn get_index_locked(&self, index: usize) -> Option<SteelVal> {
         self.with_fields(|fields| fields.get(index).cloned())

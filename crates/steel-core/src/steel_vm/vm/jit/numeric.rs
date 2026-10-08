@@ -776,7 +776,7 @@ fn variadic_numeric_spilled(ctx: *mut VmCore<'_>, code: usize, arity: usize) -> 
         5 => crate::steel_vm::primitives::lte_primitive,
         6 => gt_primitive,
         7 => gte_primitive,
-        _ => crate::steel_vm::primitives::equality_primitive,
+        _ => unreachable!("not a code the jit gives"),
     };
 
     let len = ctx.thread.stack.len();

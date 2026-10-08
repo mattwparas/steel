@@ -1539,6 +1539,7 @@ pub fn vec_ref(vec: &mut SteelVal, idx: &SteelVal) -> Result<SteelVal> {
                     // let ptr = v.strong_ptr();
                     // let guard = &ptr.lock().value;
 
+                    crate::values::closed::leave_safepoint_for_cells();
                     let guard = &(unsafe { &(*v.inner.as_ptr()) }.lock());
 
                     // TODO: Not sure if we can really do this. When entering vec_ref

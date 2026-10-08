@@ -628,21 +628,39 @@ impl Synchronizer {
     }
 
     pub(crate) fn register(&self, context: ThreadContext) {
-        if let Some(slot) = context.ctx.upgrade() {
-            crate::values::closed::register_mutator(&slot);
-        }
-        self.threads.lock().unwrap().push(context);
+        self.announce();
+        self.register_announced(context);
+    }
+
+    /// Counts a thread that is about to be started, before it is.
+    ///
+    /// A thread publishes itself at a safepoint only once it knows there is
+    /// another (`has_other_threads`). The new thread can run, and collect,
+    /// before whoever started it gets round to registering it, and a
+    /// collection waits for every registered thread to publish itself. If
+    /// the one that started it did not yet count the new thread, it would
+    /// never publish, and would itself be waiting on the list the collector
+    /// holds.
+    pub(crate) fn announce(&self) {
         let before = self
             .registered
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if before > 0 {
             crate::values::closed::share_cells();
         }
     }
 
+    /// Registers a thread that `announce` has already counted.
+    pub(crate) fn register_announced(&self, context: ThreadContext) {
+        if let Some(slot) = context.ctx.upgrade() {
+            crate::values::closed::register_mutator(&slot);
+        }
+        self.threads.lock().unwrap().push(context);
+    }
+
     #[inline(always)]
     fn has_other_threads(&self) -> bool {
-        self.registered.load(std::sync::atomic::Ordering::Relaxed) > 1
+        self.registered.load(std::sync::atomic::Ordering::SeqCst) > 1
     }
 
     pub(crate) unsafe fn maybe_call_per_ctx(
@@ -751,6 +769,43 @@ impl Synchronizer {
     pub(crate) unsafe fn enumerate_stacks(&mut self, context: &mut MarkAndSweepContext) {
         // TODO: Continue...
         let guard = self.threads.lock().unwrap();
+
+        // Nothing is marked until every other thread has stopped. Marking
+        // from one thread's stack walks the cells all of them share, and a
+        // thread still running can meanwhile move a value off its own stack
+        // into a cell that has already been walked. That value is then on no
+        // stack when its thread is scanned and in no cell the mark comes back
+        // to, and is collected while it is in use.
+        //
+        // A thread that has published itself stays put: it was asked to stop
+        // before this, so it parks on its way out of the safepoint.
+        for ThreadContext { ctx, handle } in guard.iter() {
+            loop {
+                let Some(ctx) = ctx.upgrade() else {
+                    break;
+                };
+                if Arc::ptr_eq(&ctx, &self.ctx) || !ctx.load(AtomicOrdering::SeqCst).is_null() {
+                    break;
+                }
+
+                // A thread made with `make-thread` that isn't running has no
+                // context to publish, and is scanned through its handle.
+                if let SteelVal::Custom(c) = &handle {
+                    if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
+                        let idle = inner
+                            .forked_thread_handle
+                            .as_ref()
+                            .and_then(|forked| forked.upgrade())
+                            .is_some_and(|forked| forked.try_lock().is_ok());
+                        if idle {
+                            break;
+                        }
+                    }
+                }
+
+                std::hint::spin_loop();
+            }
+        }
 
         // Wait for all the threads to be legal
         for ThreadContext { ctx, handle } in guard.iter() {
@@ -1045,6 +1100,26 @@ impl SteelThread {
         }
     }
 
+    // The end of a call that was made at a safepoint. What was called may
+    // have left the safepoint already, see `leave_safepoint_early`, and then
+    // there is nothing published to take back. A stop asked for since is
+    // answered at the next safepoint.
+    #[inline(always)]
+    fn finish_safepoint(&self) {
+        if !self.synchronizer.ctx.load(AtomicOrdering::SeqCst).is_null() {
+            self.leave_safepoint(false);
+        }
+    }
+
+    /// Takes this thread out of the safepoint it is in, if it is in one, for
+    /// the rest of the call that was made there. See
+    /// `closed::leave_safepoint_for_cells`.
+    pub(crate) fn leave_safepoint_early(&self) {
+        if !self.synchronizer.ctx.load(AtomicOrdering::SeqCst).is_null() {
+            self.leave_safepoint(false);
+        }
+    }
+
     /// Takes the heap's lock in order to allocate something that will hold
     /// `held`.
     ///
@@ -1098,7 +1173,7 @@ impl SteelThread {
         let res = finish(self);
 
         if publish {
-            self.leave_safepoint(false);
+            self.finish_safepoint();
             unsafe { self.pending_roots.set_len(outer) };
         }
 
@@ -1121,7 +1196,7 @@ impl SteelThread {
         let res = finish(self);
 
         if publish {
-            self.leave_safepoint(false);
+            self.finish_safepoint();
         }
 
         res
@@ -1143,7 +1218,7 @@ impl SteelThread {
         let res = finish(self);
 
         if publish {
-            self.leave_safepoint(false);
+            self.finish_safepoint();
         }
 
         res

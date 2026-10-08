@@ -1026,19 +1026,23 @@ impl QueueHandle {
 
         // Attempt to coalesce the unregistered queue, if its now registered:
 
-        let unregistered = QUEUE
+        // The queues are emptied before anything in them is merged. A merge
+        // can drop the last reference to a value, dropping that can queue
+        // something for another thread, and the map's lock is not one this
+        // thread can take twice.
+        let mut unregistered = QUEUE
             .unregistered
             .get_mut(&Some(current))
-            .map(|mut x| Self::explicit_merge(&mut x))
+            .map(|mut queued| core::mem::take(&mut *queued))
             .unwrap_or_default();
 
-        let registered = QUEUE
+        let mut registered = QUEUE
             .map
-            .get_mut(&Some(ThreadId::current_thread()))
-            .map(|mut x| Self::explicit_merge(&mut x))
+            .get_mut(&Some(current))
+            .map(|mut queued| core::mem::take(&mut *queued))
             .unwrap_or_default();
 
-        unregistered + registered
+        Self::explicit_merge(&mut unregistered) + Self::explicit_merge(&mut registered)
 
         // ret + Self::explicit_merge(&mut guard.inner)
     }
