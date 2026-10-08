@@ -25,7 +25,11 @@ fn set_handler_c(ctx: *mut VmCore, index: usize, value_to_assign: SteelVal) -> S
 }
 
 #[cross_platform_fn]
-fn handle_attachments_pop(ctx: *mut VmCore, attachments: Option<Box<StackFrameAttachments>>) {
+fn handle_attachments_pop(
+    ctx: *mut VmCore,
+    attachments: Option<Box<StackFrameAttachments>>,
+    sp: usize,
+) {
     let ctx = unsafe { &mut *ctx };
 
     if let Some(cont_mark) = attachments.as_ref().and_then(|x| {
@@ -33,7 +37,13 @@ fn handle_attachments_pop(ctx: *mut VmCore, attachments: Option<Box<StackFrameAt
             .as_ref()
             .and_then(|x| WeakShared::upgrade(&x.inner))
     }) {
-        cont_mark.write().close(ctx);
+        // The frame's part of the stack, from `sp` up, goes with it. A
+        // continuation that only that has is not kept. See
+        // `Continuation::outlives`.
+        let dying = ctx.thread.stack.get(sp..).unwrap_or(&[]);
+        if Continuation::outlives(&cont_mark, 1, dying) {
+            cont_mark.write().close(ctx);
+        }
     }
 }
 

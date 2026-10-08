@@ -164,7 +164,7 @@ jit_helpers! {
     DROP_VALUE_SLOW_DEC = "drop-value-slow-dec" => drop_value_slow_decrement: plain fn(SteelVal);
     DROP_VALUE_SLOW_DEC_CLOSURE = "drop-value-slow-dec-closure" => drop_value_slow_decrement_closure: plain fn(Gc<ByteCodeLambda>);
     RAW_SLOW_INCREMENT_CLOSURE = "raw-slow-increment-closure" => increment_ref_count_slow_closure: plain fn(Gc<ByteCodeLambda>);
-    HANDLE_ATTACHMENTS = "#%handle-attachments" => handle_attachments_pop: ctx fn(Option<Box<StackFrameAttachments>>);
+    HANDLE_ATTACHMENTS = "#%handle-attachments" => handle_attachments_pop: ctx fn(Option<Box<StackFrameAttachments>>, usize);
     POP_SLOW_PATH_FINISH = "#%pop-slow-path-finish" => pop_slow_path_finish: ctx fn(SteelVal);
     SLOW_GROW_STACK = "slow-grow-stack" => grow_stack_slow: ctx fn();
     SLOW_STACK_RESERVE_EXACT = "slow-stack-reserve-exact" => stack_ensure_capacity: ctx fn(usize);

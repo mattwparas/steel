@@ -1675,17 +1675,7 @@ impl ContinuationMark {
 impl Continuation {
     #[inline(always)]
     pub fn close_marks(ctx: &VmCore<'_>, stack_frame: &StackFrame) -> bool {
-        // if let Some(cont_mark) = stack_frame
-        //     .weak_continuation_mark
-        //     .as_ref()
-        //     .and_then(|x| WeakShared::upgrade(&x.inner))
-        // {
-
-        if let Some(cont_mark) = stack_frame.attachments.as_ref().and_then(|x| {
-            x.weak_continuation_mark
-                .as_ref()
-                .and_then(|x| WeakShared::upgrade(&x.inner))
-        }) {
+        if let Some(cont_mark) = Self::mark_of(stack_frame) {
             cont_mark.write().close(ctx);
 
             return true;
@@ -1694,33 +1684,103 @@ impl Continuation {
         false
     }
 
-    pub fn set_state_from_continuation(ctx: &mut VmCore<'_>, this: Self) {
-        // Check if this is an open
-        let maybe_open_mark = (*this.inner.read()).clone().into_open_mark();
+    /// The continuation captured in `stack_frame`, if something still has it.
+    #[inline(always)]
+    fn mark_of(stack_frame: &StackFrame) -> Option<StandardSharedMut<ContinuationMark>> {
+        stack_frame.attachments.as_ref().and_then(|x| {
+            x.weak_continuation_mark
+                .as_ref()
+                .and_then(|x| WeakShared::upgrade(&x.inner))
+        })
+    }
 
-        if let Some(open) = maybe_open_mark {
-            let strong_count = StandardShared::strong_count(&this.inner);
+    /// Whether anything will still have the continuation `mark` once `dying`
+    /// is gone. `known` is how many references the caller is holding itself.
+    ///
+    /// A continuation whose frame is going away has to be closed, which
+    /// copies the whole stack, if it could be called later. Most are not
+    /// kept: the function `call/cc` called was handed the continuation as an
+    /// argument, and that argument, or a copy of it passed further up the
+    /// stack, is the only thing that has it. Those are in the part of the
+    /// stack that is going away with the frame, so they are counted and set
+    /// against how many references there are.
+    ///
+    /// The `call/cc` programs use hands over a struct holding a closure that
+    /// holds the continuation, so a closure or struct that only the dying
+    /// values have is looked inside as well. A reference from anywhere
+    /// else, a box or a global or lower down the stack, is never counted,
+    /// and the continuation is then taken to outlive the frame.
+    #[inline]
+    pub(crate) fn outlives(
+        mark: &StandardSharedMut<ContinuationMark>,
+        known: usize,
+        dying: &[SteelVal],
+    ) -> bool {
+        let held = StandardShared::strong_count(mark).saturating_sub(known);
+        if held == 0 {
+            return false;
+        }
+
+        let mut walk = DyingReferences {
+            mark,
+            found: 0,
+            holders: SmallVec::new(),
+        };
+        for value in dying {
+            walk.reference(value);
+        }
+
+        held > walk.found
+    }
+
+    /// Closes the continuation captured in a frame that is returning, if it
+    /// is kept by something that outlives the frame's part of the stack,
+    /// which is `dying`.
+    #[inline(always)]
+    fn close_marks_on_return(ctx: &VmCore<'_>, stack_frame: &StackFrame, dying: &[SteelVal]) {
+        if stack_frame.attachments.is_none() {
+            return;
+        }
+
+        if let Some(mark) = Self::mark_of(stack_frame) {
+            // One reference is the one just taken.
+            if Self::outlives(&mark, 1, dying) {
+                mark.write().close(ctx);
+            }
+        }
+    }
+
+    pub fn set_state_from_continuation(ctx: &mut VmCore<'_>, this: Self) {
+        // Where an open continuation goes back to. Everything on the stack
+        // from there up goes away when it is called.
+        let open_sp = match &*this.inner.read() {
+            ContinuationMark::Open(open) => Some(open.sp),
+            ContinuationMark::Closed(_) => None,
+        };
+
+        if let Some(open_sp) = open_sp {
             let weak_count = StandardShared::weak_count(&this.inner);
 
             while let Some(stack_frame) = ctx.thread.stack_frames.pop() {
                 ctx.pop_count -= 1;
 
-                // if let Some(mark) = &stack_frame
-                //     .weak_continuation_mark
-                //     .as_ref()
-                //     .and_then(|x| WeakShared::upgrade(&x.inner))
-                // {
+                let mark = Self::mark_of(&stack_frame);
 
-                if let Some(mark) = &stack_frame.attachments.as_ref().and_then(|x| {
-                    x.weak_continuation_mark
-                        .as_ref()
-                        .and_then(|x| WeakShared::upgrade(&x.inner))
-                }) {
+                if let Some(mark) = &mark {
                     if StandardShared::ptr_eq(mark, &this.inner) {
-                        if weak_count == 1
-                            && strong_count > 1
-                            && Self::close_marks(ctx, &stack_frame)
-                        {
+                        // The frame the continuation was captured in is gone
+                        // after this. If something other than the stack that
+                        // is going with it has the continuation, it may be
+                        // called again, and has to be closed first. `this`
+                        // and `mark` are the two references held here.
+                        let kept = weak_count == 1
+                            && Self::outlives(
+                                mark,
+                                2,
+                                ctx.thread.stack.get(open_sp..).unwrap_or(&[]),
+                            );
+
+                        if kept && Self::close_marks(ctx, &stack_frame) {
                             // TODO: We shouldn't have to both close the frame and also
                             // set state from the continuation in both spots. There is a nefarious
                             // bug here that I haven't yet resolved.
@@ -1732,16 +1792,29 @@ impl Continuation {
                             return;
                         }
 
+                        let mut guard = this.inner.write();
+                        let ContinuationMark::Open(open) = &mut *guard else {
+                            unreachable!("only a frame going away closes a continuation")
+                        };
+
                         ctx.sp = open.sp;
                         ctx.ip = open.ip;
-                        // ctx.instructions = Shared::clone(&open.instructions);
-
                         ctx.instructions = open.instructions.clone();
 
                         ctx.thread.stack.truncate(open.sp);
 
+                        // Nothing else can call this again, so what it saved
+                        // is moved back instead of copied.
                         // TODO: Probably move the pointer for the stack frame as well?
-                        ctx.thread.stack.extend(open.current_stack_values.clone());
+                        if kept || weak_count != 1 {
+                            ctx.thread
+                                .stack
+                                .extend(open.current_stack_values.iter().cloned());
+                        } else {
+                            ctx.thread
+                                .stack
+                                .extend(core::mem::take(&mut open.current_stack_values));
+                        }
 
                         #[cfg(debug_assertions)]
                         {
@@ -1768,6 +1841,14 @@ impl Continuation {
                     }
                 }
 
+                // A continuation captured in a frame that is being passed on
+                // the way. Whatever has it among the values that are going
+                // away does not keep it.
+                let kept = mark.as_ref().is_some_and(|mark| {
+                    Self::outlives(mark, 1, ctx.thread.stack.get(open_sp..).unwrap_or(&[]))
+                });
+                drop(mark);
+
                 ctx.thread.stack.truncate(stack_frame.sp as _);
                 ctx.ip = stack_frame.ip as _;
                 ctx.sp = ctx.get_last_stack_frame_sp();
@@ -1775,8 +1856,8 @@ impl Continuation {
 
                 ctx.instructions = stack_frame.instructions.clone();
 
-                if Self::close_marks(ctx, &stack_frame) {
-                    // println!("CLOSING MARKS WHEN SETTING STATE FROM CONTINUATION");
+                if kept {
+                    Self::close_marks(ctx, &stack_frame);
                 }
             }
 
@@ -1797,6 +1878,66 @@ impl Continuation {
 
     pub fn ptr_eq(&self, other: &Self) -> bool {
         StandardShared::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+/// Counts the references to a continuation that go away with a part of the
+/// stack. See `Continuation::outlives`.
+struct DyingReferences<'a> {
+    mark: &'a StandardSharedMut<ContinuationMark>,
+    found: usize,
+    // The closures and structs met so far, and how many references to each
+    // have been seen coming from something that is going away.
+    holders: SmallVec<[(usize, usize); 8]>,
+}
+
+impl DyingReferences<'_> {
+    // More holders than this and the rest are taken to be kept, which only
+    // costs a copy that might not have been needed.
+    const MOST_HOLDERS: usize = 64;
+
+    fn reference(&mut self, value: &SteelVal) {
+        match value {
+            SteelVal::ContinuationFunction(c) if StandardShared::ptr_eq(&c.inner, self.mark) => {
+                self.found += 1;
+            }
+            SteelVal::Closure(closure) => {
+                if self.last_reference(Gc::as_ptr(closure) as usize, Gc::strong_count(closure)) {
+                    for captured in closure.captures() {
+                        self.reference(captured);
+                    }
+                }
+            }
+            SteelVal::CustomStruct(s) => {
+                if self.last_reference(s.as_ptr() as usize, s.strong_count()) {
+                    for field in s.fields() {
+                        self.reference(field);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Notes one more reference to a holder, and says whether that accounts
+    // for all of them, in which case the holder goes away too and what it
+    // holds is counted. The counts read here are never under the real ones.
+    fn last_reference(&mut self, holder: usize, references: usize) -> bool {
+        let seen = match self.holders.iter_mut().find(|(known, _)| *known == holder) {
+            Some((_, seen)) => {
+                *seen += 1;
+                *seen
+            }
+            None => {
+                if self.holders.len() == Self::MOST_HOLDERS {
+                    return false;
+                }
+                self.holders.push((holder, 1));
+                1
+            }
+        };
+
+        seen == references
     }
 }
 
@@ -4260,7 +4401,16 @@ impl<'a> VmCore<'a> {
 
             let rollback_index = last.sp;
 
-            self.close_continuation_marks(&last);
+            // What the frame held goes with it. The value it returns is
+            // not among that, and keeps a continuation it holds.
+            Continuation::close_marks_on_return(
+                self,
+                &last,
+                self.thread
+                    .stack
+                    .get(rollback_index as usize..)
+                    .unwrap_or(&[]),
+            );
             self.thread.stack.truncate(rollback_index as _);
             self.thread.stack.push(value);
 
@@ -4308,7 +4458,14 @@ impl<'a> VmCore<'a> {
 
             let rollback_index = last.sp as _;
 
-            self.close_continuation_marks(&last);
+            // What the frame held goes with it, all but the value it
+            // returns, which is on top and keeps a continuation it holds.
+            let top = self.thread.stack.len().saturating_sub(1);
+            Continuation::close_marks_on_return(
+                self,
+                &last,
+                self.thread.stack.get(rollback_index..top).unwrap_or(&[]),
+            );
 
             let _ = self
                 .thread

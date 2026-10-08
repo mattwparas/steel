@@ -12794,7 +12794,11 @@ impl FunctionTranslator<'_> {
                         // If the attachments exist, then we need to:
                         // 1. Call the rust function to close the frame
                         // 2. Close the destructor.
-                        ctx.call_helper_void(HANDLE_ATTACHMENTS, [popped_frame.attachments]);
+                        let frame_sp = ctx.builder.ins().uextend(types::I64, popped_frame.sp);
+                        ctx.call_helper_void(
+                            HANDLE_ATTACHMENTS,
+                            [popped_frame.attachments, frame_sp],
+                        );
                     },
                     |ctx| {
                         // The rest:
