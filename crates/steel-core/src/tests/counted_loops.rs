@@ -50,14 +50,21 @@ fn counted_loops_run_a_stretch_at_a_time() {
         return;
     }
 
+    // As a module, where a function calling itself is known to pass the
+    // right number of arguments
     let mut engine = Engine::new();
-    engine.run(LOOPS).expect("the loops run");
+    engine.register_steel_module("counted-loops".to_owned(), LOOPS.to_owned());
+    engine
+        .run(r#"(require "counted-loops")"#)
+        .expect("the loops run");
 
     // Compiling may be on another thread
     let started = Instant::now();
-    while !missing().is_empty() && started.elapsed() < Duration::from_secs(30) {
+    while config.jit_background
+        && !missing().is_empty()
+        && started.elapsed() < Duration::from_secs(30)
+    {
         std::thread::sleep(Duration::from_millis(20));
-        engine.run("(check 300)").expect("the loops run again");
     }
 
     // A busy background jit may not have reached every loop yet

@@ -370,6 +370,14 @@ pub struct SteelThread {
     // another thread's collection would otherwise not find them.
     pub(crate) pending_roots: Vec<SteelVal>,
 
+    // The runs of the vm that native code has started on this thread and
+    // that have not returned, outermost first. See `NativeEntry`.
+    pub(crate) native_entries: Vec<u64>,
+    native_entries_made: u64,
+    // A continuation on its way out to the run it belongs to, and the
+    // value it was called with.
+    pub(crate) escaping: Option<(SteelVal, SteelVal)>,
+
     // Store... more stuff here
     pub(crate) compiler: alloc::sync::Arc<RwLock<Compiler>>,
 
@@ -840,6 +848,11 @@ impl Synchronizer {
                                 context.push_back(value.clone());
                             }
 
+                            if let Some((continuation, value)) = &live_ctx.escaping {
+                                context.push_back(continuation.clone());
+                                context.push_back(value.clone());
+                            }
+
                             context.visit();
                         }
 
@@ -872,6 +885,12 @@ impl Synchronizer {
                                             }
 
                                             for value in &live_ctx.pending_roots {
+                                                context.push_back(value.clone());
+                                            }
+
+                                            if let Some((continuation, value)) = &live_ctx.escaping
+                                            {
+                                                context.push_back(continuation.clone());
                                                 context.push_back(value.clone());
                                             }
 
@@ -976,6 +995,9 @@ impl SteelThread {
             synchronizer,
             thread_local_storage: Vec::new(),
             pending_roots: Vec::new(),
+            native_entries: Vec::new(),
+            native_entries_made: 0,
+            escaping: None,
             compiler,
             id: EngineId::new(),
 
@@ -1483,6 +1505,8 @@ impl SteelThread {
         // TODO: Figure out how to keep the first set of instructions around
         // during a continuation? Does it get allocated into something? If its the
         // root one, we should move it into a function?
+        let _entered = NativeEntry::enter(self);
+
         let this_thread = self as *mut SteelThread;
         let _running = crate::values::closed::enter_mutator(&self.synchronizer.ctx, this_thread);
         self.synchronizer.state.entered(&_running, this_thread);
@@ -1503,6 +1527,14 @@ impl SteelThread {
             });
 
             if let Err(e) = result {
+                let e = match vm_instance.land_escape() {
+                    Ok(true) => continue 'outer,
+                    Ok(false) => e,
+                    Err(e) => e,
+                };
+                // One headed further out is not for the handlers here
+                let escaping = vm_instance.thread.escaping.is_some();
+
                 // The frames below belong to whoever called in
                 while vm_instance.pop_count > 0 {
                     let Some(mut last) = vm_instance.thread.stack_frames.pop() else {
@@ -1519,6 +1551,10 @@ impl SteelThread {
                         .get(last.sp as usize..)
                         .unwrap_or(&[]);
                     Continuation::close_marks_on_return(&vm_instance, &last, dying);
+
+                    if escaping {
+                        continue;
+                    }
 
                     if let Some(handler) = last.attachments.as_mut().and_then(|x| x.handler.take())
                     {
@@ -1577,6 +1613,60 @@ impl SteelThread {
     }
 }
 
+/// One run of the vm started from native code: a top level form, a function
+/// the host calls, or a function a builtin calls back into. A continuation
+/// belongs to the run it was captured in. Calling it from a run inside that
+/// one has to unwind the native code in between, and once its run has
+/// returned there is nothing left to go back to.
+///
+/// The outermost run on a thread is always `0`, so that a continuation kept
+/// from one top level form can be called from the next.
+pub(crate) struct NativeEntry {
+    thread: *mut SteelThread,
+}
+
+impl NativeEntry {
+    fn enter(thread: &mut SteelThread) -> Self {
+        let id = if thread.native_entries.is_empty() {
+            0
+        } else {
+            thread.native_entries_made += 1;
+            thread.native_entries_made
+        };
+        thread.native_entries.push(id);
+
+        // Native code that swallowed the error has dropped the escape
+        thread.escaping = None;
+
+        Self { thread }
+    }
+}
+
+impl Drop for NativeEntry {
+    fn drop(&mut self) {
+        // The thread outlives every run on it
+        let thread = unsafe { &mut *self.thread };
+        thread.native_entries.pop();
+        if thread.native_entries.is_empty() {
+            thread.escaping = None;
+        }
+    }
+}
+
+impl SteelThread {
+    fn current_entry(&self) -> u64 {
+        self.native_entries.last().copied().unwrap_or(0)
+    }
+
+    /// The run an escaping continuation is headed for.
+    fn escaping_to(&self) -> Option<u64> {
+        match &self.escaping {
+            Some((SteelVal::ContinuationFunction(continuation), _)) => Some(continuation.entry()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpenContinuationMark {
     // Lazily capture the frames we need to?
@@ -1591,6 +1681,8 @@ pub struct OpenContinuationMark {
     ip: usize,
     sp: usize,
     pop_count: usize,
+    // The `NativeEntry` it was captured in
+    entry: u64,
 
     #[cfg(debug_assertions)]
     closed_continuation: ClosedContinuation,
@@ -1617,6 +1709,7 @@ impl ContinuationMark {
                 continuation.ip = open.ip;
                 continuation.sp = open.sp;
                 continuation.pop_count = open.pop_count;
+                continuation.entry = open.entry;
                 // continuation.instructions = Shared::clone(&open.instructions);
                 continuation.instructions = open.instructions.clone();
 
@@ -1653,6 +1746,13 @@ impl ContinuationMark {
 }
 
 impl Continuation {
+    fn entry(&self) -> u64 {
+        match &*self.inner.read() {
+            ContinuationMark::Open(open) => open.entry,
+            ContinuationMark::Closed(closed) => closed.entry,
+        }
+    }
+
     #[inline(always)]
     pub fn close_marks(ctx: &VmCore<'_>, stack_frame: &StackFrame) -> bool {
         if let Some(cont_mark) = Self::mark_of(stack_frame) {
@@ -1717,13 +1817,20 @@ impl Continuation {
         }
     }
 
-    pub fn set_state_from_continuation(ctx: &mut VmCore<'_>, this: Self) {
+    pub fn set_state_from_continuation(ctx: &mut VmCore<'_>, this: Self) -> Result<()> {
         let open_sp = match &*this.inner.read() {
             ContinuationMark::Open(open) => Some(open.sp),
             ContinuationMark::Closed(_) => None,
         };
 
         if let Some(open_sp) = open_sp {
+            let on_the_stack = ctx.thread.stack_frames.iter().rev().any(|frame| {
+                Self::mark_of(frame).is_some_and(|mark| StandardShared::ptr_eq(&mark, &this.inner))
+            });
+            if !on_the_stack {
+                stop!(Generic => "the frame this continuation was captured in is gone"; ctx.current_span());
+            }
+
             let weak_count = StandardShared::weak_count(&this.inner);
 
             while let Some(stack_frame) = ctx.thread.stack_frames.pop() {
@@ -1750,7 +1857,7 @@ impl Continuation {
 
                             ctx.set_state_from_continuation(definitely_closed);
 
-                            return;
+                            return Ok(());
                         }
 
                         let mut guard = this.inner.write();
@@ -1796,7 +1903,7 @@ impl Continuation {
                             );
                         }
 
-                        return;
+                        return Ok(());
                     }
                 }
 
@@ -1817,7 +1924,7 @@ impl Continuation {
                 }
             }
 
-            panic!("Failed to find an open continuation on the stack");
+            unreachable!("the frame was on the stack");
         } else {
             match StandardShared::try_unwrap(this.inner).map(|x| x.into_inner()) {
                 Ok(cont) => {
@@ -1829,6 +1936,8 @@ impl Continuation {
                     ctx.set_state_from_continuation(definitely_closed);
                 }
             }
+
+            Ok(())
         }
     }
 
@@ -1929,6 +2038,7 @@ pub struct ClosedContinuation {
     ip: usize,
     sp: usize,
     pop_count: usize,
+    entry: u64,
 
     // #[cfg(feature = "rooted-instructions")]
     // rooted_instructions: Vec<Shared<[DenseInstruction]>>,
@@ -2261,6 +2371,7 @@ impl<'a> VmCore<'a> {
                     ip: self.ip,
                     sp: self.sp,
                     pop_count: self.pop_count,
+                    entry: self.thread.current_entry(),
                     #[cfg(debug_assertions)]
                     closed_continuation: self.new_closed_continuation_from_state(),
                 },
@@ -2283,6 +2394,7 @@ impl<'a> VmCore<'a> {
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
+            entry: self.thread.current_entry(),
             #[cfg(debug_assertions)]
             closed_continuation: None,
         }
@@ -2305,6 +2417,7 @@ impl<'a> VmCore<'a> {
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
+            entry: self.thread.current_entry(),
             #[cfg(debug_assertions)]
             closed_continuation: None,
         }
@@ -2415,6 +2528,8 @@ impl<'a> VmCore<'a> {
         &mut self,
         closure: RootedInstructions,
     ) -> Result<SteelVal> {
+        let _entered = NativeEntry::enter(self.thread);
+
         let old_ip = self.ip;
         let old_instructions = core::mem::replace(&mut self.instructions, closure);
         let old_pop_count = self.pop_count;
@@ -2433,6 +2548,14 @@ impl<'a> VmCore<'a> {
                 .map_err(|error| error.with_stack_trace(self.snapshot_stack_trace()));
 
             if let Err(e) = result {
+                let e = match self.land_escape() {
+                    Ok(true) => continue 'outer,
+                    Ok(false) => e,
+                    Err(e) => e,
+                };
+                // One headed further out is not for the handlers here
+                let escaping = self.thread.escaping.is_some();
+
                 // The frames below belong to whoever called in
                 while self.pop_count > 0 {
                     let Some(mut last) = self.thread.stack_frames.pop() else {
@@ -2445,6 +2568,10 @@ impl<'a> VmCore<'a> {
                     // A continuation captured in this frame may be kept
                     let dying = self.thread.stack.get(last.sp as usize..).unwrap_or(&[]);
                     Continuation::close_marks_on_return(self, &last, dying);
+
+                    if escaping {
+                        continue;
+                    }
 
                     if let Some(handler) = last.attachments.as_mut().and_then(|x| x.handler.take())
                     {
@@ -5380,26 +5507,59 @@ impl<'a> VmCore<'a> {
                 throw!(ArityMismatch => "continuation expected 1 argument, found none"),
             )?;
 
-        // println!("Calling continuation...");
+        self.enter_continuation(continuation, last)
+    }
 
-        Continuation::set_state_from_continuation(self, continuation);
+    /// Carries on from `continuation` with `value`, if it belongs to the
+    /// run of the vm this is. If it belongs to one further out, the error
+    /// this returns takes it there through the native code in between.
+    fn enter_continuation(&mut self, continuation: Continuation, value: SteelVal) -> Result<()> {
+        self.leave_for_continuation(&continuation, &value)?;
 
-        // match Gc::try_unwrap(continuation) {
-        //     Ok(cont) => {
-        //         self.set_state_from_continuation(cont);
-        //     }
-
-        //     Err(unable_to_unwrap) => {
-        //         self.set_state_from_continuation(unable_to_unwrap.unwrap());
-        //     }
-        // }
-
-        // self.set_state_from_continuation(continuation.clone());
+        Continuation::set_state_from_continuation(self, continuation)?;
 
         self.ip += 1;
 
-        self.thread.stack.push(last);
+        self.thread.stack.push(value);
         Ok(())
+    }
+
+    fn leave_for_continuation(
+        &mut self,
+        continuation: &Continuation,
+        value: &SteelVal,
+    ) -> Result<()> {
+        let home = continuation.entry();
+        if home == self.thread.current_entry() {
+            return Ok(());
+        }
+
+        if self.thread.native_entries.contains(&home) {
+            self.thread.escaping = Some((
+                SteelVal::ContinuationFunction(continuation.clone()),
+                value.clone(),
+            ));
+            stop!(Generic => "a continuation was called through native code that did not pass it on"; self.current_span());
+        }
+
+        stop!(Generic => "this continuation was captured under a call from native code that has returned"; self.current_span());
+    }
+
+    /// Whether the error just raised is a continuation on its way to this
+    /// run, in which case the run has now carried on from it.
+    fn land_escape(&mut self) -> Result<bool> {
+        if self.thread.escaping_to() != Some(self.thread.current_entry()) {
+            return Ok(false);
+        }
+
+        let Some((SteelVal::ContinuationFunction(continuation), value)) =
+            self.thread.escaping.take()
+        else {
+            return Ok(false);
+        };
+
+        self.enter_continuation(continuation, value)?;
+        Ok(true)
     }
 
     #[inline(always)]
@@ -6054,7 +6214,13 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             ctx.ip = 0;
         }
         SteelVal::ContinuationFunction(cc) => {
-            Continuation::set_state_from_continuation(ctx, cc);
+            let passed = SteelVal::ContinuationFunction(continuation.clone());
+            if let Err(e) = ctx.leave_for_continuation(&cc, &passed) {
+                return Some(Err(e));
+            }
+            if let Err(e) = Continuation::set_state_from_continuation(ctx, cc) {
+                return Some(Err(e));
+            }
 
             ctx.ip += 1;
         }
@@ -6913,12 +7079,27 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     let fun = arg_iter.next().unwrap();
     let lst = arg_iter.next_back().unwrap();
 
+    // A struct that can be called stands for its procedure
+    let mut fun = fun.clone();
+    loop {
+        let procedure = match &fun {
+            SteelVal::CustomStruct(s) => s.maybe_proc().cloned(),
+            SteelVal::MutableStruct(s) => s.maybe_proc(),
+            _ => None,
+        };
+        match procedure {
+            Some(procedure) => fun = procedure,
+            None => break,
+        }
+    }
+    let fun = &fun;
+
     if let SteelVal::ListV(mut lst) = lst.clone() {
         for arg in arg_iter.rev() {
             lst = List::cons(arg.clone(), lst);
         }
 
-        if fun.is_function() {
+        if fun.is_function() || matches!(fun, SteelVal::ContinuationFunction(_)) {
             match fun {
                 SteelVal::Closure(closure) => {
                     for arg in &lst {
@@ -6941,11 +7122,15 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                     None
                 }
                 SteelVal::ContinuationFunction(cc) => {
-                    Continuation::set_state_from_continuation(ctx, cc.clone());
+                    if lst.len() != 1 {
+                        builtin_stop!(ArityMismatch => "continuation expected 1 argument, found {}", lst.len());
+                    }
+                    let value = lst.first().cloned().unwrap();
 
-                    ctx.ip += 1;
-
-                    None
+                    match ctx.enter_continuation(cc.clone(), value) {
+                        Ok(()) => None,
+                        Err(e) => Some(Err(e)),
+                    }
                 }
                 // TODO: Reuse the allocation for apply
                 SteelVal::FuncV(f) => {
