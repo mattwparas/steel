@@ -300,7 +300,9 @@
     (define predicate-proto-gensym (gensym))
     (define getter-proto-list-gensym (gensym))
     (define struct-prop-name-gensym (gensym))
-    (define struct-key-gensym (gensym))
+    ;; Named so that serializing a function can tell the key from a number.
+    (define struct-key-gensym
+      (string->symbol (string-append "##struct-key" (symbol->string (gensym)))))
 
     `(begin
        (define ,struct-proto-gensym

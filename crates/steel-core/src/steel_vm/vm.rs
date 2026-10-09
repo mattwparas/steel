@@ -1503,30 +1503,22 @@ impl SteelThread {
             });
 
             if let Err(e) = result {
-                while let Some(mut last) = vm_instance.thread.stack_frames.pop() {
-                    // Unwind the stack, close continuation marks here!
-                    // For whatever reason - if we're at the top, we shouldn't go down below 0
-                    if vm_instance.pop_count == 0 {
-                        return Err(e);
-                    }
+                // The frames below belong to whoever called in
+                while vm_instance.pop_count > 0 {
+                    let Some(mut last) = vm_instance.thread.stack_frames.pop() else {
+                        break;
+                    };
 
                     // Drop the pop count along with everything else we're doing
                     vm_instance.pop_count -= 1;
 
-                    if last
-                        .attachments
-                        .as_mut()
-                        .and_then(|x| x.weak_continuation_mark.take())
-                        .is_some()
-                    {
-                        vm_instance.thread.stack.truncate(last.sp as _);
-                        vm_instance.ip = last.ip as _;
-                        vm_instance.sp = vm_instance.get_last_stack_frame_sp();
-
-                        // vm_instance.instructions = Rc::clone(&last.instructions);
-                        vm_instance.instructions = last.instructions.clone();
-                        vm_instance.close_continuation_marks(&last);
-                    }
+                    // A continuation captured in this frame may be kept
+                    let dying = vm_instance
+                        .thread
+                        .stack
+                        .get(last.sp as usize..)
+                        .unwrap_or(&[]);
+                    Continuation::close_marks_on_return(&vm_instance, &last, dying);
 
                     if let Some(handler) = last.attachments.as_mut().and_then(|x| x.handler.take())
                     {
@@ -1539,20 +1531,6 @@ impl SteelThread {
                         // Somehow update the main instruction group to _just_ be the new group
                         match handler {
                             SteelVal::Closure(closure) => {
-                                if vm_instance.thread.stack_frames.is_empty() {
-                                    vm_instance.sp = last.sp as _;
-
-                                    // Push on a dummy stack frame if we're at the top
-                                    vm_instance.thread.stack_frames.push(StackFrame::new(
-                                        last.sp as _,
-                                        Gc::clone(&closure),
-                                        0,
-                                        RootedInstructions::new(
-                                            THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone()),
-                                        ),
-                                    ));
-                                }
-
                                 vm_instance.sp = last.sp as _;
                                 vm_instance.instructions = closure.body_exp();
 
@@ -2455,33 +2433,18 @@ impl<'a> VmCore<'a> {
                 .map_err(|error| error.with_stack_trace(self.snapshot_stack_trace()));
 
             if let Err(e) = result {
-                while let Some(mut last) = self.thread.stack_frames.pop() {
-                    // Unwind the stack, close continuation marks here!
-                    // For whatever reason - if we're at the top, we shouldn't go down below 0
-                    if self.pop_count == 0 {
-                        return Err(e);
-                    }
+                // The frames below belong to whoever called in
+                while self.pop_count > 0 {
+                    let Some(mut last) = self.thread.stack_frames.pop() else {
+                        break;
+                    };
 
                     // Drop the pop count along with everything else we're doing
                     self.pop_count -= 1;
 
-                    // if last.weak_continuation_mark.is_some() {
-
-                    if last
-                        .attachments
-                        .as_mut()
-                        .and_then(|x| x.weak_continuation_mark.take())
-                        .is_some()
-                    {
-                        self.thread.stack.truncate(last.sp as _);
-                        self.ip = last.ip as _;
-                        self.sp = self.get_last_stack_frame_sp();
-                        // self.instructions = Shared::clone(&last.instructions);
-
-                        self.instructions = last.instructions.clone();
-
-                        self.close_continuation_marks(&last);
-                    }
+                    // A continuation captured in this frame may be kept
+                    let dying = self.thread.stack.get(last.sp as usize..).unwrap_or(&[]);
+                    Continuation::close_marks_on_return(self, &last, dying);
 
                     if let Some(handler) = last.attachments.as_mut().and_then(|x| x.handler.take())
                     {
@@ -2495,20 +2458,6 @@ impl<'a> VmCore<'a> {
                         // Somehow update the main instruction group to _just_ be the new group
                         match handler {
                             SteelVal::Closure(closure) => {
-                                if self.thread.stack_frames.is_empty() {
-                                    self.sp = last.sp as _;
-
-                                    // Push on a dummy stack frame if we're at the top
-                                    self.thread.stack_frames.push(StackFrame::new(
-                                        last.sp as _,
-                                        Gc::clone(&closure),
-                                        0,
-                                        RootedInstructions::new(
-                                            THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone()),
-                                        ),
-                                    ));
-                                }
-
                                 self.sp = last.sp as _;
                                 self.instructions = closure.body_exp();
 

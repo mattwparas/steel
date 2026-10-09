@@ -19,6 +19,15 @@ const WANTED: &[&str] = &[
     "counted-down-until-equal",
     "counted-down-by-seven",
     "counted-below-a-constant",
+    "counted-through-a-vector",
+    "counted-fill-a-vector",
+    "counted-unrolled-up-below",
+    "counted-unrolled-up-through",
+    "counted-unrolled-until-equal",
+    "counted-unrolled-by-three",
+    "counted-unrolled-down",
+    "counted-unrolled-down-until-equal",
+    "counted-unrolled-through-a-vector",
 ];
 
 fn missing() -> Vec<&'static str> {

@@ -448,6 +448,14 @@ impl<'a> FunctionTranslator<'a> {
         };
         let vector = operand.value;
 
+        if let Some(length) = self.counted_loop_length() {
+            let res = self.encode_value(SteelVal::INT_TAG as _, length);
+            self.release_borrowed(operand);
+            self.push(res, InferredType::Int);
+            self.ip += 1;
+            return;
+        }
+
         let fallback = move |ctx: &mut Self| {
             let vector = ctx.materialize(operand);
             let res = ctx.call_helper_unchecked(VECTOR_LENGTH_VALUE, [vector]);
@@ -2504,7 +2512,7 @@ impl<'a> FunctionTranslator<'a> {
         res
     }
 
-    fn heap_vec_len(&mut self, ptr: Value) -> Value {
+    pub(super) fn heap_vec_len(&mut self, ptr: Value) -> Value {
         self.builder.ins().load(
             types::I64,
             MemFlagsData::trusted(),

@@ -1341,6 +1341,11 @@ fn loop_type_seed(
                                     .insert(descriptor);
                             }
                         }
+                        let vector_access = matches!(globals.get(payload), Some(SteelVal::FuncV(f))
+                            if is_vector_length(*f) || is_vector_set(*f));
+                        if let (true, Some(Entry::Slot(k))) = (vector_access, args.first()) {
+                            uses.entry(*k).or_default().vector = true;
+                        }
                         // `null?` is a separate opcode and stays compatible, since
                         // the empty list is a list.
                         let is_type_test = n == 1
@@ -1428,12 +1433,22 @@ fn loop_type_seed(
     seed
 }
 
+fn is_vector_length(f: FunctionSignature) -> bool {
+    f as usize == crate::primitives::vectors::vec_length as *const () as usize
+}
+
+fn is_vector_set(f: FunctionSignature) -> bool {
+    f as usize == steel_mut_vec_set as *const () as usize
+}
+
 /// What a counted loop compares its counter against.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum CountBound {
     Const(i64),
     /// A parameter passed through unchanged.
     Slot(usize),
+    /// The length of the mutable vector in this slot.
+    VectorLength(usize),
 }
 
 /// A loop found by `counted_loop`.
@@ -1453,16 +1468,29 @@ struct CountedLoop {
 /// every one.
 ///
 /// The body has to open with a comparison of a fixnum parameter against a
-/// fixnum constant or another fixnum parameter. One arm exits. The other is
-/// straight line code ending in the only self tail call, which steps the
-/// counter by a constant toward the bound and passes the bound through.
+/// fixnum constant, another fixnum parameter, or the length of a mutable
+/// vector parameter. One arm exits. The other ends in the only self tail
+/// call, which steps the counter by a constant toward the bound and passes
+/// the bound through. It is straight line code, apart from the tests of
+/// trips the inliner unrolled into it.
 fn counted_loop(
     code: &[DenseInstruction],
     arity: u16,
     constants: &ConstantMap,
+    globals: &[SteelVal],
     seed: &[(usize, SpecType)],
 ) -> Option<CountedLoop> {
     let arity = arity as usize;
+    let vector = |slot: usize| {
+        slot < arity
+            && seed
+                .iter()
+                .any(|(seeded, ty)| *seeded == slot && *ty == SpecType::MutableVector)
+    };
+    let primitive_of = |ins: &DenseInstruction| match globals.get(ins.payload_size.to_usize()) {
+        Some(SteelVal::FuncV(f)) if ins.op_code == OpCode::CALLPRIMITIVE => Some(*f),
+        _ => None,
+    };
     let fixnum = |slot: usize| {
         slot < arity
             && seed
@@ -1509,14 +1537,21 @@ fn counted_loop(
     // Both operands are only read, so the test can jump back to the header
     let counter = read_of(code.first()?).filter(|slot| fixnum(*slot))?;
     let second = code.get(1)?;
+    let length_of_second = primitive_of(code.get(2)?).is_some_and(is_vector_length)
+        && matches!(code.get(3)?.op_code, OpCode::FUNC | OpCode::FUNCNOARITY)
+        && code[3].payload_size.to_usize() == 1;
     let bound = match int_of(second) {
         Some(n) => CountBound::Const(n),
+        None if length_of_second => {
+            CountBound::VectorLength(read_of(second).filter(|slot| vector(*slot))?)
+        }
         None => {
             let slot = read_of(second).filter(|slot| fixnum(*slot) && *slot != counter)?;
             CountBound::Slot(slot)
         }
     };
-    let comparison = code.get(2)?;
+    let comparison_at = if length_of_second { 4 } else { 2 };
+    let comparison = code.get(comparison_at)?;
     if comparison.payload_size.to_usize() != 2 {
         return None;
     }
@@ -1528,7 +1563,7 @@ fn counted_loop(
         OpCode::NUMEQUAL => IntCC::Equal,
         _ => return None,
     };
-    let mut test = 3;
+    let mut test = comparison_at + 1;
     while code.get(test)?.op_code == OpCode::PASS {
         test += 1;
     }
@@ -1547,17 +1582,6 @@ fn counted_loop(
         (then_start, true)
     };
 
-    // No jumps into the looping arm
-    let jumps_into_arm = code.iter().any(|ins| {
-        matches!(ins.op_code, OpCode::IF | OpCode::JMP | OpCode::POPJMP) && {
-            let target = ins.payload_size.to_usize();
-            target > arm_start && target <= tail
-        }
-    });
-    if jumps_into_arm {
-        return None;
-    }
-
     #[derive(Clone, Copy, PartialEq)]
     enum Entry {
         Slot(usize),
@@ -1566,19 +1590,30 @@ fn counted_loop(
         Other,
     }
     let mut stack: Vec<Entry> = Vec::new();
+    // What each `let` in the arm binds, which come after the parameters.
+    let mut bound_by_let: Vec<Entry> = Vec::new();
     // Set by an op whose trailing FUNC/FUNCNOARITY only carries metadata.
     let mut skip_meta = false;
 
-    for idx in arm_start..tail {
+    // The unrolled tests whose other arm carries on to the tail call
+    let mut tests_passed_through = Vec::new();
+
+    let mut idx = arm_start;
+    while idx < tail {
         let ins = &code[idx];
         let payload = ins.payload_size.to_usize();
         let meta = std::mem::take(&mut skip_meta);
+        let at = idx;
+        idx += 1;
 
         if let Some(slot) = slot_of(ins) {
             stack.push(if slot < arity {
                 Entry::Slot(slot)
             } else {
-                Entry::Other
+                bound_by_let
+                    .get(slot - arity)
+                    .copied()
+                    .unwrap_or(Entry::Other)
             });
             continue;
         }
@@ -1605,6 +1640,13 @@ fn counted_loop(
                     | (OpCode::ADD, Entry::Int(n), Entry::Slot(slot)) => Entry::Stepped(slot, n),
                     (OpCode::SUB, Entry::Slot(slot), Entry::Int(n)) => {
                         Entry::Stepped(slot, n.checked_neg()?)
+                    }
+                    (OpCode::ADD, Entry::Stepped(slot, step), Entry::Int(n))
+                    | (OpCode::ADD, Entry::Int(n), Entry::Stepped(slot, step)) => {
+                        Entry::Stepped(slot, step.checked_add(n)?)
+                    }
+                    (OpCode::SUB, Entry::Stepped(slot, step), Entry::Int(n)) => {
+                        Entry::Stepped(slot, step.checked_sub(n)?)
                     }
                     _ => Entry::Other,
                 });
@@ -1637,14 +1679,42 @@ fn counted_loop(
             }
 
             OpCode::CALLPRIMITIVE => {
+                // Anything else might change the length within a chunk
+                if matches!(bound, CountBound::VectorLength(_))
+                    && !primitive_of(ins).is_some_and(|f| is_vector_length(f) || is_vector_set(f))
+                {
+                    return None;
+                }
                 let call_arity = code
-                    .get(idx + 1)
+                    .get(at + 1)
                     .filter(|n| matches!(n.op_code, OpCode::FUNC | OpCode::FUNCNOARITY))
                     .map(|n| n.payload_size.to_usize())
                     .filter(|n| *n <= stack.len())?;
                 stack.truncate(stack.len() - call_arity);
                 stack.push(Entry::Other);
                 skip_meta = true;
+            }
+
+            OpCode::POPSINGLE if !stack.is_empty() => {
+                stack.pop();
+            }
+
+            // A trip the inliner unrolled into the body. It binds the next
+            // arguments and tests them again, leaving by the other arm.
+            OpCode::BEGINSCOPE => {}
+            OpCode::LetVar => bound_by_let.push(stack.pop()?),
+            OpCode::IF if payload > tail => {
+                stack.pop()?;
+            }
+            // The leaving arm comes first and jumps past the tail call
+            OpCode::IF if payload > idx => {
+                let leaves = code.get(payload - 1)?;
+                if leaves.op_code != OpCode::JMP || leaves.payload_size.to_usize() <= tail {
+                    return None;
+                }
+                stack.pop()?;
+                tests_passed_through.push(at);
+                idx = payload;
             }
 
             _ => return None,
@@ -1654,11 +1724,24 @@ fn counted_loop(
     if stack.len() != tail_call.payload_size.to_usize() || stack.len() != arity {
         return None;
     }
+
+    // No other jumps into the looping arm
+    let jumps_into_arm = code.iter().enumerate().any(|(at, ins)| {
+        matches!(ins.op_code, OpCode::IF | OpCode::JMP | OpCode::POPJMP)
+            && !tests_passed_through.contains(&at)
+            && {
+                let target = ins.payload_size.to_usize();
+                target > arm_start && target <= tail
+            }
+    });
+    if jumps_into_arm {
+        return None;
+    }
     let step = match stack[counter] {
         Entry::Stepped(slot, step) if slot == counter && step != 0 => step,
         _ => return None,
     };
-    if let CountBound::Slot(slot) = bound {
+    if let CountBound::Slot(slot) | CountBound::VectorLength(slot) = bound {
         if stack[slot] != Entry::Slot(slot) {
             return None;
         }
@@ -1674,7 +1757,9 @@ fn counted_loop(
     let toward_bound = match while_cc {
         IntCC::SignedLessThan | IntCC::SignedLessThanOrEqual => step > 0,
         IntCC::SignedGreaterThan | IntCC::SignedGreaterThanOrEqual => step < 0,
-        IntCC::NotEqual => step == 1 || step == -1,
+        // The counter has to land on the bound, which `enter_counted_loop`
+        // checks for a step of two
+        IntCC::NotEqual => matches!(step, 1 | -1 | 2 | -2),
         _ => false,
     };
     if !toward_bound {
@@ -1697,6 +1782,8 @@ struct StripMine {
     poll_header: Block,
     /// Where the current chunk ends.
     limit: Variable,
+    /// The vector's length when the chunk began, for a loop bounded by one.
+    length: Option<Variable>,
     /// Whether the loop's test was rewritten against `limit`.
     applied: bool,
 }
@@ -3075,7 +3162,7 @@ impl JIT {
                     && !trans.cursors_on
                     && !trans.use_lbbv =>
             {
-                counted_loop(bytecode, arity, constants, seed)
+                counted_loop(bytecode, arity, constants, globals, seed)
             }
             _ => None,
         };
@@ -6129,10 +6216,26 @@ impl FunctionTranslator<'_> {
         let trips = crate::config::config()
             .jit_strip_mine
             .min(i32::MAX as usize) as i64;
+        let pace = plan.step.saturating_abs();
         let reach = self
             .builder
             .ins()
-            .iconst(types::I64, trips.saturating_mul(plan.step.saturating_abs()));
+            .iconst(types::I64, trips.saturating_mul(pace));
+        let (reach, length) = match plan.bound {
+            // Another thread can shorten the vector, so with one running the
+            // length is read again on every trip.
+            CountBound::VectorLength(_) => {
+                let alone = self.single_threaded();
+                let one_trip = self.builder.ins().iconst(types::I64, pace);
+                let length = self.builder.declare_var(types::I64);
+                self.builder.def_var(length, bound);
+                (
+                    self.builder.ins().select(alone, reach, one_trip),
+                    Some(length),
+                )
+            }
+            _ => (reach, None),
+        };
         let rising = plan.step > 0;
         let (far, overflowed) = if rising {
             self.builder.ins().sadd_overflow(counter, reach)
@@ -6162,6 +6265,14 @@ impl FunctionTranslator<'_> {
                 let not_passed = self.builder.ins().icmp(behind, bound, counter);
                 let in_reach = self.builder.ins().icmp(ahead, bound, far);
                 let met = self.builder.ins().band(not_passed, in_reach);
+                let met = if pace == 2 {
+                    let apart = self.builder.ins().isub(bound, counter);
+                    let odd = self.builder.ins().band_imm_s(apart, 1);
+                    let landed_on = self.builder.ins().icmp_imm_s(IntCC::Equal, odd, 0);
+                    self.builder.ins().band(met, landed_on)
+                } else {
+                    met
+                };
                 self.builder.ins().select(met, bound, far)
             }
             _ if rising => self.builder.ins().smin(bound, far),
@@ -6173,6 +6284,7 @@ impl FunctionTranslator<'_> {
             plan,
             poll_header,
             limit,
+            length,
             applied: false,
         });
     }
@@ -6181,7 +6293,24 @@ impl FunctionTranslator<'_> {
         match plan.bound {
             CountBound::Const(n) => self.builder.ins().iconst(types::I64, n),
             CountBound::Slot(slot) => self.read_from_vm_stack_unboxed(slot),
+            CountBound::VectorLength(slot) => {
+                let vector = self.read_from_vm_stack(slot);
+                let ptr = self.unbox_value_to_pointer(vector);
+                self.heap_vec_len(ptr)
+            }
         }
+    }
+
+    /// The length a counted loop's chunk began with, if this is the
+    /// `vector-length` its test opens with.
+    fn counted_loop_length(&mut self) -> Option<Value> {
+        let strip = self.strip.as_ref()?;
+        // The call's arity word
+        if strip.applied || self.ip != 3 {
+            return None;
+        }
+        let length = strip.length?;
+        Some(self.builder.use_var(length))
     }
 
     /// Emits the branch for a counted loop's test against the chunk limit.
@@ -6204,6 +6333,7 @@ impl FunctionTranslator<'_> {
             return false;
         }
         let (plan, poll_header, limit) = (strip.plan, strip.poll_header, strip.limit);
+        let length = strip.length;
 
         let (again, leave) = if plan.loops_when_true {
             (then_block, else_block)
@@ -6225,9 +6355,38 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(at_end);
         let bound = self.counted_loop_bound(&plan);
         let goes_on = self.builder.ins().icmp(plan.while_cc, counter, bound);
-        self.builder
-            .ins()
-            .brif(goes_on, poll_header, &[], leave, &[]);
+        match length {
+            None => {
+                self.builder
+                    .ins()
+                    .brif(goes_on, poll_header, &[], leave, &[]);
+            }
+            // With another thread running every chunk is one trip, so
+            // start the next one here.
+            Some(length) => {
+                let next = self.builder.create_block();
+                let one_trip = self.builder.create_block();
+                self.builder.ins().brif(goes_on, next, &[], leave, &[]);
+
+                self.builder.switch_to_block(next);
+                self.builder.seal_block(next);
+                let alone = self.single_threaded();
+                self.builder
+                    .ins()
+                    .brif(alone, poll_header, &[], one_trip, &[]);
+
+                self.builder.switch_to_block(one_trip);
+                self.builder.seal_block(one_trip);
+                self.emit_check_in_poll();
+                let far = self.builder.ins().iadd_imm_s(counter, plan.step);
+                self.builder.def_var(limit, far);
+                self.builder.def_var(length, bound);
+                // Not straight to the body, which would then have two ways
+                // in and reload what the test already read
+                let top = self.fake_entry_block.unwrap_or(poll_header);
+                self.builder.ins().jump(top, &[]);
+            }
+        }
 
         if let Some(strip) = self.strip.as_mut() {
             strip.applied = true;

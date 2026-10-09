@@ -69,6 +69,37 @@ pub(crate) struct SendableVTableEntry {
     pub(crate) proc: Option<usize>,
     pub(crate) transparent: bool,
     pub(crate) mutable: bool,
+    // How many fields it has and what they are called, where known. Whoever
+    // reads this checks them against the struct type it has by this name.
+    pub(crate) field_count: Option<usize>,
+    pub(crate) fields: Option<Vec<String>>,
+}
+
+/// How the instances of a struct type are laid out.
+pub(crate) struct StructShape {
+    pub(crate) mutable: bool,
+    pub(crate) field_count: Option<usize>,
+    pub(crate) fields: Option<Vec<String>>,
+}
+
+impl StructShape {
+    fn new(entry: &VTableEntry, fields: Option<&SteelVal>, field_count: Option<usize>) -> Self {
+        let fields = match fields {
+            Some(SteelVal::ListV(names)) => names
+                .iter()
+                .map(|name| match name {
+                    SteelVal::SymbolV(name) | SteelVal::StringV(name) => Some(name.to_string()),
+                    _ => None,
+                })
+                .collect(),
+            _ => None,
+        };
+        StructShape {
+            mutable: entry.mutable,
+            field_count,
+            fields,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -157,7 +188,7 @@ impl StructTypeDescriptor {
     }
 
     #[cfg(not(feature = "sync"))]
-    fn name(&self) -> InternedString {
+    pub(crate) fn name(&self) -> InternedString {
         VTABLE.with(|x| x.borrow().entries[self.0].name)
     }
 
@@ -1492,7 +1523,7 @@ pub fn fetch_from_type_map(
         StructFunctionType::Constructor => Some(payload.constructor.clone()),
         StructFunctionType::Predicate => Some(payload.predicate.clone()),
         StructFunctionType::GetterProto => Some(payload.getter_prototype.clone()),
-        StructFunctionType::GetterProtoVec(index) => Some(payload.getter_prototypes[index].clone()),
+        StructFunctionType::GetterProtoVec(index) => payload.getter_prototypes.get(index).cloned(),
     }
 }
 
@@ -1513,7 +1544,7 @@ pub fn fetch_from_type_map(
             StructFunctionType::Predicate => Some(payload.predicate.clone()),
             StructFunctionType::GetterProto => Some(payload.getter_prototype.clone()),
             StructFunctionType::GetterProtoVec(index) => {
-                Some(payload.getter_prototypes[index].clone())
+                payload.getter_prototypes.get(index).cloned()
             }
         }
     })
@@ -1694,6 +1725,35 @@ impl VTable {
         VTABLE.with(|x| x.borrow().map.get(name).cloned())
     }
 
+    /// How instances of the struct type are laid out, if there is such a
+    /// type.
+    #[cfg(feature = "sync")]
+    pub(crate) fn shape(descriptor: StructTypeDescriptor) -> Option<StructShape> {
+        let field_count = STRUCT_MAP
+            .lock()
+            .get(&descriptor)
+            .map(|payload| payload.getter_prototypes.len());
+        let guard = STATIC_VTABLE.read();
+        let entry = guard.entries.get(descriptor.0)?;
+        Some(StructShape::new(
+            entry,
+            entry.properties.get(&STATIC_FIELDS_KEY),
+            field_count,
+        ))
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub(crate) fn shape(descriptor: StructTypeDescriptor) -> Option<StructShape> {
+        let field_count =
+            STRUCT_MAP.with_borrow(|map| map.get(&descriptor).map(|x| x.getter_prototypes.len()));
+        VTABLE.with(|x| {
+            let guard = x.borrow();
+            let entry = guard.entries.get(descriptor.0)?;
+            let fields = FIELDS_KEY.with(|key| entry.properties.get(key).cloned());
+            Some(StructShape::new(entry, fields.as_ref(), field_count))
+        })
+    }
+
     /// Whether `descriptor` is a struct type with the name and module of
     /// `entry`.
     #[cfg(feature = "sync")]
@@ -1751,20 +1811,25 @@ impl VTable {
         _ctx: &mut SerializationContext,
         reachable_structs: FxHashSet<StructTypeDescriptor>,
     ) -> Result<Vec<SendableVTableEntry>> {
-        STATIC_VTABLE
-            .read()
-            .entries
-            .iter()
-            .enumerate()
-            .filter(|(idx, _)| reachable_structs.contains(&StructTypeDescriptor(*idx)))
-            .map(|(idx, entry)| {
+        let mut reachable_structs: Vec<_> = reachable_structs.into_iter().collect();
+        reachable_structs.sort();
+        reachable_structs
+            .into_iter()
+            .map(|desc| {
+                let Some(shape) = Self::shape(desc) else {
+                    stop!(Generic => "a struct was found whose struct type is not known");
+                };
+                let guard = STATIC_VTABLE.read();
+                let entry = &guard.entries[desc.0];
                 Ok(SendableVTableEntry {
-                    desc: StructTypeDescriptor(idx),
+                    desc,
                     module: entry.module.as_ref().map(|x| x.as_str().to_owned()),
                     name: entry.name,
                     proc: entry.proc,
                     transparent: entry.transparent,
                     mutable: entry.mutable,
+                    field_count: shape.field_count,
+                    fields: shape.fields,
                     // Whoever reads this has to have the struct type
                     // already, and finds it by name. Its properties stay
                     // behind: a printer, say, is a function that would take
@@ -1794,6 +1859,10 @@ impl VTable {
                         proc: entry.proc,
                         transparent: entry.transparent,
                         mutable: entry.mutable,
+                        field_count: Self::shape(StructTypeDescriptor(idx))
+                            .and_then(|shape| shape.field_count),
+                        fields: Self::shape(StructTypeDescriptor(idx))
+                            .and_then(|shape| shape.fields),
                         properties: entry
                             .properties
                             .iter()

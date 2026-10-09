@@ -261,6 +261,156 @@ pub struct SerializedLambda {
     pub constants: HashMap<usize, crate::rvals::SerializedId>,
 }
 
+/// What the number an instruction carries refers to, where that is
+/// something a function has to have with it when it is sent, or a place in
+/// the function.
+pub(crate) enum Operand {
+    // The index of a global.
+    Global,
+    // The index of a constant.
+    Constant,
+    // The index of the instruction to go on from.
+    Jump,
+    // How far on the function this makes ends.
+    Closure,
+    // The index of something the function closes over.
+    Captured,
+    Other,
+}
+
+impl Operand {
+    pub(crate) fn of(op_code: OpCode) -> Operand {
+        match op_code {
+            OpCode::PUSH
+            | OpCode::SET
+            | OpCode::BIND
+            | OpCode::CALLGLOBAL
+            | OpCode::CALLGLOBALTAIL
+            | OpCode::CALLGLOBALNOARITY
+            | OpCode::CALLGLOBALTAILNOARITY
+            | OpCode::CALLPRIMITIVE
+            | OpCode::CALLPRIMITIVETAIL => Operand::Global,
+            OpCode::PUSHCONST | OpCode::EQUALCONST => Operand::Constant,
+            OpCode::IF | OpCode::JMP => Operand::Jump,
+            OpCode::NEWSCLOSURE | OpCode::PUREFUNC => Operand::Closure,
+            OpCode::READCAPTURED => Operand::Captured,
+            _ => Operand::Other,
+        }
+    }
+}
+
+impl SerializedLambda {
+    /// Checks that the body hangs together: that it refers to constants it
+    /// was sent with and captures it has, that jumps land inside it, and
+    /// that the functions it makes are laid out as the interpreter reads
+    /// them. A body that came from bytes can be anything.
+    ///
+    /// This is not a verifier. What an instruction finds on the stack when
+    /// it runs, and so every index of a local, is not checked.
+    pub(crate) fn validate(&self) -> Result<(), SteelErr> {
+        fn malformed() -> SteelErr {
+            SteelErr::new(
+                crate::rerrs::ErrorKind::Generic,
+                "a function was sent whose body is malformed".to_string(),
+            )
+        }
+
+        let body = &self.body_exp;
+        if body.is_empty() || self.arity > u16::MAX as usize {
+            return Err(malformed());
+        }
+
+        // The functions being made around the instruction at hand, from the
+        // outside in: where the body starts and ends, and how many values
+        // it closes over.
+        let mut scopes = vec![(0, body.len(), self.captures.len())];
+        let mut idx = 0;
+
+        while idx < body.len() {
+            let instr = body[idx];
+            let (start, end, captures) = *scopes.last().ok_or_else(malformed)?;
+            let payload = instr.payload_size.to_usize();
+
+            match instr.op_code {
+                OpCode::ECLOSURE => {
+                    if scopes.len() == 1 || idx != end {
+                        return Err(malformed());
+                    }
+                    scopes.pop();
+                }
+                // Left in place of the first instruction by the compiler to
+                // native code. A function is sent as it was before that.
+                OpCode::DynSuperInstruction => return Err(malformed()),
+                _ => {}
+            }
+
+            match Operand::of(instr.op_code) {
+                Operand::Jump if payload >= end - start => return Err(malformed()),
+                Operand::Captured if payload >= captures => return Err(malformed()),
+                Operand::Constant if !self.constants.contains_key(&payload) => {
+                    return Err(malformed())
+                }
+                // A call is followed by how many arguments it passes.
+                Operand::Global
+                    if !matches!(instr.op_code, OpCode::PUSH | OpCode::SET | OpCode::BIND)
+                        && idx + 1 >= end =>
+                {
+                    return Err(malformed())
+                }
+                Operand::Closure => {
+                    // Whether it takes a rest argument, its id, and for one
+                    // that closes over something how many values and where
+                    // each is found. The body follows, and ends where the
+                    // number carried says.
+                    let last = idx.checked_add(payload).filter(|last| *last < end);
+                    let Some(last) = last else {
+                        return Err(malformed());
+                    };
+                    let mut body_start = idx + 3;
+                    let mut closes_over = 0;
+                    if instr.op_code == OpCode::NEWSCLOSURE {
+                        closes_over = body
+                            .get(idx + 3)
+                            .filter(|_| idx + 3 < last)
+                            .ok_or_else(malformed)?
+                            .payload_size
+                            .to_usize();
+                        body_start = (idx + 4)
+                            .checked_add(closes_over)
+                            .filter(|start| *start <= last)
+                            .ok_or_else(malformed)?;
+                        for capture in &body[idx + 4..body_start] {
+                            let from_enclosing = matches!(
+                                capture.op_code,
+                                OpCode::COPYCAPTURECLOSURE
+                                    | OpCode::COPYHEAPCAPTURECLOSURE
+                                    | OpCode::FIRSTCOPYHEAPCAPTURECLOSURE
+                            );
+                            if from_enclosing && capture.payload_size.to_usize() >= captures {
+                                return Err(malformed());
+                            }
+                        }
+                    }
+                    if body_start >= last || body[last].op_code != OpCode::ECLOSURE {
+                        return Err(malformed());
+                    }
+                    scopes.push((body_start, last, closes_over));
+                    idx = body_start;
+                    continue;
+                }
+                _ => {}
+            }
+
+            idx += 1;
+        }
+
+        if scopes.len() != 1 {
+            return Err(malformed());
+        }
+        Ok(())
+    }
+}
+
 // The instruction slice a frame is currently executing.
 //
 // Under rooted-instructions this is a raw pointer and a length, and the caller
@@ -425,37 +575,50 @@ impl ByteCodeLambda {
         heap: &mut HeapSerializer,
         value: &SerializedLambda,
     ) -> Result<Self, SteelErr> {
-        // Map the old to the new
-        let id = fresh_function_id();
-        heap.function_mapping.insert(value.id, id as _);
+        value.validate()?;
+
+        let id = heap.function_id_here(value.id);
 
         let mut new_body = Vec::with_capacity(value.body_exp.len());
-        let mut closures_to_rewrite = Vec::new();
+        // Where the ids of the functions made inside this one go.
+        let mut closure_ids = Vec::new();
+        // Whether the instruction before was a call that has been given
+        // back its arity check, which this one then is part of.
+        let mut checked = false;
 
         for (idx, instr) in value.body_exp.iter().enumerate() {
             let mut instr = *instr;
 
-            // TODO: Rewrite the closures these reference as well.
-            // If there is an SCLOSURE or something, then a new closure
-            // will get created (or maybe, was already created) that pointed
-            // to the old one?
-            match instr.op_code {
-                // If this instruction touches this global variable,
-                // then we want to mark it as possibly referenced here.
-                OpCode::CALLGLOBAL
-                | OpCode::CALLPRIMITIVE
-                | OpCode::PUSH
-                | OpCode::CALLGLOBALTAIL
-                | OpCode::CALLGLOBALNOARITY
-                | OpCode::CALLGLOBALTAILNOARITY => {
-                    let Some(index) = heap.global_mapping.get(&instr.payload_size.to_usize())
-                    else {
-                        stop!(Generic => "a function was sent without a global it refers to");
-                    };
-                    instr.payload_size = u24::from_usize(*index);
+            if core::mem::take(&mut checked) {
+                instr.op_code = match instr.op_code {
+                    OpCode::FUNCNOARITY => OpCode::FUNC,
+                    OpCode::TAILCALLNOARITY => OpCode::TAILCALL,
+                    op => op,
+                };
+            }
+
+            match Operand::of(instr.op_code) {
+                Operand::Global => {
+                    let global = heap.global_here(instr.payload_size.to_usize())?;
+                    if global.index >= 1 << 24 {
+                        stop!(Generic => "there are too many globals here to add what a function refers to");
+                    }
+                    instr.payload_size = u24::from_usize(global.index);
+
+                    // The sender compiled these calls against a function it
+                    // knew the arity of. If the one here is not known to be
+                    // that function, the call has to check.
+                    if !global.as_sent {
+                        instr.op_code = match instr.op_code {
+                            OpCode::CALLGLOBALNOARITY => OpCode::CALLGLOBAL,
+                            OpCode::CALLGLOBALTAILNOARITY => OpCode::CALLGLOBALTAIL,
+                            op => op,
+                        };
+                        checked = true;
+                    }
                 }
 
-                OpCode::PUSHCONST => {
+                Operand::Constant => {
                     let old_index = instr.payload_size.to_usize();
                     let Some(constant) = value.constants.get(&old_index) else {
                         stop!(Generic => "a function was sent without a constant it refers to");
@@ -467,36 +630,39 @@ impl ByteCodeLambda {
                         .write()
                         .constant_map
                         .add_or_get(deserialized_constant);
+                    if new_index >= 1 << 24 {
+                        stop!(Generic => "there are too many constants here to add what a function refers to");
+                    }
                     instr.payload_size = u24::from_usize(new_index);
                 }
 
-                // TODO: Find the ip of the closure, and then go allocate a _new_ closure
-                // for this one, since the values are going to now be rewritten.
-                OpCode::NEWSCLOSURE => {
-                    // closure IP
-                    let Some(closure_id) = value.body_exp.get(idx + 2) else {
-                        stop!(Generic => "a function was sent with its body cut short");
-                    };
-                    let closure_id = closure_id.payload_size.to_u32();
-
-                    if let Some(old) = heap.function_mapping.get(&closure_id) {
-                        closures_to_rewrite.push((idx + 2, *old));
+                // The function this makes is found by its id once it has
+                // been made, so it is given one that nothing here has.
+                Operand::Closure => {
+                    let closure_id = value.body_exp[idx + 2].payload_size.to_u32();
+                    let here = if instr.op_code == OpCode::NEWSCLOSURE {
+                        heap.fresh_function_id_for(closure_id)
                     } else {
-                        closures_to_rewrite.push((idx + 2, fresh_function_id() as _));
+                        heap.function_id_here(closure_id)
+                    };
+                    if here >= 1 << 24 {
+                        stop!(Generic => "there are too many functions here to add another");
                     }
+                    closure_ids.push((idx + 2, here));
                 }
-                _ => {}
+
+                Operand::Jump | Operand::Captured | Operand::Other => {}
             }
 
             new_body.push(instr);
         }
 
-        for (idx, id) in closures_to_rewrite {
+        for (idx, id) in closure_ids {
             new_body[idx].payload_size = u24::from_u32(id);
         }
 
         Ok(ByteCodeLambda::new(
-            value.id,
+            id,
             new_body.into(),
             value.arity,
             value.is_multi_arity,

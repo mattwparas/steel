@@ -507,3 +507,372 @@ fn very_deep_values_cross_engines() {
     send(&mut from, &mut to, "(lists-in-lists 300000 'end)").unwrap();
     assert!(holds(&mut to, "(= (down-lists received 0) 300000)"));
 }
+
+/// The bytes `expression` serializes to in `from`.
+fn bytes_of(from: &mut Engine, expression: &str) -> Result<Vec<u8>, String> {
+    let bytes = from
+        .run(format!(
+            "(serialized->bytes (serialize-value {}))",
+            expression
+        ))
+        .map(last)
+        .map_err(|e| e.to_string())?;
+    match bytes {
+        SteelVal::ByteVector(bytes) => Ok(bytes.vec.read().to_vec()),
+        other => Err(format!("not bytes: {}", other)),
+    }
+}
+
+/// Binds what `to` reads of `bytes` to `received` there.
+fn read(to: &mut Engine, bytes: Vec<u8>) -> Result<(), String> {
+    to.register_value(
+        "incoming-bytes",
+        SteelVal::ByteVector(crate::rvals::SteelByteVector::new(bytes)),
+    );
+    to.run("(define received (deserialize-value (bytes->serialized incoming-bytes)))")
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// What `send` does, with the bytes marked as written by another process.
+/// The mark follows the byte the format is named by. Whoever reads them
+/// then trusts none of what only means something in one process: function
+/// ids, and the names that a compiler or `gensym` made up.
+fn send_from_elsewhere(from: &mut Engine, to: &mut Engine, expression: &str) -> Result<(), String> {
+    let mut bytes = bytes_of(from, expression)?;
+    bytes[1] ^= 0xFF;
+    read(to, bytes)
+}
+
+type Send = fn(&mut Engine, &mut Engine, &str) -> Result<(), String>;
+
+const WAYS: [(&str, Send); 2] = [
+    ("one process", send),
+    ("another process", send_from_elsewhere),
+];
+
+/// Calls `(received argument)` often enough that it is compiled, and checks
+/// that it goes on giving `expected`.
+fn keeps_giving(engine: &mut Engine, argument: &str, expected: &str) -> bool {
+    holds(
+        engine,
+        &format!(
+            "(let loop ([i 0])
+               (cond [(= i 3000) #t]
+                     [(equal? (with-handler (lambda (e) 'raised) (received {argument})) {expected}) (loop (+ i 1))]
+                     [else #f]))"
+        ),
+    )
+}
+
+#[test]
+fn functions_run_where_their_constants_and_helpers_have_never_been() {
+    for (way, send) in WAYS {
+        let mut from = engine();
+        from.run(
+            "(define offset 100)
+             (define (describe x)
+               (list x \"a string made up for this test\" 'a-symbol-made-up-for-this-test 2.5
+                     '(1 \"two\" three) (immutable-vector 1 2)))
+             (define (sum-to n)
+               (let loop ([i 0] [acc 0]) (if (> i n) acc (loop (+ i 1) (+ acc i)))))
+             (define (classify n)
+               (cond [(< n 0) 'negative] [(= n 0) 'zero] [(even? n) 'even] [else 'odd]))
+             (define (adders ns) (map (lambda (n) (lambda (m) (+ n m offset))) ns))
+             (define (apply-all ns) (map (lambda (f) (f 1)) (adders ns)))
+             (define (count-args . args) (length args))
+             (define (nested x)
+               (let ([inner (lambda (y) (if (> y 0) (string-append \"positive-\" (number->string y)) \"not\"))])
+                 (list (inner x) (inner (- x)))))",
+        )
+        .unwrap();
+
+        // An engine that has compiled other things first, so that nothing
+        // it numbers lines up with the sender.
+        let mut to = Engine::new();
+        to.run(
+            "(define padding-a \"a constant only this end has\")
+             (define (padding-b x) (let loop ([i 0]) (if (< i x) (loop (+ i 1)) 'padding)))
+             (define padding-c (list (lambda (x) x) (lambda (x y) y)))",
+        )
+        .unwrap();
+        to.run(SHARED).unwrap();
+
+        for (expression, argument, expected) in [
+            (
+                "describe",
+                "7",
+                "(list 7 \"a string made up for this test\" 'a-symbol-made-up-for-this-test 2.5
+                       '(1 \"two\" three) (immutable-vector 1 2))",
+            ),
+            ("sum-to", "100", "5050"),
+            ("classify", "-3", "'negative"),
+            ("classify", "0", "'zero"),
+            ("classify", "7", "'odd"),
+            ("apply-all", "(list 1 2)", "(list 102 103)"),
+            ("count-args", "1", "1"),
+            ("nested", "3", "(list \"positive-3\" \"not\")"),
+            ("(car (adders (list 5)))", "1", "106"),
+            (
+                "(lambda (n) (let ([p (point n (counter n))]) (list (point-x p) (counter-n (point-y p)))))",
+                "4",
+                "(list 4 4)",
+            ),
+        ] {
+            // Twice, since the second time what the first left is here.
+            for _ in 0..2 {
+                send(&mut from, &mut to, expression)
+                    .unwrap_or_else(|e| panic!("{}: sending `{}` failed: {}", way, expression, e));
+                assert!(
+                    keeps_giving(&mut to, argument, expected),
+                    "{}: `({} {})` is not `{}`",
+                    way,
+                    expression,
+                    argument,
+                    expected
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn struct_types_laid_out_differently_are_refused() {
+    for (way, send) in WAYS {
+        let mut from = engine();
+
+        let mut to = Engine::new();
+        to.run(
+            "(struct point (x y z) #:transparent)
+             (struct counter (n))
+             (struct record (name items other) #:mutable #:transparent)",
+        )
+        .unwrap();
+
+        for (expression, reason) in [
+            ("(point 1 2)", "fields"),
+            ("(list 1 (box (point 1 2)))", "fields"),
+            ("point", "fields"),
+            ("point-x", "fields"),
+            ("point?", "fields"),
+            ("(counter 1)", "mutable"),
+            ("counter", "mutable"),
+            ("counter-n", "mutable"),
+            ("set-counter-n!", "mutable"),
+            ("(record 1 2 3)", "fields"),
+            ("record-extra", "fields"),
+        ] {
+            match send(&mut from, &mut to, expression) {
+                Ok(()) => panic!("{}: `{}` was read", way, expression),
+                Err(e) => assert!(
+                    e.contains(reason),
+                    "{}: `{}` was refused with `{}`",
+                    way,
+                    expression,
+                    e
+                ),
+            }
+        }
+
+        // Nothing was left half defined.
+        assert!(holds(&mut to, "(= 3 (point-z (point 1 2 3)))"));
+    }
+}
+
+#[test]
+fn mutable_struct_functions_find_their_type_where_they_are_read() {
+    for (way, send) in WAYS {
+        let mut from = engine();
+
+        // The same struct types, numbered differently.
+        let mut to = Engine::new();
+        to.run(
+            "(struct filler-a (x) #:mutable)
+             (struct filler-b (x y z w))
+             (struct filler-c (x y z) #:mutable)",
+        )
+        .unwrap();
+        to.run(SHARED).unwrap();
+
+        for (expression, check) in [
+            ("counter", "(let ([c (received 5)]) (and (counter? c) (= (counter-n c) 5)))"),
+            ("counter-n", "(= (received (counter 7)) 7)"),
+            (
+                "set-counter-n!",
+                "(let ([c (counter 1)]) (received c 9) (= (counter-n c) 9))",
+            ),
+            (
+                "(lambda (n) (let ([c (counter n)]) (set-counter-n! c (+ 1 (counter-n c))) c))",
+                "(let ([c (received 1)]) (and (counter? c) (not (filler-a? c)) (= (counter-n c) 2)))",
+            ),
+            (
+                "record",
+                "(let ([r (received 1 2 3)]) (and (record? r) (= (record-extra r) 3)))",
+            ),
+            ("record-items", "(= (received (record 1 2 3)) 2)"),
+        ] {
+            for _ in 0..2 {
+                send(&mut from, &mut to, expression)
+                    .unwrap_or_else(|e| panic!("{}: sending `{}` failed: {}", way, expression, e));
+                assert!(holds(&mut to, check), "{}: `{}` and `{}`", way, expression, check);
+            }
+        }
+
+        // Compiled, too.
+        send(&mut from, &mut to, "(lambda (n) (counter-n (counter n)))").unwrap();
+        assert!(keeps_giving(&mut to, "4", "4"), "{}", way);
+    }
+}
+
+const HELPERS: &str = "arity/helpers.scm";
+
+fn with_module(name: &str, source: &str) -> Engine {
+    let mut engine = engine();
+    engine.register_steel_module(name.to_owned(), source.to_owned());
+    engine
+        .run(format!("(require \"{}\")", name))
+        .expect("the module loads");
+    engine
+}
+
+#[test]
+fn calls_check_the_arity_of_the_function_they_find() {
+    // The sender compiles the call to `helper` without an arity check,
+    // since it can see `helper`.
+    let there = "(provide run)
+                 (define (helper a b) (if (= a 0) b (helper (- a 1) (+ b 1))))
+                 (define (run x) (+ 1 (helper x 1)))";
+    // Whoever reads it has a module of that name with another `helper`.
+    let here = "(provide run-here)
+                (define (helper a b c d) (if (= a -1) (helper a b c d) (list a b c d)))
+                (define (run-here x) (helper x 2 3 4))";
+
+    for (way, send) in WAYS {
+        let mut from = with_module(HELPERS, there);
+
+        let mut to = with_module(HELPERS, here);
+        send(&mut from, &mut to, "run")
+            .unwrap_or_else(|e| panic!("{}: sending failed: {}", way, e));
+        assert!(keeps_giving(&mut to, "5", "'raised"), "{}", way);
+        assert!(holds(&mut to, "(equal? (run-here 1) (list 1 2 3 4))"));
+
+        // One with the same module uses its own `helper`.
+        let mut to = with_module(HELPERS, there);
+        send(&mut from, &mut to, "run").unwrap();
+        assert!(keeps_giving(&mut to, "5", "7"), "{}", way);
+
+        // And one without the module is sent `helper`.
+        let mut to = engine();
+        send(&mut from, &mut to, "run").unwrap();
+        assert!(keeps_giving(&mut to, "5", "7"), "{}", way);
+    }
+}
+
+#[test]
+fn a_module_that_is_here_keeps_its_own_state() {
+    let counter = "(provide bump! current)
+                   (define count 0)
+                   (define (bump!) (set! count (+ count 1)) count)
+                   (define (current) count)";
+
+    for (way, send) in WAYS {
+        let mut from = with_module("state/counter.scm", counter);
+        from.run("(bump!) (bump!) (bump!)").unwrap();
+
+        // Its globals are numbered differently.
+        let mut to = Engine::new();
+        to.run("(define padding-a 1) (define padding-b 2) (define (padding-c) 3)")
+            .unwrap();
+        to.register_steel_module("state/counter.scm".to_owned(), counter.to_owned());
+        to.run("(require \"state/counter.scm\")").unwrap();
+
+        send(&mut from, &mut to, "bump!")
+            .unwrap_or_else(|e| panic!("{}: sending failed: {}", way, e));
+        assert!(
+            holds(
+                &mut to,
+                "(and (= (received) 1) (= (received) 2) (= (current) 2))"
+            ),
+            "{}",
+            way
+        );
+        assert!(holds(&mut from, "(= (current) 3)"), "{}", way);
+        assert!(holds(
+            &mut to,
+            "(and (= padding-a 1) (= padding-b 2) (= (padding-c) 3))"
+        ));
+
+        // Without the module, the function brings the state it had.
+        let mut to = engine();
+        send(&mut from, &mut to, "bump!").unwrap();
+        assert!(
+            holds(&mut to, "(and (= (received) 4) (= (received) 5))"),
+            "{}",
+            way
+        );
+    }
+}
+
+#[test]
+fn bytes_that_were_changed_are_read_or_refused() {
+    let mut engine = engine();
+    engine
+        .run(
+            "(define ten 10)
+             (define (add-ten x) (+ x ten))
+             (define (try-reading bs)
+               (with-handler (lambda (e) 'refused)
+                 (begin (deserialize-value (bytes->serialized bs)) 'read)))",
+        )
+        .unwrap();
+    let try_reading = engine.extract_value("try-reading").unwrap();
+
+    let mut random = Random(0xA0761D6478BD642F);
+    let mut read = 0;
+
+    for expression in [
+        "(list 1 \"two\" 'three 4.5 #\\5 (cons 1 2) 1/3 12345678901234567890 (bytes 1 2))",
+        "(let ([b (box #f)]) (set-box! b (list b (mutable-vector 1 b))) b)",
+        "(list (point 1 2) (counter 3) point-x point counter counter-n)",
+        "(let ([n 5]) (lambda (m) (if (> m n) (list (add-ten m) n \"const\" 'sym) (map (lambda (x) (+ x n)) (list m)))))",
+        "(hash 'a (hashset 1 (box 2)) (box 'b) (immutable-vector 1 2) (list (record 1 2 3)) 4)",
+        "(let* ([b (box #f)] [p (cons b 1)]) (set-box! b (cons p 2)) p)",
+    ] {
+        let whole = bytes_of(&mut engine, expression).unwrap();
+
+        for round in 0..rounds() * 10 {
+            let mut bytes = whole.clone();
+            // The first byte names the format, and changing it is always
+            // refused.
+            let at = 1 + random.below(bytes.len() as u64 - 1) as usize;
+            match random.below(6) {
+                0 => bytes.truncate(at),
+                1 => bytes[at] = 0xFF,
+                2 => bytes[at] = 0,
+                3 => bytes[at] = bytes[at].wrapping_add(1),
+                4 => bytes[at] = bytes[at].wrapping_sub(1),
+                _ => bytes[at] ^= 1 << random.below(8),
+            }
+            if bytes.len() > 1 && random.below(4) == 0 {
+                let again = 1 + random.below(bytes.len() as u64 - 1) as usize;
+                bytes[again] ^= 1 << random.below(8);
+            }
+
+            let argument = SteelVal::ByteVector(crate::rvals::SteelByteVector::new(bytes.clone()));
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                engine.call_function_with_args(try_reading.clone(), vec![argument])
+            }));
+            match outcome {
+                Ok(Ok(SteelVal::SymbolV(outcome))) => read += usize::from(outcome.as_str() == "read"),
+                Ok(other) => panic!("`{}` round {}: {:?}", expression, round, other),
+                Err(_) => panic!(
+                    "`{}` round {}: reading panicked on {:?}",
+                    expression, round, bytes
+                ),
+            }
+        }
+    }
+
+    // Some changes leave a value that can be read, or nothing was tried.
+    assert!(read > 0);
+}

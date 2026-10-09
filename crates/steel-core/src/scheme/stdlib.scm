@@ -1220,28 +1220,16 @@
 (define (*shift f)
   (call/cc (lambda (k) (*abort (lambda () (f (lambda (v) (reset (k v)))))))))
 
+;; The handler runs in place of the frame that installed it, and what it
+;; returns is what the form returns.
 (define-syntax with-handler
   (syntax-rules ()
     [(with-handler handler expr)
-     (reset (call-with-exception-handler (lambda (err)
-                                           (define res (handler err))
-                                           ; (shift k (k void))
-
-                                           ; (shift *meta-continuation* (*meta-continuation* void)))
-                                           (shift *meta-continuation*
-                                                  ; ((get-tls *meta-continuation*) void)))
-                                                  (*meta-continuation* res)))
-                                         (lambda () expr)))]
+     (call-with-exception-handler (lambda (err) (handler err)) (lambda () expr))]
     [(with-handler handler expr ...)
-     (reset (call-with-exception-handler (lambda (err)
-                                           (define res (handler err))
-                                           ; (shift k (k void))
-                                           ; (shift *meta-continuation* (*meta-continuation* void)))
-                                           (shift *meta-continuation*
-                                                  ; ((get-tls *meta-continuation*) void)))
-                                                  (*meta-continuation* res)))
-                                         (lambda ()
-                                           expr ...)))]))
+     (call-with-exception-handler (lambda (err) (handler err))
+                                  (lambda ()
+                                    expr ...))]))
 
 ;; The names this expands into are the primitives' own, so a module that
 ;; defines its own `length` or `apply` doesn't change what a clause dispatch does.

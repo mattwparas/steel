@@ -1,18 +1,19 @@
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use steel_derive::function;
 
-use crate::rvals::{from_serializable_value, SerializedId};
+use crate::rvals::{from_serializable_value, serialized_id_in, GlobalName, SerializedId};
+use crate::steel_serialize;
+use crate::values::functions::Operand;
 use crate::{
-    compiler::modules::{BUILT_INS, MANGLER_PREFIX, MANGLER_SEPARATOR},
+    compiler::modules::BUILT_INS,
     rvals::{
         AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, NativeRefSpec,
         SerializableSteelVal, SerializationContext, SteelByteVector,
     },
     steel_vm::{builtin::BuiltInModule, engine::ModuleContainer, register_fn::RegisterFn},
-    values::structs::{SendableVTableEntry, VTable},
+    values::structs::{SendableVTableEntry, StructTypeDescriptor, VTable},
 };
-use crate::{steel_deserialize, steel_serialize};
 
 use super::*;
 
@@ -193,19 +194,16 @@ pub fn closure_into_serializable(
             _ => instr.op_code,
         };
 
-        match op_code {
-            OpCode::PUSHCONST => {
+        match Operand::of(op_code) {
+            Operand::Constant => {
                 let index = instr.payload_size.to_usize();
-                let value = ctx.constants.get(index);
+                let Some(value) = ctx.constants.try_get(index) else {
+                    stop!(Generic => "a function refers to a constant that isn't there");
+                };
                 constants.insert(index, ctx.place(value)?);
             }
             // The globals it refers to have to be sent with it.
-            OpCode::CALLGLOBAL
-            | OpCode::CALLPRIMITIVE
-            | OpCode::PUSH
-            | OpCode::CALLGLOBALTAIL
-            | OpCode::CALLGLOBALNOARITY
-            | OpCode::CALLGLOBALTAILNOARITY => {
+            Operand::Global => {
                 ctx.reachable_globals.insert(instr.payload_size.to_usize());
             }
             _ => {}
@@ -281,13 +279,16 @@ pub(crate) fn create_native_ref(ctx: &ModuleContainer, v: SteelVal) -> Option<Na
 // found where it is read.
 #[derive(Debug, Serialize, Deserialize)]
 struct SerializedValue {
+    // The process that wrote it. This comes first, so it is at the same
+    // place in the bytes of every value.
+    origin: u64,
+
     nodes: Vec<SerializableSteelVal>,
     value: SerializedId,
-    // Map the index of something to the name of it, so that we can
-    // build a new reverse mapping when deserializing the bytecode
-    symbol_index_map: HashMap<usize, InternedString>,
 
-    // The globals the functions refer to, by the index they have here.
+    // The names of the globals the functions refer to, by the index they
+    // have here, and the values of those globals.
+    global_names: HashMap<usize, GlobalName>,
     referenced_globals: HashMap<usize, SerializedId>,
 
     vtable_entries: Vec<SendableVTableEntry>,
@@ -296,9 +297,10 @@ struct SerializedValue {
 impl Custom for SerializedValue {}
 
 // What the bytes of a serialized value start with. A table whose entries
-// name each other by place came in with 2. What was written before that
-// nested them, and is not read.
-const SERIALIZED_FORMAT: u8 = 2;
+// name each other by place came in with 2. With 3 came names of globals
+// that mean the same in every process, and the layout of each struct type.
+// What was written before is not read.
+const SERIALIZED_FORMAT: u8 = 3;
 
 // The struct type here that a struct sent from elsewhere belongs to.
 //
@@ -336,94 +338,47 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     // collecting and waiting for this one to stop.
     let heap = ctx.thread.lock_heap_holding(&[]);
 
-    let mut serializer =
-        HeapSerializer::new(&inner.nodes, heap, &mut built_functions, &mut ctx.thread);
+    let mut serializer = HeapSerializer::new(
+        &inner.nodes,
+        heap,
+        &mut built_functions,
+        &mut ctx.thread,
+        inner.origin,
+        &inner.global_names,
+        &inner.referenced_globals,
+    );
 
     // Map the struct type descriptors between the two
-
     for entry in inner.vtable_entries.iter() {
-        // Assert that the things in the vtable are the same.
-
-        let old = entry.desc;
-
-        let new = struct_type_here(serializer.thread, entry).ok_or_else(
-            throw!(Generic => "Struct not defined yet in this environment: {:?}", entry),
-        )?;
-
-        serializer.struct_map.insert(old, new);
-    }
-
-    let mut already_here = FxHashSet::default();
-
-    // Populate the symbol maps, using all of the values
-    // that exist.
-    for (index, name) in &inner.symbol_index_map {
-        let sent = match inner.referenced_globals.get(index) {
-            Some(id) => Some(serializer.node(*id)?),
-            None => None,
+        let Some(here) = struct_type_here(serializer.thread, entry) else {
+            stop!(Generic => "the struct type {} is not defined here", entry.name.resolve());
         };
-
-        if let Some(SerializableSteelVal::BuiltinSteelModuleRef(m, k)) = sent {
-            // Find the existing index
-            let key = format!(
-                "{}{}{}{}",
-                MANGLER_PREFIX,
-                InternedString::from_str(m.as_str()).get().into_inner(),
-                MANGLER_SEPARATOR,
-                k
-            );
-
-            let interned = InternedString::from_string(key);
-            let existing_index = serializer
-                .thread
-                .compiler
-                .read()
-                .symbol_map
-                .get(&interned)?;
-
-            serializer.global_mapping.insert(*index, existing_index);
-            already_here.insert(*index);
-
-            continue;
-        }
-
-        // A global this engine has already is the one that is used. What
-        // was sent with a function is what it referred to where it came
-        // from, and binding that here would change the global under
-        // everything else that uses it: a function read back by the engine
-        // that wrote it would leave that engine's globals pointing at
-        // copies. Two programs with the same definitions get each their
-        // own, the struct types among them.
-        let existing = serializer.thread.compiler.read().symbol_map.get(name).ok();
-        let existing = existing.filter(|idx| serializer.thread.extract_value(*idx).is_some());
-        if let Some(existing) = existing {
-            serializer.global_mapping.insert(*index, existing);
-            already_here.insert(*index);
-            continue;
-        }
-
-        let idx = serializer.thread.compiler.write().symbol_map.add(&name);
-        serializer.global_mapping.insert(*index, idx);
+        serializer.map_struct_type(entry, here)?;
     }
 
-    for (index, global) in inner.referenced_globals.iter() {
-        if already_here.contains(index) {
-            continue;
-        }
-        let Some(idx) = serializer.global_mapping.get(index).copied() else {
-            stop!(Generic => "a global was sent without its name");
-        };
+    let result = from_serializable_value(&mut serializer, inner.value)?;
 
-        let deserialized = from_serializable_value(&mut serializer, *global)?;
-
-        // Make the new global point to the new, deserialized value. The
-        // heap's lock is held already.
-        serializer
-            .thread
-            .with_locked_env_holding_heap(move |_, env| env.repl_define_idx(idx, deserialized));
+    // The globals the functions that were made refer to and this engine
+    // lacks. Making one can turn up more.
+    let mut globals = Vec::new();
+    while let Some((global, index)) = serializer.next_global_to_define()? {
+        globals.push((index, from_serializable_value(&mut serializer, global)?));
     }
 
-    from_serializable_value(&mut serializer, inner.value)
+    // Nothing is defined unless all of it could be made. The heap's lock is
+    // held already.
+    serializer
+        .thread
+        .with_locked_env_holding_heap(move |_, env| {
+            for (index, global) in globals {
+                env.repl_define_idx(index, global);
+            }
+        });
+
+    // The functions refer to their constants where running code reads them.
+    serializer.thread.compiler.read().constant_map.flush();
+
+    Ok(result)
 }
 
 #[steel_derive::function(name = "serialized->bytes", returns = ByteVector)]
@@ -438,8 +393,18 @@ fn serialized_to_bytes(value: &SteelVal) -> Result<SteelVal> {
     )))
 }
 
+/// Reads a serialized value back from bytes.
+///
+/// The bytes can come from anywhere. Ones that are not a serialized value
+/// are an error here or when the value is deserialized: every part of the
+/// value has to be there, and a function has to refer to constants, globals
+/// and places in itself that exist. A function's body is not verified beyond
+/// that, so only bytes from a source that is trusted to send well formed
+/// functions are safe to call the functions of.
 #[steel_derive::function(name = "bytes->serialized", args(ByteVector))]
 fn bytes_to_serialized(value: &SteelByteVector) -> Result<SteelVal> {
+    use bincode::Options;
+
     let guard = value.vec.read();
 
     let Some((format, table)) = guard.split_first() else {
@@ -449,7 +414,27 @@ fn bytes_to_serialized(value: &SteelByteVector) -> Result<SteelVal> {
         stop!(Generic => "these bytes are not a serialized value that this can read");
     }
 
-    steel_deserialize::<SerializedValue>(table)?.into_steelval()
+    // Nothing in the table is longer than the table, so a length that says
+    // otherwise is refused before anything is allocated for it.
+    let value = bincode::options()
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+        .with_limit(table.len() as u64)
+        .deserialize::<SerializedValue>(table)
+        .map_err(|e| throw!(Generic => "Unable to deserialize value: {}", e)())?;
+
+    let in_table = |id: &SerializedId| serialized_id_in(*id, value.nodes.len());
+    if !in_table(&value.value)
+        || !value.referenced_globals.values().all(in_table)
+        || !value
+            .nodes
+            .iter()
+            .all(|node| node.is_within(value.nodes.len()))
+    {
+        stop!(Generic => "a serialized value refers to a part of itself that isn't there");
+    }
+
+    value.into_steelval()
 }
 
 // Serialize one individual value.
@@ -468,7 +453,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
 
     let serialized_value = into_serializable_value(value, &mut sctx)?;
 
-    let mut symbol_index_map = HashMap::new();
+    let mut global_names = HashMap::new();
 
     let mut old_mapping = HashMap::new();
 
@@ -479,52 +464,48 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
     // turns up.
     loop {
         for idx in std::mem::take(&mut sctx.reachable_globals) {
-            let ident = sctx.symbol_map.values()[idx];
-
             if old_mapping.contains_key(&idx) {
                 continue;
             }
 
-            let resolved = ident.resolve();
+            let (Some(ident), Some(global)) =
+                (sctx.symbol_map.values().get(idx), sctx.globals.get(idx))
+            else {
+                stop!(Generic => "a function refers to a global that isn't there");
+            };
+            let global = global.clone();
+            let name = GlobalName::new(ident.resolve());
 
-            // This refers to a built in
-            if resolved.starts_with(MANGLER_PREFIX) {
-                let split = resolved
-                    .strip_prefix(MANGLER_PREFIX)
-                    .and_then(|x| x.split_once(MANGLER_SEPARATOR));
-
-                if let Some((module, name)) = split {
-                    let id = module.parse::<usize>();
-                    if let Ok(id) = id {
-                        let path = InternedString::new(id - 1);
-
-                        let global = sctx.globals[idx].clone();
-
-                        // If this is a built in that can't be sent, then
-                        // just record the fact that we should resolve to
-                        // the original built in.
-                        if matches!(global, SteelVal::Custom(_) | SteelVal::PortV(_))
-                            && BUILT_INS.iter().any(|x| x.0 == path.resolve())
-                        {
-                            let reference =
-                                sctx.push(SerializableSteelVal::BuiltinSteelModuleRef(
-                                    path.resolve().to_string(),
-                                    name.to_string(),
-                                ))?;
-                            old_mapping.insert(idx, reference);
-                            symbol_index_map.insert(idx, ident);
-                            continue;
-                        }
+            // A built in that can't be sent is recorded as where to find it
+            // on the other side.
+            if matches!(global, SteelVal::Custom(_) | SteelVal::PortV(_)) {
+                if let Some((module, key)) = name.module_member() {
+                    if BUILT_INS.iter().any(|x| x.0 == module) {
+                        let reference = sctx.push(SerializableSteelVal::BuiltinSteelModuleRef(
+                            module.to_string(),
+                            key.to_string(),
+                        ))?;
+                        old_mapping.insert(idx, reference);
+                        global_names.insert(idx, name);
+                        continue;
                     }
                 }
             }
 
-            let global = sctx.globals[idx].clone();
+            // The key of a mutable struct type is a number, and has to be
+            // sent as the type it stands for.
+            if name.is_struct_type_key() {
+                if let Ok(descriptor) = StructTypeDescriptor::from_key_value(&global) {
+                    sctx.reachable_structs.insert(descriptor);
+                    let key = sctx.push(SerializableSteelVal::StructTypeKey(descriptor))?;
+                    old_mapping.insert(idx, key);
+                    global_names.insert(idx, name);
+                    continue;
+                }
+            }
 
             old_mapping.insert(idx, into_serializable_value(global, &mut sctx)?);
-
-            // Take this value, and make sure that the values are aligned.
-            symbol_index_map.insert(idx, ident);
+            global_names.insert(idx, name);
         }
 
         let reachable_structs = std::mem::take(&mut sctx.reachable_structs);
@@ -537,9 +518,10 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
     }
 
     SerializedValue {
+        origin: crate::rvals::process_origin(),
         nodes: sctx.nodes,
         value: serialized_value,
-        symbol_index_map,
+        global_names,
         referenced_globals: old_mapping,
         vtable_entries: entries,
     }

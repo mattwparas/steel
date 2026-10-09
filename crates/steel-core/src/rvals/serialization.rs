@@ -15,7 +15,10 @@
 
 use super::*;
 
+use crate::compiler::modules::{MANGLER_PREFIX, MANGLER_SEPARATOR};
+use crate::parser::interner::InternedString;
 use crate::values::functions::SerializedLambda;
+use crate::values::structs::{SendableVTableEntry, VTable};
 
 /// A value in a serialized value's table, by its place there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -25,6 +28,11 @@ impl SerializedId {
     fn index(self) -> usize {
         self.0 as usize
     }
+}
+
+/// Whether `id` names an entry of a table with `len` entries.
+pub(crate) fn serialized_id_in(id: SerializedId, len: usize) -> bool {
+    id.index() < len
 }
 
 /// One entry of the table.
@@ -60,9 +68,23 @@ pub enum SerializableSteelVal {
     NativeRef(NativeRefSpec),
     StructConstructorSpec(StructConstructorRefSpec),
     ModuleSpec(String),
-    GlobalRef(String),
+    GlobalRef(GlobalName),
+    // The key the constructor and accessors of a mutable struct name its
+    // type by.
+    StructTypeKey(StructTypeDescriptor),
     BuiltinSteelModuleRef(String, String),
     NativeStruct(String, Vec<u8>),
+}
+
+impl SerializableSteelVal {
+    /// Whether every entry this one names is in a table with `len` entries.
+    pub(crate) fn is_within(&self, len: usize) -> bool {
+        let mut within = true;
+        let mut check = |id: SerializedId| within &= id.index() < len;
+        for_each_held(self, &mut check);
+        for_each_in_cell(self, &mut check);
+        within
+    }
 }
 
 impl std::fmt::Debug for SerializableSteelVal {
@@ -98,7 +120,8 @@ impl std::fmt::Debug for SerializableSteelVal {
                 write!(f, "{:?}", struct_constructor_ref_spec)
             }
             SerializableSteelVal::ModuleSpec(x) => write!(f, "#<module:{}>", x),
-            SerializableSteelVal::GlobalRef(x) => write!(f, "#<global:{}>", x),
+            SerializableSteelVal::GlobalRef(x) => write!(f, "#<global:{}>", x.here()),
+            SerializableSteelVal::StructTypeKey(x) => write!(f, "#<struct-type-key:{:?}>", x),
             SerializableSteelVal::BuiltinSteelModuleRef(m, n) => {
                 write!(f, "#<builtin-module:{}:{}>", m, n)
             }
@@ -118,15 +141,155 @@ pub struct NativeRefSpec {
     // pub pointer_addr: Option<usize>,
 }
 
+/// A number that tells this process from any other that writes serialized
+/// values. Function ids, the numbers in the names of module members and the
+/// names the compiler makes up only mean something in the process they come
+/// from.
+pub(crate) fn process_origin() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+
+    static ORIGIN: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *ORIGIN.get_or_init(|| {
+        // Seeded at random for each process.
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        hasher.write_u32(std::process::id());
+        hasher.finish()
+    })
+}
+
+/// The name of a global in a form that means the same in every process.
+///
+/// A member of a module is named with the number its module's path was
+/// interned as, which is whatever the interner had got to in the process
+/// that compiled it. Here each such number is the path itself, and the name
+/// this process has for the global is put back together from that.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GlobalName(Vec<NamePart>);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+enum NamePart {
+    Text(String),
+    // A module prefix, as the path of the module.
+    Module(String),
+}
+
+impl GlobalName {
+    /// Takes apart a name as it is in this process.
+    pub fn new(name: &str) -> Self {
+        let mut parts = Vec::new();
+        let mut text = String::new();
+        let mut rest = name;
+
+        while let Some(at) = rest.find(MANGLER_PREFIX) {
+            let after = &rest[at + MANGLER_PREFIX.len()..];
+            let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+
+            let path = after[digits..]
+                .strip_prefix(MANGLER_SEPARATOR)
+                .and_then(|_| after[..digits].parse::<usize>().ok())
+                .and_then(|id| id.checked_sub(1))
+                .and_then(<lasso::Spur as lasso::Key>::try_from_usize)
+                .and_then(|key| crate::parser::interner::get_interner()?.try_resolve(&key));
+
+            match path {
+                Some(path) => {
+                    text.push_str(&rest[..at]);
+                    if !text.is_empty() {
+                        parts.push(NamePart::Text(std::mem::take(&mut text)));
+                    }
+                    parts.push(NamePart::Module(path.to_string()));
+                    rest = &after[digits + MANGLER_SEPARATOR.len()..];
+                }
+                None => {
+                    text.push_str(&rest[..at + MANGLER_PREFIX.len()]);
+                    rest = after;
+                }
+            }
+        }
+
+        text.push_str(rest);
+        if !text.is_empty() {
+            parts.push(NamePart::Text(text));
+        }
+
+        GlobalName(parts)
+    }
+
+    /// The name as it is in this process.
+    pub fn here(&self) -> String {
+        let mut name = String::new();
+        for part in &self.0 {
+            match part {
+                NamePart::Text(text) => name.push_str(text),
+                NamePart::Module(path) => {
+                    name.push_str(MANGLER_PREFIX);
+                    name.push_str(
+                        &InternedString::from_str(path)
+                            .get()
+                            .into_inner()
+                            .to_string(),
+                    );
+                    name.push_str(MANGLER_SEPARATOR);
+                }
+            }
+        }
+        name
+    }
+
+    /// The path of the module and the name in it, for a member of a module.
+    pub(crate) fn module_member(&self) -> Option<(&str, &str)> {
+        match self.0.as_slice() {
+            [NamePart::Module(module), NamePart::Text(name)] => Some((module, name)),
+            _ => None,
+        }
+    }
+
+    // Whether the name was made up, by the compiler for a function it
+    // lifted out of another or by `gensym`. Such a name is numbered from a
+    // counter, so two engines use the same one for different things.
+    fn is_generated(&self) -> bool {
+        self.0.iter().any(|part| match part {
+            NamePart::Text(text) => {
+                text.contains("##__lifted_pure_function")
+                    || text.contains("##lambda-lifting")
+                    || text.contains("-closure-lifting-")
+                    || text.contains("##gensym")
+            }
+            NamePart::Module(_) => false,
+        })
+    }
+
+    /// Whether this is the global a struct definition keeps the key of a
+    /// mutable struct type in.
+    pub(crate) fn is_struct_type_key(&self) -> bool {
+        matches!(self.0.last(), Some(NamePart::Text(text)) if text.contains("##struct-key##gensym"))
+    }
+}
+
+/// A global a function that was sent refers to, as it is here.
+#[derive(Clone, Copy)]
+pub(crate) struct GlobalHere {
+    pub(crate) index: usize,
+    // Whether the function behind it is known to be the one the sender
+    // compiled its calls against. Only then can a call that was compiled to
+    // skip the arity check go on skipping it.
+    pub(crate) as_sent: bool,
+}
+
 /// What reading a serialized value needs: the table, what has been made from
 /// it so far, and where the pieces that aren't in the table are found.
 pub struct HeapSerializer<'a> {
     pub nodes: &'a [SerializableSteelVal],
     // The value made from each entry, once it has been.
     built: Vec<Option<SteelVal>>,
-    // Entries that making has started on. One that is reached again before
-    // it is done is part of a cycle.
+    // Entries that making has started on and not finished.
     started: Vec<bool>,
+    // Boxes, mutable vectors and mutable structs that exist and have not
+    // been given their contents.
+    unfilled: Vec<bool>,
+    // Entries that hold, however far down, one of those that is part of a
+    // cycle. They can't be hashed.
+    cyclic: Vec<bool>,
 
     // Held for as long as values are being built. Nothing refers to what
     // has been allocated so far but this, so a collection in the meantime,
@@ -140,9 +303,20 @@ pub struct HeapSerializer<'a> {
 
     pub function_mapping: rustc_hash::FxHashMap<u32, u32>,
 
-    pub global_mapping: rustc_hash::FxHashMap<usize, usize>,
+    pub(crate) global_mapping: rustc_hash::FxHashMap<usize, GlobalHere>,
 
     pub struct_map: rustc_hash::FxHashMap<StructTypeDescriptor, StructTypeDescriptor>,
+
+    // Whether the value was written by this process.
+    same_process: bool,
+    origin: u64,
+    // The globals the functions refer to, by the index the sender had for
+    // them: their names, and their values where those were sent.
+    global_names: &'a std::collections::HashMap<usize, GlobalName>,
+    sent_globals: &'a std::collections::HashMap<usize, SerializedId>,
+    // Globals that are not defined here, and have to be from what was sent:
+    // the sender's index and the one given to them here.
+    globals_to_define: Vec<(usize, usize)>,
 }
 
 impl<'a> HeapSerializer<'a> {
@@ -151,18 +325,230 @@ impl<'a> HeapSerializer<'a> {
         heap: parking_lot::ArcMutexGuard<parking_lot::RawMutex, crate::values::closed::Heap>,
         built_functions: &'a mut rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
         thread: &'a mut SteelThread,
+        origin: u64,
+        global_names: &'a std::collections::HashMap<usize, GlobalName>,
+        sent_globals: &'a std::collections::HashMap<usize, SerializedId>,
     ) -> Self {
         Self {
             nodes,
             built: vec![None; nodes.len()],
             started: vec![false; nodes.len()],
+            unfilled: vec![false; nodes.len()],
+            cyclic: vec![false; nodes.len()],
             heap,
             built_functions,
             thread,
             function_mapping: rustc_hash::FxHashMap::default(),
             global_mapping: rustc_hash::FxHashMap::default(),
             struct_map: rustc_hash::FxHashMap::default(),
+            same_process: origin == process_origin(),
+            origin,
+            global_names,
+            sent_globals,
+            globals_to_define: Vec::new(),
         }
+    }
+
+    /// The id here of the function that had `sent` where it was written.
+    /// Ids are handed out by each process, so one from another process is
+    /// given a new one, the same each time it comes up in this value.
+    pub(crate) fn function_id_here(&mut self, sent: u32) -> u32 {
+        if self.same_process {
+            return sent;
+        }
+        self.fresh_function_id_for(sent)
+    }
+
+    /// A new id for the function that had `sent`, the same each time it
+    /// comes up in this value.
+    pub(crate) fn fresh_function_id_for(&mut self, sent: u32) -> u32 {
+        *self
+            .function_mapping
+            .entry(sent)
+            .or_insert_with(|| crate::compiler::code_gen::fresh_function_id() as u32)
+    }
+
+    /// The global here that a function refers to by the index `sent`.
+    ///
+    /// A global this engine has already is the one that is used. What was
+    /// sent with a function is what it referred to where it came from, and
+    /// binding that here would change the global under everything else that
+    /// uses it. One this engine lacks is put down to be defined from what
+    /// was sent.
+    pub(crate) fn global_here(&mut self, sent: usize) -> Result<GlobalHere> {
+        if let Some(here) = self.global_mapping.get(&sent) {
+            return Ok(*here);
+        }
+
+        let Some(name) = self.global_names.get(&sent) else {
+            stop!(Generic => "a function was sent without a global it refers to");
+        };
+        let value = match self.sent_globals.get(&sent) {
+            Some(id) => Some(self.node(*id)?),
+            None => None,
+        };
+
+        let here = if let Some(SerializableSteelVal::BuiltinSteelModuleRef(module, key)) = value {
+            let name = GlobalName(vec![
+                NamePart::Module(module.clone()),
+                NamePart::Text(key.clone()),
+            ]);
+            let interned = InternedString::from_string(name.here());
+            let index = self.thread.compiler.read().symbol_map.get(&interned)?;
+            GlobalHere {
+                index,
+                as_sent: false,
+            }
+        } else {
+            let by_name = InternedString::from_string(name.here());
+            let here = self.defined_global(&by_name);
+
+            // What tells the global apart where it was written, if it is
+            // one of the kinds that anything does.
+            let identity = match value {
+                Some(SerializableSteelVal::Closure(sent)) => Some(format!("fn{}", sent.id)),
+                Some(SerializableSteelVal::StructTypeKey(sent)) => {
+                    Some(format!("key{}", sent.key()))
+                }
+                _ => None,
+            };
+            // In one process a function id names one function and a key one
+            // struct type.
+            let same = self.same_process
+                && match (value, here.as_ref().map(|(_, value)| value)) {
+                    (Some(SerializableSteelVal::Closure(sent)), Some(SteelVal::Closure(here))) => {
+                        sent.id == here.id
+                    }
+                    // The key of the struct type this engine reads the
+                    // sender's as.
+                    (
+                        Some(SerializableSteelVal::StructTypeKey(sent)),
+                        Some(SteelVal::IntV(here)),
+                    ) => self
+                        .struct_map
+                        .get(sent)
+                        .is_some_and(|mapped| mapped.key() as isize == *here),
+                    _ => false,
+                };
+
+            // A made up name is no guide to what is behind it here. The
+            // global of that name is used if it is known to be the same
+            // thing, or within one process if there is no telling. Failing
+            // that the global is kept under a name of its own.
+            let made_up =
+                name.is_generated() && !same && !(self.same_process && identity.is_none());
+
+            if !made_up {
+                match here {
+                    Some((index, _)) => GlobalHere {
+                        index,
+                        as_sent: same,
+                    },
+                    None => self.global_to_define(sent, &by_name, value.is_some())?,
+                }
+            } else {
+                static APART: core::sync::atomic::AtomicUsize =
+                    core::sync::atomic::AtomicUsize::new(0);
+
+                let apart = InternedString::from_string(match identity {
+                    Some(identity) => format!("##sent-{:016x}-{}", self.origin, identity),
+                    None => format!(
+                        "##sent-{:016x}-{}-{}",
+                        self.origin,
+                        APART.fetch_add(1, core::sync::atomic::Ordering::Relaxed),
+                        by_name.resolve()
+                    ),
+                });
+                // One that is here already was left by an earlier value
+                // from the same process. A function is the same function
+                // still. A key is given again, in case the struct type has
+                // been defined anew here since.
+                match self.defined_global(&apart) {
+                    Some((index, _)) => {
+                        if let Some(SerializableSteelVal::StructTypeKey(_)) = value {
+                            self.globals_to_define.push((sent, index));
+                        }
+                        GlobalHere {
+                            index,
+                            as_sent: true,
+                        }
+                    }
+                    None => self.global_to_define(sent, &apart, value.is_some())?,
+                }
+            }
+        };
+
+        self.global_mapping.insert(sent, here);
+        Ok(here)
+    }
+
+    // The index and value of the global `name`, if this engine has it.
+    fn defined_global(&self, name: &InternedString) -> Option<(usize, SteelVal)> {
+        let index = self.thread.compiler.read().symbol_map.get(name).ok()?;
+        Some((index, self.thread.extract_value(index)?))
+    }
+
+    // Puts `name` down to be defined from what was sent.
+    fn global_to_define(
+        &mut self,
+        sent: usize,
+        name: &InternedString,
+        was_sent: bool,
+    ) -> Result<GlobalHere> {
+        if !was_sent {
+            stop!(Generic => "a function refers to {}, which is not defined here and was not sent", name.resolve());
+        }
+        let index = self.thread.compiler.write().symbol_map.add(name);
+        self.globals_to_define.push((sent, index));
+        Ok(GlobalHere {
+            index,
+            as_sent: true,
+        })
+    }
+
+    /// The next global that has to be defined from what was sent: where
+    /// its value is in the table, and its index here.
+    pub(crate) fn next_global_to_define(&mut self) -> Result<Option<(SerializedId, usize)>> {
+        let Some((sent, index)) = self.globals_to_define.pop() else {
+            return Ok(None);
+        };
+        match self.sent_globals.get(&sent) {
+            Some(id) => Ok(Some((*id, index))),
+            None => stop!(Generic => "a global was sent without its value"),
+        }
+    }
+
+    /// Finds the struct type here for one that was sent, and checks that the
+    /// two are laid out alike.
+    pub(crate) fn map_struct_type(
+        &mut self,
+        entry: &SendableVTableEntry,
+        here: StructTypeDescriptor,
+    ) -> Result<()> {
+        let name = entry.name.resolve();
+        let Some(shape) = VTable::shape(here) else {
+            stop!(Generic => "the struct type {} can't be used here", name);
+        };
+
+        if shape.mutable != entry.mutable {
+            stop!(Generic => "the struct type {} is {} where it was sent from and {} here",
+                name,
+                if entry.mutable { "mutable" } else { "immutable" },
+                if shape.mutable { "mutable" } else { "immutable" });
+        }
+        if let (Some(sent), Some(here)) = (entry.field_count, shape.field_count) {
+            if sent != here {
+                stop!(Generic => "the struct type {} has {} fields where it was sent from and {} here", name, sent, here);
+            }
+        }
+        if let (Some(sent), Some(here)) = (&entry.fields, &shape.fields) {
+            if sent != here {
+                stop!(Generic => "the struct type {} has the fields {:?} where it was sent from and {:?} here", name, sent, here);
+            }
+        }
+
+        self.struct_map.insert(entry.desc, here);
+        Ok(())
     }
 
     /// The entry `id` names. Bytes from elsewhere can name anything.
@@ -188,62 +574,116 @@ impl<'a> HeapSerializer<'a> {
         ids.iter().map(|id| self.built(*id)).collect()
     }
 
-    // The struct type a struct that was sent belongs to here. The number it
-    // was sent with is the sender's.
-    fn struct_type_here(&self, sent: StructTypeDescriptor) -> Result<StructTypeDescriptor> {
-        match self.struct_map.get(&sent) {
-            Some(here) => Ok(*here),
-            None => stop!(Generic => "a struct was sent without its struct type"),
+    // Whether the entry is, or holds, a box, mutable vector or mutable
+    // struct that is part of a cycle.
+    fn in_cycle(&self, id: SerializedId) -> bool {
+        let index = id.index();
+        self.cyclic.get(index).copied().unwrap_or(false)
+            || self.unfilled.get(index).copied().unwrap_or(false)
+    }
+
+    // A key of a hash map or member of a hash set. Hashing a value that
+    // holds itself would not end.
+    fn built_key(&self, id: SerializedId) -> Result<SteelVal> {
+        if self.in_cycle(id) {
+            stop!(Generic => "a serialized hash map or set has a key that holds itself");
         }
+        self.built(id)
+    }
+
+    // The struct type a struct that was sent belongs to here. The number it
+    // was sent with is the sender's. The struct has to be of the kind the
+    // type makes, with as many fields.
+    fn struct_type_here(
+        &self,
+        record: &SerializableUserDefinedStruct,
+        mutable: bool,
+    ) -> Result<StructTypeDescriptor> {
+        let Some(here) = self.struct_map.get(&record.type_descriptor).copied() else {
+            stop!(Generic => "a struct was sent without its struct type");
+        };
+        let Some(shape) = VTable::shape(here) else {
+            stop!(Generic => "a struct was sent whose struct type can't be used here");
+        };
+        if shape.mutable != mutable || shape.field_count.is_some_and(|n| n != record.fields.len()) {
+            stop!(Generic => "a struct was sent that doesn't fit its struct type {}", here.name().resolve());
+        }
+        Ok(here)
     }
 }
 
 // What is left to do to make a value.
 enum Step {
-    // Make the entry, or see to it that what it holds is made first.
+    // Make the entry, after what it holds.
     Visit(SerializedId),
-    // The same, for something a box, mutable vector or mutable struct
-    // holds. Those are made before what they hold, so finding one of their
-    // contents already under way is a cycle through them, which is allowed.
-    VisitContents(SerializedId),
     // Everything the entry holds has been made. Put it together.
     Finish(SerializedId),
+    // The entry is a box, a mutable vector or a mutable struct, which is
+    // made before what it holds. That has been made now. Put it in.
+    Fill(SerializedId),
 }
 
 /// Makes the value the entry `id` names, and every value it holds.
+///
+/// A box, a mutable vector or a mutable struct is made empty and filled as
+/// soon as what it holds has been made, so that a hash map made afterwards
+/// with it in a key hashes what it will hold. A cycle is found by coming
+/// back to an entry that is not finished. The box, vector or struct nearest
+/// to that on the way down is then left empty and set aside, what was begun
+/// beneath it is given up, and it is filled once everything else is made.
 pub fn from_serializable_value(ctx: &mut HeapSerializer, id: SerializedId) -> Result<SteelVal> {
     ctx.node(id)?;
 
-    // Boxes, mutable vectors and mutable structs made here, to be given
-    // their contents once everything is made.
-    let mut to_fill = Vec::new();
+    let mut set_aside = Vec::new();
+    let mut was_set_aside = rustc_hash::FxHashSet::default();
     let mut steps = vec![Step::Visit(id)];
 
-    while let Some(step) = steps.pop() {
+    loop {
+        let Some(step) = steps.pop() else {
+            match set_aside.pop() {
+                Some(id) => {
+                    steps.push(Step::Fill(id));
+                    for_each_in_cell(ctx.node(id)?, |held| steps.push(Step::Visit(held)));
+                    continue;
+                }
+                None => break,
+            }
+        };
+
         match step {
-            Step::Visit(id) | Step::VisitContents(id) => {
+            Step::Visit(id) => {
                 let node = ctx.node(id)?;
                 let index = id.index();
 
                 if ctx.built[index].is_some() {
                     continue;
                 }
+
                 if ctx.started[index] {
-                    if matches!(step, Step::VisitContents(_)) {
-                        continue;
+                    // A cycle. Go back up to the nearest box, mutable
+                    // vector or mutable struct and set it aside.
+                    loop {
+                        match steps.pop() {
+                            Some(Step::Fill(cell)) if was_set_aside.insert(cell) => {
+                                set_aside.push(cell);
+                                break;
+                            }
+                            Some(Step::Finish(above)) if above != id => {
+                                ctx.started[above.index()] = false;
+                            }
+                            Some(Step::Visit(_)) => {}
+                            Some(Step::Finish(_)) | Some(Step::Fill(_)) | None => {
+                                stop!(Generic => "a serialized value holds itself other than through a box, a mutable vector or a mutable struct");
+                            }
+                        }
                     }
-                    stop!(Generic => "a serialized value holds itself other than through a box, a mutable vector or a mutable struct");
+                    continue;
                 }
-                ctx.started[index] = true;
 
                 match node {
-                    // Made empty and filled in afterwards, so that what
-                    // they hold can refer back to them.
-                    SerializableSteelVal::HeapAllocated(contents) => {
+                    SerializableSteelVal::HeapAllocated(_) => {
                         let allocation = ctx.heap.allocate_without_collection(SteelVal::Void);
                         ctx.built[index] = Some(SteelVal::HeapAllocated(allocation));
-                        to_fill.push(id);
-                        steps.push(Step::VisitContents(*contents));
                     }
                     SerializableSteelVal::HeapAllocatedVector(elements) => {
                         let allocation =
@@ -252,57 +692,92 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, id: SerializedId) -> Re
                                     elements.len(),
                                 ));
                         ctx.built[index] = Some(SteelVal::MutableVector(allocation));
-                        to_fill.push(id);
-                        steps.extend(elements.iter().map(|id| Step::VisitContents(*id)));
                     }
                     SerializableSteelVal::MutableStruct(record) => {
-                        let type_descriptor = ctx.struct_type_here(record.type_descriptor)?;
+                        let type_descriptor = ctx.struct_type_here(record, true)?;
                         let handle = ctx.heap.allocate_mutable_struct_without_collection(
                             type_descriptor,
                             core::iter::repeat_n(SteelVal::Void, record.fields.len()),
                         );
                         ctx.built[index] = Some(SteelVal::MutableStruct(handle));
-                        to_fill.push(id);
-                        steps.extend(record.fields.iter().map(|id| Step::VisitContents(*id)));
                     }
 
                     // Everything else is made after what it holds.
                     _ => {
+                        ctx.started[index] = true;
                         steps.push(Step::Finish(id));
                         for_each_held(node, |held| steps.push(Step::Visit(held)));
+                        continue;
                     }
                 }
+
+                ctx.unfilled[index] = true;
+                steps.push(Step::Fill(id));
+                for_each_in_cell(node, |held| steps.push(Step::Visit(held)));
             }
 
             Step::Finish(id) => {
-                let value = finish(ctx, ctx.node(id)?)?;
+                let node = ctx.node(id)?;
+                let mut cyclic = false;
+                for_each_held(node, |held| cyclic |= ctx.in_cycle(held));
+                ctx.cyclic[id.index()] = cyclic;
+
+                let value = finish(ctx, node)?;
+                ctx.started[id.index()] = false;
                 ctx.built[id.index()] = Some(value);
             }
-        }
-    }
 
-    for id in to_fill {
-        match (ctx.node(id)?, ctx.built(id)?) {
-            (SerializableSteelVal::HeapAllocated(contents), SteelVal::HeapAllocated(cell)) => {
-                cell.set_and_return(ctx.built(*contents)?);
-            }
-            (
-                SerializableSteelVal::HeapAllocatedVector(elements),
-                SteelVal::MutableVector(cell),
-            ) => {
-                let elements = ctx.built_all(elements)?;
-                cell.strong_ptr().write().value.extend(elements);
-            }
-            (SerializableSteelVal::MutableStruct(record), SteelVal::MutableStruct(handle)) => {
-                for (index, field) in record.fields.iter().enumerate() {
-                    handle.set_index(index, ctx.built(*field)?);
+            Step::Fill(id) => {
+                let node = ctx.node(id)?;
+                // What is still unfilled here is this entry or one that
+                // holds it.
+                let mut cyclic = false;
+                for_each_in_cell(node, |held| cyclic |= ctx.in_cycle(held));
+                ctx.cyclic[id.index()] = cyclic;
+
+                match (node, ctx.built(id)?) {
+                    (
+                        SerializableSteelVal::HeapAllocated(contents),
+                        SteelVal::HeapAllocated(cell),
+                    ) => {
+                        cell.set_and_return(ctx.built(*contents)?);
+                    }
+                    (
+                        SerializableSteelVal::HeapAllocatedVector(elements),
+                        SteelVal::MutableVector(cell),
+                    ) => {
+                        let elements = ctx.built_all(elements)?;
+                        cell.strong_ptr().write().value.extend(elements);
+                    }
+                    (
+                        SerializableSteelVal::MutableStruct(record),
+                        SteelVal::MutableStruct(handle),
+                    ) => {
+                        for (index, field) in record.fields.iter().enumerate() {
+                            handle.set_index(index, ctx.built(*field)?);
+                        }
+                    }
+                    _ => unreachable!("only these are put down to be filled"),
                 }
+                ctx.unfilled[id.index()] = false;
             }
-            _ => unreachable!("only these are put down to be filled"),
         }
     }
 
     ctx.built(id)
+}
+
+// Calls `visit` with each entry a box, mutable vector or mutable struct
+// holds.
+fn for_each_in_cell(node: &SerializableSteelVal, mut visit: impl FnMut(SerializedId)) {
+    match node {
+        SerializableSteelVal::HeapAllocated(contents) => visit(*contents),
+        SerializableSteelVal::HeapAllocatedVector(ids) => ids.iter().copied().for_each(&mut visit),
+        SerializableSteelVal::MutableStruct(record) => {
+            record.fields.iter().copied().for_each(&mut visit)
+        }
+        _ => {}
+    }
 }
 
 // Calls `visit` with each entry that `node` holds and has to be made before
@@ -343,22 +818,16 @@ fn for_each_held(node: &SerializableSteelVal, mut visit: impl FnMut(SerializedId
 fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<SteelVal> {
     match node {
         SerializableSteelVal::Closure(c) => {
+            // A function that closes over nothing is made once, however
+            // many entries describe it.
             if c.captures.is_empty() {
-                if let Some(already_made) = ctx
-                    .function_mapping
-                    .get(&c.id)
-                    .and_then(|x| ctx.built_functions.get(x))
-                {
-                    Ok(SteelVal::Closure(already_made.clone()))
-                } else {
-                    let value = Gc::new(ByteCodeLambda::from_serialized(ctx, c)?);
-                    let id = value.id;
-
-                    // Save those as well
-                    // Probably need to just do this for all
-                    ctx.built_functions.insert(id, value.clone());
-                    Ok(SteelVal::Closure(value))
+                let id = ctx.function_id_here(c.id);
+                if let Some(already_made) = ctx.built_functions.get(&id) {
+                    return Ok(SteelVal::Closure(already_made.clone()));
                 }
+                let value = Gc::new(ByteCodeLambda::from_serialized(ctx, c)?);
+                ctx.built_functions.insert(id, value.clone());
+                Ok(SteelVal::Closure(value))
             } else {
                 Ok(SteelVal::Closure(Gc::new(ByteCodeLambda::from_serialized(
                     ctx, c,
@@ -375,13 +844,17 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
         SerializableSteelVal::HashMapV(entries) => {
             let mut map = HashMap::new();
             for (key, value) in entries {
-                map.insert(ctx.built(*key)?, ctx.built(*value)?);
+                map.insert(ctx.built_key(*key)?, ctx.built(*value)?);
             }
             Ok(SteelVal::HashMapV(Gc::new(map).into()))
         }
-        SerializableSteelVal::HashSet(ids) => Ok(SteelVal::HashSetV(
-            Gc::new(ctx.built_all(ids)?.into_iter().collect::<HashSet<_>>()).into(),
-        )),
+        SerializableSteelVal::HashSet(ids) => {
+            let mut set = HashSet::new();
+            for id in ids {
+                set.insert(ctx.built_key(*id)?);
+            }
+            Ok(SteelVal::HashSetV(Gc::new(set).into()))
+        }
         SerializableSteelVal::ListV(ids) => {
             Ok(SteelVal::ListV(ctx.built_all(ids)?.into_iter().collect()))
         }
@@ -410,7 +883,7 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
             im: ctx.built(*im)?,
         }))),
         SerializableSteelVal::CustomStruct(s) => {
-            let type_descriptor = ctx.struct_type_here(s.type_descriptor)?;
+            let type_descriptor = ctx.struct_type_here(s, false)?;
             let mut fields = steel_vec::Vec::with_capacity(s.fields.len());
             for field in &s.fields {
                 fields.push(ctx.built(*field)?);
@@ -432,11 +905,13 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
             let guard = ctx.thread.compiler.read();
             let module_map = guard.builtin_modules.inner();
 
-            if let Some(m) = module_map.get(s.module.as_str()) {
-                return Ok(m.get(s.key.clone()));
+            match module_map.get(s.module.as_str()) {
+                Some(module) => match module.try_get_ref(s.key.as_str()) {
+                    Some(value) => Ok(value),
+                    None => stop!(Generic => "the module {} has no {} here", s.module, s.key),
+                },
+                None => stop!(Generic => "no module {} here to find {} in", s.module, s.key),
             }
-
-            stop!(Generic => "no module {} here to find {} in", s.module, s.key);
         }
         SerializableSteelVal::ByteVectorV(bytes) => {
             Ok(SteelVal::ByteVector(SteelByteVector::new(bytes.clone())))
@@ -470,7 +945,7 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
             }
         }
         SerializableSteelVal::GlobalRef(s) => {
-            let interned = s.as_str().into();
+            let interned = InternedString::from_string(s.here());
             // Find the index of this thing:
             let idx = ctx.thread.compiler.read().symbol_map.get(&interned)?;
             match ctx.thread.global_env.roots().get(idx) {
@@ -478,6 +953,10 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
                 None => stop!(Generic => "a global was sent that is not defined here"),
             }
         }
+        SerializableSteelVal::StructTypeKey(sent) => match ctx.struct_map.get(sent) {
+            Some(here) => Ok(SteelVal::IntV(here.key() as isize)),
+            None => stop!(Generic => "the key of a struct type was sent without its struct type"),
+        },
         SerializableSteelVal::BuiltinSteelModuleRef(module, name) => {
             stop!(Generic => "{} from {} can only be sent as a global", name, module)
         }
@@ -513,7 +992,10 @@ pub struct SerializationContext<'a> {
     pub(crate) nodes: Vec<SerializableSteelVal>,
     // Where each value that can be told apart from its like has been put,
     // so that it is put there once.
-    seen: rustc_hash::FxHashMap<(u8, usize), SerializedId>,
+    seen: rustc_hash::FxHashMap<(u8, usize, usize), SerializedId>,
+    // Those values, kept so that the place one lives in is not given to
+    // another while the table is being made.
+    kept: Vec<SteelVal>,
     // Values with a place in the table and nothing in it yet.
     waiting: Vec<(SerializedId, SteelVal)>,
 }
@@ -536,6 +1018,7 @@ impl<'a> SerializationContext<'a> {
             compiled_modules,
             nodes: Vec::new(),
             seen: rustc_hash::FxHashMap::default(),
+            kept: Vec::new(),
             waiting: Vec::new(),
         }
     }
@@ -560,6 +1043,7 @@ impl<'a> SerializationContext<'a> {
         let id = self.push(SerializableSteelVal::Void)?;
         if let Some(identity) = identity {
             self.seen.insert(identity, id);
+            self.kept.push(value.clone());
         }
         self.waiting.push((id, value));
         Ok(id)
@@ -575,10 +1059,11 @@ impl<'a> SerializationContext<'a> {
 
 // What a value that can be referred to from more than one place is told
 // apart by: its kind and where it lives. Two references to one of these are
-// one entry in the table. A list is left out, since a list and its tail can
-// live in the same place.
-fn identity(value: &SteelVal) -> Option<(u8, usize)> {
-    Some(match value {
+// one entry in the table. A list and its tail can live in the same place, so
+// a list is told apart by where its elements are and how many of them it
+// has there.
+fn identity(value: &SteelVal) -> Option<(u8, usize, usize)> {
+    let (kind, address) = match value {
         SteelVal::Closure(gc) => (0, gc.as_ptr() as usize),
         SteelVal::VectorV(vector) => (1, vector.0.as_ptr() as usize),
         SteelVal::HashMapV(map) => (2, map.0.as_ptr() as usize),
@@ -590,8 +1075,14 @@ fn identity(value: &SteelVal) -> Option<(u8, usize)> {
         SteelVal::MutableVector(heap_ref) => (8, heap_ref.as_ptr_usize()),
         SteelVal::HeapAllocated(heap_ref) => (9, heap_ref.as_ptr_usize()),
         SteelVal::FlatVector(gc) => (10, gc.as_ptr() as usize),
+        SteelVal::ByteVector(bytes) => (11, bytes.vec.as_ptr() as usize),
+        SteelVal::ListV(list) if !list.is_empty() => {
+            let (elements, index) = list.identity_tuple();
+            return Some((12, elements, index));
+        }
         _ => return None,
-    })
+    };
+    Some((kind, address, 0))
 }
 
 /// Puts `val` and everything it holds in the table, and gives its place.
@@ -647,7 +1138,9 @@ fn node_for(val: SteelVal, ctx: &mut SerializationContext) -> Result<Serializabl
             for (idx, v) in ctx.globals.iter().enumerate() {
                 if v.ptr_eq(&val) {
                     let name = ctx.symbol_map.values()[idx];
-                    return Ok(SerializableSteelVal::GlobalRef(name.resolve().to_string()));
+                    return Ok(SerializableSteelVal::GlobalRef(GlobalName::new(
+                        name.resolve(),
+                    )));
                 }
             }
 
