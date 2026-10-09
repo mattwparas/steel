@@ -1819,8 +1819,15 @@ where
                     break;
                 }
 
-                if let Some(name) = l.args.first() {
-                    name_ref = name;
+                match l.args.first() {
+                    Some(name) => name_ref = name,
+                    None => {
+                        return Err(ParseError::SyntaxError(
+                            "define expected a function name, found none".to_string(),
+                            syn.span,
+                            None,
+                        ));
+                    }
                 }
 
                 if let Some(rest) = l.args.get(1..) {
@@ -1845,9 +1852,12 @@ where
                     None,
                 )
             })?;
-            name_can_be_bound("the name of a function", &name, syn.span)?;
             if let Some(inner) = &found_inner_name {
-                name_can_be_bound("the name of a function", inner, syn.span)?;
+                let datum =
+                    matches!(inner, ExprKind::List(l) if l.first_ident() == Some(&DATUM_SYNTAX));
+                if !datum {
+                    must_be_identifier("the name of a function", inner, syn.span)?;
+                }
             }
 
             let args: ThinVec<_> = args.collect();
@@ -1872,7 +1882,7 @@ where
             };
 
             if args_stack.is_empty() {
-                parameters_are_not_literals(&args, syn.span)?;
+                parameters_are_valid(&args, syn.span)?;
 
                 let rest = l.improper;
                 let lambda = ExprKind::LambdaFunction(Box::new(LambdaFunction::new_maybe_rest(
@@ -1887,7 +1897,7 @@ where
                 args_stack.insert(0, List::new_maybe_improper(args, l.improper));
 
                 for parameters in &args_stack {
-                    parameters_are_not_literals(&parameters.args, syn.span)?;
+                    parameters_are_valid(&parameters.args, syn.span)?;
                 }
 
                 let first = args_stack.pop().unwrap();
@@ -1920,7 +1930,7 @@ where
         ExprKind::Atom(a) => Ok(ExprKind::Define(Box::new(Define::new(
             {
                 let name = ExprKind::Atom(a);
-                name_can_be_bound("what define names", &name, syn.span)?;
+                must_be_identifier("what define names", &name, syn.span)?;
                 name
             },
             {
@@ -2016,6 +2026,7 @@ where
 
             let identifier = iter.next().unwrap();
             let application_arg = iter.next().unwrap();
+            must_be_identifier("what let binds", &identifier, syn.span)?;
             pairs.push((identifier, application_arg))
         } else {
             return Err(ParseError::SyntaxError(
@@ -2094,7 +2105,7 @@ where
 
             let identifier = pair[0].clone();
             let application_arg = pair[1].clone();
-            name_can_be_bound("what let binds", &identifier, syn.span)?;
+            must_be_identifier("what let binds", &identifier, syn.span)?;
 
             arguments.push(identifier);
             application_args.push(application_arg);
@@ -2170,7 +2181,10 @@ where
         // Standard let
         ExprKind::List(l) => l.args,
         // Named let
-        name @ ExprKind::Atom(_) => return parse_named_let(value_iter, syn, name),
+        name @ ExprKind::Atom(_) => {
+            must_be_identifier("the name of a let", &name, syn.span)?;
+            return parse_named_let(value_iter, syn, name);
+        }
         _ => {
             return Err(ParseError::SyntaxError(
                 "let expects a list of variable bindings pairs in the second position".to_string(),
@@ -2219,7 +2233,7 @@ where
 
             let identifier = pair[0].clone();
             let application_arg = pair[1].clone();
-            name_can_be_bound("what let binds", &identifier, syn.span)?;
+            must_be_identifier("what let binds", &identifier, syn.span)?;
 
             arguments.push(identifier);
             application_args.push(application_arg);
@@ -2540,34 +2554,48 @@ impl TryFrom<ThinVec<ExprKind>> for ExprKind {
     }
 }
 
-/// Whether `expr` could be a binding. Keywords and lists are allowed since
-/// keyword and optional parameters are expanded later.
-fn could_be_bound(expr: &ExprKind) -> bool {
-    match expr {
-        ExprKind::Atom(atom) => matches!(
-            atom.syn.ty,
-            TokenType::Identifier(_) | TokenType::Keyword(_)
-        ),
-        ExprKind::List(_) => true,
-        _ => false,
-    }
+fn is_identifier(expr: &ExprKind) -> bool {
+    matches!(expr, ExprKind::Atom(atom) if matches!(atom.syn.ty, TokenType::Identifier(_)))
 }
 
-fn name_can_be_bound(what: &str, name: &ExprKind, span: Span) -> Result<(), ParseError> {
-    if could_be_bound(name) {
+fn is_keyword(expr: &ExprKind) -> bool {
+    matches!(expr, ExprKind::Atom(atom) if matches!(atom.syn.ty, TokenType::Keyword(_)))
+}
+
+fn not_an_identifier(what: &str, found: &ExprKind, span: Span) -> ParseError {
+    ParseError::SyntaxError(
+        format!("{} has to be an identifier, found: {}", what, found),
+        span,
+        None,
+    )
+}
+
+fn must_be_identifier(what: &str, name: &ExprKind, span: Span) -> Result<(), ParseError> {
+    if is_identifier(name) {
         Ok(())
     } else {
-        Err(ParseError::SyntaxError(
-            format!("{} has to be an identifier, found: {}", what, name),
-            span,
-            None,
-        ))
+        Err(not_an_identifier(what, name, span))
     }
 }
 
-fn parameters_are_not_literals(args: &[ExprKind], span: Span) -> Result<(), ParseError> {
-    args.iter()
-        .try_for_each(|arg| name_can_be_bound("a function's parameter", arg, span))
+/// A parameter is an identifier, a keyword followed by its parameter, or a
+/// list that starts with an identifier, which is one with a default.
+fn parameters_are_valid(args: &[ExprKind], span: Span) -> Result<(), ParseError> {
+    const WHAT: &str = "a function's parameter";
+
+    for (index, arg) in args.iter().enumerate() {
+        let valid = match arg {
+            ExprKind::List(l) => l.args.first().is_some_and(is_identifier),
+            _ if is_keyword(arg) => args.get(index + 1).is_some_and(|next| !is_keyword(next)),
+            _ => is_identifier(arg),
+        };
+
+        if !valid {
+            return Err(not_an_identifier(WHAT, arg, span));
+        }
+    }
+
+    Ok(())
 }
 
 pub fn parse_lambda(a: Atom, value: ThinVec<ExprKind>) -> Result<ExprKind, ParseError> {
@@ -2588,7 +2616,7 @@ pub fn parse_lambda(a: Atom, value: ThinVec<ExprKind>) -> Result<ExprKind, Parse
         Some(ExprKind::List(l)) => {
             let args = l.args;
 
-            parameters_are_not_literals(&args, syn.span)?;
+            parameters_are_valid(&args, syn.span)?;
 
             let body_exprs: Vec<_> = value_iter.collect();
 
@@ -2608,10 +2636,7 @@ pub fn parse_lambda(a: Atom, value: ThinVec<ExprKind>) -> Result<ExprKind, Parse
             )))
         }
         Some(ExprKind::Atom(a)) => {
-            parameters_are_not_literals(
-                core::slice::from_ref(&ExprKind::Atom(a.clone())),
-                syn.span,
-            )?;
+            parameters_are_valid(core::slice::from_ref(&ExprKind::Atom(a.clone())), syn.span)?;
 
             let body_exprs: Vec<_> = value_iter.collect();
 

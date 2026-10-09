@@ -281,6 +281,7 @@ impl Clone for Engine {
             thread: std::thread::current(),
             thread_state_manager: virtual_machine.synchronizer.state.clone(),
             forked_thread_handle: None,
+            result: Default::default(),
         }
         .into_steelval()
         .unwrap();

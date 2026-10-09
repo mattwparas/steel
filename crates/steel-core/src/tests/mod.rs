@@ -4,6 +4,8 @@ use crate::steel_vm::engine::Engine;
 
 #[cfg(all(feature = "sync", feature = "jit2"))]
 mod compiled_shape;
+#[cfg(all(feature = "sync", feature = "jit2"))]
+mod counted_loops;
 #[cfg(feature = "sync")]
 mod history;
 mod malformed_bindings;
@@ -156,6 +158,11 @@ test_harness_success! {
     boxes_across_threads,
     vectors_of_many_kinds_across_threads,
     counted_loops,
+    functions_made_while_collecting,
+    joins_while_collecting,
+    channels_while_collecting,
+    weak_boxes_while_collecting,
+    wills_while_collecting,
     continuations_kept_and_dropped,
     continuations_and_dynamic_wind,
     continuations_reentered,
@@ -284,6 +291,11 @@ test_harness_success_module! {
     boxes_across_threads,
     vectors_of_many_kinds_across_threads,
     counted_loops,
+    functions_made_while_collecting,
+    joins_while_collecting,
+    channels_while_collecting,
+    weak_boxes_while_collecting,
+    wills_while_collecting,
     continuations_kept_and_dropped,
     continuations_and_dynamic_wind,
     continuations_reentered,

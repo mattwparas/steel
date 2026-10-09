@@ -350,6 +350,15 @@ pub(crate) mod atomic_load_watch {
     }
 }
 
+/// The functions compiled with a strip mined loop, for
+/// `tests/counted_loops.rs`.
+#[cfg(test)]
+pub(crate) mod strip_mine_watch {
+    use std::sync::Mutex;
+
+    pub(crate) static APPLIED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+}
+
 mod helpers;
 use helpers::*;
 mod guarded;
@@ -1018,6 +1027,8 @@ struct TranslateInfo {
     /// The loop was planned as strip mined but its test was never rewritten,
     /// so it has no poll and has to be redone without strip mining.
     strip_mine_bailed: bool,
+    #[cfg(test)]
+    strip_mined: bool,
 }
 
 /// Body of a placeholder function; see `define_stub`.
@@ -2731,6 +2742,13 @@ impl JIT {
         self.allow_cursors = false;
         self.allow_strip_mine = false;
 
+        #[cfg(test)]
+        if matches!(&translated, Ok(Ok(info)) if info.strip_mined) {
+            if let Ok(mut applied) = strip_mine_watch::APPLIED.lock() {
+                applied.push(spec_name.to_string());
+            }
+        }
+
         let failure = match translated {
             Ok(Ok(_)) => {
                 match cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
@@ -3123,6 +3141,8 @@ impl JIT {
         let cursor_bailed = trans.cursor_bail
             || (trans.cursors_on && (trans.cursor_advances == 0 || trans.cursor_carries == 0));
         let strip_mine_bailed = trans.strip.as_ref().is_some_and(|strip| !strip.applied);
+        #[cfg(test)]
+        let strip_mined = trans.strip.as_ref().is_some_and(|strip| strip.applied);
 
         // `STEEL_CURSOR_STATS=1` reports why a function kept or lost its cursors.
         if trans.cursors_on && crate::config::config().cursor_stats {
@@ -3169,6 +3189,8 @@ impl JIT {
             direct_self_calls,
             cursor_bailed,
             strip_mine_bailed,
+            #[cfg(test)]
+            strip_mined,
         })
     }
 }

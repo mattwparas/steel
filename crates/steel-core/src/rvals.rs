@@ -1364,7 +1364,8 @@ impl SteelByteVector {
 
 impl PartialEq for SteelByteVector {
     fn eq(&self, other: &Self) -> bool {
-        *(self.vec.read()) == *(other.vec.read())
+        // The lock can't be taken twice
+        Gc::ptr_eq(&self.vec, &other.vec) || *(self.vec.read()) == *(other.vec.read())
     }
 }
 

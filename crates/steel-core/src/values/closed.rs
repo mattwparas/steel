@@ -680,6 +680,15 @@ impl WillExecutor {
         let _ = self.state.woken.recv();
     }
 
+    fn any_ready(&self) -> bool {
+        self.state
+            .registrations
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.ready || only_referenced_here(&r.value))
+    }
+
     // Takes the first registration whose value is ready.
     fn find_next(&self) -> Option<Pair> {
         let mut registrations = self.state.registrations.lock().unwrap();
@@ -1124,24 +1133,21 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     // or something that waits until the next thing is found?
     // How to do this _with_ blocking? Maybe have a queue for values that are being registered,
     // and then otherwise drain the vector and put them in when found.
-    if let SteelVal::Pair(pair) = ctx
-        .thread
-        .enter_safepoint(|_| -> Result<SteelVal, SteelErr> {
-            loop {
-                if let Some(value) = executor.find_next() {
-                    return Ok(SteelVal::Pair(Gc::new(value)));
-                } else {
-                    executor.wait();
-                }
+    // The registration is only taken once this thread is running again. A
+    // collection would not find it in a local.
+    let (car, cdr) = loop {
+        ctx.thread.enter_safepoint(|_| {
+            while !executor.any_ready() {
+                executor.wait();
             }
-        })
-        .unwrap()
-    {
-        let (car, cdr) = pair.try_unwrap().unwrap().into_parts();
-        apply(ctx, &[cdr, SteelVal::ListV(vec![car].into())])
-    } else {
-        unreachable!()
-    }
+        });
+
+        if let Some(pair) = executor.find_next() {
+            break pair.into_parts();
+        }
+    };
+
+    apply(ctx, &[cdr, SteelVal::ListV(vec![car].into())])
 }
 
 #[cfg(not(feature = "sync"))]
@@ -1229,6 +1235,9 @@ pub fn weak_box_value(
     value: &SteelVal,
     mut rest: RestArgsIter<&SteelVal>,
 ) -> Result<SteelVal, SteelErr> {
+    // Not while a collection is under way, which resets what it has reached.
+    leave_safepoint_for_cells();
+
     let inner = WeakBox::as_ref(value)?;
     let mut guard = inner.value.lock();
 
@@ -2241,6 +2250,17 @@ fn spawn_background_dropper<T: HeapAble + Sync + Send + 'static>(
 /// so the entry is the cell itself, and its state says a thread holds it.
 struct SpareStructs {
     by_len: [Vec<MutableStructCell>; SPARE_STRUCT_LENGTHS],
+}
+
+// A thread that exits hands its spares back, or they are never freed.
+impl Drop for SpareStructs {
+    fn drop(&mut self) {
+        for stack in self.by_len.iter_mut() {
+            for cell in stack.drain(..) {
+                release_spare_struct(cell);
+            }
+        }
+    }
 }
 
 // Structs with more fields than this go back to the heap.
@@ -3260,10 +3280,6 @@ impl Heap {
         // What it can't free is live or in a cycle, and only a mark tells
         // those apart.
         if self.mutable_structs.due_for_mark() {
-            self.memory_free_list.mark_all_unreachable();
-            self.vector_free_list.mark_all_unreachable();
-            self.mutable_structs.mark_all_unreachable();
-
             self.mark_and_sweep_new(
                 None,
                 pending,
@@ -3314,11 +3330,6 @@ impl Heap {
             // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.memory_free_list.nearly_full() || force {
-                // New generation
-                self.memory_free_list.mark_all_unreachable();
-                self.vector_free_list.mark_all_unreachable();
-                self.mutable_structs.mark_all_unreachable();
-
                 // Just reset the counter
                 let stats = self.mark_and_sweep_new(
                     None,
@@ -3406,10 +3417,6 @@ impl Heap {
             // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.nearly_full() || force {
-                self.vector_free_list.mark_all_unreachable();
-                self.memory_free_list.mark_all_unreachable();
-                self.mutable_structs.mark_all_unreachable();
-
                 let stats = self.mark_and_sweep_new(
                     None,
                     values.iter().cloned(),
@@ -3461,10 +3468,6 @@ impl Heap {
             // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.nearly_full() {
-                self.vector_free_list.mark_all_unreachable();
-                self.memory_free_list.mark_all_unreachable();
-                self.mutable_structs.mark_all_unreachable();
-
                 let stats = self.mark_and_sweep_new(
                     None,
                     values.clone(),
@@ -3596,6 +3599,13 @@ impl Heap {
 
         // Pause all threads
         synchronizer.stop_threads();
+        synchronizer.wait_for_threads();
+
+        // Only once nothing else is running, since a weak box reads these
+        self.memory_free_list.mark_all_unreachable();
+        self.vector_free_list.mark_all_unreachable();
+        self.mutable_structs.mark_all_unreachable();
+
         unsafe {
             synchronizer.enumerate_stacks(&mut context);
         }

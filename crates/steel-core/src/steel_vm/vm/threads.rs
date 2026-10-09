@@ -25,6 +25,10 @@ pub struct ThreadHandle {
     pub(crate) thread_state_manager: ThreadStateController,
 
     pub(crate) forked_thread_handle: Option<std::sync::Weak<Mutex<SteelThread>>>,
+
+    // What the thread returned, until it is joined. A collection can't see
+    // inside the join handle.
+    pub(crate) result: Arc<Mutex<Option<SteelVal>>>,
 }
 
 /// Check if the given thread is finished running.
@@ -41,7 +45,13 @@ pub fn thread_finished(handle: &SteelVal) -> Result<SteelVal> {
     ))
 }
 
-impl crate::rvals::Custom for ThreadHandle {}
+impl crate::rvals::Custom for ThreadHandle {
+    fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
+        if let Some(value) = self.result.lock().unwrap().as_ref() {
+            context.push_back(value.clone());
+        }
+    }
+}
 
 pub struct SteelMutex {
     mutex: Arc<parking_lot::Mutex<()>>,
@@ -102,13 +112,35 @@ pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
 /// Block until this thread finishes.
 #[steel_derive::function(name = "thread-join!")]
 pub fn thread_join(handle: &SteelVal) -> Result<SteelVal> {
-    ThreadHandle::as_ref(handle).and_then(|mut x| thread_join_impl(&mut x))
+    // The handle is not kept borrowed while waiting, since a collection
+    // reads it.
+    let (join_handle, result) = {
+        let handle = ThreadHandle::as_ref(handle)?;
+        let join_handle = handle.handle.lock().unwrap().take();
+        (join_handle, handle.result.clone())
+    };
+
+    let Some(join_handle) = join_handle else {
+        stop!(ContractViolation => "thread handle has already been joined!");
+    };
+
+    let joined = join_handle.join();
+
+    // The value is only in hand from here on.
+    crate::values::closed::leave_safepoint_for_cells();
+    result.lock().unwrap().take();
+
+    joined
+        .map_err(|_| SteelErr::new(ErrorKind::Generic, "thread panicked!".to_string()))?
+        .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
 }
 
 pub(crate) fn thread_join_impl(handle: &ThreadHandle) -> Result<SteelVal> {
-    if let Some(handle) = handle.handle.lock().unwrap().take() {
-        handle
-            .join()
+    if let Some(join_handle) = handle.handle.lock().unwrap().take() {
+        let joined = join_handle.join();
+        crate::values::closed::leave_safepoint_for_cells();
+        handle.result.lock().unwrap().take();
+        joined
             .map_err(|_| SteelErr::new(ErrorKind::Generic, "thread panicked!".to_string()))?
             .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
     } else {
@@ -121,9 +153,7 @@ pub(crate) fn thread_join_impl(handle: &ThreadHandle) -> Result<SteelVal> {
 /// bytecode instruction that is running.
 #[steel_derive::function(name = "thread-suspend", returns = Void)]
 pub(crate) fn thread_suspend(handle: &SteelVal) -> Result<SteelVal> {
-    ThreadHandle::as_mut_ref(handle)?
-        .thread_state_manager
-        .suspend();
+    ThreadHandle::as_ref(handle)?.thread_state_manager.suspend();
 
     Ok(SteelVal::Void)
 }
@@ -131,7 +161,7 @@ pub(crate) fn thread_suspend(handle: &SteelVal) -> Result<SteelVal> {
 /// Resume a suspended thread. This does nothing if the thread is already joined.
 #[steel_derive::function(name = "thread-resume", returns = Void)]
 pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
-    let handle = ThreadHandle::as_mut_ref(handle)?;
+    let handle = ThreadHandle::as_ref(handle)?;
     handle.thread_state_manager.unsuspend();
     handle.thread.unpark();
     Ok(SteelVal::Void)
@@ -142,7 +172,7 @@ pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
 /// at the next bytecode instruction that is running.
 #[steel_derive::function(name = "thread-interrupt", returns = Void)]
 pub(crate) fn thread_interrupt(handle: &SteelVal) -> Result<SteelVal> {
-    let handle = ThreadHandle::as_mut_ref(handle)?;
+    let handle = ThreadHandle::as_ref(handle)?;
     handle.thread_state_manager.interrupt();
     // It may be parked, suspended.
     handle.thread.unpark();
@@ -738,12 +768,48 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
 }
 */
 
+// What has been sent and not yet received, in order, for a collection to
+// find. It can't look inside the channel.
+type InTransit = Arc<Mutex<std::collections::VecDeque<SteelVal>>>;
+
+fn visit_in_transit(
+    in_transit: &InTransit,
+    context: &mut crate::values::closed::MarkAndSweepContext,
+) {
+    for value in in_transit.lock().unwrap().iter() {
+        context.push_back(value.clone());
+    }
+}
+
 pub struct SteelReceiver {
     receiver: crossbeam_channel::Receiver<SteelVal>,
+    in_transit: InTransit,
+}
+
+impl SteelReceiver {
+    // Called with a value just taken off the channel.
+    fn received(&self, value: &SteelVal) {
+        crate::values::closed::leave_safepoint_for_cells();
+
+        let mut in_transit = self.in_transit.lock().unwrap();
+        // Another receiver may have taken the front one in the meantime
+        match in_transit
+            .iter()
+            .position(|sent| SteelVal::ptr_eq(sent, value))
+        {
+            Some(position) => {
+                in_transit.remove(position);
+            }
+            None => {
+                in_transit.pop_front();
+            }
+        }
+    }
 }
 
 pub struct SteelSender {
     sender: crossbeam_channel::Sender<SteelVal>,
+    in_transit: InTransit,
 }
 
 pub struct Channels {
@@ -751,17 +817,37 @@ pub struct Channels {
     receiver: SteelVal,
 }
 
-impl Custom for SteelReceiver {}
-impl Custom for SteelSender {}
+impl Custom for SteelReceiver {
+    fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
+        visit_in_transit(&self.in_transit, context);
+    }
+}
+
+impl Custom for SteelSender {
+    fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
+        visit_in_transit(&self.in_transit, context);
+    }
+}
 impl Custom for Channels {}
 
 impl Channels {
     pub fn new() -> Self {
         let (sender, receiver) = crossbeam_channel::unbounded();
+        let in_transit = InTransit::default();
 
         Self {
-            sender: SteelSender { sender }.into_steelval().unwrap(),
-            receiver: SteelReceiver { receiver }.into_steelval().unwrap(),
+            sender: SteelSender {
+                sender,
+                in_transit: in_transit.clone(),
+            }
+            .into_steelval()
+            .unwrap(),
+            receiver: SteelReceiver {
+                receiver,
+                in_transit,
+            }
+            .into_steelval()
+            .unwrap(),
         }
     }
 
@@ -812,35 +898,43 @@ pub fn channels_receiver(value: &SteelVal) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "channel/send", returns = Void)]
 pub fn channel_send(sender: &SteelVal, value: SteelVal) -> Result<SteelVal> {
-    SteelSender::as_ref(sender)?
-        .sender
-        .send(value)
-        .map_err(|e| {
-            throw!(Generic => "channel disconnected -
+    let sender = SteelSender::as_ref(sender)?;
+
+    // Held across the send so the two stay in the same order.
+    let mut in_transit = sender.in_transit.lock().unwrap();
+    sender.sender.send(value.clone()).map_err(|e| {
+        throw!(Generic => "channel disconnected -
             unable to send value across channel: {:?}", e.0)()
-        })
-        .map(|_| SteelVal::Void)
+    })?;
+    in_transit.push_back(value);
+
+    Ok(SteelVal::Void)
 }
 
 #[steel_derive::function(name = "channel/recv")]
 pub fn channel_recv(receiver: &SteelVal) -> Result<SteelVal> {
-    SteelReceiver::as_ref(receiver)?
-        .receiver
-        .recv()
-        .map_err(|_| {
-            throw!(Generic => "Unable to receive on the channel.
+    let receiver = SteelReceiver::as_ref(receiver)?;
+    let value = receiver.receiver.recv().map_err(|_| {
+        throw!(Generic => "Unable to receive on the channel.
                 The channel is empty and disconnected")()
-        })
+    })?;
+    receiver.received(&value);
+
+    Ok(value)
 }
 
 // Need singletons to use for "empty"
 
 #[steel_derive::function(name = "channel/try-recv")]
 pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
-    let value = SteelReceiver::as_ref(receiver)?.receiver.try_recv();
+    let receiver = SteelReceiver::as_ref(receiver)?;
+    let value = receiver.receiver.try_recv();
 
     match value {
-        Ok(v) => Ok(v),
+        Ok(v) => {
+            receiver.received(&v);
+            Ok(v)
+        }
         Err(crossbeam_channel::TryRecvError::Empty) => Ok(empty_channel()),
         Err(crossbeam_channel::TryRecvError::Disconnected) => Ok(disconnected_channel()),
     }
@@ -1049,6 +1143,8 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // See `wait_to_be_registered`
     let registered = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
     let opened = registered.clone();
+    let result = Arc::new(Mutex::new(None));
+    let returned = result.clone();
 
     #[cfg(feature = "biased")]
     let handle = steel_rc::with_explicit_merge(move || {
@@ -1060,9 +1156,14 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
         // TODO: We have to use the `execute` function in vm.rs - this sets up
         // the proper dynamic wind stuff that is built in. Otherwise, it seems
         // like we're not getting it installed correctly, and things are dying
-        thread
+        let returned = thread
             .call_function(constant_map, func, Vec::new())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string());
+        // Before the thread is gone, while a collection still waits on it.
+        if let Ok(value) = &returned {
+            *result.lock().unwrap() = Some(value.clone());
+        }
+        returned
     });
 
     #[cfg(not(feature = "biased"))]
@@ -1075,9 +1176,14 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
         // TODO: We have to use the `execute` function in vm.rs - this sets up
         // the proper dynamic wind stuff that is built in. Otherwise, it seems
         // like we're not getting it installed correctly, and things are dying
-        thread
+        let returned = thread
             .call_function(constant_map, func, Vec::new())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string());
+        // Before the thread is gone, while a collection still waits on it.
+        if let Ok(value) = &returned {
+            *result.lock().unwrap() = Some(value.clone());
+        }
+        returned
     });
 
     let thread = handle.thread().clone();
@@ -1087,6 +1193,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
         thread,
         thread_state_manager: controller,
         forked_thread_handle: None,
+        result: returned,
     }
     .into_steelval()
     .unwrap();

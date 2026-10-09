@@ -33,6 +33,45 @@ fn a_literal_where_a_name_is_bound_is_an_error() {
         "(let loop ([10 1]) 2)",
         "(let* ([1 2]) 3)",
         "(letrec ([1 2]) 3)",
+        "(letrec ([#:k 1]) 1)",
+        "(letrec* ([#:k 1]) 1)",
+        "(let 1 ([x 1]) 1)",
+        "(let \"s\" ([i 0]) i)",
+        "(let #:k ([i 0]) i)",
+        "(let ([(x y) 1]) x)",
+        "(%plain-let ((1 2)) 1)",
+        "(%plain-let ((#:k 2)) 1)",
+        "(%plain-let ((() 2)) 1)",
+        "(%plain-let (((x) 2)) 1)",
+        // parameters with defaults and keywords
+        "(lambda ((1 2)) 3)",
+        "(define (f (1 2)) 2)",
+        "(define (f #:k #:j) 2)",
+        "(define (f #:k [1 2]) 2)",
+        "(define (f [[a] 1]) a)",
+        "(define (f [#:k 1]) 1)",
+        "(define (f a #:key) a)",
+        "(define (g a #:key [\"s\" 1]) a)",
+        "((lambda ([\"s\" 2]) 1) 1)",
+        // keywords and empty lists as names
+        "(define #:k 2)",
+        "(define (#:k x) 2)",
+        "(define ((#:k a) b) 1)",
+        "(define-values (#:k b) (values 1 2))",
+        "(struct #:k (x y))",
+        "(let ([x 1]) (define #:k 1) x)",
+        "(define (()))",
+        "(define (()) 2)",
+        "(define (() x) 1)",
+        "(define ((()) a) 1)",
+        // names that come out of a macro
+        "(define-syntax m (syntax-rules () [(_ x) (lambda (x) 1)])) (m 5)",
+        "(define-syntax m (syntax-rules () [(_ x) (define x 1)])) (m 5)",
+        "(define-syntax m (syntax-rules () [(_ x) (let ([x 1]) x)])) (m \"s\")",
+        // what a module provides and requires
+        "(provide 1)",
+        "(provide (for-syntax 1))",
+        "(require (only-in \"steel/option\" 1))",
     ];
 
     for source in sources {
@@ -52,6 +91,10 @@ fn what_can_still_become_a_parameter_is_let_through() {
         "(assert! (= ((lambda (a . rest) a) 1 2) 1))",
         "(assert! (= (let ([a 1] [b 2]) (+ a b)) 3))",
         "(assert! (= (let loop ([i 0]) (if (< i 3) (loop (+ i 1)) i)) 3))",
+        "(define (f a [b 5]) (+ a b)) (assert! (= (f 1) 6))",
+        "(define (f a #:b [b 2] #:c c) (list a b c)) (assert! (equal? (f 1 #:c 3) '(1 2 3)))",
+        "(assert! (= (%plain-let ((x 1) (y 2)) (+ x y)) 3))",
+        "(require (only-in \"steel/result\" Ok (Err MyErr))) (assert! (Ok? (Ok 1)))",
     ];
 
     for source in sources {

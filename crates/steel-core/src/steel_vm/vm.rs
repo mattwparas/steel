@@ -760,13 +760,12 @@ impl Synchronizer {
         }
     }
 
-    pub(crate) unsafe fn enumerate_stacks(&mut self, context: &mut MarkAndSweepContext) {
-        // TODO: Continue...
+    /// Waits for every other thread to stop. Nothing is marked before this,
+    /// since a thread still running could move a value off its stack into a
+    /// cell the mark has already walked.
+    pub(crate) fn wait_for_threads(&self) {
         let guard = self.threads.lock().unwrap();
 
-        // Wait for every thread to stop before marking anything. A thread
-        // still running could move a value off its stack into a cell the
-        // mark has already walked.
         for ThreadContext { ctx, handle } in guard.iter() {
             loop {
                 let Some(ctx) = ctx.upgrade() else {
@@ -790,12 +789,20 @@ impl Synchronizer {
                     }
                 }
 
-                std::hint::spin_loop();
+                std::thread::yield_now();
             }
         }
+    }
+
+    pub(crate) unsafe fn enumerate_stacks(&mut self, context: &mut MarkAndSweepContext) {
+        // TODO: Continue...
+        let guard = self.threads.lock().unwrap();
 
         // Wait for all the threads to be legal
         for ThreadContext { ctx, handle } in guard.iter() {
+            // What a finished thread returned is kept in its handle
+            context.push_back(handle.clone());
+
             loop {
                 if let Some(ctx) = ctx.upgrade() {
                     // Don't pause myself, enter safepoint from main thread?
@@ -929,6 +936,7 @@ impl SteelThread {
             thread: std::thread::current(),
             thread_state_manager: synchronizer.state.clone(),
             forked_thread_handle: None,
+            result: Default::default(),
         }
         .into_steelval()
         .unwrap();
@@ -1092,6 +1100,27 @@ impl SteelThread {
     #[inline(always)]
     fn finish_safepoint(&self) {
         self.leave_safepoint_early();
+    }
+
+    // `enter_safepoint` for a caller that only has a shared reference.
+    fn at_safepoint<T>(&self, finish: impl FnOnce() -> T) -> T {
+        let publish = cfg!(feature = "sync")
+            && self.safepoints_enabled
+            && self.synchronizer.has_other_threads();
+
+        if publish {
+            self.synchronizer
+                .ctx
+                .store(self as *const _ as *mut _, AtomicOrdering::SeqCst);
+        }
+
+        let res = finish();
+
+        if publish {
+            self.finish_safepoint();
+        }
+
+        res
     }
 
     /// See `closed::leave_safepoint_for_cells`.
@@ -2101,14 +2130,20 @@ impl<'a> VmCore<'a> {
             thread: std::thread::current(),
             thread_state_manager: controller,
             forked_thread_handle: Some(Arc::downgrade(&forked_thread)),
+            result: Default::default(),
         }
         .into_steelval()
         .unwrap();
 
-        self.thread.synchronizer.register(ThreadContext {
+        // At a safepoint, since a collection holds the list while it waits
+        // for this thread to stop.
+        self.thread.synchronizer.announce();
+        let context = ThreadContext {
             ctx: weak_ctx,
             handle: value.clone(),
-        });
+        };
+        self.thread
+            .at_safepoint(|| self.thread.synchronizer.register_announced(context));
 
         for frame in &self.thread.stack_frames {
             self.close_continuation_marks(frame);

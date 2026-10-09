@@ -471,7 +471,9 @@ impl Analysis {
         &mut self,
         define: &crate::parser::ast::Define,
     ) {
-        let name = define.name.atom_identifier().unwrap();
+        let Some(name) = define.name.atom_identifier() else {
+            return;
+        };
 
         let mut semantic_info = SemanticInformation::new(
             IdentifierStatus::Global,
@@ -822,9 +824,12 @@ impl<'a> AnalysisPass<'a> {
     }
 
     fn visit_top_level_define_value_without_body(&mut self, define: &crate::parser::ast::Define) {
-        let name = define.name.atom_identifier().unwrap();
-
-        let name_syntax_object = define.name.atom_syntax_object().unwrap();
+        let (Some(name), Some(name_syntax_object)) = (
+            define.name.atom_identifier(),
+            define.name.atom_syntax_object(),
+        ) else {
+            return;
+        };
 
         let mut semantic_info =
             SemanticInformation::new(IdentifierStatus::Global, 1, name_syntax_object.span);
@@ -868,8 +873,12 @@ impl<'a> AnalysisPass<'a> {
         define: &crate::parser::ast::Define,
         identifier_status_if_local: IdentifierStatus,
     ) {
-        let name = define.name.atom_identifier().unwrap();
-        let atom_syntax_object = define.name.atom_syntax_object().unwrap();
+        let (Some(name), Some(atom_syntax_object)) = (
+            define.name.atom_identifier(),
+            define.name.atom_syntax_object(),
+        ) else {
+            return;
+        };
         let depth = self.info.scope.depth();
 
         let mut semantic_info = SemanticInformation::new(
@@ -922,8 +931,13 @@ impl<'a> AnalysisPass<'a> {
         let mut mut_var_offset = 0;
 
         for (index, arg) in lambda_function.args.iter().enumerate() {
-            let name = arg.atom_identifier().unwrap();
-            let id = arg.atom_syntax_object().unwrap().syntax_object_id;
+            // The code generator rejects a parameter that is not a name
+            let (Some(name), Some(syntax_object)) =
+                (arg.atom_identifier(), arg.atom_syntax_object())
+            else {
+                continue;
+            };
+            let id = syntax_object.syntax_object_id;
 
             // TODO: Don't need to do these repeated hash lookups over and over
             // can coalesce this into one at the top of the args
@@ -1341,8 +1355,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // println!("{}", arg);
             // println!("{}", l);
 
-            let name = arg.atom_identifier().unwrap();
-            let id = arg.atom_syntax_object().unwrap().syntax_object_id;
+            let (Some(name), Some(syntax_object)) =
+                (arg.atom_identifier(), arg.atom_syntax_object())
+            else {
+                continue;
+            };
+            let id = syntax_object.syntax_object_id;
 
             let heap_alloc = if let Some(info) = self.info.let_info.get(&l.syntax_object_id) {
                 if let Some(info) = info.arguments.get(name) {

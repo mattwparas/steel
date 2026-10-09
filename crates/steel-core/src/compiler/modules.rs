@@ -2724,6 +2724,10 @@ impl<'a> ModuleBuilder<'a> {
         for expr in exprs {
             match &expr {
                 ExprKind::Atom(_) => {
+                    if expr.atom_identifier().is_none() {
+                        stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)"; expr.span())
+                    }
+
                     normal_provides.push(expr);
                 }
                 ExprKind::List(l) => {
@@ -2732,6 +2736,10 @@ impl<'a> ModuleBuilder<'a> {
                             x if x == *FOR_SYNTAX => {
                                 if l.args.len() != 2 {
                                     stop!(ArityMismatch => "provide expects a single identifier in the (for-syntax <ident>)"; l.location)
+                                }
+
+                                if l.args[1].atom_identifier().is_none() {
+                                    stop!(TypeMismatch => "provide expects a single identifier in the (for-syntax <ident>)"; l.location)
                                 }
 
                                 // Collect the for syntax expressions
@@ -2961,6 +2969,10 @@ impl<'a> ModuleBuilder<'a> {
                         for remaining in &l.args[2..] {
                             match remaining {
                                 ExprKind::Atom(_) => {
+                                    if remaining.atom_identifier().is_none() {
+                                        stop!(BadSyntax => "only-in expected identifiers to import"; remaining.span());
+                                    }
+
                                     require_object
                                         .idents_to_import
                                         .push(MaybeRenamed::Normal(remaining.clone()));

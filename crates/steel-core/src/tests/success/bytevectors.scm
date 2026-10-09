@@ -19,6 +19,10 @@
 (assert-equal! (bytes-ref my-bytes 0) 100)
 
 (assert! (equal? (bytevector 10 20 30) (bytes 10 20 30)))
+;; A mutable one is equal to itself.
+(define itself (bytevector 1 2 3))
+(assert! (equal? itself itself))
+(assert! (equal? (list itself) (list itself)))
 (assert! (eq? my-bytes my-bytes))
 (assert! (not (eq? my-bytes (bytes))))
 

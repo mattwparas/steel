@@ -1741,6 +1741,17 @@ mod malformed_source_tests {
         "(lambda 5 1)\n",
         "(let ([10 1]) 2)\n",
         "(let loop ([10 1]) 2)\n",
+        "(let 1 ([x 1]) 1)\n",
+        "(%plain-let ((1 2)) 1)\n",
+        "(define (f #:k #:j) 2)\n",
+        "(define (f [[a] 1]) a)\n",
+        "(define #:k 2)\n",
+        "(define (()))\n",
+        "(define (() x) 1)\n",
+        "(struct #:k (x y))\n",
+        "(provide 1)\n",
+        "(provide (for-syntax 1))\n",
+        "(require (only-in \"steel/option\" 1))\n",
     ];
 
     #[test]
