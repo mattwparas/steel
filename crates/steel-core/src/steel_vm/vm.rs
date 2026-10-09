@@ -632,15 +632,9 @@ impl Synchronizer {
         self.register_announced(context);
     }
 
-    /// Counts a thread that is about to be started, before it is.
-    ///
-    /// A thread publishes itself at a safepoint only once it knows there is
-    /// another (`has_other_threads`). The new thread can run, and collect,
-    /// before whoever started it gets round to registering it, and a
-    /// collection waits for every registered thread to publish itself. If
-    /// the one that started it did not yet count the new thread, it would
-    /// never publish, and would itself be waiting on the list the collector
-    /// holds.
+    /// Counts a thread before it starts, so the thread starting it publishes
+    /// itself at safepoints from here on. The new thread can collect before
+    /// it is registered.
     pub(crate) fn announce(&self) {
         let before = self
             .registered
@@ -650,7 +644,7 @@ impl Synchronizer {
         }
     }
 
-    /// Registers a thread that `announce` has already counted.
+    /// Registers a thread already counted by `announce`.
     pub(crate) fn register_announced(&self, context: ThreadContext) {
         if let Some(slot) = context.ctx.upgrade() {
             crate::values::closed::register_mutator(&slot);
@@ -770,15 +764,9 @@ impl Synchronizer {
         // TODO: Continue...
         let guard = self.threads.lock().unwrap();
 
-        // Nothing is marked until every other thread has stopped. Marking
-        // from one thread's stack walks the cells all of them share, and a
-        // thread still running can meanwhile move a value off its own stack
-        // into a cell that has already been walked. That value is then on no
-        // stack when its thread is scanned and in no cell the mark comes back
-        // to, and is collected while it is in use.
-        //
-        // A thread that has published itself stays put: it was asked to stop
-        // before this, so it parks on its way out of the safepoint.
+        // Wait for every thread to stop before marking anything. A thread
+        // still running could move a value off its stack into a cell the
+        // mark has already walked.
         for ThreadContext { ctx, handle } in guard.iter() {
             loop {
                 let Some(ctx) = ctx.upgrade() else {
@@ -788,8 +776,7 @@ impl Synchronizer {
                     break;
                 }
 
-                // A thread made with `make-thread` that isn't running has no
-                // context to publish, and is scanned through its handle.
+                // An idle `make-thread` thread is scanned through its handle
                 if let SteelVal::Custom(c) = &handle {
                     if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
                         let idle = inner
@@ -1100,20 +1087,14 @@ impl SteelThread {
         }
     }
 
-    // The end of a call that was made at a safepoint. What was called may
-    // have left the safepoint already, see `leave_safepoint_early`, and then
-    // there is nothing published to take back. A stop asked for since is
-    // answered at the next safepoint.
+    // The call may have already left the safepoint, see
+    // `leave_safepoint_early`.
     #[inline(always)]
     fn finish_safepoint(&self) {
-        if !self.synchronizer.ctx.load(AtomicOrdering::SeqCst).is_null() {
-            self.leave_safepoint(false);
-        }
+        self.leave_safepoint_early();
     }
 
-    /// Takes this thread out of the safepoint it is in, if it is in one, for
-    /// the rest of the call that was made there. See
-    /// `closed::leave_safepoint_for_cells`.
+    /// See `closed::leave_safepoint_for_cells`.
     pub(crate) fn leave_safepoint_early(&self) {
         if !self.synchronizer.ctx.load(AtomicOrdering::SeqCst).is_null() {
             self.leave_safepoint(false);
@@ -1676,7 +1657,7 @@ impl Continuation {
         false
     }
 
-    /// The continuation captured in `stack_frame`, if something still has it.
+    /// The continuation captured in `stack_frame`, if it is still alive.
     #[inline(always)]
     fn mark_of(stack_frame: &StackFrame) -> Option<StandardSharedMut<ContinuationMark>> {
         stack_frame.attachments.as_ref().and_then(|x| {
@@ -1686,22 +1667,12 @@ impl Continuation {
         })
     }
 
-    /// Whether anything will still have the continuation `mark` once `dying`
-    /// is gone. `known` is how many references the caller is holding itself.
+    /// Whether `mark` is referenced by anything other than `dying`, the
+    /// stack values going away with its frame, and so has to be closed.
+    /// `known` is how many references the caller holds.
     ///
-    /// A continuation whose frame is going away has to be closed, which
-    /// copies the whole stack, if it could be called later. Most are not
-    /// kept: the function `call/cc` called was handed the continuation as an
-    /// argument, and that argument, or a copy of it passed further up the
-    /// stack, is the only thing that has it. Those are in the part of the
-    /// stack that is going away with the frame, so they are counted and set
-    /// against how many references there are.
-    ///
-    /// The `call/cc` programs use hands over a struct holding a closure that
-    /// holds the continuation, so a closure or struct that only the dying
-    /// values have is looked inside as well. A reference from anywhere
-    /// else, a box or a global or lower down the stack, is never counted,
-    /// and the continuation is then taken to outlive the frame.
+    /// References are also counted through closures and structs that only
+    /// `dying` holds, since `call/cc` wraps the continuation in both.
     #[inline]
     pub(crate) fn outlives(
         mark: &StandardSharedMut<ContinuationMark>,
@@ -1725,9 +1696,7 @@ impl Continuation {
         held > walk.found
     }
 
-    /// Closes the continuation captured in a frame that is returning, if it
-    /// is kept by something that outlives the frame's part of the stack,
-    /// which is `dying`.
+    /// Closes the continuation of a returning frame if it outlives `dying`.
     #[inline(always)]
     fn close_marks_on_return(ctx: &VmCore<'_>, stack_frame: &StackFrame, dying: &[SteelVal]) {
         if stack_frame.attachments.is_none() {
@@ -1735,7 +1704,6 @@ impl Continuation {
         }
 
         if let Some(mark) = Self::mark_of(stack_frame) {
-            // One reference is the one just taken.
             if Self::outlives(&mark, 1, dying) {
                 mark.write().close(ctx);
             }
@@ -1743,8 +1711,6 @@ impl Continuation {
     }
 
     pub fn set_state_from_continuation(ctx: &mut VmCore<'_>, this: Self) {
-        // Where an open continuation goes back to. Everything on the stack
-        // from there up goes away when it is called.
         let open_sp = match &*this.inner.read() {
             ContinuationMark::Open(open) => Some(open.sp),
             ContinuationMark::Closed(_) => None,
@@ -1760,11 +1726,7 @@ impl Continuation {
 
                 if let Some(mark) = &mark {
                     if StandardShared::ptr_eq(mark, &this.inner) {
-                        // The frame the continuation was captured in is gone
-                        // after this. If something other than the stack that
-                        // is going with it has the continuation, it may be
-                        // called again, and has to be closed first. `this`
-                        // and `mark` are the two references held here.
+                        // `this` and `mark` are held here
                         let kept = weak_count == 1
                             && Self::outlives(
                                 mark,
@@ -1795,8 +1757,6 @@ impl Continuation {
 
                         ctx.thread.stack.truncate(open.sp);
 
-                        // Nothing else can call this again, so what it saved
-                        // is moved back instead of copied.
                         // TODO: Probably move the pointer for the stack frame as well?
                         if kept || weak_count != 1 {
                             ctx.thread
@@ -1833,9 +1793,6 @@ impl Continuation {
                     }
                 }
 
-                // A continuation captured in a frame that is being passed on
-                // the way. Whatever has it among the values that are going
-                // away does not keep it.
                 let kept = mark.as_ref().is_some_and(|mark| {
                     Self::outlives(mark, 1, ctx.thread.stack.get(open_sp..).unwrap_or(&[]))
                 });
@@ -1873,19 +1830,16 @@ impl Continuation {
     }
 }
 
-/// Counts the references to a continuation that go away with a part of the
-/// stack. See `Continuation::outlives`.
+/// See `Continuation::outlives`.
 struct DyingReferences<'a> {
     mark: &'a StandardSharedMut<ContinuationMark>,
     found: usize,
-    // The closures and structs met so far, and how many references to each
-    // have been seen coming from something that is going away.
+    // Closures and structs seen, with the references to each found so far
     holders: SmallVec<[(usize, usize); 8]>,
 }
 
 impl DyingReferences<'_> {
-    // More holders than this and the rest are taken to be kept, which only
-    // costs a copy that might not have been needed.
+    // Past this the continuation is assumed to be kept
     const MOST_HOLDERS: usize = 64;
 
     fn reference(&mut self, value: &SteelVal) {
@@ -1911,9 +1865,7 @@ impl DyingReferences<'_> {
         }
     }
 
-    // Notes one more reference to a holder, and says whether that accounts
-    // for all of them, in which case the holder goes away too and what it
-    // holds is counted. The counts read here are never under the real ones.
+    // Whether this accounts for every reference to the holder
     fn last_reference(&mut self, holder: usize, references: usize) -> bool {
         let seen = match self.holders.iter_mut().find(|(known, _)| *known == holder) {
             Some((_, seen)) => {
@@ -4393,8 +4345,6 @@ impl<'a> VmCore<'a> {
 
             let rollback_index = last.sp;
 
-            // What the frame held goes with it. The value it returns is
-            // not among that, and keeps a continuation it holds.
             Continuation::close_marks_on_return(
                 self,
                 &last,
@@ -4450,8 +4400,7 @@ impl<'a> VmCore<'a> {
 
             let rollback_index = last.sp as _;
 
-            // What the frame held goes with it, all but the value it
-            // returns, which is on top and keeps a continuation it holds.
+            // The return value is on top and survives the frame
             let top = self.thread.stack.len().saturating_sub(1);
             Continuation::close_marks_on_return(
                 self,

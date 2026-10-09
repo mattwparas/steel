@@ -1,21 +1,14 @@
-//! Checks that cranelift leaves the jit's re-reads of a sequence number alone.
-//!
-//! A read of a cell that other threads may be writing loads the cell's
-//! sequence number, loads the value, and loads the number again to see
-//! whether a write got in the way. If the optimiser takes the second load
-//! for the first one over again, the check always passes and a reader can be
-//! handed half of one value and half of another. The code still runs, and a
-//! test that stores one kind of value never notices, so this looks at what
-//! was compiled instead.
+//! Checks that cranelift keeps the jit's re-reads of a sequence number. If
+//! the second load is folded into the first, a shared read is never checked
+//! and nothing that runs can tell.
 
 use std::time::{Duration, Instant};
 
 use crate::jit2::cgen::atomic_load_watch::SEEN;
 use crate::steel_vm::engine::Engine;
 
-/// Loops that read boxes, vectors and struct fields, some copying what they
-/// read into another cell, which is the shape cranelift once folded. They
-/// are a module because that is where the jit reads fields with no call.
+/// Loops that read boxes, vectors and struct fields. A module, since that
+/// is where the jit reads struct fields inline.
 const SHAPES: &str = r#"
 (provide shape-run)
 
@@ -83,7 +76,7 @@ fn cranelift_keeps_every_reread_of_a_sequence_number() {
         .run(r#"(require "compiled-shapes") (shape-run 20000)"#)
         .expect("the shapes run");
 
-    // Compiling may be on another thread, so give it a while.
+    // Compiling may be on another thread
     let started = Instant::now();
     let wanted = [
         "box-copy",
@@ -107,9 +100,7 @@ fn cranelift_keeps_every_reread_of_a_sequence_number() {
         seen = shapes_seen();
     }
 
-    // With the jit compiling on a thread of its own, and the rest of the
-    // tests keeping it busy, a shape may not have had its turn yet. What has
-    // been compiled is still checked.
+    // A busy background jit may not have reached every shape yet
     let waited_for_all = all_seen(&seen);
     if !crate::config::config().jit_background {
         assert!(
@@ -127,8 +118,7 @@ fn cranelift_keeps_every_reread_of_a_sequence_number() {
         );
     }
 
-    // Each shape has a checked read in it, which is the first load of the
-    // number and at least one more, so this is looking at the right thing.
+    // Each shape has a checked read in it
     for shape in wanted {
         if !waited_for_all {
             break;
@@ -143,8 +133,7 @@ fn cranelift_keeps_every_reread_of_a_sequence_number() {
     }
 }
 
-/// Every other function the tests compiled so far, whatever it was. Which
-/// ones that is depends on what ran before this, so it only ever finds more.
+/// Every function the tests have compiled so far.
 #[test]
 fn cranelift_keeps_the_atomic_loads_of_everything_compiled_so_far() {
     let seen = SEEN.lock().map(|seen| seen.clone()).unwrap_or_default();

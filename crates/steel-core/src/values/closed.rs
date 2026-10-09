@@ -2258,7 +2258,7 @@ thread_local! {
 /// been emptied. Keeps the cell for this thread's next allocation of the same
 /// size, or leaves it for the heap to free.
 ///
-/// Returns false if the heap is gone, and the caller is to free the cell.
+/// Returns false if the heap is gone and the caller has to free the cell.
 pub(crate) fn retire_mutable_struct(cell: MutableStructCell) -> bool {
     let len = cell.len();
     let spare = len < SPARE_STRUCT_LENGTHS
@@ -2271,8 +2271,6 @@ pub(crate) fn retire_mutable_struct(cell: MutableStructCell) -> bool {
                 if stack.len() >= spare_handles() {
                     return false;
                 }
-                // A spare is this thread's to free if the heap goes, so it
-                // goes on the stack only once it is one.
                 if !cell.move_state(MUTABLE_STRUCT_LIVE, MUTABLE_STRUCT_SPARE) {
                     return false;
                 }
@@ -2306,21 +2304,10 @@ pub(crate) fn cells_shared() -> bool {
     CELLS_SHARED.load(Ordering::Relaxed)
 }
 
-/// Called by anything that is about to read or write a cell other threads
-/// can reach, before it takes the cell's lock.
-///
-/// A thread that calls a primitive is at a safepoint for as long as the call
-/// lasts, which lets a collection go ahead while the primitive waits on
-/// something. But a primitive that works on a cell is not waiting. A value
-/// it has read out of the cell, or swapped out of it, is in nobody's stack
-/// until the primitive returns it, and a collection that runs meanwhile does
-/// not find it. Another primitive can be changing the same cells while the
-/// collection is marking them, too.
-///
-/// So such a primitive leaves the safepoint first, and is an ordinary
-/// running thread for the rest of the call. That waits out a collection that
-/// is under way, and one that starts later waits for this thread's next
-/// safepoint, by which time what it read is on its stack.
+/// Called before reading or writing a shared cell. A thread in a primitive
+/// is at a safepoint, but a value it takes out of a cell is on no stack
+/// until the primitive returns, so a collection would miss it. This leaves
+/// the safepoint for the rest of the call.
 #[inline]
 pub(crate) fn leave_safepoint_for_cells() {
     if cells_shared() {
@@ -2416,9 +2403,7 @@ impl MutatorState {
             core::sync::atomic::AtomicUsize::from_ptr(limit)
                 .store(CHECK_IN_STACK_LIMIT, Ordering::SeqCst);
         }
-        // Without the jit there is no limit to set and nothing reads a cell
-        // without its lock, so nothing is waiting on a check in. What was
-        // put aside is let go of at the next collection.
+        // Without the jit nothing reads a cell without its lock
         #[cfg(not(feature = "jit2"))]
         let _ = thread;
     }
@@ -2608,16 +2593,13 @@ pub(crate) fn register_mutator(slot: &Arc<core::sync::atomic::AtomicPtr<SteelThr
 /// the thread was running before.
 pub(crate) struct Running {
     state: Arc<MutatorState>,
-    counted: bool,
     outer: Option<(usize, Arc<MutatorState>)>,
     outer_thread: *mut SteelThread,
 }
 
 impl Drop for Running {
     fn drop(&mut self) {
-        if self.counted {
-            self.state.running.fetch_sub(1, Ordering::SeqCst);
-        }
+        self.state.running.fetch_sub(1, Ordering::SeqCst);
         {
             let _held = self.state.thread_in_use.lock();
             self.state.thread.store(self.outer_thread, Ordering::SeqCst);
@@ -2657,11 +2639,7 @@ pub(crate) fn enter_mutator(
     let family = unsafe { (*thread).heap.data_ptr() as usize };
     running.family.store(family, Ordering::SeqCst);
 
-    // Counted whether or not there is another thread yet. One can be started
-    // part way through this run, by this thread or by another engine in the
-    // process, and from then on a thread that was left out would be taken to
-    // be idle for as long as its run lasted.
-    let counted = true;
+    // Counted even when alone, since another thread can start mid run
     running.running.fetch_add(1, Ordering::SeqCst);
     // Starting a run is a point with nothing in hand, and a thread that
     // wasn't running when another asked was never told.
@@ -2669,7 +2647,6 @@ pub(crate) fn enter_mutator(
 
     Running {
         state: running,
-        counted,
         outer,
         outer_thread,
     }
@@ -2910,8 +2887,7 @@ pub(crate) fn detached_mutable_struct(
 
 // Hands a spare back to whichever heap owns it.
 fn release_spare_struct(cell: MutableStructCell) {
-    // Dead, the heap frees it and it is not touched here again. If the heap
-    // is gone the cell is still this thread's.
+    // If the heap is gone the cell is this thread's to free
     if !cell.move_state(MUTABLE_STRUCT_SPARE, MUTABLE_STRUCT_DEAD) {
         unsafe { cell.free() };
     }
@@ -3094,16 +3070,9 @@ impl Drop for MutableStructList {
         Self::return_spares();
         self.adopt_detached();
 
-        // A handle or another thread's spare stack can outlive the heap, and
-        // the last handle to a cell can be dropped on another thread while
-        // this runs.
-        //
-        // Until a cell is orphaned nobody but this heap frees it, so its
-        // fields can be taken, which is what breaks a cycle of structs that
-        // hold each other. Orphaning it then says what it was at that
-        // moment. Dead, it has no handles and is on no thread's stack, so it
-        // is freed here. Otherwise whoever holds it frees it, and it is not
-        // touched here again.
+        // A handle or another thread's spare stack can outlive the heap.
+        // Fields are taken before the cell is orphaned, while only this heap
+        // can free it. A dead cell is freed here, any other by its holder.
         let mut released = Vec::new();
         for cell in core::mem::take(&mut self.cells) {
             if cell.state() == MUTABLE_STRUCT_LIVE {
@@ -4009,9 +3978,8 @@ impl HeapRef<SteelVal> {
     /// writing the box. The read is checked against the lock's count, and
     /// only takes the lock if a write got in the way. A value that a write
     /// swaps out meanwhile is kept alive until this thread is next at a
-    /// safepoint, which is what makes taking the reference safe. So this
-    /// must not be called by a thread that is at one, which a thread in a
-    /// primitive is. Jitted code calls it directly.
+    /// safepoint, which is what makes taking the reference safe. Must not be
+    /// called from a primitive, which runs at a safepoint.
     #[inline]
     pub(crate) fn read_shared(&self) -> SteelVal {
         let lock = unsafe { &*self.inner.as_ptr() };
@@ -4042,9 +4010,8 @@ impl HeapRef<HeapVec> {
     /// vouches for before the storage is touched, so the index is in bounds
     /// of that storage. A vector that grows meanwhile keeps its old storage
     /// allocated until this thread is next at a safepoint (see
-    /// `reserve_shared`), and so is an element that is swapped out. So this
-    /// must not be called by a thread that is at one, which a thread in a
-    /// primitive is. Jitted code calls it directly.
+    /// `reserve_shared`), and so is an element that is swapped out. Must not
+    /// be called from a primitive, which runs at a safepoint.
     #[inline]
     pub(crate) fn read_shared(&self, index: usize) -> Option<SteelVal> {
         let lock = unsafe { &*self.inner.as_ptr() };

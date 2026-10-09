@@ -2402,9 +2402,7 @@ impl<'a> FunctionTranslator<'a> {
     /// which only the running code knows, and `nth` says which reread of the
     /// number this is, since two of them must not look alike either.
     fn sequence_reload(&mut self, sequence: Value, alone: Value, nth: i64) -> Value {
-        // Keeps what was read in between ahead of this load, on a machine
-        // that is free to do two loads in either order. One that keeps loads
-        // in order has no need of it, and there the fence is a costly one.
+        // Orders the read before this load where loads can be reordered
         if !cfg!(target_arch = "x86_64") {
             self.builder.ins().fence();
         }

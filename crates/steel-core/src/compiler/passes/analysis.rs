@@ -1588,11 +1588,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // We're entering a new scope since we've entered a lambda function
         self.info.scope.push_layer();
 
-        // A parameter that is not an identifier is left out here. Before
-        // macro expansion that is how keyword and optional parameters look,
-        // and after it the code generator refuses the function, so this only
-        // has to carry on without them. It runs on code as it is being
-        // typed, too.
+        // Keyword and optional parameters are not identifiers until they
+        // are expanded. The code generator rejects whatever is left.
         let let_level_bindings: smallvec::SmallVec<[_; 8]> = lambda_function
             .args
             .iter()

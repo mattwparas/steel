@@ -2540,10 +2540,8 @@ impl TryFrom<ThinVec<ExprKind>> for ExprKind {
     }
 }
 
-/// Whether something written where a name is bound could be one. A keyword
-/// or a list can still turn into a parameter, since that is how keyword and
-/// optional parameters are written, and those are worked out later. A number,
-/// a string or a quoted form never does.
+/// Whether `expr` could be a binding. Keywords and lists are allowed since
+/// keyword and optional parameters are expanded later.
 fn could_be_bound(expr: &ExprKind) -> bool {
     match expr {
         ExprKind::Atom(atom) => matches!(
@@ -2555,8 +2553,6 @@ fn could_be_bound(expr: &ExprKind) -> bool {
     }
 }
 
-/// Refuses a name being bound that could never be one. Whatever got past
-/// here would reach passes that take it to be an identifier.
 fn name_can_be_bound(what: &str, name: &ExprKind, span: Span) -> Result<(), ParseError> {
     if could_be_bound(name) {
         Ok(())

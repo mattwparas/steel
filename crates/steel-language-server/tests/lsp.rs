@@ -1730,8 +1730,7 @@ mod offset_encoding_tests {
 mod malformed_source_tests {
     use super::*;
 
-    // Each of these was a panic in the compiler, which ended the server.
-    // They are what a form looks like part way through being typed.
+    // Each of these used to panic in the compiler
     const MALFORMED: &[&str] = &[
         "(define (foo 10)\n  \n  10)\n",
         "(define (foo \"x\") 1)\n",

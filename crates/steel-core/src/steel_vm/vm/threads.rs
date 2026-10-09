@@ -970,15 +970,8 @@ pub(crate) fn spawn_native_thread(
 /// ```scheme
 /// (define thread (spawn-native-thread (lambda () (displayln "Hello world!"))))
 /// ```
-/// Holds a thread that has just been started until the thread that started
-/// it has registered it.
-///
-/// A collection stops and scans the threads on the list, and no others. The
-/// handle that goes on the list can only be made once the thread exists, so
-/// there is a stretch where it exists and is not listed, and a thread that
-/// ran steel code then would have its stack missed and what only it holds
-/// collected under it. So it waits here first, at a safepoint with nothing
-/// but the function it is to call, which a collection can see.
+/// Holds a new thread at a safepoint until it has been registered. A
+/// collection only scans registered threads.
 #[cfg(feature = "sync")]
 fn wait_to_be_registered(
     thread: &mut SteelThread,
@@ -1038,8 +1031,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // uses a cell without its lock. This has to come before the thread starts.
     crate::values::closed::share_cells();
 
-    // Counted before it starts as well, so that this thread publishes itself
-    // at its next safepoint. See `Synchronizer::announce`.
+    // See `Synchronizer::announce`
     ctx.thread.synchronizer.announce();
 
     // TODO: Continuations should not cross thread barriers.
@@ -1054,8 +1046,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
         steel_rc::register_thread();
     }
 
-    // Opened once this thread has put the new one on the list a collection
-    // goes by. See `wait_to_be_registered`.
+    // See `wait_to_be_registered`
     let registered = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
     let opened = registered.clone();
 

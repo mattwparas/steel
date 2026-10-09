@@ -1026,10 +1026,8 @@ impl QueueHandle {
 
         // Attempt to coalesce the unregistered queue, if its now registered:
 
-        // The queues are emptied before anything in them is merged. A merge
-        // can drop the last reference to a value, dropping that can queue
-        // something for another thread, and the map's lock is not one this
-        // thread can take twice.
+        // Taken out first, since a merge can drop a value that enqueues and
+        // the map's lock is not reentrant
         let mut unregistered = QUEUE
             .unregistered
             .get_mut(&Some(current))

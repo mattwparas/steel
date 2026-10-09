@@ -428,8 +428,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         &mut self,
         lambda_function: &crate::parser::ast::LambdaFunction,
     ) -> Self::Output {
-        // By now every macro has been expanded, so what is left in the
-        // parameter list has to be a name.
+        // Macros are expanded by now
         if let Some(parameter) = lambda_function
             .args
             .iter()

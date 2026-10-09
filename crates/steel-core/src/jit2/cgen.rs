@@ -132,9 +132,7 @@ pub struct JIT {
     /// bailed. See `FunctionTranslator::cursor_bail`.
     allow_cursors: bool,
 
-    /// Whether the next `translate` may strip mine a counted loop. Set around
-    /// the specialized-copy compile only, and cleared again when that
-    /// translation bailed. See `counted_loop`.
+    /// Whether the next `translate` may strip mine a counted loop.
     allow_strip_mine: bool,
 
     // perf inject --jit support. None unless STEEL_JIT_DUMP is set, since opening
@@ -338,10 +336,7 @@ macro_rules! abi {
     };
 }
 
-/// The atomic loads each jitted function had before cranelift optimised it
-/// and after, for functions that had any. A re-read of a sequence number
-/// that cranelift takes for the first read over again leaves a check that
-/// always passes, and nothing that runs can tell. See
+/// Atomic load counts per function before and after optimisation, for
 /// `tests/compiled_shape.rs`.
 #[cfg(test)]
 pub(crate) mod atomic_load_watch {
@@ -686,7 +681,7 @@ fn check_in_polls_enabled() -> bool {
     crate::config::config().jit_check_in
 }
 
-/// `STEEL_JIT_STRIP_MINE=0` keeps the poll in every trip round a counted loop.
+/// `STEEL_JIT_STRIP_MINE=0` polls on every iteration.
 fn strip_mine_enabled() -> bool {
     crate::config::config().jit_strip_mine > 0
 }
@@ -1020,9 +1015,8 @@ struct TranslateInfo {
     /// The translation met something it could not keep a list cursor sound
     /// across, so it has to be redone without cursors.
     cursor_bailed: bool,
-    /// A counted loop had its poll taken out of each trip, and the test that
-    /// was to stand in for it was not compiled the way that needs. It has to
-    /// be redone with the poll left where it was.
+    /// The loop was planned as strip mined but its test was never rewritten,
+    /// so it has no poll and has to be redone without strip mining.
     strip_mine_bailed: bool,
 }
 
@@ -1423,43 +1417,34 @@ fn loop_type_seed(
     seed
 }
 
-/// What a counted loop's counter is tested against.
+/// What a counted loop compares its counter against.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum CountBound {
     Const(i64),
-    /// A parameter that every trip round passes on as it is.
+    /// A parameter passed through unchanged.
     Slot(usize),
 }
 
-/// A loop that `counted_loop` found it can count the trips of.
+/// A loop found by `counted_loop`.
 #[derive(Clone, Copy, Debug)]
 struct CountedLoop {
-    /// The parameter that counts.
     counter: usize,
     bound: CountBound,
-    /// The loop goes round again while the counter is this to the bound.
+    /// The loop continues while `counter while_cc bound`.
     while_cc: IntCC,
-    /// What each trip adds to the counter.
     step: i64,
-    /// Where the arm of the test that runs when it holds starts. This is how
-    /// the translator knows the test when it comes to it.
+    /// Identifies the loop's `IF`.
     then_start: usize,
-    /// Whether that arm is the one that goes round again.
     loops_when_true: bool,
 }
 
-/// Finds a loop that can be strip mined: one whose trips can be counted
-/// ahead of time, so that the look for another thread it would make on every
-/// trip (`emit_check_in_poll`) can be made once a stretch instead.
+/// Finds a loop that can poll once per chunk of iterations instead of on
+/// every one.
 ///
-/// The shape is narrow, to keep what has to be proven small. The body opens
-/// with a comparison of a fixnum parameter against a fixnum constant, or
-/// against another fixnum parameter. One arm of that test leaves. The other is
-/// straight line code that ends in the only self tail call, which passes the
-/// counter on with a constant added or taken away, in the direction of the
-/// bound, and passes a parameter it was compared against on untouched.
-///
-/// Anything this does not model in the arm that goes round means no.
+/// The body has to open with a comparison of a fixnum parameter against a
+/// fixnum constant or another fixnum parameter. One arm exits. The other is
+/// straight line code ending in the only self tail call, which steps the
+/// counter by a constant toward the bound and passes the bound through.
 fn counted_loop(
     code: &[DenseInstruction],
     arity: u16,
@@ -1500,7 +1485,7 @@ fn counted_loop(
         _ => None,
     };
 
-    // One way round, and it is a self tail call.
+    // A single back edge
     let mut ways_round = code
         .iter()
         .enumerate()
@@ -1510,8 +1495,7 @@ fn counted_loop(
         return None;
     }
 
-    // The test the body opens with. Both operands are only read, so going
-    // back to the top of the loop from the test leaves nothing undone.
+    // Both operands are only read, so the test can jump back to the header
     let counter = read_of(code.first()?).filter(|slot| fixnum(*slot))?;
     let second = code.get(1)?;
     let bound = match int_of(second) {
@@ -1552,8 +1536,7 @@ fn counted_loop(
         (then_start, true)
     };
 
-    // The arm that goes round is one run of code, with no way in or out of
-    // the middle of it.
+    // No jumps into the looping arm
     let jumps_into_arm = code.iter().any(|ins| {
         matches!(ins.op_code, OpCode::IF | OpCode::JMP | OpCode::POPJMP) && {
             let target = ins.payload_size.to_usize();
@@ -1670,9 +1653,8 @@ fn counted_loop(
         }
     }
 
-    // The counter has to be on its way to where the test lets go of it. One
-    // that is tested for being equal to the bound can step over it unless it
-    // moves by one.
+    // The counter has to move toward the exit. An equality test only works
+    // with a step of one.
     let while_cc = if loops_when_true {
         holds_cc
     } else {
@@ -1698,15 +1680,13 @@ fn counted_loop(
     })
 }
 
-/// A counted loop being strip mined. See `enter_counted_loop`.
+/// See `enter_counted_loop`.
 struct StripMine {
     plan: CountedLoop,
-    /// Polls, works out how far the next stretch goes, and enters the loop.
     poll_header: Block,
-    /// Where the stretch under way ends.
+    /// Where the current chunk ends.
     limit: Variable,
-    /// The loop's test was reached and compiled against `limit`. Until then
-    /// nothing in the loop polls.
+    /// Whether the loop's test was rewritten against `limit`.
     applied: bool,
 }
 
@@ -2436,7 +2416,6 @@ impl JIT {
             .push(AbiParam::new(types::I64));
     }
 
-    /// How many atomic loads the function has, for `atomic_load_watch`.
     #[cfg(test)]
     fn count_atomic_loads(&self) -> usize {
         let func = &self.ctx.func;
@@ -2449,8 +2428,7 @@ impl JIT {
             .count()
     }
 
-    /// Notes the function as it goes into cranelift. `dump_asm_if_asked`
-    /// notes it as it comes out.
+    /// See `atomic_load_watch`.
     fn watch_before_define(&mut self) {
         #[cfg(test)]
         atomic_load_watch::BEFORE.with(|before| before.set(self.count_atomic_loads()));
@@ -2685,8 +2663,7 @@ impl JIT {
             translated = translate_with(self, None);
         }
 
-        // A counted loop whose test did not come out as strip mining needs has
-        // no poll left in it, so redo it as an ordinary loop.
+        // Without the rewritten test the loop has no poll
         if matches!(&translated, Ok(Ok(info)) if info.strip_mine_bailed) {
             if spec_debug_enabled() {
                 eprintln!("[spec] {spec_name}: strip mining bailed, retranslating without");
@@ -3071,8 +3048,6 @@ impl JIT {
             && matches!(spec_mode, SpecMode::Specialized { .. })
             && fake_entry_block.is_some();
 
-        // A loop whose trips can be counted polls once a stretch, from a block
-        // of its own ahead of the loop, and not on every trip.
         let counted = match &spec_mode {
             SpecMode::Specialized { seed, .. }
                 if allow_strip_mine
@@ -4076,7 +4051,6 @@ struct FunctionTranslator<'a> {
     /// be lists on entry.
     cursors_on: bool,
 
-    /// The counted loop this translation is strip mining, if it is.
     strip: Option<StripMine>,
 
     /// Something happened while a cursor was live that the translator cannot
@@ -6112,18 +6086,10 @@ impl FunctionTranslator<'_> {
         );
     }
 
-    /// Starts strip mining the loop `plan` describes. Called in the entry
-    /// block, and leaves the builder in a block that is ready to jump to the
-    /// loop.
-    ///
-    /// The loop is run a stretch at a time. This block polls, and works out
-    /// where the stretch that starts at the counter's present value ends:
-    /// at the bound, or a set number of trips on, whichever the counter gets
-    /// to first. The loop's own test is then compiled against that
-    /// (`counted_loop_branch`), which costs what it did against the bound,
-    /// and when the counter gets there the loop either leaves or comes back
-    /// here. So nothing in a trip round looks for another thread, and no more
-    /// than a stretch of trips goes by without a look.
+    /// Emits the block that polls and sets where the next chunk of the loop
+    /// ends: at the bound, or `jit_strip_mine` iterations on, whichever comes
+    /// first. The loop's test is compiled against that in
+    /// `counted_loop_branch`, and comes back here when the chunk ends.
     fn enter_counted_loop(&mut self, plan: CountedLoop) {
         let poll_header = self.builder.create_block();
         let limit = self.builder.declare_var(types::I64);
@@ -6137,8 +6103,7 @@ impl FunctionTranslator<'_> {
         let counter = self.read_from_vm_stack_unboxed(plan.counter);
         let bound = self.counted_loop_bound(&plan);
 
-        // As far as a stretch can go, in the counter's direction. One that
-        // would run off the end of the integers stops there.
+        // Saturates instead of overflowing
         let trips = crate::config::config()
             .jit_strip_mine
             .min(i32::MAX as usize) as i64;
@@ -6160,8 +6125,7 @@ impl FunctionTranslator<'_> {
 
         let stretch = match plan.while_cc {
             IntCC::NotEqual => {
-                // The bound only ends the stretch if the counter meets it on
-                // the way.
+                // Only if the counter reaches the bound within the chunk
                 let (behind, ahead) = if rising {
                     (
                         IntCC::SignedGreaterThanOrEqual,
@@ -6198,15 +6162,9 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    /// The branch of a counted loop's test, which is the `if` whose arms are
-    /// `then_block` and `else_block`. Says whether it emitted one.
-    ///
-    /// The loop goes round while the counter has not got to the end of its
-    /// stretch. When it has, the real test decides: out of the loop, or back
-    /// to the block that polls and sets the next stretch, which comes round
-    /// to this test again with the counter short of the new end. Going back
-    /// there is sound because nothing between the top of the loop and here
-    /// has done anything but read two locals.
+    /// Emits the branch for a counted loop's test against the chunk limit.
+    /// At the limit the real test either exits or goes back to the poll
+    /// header. Returns false if this is not that test.
     fn counted_loop_branch(
         &mut self,
         then_start: usize,
@@ -11052,8 +11010,7 @@ impl FunctionTranslator<'_> {
         self.if_merge_lazy.push(lazy.clone());
         let mut merge_borrowed = false;
 
-        // Test the if condition and conditionally branch. A counted loop's
-        // test goes by where its stretch ends instead.
+        // Test the if condition and conditionally branch.
         if !self.counted_loop_branch(then_start, then_block, else_block) {
             self.builder
                 .ins()

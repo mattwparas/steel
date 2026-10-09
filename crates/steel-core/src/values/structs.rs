@@ -270,12 +270,10 @@ pub struct MutableStructHeader {
     pub(crate) state: core::sync::atomic::AtomicU8,
 }
 
-// Who frees a cell is decided by one exchange of its state, since the heap
-// that owns it can go away on one thread while the last handle to it is
-// dropped on another. The heap swaps `ORPHAN` in and frees the cell only if
-// it was `DEAD`. Whoever holds the cell otherwise tries to move it on from
-// the state they know it to be in, and frees it themselves if they find it
-// orphaned instead. Neither touches the cell again once the other may have.
+// The heap can be dropped on one thread while the last handle to a cell is
+// dropped on another, so who frees the cell is decided by one exchange of
+// its state. The heap swaps in `ORPHAN` and frees the cell only if it was
+// `DEAD`. A holder that finds it orphaned frees it.
 
 /// Has handles, or is waiting on the collector to empty it.
 pub(crate) const MUTABLE_STRUCT_LIVE: u8 = 0;
@@ -306,8 +304,6 @@ impl steel_rc::PackedDropHandler<SteelVal> for MutableStructDrop {
 
         cell.release_fields();
 
-        // The heap can have gone in the meantime, and then nobody is left
-        // to keep the block for.
         crate::values::closed::retire_mutable_struct(cell)
     }
 }
@@ -357,9 +353,8 @@ impl MutableStructCell {
         self.header().state.store(state, Ordering::Release);
     }
 
-    /// Moves the cell from `from` to `to`, unless the heap has orphaned it
-    /// meanwhile. Says whether it moved. After a move to `DEAD` the heap can
-    /// free the cell, so the caller must not touch it again.
+    /// Moves the cell from `from` to `to` unless it has been orphaned. The
+    /// cell must not be touched after a move to `DEAD`.
     #[inline]
     pub(crate) fn move_state(&self, from: u8, to: u8) -> bool {
         self.header()
@@ -368,8 +363,7 @@ impl MutableStructCell {
             .is_ok()
     }
 
-    /// Hands the cell over to whoever holds it, and gives the state it was
-    /// in. Only the heap that owns the cell does this, as it goes away.
+    /// Marks the cell orphaned and returns the state it was in.
     #[inline]
     pub(crate) fn orphan(&self) -> u8 {
         self.header()
@@ -618,14 +612,9 @@ impl MutableStructRef {
         result
     }
 
-    /// The field at `index`, read under the struct's lock when other threads
-    /// are running.
-    ///
-    /// This is what primitives use, and a thread in a primitive counts as
-    /// being at a safepoint, so a value another thread swaps out of the field
-    /// can be released while it is in here. Holding the lock while taking
-    /// the reference is what keeps that from happening. `read_shared` does
-    /// without the lock and is only for code that is not at a safepoint.
+    /// The field at `index`, read under the lock when other threads are
+    /// running. Primitives run at a safepoint, where `read_shared` is not
+    /// safe.
     #[inline]
     pub fn get_index(&self, index: usize) -> Option<SteelVal> {
         let cell = self.cell();
@@ -643,12 +632,8 @@ impl MutableStructRef {
     /// The field at `index`, which the struct must have, with a reference
     /// taken, while other threads may be writing the struct. The read is
     /// checked against the struct's sequence number and only takes the lock
-    /// if a write got in the way.
-    ///
-    /// A field that a write swaps out meanwhile is kept alive until this
-    /// thread is next at a safepoint, which is what makes taking the
-    /// reference safe. So this must not be called by a thread that is at
-    /// one, which a thread in a primitive is. Jitted code calls it directly.
+    /// if a write got in the way. Must not be called from a primitive,
+    /// which runs at a safepoint.
     #[inline(always)]
     pub(crate) unsafe fn read_shared(&self, index: usize) -> SteelVal {
         let cell = self.cell();

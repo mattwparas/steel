@@ -37,9 +37,7 @@ fn handle_attachments_pop(
             .as_ref()
             .and_then(|x| WeakShared::upgrade(&x.inner))
     }) {
-        // The frame's part of the stack, from `sp` up, goes with it. A
-        // continuation that only that has is not kept. See
-        // `Continuation::outlives`.
+        // See `Continuation::outlives`
         let dying = ctx.thread.stack.get(sp..).unwrap_or(&[]);
         if Continuation::outlives(&cont_mark, 1, dying) {
             cont_mark.write().close(ctx);

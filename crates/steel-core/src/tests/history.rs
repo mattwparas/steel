@@ -39,8 +39,7 @@ const VECTOR_APPEND: i64 = 12;
 // Only there to show that the check notices.
 const BOX_SET_IN_TWO_STEPS: i64 = 13;
 
-// A value read from one cell and stored in another. These are two operations
-// each, a read and then a write of what was read, and are checked as two.
+// Copies from one cell to another, checked as a read and then a write.
 const BOX_TO_SLOT: i64 = 14;
 const SLOT_TO_BOX: i64 = 15;
 const FIELD_TO_BOX: i64 = 16;
@@ -57,14 +56,9 @@ const BROKEN: i64 = -2;
 // The write half of a copy whose read found nothing to copy.
 const SKIPPED: i64 = -3;
 
-/// The program the threads run. Every value stored carries its id twice, so
-/// a read can tell a whole one from anything else, and is one of six kinds
-/// that each need releasing, picked by the id. With one kind only, a read
-/// that took the tag of one value and the rest of another would still look
-/// like a value.
-///
-/// It is a module, which is where the jit reads and writes struct fields with
-/// no call.
+/// The program the threads run. Every value stored carries its id twice and
+/// is one of six kinds, so a torn read does not look like a value. A module,
+/// since that is where the jit reads struct fields inline.
 const HARNESS: &str = r#"
 (provide run-round)
 
@@ -452,8 +446,7 @@ const VECTORS_IN_PLACE: Mix = Mix(&[
     VECTOR_LENGTH,
 ]);
 
-// Copies, with enough plain writes that there is always something new to
-// copy. Each copy is two events, so these lists are kept short.
+// Each copy is two events, so these lists are kept short.
 const COPIES: Mix = Mix(&[
     BOX_TO_SLOT,
     SLOT_TO_BOX,
@@ -571,8 +564,7 @@ fn run_round(engine: &mut Engine, threads: &[Vec<Op>]) -> Vec<Event> {
     events
 }
 
-/// The read and the write a copy is made of. The write's id is whatever the
-/// read turns out to find.
+/// The read and the write a copy is made of.
 fn copy_halves(op: Op) -> Option<(Op, Op)> {
     let Op { which, i, j, .. } = op;
     let half = |code, which, i| Op {

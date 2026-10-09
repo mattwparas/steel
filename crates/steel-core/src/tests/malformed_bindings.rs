@@ -1,7 +1,5 @@
-//! Forms that bind a name, written with something where the name goes that
-//! could never be one. Each is an error to report. They used to get as far
-//! as passes that take the name to be an identifier, and panic there, which
-//! took the language server down while the form was still being typed.
+//! Binding forms with a literal where the name goes. Each has to be an
+//! error and not a panic.
 
 use super::assert_script_error;
 
