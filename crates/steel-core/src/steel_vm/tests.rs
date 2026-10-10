@@ -1524,3 +1524,75 @@ mod set_after_compile_tests {
         assert_eq!(run(&mut engine, "(list (f 1) (g 1))"), "(0 2)");
     }
 }
+
+// TODO: We should be able to simplify this a lot, but this is an annoying way to
+// make sure that we don't block on blocking FFI calls.
+//
+// in memory blocking calls are also victim to this, but less so, because you can
+// pass immutable references to them, whereas all dylib calls are mutably referenced
+// by default.
+#[cfg(all(test, feature = "sync", feature = "dylibs"))]
+mod ffi_borrowed_custom_value_tests {
+    use crate::rvals::SteelVal;
+    use crate::steel_vm::engine::Engine;
+    use crate::steel_vm::ffi::{FFIModule, RegisterFFIFn};
+    use abi_stable::std_types::RBox;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    static RELEASE: AtomicBool = AtomicBool::new(false);
+
+    struct Blocker;
+
+    impl crate::rvals::Custom for Blocker {}
+
+    impl Blocker {
+        fn wait(&mut self) {
+            STARTED.store(true, Ordering::SeqCst);
+            while !RELEASE.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+
+    #[test]
+    fn collection_finishes_while_dylib_call_holds_its_argument() {
+        let (done_tx, done_rx) = channel();
+
+        std::thread::spawn(move || {
+            let mut module = FFIModule::new("test/blocker");
+            module
+                .register_fn("make-blocker", || Blocker)
+                .register_fn("blocker-wait!", Blocker::wait);
+
+            let mut engine = Engine::new();
+            engine.register_external_module(RBox::new(module)).unwrap();
+            engine
+                .run("(require-builtin test/blocker) (define blocker (make-blocker))")
+                .unwrap();
+
+            let blocker = engine.extract_value("blocker").unwrap();
+            let SteelVal::BoxedFunction(wait) = engine.extract_value("blocker-wait!").unwrap()
+            else {
+                panic!("expected a boxed function");
+            };
+
+            let caller = std::thread::spawn(move || wait.func()(&[blocker]).unwrap());
+            while !STARTED.load(Ordering::SeqCst) {
+                std::thread::yield_now();
+            }
+
+            engine.run("(#%gc-collect)").unwrap();
+            done_tx.send(()).unwrap();
+
+            RELEASE.store(true, Ordering::SeqCst);
+            caller.join().unwrap();
+        });
+
+        let finished = done_rx.recv_timeout(Duration::from_secs(20));
+        RELEASE.store(true, Ordering::SeqCst);
+        finished.expect("collection blocked on a value borrowed by a dylib call");
+    }
+}
