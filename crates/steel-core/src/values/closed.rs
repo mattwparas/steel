@@ -2987,8 +2987,10 @@ const DEFERRED_DROP_BACKLOG: usize = 4096;
 
 static MUTATORS: Mutex<Vec<Mutator>> = Mutex::new(Vec::new());
 
-// Values other threads put aside and exited before they could drop.
-static ORPHANED_DROPS: Mutex<Vec<Deferred>> = Mutex::new(Vec::new());
+// Values other threads put aside and exited before they could drop, with
+// the family each thread was in. Only that family's threads read them, so
+// only a thread of that family knows when nothing is.
+static ORPHANED_DROPS: Mutex<Vec<(Option<usize>, Vec<Deferred>)>> = Mutex::new(Vec::new());
 
 // How many values a thread puts aside between attempts to drop them.
 const DEFERRED_DROP_BATCH: usize = 64;
@@ -3001,13 +3003,16 @@ enum Deferred {
     Buffer(#[allow(dead_code)] HeapVec),
 }
 
-struct DeferredDrops(Vec<Deferred>);
+// The second field is the family of the thread when it last put something
+// aside. It is kept here since the thread's own record of it may be gone
+// by the time this is dropped.
+struct DeferredDrops(Vec<Deferred>, Option<usize>);
 
 impl Drop for DeferredDrops {
     fn drop(&mut self) {
         if !self.0.is_empty() {
             if let Ok(mut orphaned) = ORPHANED_DROPS.lock() {
-                orphaned.append(&mut self.0);
+                orphaned.push((self.1, core::mem::take(&mut self.0)));
             } else {
                 // Leaking is the only safe thing left to do with them.
                 core::mem::forget(core::mem::take(&mut self.0));
@@ -3023,7 +3028,7 @@ thread_local! {
     // The slot and count of the engine this thread last ran.
     static MY_RUNNING: RefCell<Option<(usize, Arc<MutatorState>)>> = const { RefCell::new(None) };
 
-    static DEFERRED_DROPS: RefCell<DeferredDrops> = const { RefCell::new(DeferredDrops(Vec::new())) };
+    static DEFERRED_DROPS: RefCell<DeferredDrops> = const { RefCell::new(DeferredDrops(Vec::new(), None)) };
 }
 
 // The running count for a slot, adding the slot if it isn't known yet.
@@ -3238,10 +3243,19 @@ fn drop_deferred_from(collection: bool) {
         return;
     }
 
+    // What this thread just found is that the threads of its own family
+    // are reading nothing. With no family, that was every thread.
+    let family = my_family();
     let orphaned = ORPHANED_DROPS
         .lock()
-        .map(|mut orphaned| core::mem::take(&mut *orphaned))
-        .unwrap_or_default();
+        .map(|mut orphaned| {
+            let (mine, others) = core::mem::take(&mut *orphaned)
+                .into_iter()
+                .partition(|(theirs, _)| family.is_none() || *theirs == family);
+            *orphaned = others;
+            mine
+        })
+        .unwrap_or_else(|_| Vec::new());
 
     // Outside the borrow, since dropping them can put more aside.
     drop(ready);
@@ -3272,6 +3286,9 @@ fn defer(item: Deferred) {
     let due = DEFERRED_DROPS
         .try_with(|deferred| match deferred.try_borrow_mut() {
             Ok(mut deferred) => {
+                if deferred.0.is_empty() {
+                    deferred.1 = my_family();
+                }
                 deferred.0.extend(item.take());
                 deferred.0.len() % DEFERRED_DROP_BATCH == 0
             }

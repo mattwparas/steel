@@ -720,16 +720,29 @@ impl RcWord {
     /// Without this, a value that outlives the thread that made it is never
     /// freed, since the queue of a thread that is gone is never read.
     fn merge_for_exited_owner(&self) -> Option<DecrementAction> {
-        let tid = self.biased.get() & TID_MASK;
-        if tid == 0 || tid == SENTINEL {
-            return None;
-        }
+        let merged = self.merge_exited_owner()?;
 
+        Some(if merged.get_counter() == 0 {
+            DecrementAction::Deallocate
+        } else {
+            DecrementAction::DoNothing
+        })
+    }
+
+    /// If the owner has exited, merges the counts in its place and gives the
+    /// shared half as it then is. `None` means the owner may still be
+    /// running, or that the counts are merged already.
+    ///
+    /// For the thread that queued the value, which is the only one allowed
+    /// to touch it without holding a reference.
+    fn merge_exited_owner(&self) -> Option<Packed> {
         // An id on the free list belongs to no thread, and can't be handed
         // out again while the list is locked. So nothing else reads or writes
-        // the biased half during the merge.
+        // the biased half during the merge. The id is read with the list
+        // locked, since another thread may have merged while this one waited.
         let free = FREE_TIDS.lock().ok()?;
-        if !free.contains(&tid) {
+        let tid = self.biased.get() & TID_MASK;
+        if tid == 0 || tid == SENTINEL || !free.contains(&tid) {
             return None;
         }
 
@@ -754,11 +767,52 @@ impl RcWord {
         }
         drop(free);
 
-        Some(if new.get_counter() == 0 {
-            DecrementAction::Deallocate
-        } else {
-            DecrementAction::DoNothing
-        })
+        Some(new)
+    }
+
+    /// The same for a thread that holds a reference, so that it can find
+    /// out whether its reference is the last. Whether the counts are merged
+    /// once this returns.
+    ///
+    /// A value that is queued is left alone. The thread that queued it holds
+    /// no reference, and relies on nothing being freed until it has merged.
+    fn merge_exited_owner_while_held(&self) -> bool {
+        let Ok(free) = FREE_TIDS.lock() else {
+            return false;
+        };
+        let tid = self.biased.get() & TID_MASK;
+        if tid == 0 || tid == SENTINEL || !free.contains(&tid) {
+            return self.owner().is_none() && self.shared.load(Ordering::Acquire).is_merged();
+        }
+
+        let biased = self.biased_count() as i32;
+
+        let mut old = self.shared.load(Ordering::Acquire);
+        loop {
+            if old.is_merged() || old.get_queued() {
+                return false;
+            }
+
+            let mut new = old;
+            new.update_counter(|x| x + biased);
+            new.set_merged(true);
+
+            match self
+                .shared
+                .compare_exchange(old, new, Ordering::AcqRel, Ordering::Relaxed)
+            {
+                Ok(_) => break,
+                Err(e) => old = Packed(e),
+            }
+        }
+
+        // The caller's reference keeps the value alive, so the id can go
+        // after the merge here. It goes before the list is unlocked, while
+        // no new thread can be given it.
+        self.clear_owner();
+        drop(free);
+
+        true
     }
 
     /// How many references there are, counting the caller's. Never less than
@@ -1583,8 +1637,18 @@ impl<T> BiasedRc<T> {
                     Err(this)
                 }
             }
-            // Has an owner on a different thread.
-            Some(_) => Err(this),
+            // Has an owner on a different thread. If that thread is gone
+            // and this is the last reference, the value can still be taken.
+            // Refusing would leave it to an ordinary drop, which for a long
+            // list is a call deep for every cell.
+            Some(_) => {
+                if this.meta().shared.load(Ordering::Relaxed).get_counter() > 1
+                    || !this.meta().merge_exited_owner_while_held()
+                {
+                    return Err(this);
+                }
+                Self::try_unwrap_internal(this)
+            }
         }
     }
 
@@ -3762,4 +3826,66 @@ mod cross_thread_unwrap_tests {
         let drops = DROPS.load(Ordering::SeqCst);
         assert!(drops == ROUNDS + 1 || drops == ROUNDS, "{drops}");
     }
+}
+
+#[test]
+fn a_value_whose_owner_exited_can_be_taken_by_its_last_holder() {
+    // A thread started by another test may be given the id of the one that
+    // exited, and then the value has a running owner again. So this only
+    // has to work once.
+    let taken = (0..200).any(|_| {
+        let made_elsewhere = std::thread::spawn(|| BiasedRc::new(5)).join().unwrap();
+        BiasedRc::try_unwrap(made_elsewhere).ok() == Some(5)
+    });
+    assert!(taken);
+
+    // Never while something else holds it
+    for _ in 0..200 {
+        let (first, second) = std::thread::spawn(|| {
+            let first = BiasedRc::new(5);
+            let second = first.clone();
+            (first, second)
+        })
+        .join()
+        .unwrap();
+        let first = BiasedRc::try_unwrap(first).unwrap_err();
+        assert_eq!(*second, 5);
+        drop(first);
+        drop(second);
+    }
+}
+
+#[test]
+fn a_chain_whose_owner_exited_is_dropped_without_recursing() {
+    // Dropped link by link, the way a list drops its cells
+    struct Link(Option<BiasedRc<Link>>);
+    impl Drop for Link {
+        fn drop(&mut self) {
+            let mut next = self.0.take();
+            while let Some(link) = next {
+                match BiasedRc::try_unwrap(link) {
+                    Ok(mut link) => next = link.0.take(),
+                    Err(_) => return,
+                }
+            }
+        }
+    }
+
+    let chain = std::thread::spawn(|| {
+        let mut chain = Link(None);
+        for _ in 0..2_000_000 {
+            chain = Link(Some(BiasedRc::new(chain)));
+        }
+        chain
+    })
+    .join()
+    .unwrap();
+
+    // On a small stack, so that a call for each link would overflow it
+    std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || drop(chain))
+        .unwrap()
+        .join()
+        .unwrap();
 }

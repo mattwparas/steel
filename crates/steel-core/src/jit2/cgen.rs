@@ -13836,12 +13836,70 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    /// Whether a pending operand could hold a box, mutable vector or mutable
+    /// struct that nothing on the vm stack leads to. A borrowed one is read out
+    /// of something that is on the stack.
+    fn held_off_the_stack(entry: &MaybeStackValue) -> bool {
+        const HOLDS_NOTHING: [u8; 7] = [
+            SteelVal::INT_TAG,
+            SteelVal::FLOAT_TAG,
+            SteelVal::BOOL_TAG,
+            SteelVal::CHAR_TAG,
+            SteelVal::STRING_TAG,
+            SteelVal::SYMBOL_TAG,
+            SteelVal::VOID_TAG,
+        ];
+        match entry {
+            MaybeStackValue::Value(value) => {
+                !value.spilled
+                    && !value
+                        .inferred_type
+                        .proven_tag()
+                        .is_some_and(|tag| HOLDS_NOTHING.contains(&tag))
+            }
+            MaybeStackValue::Borrowed(_)
+            | MaybeStackValue::Register(_)
+            | MaybeStackValue::MutRegister(_)
+            | MaybeStackValue::Constant(_) => false,
+        }
+    }
+
+    /// Puts the operands below the top `arguments` on the vm stack, if any of
+    /// them is held off it. For a call during which another thread can
+    /// collect (`helpers::STOPS`). Not for use inside one arm of a branch.
+    fn expose_pending_operands(&mut self, arguments: usize) {
+        let Some(below) = self.shadow_stack.len().checked_sub(arguments) else {
+            return;
+        };
+        if !self.shadow_stack[..below]
+            .iter()
+            .any(Self::held_off_the_stack)
+        {
+            return;
+        }
+        for i in 0..below {
+            self.shadow_spill(i);
+        }
+    }
+
     /// Before a call to a helper that can collect (`helpers::COLLECTS`), every
     /// operand still pending has to be on the vm stack where the collector can
     /// see it, or be a value it doesn't manage. Spilling here would be wrong
     /// inside one arm of a branch (the arms would disagree about the stack), so
     /// the lowering has to have spilled already; this checks it.
     fn check_collection_roots(&self, name: &str) {
+        if helper_stops(name) {
+            for (depth, entry) in self.shadow_stack.iter().enumerate() {
+                assert!(
+                    !Self::held_off_the_stack(entry),
+                    "jit: {} calls `{name}`, where another thread can collect, with operand \
+                     {depth} of {} held only in a register: {:?}",
+                    self.name,
+                    self.shadow_stack.len(),
+                    entry
+                );
+            }
+        }
         if !helper_collects(name) {
             return;
         }

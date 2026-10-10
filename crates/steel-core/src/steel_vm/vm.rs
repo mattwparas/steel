@@ -374,6 +374,9 @@ pub struct SteelThread {
     // that have not returned, outermost first. See `NativeEntry`.
     pub(crate) native_entries: Vec<u64>,
     native_entries_made: u64,
+    // Goes into the high bits of each one's number, so that no two threads
+    // make the same number.
+    native_entry_prefix: u64,
     // A continuation on its way out to the run it belongs to, and the
     // value it was called with.
     pub(crate) escaping: Option<(SteelVal, SteelVal)>,
@@ -657,6 +660,7 @@ impl Synchronizer {
         if let Some(slot) = context.ctx.upgrade() {
             crate::values::closed::register_mutator(&slot);
         }
+
         self.threads.lock().unwrap().push(context);
     }
 
@@ -997,6 +1001,7 @@ impl SteelThread {
             pending_roots: Vec::new(),
             native_entries: Vec::new(),
             native_entries_made: 0,
+            native_entry_prefix: next_native_entry_prefix(),
             escaping: None,
             compiler,
             id: EngineId::new(),
@@ -1631,7 +1636,7 @@ impl NativeEntry {
             0
         } else {
             thread.native_entries_made += 1;
-            thread.native_entries_made
+            thread.native_entry_prefix | thread.native_entries_made
         };
         thread.native_entries.push(id);
 
@@ -1653,7 +1658,21 @@ impl Drop for NativeEntry {
     }
 }
 
+fn next_native_entry_prefix() -> u64 {
+    static THREADS_MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    THREADS_MADE.fetch_add(1, AtomicOrdering::Relaxed) << 40
+}
+
 impl SteelThread {
+    /// For a copy of a thread that is about to run as a thread of its own.
+    /// None of the runs it was copied in the middle of are its own.
+    pub(crate) fn forget_native_entries(&mut self) {
+        self.native_entries.clear();
+        self.native_entries_made = 0;
+        self.native_entry_prefix = next_native_entry_prefix();
+        self.escaping = None;
+    }
+
     fn current_entry(&self) -> u64 {
         self.native_entries.last().copied().unwrap_or(0)
     }
@@ -2194,6 +2213,7 @@ impl<'a> VmCore<'a> {
     #[cfg(feature = "sync")]
     pub fn make_thread(&self) -> Arc<Mutex<SteelThread>> {
         let mut thread = self.thread.clone();
+        thread.forget_native_entries();
         // It runs on a stack of its own. See `spawn_native_thread`.
         #[cfg(feature = "jit2")]
         {
@@ -2523,25 +2543,9 @@ impl<'a> VmCore<'a> {
         self.new_open_continuation_from_state()
     }
 
-    // Reset state FULLY
-    pub(crate) fn call_with_instructions_and_reset_state(
-        &mut self,
-        closure: RootedInstructions,
-    ) -> Result<SteelVal> {
-        let _entered = NativeEntry::enter(self.thread);
-
-        let old_ip = self.ip;
-        let old_instructions = core::mem::replace(&mut self.instructions, closure);
-        let old_pop_count = self.pop_count;
-
-        self.ip = 0;
-        // Force the execution to be done earlier
-        self.pop_count = 1;
-
-        self.depth += 1;
-
-        let res;
-
+    /// Runs from where the vm is until the frame it was entered on returns.
+    /// An error goes to the nearest handler among the frames of this run.
+    fn run_to_return(&mut self) -> Result<SteelVal> {
         'outer: loop {
             let result = self
                 .vm()
@@ -2608,8 +2612,7 @@ impl<'a> VmCore<'a> {
 
                 // self.thread.stack.clear();
 
-                res = Err(e);
-                break;
+                return Err(e);
             } else {
                 // TODO: Do we need to close frames here?
                 // for frame in &self.thread.stack_frames {
@@ -2618,16 +2621,43 @@ impl<'a> VmCore<'a> {
 
                 // self.thread.stack.truncate(self.sp);
 
-                res = result;
-                break;
+                return result;
             }
         }
+    }
+
+    // Reset state FULLY
+    pub(crate) fn call_with_instructions_and_reset_state(
+        &mut self,
+        closure: RootedInstructions,
+    ) -> Result<SteelVal> {
+        let _entered = NativeEntry::enter(self.thread);
+
+        let old_ip = self.ip;
+        let old_instructions = core::mem::replace(&mut self.instructions, closure);
+        let old_pop_count = self.pop_count;
+        // Compiled code that called in is still running when this returns,
+        // whatever the compiled code run in here leaves the flag as
+        #[cfg(feature = "jit2")]
+        let was_native = self.is_native;
+
+        self.ip = 0;
+        // Force the execution to be done earlier
+        self.pop_count = 1;
+
+        self.depth += 1;
+
+        let res = self.run_to_return();
 
         self.depth -= 1;
 
         self.ip = old_ip;
         self.instructions = old_instructions;
         self.pop_count = old_pop_count;
+        #[cfg(feature = "jit2")]
+        {
+            self.is_native = was_native;
+        }
         // self.spans = old_spans;
         self.sp = self
             .thread
@@ -2734,21 +2764,49 @@ impl<'a> VmCore<'a> {
     }
 
     // Call with an arbitrary number of arguments
+    /// Carries on from `cont` and runs what it had left to do, for a call
+    /// from the host. The result is that computation's, as it is when a
+    /// later top level form calls a continuation kept from an earlier one.
     pub(crate) fn call_cont_with_args(
         &mut self,
         cont: Continuation,
         args: impl IntoIterator<Item = SteelVal>,
     ) -> Result<SteelVal> {
-        for arg in args {
-            self.thread.stack.push(arg);
+        let mut args = args.into_iter();
+        let (Some(value), None) = (args.next(), args.next()) else {
+            stop!(ArityMismatch => "continuation expected 1 argument");
+        };
+
+        let _entered = NativeEntry::enter(self.thread);
+        self.leave_for_continuation(&cont, &value)?;
+
+        // Whatever the host was in the middle of is put back afterwards
+        let stack = core::mem::take(&mut self.thread.stack);
+        let stack_frames = core::mem::take(&mut self.thread.stack_frames);
+        let old_ip = self.ip;
+        let old_instructions = self.instructions.clone();
+        let old_pop_count = self.pop_count;
+        #[cfg(feature = "jit2")]
+        let was_native = self.is_native;
+
+        self.depth += 1;
+        let res = self
+            .enter_continuation(cont, value)
+            .and_then(|_| self.run_to_return());
+        self.depth -= 1;
+
+        self.thread.stack = stack;
+        self.thread.stack_frames = stack_frames;
+        self.ip = old_ip;
+        self.instructions = old_instructions;
+        self.pop_count = old_pop_count;
+        #[cfg(feature = "jit2")]
+        {
+            self.is_native = was_native;
         }
+        self.sp = self.get_last_stack_frame_sp();
 
-        self.call_continuation(cont)?;
-
-        self.thread
-            .stack
-            .pop()
-            .ok_or_else(throw!(Generic => "stack empty at pop!"))
+        res
     }
 
     // pub(crate) fn eval_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {

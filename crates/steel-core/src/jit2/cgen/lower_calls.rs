@@ -577,6 +577,10 @@ impl FunctionTranslator<'_> {
                 self.ip += 1;
                 let arity = self.instructions[self.ip].payload_size.to_usize();
 
+                // The call, or the slow path of its inline form, is a
+                // safepoint.
+                self.expose_pending_operands(arity);
+
                 // Primitives with a lowering of their own; see
                 // `inline_primitives.rs`.
                 if !self.try_inline_primitive(f as usize, arity) {
@@ -673,6 +677,7 @@ impl FunctionTranslator<'_> {
             Some(SteelVal::BuiltIn(b)) => {
                 self.ip += 1;
                 let arity = self.instructions[self.ip].payload_size.to_usize();
+                self.expose_pending_operands(arity);
                 if !self.try_inline_primitive(b as usize, arity) {
                     self.ip -= 1;
                     self.call_global_impl(payload);

@@ -4,6 +4,9 @@ use crate::steel_vm::engine::Engine;
 
 #[cfg(all(feature = "sync", feature = "jit2"))]
 mod compiled_shape;
+mod continuations_from_host;
+#[cfg(feature = "sync")]
+mod engines_side_by_side;
 #[cfg(all(feature = "sync", feature = "jit2"))]
 mod counted_loops;
 #[cfg(feature = "sync")]
@@ -173,6 +176,8 @@ test_harness_success! {
     continuations_kept_and_dropped,
     continuations_and_errors,
     continuations_through_native_calls,
+    builtin_callbacks_in_tail_position,
+    cells_pending_while_collecting,
     with_handler,
     continuations_and_dynamic_wind,
     continuations_reentered,
@@ -317,6 +322,8 @@ test_harness_success_module! {
     continuations_kept_and_dropped,
     continuations_and_errors,
     continuations_through_native_calls,
+    builtin_callbacks_in_tail_position,
+    cells_pending_while_collecting,
     with_handler,
     continuations_and_dynamic_wind,
     continuations_reentered,

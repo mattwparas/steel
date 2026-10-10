@@ -1078,6 +1078,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 
     // Do this here?
     let mut thread = ctx.thread.clone();
+    thread.forget_native_entries();
     // The limit is where this thread's stack ends, and the new thread has a
     // stack of its own. Left as it is, every jitted call on the new thread
     // would find no room and run in the interpreter.

@@ -140,6 +140,44 @@
   (with-handler (lambda (e) 'refused) (+ 1 (call/cc (lambda (k) (apply k (list 5 6)))))))
 (assert! (eq? (applied-to-too-many) 'refused))
 
+;; `call/cc` given a continuation from outside the builtin hands it the
+;; continuation of the callback, and leaves.
+(define (handed-on)
+  (let ([v (call/cc (lambda (k)
+                      (transduce (list 1 2) (mapping (lambda (x) (call/cc k))) (into-list))))])
+    (if (list? v) 'not-left 'left)))
+(assert! (equal? (list (handed-on) (handed-on)) '(left left)))
+
+;; A thread starts with no builtins under it. It can leave ones it enters,
+;; and cannot call a continuation captured in a callback on another thread.
+(define (in-a-thread thunk)
+  (thread-join! (spawn-native-thread thunk)))
+(assert! (= (in-a-thread (lambda () (first-over 1 (list 1 2 3)))) 2))
+(noted)
+(define (spawned-under-a-builtin)
+  (transduce (list 1 2 3)
+             (mapping (lambda (x) (in-a-thread (lambda () (first-over x (list 1 2 3 4))))))
+             (into-list)))
+(assert! (equal? (spawned-under-a-builtin) '(2 3 4)))
+(noted)
+(assert! (equal? (keep-from-a-callback) '(1 2 3)))
+(assert! (eq? (in-a-thread (lambda () (with-handler (lambda (e) 'refused) ((unbox kept) 20)))) 'refused))
+(define (kept-in-a-thread-called-here)
+  (in-a-thread (lambda () (keep-from-a-callback)))
+  (with-handler (lambda (e) 'refused) ((unbox kept) 20)))
+(assert! (eq? (kept-in-a-thread-called-here) 'refused))
+;; Under a builtin on both threads at once.
+(define (refused-under-builtins)
+  (transduce (list 1 2)
+             (mapping (lambda (x)
+                        (in-a-thread
+                         (lambda ()
+                           (transduce (list 1 2)
+                                      (mapping (lambda (y) (with-handler (lambda (e) 'refused) ((unbox kept) 20))))
+                                      (into-list))))))
+             (into-list)))
+(assert! (equal? (refused-under-builtins) '((refused refused) (refused refused))))
+
 ;; One kept from an earlier top level form can still be called.
 (define from-the-top (box #f))
 (define at-the-top (+ 1 (call/cc (lambda (k) (set-box! from-the-top k) 1))))

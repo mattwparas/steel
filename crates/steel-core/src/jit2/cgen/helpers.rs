@@ -326,6 +326,24 @@ pub(super) const COLLECTING_FAMILIES: &[&str] = &[
     "call_mutable_struct_constructor_",
 ];
 
+/// Helpers that are a safepoint for as long as they run: the primitive call
+/// families, which publish the thread with only the arguments they were
+/// passed, and the poll. Another thread can collect in the meantime, and it
+/// finds what this thread holds the same way, so the same goes for these.
+pub(super) const STOPS: &[&str] = &[CHECK_IN.name];
+
+pub(super) const STOPPING_FAMILIES: &[&str] = &[
+    "call_primitive_function_deopt_",
+    "call_primitive_function_borrowed_",
+];
+
+pub(super) fn helper_stops(name: &str) -> bool {
+    STOPS.contains(&name)
+        || STOPPING_FAMILIES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+}
+
 pub(super) fn helper_collects(name: &str) -> bool {
     COLLECTS.contains(&name)
         || COLLECTING_FAMILIES
