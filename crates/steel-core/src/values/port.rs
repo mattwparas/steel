@@ -308,6 +308,24 @@ impl<R: Read> Peekable<R> {
         Ok(amt)
     }
 
+    fn read_line_peeked_unbuffered(&mut self, buf: &mut String) -> Result<usize> {
+        let mut bytes = Vec::new();
+
+        while !self.line_from_pending(&mut bytes) {
+            match self.fill_chunk(MAX_STREAM_CHUNK)? {
+                MaybeBlocking::Nonblocking(0) => break,
+                MaybeBlocking::Nonblocking(_) => {}
+                MaybeBlocking::WouldBlock => {
+                    return Err(io::Error::from(io::ErrorKind::WouldBlock).into())
+                }
+            }
+        }
+
+        let amt = bytes.len();
+        buf.push_str(&into_utf8(bytes)?);
+        Ok(amt)
+    }
+
     fn line_from_pending(&mut self, bytes: &mut Vec<u8>) -> bool {
         match self.pending().iter().position(|b| *b == b'\n') {
             Some(pos) => {
@@ -596,7 +614,6 @@ impl SteelPortRepr {
                 Ok(peekable.inner.into_inner().into())
             }
             SteelPortRepr::ChildStdInput(buf_writer) => Ok(buf_writer.into_inner().unwrap().into()),
-            SteelPortRepr::Closed => todo!(),
             _ => Err(StdioError::Unsupported(self)),
         }
     }
@@ -609,7 +626,7 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_line_peeked),
             SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_line_peeked),
             SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_line_peeked),
-            // FIXME: fix this and the functions below
+            SteelPortRepr::TcpStream(t) => port_read_str_fn!(t, read_line_peeked_unbuffered),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
@@ -618,9 +635,11 @@ impl SteelPortRepr {
         match self {
             SteelPortRepr::FileOutput(_, s) => Ok(s.flush()?),
             SteelPortRepr::StdOutput(s) => Ok(s.flush()?),
+            SteelPortRepr::StdError(s) => Ok(s.flush()?),
             SteelPortRepr::ChildStdInput(s) => Ok(s.flush()?),
             SteelPortRepr::StringOutput(s) => Ok(s.flush()?),
             SteelPortRepr::DynWriter(s) => Ok(s.lock().unwrap().flush()?),
+            SteelPortRepr::TcpStream(t) => Ok(t.inner.flush()?),
             SteelPortRepr::Closed => Ok(()),
             _ => stop!(ContractViolation => "expected output-port?, found {}", self),
         }
@@ -689,6 +708,7 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_to_string_peeked),
             SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_to_string_peeked),
             SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_to_string_peeked),
+            SteelPortRepr::TcpStream(t) => port_read_str_fn!(t, read_to_string_peeked),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
@@ -701,6 +721,7 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(br) => port_read_vec_fn!(br, read_to_end_peeked),
             SteelPortRepr::ChildStdError(br) => port_read_vec_fn!(br, read_to_end_peeked),
             SteelPortRepr::DynReader(br) => port_read_vec_fn!(br, read_to_end_peeked),
+            SteelPortRepr::TcpStream(t) => port_read_vec_fn!(t, read_to_end_peeked),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
@@ -751,6 +772,7 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(br) => br.peek_char(),
             SteelPortRepr::ChildStdError(br) => br.peek_char(),
             SteelPortRepr::DynReader(br) => br.peek_char(),
+            SteelPortRepr::TcpStream(t) => t.peek_char(),
             _ => stop!(TypeMismatch => "expected an input port"),
         }
     }
@@ -837,6 +859,8 @@ impl SteelPortRepr {
                 | SteelPortRepr::ChildStdOutput(_)
                 | SteelPortRepr::ChildStdError(_)
                 | SteelPortRepr::StringInput(_)
+                | SteelPortRepr::DynReader(_)
+                | SteelPortRepr::TcpStream(_)
         )
     }
 
@@ -857,6 +881,7 @@ impl SteelPortRepr {
                 | SteelPortRepr::DynWriter(_)
                 | SteelPortRepr::ChildStdInput(_)
                 | SteelPortRepr::StringOutput(_)
+                | SteelPortRepr::TcpStream(_)
         )
     }
 
@@ -900,7 +925,6 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdInput(writer) => writer.write_all(buf)?,
             SteelPortRepr::StringOutput(writer) => writer.write_all(buf)?,
             SteelPortRepr::DynWriter(writer) => writer.lock().unwrap().write_all(buf)?,
-            // TODO: Should tcp streams be both input and output ports?
             SteelPortRepr::TcpStream(tcp) => tcp.inner.write_all(buf)?,
             SteelPortRepr::FileInput(_, _)
             | SteelPortRepr::StdInput(_)
@@ -1152,6 +1176,7 @@ pub fn would_block() -> SteelVal {
 mod port_tests {
     use super::*;
     use std::collections::VecDeque;
+    use std::net::TcpListener;
 
     struct Chunks {
         chunks: VecDeque<Vec<u8>>,
@@ -1649,5 +1674,139 @@ mod port_tests {
 
         assert!(!err.is_buffered());
         assert!(matches!(err.into_port(), SteelPortRepr::StringInput(_)));
+    }
+
+    #[test]
+    fn as_stdio_refuses_a_closed_port() {
+        let Err(err) = SteelPortRepr::Closed.as_stdio() else {
+            panic!("a closed port has no handle to give a child");
+        };
+
+        assert!(!err.is_buffered());
+        assert!(matches!(err.into_port(), SteelPortRepr::Closed));
+    }
+
+    #[test]
+    fn read_line_without_buffering_spans_several_reads() {
+        let mut peekable = Peekable::new(Chunks::new(&[b"abc", b"def\nrest"]));
+
+        let mut line = String::new();
+        assert_eq!(
+            peekable.read_line_peeked_unbuffered(&mut line).unwrap(),
+            "abcdef\n".len()
+        );
+        assert_eq!(line, "abcdef\n");
+
+        let mut rest = String::new();
+        peekable.read_line_peeked_unbuffered(&mut rest).unwrap();
+        assert_eq!(rest, "rest");
+    }
+
+    #[test]
+    fn read_line_without_buffering_ends_with_the_source() {
+        let mut peekable = Peekable::new(Chunks::new(&[b"no newline here"]));
+
+        let mut line = String::new();
+        peekable.read_line_peeked_unbuffered(&mut line).unwrap();
+        assert_eq!(line, "no newline here");
+
+        let mut nothing = String::new();
+        assert_eq!(
+            peekable.read_line_peeked_unbuffered(&mut nothing).unwrap(),
+            0
+        );
+        assert_eq!(nothing, "");
+    }
+
+    #[test]
+    fn read_line_without_buffering_reports_a_source_that_blocks() {
+        let mut peekable = Peekable::new(ThenBlocks {
+            first: Some(b"half a line"),
+        });
+
+        let mut line = String::new();
+        assert!(peekable.read_line_peeked_unbuffered(&mut line).is_err());
+    }
+
+    fn tcp_pair() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+
+        (client, server)
+    }
+
+    fn tcp_port(bytes: &[u8]) -> SteelPortRepr {
+        let (client, mut server) = tcp_pair();
+        server.write_all(bytes).unwrap();
+        drop(server);
+
+        SteelPortRepr::TcpStream(Peekable::new(client))
+    }
+
+    #[test]
+    fn a_tcp_stream_port_reads_and_writes() {
+        let port = tcp_port(b"abc");
+
+        assert!(port.is_input());
+        assert!(port.is_output());
+    }
+
+    #[test]
+    fn a_tcp_stream_port_reads_lines() {
+        let mut port = tcp_port(b"first\nsecond\n");
+
+        assert_eq!(port.read_line().unwrap(), (6, "first\n".to_string()));
+        assert_eq!(port.read_line().unwrap(), (7, "second\n".to_string()));
+        assert_eq!(port.read_line().unwrap(), (0, String::new()));
+    }
+
+    #[test]
+    fn a_tcp_stream_port_peeks_a_char_back_to_back_with_a_read() {
+        let mut port = tcp_port("λ rest".as_bytes());
+
+        assert_eq!(nonblocking(port.peek_char().unwrap()), Some('λ'));
+        assert_eq!(nonblocking(port.peek_char().unwrap()), Some('λ'));
+        assert_eq!(nonblocking(port.read_char().unwrap()), Some('λ'));
+        assert_eq!(port.read_all_str().unwrap().1, " rest");
+    }
+
+    #[test]
+    fn a_tcp_stream_port_reads_the_bytes_left_after_a_peek() {
+        let mut port = tcp_port(b"abc");
+
+        assert_eq!(nonblocking(port.peek_byte().unwrap()), Some(b'a'));
+        assert_eq!(port.read_all_bytes().unwrap(), (3, b"abc".to_vec()));
+    }
+
+    #[test]
+    fn a_tcp_stream_port_writes_to_the_other_end() {
+        let (client, server) = tcp_pair();
+        let mut port = SteelPortRepr::TcpStream(Peekable::new(client));
+
+        port.write(b"to the peer\n").unwrap();
+        port.flush().unwrap();
+
+        let mut line = String::new();
+        BufReader::new(server).read_line(&mut line).unwrap();
+        assert_eq!(line, "to the peer\n");
+    }
+
+    #[test]
+    fn a_dyn_reader_port_is_an_input_port() {
+        let reader: Box<dyn Read + Send + Sync> = Box::new(Cursor::new(b"first\nsecond".to_vec()));
+        let mut port = SteelPortRepr::DynReader(Peekable::new(BufReader::new(reader)));
+
+        assert!(port.is_input());
+        assert!(!port.is_output());
+        assert_eq!(port.read_line().unwrap(), (6, "first\n".to_string()));
+    }
+
+    #[test]
+    fn the_standard_error_port_flushes() {
+        let mut port = SteelPortRepr::StdError(io::stderr());
+
+        assert!(port.is_output());
+        assert!(port.flush().is_ok());
     }
 }

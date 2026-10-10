@@ -225,10 +225,21 @@ pub fn tcp_module() -> BuiltInModule {
         .register_native_fn_definition(TCP_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(TCP_BUFFERED_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(TCP_LISTEN_DEFINITION)
+        .register_native_fn_definition(TCP_LISTENER_LOCAL_ADDR_DEFINITION)
         .register_native_fn_definition(TCP_ACCEPT_DEFINITION)
         .register_native_fn_definition(TCP_ACCEPT_ADDR_DEFINITION)
         .register_native_fn_definition(TCP_LISTENER_SET_NON_BLOCKING_DEFINITION)
         .register_native_fn_definition(TCP_STREAM_SET_NON_BLOCKING_DEFINITION);
 
     module
+}
+
+#[cfg(test)]
+mod tcp_tests {
+    use super::*;
+
+    #[test]
+    fn the_module_hands_out_the_local_address_of_a_listener() {
+        assert!(tcp_module().contains("tcp-listener-local-addr"));
+    }
 }

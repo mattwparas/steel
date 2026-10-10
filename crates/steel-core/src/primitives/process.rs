@@ -356,7 +356,7 @@ pub fn with_stderr(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelE
                         stop!(Generic => format!("with-stderr: the port has buffered data that cannot be handed to a child process, found: {}", port))
                     }
 
-                    stop!(TypeMismatch => format!("with-stderr expected an output port in the second position, found: {}", port))
+                    stop!(TypeMismatch => format!("with-stderr expected an output file port in the second position, found: {}", port))
                 }
             }
         } else {
@@ -410,7 +410,7 @@ pub fn with_stdin(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelEr
                         stop!(Generic => format!("with-stdin: the port has buffered data that cannot be handed to a child process, found: {}", port))
                     }
 
-                    stop!(TypeMismatch => format!("with-stdin expected an input port in the second position, found: {}", port))
+                    stop!(TypeMismatch => format!("with-stdin expected an input file port in the second position, found: {}", port))
                 }
             }
         } else {

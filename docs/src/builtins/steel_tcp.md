@@ -70,6 +70,14 @@ Creates a TCP listener bound to `127.0.0.1:80`:
 ```scheme
 (tcp-listen "127.0.0.1:80")
 ```
+### **tcp-listener-local-addr**
+Returns the local socket address of this listener.
+
+```scheme
+(tcp-listener-local-addr listener) -> string?
+```
+
+listener : TcpListener?
 ### **tcp-listener-set-non-blocking!**
 Puts the given TCP listener into non-blocking mode. Once set, `tcp-accept`
 will return immediately rather than waiting when no connection is pending.
