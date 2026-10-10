@@ -4745,6 +4745,9 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                 self.visit(&mut l.body_expr);
 
                 let mut lower_apply = false;
+                // The const list an apply was lowered from, when an enclosing
+                // let binds it.
+                let mut lowered_from_outer = None;
 
                 if let ExprKind::List(apply_body) = &mut l.body_expr {
                     if let Some((should_transform, func)) =
@@ -4754,6 +4757,14 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                             self.bindings.get_mut(&should_transform)
                         {
                             self.used_bindings.define(should_transform);
+
+                            let bound_here = l
+                                .bindings
+                                .iter()
+                                .any(|(key, _)| key.atom_identifier() == Some(&should_transform));
+                            if !bound_here {
+                                lowered_from_outer = Some(should_transform);
+                            }
 
                             let const_list_args = std::mem::take(&mut const_list.args);
 
@@ -4789,6 +4800,12 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
 
                 self.used_bindings.pop_layer();
                 self.bindings.pop_layer();
+
+                // The arguments now live in this let, so the let that bound the
+                // list has to drop it, or they are evaluated twice.
+                if let Some(outer) = lowered_from_outer {
+                    self.used_bindings.define(outer);
+                }
 
                 if lower_apply {
                     self.changed = true;
