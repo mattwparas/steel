@@ -305,6 +305,8 @@ pub fn with_stdout(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelE
                     stop!(TypeMismatch => format!("with-stdout expected an output file port in the second position, found: {}", port))
                 }
             }
+        } else {
+            stop!(TypeMismatch => format!("with-stdout expected an output port in the second position, found: {}", port))
         }
     } else {
         stop!(TypeMismatch => format!("with-stdout expected a port in the second position, found: {}", port))
@@ -357,6 +359,8 @@ pub fn with_stderr(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelE
                     stop!(TypeMismatch => format!("with-stderr expected an output port in the second position, found: {}", port))
                 }
             }
+        } else {
+            stop!(TypeMismatch => format!("with-stderr expected an output port in the second position, found: {}", port))
         }
     } else {
         stop!(TypeMismatch => format!("with-stderr expected a port in the second position, found: {}", port))
@@ -409,6 +413,8 @@ pub fn with_stdin(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelEr
                     stop!(TypeMismatch => format!("with-stdin expected an input port in the second position, found: {}", port))
                 }
             }
+        } else {
+            stop!(TypeMismatch => format!("with-stdin expected an input port in the second position, found: {}", port))
         }
     } else {
         stop!(TypeMismatch => format!("with-stdin expected a port in the second position, found: {}", port))
@@ -681,3 +687,64 @@ impl CommandBuilder {
 
 impl Custom for CommandBuilder {}
 impl Custom for ChildProcess {}
+
+#[cfg(test)]
+mod process_tests {
+    use super::*;
+
+    fn builder() -> SteelVal {
+        command(SteelString::from("true"), &List::new()).unwrap()
+    }
+
+    #[test]
+    fn with_stdin_rejects_an_output_port() {
+        let port = SteelPort::new_output_port_string();
+        let err = with_stdin(builder(), SteelVal::PortV(port.clone())).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("with-stdin expected an input port in the second position"));
+        assert!(port.is_output());
+    }
+
+    #[test]
+    fn with_stdin_rejects_a_closed_port() {
+        let port = SteelPort::new_input_port_string("(a) remainder".to_string());
+        port.close_port();
+        let err = with_stdin(builder(), SteelVal::PortV(port)).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("with-stdin expected an input port in the second position"));
+    }
+
+    #[test]
+    fn with_stdout_rejects_an_input_port() {
+        let port = SteelPort::new_input_port_string("(a) remainder".to_string());
+        let err = with_stdout(builder(), SteelVal::PortV(port.clone())).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("with-stdout expected an output port in the second position"));
+        assert!(port.is_input());
+    }
+
+    #[test]
+    fn with_stderr_rejects_an_input_port() {
+        let port = SteelPort::new_input_port_string("(a) remainder".to_string());
+        let err = with_stderr(builder(), SteelVal::PortV(port)).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("with-stderr expected an output port in the second position"));
+    }
+
+    #[test]
+    fn with_stdin_rejects_a_value_that_is_not_a_port() {
+        let err = with_stdin(builder(), SteelVal::IntV(1)).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("with-stdin expected a port in the second position"));
+    }
+}
