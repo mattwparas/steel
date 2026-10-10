@@ -326,7 +326,7 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
             stats: MarkAndSweepStats::default(),
         };
 
-        custom_type.read().visit_children(&mut queue);
+        visit_custom_children(&custom_type, &mut queue);
     }
 
     fn visit_float(&mut self, _float: f64) -> Self::Output {}
@@ -2469,6 +2469,115 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
     }
 }
 
+// TODO: @Matt
+// Eventually once we decouple the RwLock from the dyn Custom variant, we can get rid of this
+//
+// This issue is that the GC will block on these values because they're mutably referenced,
+// so during the mark phase, the gc visitor hits a mutably referenced value over FFI and blocks,
+// but the value _must_ be mutably blocked to avoid double borrows. This ends up in a funny
+// situation where any blocking call just stops the GC.
+//
+// To avoid this, we store a stack of the addresses that we visit and just expose those
+// to the gc so that it can skip these. Values passed over FFI are special; they do not
+// have the same restrictions since they can't actually hold steel values.
+#[cfg(feature = "dylibs")]
+pub(crate) mod ffi_borrows {
+    use parking_lot::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Weak};
+
+    const CAPACITY: usize = 32;
+
+    struct ThreadBorrows {
+        len: AtomicUsize,
+        addresses: [AtomicUsize; CAPACITY],
+    }
+
+    static THREADS: Mutex<Vec<Weak<ThreadBorrows>>> = Mutex::new(Vec::new());
+
+    thread_local! {
+        static BORROWS: Arc<ThreadBorrows> = {
+            let borrows = Arc::new(ThreadBorrows {
+                len: AtomicUsize::new(0),
+                addresses: [const { AtomicUsize::new(0) }; CAPACITY],
+            });
+
+            let mut threads = THREADS.lock();
+            threads.retain(|thread| thread.strong_count() > 0);
+            threads.push(Arc::downgrade(&borrows));
+
+            borrows
+        };
+    }
+
+    pub(crate) fn push(address: usize) -> bool {
+        BORROWS.with(|borrows| {
+            let len = borrows.len.load(Ordering::Relaxed);
+            if len == CAPACITY {
+                return false;
+            }
+
+            borrows.addresses[len].store(address, Ordering::Release);
+            borrows.len.store(len + 1, Ordering::Release);
+            true
+        })
+    }
+
+    pub(crate) fn pop(count: usize) {
+        BORROWS.with(|borrows| {
+            let len = borrows.len.load(Ordering::Relaxed);
+            borrows.len.store(len - count, Ordering::Release);
+        })
+    }
+
+    #[cfg(feature = "sync")]
+    pub(crate) fn contains(address: usize) -> bool {
+        THREADS.lock().iter().any(|thread| {
+            let Some(thread) = thread.upgrade() else {
+                return false;
+            };
+
+            let len = thread.len.load(Ordering::Acquire);
+            thread.addresses[..len]
+                .iter()
+                .any(|x| x.load(Ordering::Acquire) == address)
+        })
+    }
+}
+
+#[cfg(all(feature = "sync", feature = "dylibs"))]
+fn visit_custom_children(
+    custom_type: &MutContainer<Box<dyn CustomType>>,
+    context: &mut MarkAndSweepContext,
+) {
+    let address = custom_type as *const _ as usize;
+
+    loop {
+        if let Some(guard) = custom_type.try_read() {
+            guard.visit_children(context);
+            return;
+        }
+
+        if ffi_borrows::contains(address) {
+            return;
+        }
+
+        std::thread::yield_now();
+    }
+}
+
+#[cfg(not(all(feature = "sync", feature = "dylibs")))]
+fn visit_custom_children(
+    custom_type: &MutContainer<Box<dyn CustomType>>,
+    context: &mut MarkAndSweepContext,
+) {
+    #[cfg(feature = "sync")]
+    custom_type.read().visit_children(context);
+
+    #[cfg(not(feature = "sync"))]
+    custom_type.borrow().visit_children(context);
+}
+
 impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     type Output = ();
 
@@ -2580,7 +2689,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
     // TODO: Come back to this
     fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {
-        custom_type.read().visit_children(self);
+        visit_custom_children(&custom_type, self);
     }
 
     fn visit_float(&mut self, _float: f64) -> Self::Output {}
@@ -2824,7 +2933,7 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
 
         // Intercept the downstream ones, keep them alive by using
         // a local queue first, and then spilling over to the larger one.
-        custom_type.read().visit_children(&mut temporary_queue);
+        visit_custom_children(custom_type, &mut temporary_queue);
 
         self.stats.memory_reached_count += temporary_queue.stats.memory_reached_count;
         self.stats.object_count += temporary_queue.stats.object_count;

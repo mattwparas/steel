@@ -34,6 +34,7 @@ use abi_stable::{
 };
 use futures_util::FutureExt;
 
+use crate::values::closed::ffi_borrows;
 use crate::values::HashMap;
 pub use async_ffi::{FfiFuture, FutureExt as FfiFutureExt};
 
@@ -1793,7 +1794,33 @@ impl HostRuntimeFunction {
 
 impl Custom for HostRuntimeFunction {}
 
-fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
+// TODO: Remove this once I decouple the dyn Custom from the RwLock and
+// move the flag inside
+#[derive(Default)]
+struct BorrowedArguments {
+    count: usize,
+}
+
+impl BorrowedArguments {
+    fn insert(&mut self, address: usize) {
+        if ffi_borrows::push(address) {
+            self.count += 1;
+        }
+    }
+}
+
+impl Drop for BorrowedArguments {
+    fn drop(&mut self) {
+        if self.count > 0 {
+            ffi_borrows::pop(self.count);
+        }
+    }
+}
+
+fn as_ffi_argument<'a>(
+    value: &'a SteelVal,
+    borrowed: &mut BorrowedArguments,
+) -> Result<FFIArg<'a>> {
     match value {
         SteelVal::BoolV(b) => Ok(FFIArg::BoolV(*b)),
         SteelVal::IntV(i) => Ok(FFIArg::IntV(*i)),
@@ -1813,6 +1840,8 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                 stop!(Generic => "value cannot be borrowed mutably twice over the ffi boundary: {:?}", value)
             };
 
+            let address = c.as_ptr() as usize;
+
             if let Some(c) = as_underlying_type_mut::<OpaqueFFIValueReturn>(guard.as_mut()) {
                 // SAFETY:
                 // This should only be called internally, and the scope of the lifetime should be limited
@@ -1820,6 +1849,7 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                 // TODO: I think it is possible that if the same value is used multiple times,
                 // we could be borrowing this value more than once. We need a stickier way
                 // to borrow since the RefCell cannot be passed along?
+                borrowed.insert(address);
                 unsafe {
                     Ok(FFIArg::CustomRef(CustomRef {
                         custom: RMut::from_raw(&mut c.inner as *mut _),
@@ -1827,6 +1857,7 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                     }))
                 }
             } else if let Some(c) = as_underlying_type_mut::<FFIVector>(guard.as_mut()) {
+                borrowed.insert(address);
                 unsafe {
                     let mut_ptr = &mut c.vec as *mut RVec<FFIValue>;
 
@@ -1837,6 +1868,7 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                     }))
                 }
             } else if let Some(c) = as_underlying_type_mut::<MutableString>(guard.as_mut()) {
+                borrowed.insert(address);
                 unsafe {
                     let mut_ptr = &mut c.string as *mut RString;
 
@@ -1852,6 +1884,7 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                     function: RFn_TO::from_sabi(c.function.obj.shallow_clone()),
                 }))
             } else if let Some(c) = as_underlying_type_mut::<MutableByteVector>(guard.as_mut()) {
+                borrowed.insert(address);
                 unsafe {
                     let mut_ptr = &mut c.buffer as *mut RVec<u8>;
                     Ok(FFIArg::ByteVectorRef(ByteVectorRef {
@@ -1866,8 +1899,8 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
         SteelVal::HashMapV(h) => h
             .iter()
             .map(|(key, value)| {
-                let key = as_ffi_argument(key)?;
-                let value = as_ffi_argument(value)?;
+                let key = as_ffi_argument(key, borrowed)?;
+                let value = as_ffi_argument(value, borrowed)?;
 
                 if !key.is_hashable() {
                     stop!(Generic => "key not hashable once converted to ffi type: {:?}", key);
@@ -1879,7 +1912,7 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
             .map(FFIArg::HashMap),
         SteelVal::ListV(l) => l
             .into_iter()
-            .map(as_ffi_argument)
+            .map(|value| as_ffi_argument(value, borrowed))
             .collect::<Result<_>>()
             .map(FFIArg::Vector),
 
@@ -1906,9 +1939,10 @@ impl FFIBoxedDynFunction {
             let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             // Attempt collecting and passing as an rslice?
+            let mut borrowed = BorrowedArguments::default();
             let mut other_args = args
                 .iter()
-                .map(as_ffi_argument)
+                .map(|value| as_ffi_argument(value, &mut borrowed))
                 .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
 
             let lifted_slice = unsafe {
@@ -1945,9 +1979,10 @@ impl From<FFIBoxedDynFunction> for BoxedDynFunction {
         let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
             let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
+            let mut borrowed = BorrowedArguments::default();
             let mut other_args = args
                 .iter()
-                .map(as_ffi_argument)
+                .map(|value| as_ffi_argument(value, &mut borrowed))
                 .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
 
             let lifted_slice = unsafe {
@@ -1986,9 +2021,10 @@ impl BoxedDynFunction {
         let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
             let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
+            let mut borrowed = BorrowedArguments::default();
             let mut other_args = args
                 .iter()
-                .map(as_ffi_argument)
+                .map(|value| as_ffi_argument(value, &mut borrowed))
                 .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
 
             // Check the args: If the discriminant is larger than our allowed one,
