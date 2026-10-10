@@ -1,5 +1,4 @@
 fn main() {
-    // First byte is the chunk size, so afl can steer where the boundaries land
     afl::fuzz!(|data: &[u8]| {
         let Some((first, rest)) = data.split_first() else {
             return;

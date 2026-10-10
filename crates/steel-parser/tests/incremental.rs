@@ -41,8 +41,6 @@ const CORPUS: &[&str] = &[
     "(define data '(1 2 3))",
     "#;#;(a) (b) (kept)",
     "#;(a b c) (kept)",
-    // A `#;` and a prefix interleaved. Which applies first depends on the order
-    // they appear in, so these pin that down.
     "(,@#;a b)",
     "(#;'1 2)",
     "#u8(#;'1 2)",
@@ -55,28 +53,21 @@ const CORPUS: &[&str] = &[
     "(a ')",
     "(#;)",
     "(,@#;)",
-    // A quote applied to a list that starts with `quote`, which the quote context
-    // bookkeeping treats specially. The kernel relies on this shape.
     "(a '(quote ()))",
     "(equal? x '(quote ()))",
     "'(quote ())",
-    // `#!` only means a shebang at the very start of a source, so this is three
-    // data, not one
     "(a)#!eof\n(b)",
-    // Turned up by the fuzzer
     "#!,e)",       // shebang line split across a chunk
     "#! x\n(a b)", // shebang line that is complete
     ",@#;a b ",    // a prefix whose datum is behind a `#;`
     ",@#;(a b) c ",
     ".||mn",                // malformed identifier the lexer carries on past
     "(list \"a\" #\\b 'c)", // `#\` split from its character
-    // Turned up by the property tests
     "#u8(-2.5 (#u8(1 2)",
     "\"\\\u{1}\u{0}\u{b} a",
     "('(a .) a (...) ; comment\n a a (,@|odd ident|) '#| block |# '; comment\n a)",
 ];
 
-// A long datum, where rework shows up clearly
 fn long(prefix: &str, suffix: &str) -> String {
     let mut out = String::from(prefix);
     out.push('(');
@@ -119,7 +110,6 @@ fn chunked_matches_one_shot_on_a_large_datum() {
     }
 }
 
-// Boundaries that do not divide evenly, to shake out off by one handling
 #[test]
 fn chunked_matches_one_shot_at_pseudorandom_boundaries() {
     let mut seed = 0x243f_6a88_85a3_08d3u64;

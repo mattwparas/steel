@@ -2360,8 +2360,6 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    // Queue the parts rather than comparing inline - `==` on a
-                    // SteelVal re-enters the thread local queues we already hold
                     self.left.push_back(l.re.clone());
                     self.left.push_back(l.im.clone());
                     self.right.push_back(r.re.clone());

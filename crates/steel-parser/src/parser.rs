@@ -14,7 +14,7 @@ use crate::{
         RAW_UNSYNTAX_SPLICING, REQUIRE, RETURN, SET, SYNTAX_QUOTE, UNQUOTE, UNQUOTE_SPLICING,
     },
     interner::InternedString,
-    lexer::{OwnedTokenStream, ToOwnedString, TokenError, TokenStream},
+    lexer::{LexerState, OwnedTokenStream, ToOwnedString, TokenError, TokenStream},
     span::Span,
     tokens::{Paren, ParenMod, Token, TokenLike, TokenType},
 };
@@ -23,8 +23,6 @@ use thin_vec::{thin_vec, ThinVec};
 
 static SOURCE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-// Reading a prefix costs a stack frame, about 2KB of it in a debug build, so this
-// stays low enough to be reached before a 2MiB thread runs out of stack.
 pub const MAX_PREFIX_DEPTH: u32 = 512;
 
 #[derive(
@@ -308,33 +306,19 @@ pub struct Parser<'a> {
     queued: Option<ExprKind>,
 
     incremental: bool,
-    // Reads in flight, so the next chunk picks up where this one stopped instead of
-    // parsing the datum again
     levels: Vec<Level>,
-    // True while more chunks are still coming. A token that runs up against the
-    // end of the buffer might continue in the next one, so it gets held back.
     more_to_come: bool,
     input_len: u32,
     resume_at: Option<u32>,
     resume_blocked: bool,
-    // Spans of `#;` markers whose datum hasn't been read yet
     datum_comments: Vec<Span>,
-    // Markers below this belong to an outer read
     datum_comment_base: usize,
-    // Tokens handed to the parse - reparsing shows up here
     tokens_lexed: usize,
     prefix_depth: u32,
-    // Set when the lexer reported an error that ends before the end of the input.
-    // It calls a malformed identifier an eof error but then carries on past it, so
-    // that one is final however much more input arrives.
     lexical_error_is_final: bool,
-    // A `#!` line that has no newline yet. It is only a shebang if it turns out to
-    // be a whole line, so nothing here can be lexed until the rest arrives.
     shebang_incomplete: bool,
 }
 
-// Whether more input could still change this token - `,` into `,@`, `1` into
-// `12`, `define` into `define-values`. Delimiters and closed strings cannot.
 fn can_continue<S>(ty: &TokenType<S>) -> bool {
     !matches!(
         ty,
@@ -357,7 +341,6 @@ struct Awaiting {
     span: Span,
     saved_quote_context: bool,
     top_level: bool,
-    // `#;` base for the read this prefix runs, and for the read that owns it
     nested_base: usize,
     owner_base: usize,
 }
@@ -390,9 +373,6 @@ impl PrefixKind {
     }
 }
 
-// A read that was in progress. `Frames` is a `read_from_tokens`, with `awaiting` set
-// if it stopped inside the datum after a quote prefix. `TopPrefix` is a prefix
-// outside any list, which has no frames of its own.
 #[derive(Debug)]
 enum Level {
     Frames {
@@ -405,11 +385,8 @@ enum Level {
     TopPrefix(Awaiting),
 }
 
-// The parse state of a datum that ran out of input part way through. Owned, so
-// it can outlive the chunk it was parsed from.
 #[derive(Debug)]
-pub struct SuspendedParse {
-    // Innermost first, which is the order they suspend in
+pub(crate) struct SuspendedParse {
     levels: Vec<Level>,
     datum_comments: Vec<Span>,
     quote_stack: Vec<usize>,
@@ -419,10 +396,9 @@ pub struct SuspendedParse {
     context: Vec<ParsingContext>,
 }
 
-// Where the lexer stopped, plus the half built datum if it stopped inside one.
 #[derive(Debug)]
 pub struct ParserState {
-    lexer: crate::lexer::LexerState,
+    lexer: LexerState,
     parse: Option<Box<SuspendedParse>>,
 }
 
@@ -466,15 +442,10 @@ impl<'a> Parser<'a> {
         self.tokens_lexed
     }
 
-    // Whether more input could still turn the error this parser just returned into
-    // a datum
     pub fn needs_more_input(&self, err: &ParseError) -> bool {
         matches!(err, ParseError::UnexpectedEOF(_, _)) && !self.lexical_error_is_final
     }
 
-    // `at_source_start` says whether `input` begins at the source's first byte. Only
-    // there does a leading `#!` mean a shebang line; anywhere else it is an ordinary
-    // token.
     pub fn new_incremental(
         input: &'a str,
         source_id: Option<SourceId>,
@@ -484,8 +455,7 @@ impl<'a> Parser<'a> {
         let mut parser = Self::new_flat(input, source_id);
 
         if !at_source_start {
-            parser.tokenizer =
-                crate::lexer::TokenStream::new_mid_source(input, false, source_id).into_owned();
+            parser.tokenizer = TokenStream::new_mid_source(input, false, source_id).into_owned();
         }
 
         parser.incremental = true;
@@ -496,9 +466,7 @@ impl<'a> Parser<'a> {
         parser
     }
 
-    // Rebuild a parser over `input` and carry on from where `state` left off.
-    // `input` must be the previous chunk with more appended - offsets are
-    // absolute, so earlier bytes have to stay put.
+    // `input` must be the previous chunk with more appended - offsets are absolute
     pub fn resume(
         input: &'a str,
         source_id: Option<SourceId>,
@@ -508,8 +476,6 @@ impl<'a> Parser<'a> {
     ) -> Self {
         let mut parser = Self::new_incremental(input, source_id, more_to_come, at_source_start);
 
-        // At zero there is nothing to resume, and the tokenizer `new_incremental`
-        // built is already the right one.
         if state.lexer.at() != 0 {
             parser.tokenizer = OwnedTokenStream::resume(input, false, source_id, state.lexer);
         }
@@ -529,9 +495,6 @@ impl<'a> Parser<'a> {
         parser
     }
 
-    // Where this parser stopped, so a later chunk can carry on from it.
-    // None means this parse cannot be resumed and has to be run again from the
-    // start of the buffer.
     pub fn take_state(&mut self) -> Option<ParserState> {
         if self.resume_blocked {
             return None;
@@ -539,8 +502,6 @@ impl<'a> Parser<'a> {
 
         let mut lexer = self.tokenizer.state();
 
-        // A held back token has to be lexed again from its start once the rest
-        // of it shows up.
         if let Some(at) = self.resume_at.take() {
             lexer.rewind_to(at);
         }
@@ -767,8 +728,6 @@ impl<'a> Parser<'a> {
         &mut self,
         (open, paren, paren_mod): (Span, Paren, Option<ParenMod>),
     ) -> Result<ExprKind> {
-        // Resume a level from an earlier chunk, or start fresh. Bookkeeping was
-        // restored when the parser was rebuilt.
         let (mut stack, mut current_frame, mut last, resuming) = match self.levels.pop() {
             Some(Level::Frames {
                 stack,
@@ -797,7 +756,6 @@ impl<'a> Parser<'a> {
             }
         };
 
-        // Stopped inside the datum after a quote prefix, so finish that first
         if let Some(awaiting) = resuming {
             match self.await_prefix(awaiting) {
                 Ok(inner) => current_frame.push(inner)?,
@@ -1167,8 +1125,6 @@ impl<'a> Parser<'a> {
         Err(self.suspend_level(eof, stack, current_frame, last, None))
     }
 
-    // Saves one in progress `read_from_tokens` for the next chunk and passes the
-    // error back unchanged.
     fn suspend_level(
         &mut self,
         err: ParseError,
@@ -1191,18 +1147,15 @@ impl<'a> Parser<'a> {
             return err;
         }
 
-        // Dropping a level means the saved state no longer describes this parse
         self.resume_blocked = true;
 
         if let Some(awaiting) = awaiting {
-            // Unwind like the non incremental path does
             self.undo_prefix(awaiting.kind, awaiting.saved_quote_context);
         }
 
         err
     }
 
-    // Same, for a prefix outside any list
     fn suspend_top_prefix(&mut self, err: ParseError, awaiting: Awaiting) -> ParseError {
         let resumable = self.incremental && !self.resume_blocked && self.needs_more_input(&err);
 
@@ -1218,8 +1171,6 @@ impl<'a> Parser<'a> {
         err
     }
 
-    // The bookkeeping a prefix puts in place before the datum after it is read.
-    // `depth` is the frame depth its context entry is recorded at.
     fn enter_prefix(
         &mut self,
         kind: PrefixKind,
@@ -1268,9 +1219,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Reads the datum a prefix applies to and wraps it. The bookkeeping is unwound
-    // only once the datum is in hand, so a suspend in between leaves it for the
-    // resumed parse.
     fn await_prefix(&mut self, awaiting: Awaiting) -> Result<ExprKind> {
         let Awaiting {
             kind,
@@ -1302,8 +1250,6 @@ impl<'a> Parser<'a> {
         self.wrap_prefix(kind, span, top_level, saved_quote_context, inner)
     }
 
-    // Its own frame on purpose: these temporaries are only live once the nested read
-    // returned, so they stay off the stack a long chain of prefixes needs.
     #[inline(never)]
     fn wrap_prefix(
         &mut self,
@@ -1322,7 +1268,6 @@ impl<'a> Parser<'a> {
             }
             PrefixKind::QuoteTick => {
                 if top_level {
-                    // Outside a list, a quote lowers through the list form
                     let quoted = self.construct_quote_vec(inner, span);
                     let lowered = self.maybe_lower(quoted);
 
@@ -1355,18 +1300,15 @@ impl<'a> Parser<'a> {
         Ok(wrapped)
     }
 
-    // Its own frame, for the reason `wrap_prefix` gives
     #[inline(never)]
     fn too_deep(&self, span: Span) -> ParseError {
         ParseError::SyntaxError(
-            format!("more than {} nested quote prefixes", MAX_PREFIX_DEPTH),
+            format!("more than {MAX_PREFIX_DEPTH} nested quote prefixes"),
             span,
             self.source_name.clone(),
         )
     }
 
-    // Unwinds what a prefix put in place, once the datum is in hand or when the
-    // parse is going to be redone.
     fn undo_prefix(&mut self, kind: PrefixKind, saved_quote_context: bool) {
         match kind {
             PrefixKind::QuoteSyntax
@@ -1402,24 +1344,15 @@ impl<'a> Parser<'a> {
 
     fn next_token(&mut self) -> Option<Result<Token<'a, InternedString>>> {
         if self.shebang_incomplete {
-            // Whether this is a shebang depends on bytes that have not arrived
             self.resume_at = Some(0);
             return None;
         }
 
-        let Some(res) = self.tokenizer.next() else {
-            return None;
-        };
+        let res = self.tokenizer.next()?;
 
         if self.more_to_come {
-            // Ends flush against the buffer and could still grow, so pick it up from
-            // the start next time. Already finished tokens go through, otherwise a
-            // datum ending in `)` would wait on input that may never come.
             let touches_end = match &res {
                 Ok(token) => token.span.end >= self.input_len && can_continue(&token.ty),
-                // An error up against the end may just be a token cut in half - `#\`
-                // before its character. One ending earlier is final: the lexer
-                // rejected that text and carried on past it.
                 Err(err) => err.span.end >= self.input_len,
             };
 
@@ -1428,8 +1361,6 @@ impl<'a> Parser<'a> {
             }
 
             if touches_end {
-                // Back to the start of the token - an error span can cover just the
-                // part the lexer objected to, so it isn't a safe resume point.
                 self.resume_at = Some(match &res {
                     Ok(token) => token.span.start,
                     Err(_) => self.tokenizer.state().token_start(),
@@ -1514,9 +1445,6 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                 } else if let Err(err) = &value {
-                    // A final error abandons this read, so the markers it pushed go
-                    // with it. One that just wants more input keeps them for the
-                    // next chunk.
                     if !self.needs_more_input(err) {
                         self.datum_comments.truncate(base);
                     }
@@ -1618,7 +1546,6 @@ impl<'a> Parser<'a> {
 
         if self.datum_comments.len() > base {
             if self.incremental && self.more_to_come {
-                // The datum may arrive in the next chunk - keep the marker
                 return None;
             }
 
@@ -1649,9 +1576,6 @@ impl<'a> Iterator for Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn next_inner(&mut self) -> Option<Result<ExprKind>> {
-        // Mid datum from a previous chunk. A top level prefix has no frames and just
-        // finishes its datum; anything else goes back into `read_from_tokens`, which
-        // pops the level itself.
         let resumed = match self.levels.last() {
             Some(Level::TopPrefix(awaiting)) => {
                 let awaiting = *awaiting;
@@ -1675,7 +1599,6 @@ impl<'a> Parser<'a> {
 
         if let Some(result) = resumed {
             match result {
-                // The datum a `#;` applies to - drop it and read the next
                 Ok(_) if self.datum_comments.len() > self.datum_comment_base => {
                     self.datum_comments.pop();
                 }

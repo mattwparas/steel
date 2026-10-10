@@ -3,8 +3,6 @@ use proptest::test_runner::FileFailurePersistence;
 use steel_parser::differential::{check, one_shot, rework};
 use steel_parser::parser::{Parser, SourceId};
 
-// Text that looks like scheme, to get past the lexer and into the parser. Loose on
-// purpose - unbalanced parens and stray prefixes are useful inputs too.
 fn atom() -> impl Strategy<Value = String> {
     prop_oneof![
         Just("a".to_string()),
@@ -60,13 +58,10 @@ fn source() -> impl Strategy<Value = String> {
     })
 }
 
-// A single datum long enough for rework to be measurable
 fn long_source() -> impl Strategy<Value = String> {
     prop::collection::vec(source(), 8..20).prop_map(|parts| format!("({})", parts.join(" ")))
 }
 
-// Truncating at a random point produces the unfinished inputs that matter most
-// for chunked reading.
 fn truncated_source() -> impl Strategy<Value = String> {
     (source(), any::<prop::sample::Index>()).prop_map(|(text, index)| {
         let mut at = index.index(text.len() + 1);
@@ -78,8 +73,6 @@ fn truncated_source() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    // Regressions land next to this file, not beside a lib.rs integration tests
-    // don't have.
     #![proptest_config(ProptestConfig {
         failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
             "tests/prop-regressions.txt",
@@ -87,8 +80,6 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    // Reading in chunks has to agree with reading it all at once - what suspend and
-    // resume is for.
     #[test]
     fn chunking_does_not_change_the_result(
         input in truncated_source(),
@@ -99,7 +90,6 @@ proptest! {
         }
     }
 
-    // Same, over arbitrary text rather than something scheme shaped.
     #[test]
     fn chunking_does_not_change_the_result_for_arbitrary_text(
         input in ".{0,200}",
@@ -110,13 +100,11 @@ proptest! {
         }
     }
 
-    // Parsing reports an error rather than panicking, whatever it is handed.
     #[test]
     fn parsing_arbitrary_text_does_not_panic(input in ".{0,400}") {
         let _ = one_shot(&input);
     }
 
-    // Spans have to point somewhere inside the input.
     #[test]
     fn spans_stay_inside_the_input(input in source()) {
         for expr in Parser::new_flat(&input, SourceId::none()) {
@@ -132,8 +120,6 @@ proptest! {
         }
     }
 
-    // Consumed offsets never run past the input, and a parse that produced a datum
-    // always moved forward.
     #[test]
     fn offsets_advance_within_the_input(input in source()) {
         let mut parser = Parser::new_flat(&input, SourceId::none());
@@ -152,7 +138,6 @@ proptest! {
         }
     }
 
-    // A datum fed in chunks must not be parsed from the start over and over.
     #[test]
     fn chunked_reading_does_not_reparse(input in long_source()) {
         let factor = rework(&input, 8);

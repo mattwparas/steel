@@ -8,7 +8,6 @@ fn main() {
             text,
             steel_parser::parser::SourceId::none(),
         ) {
-            // Stop at the first error, the way a caller would
             if expr.is_err() {
                 break;
             }

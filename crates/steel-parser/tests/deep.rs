@@ -1,6 +1,5 @@
 use steel_parser::parser::{ParseError, Parser, SourceId, MAX_PREFIX_DEPTH};
 
-// Nested lists are read iteratively, so depth is cheap here.
 #[test]
 fn nested_lists_are_read_iteratively() {
     let text = "(".repeat(10_000) + &")".repeat(10_000);
@@ -9,8 +8,6 @@ fn nested_lists_are_read_iteratively() {
     assert!(parser.next().map(|res| res.is_ok()).unwrap_or(false));
 }
 
-// Quote prefixes recurse, one frame per level. Pins the headroom to catch it
-// shrinking.
 #[test]
 fn stacked_prefixes_have_headroom() {
     for prefix in ["'", "`", ",", ",@", "#'", "#`", "#,", "#,@"] {
@@ -25,8 +22,6 @@ fn stacked_prefixes_have_headroom() {
     }
 }
 
-// Past the cap it reports an error the caller can catch instead of running the stack
-// out. The thread gets the default 2MiB, which is the budget the cap fits inside.
 #[test]
 fn nesting_past_the_cap_is_an_error() {
     std::thread::Builder::new()
@@ -47,8 +42,6 @@ fn nesting_past_the_cap_is_an_error() {
         .unwrap();
 }
 
-// A `#;` marker belongs to the read that saw it. An error used to leave it behind,
-// and the next read then discarded a good datum with it.
 #[test]
 fn a_datum_comment_does_not_outlive_a_failed_read() {
     let parsed: Vec<_> = Parser::new_flat("#;(a] 1 2", SourceId::none())

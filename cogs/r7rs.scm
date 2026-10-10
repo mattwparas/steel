@@ -199,10 +199,7 @@
 (check-equal? "case-lambda, dead clause, 2 args" (dead-clause 1 2) 'many)
 (check-equal? "case-lambda, dead clause, 3 args" (dead-clause 1 2 3) 'many)
 
-;; An unterminated datum on one port must not be completed by the next port.
-(check-err? "read, unterminated list is an error"
-            (read (open-input-string "(1"))
-            'unreachable)
+(check-err? "read, unterminated list is an error" (read (open-input-string "(1")) 'unreachable)
 (check-equal? "read, a later port is unaffected by an earlier unterminated list"
               2
               (read (open-input-string "2)")))
@@ -210,55 +207,43 @@
 (check-err? "read, unterminated list is an error, again"
             (read (open-input-string "(3 4"))
             'unreachable)
-(check-err? "read, a stray closing paren is an error"
-            (read (open-input-string ")"))
-            'unreachable)
+(check-err? "read, a stray closing paren is an error" (read (open-input-string ")")) 'unreachable)
 
-(check-err? "read, a trailing quote is an error"
-            (read (open-input-string "'"))
-            'unreachable)
+(check-err? "read, a trailing quote is an error" (read (open-input-string "'")) 'unreachable)
 (check-equal? "read, a later port is not wrapped in a leftover quote"
               42
               (read (open-input-string "42")))
 
-;; An unterminated datum must not wedge every subsequent read.
-(check-err? "read, a lone open paren is an error"
-            (read (open-input-string "("))
-            'unreachable)
-(check-equal? "read, reads still work after an unterminated datum"
-              42
-              (read (open-input-string "42")))
+(check-err? "read, a lone open paren is an error" (read (open-input-string "(")) 'unreachable)
+(check-equal? "read, reads still work after an unterminated datum" 42 (read (open-input-string "42")))
 (check-equal? "read, reads still work after an unterminated datum, compound"
               '(5 6)
               (read (open-input-string "(5 6)")))
 
-;; Fully valid leftovers must not leak across ports either.
-(check-equal? "read, takes the first datum on the port"
-              1
-              (read (open-input-string "1 2")))
+(check-equal? "read, takes the first datum on the port" 1 (read (open-input-string "1 2")))
 (check-equal? "read, unconsumed leftovers do not leak to the next port"
               9
               (read (open-input-string "9")))
 
-;; Successive reads on one port keep working.
 (check-equal? "read, successive reads on one port"
               '(1 2 3 #true)
               (let ([p (open-input-string "1 2 3")])
                 (list (read p) (read p) (read p) (eof-object? (read p)))))
 
-;; Two ports read interleaved must not disturb each other.
 (check-equal? "read, interleaved reads on two ports"
               '(1 10 2 20)
               (let ([a (open-input-string "1 2 3")]
                     [b (open-input-string "10 20 30")])
                 (list (read a) (read b) (read a) (read b))))
 
-;; Ports with nothing (or nothing but trivia) in them read as eof.
 (check-equal? "read, empty port is eof" #true (eof-object? (read (open-input-string ""))))
-(check-equal? "read, whitespace-only port is eof" #true (eof-object? (read (open-input-string "   "))))
-(check-equal? "read, comment-only port is eof" #true (eof-object? (read (open-input-string "; nothing"))))
+(check-equal? "read, whitespace-only port is eof"
+              #true
+              (eof-object? (read (open-input-string "   "))))
+(check-equal? "read, comment-only port is eof"
+              #true
+              (eof-object? (read (open-input-string "; nothing"))))
 
-;; read-syntax-object must keep producing syntax objects on repeated reads.
 (check-equal? "read-syntax-object, successive reads stay syntax objects"
               '(#true #true)
               (let ([p (open-input-string "(a b) (c d)")])
@@ -266,38 +251,30 @@
 
 (check-equal? "peek-char does not consume, read-port-to-string"
               '(#\a "abcdef")
-              (let ([p (open-input-string "abcdef")])
-                (list (peek-char p) (read-port-to-string p))))
+              (let ([p (open-input-string "abcdef")]) (list (peek-char p) (read-port-to-string p))))
 
 (check-equal? "peek-char does not consume, read-port-to-bytes"
               '(#\a #u8(97 98 99 100 101 102))
-              (let ([p (open-input-string "abcdef")])
-                (list (peek-char p) (read-port-to-bytes p))))
+              (let ([p (open-input-string "abcdef")]) (list (peek-char p) (read-port-to-bytes p))))
 
-;; The newline lands past the peek buffer here
 (check-equal? "peek-char does not consume, read-line"
               '(#\h "hello world" "second")
               (let ([p (open-input-string "hello world\nsecond")])
                 (list (peek-char p) (read-line p) (read-line p))))
 
-;; and inside it here, which is a separate path
 (check-equal? "peek-char does not consume, read-line with newline in the peek buffer"
               '(#\a "ab" "cd")
               (let ([p (open-input-string "ab\ncd")])
                 (list (peek-char p) (read-line p) (read-line p))))
 
-;; A multi-byte character can straddle the peek buffer boundary.
 (check-equal? "peek-char does not consume, multi-byte characters"
               '(#\a "aλμνξ")
-              (let ([p (open-input-string "aλμνξ")])
-                (list (peek-char p) (read-port-to-string p))))
+              (let ([p (open-input-string "aλμνξ")]) (list (peek-char p) (read-port-to-string p))))
 
 (check-equal? "peek-char does not consume, then read"
               '(#\( (x y))
-              (let ([p (open-input-string "(x y)")])
-                (list (peek-char p) (read p))))
+              (let ([p (open-input-string "(x y)")]) (list (peek-char p) (read p))))
 
-;; Without a peek in front of them the bulk reads must be unchanged.
 (check-equal? "read-port-to-string with no preceding peek"
               "abcdef"
               (read-port-to-string (open-input-string "abcdef")))
@@ -314,7 +291,9 @@
               #true
               (equal? (list 1/2+3/4i) (list 1/2+3/4i)))
 (check-equal? "equal?, complex differing in the real part" #false (equal? (list 1+2i) (list 3+2i)))
-(check-equal? "equal?, complex differing in the imaginary part" #false (equal? (list 1+2i) (list 1+3i)))
+(check-equal? "equal?, complex differing in the imaginary part"
+              #false
+              (equal? (list 1+2i) (list 1+3i)))
 
 (check-equal? "equal?, bytevector inside a list" #true (equal? (list #u8(1 2)) (list #u8(1 2))))
 (check-equal? "equal?, bytevector inside a vector"
@@ -338,7 +317,6 @@
               (equal? (list (/ 123456789012345678901234567890 7))
                       (list (/ 123456789012345678901234567890 11))))
 
-;; Nested more than one level deep, to make sure these go through the queue.
 (check-equal? "equal?, bytevector nested two containers deep"
               #true
               (equal? (list (vector #u8(9))) (list (vector #u8(9)))))
@@ -350,18 +328,15 @@
 
 (check-equal? "read then peek-char"
               '((1 2) #\space)
-              (let ([p (open-input-string "(1 2) rest")])
-                (list (read p) (peek-char p))))
+              (let ([p (open-input-string "(1 2) rest")]) (list (read p) (peek-char p))))
 
 (check-equal? "read-char then read"
               '(#\space (a b))
-              (let ([p (open-input-string " (a b)")])
-                (list (read-char p) (read p))))
+              (let ([p (open-input-string " (a b)")]) (list (read-char p) (read p))))
 
 (check-equal? "read consumes only its own datum, not trailing text"
               '((a) " tail")
-              (let ([p (open-input-string "(a) tail")])
-                (list (read p) (read-port-to-string p))))
+              (let ([p (open-input-string "(a) tail")]) (list (read p) (read-port-to-string p))))
 
 (check-equal? "read twice, then the remainder as characters"
               '(1 2 " 3 4")
@@ -374,7 +349,6 @@
                 (with-handler (lambda (err) 'ignored) (read p))
                 (read p)))
 
-;; `#!` is only a shebang at the very start of a source
 (check-equal? "read, #! after a datum is an ordinary token"
               3
               (let ([p (open-input-string "(a)#!eof\n(b)")])
@@ -383,6 +357,46 @@
 (check-equal? "read, a shebang line at the start of a source is skipped"
               '(a b)
               (read (open-input-string "#! /usr/bin/steel\n(a b)")))
+
+(check-equal? "read, a datum comment is skipped" '(b) (read (open-input-string "#;(a) (b)")))
+(check-equal? "read, stacked datum comments" '(c) (read (open-input-string "#;(a) #;(b) (c)")))
+(check-equal? "read, a datum comment inside a list" '(kept) (read (open-input-string "(#;(a) kept)")))
+
+(check-err? "read, input that is not utf8 is an error"
+            (read (open-input-bytevector #u8(40 255 41)))
+            'unreachable)
+(check-equal? "read, a datum before bytes that are not utf8 still reads"
+              '(a)
+              (read (open-input-bytevector #u8(40 97 41 32 255))))
+
+(check-equal? "read, deeply nested list"
+              1
+              (let loop ([v (read (open-input-string
+                                   (string-append (make-string 200 #\() "1" (make-string 200 #\)))))])
+                (if (list? v)
+                    (loop (car v))
+                    v)))
+
+(check-err? "read, too many stacked quote prefixes is an error"
+            (read (open-input-string (string-append (make-string 2000 #\') "a")))
+            'unreachable)
+
+(check-equal? "read, bytevector literal" #u8(1 2) (read (open-input-string "#u8(1 2)")))
+(check-equal? "read, character literal" #\a (read (open-input-string "#\\a")))
+(check-equal? "read, string literal" "hi" (read (open-input-string "\"hi\"")))
+(check-equal? "read, rational literal" 1/2 (read (open-input-string "1/2")))
+(check-equal? "read, vector literal" #(1 2) (read (open-input-string "#(1 2)")))
+
+(check-equal? "read, quote shorthand" (list 'quote (list 1 2)) (read (open-input-string "'(1 2)")))
+(check-equal? "read, quasiquote shorthand"
+              (list 'quasiquote (list 'a (list (string->symbol "#%unquote") 'b)))
+              (read (open-input-string "`(a ,b)")))
+(check-equal? "read, unquote-splicing shorthand"
+              (list 'quasiquote (list 'a (list (string->symbol "#%unquote-splicing") 'b)))
+              (read (open-input-string "`(a ,@b)")))
+(check-equal? "read, a bare unquote outside a quasiquote"
+              (list 'unquote 'b)
+              (read (open-input-string ",b")))
 
 (define r7rs-test-stats (get-test-stats))
 

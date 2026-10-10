@@ -292,10 +292,16 @@ pub fn with_stdout(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelE
                     command_guard.command.stdout(value);
                 }
 
-                Err(this) => {
-                    // Bail out, this isn't something that
-                    // can be done
-                    *port.port.write() = this;
+                Err(err) => {
+                    let buffered = err.is_buffered();
+                    // Make sure we drop the guard before formatting since we'll take a lock during display
+                    *guard = err.into_port();
+                    drop(guard);
+
+                    if buffered {
+                        stop!(Generic => format!("with-stdout: the port has buffered data that cannot be handed to a child process, found: {}", port))
+                    }
+
                     stop!(TypeMismatch => format!("with-stdout expected an output file port in the second position, found: {}", port))
                 }
             }
@@ -338,10 +344,16 @@ pub fn with_stderr(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelE
                     command_guard.command.stderr(value);
                 }
 
-                Err(this) => {
-                    // Bail out, this isn't something that
-                    // can be done
-                    *port.port.write() = this;
+                Err(err) => {
+                    let buffered = err.is_buffered();
+                    // Make sure we drop the guard before formatting since we'll take a lock during display
+                    *guard = err.into_port();
+                    drop(guard);
+
+                    if buffered {
+                        stop!(Generic => format!("with-stderr: the port has buffered data that cannot be handed to a child process, found: {}", port))
+                    }
+
                     stop!(TypeMismatch => format!("with-stderr expected an output port in the second position, found: {}", port))
                 }
             }
@@ -384,16 +396,22 @@ pub fn with_stdin(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelEr
                     command_guard.command.stdin(value);
                 }
 
-                Err(this) => {
-                    // Bail out, this isn't something that
-                    // can be done
-                    *port.port.write() = this;
-                    stop!(TypeMismatch => format!("with-stderr expected an output port in the second position, found: {}", port))
+                Err(err) => {
+                    let buffered = err.is_buffered();
+                    // Make sure we drop the guard before formatting since we'll take a lock during display
+                    *guard = err.into_port();
+                    drop(guard);
+
+                    if buffered {
+                        stop!(Generic => format!("with-stdin: the port has buffered data that cannot be handed to a child process, found: {}", port))
+                    }
+
+                    stop!(TypeMismatch => format!("with-stdin expected an input port in the second position, found: {}", port))
                 }
             }
         }
     } else {
-        stop!(TypeMismatch => format!("with-stderr expected a port in the second position, found: {}", port))
+        stop!(TypeMismatch => format!("with-stdin expected a port in the second position, found: {}", port))
     }
 
     drop(command_guard);

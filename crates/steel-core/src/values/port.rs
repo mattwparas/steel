@@ -75,16 +75,12 @@ impl core::fmt::Display for SteelPort {
 const MIN_CHUNK: usize = 8 * 1024;
 const MAX_STREAM_CHUNK: usize = 64 * 1024;
 
-// `buf[pos..]` has been read out of `inner` but not yet handed to the caller.
-// Every read path has to drain that before touching `inner`.
 #[derive(Debug)]
 pub struct Peekable<R> {
     inner: R,
     buf: Vec<u8>,
     pos: usize,
-    // How much the next fill asks for. Doubles while a datum is unfinished.
     chunk: usize,
-    // Whether anything has been handed out yet
     consumed_any: bool,
 }
 
@@ -120,7 +116,6 @@ impl<T> Peekable<T> {
             self.buf.clear();
             self.pos = 0;
         } else if self.pos >= self.buf.len() / 2 {
-            // Mostly consumed, so drop the front instead of keeping it all
             self.buf.drain(..self.pos);
             self.pos = 0;
         }
@@ -135,7 +130,6 @@ impl<T> Peekable<T> {
 }
 
 impl<R: Read> Peekable<R> {
-    // Pulls up to `amt` more bytes into the buffer, stopping short at eof.
     fn fill(&mut self, amt: usize) -> Result<MaybeBlocking<usize>> {
         let start = self.buf.len();
         self.buf.resize(start + amt, 0);
@@ -156,9 +150,6 @@ impl<R: Read> Peekable<R> {
         Ok(MaybeBlocking::Nonblocking(filled))
     }
 
-    // One read call, taking whatever is ready rather than waiting on the whole
-    // request, so a finished datum never waits on bytes that may not come. The
-    // request doubles while a datum is unfinished to keep a restart linear.
     pub fn fill_chunk(&mut self, max: usize) -> Result<MaybeBlocking<usize>> {
         let unfinished = !self.pending_is_empty();
         let start = self.buf.len();
@@ -216,9 +207,6 @@ impl<R: Read> Peekable<R> {
     }
 
     fn peek_char(&mut self) -> Result<MaybeBlocking<Option<char>>> {
-        // A utf8 scalar is at most 4 bytes, so that is all this needs buffered. A
-        // short fill doesn't say whether the source ended, so a half decoded
-        // character asks again instead of guessing.
         loop {
             let upto = usize::min(self.pending().len(), 4);
 
@@ -232,8 +220,6 @@ impl<R: Read> Peekable<R> {
 
                         return Ok(MaybeBlocking::Nonblocking(valid.chars().next()));
                     }
-                    // Not utf8 at all, or as much of it as a character can take.
-                    // Skip it, otherwise it gets peeked forever.
                     Err(err) if err.error_len().is_some() || upto == 4 => {
                         self.consume(err.error_len().unwrap_or(1));
 
@@ -252,7 +238,6 @@ impl<R: Read> Peekable<R> {
                         return Ok(MaybeBlocking::Nonblocking(None));
                     }
 
-                    // Ended part way through a character
                     self.consume(upto);
 
                     return Ok(MaybeBlocking::Nonblocking(Some(
@@ -314,7 +299,6 @@ impl<R: Read> Peekable<R> {
             return self.inner.read_to_string(buf);
         }
 
-        // A multi byte char can straddle the boundary, so decode both halves together
         let mut bytes = Vec::new();
         self.take_pending(&mut bytes);
         self.inner.read_to_end(&mut bytes)?;
@@ -324,8 +308,6 @@ impl<R: Read> Peekable<R> {
         Ok(amt)
     }
 
-    // True if the buffer already held the end of the line, in which case the caller
-    // must not touch `inner`.
     fn line_from_pending(&mut self, bytes: &mut Vec<u8>) -> bool {
         match self.pending().iter().position(|b| *b == b'\n') {
             Some(pos) => {
@@ -339,6 +321,29 @@ impl<R: Read> Peekable<R> {
                 false
             }
         }
+    }
+}
+
+pub enum StdioError {
+    Unsupported(SteelPortRepr),
+    Buffered(SteelPortRepr),
+}
+
+impl StdioError {
+    pub fn into_port(self) -> SteelPortRepr {
+        match self {
+            StdioError::Unsupported(port) | StdioError::Buffered(port) => port,
+        }
+    }
+
+    pub fn is_buffered(&self) -> bool {
+        matches!(self, StdioError::Buffered(_))
+    }
+}
+
+impl<R> Peekable<BufReader<R>> {
+    fn buffered(&self) -> usize {
+        self.pending().len() + self.inner.buffer().len()
     }
 }
 
@@ -359,8 +364,6 @@ impl<R: BufRead> Peekable<R> {
     }
 }
 
-// `Stdin` is `Read` but not `BufRead`, only `StdinLock` is, so it needs its own
-// copy that locks.
 impl Peekable<Stdin> {
     pub fn read_line_peeked_stdin(&mut self, buf: &mut String) -> io::Result<usize> {
         if self.pending_is_empty() {
@@ -548,11 +551,27 @@ impl SteelPortRepr {
         core::mem::replace(self, SteelPortRepr::Closed)
     }
 
-    pub fn as_stdio(self) -> core::result::Result<std::process::Stdio, Self> {
+    pub fn as_stdio(self) -> core::result::Result<std::process::Stdio, StdioError> {
         match self {
-            SteelPortRepr::FileInput(_, peekable) => {
-                let guard = peekable.inner.get_ref().try_clone().unwrap();
-                Ok(guard.into())
+            SteelPortRepr::FileInput(name, peekable) => {
+                let buffered = peekable.buffered();
+
+                let Ok(mut file) = peekable.inner.get_ref().try_clone() else {
+                    return Err(StdioError::Unsupported(SteelPortRepr::FileInput(
+                        name, peekable,
+                    )));
+                };
+
+                if buffered == 0 {
+                    return Ok(file.into());
+                }
+
+                match file.seek(io::SeekFrom::Current(-(buffered as i64))) {
+                    Ok(_) => Ok(file.into()),
+                    Err(_) => Err(StdioError::Buffered(SteelPortRepr::FileInput(
+                        name, peekable,
+                    ))),
+                }
             }
             SteelPortRepr::FileOutput(_, buf_writer) => {
                 let guard = buf_writer.get_ref().try_clone().unwrap();
@@ -560,11 +579,25 @@ impl SteelPortRepr {
             }
             SteelPortRepr::StdOutput(_) => Ok(std::io::stdout().into()),
             SteelPortRepr::StdError(_) => Ok(std::io::stderr().into()),
-            SteelPortRepr::ChildStdOutput(peekable) => Ok(peekable.inner.into_inner().into()),
-            SteelPortRepr::ChildStdError(peekable) => Ok(peekable.inner.into_inner().into()),
+            SteelPortRepr::ChildStdOutput(peekable) => {
+                if peekable.buffered() > 0 {
+                    return Err(StdioError::Buffered(SteelPortRepr::ChildStdOutput(
+                        peekable,
+                    )));
+                }
+
+                Ok(peekable.inner.into_inner().into())
+            }
+            SteelPortRepr::ChildStdError(peekable) => {
+                if peekable.buffered() > 0 {
+                    return Err(StdioError::Buffered(SteelPortRepr::ChildStdError(peekable)));
+                }
+
+                Ok(peekable.inner.into_inner().into())
+            }
             SteelPortRepr::ChildStdInput(buf_writer) => Ok(buf_writer.into_inner().unwrap().into()),
             SteelPortRepr::Closed => todo!(),
-            _ => Err(self),
+            _ => Err(StdioError::Unsupported(self)),
         }
     }
 
@@ -632,13 +665,10 @@ impl SteelPortRepr {
         }
     }
 
-    // Buffers more input, returning how many bytes arrived. Streams cap the request
-    // at a pipe's worth, since asking for more than can arrive only costs zeroing.
     pub fn fill_more(&mut self) -> Result<MaybeBlocking<usize>> {
         match self {
             SteelPortRepr::FileInput(_, br) => br.fill_chunk(usize::MAX),
             SteelPortRepr::StringInput(s) => {
-                // Already in memory, so never ask for more than is left.
                 let left = (s.inner.get_ref().len()).saturating_sub(s.inner.position() as usize);
                 s.fill_chunk(left)
             }
@@ -1115,5 +1145,509 @@ pub fn would_block() -> SteelVal {
     #[cfg(not(feature = "sync"))]
     {
         WOULD_BLOCK_OBJECT.with(|eof| eof.0.clone())
+    }
+}
+
+#[cfg(test)]
+mod port_tests {
+    use super::*;
+    use std::collections::VecDeque;
+
+    struct Chunks {
+        chunks: VecDeque<Vec<u8>>,
+    }
+
+    impl Chunks {
+        fn new(chunks: &[&[u8]]) -> Self {
+            Chunks {
+                chunks: chunks.iter().map(|chunk| chunk.to_vec()).collect(),
+            }
+        }
+    }
+
+    impl Read for Chunks {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let Some(chunk) = self.chunks.pop_front() else {
+                return Ok(0);
+            };
+
+            let amt = usize::min(chunk.len(), buf.len());
+            buf[..amt].copy_from_slice(&chunk[..amt]);
+
+            if amt < chunk.len() {
+                self.chunks.push_front(chunk[amt..].to_vec());
+            }
+
+            Ok(amt)
+        }
+    }
+
+    struct ThenBlocks {
+        first: Option<&'static [u8]>,
+    }
+
+    impl Read for ThenBlocks {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match self.first.take() {
+                Some(bytes) => {
+                    buf[..bytes.len()].copy_from_slice(bytes);
+                    Ok(bytes.len())
+                }
+                None => Err(io::Error::new(io::ErrorKind::WouldBlock, "nothing ready")),
+            }
+        }
+    }
+
+    struct Interrupts {
+        interrupted: bool,
+    }
+
+    impl Read for Interrupts {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "signal"));
+            }
+
+            buf[..2].copy_from_slice(b"ok");
+            Ok(2)
+        }
+    }
+
+    fn nonblocking<T>(value: MaybeBlocking<T>) -> T {
+        match value {
+            MaybeBlocking::Nonblocking(value) => value,
+            MaybeBlocking::WouldBlock => panic!("expected the read to go through"),
+        }
+    }
+
+    fn filled(bytes: &[u8]) -> Peekable<Cursor<Vec<u8>>> {
+        let mut peekable = Peekable::new(Cursor::new(bytes.to_vec()));
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        peekable
+    }
+
+    #[test]
+    fn nothing_is_pending_before_a_fill() {
+        let peekable = Peekable::new(Cursor::new(b"abc".to_vec()));
+
+        assert!(peekable.pending_is_empty());
+        assert_eq!(peekable.pending(), b"");
+    }
+
+    #[test]
+    fn consume_advances_through_the_buffer() {
+        let mut peekable = filled(b"0123456789");
+        assert_eq!(peekable.pending(), b"0123456789");
+
+        peekable.consume(3);
+        assert_eq!(peekable.pending(), b"3456789");
+    }
+
+    #[test]
+    fn consume_past_the_end_clamps_and_clears() {
+        let mut peekable = filled(b"abc");
+
+        peekable.consume(99);
+
+        assert!(peekable.pending_is_empty());
+        assert_eq!(peekable.buf.len(), 0, "a drained buffer is released");
+        assert_eq!(peekable.pos, 0);
+    }
+
+    #[test]
+    fn consume_compacts_once_the_buffer_is_mostly_drained() {
+        let mut peekable = filled(b"0123456789");
+
+        peekable.consume(3);
+        assert_eq!(peekable.pos, 3, "under half, so the front is kept");
+
+        peekable.consume(3);
+        assert_eq!(peekable.pos, 0, "over half, so the front is dropped");
+        assert_eq!(peekable.pending(), b"6789");
+    }
+
+    #[test]
+    fn at_source_start_holds_until_something_is_handed_out() {
+        let mut peekable = Peekable::new(Cursor::new(b"abc".to_vec()));
+        assert!(peekable.at_source_start());
+
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        assert!(peekable.at_source_start(), "a fill hands nothing out");
+
+        peekable.consume(0);
+        assert!(
+            peekable.at_source_start(),
+            "consuming nothing hands nothing out"
+        );
+
+        peekable.consume(1);
+        assert!(!peekable.at_source_start());
+    }
+
+    #[test]
+    fn take_pending_drains_the_buffer() {
+        let mut peekable = filled(b"abc");
+        let mut out = Vec::new();
+
+        peekable.take_pending(&mut out);
+
+        assert_eq!(out, b"abc");
+        assert!(peekable.pending_is_empty());
+        assert!(!peekable.at_source_start(), "the bytes were handed out");
+    }
+
+    #[test]
+    fn the_request_grows_while_a_datum_is_unfinished() {
+        let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd", b"ef"]));
+        assert_eq!(peekable.chunk, MIN_CHUNK);
+
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        assert_eq!(
+            peekable.chunk, MIN_CHUNK,
+            "nothing was pending, so no growth"
+        );
+
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        assert_eq!(peekable.chunk, MIN_CHUNK * 2);
+
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        assert_eq!(peekable.chunk, MIN_CHUNK * 4);
+        assert_eq!(peekable.pending(), b"abcdef");
+    }
+
+    #[test]
+    fn the_request_resets_once_a_datum_is_consumed() {
+        let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd"]));
+
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        assert_eq!(peekable.chunk, MIN_CHUNK * 2);
+
+        peekable.consume(1);
+        assert_eq!(peekable.chunk, MIN_CHUNK);
+    }
+
+    #[test]
+    fn the_request_never_exceeds_the_cap() {
+        let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd", b"ef"]));
+
+        nonblocking(peekable.fill_chunk(4).unwrap());
+        nonblocking(peekable.fill_chunk(4).unwrap());
+
+        assert_eq!(peekable.chunk, 4);
+    }
+
+    #[test]
+    fn an_interrupted_read_is_retried() {
+        let mut peekable = Peekable::new(Interrupts { interrupted: false });
+
+        let amt = nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+
+        assert_eq!(amt, 2);
+        assert_eq!(peekable.pending(), b"ok");
+    }
+
+    #[test]
+    fn a_source_with_nothing_ready_leaves_the_buffer_alone() {
+        let mut peekable = Peekable::new(ThenBlocks {
+            first: Some(b"abc"),
+        });
+
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        assert_eq!(peekable.pending(), b"abc");
+
+        assert!(matches!(
+            peekable.fill_chunk(usize::MAX).unwrap(),
+            MaybeBlocking::WouldBlock
+        ));
+        assert_eq!(peekable.pending(), b"abc", "the pending bytes survive");
+    }
+
+    #[test]
+    fn peek_char_does_not_consume() {
+        let mut peekable = Peekable::new(Cursor::new("hé".as_bytes().to_vec()));
+
+        assert_eq!(nonblocking(peekable.peek_char().unwrap()), Some('h'));
+        assert_eq!(
+            nonblocking(peekable.peek_char().unwrap()),
+            Some('h'),
+            "peeking twice gives the same character"
+        );
+
+        assert_eq!(nonblocking(peekable.read_byte().unwrap()), Some(b'h'));
+        assert_eq!(nonblocking(peekable.peek_char().unwrap()), Some('é'));
+    }
+
+    #[test]
+    fn peek_char_waits_for_a_character_split_across_reads() {
+        let mut peekable = Peekable::new(Chunks::new(&[&[0xC3], &[0xA9]]));
+
+        assert_eq!(nonblocking(peekable.peek_char().unwrap()), Some('é'));
+    }
+
+    #[test]
+    fn peek_char_reports_bytes_that_are_not_utf8_and_moves_past_them() {
+        let mut peekable = Peekable::new(Cursor::new(vec![0xFF, b'a']));
+
+        assert_eq!(
+            nonblocking(peekable.peek_char().unwrap()),
+            Some(char::REPLACEMENT_CHARACTER)
+        );
+        assert_eq!(
+            nonblocking(peekable.peek_char().unwrap()),
+            Some('a'),
+            "the bad byte is not peeked forever"
+        );
+    }
+
+    #[test]
+    fn peek_char_reports_a_character_the_source_cut_short() {
+        let mut peekable = Peekable::new(Cursor::new(vec![0xC3]));
+
+        assert_eq!(
+            nonblocking(peekable.peek_char().unwrap()),
+            Some(char::REPLACEMENT_CHARACTER)
+        );
+        assert_eq!(
+            nonblocking(peekable.peek_char().unwrap()),
+            None,
+            "and the stub is not peeked forever either"
+        );
+    }
+
+    #[test]
+    fn peek_char_at_the_end_is_nothing() {
+        let mut peekable = Peekable::new(Cursor::new(Vec::new()));
+
+        assert_eq!(nonblocking(peekable.peek_char().unwrap()), None);
+    }
+
+    #[test]
+    fn read_byte_drains_the_buffer_before_the_source() {
+        let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd"]));
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+
+        assert_eq!(nonblocking(peekable.read_byte().unwrap()), Some(b'a'));
+        assert_eq!(nonblocking(peekable.read_byte().unwrap()), Some(b'b'));
+        assert_eq!(nonblocking(peekable.read_byte().unwrap()), Some(b'c'));
+    }
+
+    #[test]
+    fn read_bytes_amt_spans_the_buffer_and_the_source() {
+        let mut peekable = Peekable::new(Chunks::new(&[b"abc", b"def"]));
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        assert_eq!(peekable.pending(), b"abc");
+
+        let mut buf = [0; 5];
+        let amt = nonblocking(peekable.read_bytes_amt(&mut buf).unwrap());
+
+        assert_eq!(amt, 5);
+        assert_eq!(&buf, b"abcde");
+    }
+
+    #[test]
+    fn read_to_end_includes_what_was_already_buffered() {
+        let mut peekable = Peekable::new(Chunks::new(&[b"abc", b"def"]));
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+
+        let mut out = Vec::new();
+        let amt = peekable.read_to_end_peeked(&mut out).unwrap();
+
+        assert_eq!(amt, 6);
+        assert_eq!(out, b"abcdef");
+    }
+
+    #[test]
+    fn read_to_string_joins_a_character_split_across_the_boundary() {
+        let mut peekable = Peekable::new(Cursor::new("é".as_bytes().to_vec()));
+        nonblocking(peekable.fill(1).unwrap());
+        assert_eq!(peekable.pending(), &[0xC3]);
+
+        let mut out = String::new();
+        let amt = peekable.read_to_string_peeked(&mut out).unwrap();
+
+        assert_eq!(amt, 2);
+        assert_eq!(out, "é");
+    }
+
+    #[test]
+    fn read_line_takes_a_line_that_is_already_buffered() {
+        let mut peekable = filled(b"ab\ncd");
+
+        let mut out = String::new();
+        let amt = peekable.read_line_peeked(&mut out).unwrap();
+
+        assert_eq!(amt, 3);
+        assert_eq!(out, "ab\n");
+        assert_eq!(peekable.pending(), b"cd", "the rest stays put");
+    }
+
+    #[test]
+    fn read_line_spans_the_buffer_and_the_source() {
+        let mut peekable = Peekable::new(Cursor::new(b"ab\ncd".to_vec()));
+        nonblocking(peekable.fill(1).unwrap());
+        assert_eq!(peekable.pending(), b"a");
+
+        let mut out = String::new();
+        let amt = peekable.read_line_peeked(&mut out).unwrap();
+
+        assert_eq!(amt, 3);
+        assert_eq!(out, "ab\n");
+    }
+
+    #[test]
+    fn read_line_returns_a_last_line_without_a_newline() {
+        let mut peekable = filled(b"cd");
+
+        let mut out = String::new();
+        let amt = peekable.read_line_peeked(&mut out).unwrap();
+
+        assert_eq!(amt, 2);
+        assert_eq!(out, "cd");
+    }
+
+    #[test]
+    fn read_line_at_the_end_is_zero() {
+        let mut peekable = Peekable::new(Cursor::new(Vec::new()));
+
+        let mut out = String::new();
+
+        assert_eq!(peekable.read_line_peeked(&mut out).unwrap(), 0);
+        assert_eq!(out, "");
+    }
+
+    #[test]
+    fn a_string_port_never_asks_for_more_than_is_left() {
+        let mut port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abc".to_vec())));
+
+        assert!(port.at_source_start());
+        assert_eq!(nonblocking(port.fill_more().unwrap()), 3);
+        assert_eq!(port.pending(), b"abc");
+
+        port.consume_pending(1);
+        assert_eq!(port.pending(), b"bc");
+        assert!(!port.at_source_start());
+
+        assert_eq!(
+            nonblocking(port.fill_more().unwrap()),
+            0,
+            "the source is spent"
+        );
+    }
+
+    #[test]
+    fn as_stdio_rewinds_what_was_buffered_but_not_consumed() {
+        let path = std::env::temp_dir().join(format!("steel-as-stdio-{}.txt", std::process::id()));
+        std::fs::write(&path, b"(a) remainder").unwrap();
+
+        let file = File::open(&path).unwrap();
+        let mut observer = file.try_clone().unwrap();
+        let mut peekable = Peekable::new(BufReader::new(file));
+
+        peekable.fill_chunk(usize::MAX).unwrap();
+        assert_eq!(peekable.buffered(), 13);
+
+        peekable.consume(3);
+        assert_eq!(peekable.buffered(), 10);
+
+        let port = SteelPortRepr::FileInput(path.display().to_string(), peekable);
+        assert!(port.as_stdio().is_ok());
+
+        let mut rest = String::new();
+        observer.read_to_string(&mut rest).unwrap();
+        assert_eq!(rest, " remainder");
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn as_stdio_rewinds_bytes_the_bufreader_is_holding_too() {
+        let path =
+            std::env::temp_dir().join(format!("steel-as-stdio-buf-{}.txt", std::process::id()));
+        std::fs::write(&path, b"(a) remainder").unwrap();
+
+        let file = File::open(&path).unwrap();
+        let mut observer = file.try_clone().unwrap();
+        let mut peekable = Peekable::new(BufReader::new(file));
+
+        nonblocking(peekable.fill_chunk(4).unwrap());
+        assert_eq!(peekable.pending(), b"(a) ");
+        assert!(
+            !peekable.inner.buffer().is_empty(),
+            "a small request leaves the rest inside the BufReader"
+        );
+        assert_eq!(peekable.buffered(), 13, "both buffers count");
+
+        peekable.consume(4);
+        assert_eq!(peekable.buffered(), 9);
+
+        let port = SteelPortRepr::FileInput(path.display().to_string(), peekable);
+        assert!(port.as_stdio().is_ok());
+
+        let mut rest = String::new();
+        observer.read_to_string(&mut rest).unwrap();
+        assert_eq!(rest, "remainder");
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn as_stdio_hands_over_an_untouched_file_port_whole() {
+        let path =
+            std::env::temp_dir().join(format!("steel-as-stdio-cold-{}.txt", std::process::id()));
+        std::fs::write(&path, b"whole file").unwrap();
+
+        let file = File::open(&path).unwrap();
+        let mut observer = file.try_clone().unwrap();
+        let port = SteelPortRepr::FileInput(
+            path.display().to_string(),
+            Peekable::new(BufReader::new(file)),
+        );
+
+        assert!(port.as_stdio().is_ok());
+
+        let mut rest = String::new();
+        observer.read_to_string(&mut rest).unwrap();
+        assert_eq!(rest, "whole file", "nothing was buffered, so nothing moved");
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn as_stdio_refuses_a_file_port_that_cannot_seek() {
+        use std::os::unix::io::{FromRawFd, IntoRawFd};
+
+        let (mut writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
+        writer.write_all(b"(a) remainder").unwrap();
+        drop(writer);
+
+        // A socket is not seekable, so there is nowhere to put bytes already read
+        let file = unsafe { File::from_raw_fd(reader.into_raw_fd()) };
+        let mut peekable = Peekable::new(BufReader::new(file));
+
+        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        assert!(peekable.buffered() > 0);
+        peekable.consume(4);
+
+        let port = SteelPortRepr::FileInput("socket".to_string(), peekable);
+        let Err(err) = port.as_stdio() else {
+            panic!("a port that cannot seek must not hand over buffered bytes");
+        };
+
+        assert!(err.is_buffered());
+    }
+
+    #[test]
+    fn as_stdio_refuses_a_port_that_is_not_a_child_handle() {
+        let port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abc".to_vec())));
+
+        let Err(err) = port.as_stdio() else {
+            panic!("a string port has no handle to give a child");
+        };
+
+        assert!(!err.is_buffered());
+        assert!(matches!(err.into_port(), SteelPortRepr::StringInput(_)));
     }
 }

@@ -30,7 +30,7 @@ pub trait ToOwnedString<T> {
 pub type Span = core::ops::Range<usize>;
 
 #[derive(Debug, Clone)]
-pub struct LexerState {
+pub(crate) struct LexerState {
     at: u32,
     token_start: u32,
     queued: Option<TokenType<InternedString>>,
@@ -39,16 +39,15 @@ pub struct LexerState {
 }
 
 impl LexerState {
-    pub fn token_start(&self) -> u32 {
+    pub(crate) fn token_start(&self) -> u32 {
         self.token_start
     }
 
-    pub fn at(&self) -> u32 {
+    pub(crate) fn at(&self) -> u32 {
         self.at
     }
 
-    // Put the cursor back so the token starting here is lexed again.
-    pub fn rewind_to(&mut self, at: u32) {
+    pub(crate) fn rewind_to(&mut self, at: u32) {
         self.at = at;
         self.token_start = at;
         self.queued = None;
@@ -84,9 +83,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    // Everything the lexer needs to pick back up at a byte offset. `chars` is not
-    // in here because its position is always `token_end`, so it can be rebuilt.
-    pub fn state(&self) -> LexerState {
+    pub(crate) fn state(&self) -> LexerState {
         LexerState {
             at: self.token_end,
             token_start: self.token_start,
@@ -96,7 +93,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn resume(source: &'a str, state: LexerState) -> Self {
+    pub(crate) fn resume(source: &'a str, state: LexerState) -> Self {
         Self {
             chars: source[state.at as usize..].chars().peekable(),
             source,
@@ -676,9 +673,7 @@ impl<'a> TokenStream<'a> {
         res
     }
 
-    // For a window that does not start at the source's first byte, where a leading
-    // `#!` is an ordinary token rather than a shebang line.
-    pub fn new_mid_source(
+    pub(crate) fn new_mid_source(
         input: &'a str,
         skip_comments: bool,
         source_id: Option<SourceId>,
@@ -690,7 +685,7 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    pub fn resume(
+    pub(crate) fn resume(
         input: &'a str,
         skip_comments: bool,
         source_id: Option<SourceId>,
@@ -725,11 +720,11 @@ impl<'a> OwnedTokenStream<'a> {
         self.stream.lexer.span().end
     }
 
-    pub fn state(&self) -> LexerState {
+    pub(crate) fn state(&self) -> LexerState {
         self.stream.lexer.state()
     }
 
-    pub fn resume(
+    pub(crate) fn resume(
         input: &'a str,
         skip_comments: bool,
         source_id: Option<SourceId>,
@@ -1131,6 +1126,85 @@ mod lexer_tests {
 
     fn token_stream(source: &str) -> impl Iterator<Item = Token<'_, InternedString>> {
         TokenStream::new(source, true, None).map(|t| t.expect("unexpected parsing error"))
+    }
+
+    #[test]
+    fn a_resumed_lexer_carries_on_where_the_last_one_stopped() {
+        let source = "(define (f x) (+ x 1))";
+
+        let mut first = TokenStream::new(source, true, None);
+        let taken: Vec<_> = (&mut first).take(3).map(|t| t.unwrap().ty).collect();
+        let state = first.lexer.state();
+
+        let rest: Vec<_> = TokenStream::resume(source, true, None, state)
+            .map(|t| t.unwrap().ty)
+            .collect();
+
+        let whole: Vec<_> = token_stream(source).map(|t| t.ty).collect();
+
+        assert_eq!([taken, rest].concat(), whole);
+    }
+
+    #[test]
+    fn a_resumed_lexer_sees_input_appended_since_it_stopped() {
+        let prefix = "(a b";
+
+        let mut first = TokenStream::new(prefix, true, None);
+        let taken: Vec<_> = (&mut first).map(|t| t.unwrap().ty).collect();
+        let state = first.lexer.state();
+
+        let whole = "(a b c)";
+        let rest: Vec<_> = TokenStream::resume(whole, true, None, state)
+            .map(|t| t.unwrap().ty)
+            .collect();
+
+        assert_eq!(
+            [taken, rest].concat(),
+            token_stream(whole).map(|t| t.ty).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn rewinding_lexes_a_token_again_from_its_start() {
+        let source = "abc def";
+
+        let mut stream = TokenStream::new(source, true, None);
+        let first = stream.next().unwrap().unwrap();
+        assert_eq!(first.ty, identifier("abc"));
+
+        let mut state = stream.lexer.state();
+        state.rewind_to(first.span.start);
+
+        let again: Vec<_> = TokenStream::resume(source, true, None, state)
+            .map(|t| t.unwrap().ty)
+            .collect();
+
+        assert_eq!(again, vec![identifier("abc"), identifier("def")]);
+    }
+
+    #[test]
+    fn a_shebang_is_only_stripped_at_the_start_of_a_source() {
+        let source = "#!/usr/bin/steel\n(a)";
+
+        let from_start: Vec<_> = token_stream(source).map(|t| t.ty).collect();
+        assert_eq!(
+            from_start,
+            vec![
+                OpenParen(Paren::Round, None),
+                identifier("a"),
+                CloseParen(Paren::Round)
+            ]
+        );
+
+        let mid: Vec<_> = TokenStream::new_mid_source(source, true, None)
+            .map(|t| t.unwrap().ty)
+            .collect();
+
+        assert!(
+            mid.len() > from_start.len(),
+            "mid source keeps the shebang text as tokens, got {:?}",
+            mid
+        );
     }
 
     // TODO: Figure out why this just cause an infinite loop when parsing it?

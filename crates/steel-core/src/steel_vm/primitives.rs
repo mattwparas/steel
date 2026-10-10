@@ -2024,14 +2024,10 @@ impl crate::rvals::Custom for MutableVector {
 
 enum Attempt {
     Parsed(ExprKind, usize),
-    // Only whitespace and/or comments left
     Nothing,
-    // Datum was started but never finished, more input may complete it
     Incomplete,
 }
 
-// Nothing is consumed unless a whole datum comes out, so an incomplete parse
-// leaves the port as it was. `state` carries the half built datum between fills.
 fn attempt_parse(
     port: &mut SteelPortRepr,
     state: &mut Option<ParserState>,
@@ -2040,16 +2036,12 @@ fn attempt_parse(
     let saved = state.take();
     let at_source_start = port.at_source_start();
 
-    // The parser borrows the buffer, so everything it produces has to be owned
-    // and the parser dropped before the port can be touched again.
     let outcome = {
         let pending = port.pending();
 
         if pending.is_empty() {
             Outcome::Empty
         } else {
-            // A fill can land mid char. A trailing partial sequence needs more input,
-            // but bytes that are not utf8 at all are final however much arrives.
             let (text, truncated, invalid_from) = match core::str::from_utf8(pending) {
                 Ok(text) => (text, false, None),
                 Err(err) => {
@@ -2062,9 +2054,6 @@ fn attempt_parse(
                 }
             };
 
-            // Carry on from where the last chunk stopped rather than reparsing it.
-            // A token flush against the end of the buffer may continue in the next
-            // chunk, so hold it back until we know nothing more is coming.
             let hold_back = truncated || !at_eof;
 
             let mut parser = match saved {
@@ -2079,15 +2068,11 @@ fn attempt_parse(
 
             match (result, invalid_from) {
                 (Some(Ok(expr)), _) => Outcome::Parsed(expr, offset),
-                // Nothing came out of the valid prefix and what follows isn't utf8,
-                // so no amount of further input helps
                 (_, Some(bad_end)) => Outcome::NotUtf8(bad_end),
                 (Some(Err(err)), _) if parser.needs_more_input(&err) => {
                     Outcome::Incomplete(parser.take_state())
                 }
                 (Some(Err(err)), _) => {
-                    // Drop only what the parse got through so a later read picks up
-                    // the rest, the way other schemes do
                     let bad = usize::min(usize::max(err.span().end as usize, 1), pending.len());
 
                     Outcome::Bad(err, bad)
@@ -2128,8 +2113,6 @@ enum Outcome {
     NotUtf8(usize),
 }
 
-// Advances the port by exactly one datum. Anything after it stays on the port,
-// so this composes with read-char / read-line.
 fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
     let mut at_eof = false;
     let mut state = None;
@@ -2144,8 +2127,6 @@ fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> R
             }
             Attempt::Nothing | Attempt::Incomplete => {
                 if at_eof {
-                    // Already retried knowing nothing more is coming. Nothing pending
-                    // is a clean eof, leftover text means an unclosed datum.
                     let mut guard = port.port.write();
                     let len = guard.pending().len();
                     guard.consume_pending(len);
@@ -2163,8 +2144,6 @@ fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> R
                 match port.port.write().fill_more()? {
                     MaybeBlocking::Nonblocking(0) => at_eof = true,
                     MaybeBlocking::Nonblocking(_) => {}
-                    // Non blocking port with nothing ready. Nothing was consumed, so
-                    // a later read picks the datum up again.
                     MaybeBlocking::WouldBlock => return Ok(would_block_object()),
                 }
             }
@@ -2856,8 +2835,6 @@ mod read_datum_tests {
     use crate::values::port::Peekable;
     use std::io::{BufReader, Read};
 
-    // One chunk per read call. Once they run out it reports eof, or panics - standing
-    // in for a source where reading again would block forever.
     struct Chunks {
         chunks: Vec<&'static str>,
         next: usize,
@@ -2875,6 +2852,17 @@ mod read_datum_tests {
                 None if self.then_block => panic!("read again after the datum was complete"),
                 None => Ok(0),
             }
+        }
+    }
+
+    struct Blocks;
+
+    impl Read for Blocks {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "nothing ready",
+            ))
         }
     }
 
@@ -2949,5 +2937,55 @@ mod read_datum_tests {
     fn unterminated_datum_at_eof_is_an_error() {
         let port = stream(&["(a ", "b"], false);
         assert!(read_one(&port).is_err());
+    }
+
+    #[test]
+    fn a_source_with_nothing_ready_does_not_block() {
+        let port = SteelPort {
+            port: Gc::new_lock(SteelPortRepr::DynReader(Peekable::new(BufReader::new(
+                Box::new(Blocks),
+            )))),
+        };
+
+        assert!(crate::primitives::ports::would_block_objectp(
+            &read_one(&port).unwrap()
+        ));
+    }
+
+    #[test]
+    fn input_that_is_not_utf8_is_an_error() {
+        let port = SteelPort::new_input_port_bytevector(vec![b'(', 0xFF, b')']);
+
+        assert!(read_one(&port).is_err());
+    }
+
+    #[test]
+    fn a_datum_before_bytes_that_are_not_utf8_still_reads() {
+        let port = SteelPort::new_input_port_bytevector(vec![b'(', b'a', b')', b' ', 0xFF]);
+
+        assert_eq!(read_one(&port).unwrap(), whole("(a)"));
+        assert!(read_one(&port).is_err());
+    }
+
+    #[test]
+    fn an_error_leaves_what_follows_on_the_port() {
+        let port = SteelPort::new_input_port_string(") (a)".to_string());
+
+        assert!(read_one(&port).is_err());
+        assert_eq!(read_one(&port).unwrap(), whole("(a)"));
+    }
+
+    #[test]
+    fn a_datum_comment_is_skipped() {
+        let port = SteelPort::new_input_port_string("#;(a) (b)".to_string());
+
+        assert_eq!(read_one(&port).unwrap(), whole("(b)"));
+    }
+
+    #[test]
+    fn a_datum_comment_split_across_reads_is_skipped() {
+        let port = stream(&["#;(a", ") (b", ")"], true);
+
+        assert_eq!(read_one(&port).unwrap(), whole("(b)"));
     }
 }
