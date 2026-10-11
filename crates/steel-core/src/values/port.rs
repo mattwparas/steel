@@ -356,13 +356,15 @@ impl<R: Read> Peekable<R> {
 
         loop {
             if let Some(pos) = self.pending()[scanned..].iter().position(|b| *b == b'\n') {
-                return self.take_line(scanned + pos + 1, buf);
+                return Ok(self.take_line(scanned + pos + 1, buf)?);
             }
 
             scanned = self.pending().len();
 
             match self.fill_chunk(MAX_STREAM_CHUNK)? {
-                MaybeBlocking::Nonblocking(0) => return self.take_line(self.pending().len(), buf),
+                MaybeBlocking::Nonblocking(0) => {
+                    return Ok(self.take_line(self.pending().len(), buf)?)
+                }
                 MaybeBlocking::Nonblocking(_) => {}
                 MaybeBlocking::WouldBlock => {
                     return Err(io::Error::from(io::ErrorKind::WouldBlock).into())
@@ -371,27 +373,12 @@ impl<R: Read> Peekable<R> {
         }
     }
 
-    fn take_line(&mut self, amt: usize, buf: &mut String) -> Result<usize> {
+    fn take_line(&mut self, amt: usize, buf: &mut String) -> io::Result<usize> {
         let line = self.pending()[..amt].to_vec();
         self.consume(amt);
         buf.push_str(&into_utf8(line)?);
 
         Ok(amt)
-    }
-
-    fn line_from_pending(&mut self, bytes: &mut Vec<u8>) -> bool {
-        match self.pending().iter().position(|b| *b == b'\n') {
-            Some(pos) => {
-                let taken = pos + 1;
-                bytes.extend_from_slice(&self.buf[self.pos..self.pos + taken]);
-                self.consume(taken);
-                true
-            }
-            None => {
-                self.take_pending(bytes);
-                false
-            }
-        }
     }
 }
 
@@ -420,35 +407,25 @@ impl<R> Peekable<BufReader<R>> {
 
 impl<R: BufRead> Peekable<R> {
     pub fn read_line_peeked(&mut self, buf: &mut String) -> io::Result<usize> {
-        if self.pending_is_empty() {
-            return self.inner.read_line(buf);
+        if let Some(pos) = self.pending().iter().position(|b| *b == b'\n') {
+            return self.take_line(pos + 1, buf);
         }
 
-        let mut bytes = Vec::new();
-        if !self.line_from_pending(&mut bytes) {
-            self.inner.read_until(b'\n', &mut bytes)?;
-        }
+        self.inner.read_until(b'\n', &mut self.buf)?;
 
-        let amt = bytes.len();
-        buf.push_str(&into_utf8(bytes)?);
-        Ok(amt)
+        self.take_line(self.pending().len(), buf)
     }
 }
 
 impl Peekable<Stdin> {
     pub fn read_line_peeked_stdin(&mut self, buf: &mut String) -> io::Result<usize> {
-        if self.pending_is_empty() {
-            return self.inner.read_line(buf);
+        if let Some(pos) = self.pending().iter().position(|b| *b == b'\n') {
+            return self.take_line(pos + 1, buf);
         }
 
-        let mut bytes = Vec::new();
-        if !self.line_from_pending(&mut bytes) {
-            self.inner.lock().read_until(b'\n', &mut bytes)?;
-        }
+        self.inner.lock().read_until(b'\n', &mut self.buf)?;
 
-        let amt = bytes.len();
-        buf.push_str(&into_utf8(bytes)?);
-        Ok(amt)
+        self.take_line(self.pending().len(), buf)
     }
 }
 
@@ -1764,6 +1741,58 @@ mod port_tests {
 
         assert_eq!(amt, 2);
         assert_eq!(out, "cd");
+    }
+
+    #[test]
+    fn read_line_keeps_the_peeked_prefix_when_the_source_stalls() {
+        let mut peekable = Peekable::new(BufReader::new(Stalls::new(&[
+            Some(b"half "),
+            None,
+            Some(b"a line\n"),
+        ])));
+
+        assert_eq!(nonblocking(peekable.peek_char().unwrap()), Some('h'));
+
+        let mut line = String::new();
+        assert!(peekable.read_line_peeked(&mut line).is_err());
+        assert_eq!(line, "");
+
+        assert_eq!(
+            peekable.read_line_peeked(&mut line).unwrap(),
+            "half a line\n".len()
+        );
+        assert_eq!(line, "half a line\n");
+    }
+
+    #[test]
+    fn read_line_keeps_a_partial_line_nothing_had_peeked_yet() {
+        let mut peekable = Peekable::new(BufReader::new(Stalls::new(&[
+            Some(b"half "),
+            None,
+            Some(b"a line\n"),
+        ])));
+
+        let mut line = String::new();
+        assert!(peekable.read_line_peeked(&mut line).is_err());
+        assert_eq!(line, "");
+
+        assert_eq!(
+            peekable.read_line_peeked(&mut line).unwrap(),
+            "half a line\n".len()
+        );
+        assert_eq!(line, "half a line\n");
+    }
+
+    #[test]
+    fn read_line_moves_the_port_past_the_source_start() {
+        let mut peekable = Peekable::new(BufReader::new(Cursor::new(b"one\ntwo\n".to_vec())));
+
+        let mut line = String::new();
+        assert_eq!(peekable.read_line_peeked(&mut line).unwrap(), 4);
+        assert!(
+            !peekable.at_source_start(),
+            "a line that was handed out is no longer the start of the source"
+        );
     }
 
     #[test]
