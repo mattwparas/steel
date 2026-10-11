@@ -644,6 +644,11 @@ mod exported_macro_quote_tests {
     }
 }
 
+#[cfg(test)]
+fn gc_collect(engine: &mut crate::steel_vm::engine::Engine) {
+    engine.run("(#%gc-collect)").unwrap();
+}
+
 // TODO: We should be able to simplify this a lot, but this is an annoying way to
 // make sure that we don't block on blocking FFI calls.
 //
@@ -655,6 +660,7 @@ mod ffi_borrowed_custom_value_tests {
     use crate::rvals::SteelVal;
     use crate::steel_vm::engine::Engine;
     use crate::steel_vm::ffi::{FFIModule, RegisterFFIFn};
+    use crate::steel_vm::tests::gc_collect;
     use abi_stable::std_types::RBox;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::channel;
@@ -703,7 +709,7 @@ mod ffi_borrowed_custom_value_tests {
                 std::thread::yield_now();
             }
 
-            engine.run("(#%gc-collect)").unwrap();
+            gc_collect(&mut engine);
             done_tx.send(()).unwrap();
 
             RELEASE.store(true, Ordering::SeqCst);
@@ -713,5 +719,397 @@ mod ffi_borrowed_custom_value_tests {
         let finished = done_rx.recv_timeout(Duration::from_secs(20));
         RELEASE.store(true, Ordering::SeqCst);
         finished.expect("collection blocked on a value borrowed by a dylib call");
+    }
+}
+
+#[cfg(all(test, feature = "sync", feature = "dylibs"))]
+mod ffi_shared_receiver_tests {
+    use crate::gc::shared::ShareableMut;
+    use crate::rvals::{AsRefMutSteelVal, SteelVal};
+    use crate::steel_vm::engine::Engine;
+    use crate::steel_vm::ffi::{
+        AsRefFFIVal, FFIArg, FFIBoxedDynFunction, FFIModule, FFIValue, FFIWrappedModule,
+        HostRuntimeFunction, IntoFFIVal, RFn_TO, RegisterFFIFn, SHARED_RECEIVER,
+    };
+    use crate::steel_vm::tests::gc_collect;
+    use abi_stable::sabi_trait::TD_CanDowncast;
+    use abi_stable::std_types::{RArc, RBox, RBoxError, RResult, RSliceMut, RString};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::mpsc::{channel, RecvTimeoutError};
+    use std::thread::JoinHandle;
+    use std::time::Duration;
+
+    struct Counter(AtomicUsize);
+
+    impl crate::rvals::Custom for Counter {}
+
+    impl Counter {
+        fn get(&self) -> usize {
+            self.0.load(Ordering::SeqCst)
+        }
+
+        fn add(&self, n: usize) -> usize {
+            self.0.fetch_add(n, Ordering::SeqCst) + n
+        }
+
+        fn reset(&mut self) {
+            *self.0.get_mut() = 0;
+        }
+    }
+
+    fn counter_getter() -> FFIValue {
+        let function = |args: RSliceMut<'static, FFIArg<'static>>| -> RResult<FFIValue, RBoxError> {
+            let mut args = args.into_iter();
+            match <Counter as AsRefFFIVal>::as_ref(args.next().unwrap()) {
+                RResult::ROk(counter) => counter.get().into_ffi_val(),
+                RResult::RErr(e) => RResult::RErr(e),
+            }
+        };
+
+        FFIValue::BoxedFunction(RBox::new(FFIBoxedDynFunction {
+            name: RString::from("counter-get"),
+            arity: SHARED_RECEIVER,
+            function: RFn_TO::from_ptr(RArc::new(function), TD_CanDowncast),
+        }))
+    }
+
+    static EXCLUSIVE_STARTED: AtomicBool = AtomicBool::new(false);
+    static EXCLUSIVE_RELEASE: AtomicBool = AtomicBool::new(false);
+
+    #[derive(Default)]
+    struct Blocker {
+        started: AtomicBool,
+        release: AtomicBool,
+    }
+
+    impl crate::rvals::Custom for Blocker {}
+
+    impl Blocker {
+        fn wait(&self) {
+            self.started.store(true, Ordering::SeqCst);
+            while !self.release.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+
+        fn started(&self) -> bool {
+            self.started.load(Ordering::SeqCst)
+        }
+
+        fn release(&self) {
+            self.release.store(true, Ordering::SeqCst);
+        }
+
+        fn ping(&self) -> bool {
+            true
+        }
+
+        fn poke(&mut self) -> bool {
+            true
+        }
+
+        fn wait_exclusive(&mut self) {
+            EXCLUSIVE_STARTED.store(true, Ordering::SeqCst);
+            while !EXCLUSIVE_RELEASE.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+
+        fn call_with(&self, function: HostRuntimeFunction) -> bool {
+            function.call(RSliceMut::from_mut_slice(&mut [])).is_ok()
+        }
+    }
+
+    struct HostOnly;
+
+    impl crate::rvals::Custom for HostOnly {}
+
+    fn module() -> RBox<FFIModule> {
+        let mut module = FFIModule::new("test/shared");
+        module
+            .register_fn("make-counter", || Counter(AtomicUsize::new(0)))
+            .register_fn("counter-get", Counter::get)
+            .register_fn("counter-add!", Counter::add)
+            .register_fn("counter-reset!", Counter::reset)
+            .register_fn("counter-getter", counter_getter)
+            .register_fn("make-blocker", Blocker::default)
+            .register_fn("blocker-wait", Blocker::wait)
+            .register_fn("blocker-started?", Blocker::started)
+            .register_fn("blocker-release!", Blocker::release)
+            .register_fn("blocker-ping", Blocker::ping)
+            .register_fn("blocker-poke!", Blocker::poke)
+            .register_fn("blocker-wait-exclusive!", Blocker::wait_exclusive)
+            .register_fn("blocker-call-with", Blocker::call_with);
+
+        RBox::new(module)
+    }
+
+    fn engine() -> Engine {
+        let mut engine = Engine::new();
+        engine.register_external_module(module()).unwrap();
+        engine.run("(require-builtin test/shared)").unwrap();
+        engine
+    }
+
+    fn engine_with_old_module() -> Engine {
+        let module = FFIWrappedModule::new(module(), Some(usize::MAX))
+            .unwrap()
+            .build();
+
+        let mut engine = Engine::new();
+        engine.register_module(module);
+        engine.run("(require-builtin test/shared)").unwrap();
+        engine
+    }
+
+    fn boxed(engine: &mut Engine, name: &str) -> SteelVal {
+        engine.extract_value(name).unwrap()
+    }
+
+    fn call(function: &SteelVal, args: &[SteelVal]) -> crate::rvals::Result<SteelVal> {
+        let SteelVal::BoxedFunction(function) = function else {
+            panic!("expected a boxed function");
+        };
+        function.func()(args)
+    }
+
+    fn call_on(engine: &mut Engine, name: &str, value: &SteelVal) -> bool {
+        call(&boxed(engine, name), &[value.clone()]).is_ok()
+    }
+
+    fn spawn_call_on(engine: &mut Engine, name: &str, value: &SteelVal) -> JoinHandle<bool> {
+        let function = boxed(engine, name);
+        let value = value.clone();
+        std::thread::spawn(move || call(&function, &[value]).is_ok())
+    }
+
+    fn eval(engine: &mut Engine, expr: &str) -> SteelVal {
+        engine.run(expr.to_string()).unwrap().pop().unwrap()
+    }
+
+    fn with_timeout<T: Send + 'static>(test: impl FnOnce() -> T + Send + 'static) -> T {
+        let (done_tx, done_rx) = channel();
+        std::thread::spawn(move || done_tx.send(test()).unwrap());
+        match done_rx.recv_timeout(Duration::from_secs(20)) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("blocked on a value borrowed over the ffi boundary")
+            }
+            Err(RecvTimeoutError::Disconnected) => panic!("the test thread panicked"),
+        }
+    }
+
+    fn wait_until(condition: impl Fn() -> bool) {
+        while !condition() {
+            // Yielding let this test be more predictable than sleeping for a ms
+            // for some reason
+            std::thread::yield_now();
+        }
+    }
+
+    fn count_errors(
+        threads: usize,
+        iterations: usize,
+        f: impl Fn(usize) -> crate::rvals::Result<SteelVal> + Sync,
+    ) -> usize {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..threads)
+                .map(|index| {
+                    let f = &f;
+                    scope.spawn(move || (0..iterations).filter(|_| f(index).is_err()).count())
+                })
+                .collect();
+
+            handles.into_iter().map(|x| x.join().unwrap()).sum()
+        })
+    }
+
+    fn hammer(mut engine: Engine, get: SteelVal) {
+        let counter = eval(&mut engine, "(make-counter)");
+        let add = boxed(&mut engine, "counter-add!");
+
+        let errors = count_errors(4, 50_000, |_| {
+            call(&add, &[counter.clone(), SteelVal::IntV(1)])?;
+            call(&get, &[counter.clone()])
+        });
+
+        assert_eq!(errors, 0);
+        assert_eq!(call(&get, &[counter]).unwrap(), SteelVal::IntV(200_000));
+    }
+
+    fn make_blocker(engine: &mut Engine) -> SteelVal {
+        engine.run("(define blocker (make-blocker))").unwrap();
+        boxed(engine, "blocker")
+    }
+
+    fn hold_shared(engine: &mut Engine, blocker: &SteelVal) -> JoinHandle<bool> {
+        let holder = spawn_call_on(engine, "blocker-wait", blocker);
+        let started = boxed(engine, "blocker-started?");
+        wait_until(|| call(&started, &[blocker.clone()]).unwrap() == SteelVal::BoolV(true));
+        holder
+    }
+
+    fn wait_for_queued_writer(blocker: &SteelVal) {
+        let SteelVal::Custom(lock) = blocker else {
+            panic!("expected a custom value");
+        };
+        wait_until(|| lock.try_read().is_err());
+    }
+
+    #[test]
+    fn threads_share_a_value_through_ref_methods() {
+        let mut engine = engine();
+        let get = boxed(&mut engine, "counter-get");
+        hammer(engine, get);
+    }
+
+    #[test]
+    fn threads_share_a_value_through_the_old_module_loader() {
+        let mut engine = engine_with_old_module();
+        let get = boxed(&mut engine, "counter-get");
+        hammer(engine, get);
+    }
+
+    #[test]
+    fn threads_share_a_value_through_a_returned_function() {
+        let mut engine = engine();
+        let get = eval(&mut engine, "(counter-getter)");
+        hammer(engine, get);
+    }
+
+    #[test]
+    fn the_flag_does_not_show_in_the_arity() {
+        let mut engine = engine();
+        let get = boxed(&mut engine, "counter-get");
+        let returned = eval(&mut engine, "(counter-getter)");
+
+        for function in [get, returned] {
+            let SteelVal::BoxedFunction(function) = function else {
+                panic!("expected a boxed function");
+            };
+            assert_eq!(function.get_arity(), Some(0));
+        }
+
+        let FFIValue::BoxedFunction(function) = counter_getter() else {
+            unreachable!()
+        };
+        assert_eq!(format!("{:?}", function), "#<counter-get:0>");
+    }
+
+    #[test]
+    fn a_by_value_argument_still_borrows_exclusively() {
+        let mut engine = engine();
+        engine.run("(define c (make-counter))").unwrap();
+
+        let error = engine.run("(counter-add! c c)").unwrap_err().to_string();
+        assert!(error.contains("borrowed"), "{}", error);
+
+        engine.run("(counter-reset! c)").unwrap();
+        assert_eq!(eval(&mut engine, "(counter-get c)"), SteelVal::IntV(0));
+    }
+
+    #[test]
+    fn readers_and_writers_on_one_value_never_fail() {
+        let mut engine = engine();
+        let counter = eval(&mut engine, "(make-counter)");
+        let get = boxed(&mut engine, "counter-get");
+        let add = boxed(&mut engine, "counter-add!");
+        let reset = boxed(&mut engine, "counter-reset!");
+
+        let errors = count_errors(5, 20_000, |index| match index {
+            0 => call(&reset, &[counter.clone()]),
+            1 => call(&add, &[counter.clone(), SteelVal::IntV(1)]),
+            _ => call(&get, &[counter.clone()]),
+        });
+
+        assert_eq!(errors, 0);
+    }
+
+    #[test]
+    fn an_exclusive_borrow_waits_for_shared_ones() {
+        let result = with_timeout(|| {
+            let mut engine = engine();
+            let blocker = make_blocker(&mut engine);
+            let reader = hold_shared(&mut engine, &blocker);
+            let writer = spawn_call_on(&mut engine, "blocker-poke!", &blocker);
+            wait_for_queued_writer(&blocker);
+
+            let shared = call_on(&mut engine, "blocker-ping", &blocker);
+            gc_collect(&mut engine);
+            let early = writer.is_finished();
+
+            call_on(&mut engine, "blocker-release!", &blocker);
+            reader.join().unwrap();
+
+            (shared, early, writer.join().unwrap())
+        });
+
+        assert_eq!(result, (true, false, true));
+    }
+
+    #[test]
+    fn a_shared_borrow_waits_for_an_exclusive_one() {
+        let result = with_timeout(|| {
+            let mut engine = engine();
+            let blocker = make_blocker(&mut engine);
+            let writer = spawn_call_on(&mut engine, "blocker-wait-exclusive!", &blocker);
+            wait_until(|| EXCLUSIVE_STARTED.load(Ordering::SeqCst));
+            let reader = spawn_call_on(&mut engine, "blocker-ping", &blocker);
+
+            std::thread::sleep(Duration::from_millis(100));
+            gc_collect(&mut engine);
+            let early = reader.is_finished();
+
+            EXCLUSIVE_RELEASE.store(true, Ordering::SeqCst);
+            writer.join().unwrap();
+
+            (early, reader.join().unwrap())
+        });
+
+        assert_eq!(result, (false, true));
+    }
+
+    #[test]
+    fn a_waiting_writer_does_not_block_shared_borrows() {
+        let result = with_timeout(|| {
+            let mut engine = engine();
+            let blocker = make_blocker(&mut engine);
+            let reader = hold_shared(&mut engine, &blocker);
+            let writer = {
+                let blocker = blocker.clone();
+                std::thread::spawn(move || {
+                    <HostOnly as AsRefMutSteelVal>::as_mut_ref(&blocker).is_ok()
+                })
+            };
+            wait_for_queued_writer(&blocker);
+
+            let shared = call_on(&mut engine, "blocker-ping", &blocker);
+            gc_collect(&mut engine);
+
+            call_on(&mut engine, "blocker-release!", &blocker);
+            reader.join().unwrap();
+
+            (shared, writer.join().unwrap())
+        });
+
+        assert_eq!(result, (true, false));
+    }
+
+    #[test]
+    fn a_borrowed_value_can_reenter_through_the_host() {
+        let result = with_timeout(|| {
+            let mut engine = engine();
+            eval(
+                &mut engine,
+                "(require-builtin steel/ffi)
+                 (define b (make-blocker))
+                 (list (blocker-call-with b (function->ffi-function (lambda () (blocker-ping b))))
+                       (blocker-call-with b (function->ffi-function (lambda () (blocker-poke! b))))
+                       (blocker-poke! b))",
+            )
+            .to_string()
+        });
+
+        assert_eq!(result, "(#true #false #true)");
     }
 }
