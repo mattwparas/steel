@@ -937,7 +937,6 @@ mod ffi_shared_receiver_tests {
         assert_eq!(call(&get, &[counter]).unwrap(), SteelVal::IntV(200_000));
     }
 
-    // Defined as a global so the gc visits it.
     fn make_blocker(engine: &mut Engine) -> SteelVal {
         engine.run("(define blocker (make-blocker))").unwrap();
         boxed(engine, "blocker")
