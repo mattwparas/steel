@@ -5,7 +5,9 @@ use crate::gc::Gc;
 use crate::primitives::lists::plist_get_impl;
 use crate::rvals::{FromSteelVal, Result, SteelByteVector, SteelString, SteelVal, SteelValDisplay};
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::values::port::{would_block, Peekable, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT};
+use crate::values::port::{
+    would_block, MaybeBlocking, Peekable, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT,
+};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
 use crate::{stop, throw};
 
@@ -38,8 +40,11 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(WRITE_CHAR_DEFINITION)
         .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
+        .register_native_fn_definition(READ_PORT_TO_STRING_READY_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_BYTES_DEFINITION)
+        .register_native_fn_definition(READ_PORT_TO_BYTES_READY_DEFINITION)
         .register_native_fn_definition(READ_LINE_DEFINITION)
+        .register_native_fn_definition(READ_LINE_READY_DEFINITION)
         .register_native_fn_definition(READ_LINE_FROM_PORT_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_BYTEVECTOR_DEFINITION)
@@ -85,8 +90,11 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(WRITE_CHAR_DEFINITION)
         .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
+        .register_native_fn_definition(READ_PORT_TO_STRING_READY_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_BYTES_DEFINITION)
+        .register_native_fn_definition(READ_PORT_TO_BYTES_READY_DEFINITION)
         .register_native_fn_definition(READ_LINE_DEFINITION)
+        .register_native_fn_definition(READ_LINE_READY_DEFINITION)
         .register_native_fn_definition(READ_LINE_FROM_PORT_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_BYTEVECTOR_DEFINITION)
@@ -318,8 +326,22 @@ pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
 /// * [port] : input-port? = (current-input-port)
 #[function(name = "#%read-port-to-string")]
 pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
-    let (_, result) = port.read_all_str()?;
+    let (_, result) = nonblocking(port.read_all_str()?)?;
+
     Ok(SteelVal::StringV(result.into()))
+}
+
+/// Reads the entire content of an input port into a string, without waiting.
+///
+/// (read-port-to-string* [port]) -> (or string? would-block-object?)
+///
+/// * [port] : input-port? = (current-input-port)
+#[function(name = "#%read-port-to-string*")]
+pub fn read_port_to_string_ready(port: &SteelPort) -> Result<SteelVal> {
+    match port.read_all_str()? {
+        MaybeBlocking::Nonblocking((_, result)) => Ok(SteelVal::StringV(result.into())),
+        MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
 }
 
 /// Reads the entire content of an input port into a byte vector.
@@ -329,8 +351,24 @@ pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
 /// * [port] : input-port? = (current-input-port)
 #[function(name = "#%read-port-to-bytes")]
 pub fn read_port_to_bytes(port: &SteelPort) -> Result<SteelVal> {
-    let (_, result) = port.read_all_bytes()?;
+    let (_, result) = nonblocking(port.read_all_bytes()?)?;
+
     Ok(SteelVal::ByteVector(SteelByteVector::new(result)))
+}
+
+/// Reads the entire content of an input port into a byte vector, without waiting.
+///
+/// (read-port-to-bytes* [port]) -> (or bytes? would-block-object?)
+///
+/// * [port] : input-port? = (current-input-port)
+#[function(name = "#%read-port-to-bytes*")]
+pub fn read_port_to_bytes_ready(port: &SteelPort) -> Result<SteelVal> {
+    match port.read_all_bytes()? {
+        MaybeBlocking::Nonblocking((_, result)) => {
+            Ok(SteelVal::ByteVector(SteelByteVector::new(result)))
+        }
+        MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
 }
 
 /// Checks if a given value is an input port
@@ -409,6 +447,19 @@ pub fn is_output(maybe_port: &SteelVal) -> bool {
     }
 }
 
+fn line(size: usize, mut result: String) -> SteelVal {
+    if size == 0 {
+        return eof();
+    }
+
+    // r7rs read-line doesn't return the trailing \n
+    if result.ends_with('\n') {
+        result.pop();
+    }
+
+    SteelVal::StringV(result.into())
+}
+
 /// Reads a line from an input port.
 ///
 /// (read-line [port]) -> string?
@@ -416,17 +467,21 @@ pub fn is_output(maybe_port: &SteelVal) -> bool {
 /// * port : input-port? = (current-input-port)
 #[function(name = "#%read-line")]
 pub fn read_line(port: &SteelPort) -> Result<SteelVal> {
-    let (size, mut result) = port.read_line()?;
+    let (size, result) = nonblocking(port.read_line()?)?;
 
-    if size == 0 {
-        Ok(eof())
-    } else {
-        // r7rs read-line doesn't return the trailing \n
-        if result.ends_with('\n') {
-            result.pop();
-        }
+    Ok(line(size, result))
+}
 
-        Ok(SteelVal::StringV(result.into()))
+/// Reads a line from an input port, without waiting.
+///
+/// (read-line* [port]) -> (or string? would-block-object?)
+///
+/// * port : input-port? = (current-input-port)
+#[function(name = "#%read-line*")]
+pub fn read_line_ready(port: &SteelPort) -> Result<SteelVal> {
+    match port.read_line()? {
+        MaybeBlocking::Nonblocking((size, result)) => Ok(line(size, result)),
+        MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
 }
 
@@ -438,7 +493,7 @@ pub fn read_line(port: &SteelPort) -> Result<SteelVal> {
 /// (read-line-from-port port?) -> string?
 #[function(name = "read-line-from-port")]
 pub fn read_line_from_port(port: &SteelPort) -> Result<SteelVal> {
-    let (size, result) = port.read_line()?;
+    let (size, result) = nonblocking(port.read_line()?)?;
 
     if size == 0 {
         Ok(eof())
@@ -643,6 +698,20 @@ pub fn would_block_objectp(value: &SteelVal) -> bool {
     }
 }
 
+/// The readers that have to produce a whole line or a whole stream cannot
+/// report a blocked port as a value without giving up on the difference between
+/// "nothing yet" and "nothing at all", so they raise instead. Every one of them
+/// raises this, so a caller has a single message to match rather than whatever
+/// the platform happened to name its errno.
+fn nonblocking<T>(value: MaybeBlocking<T>) -> Result<T> {
+    match value {
+        MaybeBlocking::Nonblocking(value) => Ok(value),
+        MaybeBlocking::WouldBlock => {
+            stop!(Io => "the port has nothing ready and this read would block")
+        }
+    }
+}
+
 /// Reads a single byte from an input port.
 ///
 /// (read-byte [port]) -> byte?
@@ -651,10 +720,10 @@ pub fn would_block_objectp(value: &SteelVal) -> bool {
 #[function(name = "#%read-byte")]
 pub fn read_byte(port: &SteelPort) -> Result<SteelVal> {
     match port.read_byte()? {
-        crate::values::port::MaybeBlocking::Nonblocking(b) => {
+        MaybeBlocking::Nonblocking(b) => {
             Ok(b.map(|b| SteelVal::IntV(b.into())).unwrap_or_else(eof))
         }
-        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+        MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
 }
 
@@ -669,14 +738,14 @@ pub fn read_bytes(amt: usize, port: &SteelPort) -> Result<SteelVal> {
     let bytes = port.read_bytes(amt)?;
 
     match bytes {
-        crate::values::port::MaybeBlocking::Nonblocking(b) => {
+        MaybeBlocking::Nonblocking(b) => {
             if b.is_empty() {
                 Ok(eof_object())
             } else {
                 Ok(SteelVal::ByteVector(SteelByteVector::new(b)))
             }
         }
-        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+        MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
 }
 
@@ -694,9 +763,9 @@ pub fn read_bytes_into(
 
     let res = port.read_bytes_into_buf(slice)?;
     match res {
-        crate::values::port::MaybeBlocking::Nonblocking(0) => Ok(eof_object()),
-        crate::values::port::MaybeBlocking::Nonblocking(amt) => Ok(SteelVal::IntV(amt as _)),
-        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+        MaybeBlocking::Nonblocking(0) => Ok(eof_object()),
+        MaybeBlocking::Nonblocking(amt) => Ok(SteelVal::IntV(amt as _)),
+        MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
 }
 
@@ -734,10 +803,10 @@ pub fn write_bytes(bytes: &SteelByteVector, port: &SteelPort) -> Result<SteelVal
 #[function(name = "#%peek-byte")]
 pub fn peek_byte(port: &SteelPort) -> Result<SteelVal> {
     match port.peek_byte()? {
-        crate::values::port::MaybeBlocking::Nonblocking(b) => {
+        MaybeBlocking::Nonblocking(b) => {
             Ok(b.map(|b| SteelVal::IntV(b.into())).unwrap_or_else(eof))
         }
-        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+        MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
 }
 
@@ -749,20 +818,16 @@ pub fn peek_byte(port: &SteelPort) -> Result<SteelVal> {
 #[function(name = "#%read-char")]
 pub fn read_char(port: &SteelPort) -> Result<SteelVal> {
     match port.read_char()? {
-        crate::values::port::MaybeBlocking::Nonblocking(c) => {
-            Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
-        }
-        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+        MaybeBlocking::Nonblocking(c) => Ok(c.map(SteelVal::CharV).unwrap_or_else(eof)),
+        MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
 }
 
 pub fn read_char_single(port: SteelVal) -> Result<SteelVal> {
     if let SteelVal::PortV(port) = port {
         match port.read_char()? {
-            crate::values::port::MaybeBlocking::Nonblocking(c) => {
-                Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
-            }
-            crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+            MaybeBlocking::Nonblocking(c) => Ok(c.map(SteelVal::CharV).unwrap_or_else(eof)),
+            MaybeBlocking::WouldBlock => Ok(would_block_object()),
         }
     } else {
         stop!(TypeMismatch => "...")
@@ -773,10 +838,8 @@ pub fn read_char_single(port: SteelVal) -> Result<SteelVal> {
 pub fn read_char_single_ref(port: &SteelVal) -> Result<SteelVal> {
     if let SteelVal::PortV(port) = port {
         match port.read_char()? {
-            crate::values::port::MaybeBlocking::Nonblocking(c) => {
-                Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
-            }
-            crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+            MaybeBlocking::Nonblocking(c) => Ok(c.map(SteelVal::CharV).unwrap_or_else(eof)),
+            MaybeBlocking::WouldBlock => Ok(would_block_object()),
         }
     } else {
         stop!(TypeMismatch => "...")
@@ -791,10 +854,8 @@ pub fn read_char_single_ref(port: &SteelVal) -> Result<SteelVal> {
 #[function(name = "#%peek-char")]
 pub fn peek_char(port: &SteelPort) -> Result<SteelVal> {
     match port.peek_char()? {
-        crate::values::port::MaybeBlocking::Nonblocking(c) => {
-            Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
-        }
-        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+        MaybeBlocking::Nonblocking(c) => Ok(c.map(SteelVal::CharV).unwrap_or_else(eof)),
+        MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
 }
 
@@ -816,6 +877,7 @@ mod would_block_tests {
     use crate::gc::Gc;
     use crate::rvals::SteelByteVector;
     use std::io::{BufReader, Read};
+    use std::net::{TcpListener, TcpStream};
 
     struct NothingReady;
 
@@ -838,6 +900,22 @@ mod would_block_tests {
         }
     }
 
+    /// A live connection with nothing on it, so a read finds the socket open and
+    /// empty rather than closed. The client end comes back so the caller can keep
+    /// it from being dropped.
+    fn blocked_tcp_port() -> (SteelPort, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        server.set_nonblocking(true).unwrap();
+
+        let port = SteelPort {
+            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::new(server))),
+        };
+
+        (port, client)
+    }
+
     #[test]
     fn every_read_reports_a_blocked_port_the_same_way() {
         let buf = SteelByteVector::new(vec![0; 4]);
@@ -848,6 +926,15 @@ mod would_block_tests {
             (
                 "read-bytes!",
                 read_bytes_into(&buf, &blocked_port(), 0, 4).unwrap(),
+            ),
+            ("read-line*", read_line_ready(&blocked_port()).unwrap()),
+            (
+                "read-port-to-string*",
+                read_port_to_string_ready(&blocked_port()).unwrap(),
+            ),
+            (
+                "read-port-to-bytes*",
+                read_port_to_bytes_ready(&blocked_port()).unwrap(),
             ),
         ];
 
@@ -861,5 +948,46 @@ mod would_block_tests {
                 "{name} reported a blocked port as eof"
             );
         }
+    }
+
+    #[test]
+    fn every_waiting_read_raises_the_same_thing() {
+        let raises: Vec<(&str, String)> = vec![
+            ("read-line", read_line(&blocked_port()).unwrap_err()),
+            (
+                "read-line-from-port",
+                read_line_from_port(&blocked_port()).unwrap_err(),
+            ),
+            (
+                "read-port-to-string",
+                read_port_to_string(&blocked_port()).unwrap_err(),
+            ),
+            (
+                "read-port-to-bytes",
+                read_port_to_bytes(&blocked_port()).unwrap_err(),
+            ),
+        ]
+        .into_iter()
+        .map(|(name, err)| (name, err.message().to_string()))
+        .collect();
+
+        for (name, message) in &raises {
+            assert_eq!(
+                message, &raises[0].1,
+                "{name} describes a blocked port differently from {}",
+                raises[0].0
+            );
+        }
+    }
+
+    #[test]
+    fn a_waiting_read_raises_the_same_thing_whatever_backs_the_port() {
+        let (tcp, _client) = blocked_tcp_port();
+
+        assert_eq!(
+            read_line(&tcp).unwrap_err().message(),
+            read_line(&blocked_port()).unwrap_err().message(),
+            "read-line describes a blocked socket by which reader was asked for it"
+        );
     }
 }

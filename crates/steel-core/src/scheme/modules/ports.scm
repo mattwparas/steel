@@ -2,10 +2,15 @@
 (require "#%private/steel/control")
 
 (provide read-port-to-string
+         read-port-to-string*
          port->string
+         port->string*
          read-port-to-bytes
+         read-port-to-bytes*
          port->bytes
+         port->bytes*
          read-line
+         read-line*
          read-byte
          read-u8
          peek-byte
@@ -43,8 +48,27 @@
     [(port) (#%read-port-to-string port)]))
 
 ;;@doc
+;; Reads the entire content of an input port into a string, without waiting.
+;;
+;; Returns a would-block object if the port has not reached its end and has
+;; nothing more ready; nothing is consumed in that case, so a later read picks
+;; up where this one left off.
+;;
+;; (read-port-to-string* [port]) -> (or string? would-block-object?)
+;;
+;; * [port] : input-port? = (current-input-port)
+(define read-port-to-string*
+  (case-lambda
+    [() (#%read-port-to-string* (current-input-port))]
+    [(port) (#%read-port-to-string* port)]))
+
+;;@doc
 ;; Alias of `read-port-to-string`.
 (define port->string read-port-to-string)
+
+;;@doc
+;; Alias of `read-port-to-string*`.
+(define port->string* read-port-to-string*)
 
 ;;@doc
 ;; Reads the entire content of an input port into a byte vector.
@@ -58,8 +82,27 @@
     [(port) (#%read-port-to-bytes port)]))
 
 ;;@doc
+;; Reads the entire content of an input port into a byte vector, without waiting.
+;;
+;; Returns a would-block object if the port has not reached its end and has
+;; nothing more ready; nothing is consumed in that case, so a later read picks
+;; up where this one left off.
+;;
+;; (read-port-to-bytes* [port]) -> (or bytes? would-block-object?)
+;;
+;; * [port] : input-port? = (current-input-port)
+(define read-port-to-bytes*
+  (case-lambda
+    [() (#%read-port-to-bytes* (current-input-port))]
+    [(port) (#%read-port-to-bytes* port)]))
+
+;;@doc
 ;; Alias of `read-port-to-bytes`.
 (define port->bytes read-port-to-bytes)
+
+;;@doc
+;; Alias of `read-port-to-bytes*`.
+(define port->bytes* read-port-to-bytes*)
 
 ;;@doc
 ;; Reads a line from an input port.
@@ -71,6 +114,21 @@
   (case-lambda
     [() (#%read-line (current-input-port))]
     [(port) (#%read-line port)]))
+
+;;@doc
+;; Reads a line from an input port, without waiting.
+;;
+;; Returns a would-block object if no complete line is ready and the port has
+;; not reached its end; the partial line stays buffered, so a later read picks
+;; up where this one left off.
+;;
+;; (read-line* [port]) -> (or string? would-block-object?)
+;;
+;; * port : input-port? = (current-input-port)
+(define read-line*
+  (case-lambda
+    [() (#%read-line* (current-input-port))]
+    [(port) (#%read-line* port)]))
 
 ;;@doc
 ;; Reads a single byte from an input port.

@@ -95,44 +95,54 @@
 (check-equal? "bytevector-u8-ref, 1" 1 (bytevector-u8-ref (bytevector 0 1 2) 1))
 (check-equal? "bytevector-u8-ref, 2" 2 (bytevector-u8-ref (bytevector 0 1 2) 2))
 
-(skip-compile (check-equal? "TODO" #u8(0 255 2)
-    (let ((bv (bytevector 0 1 2))) (bytevector-u8-set! bv 1 255) bv)))
+(skip-compile (check-equal? "TODO"
+                            #u8(0 255 2)
+                            (let ([bv (bytevector 0 1 2)])
+                              (bytevector-u8-set! bv 1 255)
+                              bv)))
 
 (check-equal? "bytevector-copy, empty" #u8() (bytevector-copy #u8()))
 (check-equal? "bytevector-copy" #u8(0 1 2) (bytevector-copy #u8(0 1 2)))
 (check-equal? "bytevector-copy, with start" #u8(1 2) (bytevector-copy #u8(0 1 2) 1))
 (check-equal? "bytevector-copy, with start and end" #u8(1) (bytevector-copy #u8(0 1 2) 1 2))
 
-(skip-compile (check-equal? "TODO" #u8(1 6 7 4 5)
-    (let ((bv (bytevector 1 2 3 4 5)))
-      (bytevector-copy! bv 1 #u8(6 7 8 9 10) 0 2)
-      bv)))
-(skip-compile (check-equal? "TODO" #u8(6 7 8 9 10)
-    (let ((bv (bytevector 1 2 3 4 5)))
-      (bytevector-copy! bv 0 #u8(6 7 8 9 10))
-      bv)))
-(skip-compile (check-equal? "TODO" #u8(8 9 10 4 5)
-    (let ((bv (bytevector 1 2 3 4 5)))
-      (bytevector-copy! bv 0 #u8(6 7 8 9 10) 2)
-      bv)))
-(skip-compile (check-equal? "TODO" #u8(1 2 6 7 8)
-    (let ((bv (bytevector 1 2 3 4 5)))
-      (bytevector-copy! bv 2 #u8(6 7 8 9 10) 0 3)
-      bv)))
-(skip-compile (check-equal? "TODO" #u8(1 2 8 4 5)
-    (let ((bv (bytevector 1 2 3 4 5)))
-      (bytevector-copy! bv 2 #u8(6 7 8 9 10) 2 3)
-      bv)))
+(skip-compile (check-equal? "TODO"
+                            #u8(1 6 7 4 5)
+                            (let ([bv (bytevector 1 2 3 4 5)])
+                              (bytevector-copy! bv 1 #u8(6 7 8 9 10) 0 2)
+                              bv)))
+(skip-compile (check-equal? "TODO"
+                            #u8(6 7 8 9 10)
+                            (let ([bv (bytevector 1 2 3 4 5)])
+                              (bytevector-copy! bv 0 #u8(6 7 8 9 10))
+                              bv)))
+(skip-compile (check-equal? "TODO"
+                            #u8(8 9 10 4 5)
+                            (let ([bv (bytevector 1 2 3 4 5)])
+                              (bytevector-copy! bv 0 #u8(6 7 8 9 10) 2)
+                              bv)))
+(skip-compile (check-equal? "TODO"
+                            #u8(1 2 6 7 8)
+                            (let ([bv (bytevector 1 2 3 4 5)])
+                              (bytevector-copy! bv 2 #u8(6 7 8 9 10) 0 3)
+                              bv)))
+(skip-compile (check-equal? "TODO"
+                            #u8(1 2 8 4 5)
+                            (let ([bv (bytevector 1 2 3 4 5)])
+                              (bytevector-copy! bv 2 #u8(6 7 8 9 10) 2 3)
+                              bv)))
 
 ;; same source and dest
-(skip-compile (check-equal? "TODO" #u8(1 1 2 4 5)
-    (let ((bv (bytevector 1 2 3 4 5)))
-      (bytevector-copy! bv 1 bv 0 2)
-      bv)))
-(skip-compile (check-equal? "TODO" #u8(1 2 3 1 2)
-    (let ((bv (bytevector 1 2 3 4 5)))
-      (bytevector-copy! bv 3 bv 0 2)
-      bv)))
+(skip-compile (check-equal? "TODO"
+                            #u8(1 1 2 4 5)
+                            (let ([bv (bytevector 1 2 3 4 5)])
+                              (bytevector-copy! bv 1 bv 0 2)
+                              bv)))
+(skip-compile (check-equal? "TODO"
+                            #u8(1 2 3 1 2)
+                            (let ([bv (bytevector 1 2 3 4 5)])
+                              (bytevector-copy! bv 3 bv 0 2)
+                              bv)))
 
 (check-equal? "bytevector-append, empty" #u8() (bytevector-append #u8()))
 (check-equal? "bytevector-append, empties" #u8() (bytevector-append #u8() #u8()))
@@ -144,31 +154,49 @@
 (check-equal? "utf8->string" "ABC" (utf8->string #u8(#x41 #x42 #x43)))
 (check-equal? "utf8->string, multi-byte char" "λ" (utf8->string #u8(#xCE #xBB)))
 (check-equal? "utf8->string with start" "ABC" (utf8->string #u8(0 #x41 #x42 #x43) 1))
-(check-equal? "utf8->string with start and end" "ABC" (utf8->string #u8(0 #x41  #x42 #x43 0) 1 4))
-(check-equal? "utf8->string with start and end, multi-byte char" "λ" (utf8->string #u8(0 #xCE #xBB 0) 1 3))
+(check-equal? "utf8->string with start and end" "ABC" (utf8->string #u8(0 #x41 #x42 #x43 0) 1 4))
+(check-equal? "utf8->string with start and end, multi-byte char"
+              "λ"
+              (utf8->string #u8(0 #xCE #xBB 0) 1 3))
 (check-equal? "string->utf8" #u8(#x41 #x42 #x43) (string->utf8 "ABC"))
 (check-equal? "string->utf8 with start" #u8(#x42 #x43) (string->utf8 "ABC" 1))
 (check-equal? "string->utf8 with start and end" #u8(#x42) (string->utf8 "ABC" 1 2))
 (check-equal? "string->utf8 with start and end, multi-byte" #u8(#xCE #xBB) (string->utf8 "σλC" 1 2))
 (check-equal? "string->utf8, multi-byte char" #u8(#xCE #xBB) (string->utf8 "λ"))
 
-(check-equal? "char->integer, special escape, null" 0 (char->integer (read (open-input-string "#\\null"))))
-(check-equal? "char->integer, special escape, alarm" 7 (char->integer (read (open-input-string "#\\alarm"))))
-(check-equal? "char->integer, special escape, backspace" 8 (char->integer (read (open-input-string "#\\backspace"))))
-(check-equal? "char->integer, special escape, tab" 9 (char->integer (read (open-input-string "#\\tab"))))
-(check-equal? "char->integer, special escape, newline" 10 (char->integer (read (open-input-string "#\\newline"))))
-(check-equal? "char->integer, special escape, return" 13 (char->integer (read (open-input-string "#\\return"))))
-(check-equal? "char->integer, special escape, delete" #x7F (char->integer (read (open-input-string "#\\delete"))))
-(check-equal? "char->integer, special escape, escape" #x1B (char->integer (read (open-input-string "#\\escape"))))
+(check-equal? "char->integer, special escape, null"
+              0
+              (char->integer (read (open-input-string "#\\null"))))
+(check-equal? "char->integer, special escape, alarm"
+              7
+              (char->integer (read (open-input-string "#\\alarm"))))
+(check-equal? "char->integer, special escape, backspace"
+              8
+              (char->integer (read (open-input-string "#\\backspace"))))
+(check-equal? "char->integer, special escape, tab"
+              9
+              (char->integer (read (open-input-string "#\\tab"))))
+(check-equal? "char->integer, special escape, newline"
+              10
+              (char->integer (read (open-input-string "#\\newline"))))
+(check-equal? "char->integer, special escape, return"
+              13
+              (char->integer (read (open-input-string "#\\return"))))
+(check-equal? "char->integer, special escape, delete"
+              #x7F
+              (char->integer (read (open-input-string "#\\delete"))))
+(check-equal? "char->integer, special escape, escape"
+              #x1B
+              (char->integer (read (open-input-string "#\\escape"))))
 (check-equal? "char->integer, multi-byte" #x03BB (char->integer (read (open-input-string "#\\λ"))))
 
 (define any-arity
   (case-lambda
-    (() 'zero)
-    ((x) x)
-    ((x y) (cons x y))
-    ((x y z) (list x y z))
-    (args (cons 'many args))))
+    [() 'zero]
+    [(x) x]
+    [(x y) (cons x y)]
+    [(x y z) (list x y z)]
+    [args (cons 'many args)]))
 
 (check-equal? "case-lambda, any arity, 0 args" (any-arity) 'zero)
 (check-equal? "case-lambda, any arity, 1 args" (any-arity 1) 1)
@@ -178,10 +206,10 @@
 
 (define rest-arity
   (case-lambda
-    (() '(zero))
-    ((x) (list 'one x))
-    ((x y) (list 'two x y))
-    ((x y . z) (list 'more x y z))))
+    [() '(zero)]
+    [(x) (list 'one x)]
+    [(x y) (list 'two x y)]
+    [(x y . z) (list 'more x y z)]))
 
 (check-equal? "case-lambda, rest arity, 0 args" (rest-arity) '(zero))
 (check-equal? "case-lambda, rest arity, 1 args" (rest-arity 1) '(one 1))
@@ -190,9 +218,9 @@
 
 (define dead-clause
   (case-lambda
-    ((x . y) 'many)
-    (() 'none)
-    (foo 'unreachable)))
+    [(x . y) 'many]
+    [() 'none]
+    [foo 'unreachable]))
 
 (check-equal? "case-lambda, dead clause, 0 args" (dead-clause) 'none)
 (check-equal? "case-lambda, dead clause, 1 args" (dead-clause 1) 'many)
@@ -296,16 +324,10 @@
               (equal? (list 1+2i) (list 1+3i)))
 
 (check-equal? "equal?, bytevector inside a list" #true (equal? (list #u8(1 2)) (list #u8(1 2))))
-(check-equal? "equal?, bytevector inside a vector"
-              #true
-              (equal? (vector #u8(1 2)) (vector #u8(1 2))))
+(check-equal? "equal?, bytevector inside a vector" #true (equal? (vector #u8(1 2)) (vector #u8(1 2))))
 (check-equal? "equal?, empty bytevector inside a list" #true (equal? (list #u8()) (list #u8())))
-(check-equal? "equal?, bytevectors differing in contents"
-              #false
-              (equal? (list #u8(1 2)) (list #u8(1 3))))
-(check-equal? "equal?, bytevectors differing in length"
-              #false
-              (equal? (list #u8(1 2)) (list #u8(1 2 3))))
+(check-equal? "equal?, bytevectors differing in contents" #false (equal? (list #u8(1 2)) (list #u8(1 3))))
+(check-equal? "equal?, bytevectors differing in length" #false (equal? (list #u8(1 2)) (list #u8(1 2 3))))
 (check-equal? "equal?, bytevector is not a list" #false (equal? (list #u8(1 2)) (list (list 1 2))))
 
 (check-equal? "equal?, big rational inside a list"

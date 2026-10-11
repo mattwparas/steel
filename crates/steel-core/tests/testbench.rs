@@ -451,3 +451,35 @@ fn filter_test() {
     let e = &mut evaluator;
     test_line("(filter even? (list 1 2 3 4 5))", &["(2 4)"], e);
 }
+
+#[test]
+fn the_readers_that_never_wait_are_reachable_from_scheme() {
+    let mut vm = Engine::new();
+
+    let res = vm
+        .compile_and_run_raw_program(
+            r#"
+            (define (collect port)
+              (let loop ([out '()])
+                (let ([line (read-line* port)])
+                  (if (eof-object? line) (reverse out) (loop (cons line out))))))
+
+            (list (equal? (collect (open-input-string "one\ntwo\n")) '("one" "two"))
+                  (equal? (read-port-to-string* (open-input-string "whole")) "whole")
+                  (equal? (read-port-to-bytes* (open-input-string "abc")) (bytes 97 98 99))
+                  (equal? (port->string* (open-input-string "aliased")) "aliased")
+                  (equal? (port->bytes* (open-input-string "ab")) (bytes 97 98))
+                  (would-block-object? (read-line* (open-input-string "x")))
+                  (eof-object? (read-line* (open-input-string "")))
+                  (eq? port->string* read-port-to-string*)
+                  (eq? port->bytes* read-port-to-bytes*))
+            "#
+            .to_string(),
+        )
+        .unwrap();
+
+    assert_eq!(
+        res[1].to_string(),
+        "(#true #true #true #true #true #false #true #true #true)"
+    );
+}
