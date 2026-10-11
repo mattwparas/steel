@@ -2845,7 +2845,16 @@ mod tests {
              (define (string-length x) \"shadow\")
              (define (u) (string-length \"a\"))",
             &[
-                ("v", "any"),
+                // A boxed local is bound to what it starts as, and read
+                // through the box.
+                (
+                    "v",
+                    if crate::config::config().box_assigned_locals {
+                        "int"
+                    } else {
+                        "any"
+                    },
+                ),
                 ("m()", "any"),
                 // `set!` evaluates to the previous value (so this is not void).
                 ("sr()", "any"),
