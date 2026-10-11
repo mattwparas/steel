@@ -179,7 +179,7 @@ pub fn tcp_accept(value: &SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// (define listener (tcp-listen "127.0.0.1:8080"))
 ///
-/// (tcp-accept listener) ;; => (cons TcpStream? string?)
+/// (tcp-accept-with-addr listener) ;; => (cons TcpStream? string?)
 /// ```
 #[function(name = "tcp-accept-with-addr")]
 pub fn tcp_accept_addr(value: &SteelVal) -> Result<SteelVal> {

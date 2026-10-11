@@ -825,12 +825,12 @@ pub fn trim(value: &SteelString) -> String {
 
 /// Returns a new string with the leading whitespace removed.
 ///
-/// (trim string?) -> string?
+/// (trim-start string?) -> string?
 ///
 /// # Examples
 ///
 /// ```scheme
-/// > (trim "   foo     ") ;; => "foo     "
+/// > (trim-start "   foo     ") ;; => "foo     "
 /// ```
 #[function(name = "trim-start")]
 pub fn trim_start(value: &SteelString) -> String {
@@ -839,12 +839,12 @@ pub fn trim_start(value: &SteelString) -> String {
 
 /// Returns a new string with the trailing whitespace removed.
 ///
-/// (trim string?) -> string?
+/// (trim-end string?) -> string?
 ///
 /// # Examples
 ///
 /// ```scheme
-/// > (trim "   foo     ") ;; => "   foo"
+/// > (trim-end "   foo     ") ;; => "   foo"
 /// ```
 #[function(name = "trim-end")]
 pub fn trim_end(value: &SteelString) -> String {

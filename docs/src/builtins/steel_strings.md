@@ -769,12 +769,12 @@ Returns a new string with the leading and trailing whitespace removed.
 ### **trim-end**
 Returns a new string with the trailing whitespace removed.
 
-(trim string?) -> string?
+(trim-end string?) -> string?
 
 #### Examples
 
 ```scheme
-> (trim "   foo     ") ;; => "   foo"
+> (trim-end "   foo     ") ;; => "   foo"
 ```
 ### **trim-end-matches**
 Returns a new string with the given `pat` repeatedly removed from the end
@@ -791,12 +791,12 @@ of the string
 ### **trim-start**
 Returns a new string with the leading whitespace removed.
 
-(trim string?) -> string?
+(trim-start string?) -> string?
 
 #### Examples
 
 ```scheme
-> (trim "   foo     ") ;; => "foo     "
+> (trim-start "   foo     ") ;; => "foo     "
 ```
 ### **trim-start-matches**
 Returns a new string with the given `pat` repeatedly removed from the start

@@ -25,7 +25,7 @@ returned with the remote address in a pair
 ```scheme
 (define listener (tcp-listen "127.0.0.1:8080"))
 
-(tcp-accept listener) ;; => (cons TcpStream? string?)
+(tcp-accept-with-addr listener) ;; => (cons TcpStream? string?)
 ```
 ### **tcp-connect**
 Opens a TCP connection to a remote host.

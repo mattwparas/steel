@@ -126,7 +126,7 @@ pub fn set_env_var(builder: SteelVal, key: String, value: String) -> Result<Stee
 
 /// Removes an environment variable for the child.
 ///
-/// (with-env-var process key) -> CommandBuilder?
+/// (without-env-var process key) -> CommandBuilder?
 ///
 /// * process - CommandBuilder?
 /// * key - string?
@@ -510,7 +510,7 @@ pub fn child_stdout(child: &SteelVal) -> Result<SteelVal, SteelErr> {
 /// to be available, otherwise stdin will be inherited. This will return
 /// false if the handle has already been consumed.
 ///
-/// (child-stdout subprocess) -> (or input-port? #false)
+/// (child-stdin subprocess) -> (or output-port? #false)
 ///
 /// subprocess : ChildProcess?
 #[function(name = "child-stdin")]

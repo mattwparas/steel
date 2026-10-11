@@ -839,7 +839,7 @@ must have been started with the `with-stdin-piped` option for this
 to be available, otherwise stdin will be inherited. This will return
 false if the handle has already been consumed.
 
-(child-stdout subprocess) -> (or input-port? #false)
+(child-stdin subprocess) -> (or output-port? #false)
 
 subprocess : ChildProcess?
 ### **child-stdout**
@@ -3930,12 +3930,12 @@ Returns a new string with the leading and trailing whitespace removed.
 ### **trim-end**
 Returns a new string with the trailing whitespace removed.
 
-(trim string?) -> string?
+(trim-end string?) -> string?
 
 #### Examples
 
 ```scheme
-> (trim "   foo     ") ;; => "   foo"
+> (trim-end "   foo     ") ;; => "   foo"
 ```
 ### **trim-end-matches**
 Returns a new string with the given `pat` repeatedly removed from the end
@@ -3952,12 +3952,12 @@ of the string
 ### **trim-start**
 Returns a new string with the leading whitespace removed.
 
-(trim string?) -> string?
+(trim-start string?) -> string?
 
 #### Examples
 
 ```scheme
-> (trim "   foo     ") ;; => "foo     "
+> (trim-start "   foo     ") ;; => "foo     "
 ```
 ### **trim-start-matches**
 Returns a new string with the given `pat` repeatedly removed from the start
@@ -4488,7 +4488,7 @@ Constructs a pipe to be arranged to connect to stdout.
 ### **without-env-var**
 Removes an environment variable for the child.
 
-(with-env-var process key) -> CommandBuilder?
+(without-env-var process key) -> CommandBuilder?
 
 * process - CommandBuilder?
 * key - string?
