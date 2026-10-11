@@ -4955,6 +4955,17 @@ pub(crate) mod ffi_borrows {
     }
 
     #[cfg(feature = "sync")]
+    pub(crate) fn held_by_current_thread(address: usize) -> bool {
+        BORROWS.with(|borrows| {
+            let len = borrows.len.load(Ordering::Relaxed);
+            len == CAPACITY
+                || borrows.addresses[..len]
+                    .iter()
+                    .any(|x| x.load(Ordering::Relaxed) == address)
+        })
+    }
+
+    #[cfg(feature = "sync")]
     pub(crate) fn contains(address: usize) -> bool {
         THREADS.lock().iter().any(|thread| {
             let Some(thread) = thread.upgrade() else {
