@@ -127,11 +127,15 @@ Gets the port handle to stdin
 ```scheme
 > (stdin) ;; => #<input-port:stdin>
 ```
-### **would-block-object?**
-Returns `#t` if the value is an EOF object.
+### **would-block**
+Returns a would-block object, which a read reports when it has nothing
+ready and the port would otherwise have to wait.
 
-(eof-object? any/c) -> bool?
+(would-block) -> would-block-object?
+### **would-block-object?**
+Returns `#t` if the value is a would-block object.
+
+(would-block-object? any/c) -> bool?
 ### **flush-output-port**
 ### **stdout**
-### **would-block**
 ### **write-line!**

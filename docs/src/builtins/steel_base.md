@@ -1040,7 +1040,7 @@ Retrieves the denominator of the given rational number.
 ### **disconnected-channel-object?**
 Returns `#t` if the value is an disconnected-channel object.
 
-(eof-object? any/c) -> bool?
+(disconnected-channel-object? any/c) -> bool?
 ### **dropping**
 Creates a taking iterator combinator
 
@@ -4501,10 +4501,15 @@ Removes an environment variable for the child.
       unwrap-ok
       wait)
 ```
-### **would-block-object?**
-Returns `#t` if the value is an EOF object.
+### **would-block**
+Returns a would-block object, which a read reports when it has nothing
+ready and the port would otherwise have to wait.
 
-(eof-object? any/c) -> bool?
+(would-block) -> would-block-object?
+### **would-block-object?**
+Returns `#t` if the value is a would-block object.
+
+(would-block-object? any/c) -> bool?
 ### **zero?**
 Checks if the given real number is zero.
 
@@ -4672,5 +4677,4 @@ Create a zipping iterator
 ### **value->string**
 ### **will-execute**
 ### **will-register**
-### **would-block**
 ### **write-line!**

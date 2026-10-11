@@ -614,14 +614,18 @@ pub fn eof_object() -> SteelVal {
     eof()
 }
 
+/// Returns a would-block object, which a read reports when it has nothing
+/// ready and the port would otherwise have to wait.
+///
+/// (would-block) -> would-block-object?
 #[function(name = "would-block")]
 pub fn would_block_object() -> SteelVal {
     would_block()
 }
 
-/// Returns `#t` if the value is an EOF object.
+/// Returns `#t` if the value is a would-block object.
 ///
-/// (eof-object? any/c) -> bool?
+/// (would-block-object? any/c) -> bool?
 #[function(name = "would-block-object?")]
 pub fn would_block_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {
@@ -635,7 +639,7 @@ pub fn would_block_objectp(value: &SteelVal) -> bool {
 
     #[cfg(not(feature = "sync"))]
     {
-        WOULD_BLOCK_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+        WOULD_BLOCK_OBJECT.with(|would_block| struct_.type_descriptor == would_block.1)
     }
 }
 
@@ -692,7 +696,7 @@ pub fn read_bytes_into(
     match res {
         crate::values::port::MaybeBlocking::Nonblocking(0) => Ok(eof_object()),
         crate::values::port::MaybeBlocking::Nonblocking(amt) => Ok(SteelVal::IntV(amt as _)),
-        crate::values::port::MaybeBlocking::WouldBlock => Ok(SteelVal::Void),
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
 }
 
@@ -803,5 +807,59 @@ pub fn eof() -> SteelVal {
     #[cfg(not(feature = "sync"))]
     {
         EOF_OBJECT.with(|eof| eof.0.clone())
+    }
+}
+
+#[cfg(test)]
+mod would_block_tests {
+    use super::*;
+    use crate::gc::Gc;
+    use crate::rvals::SteelByteVector;
+    use std::io::{BufReader, Read};
+
+    struct NothingReady;
+
+    impl Read for NothingReady {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "nothing ready",
+            ))
+        }
+    }
+
+    fn blocked_port() -> SteelPort {
+        let reader: Box<dyn Read + Send + Sync> = Box::new(NothingReady);
+
+        SteelPort {
+            port: Gc::new_lock(SteelPortRepr::DynReader(Peekable::new(BufReader::new(
+                reader,
+            )))),
+        }
+    }
+
+    #[test]
+    fn every_read_reports_a_blocked_port_the_same_way() {
+        let buf = SteelByteVector::new(vec![0; 4]);
+
+        let reads: Vec<(&str, SteelVal)> = vec![
+            ("read-byte", read_byte(&blocked_port()).unwrap()),
+            ("read-bytes", read_bytes(4, &blocked_port()).unwrap()),
+            (
+                "read-bytes!",
+                read_bytes_into(&buf, &blocked_port(), 0, 4).unwrap(),
+            ),
+        ];
+
+        for (name, value) in reads {
+            assert!(
+                would_block_objectp(&value),
+                "{name} reported a blocked port as {value}"
+            );
+            assert!(
+                !eof_objectp(&value),
+                "{name} reported a blocked port as eof"
+            );
+        }
     }
 }
