@@ -956,8 +956,9 @@ pub static EMPTY_CHANNEL_OBJECT: once_cell::sync::Lazy<(
 pub static DISCONNECTED_CHANNEL_OBJECT: once_cell::sync::Lazy<(
     SteelVal,
     crate::values::structs::StructTypeDescriptor,
-)> =
-    once_cell::sync::Lazy::new(|| crate::values::structs::make_struct_singleton("#%empty-channel"));
+)> = once_cell::sync::Lazy::new(|| {
+    crate::values::structs::make_struct_singleton("#%disconnected-channel")
+});
 
 /// Returns `#t` if the value is an empty-channel object.
 ///
@@ -993,7 +994,7 @@ pub fn empty_channel() -> SteelVal {
 
 /// Returns `#t` if the value is an disconnected-channel object.
 ///
-/// (eof-object? any/c) -> bool?
+/// (disconnected-channel-object? any/c) -> bool?
 #[function(name = "disconnected-channel-object?")]
 pub fn disconnected_channel_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {
@@ -1326,4 +1327,27 @@ pub fn threading_module() -> BuiltInModule {
             std::thread::available_parallelism().map(|x| x.get()).ok()
         });
     module
+}
+
+#[cfg(test)]
+mod channel_object_tests {
+    use super::*;
+
+    #[test]
+    fn a_disconnected_channel_is_not_an_empty_one() {
+        let disconnected = disconnected_channel();
+
+        assert!(disconnected_channel_objectp(&disconnected));
+        assert!(!empty_channel_objectp(&disconnected));
+        assert_eq!(disconnected.to_string(), "(#%disconnected-channel)");
+    }
+
+    #[test]
+    fn an_empty_channel_is_not_a_disconnected_one() {
+        let empty = empty_channel();
+
+        assert!(empty_channel_objectp(&empty));
+        assert!(!disconnected_channel_objectp(&empty));
+        assert_eq!(empty.to_string(), "(#%empty-channel)");
+    }
 }
