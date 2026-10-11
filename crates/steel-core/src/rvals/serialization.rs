@@ -298,9 +298,13 @@ pub struct HeapSerializer<'a> {
 
     // Cache the functions that get built
     pub built_functions: &'a mut rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
-    // Whether a function has been made, and with it constants that running
-    // code has to be able to read.
-    pub made_functions: bool,
+    // The functions that have been made, one for each body. With them come
+    // constants that running code has to be able to read.
+    // Each is with the id it was sent under.
+    pub made_functions: Vec<(u32, Gc<ByteCodeLambda>)>,
+    // The first function made for each id that closes over something. The
+    // others with that id share its body.
+    shared_bodies: rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
 
     pub thread: &'a mut SteelThread,
 
@@ -340,7 +344,8 @@ impl<'a> HeapSerializer<'a> {
             cyclic: vec![false; nodes.len()],
             heap,
             built_functions,
-            made_functions: false,
+            made_functions: Vec::new(),
+            shared_bodies: rustc_hash::FxHashMap::default(),
             thread,
             function_mapping: rustc_hash::FxHashMap::default(),
             global_mapping: rustc_hash::FxHashMap::default(),
@@ -353,14 +358,34 @@ impl<'a> HeapSerializer<'a> {
         }
     }
 
-    /// The id here of the function that had `sent` where it was written.
-    /// Ids are handed out by each process, so one from another process is
-    /// given a new one, the same each time it comes up in this value.
+    /// The function made for `sent` when an earlier value brought it here.
+    /// It holds no captured values of its own.
+    fn received_before(&self, sent: &SerializedLambda) -> Option<Gc<ByteCodeLambda>> {
+        self.thread
+            .received_functions
+            .get(&(self.origin, sent.id))
+            .filter(|(made, captures)| same_shape(made, sent) && *captures == sent.captures.len())
+            .map(|(made, _)| made.clone())
+    }
+
+    /// The id here of the function that had `sent` where it was written,
+    /// the same each time it comes up in this value.
+    ///
+    /// Always a new one. Another process hands out its own ids, and another
+    /// engine in this process has its globals and constants in other places,
+    /// while compiled code is kept for the whole process by the id of the
+    /// function it was compiled from.
     pub(crate) fn function_id_here(&mut self, sent: u32) -> u32 {
+        let here = self.fresh_function_id_for(sent);
+        // Where the function was written, for errors, if this is the thread
+        // that knows.
         if self.same_process {
-            return sent;
+            let spans = &mut self.thread.function_interner.spans;
+            if let Some(known) = spans.get(&sent).cloned() {
+                spans.entry(here).or_insert(known);
+            }
         }
-        self.fresh_function_id_for(sent)
+        here
     }
 
     /// A new id for the function that had `sent`, the same each time it
@@ -818,6 +843,13 @@ fn for_each_held(node: &SerializableSteelVal, mut visit: impl FnMut(SerializedId
     }
 }
 
+// Whether `sent` can run the body that was made for `made`.
+fn same_shape(made: &ByteCodeLambda, sent: &SerializedLambda) -> bool {
+    made.arity() == sent.arity
+        && made.is_multi_arity() == sent.is_multi_arity
+        && made.body_exp.len() == sent.body_exp.len()
+}
+
 // Puts together the value for `node`, whose contents have all been made.
 fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<SteelVal> {
     match node {
@@ -829,13 +861,39 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
                 if let Some(already_made) = ctx.built_functions.get(&id) {
                     return Ok(SteelVal::Closure(already_made.clone()));
                 }
+                if let Some(received_before) = ctx.received_before(c) {
+                    ctx.built_functions.insert(id, received_before.clone());
+                    return Ok(SteelVal::Closure(received_before));
+                }
                 let value = Gc::new(ByteCodeLambda::from_serialized(ctx, c)?);
-                ctx.made_functions = true;
+                ctx.made_functions.push((c.id, value.clone()));
                 ctx.built_functions.insert(id, value.clone());
                 Ok(SteelVal::Closure(value))
             } else {
+                let id = ctx.function_id_here(c.id);
+                // Closures of one function share its body, as they did where
+                // they were made, so that it is compiled once.
+                let first = ctx
+                    .shared_bodies
+                    .get(&id)
+                    .filter(|first| {
+                        same_shape(first, c) && first.captures().len() == c.captures.len()
+                    })
+                    .cloned()
+                    .or_else(|| ctx.received_before(c));
+                if let Some(first) = first {
+                    c.validate()?;
+                    let captures = c
+                        .captures
+                        .iter()
+                        .map(|capture| ctx.built(*capture))
+                        .collect::<Result<_>>()?;
+                    let value = ByteCodeLambda::from_prototype(&first, captures);
+                    return Ok(SteelVal::Closure(Gc::new(value)));
+                }
                 let value = Gc::new(ByteCodeLambda::from_serialized(ctx, c)?);
-                ctx.made_functions = true;
+                ctx.made_functions.push((c.id, value.clone()));
+                ctx.shared_bodies.insert(id, value.clone());
                 Ok(SteelVal::Closure(value))
             }
         }

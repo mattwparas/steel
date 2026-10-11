@@ -645,11 +645,7 @@ impl ByteCodeLambda {
                 // been made, so it is given one that nothing here has.
                 Operand::Closure => {
                     let closure_id = value.body_exp[idx + 2].payload_size.to_u32();
-                    let here = if instr.op_code == OpCode::NEWSCLOSURE {
-                        heap.fresh_function_id_for(closure_id)
-                    } else {
-                        heap.function_id_here(closure_id)
-                    };
+                    let here = heap.function_id_here(closure_id);
                     if here >= 1 << 24 {
                         stop!(Generic => "there are too many functions here to add another");
                     }
@@ -666,7 +662,11 @@ impl ByteCodeLambda {
             new_body[idx].payload_size = u24::from_u32(id);
         }
 
-        Ok(ByteCodeLambda::new(
+        // What the body starts with, for when this is compiled and then
+        // serialized again.
+        let header = new_body.first().map(|instr| instr.op_code);
+
+        let mut made = ByteCodeLambda::new(
             id,
             new_body.into(),
             value.arity,
@@ -676,7 +676,10 @@ impl ByteCodeLambda {
                 .iter()
                 .map(|capture| heap.built(*capture))
                 .collect::<Result<_, _>>()?,
-        ))
+        );
+        made.header = header;
+
+        Ok(made)
     }
 
     pub fn rooted(instructions: InstructionPointer<[DenseInstruction]>) -> ByteCodeLambda {

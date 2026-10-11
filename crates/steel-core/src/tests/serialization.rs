@@ -6,6 +6,7 @@
 
 use crate::rvals::SteelVal;
 use crate::steel_vm::engine::Engine;
+use crate::values::functions::ByteCodeLambda;
 
 /// Definitions both ends have, as two programs that share a struct would.
 const SHARED: &str = r#"
@@ -239,6 +240,135 @@ fn functions_cross_engines() {
            (list (lambda () (set-box! cell (+ 1 (unbox cell)))) (lambda () (unbox cell))))",
         "(begin ((car received)) ((car received)) (= ((cadr received)) 2))",
     );
+}
+
+fn received_function(engine: &mut Engine, expression: &str) -> crate::gc::Gc<ByteCodeLambda> {
+    match engine.run(expression.to_string()).map(last) {
+        Ok(SteelVal::Closure(function)) => function,
+        other => panic!("`{}` is not a function here: {:?}", expression, other),
+    }
+}
+
+/// A function that arrives is compiled like one that was defined here.
+#[cfg(feature = "jit2")]
+#[test]
+fn received_functions_are_compiled() {
+    if !crate::config::config().jit {
+        return;
+    }
+
+    let mut ends = Ends::new();
+    ends.from
+        .run(
+            "(define (sent-step x) (+ x 1))
+             (define (sent-count i n acc)
+               (if (= i n) acc (sent-count (+ i 1) n (+ acc (sent-step i)))))
+             (define (sent-total n) (sent-count 0 n 0))
+             (define (sent-adder n) (lambda (m) (+ n m)))",
+        )
+        .unwrap();
+
+    for (expression, check) in [
+        ("sent-total", "(= (received 1000) 500500)"),
+        ("sent-count", "(= (received 0 1000 0) 500500)"),
+        ("(sent-adder 5)", "(= (received 6) 11)"),
+    ] {
+        ends.arrives(expression, check);
+        crate::steel_vm::vm::jit::wait_for_background_compiles();
+        assert!(holds(&mut ends.to, check));
+        assert!(
+            received_function(&mut ends.to, "received")
+                .super_instructions()
+                .is_some(),
+            "{} was not compiled",
+            expression
+        );
+    }
+}
+
+/// A function that is sent again runs the body that was made for it the
+/// first time, whatever each copy closes over.
+#[test]
+fn a_function_sent_again_shares_what_was_made_for_it() {
+    let mut ends = Ends::new();
+    ends.from
+        .run(
+            "(define (sent-double x) (* x 2))
+             (define (sent-adder n) (lambda (m) (+ n m)))",
+        )
+        .unwrap();
+
+    ends.arrives("sent-double", "(= (received 21) 42)");
+    let first = received_function(&mut ends.to, "received");
+    ends.arrives("sent-double", "(= (received 4) 8)");
+    let second = received_function(&mut ends.to, "received");
+    assert!(crate::gc::Gc::ptr_eq(&first, &second));
+
+    ends.arrives("(sent-adder 1)", "(= (received 10) 11)");
+    let one = received_function(&mut ends.to, "received");
+    ends.arrives("(sent-adder 2)", "(= (received 10) 12)");
+    let two = received_function(&mut ends.to, "received");
+    assert!(core::ptr::eq(one.body_exp.as_ptr(), two.body_exp.as_ptr()));
+
+    // Several in one value, and the ones from before still give their own.
+    ends.arrives(
+        "(map sent-adder (list 10 20 30))",
+        "(equal? (map (lambda (add) (add 1)) received) (list 11 21 31))",
+    );
+    assert_eq!(one.captures().len(), 1);
+    ends.to.register_value("kept-adder", SteelVal::Closure(one));
+    assert!(holds(&mut ends.to, "(= (kept-adder 10) 11)"));
+}
+
+/// Two engines in one process give their globals and constants different
+/// places, and a function keeps its id between them. What it refers to is
+/// what is here, in its loops and inner functions too.
+#[test]
+fn functions_refer_to_what_is_here_in_the_same_process() {
+    let mut ends = Ends::new();
+    // Globals and constants that only the reader has, to move its indices.
+    ends.to
+        .run(
+            "(define only-here-a 'only-here)
+             (define only-here-b \"only here\")
+             (define (only-here-c x) (list x 'another \"constant\" 77777))",
+        )
+        .unwrap();
+    ends.from
+        .run(
+            "(define sent-offset 1000)
+             (define (sent-label x) (list 'label x \"text\"))
+             (define (sent-walk n)
+               (let loop ([i 0] [acc '()])
+                 (if (= i n)
+                     (map (lambda (x) (sent-label (+ x sent-offset))) acc)
+                     (loop (+ i 1) (cons (* i 3) acc)))))
+             ;; Run where it was defined, so that its inner functions exist
+             ;; there too.
+             (sent-walk 3)",
+        )
+        .unwrap();
+
+    for _ in 0..3 {
+        ends.arrives(
+            "sent-walk",
+            "(equal? (received 3)
+                     (list (list 'label 1006 \"text\")
+                           (list 'label 1003 \"text\")
+                           (list 'label 1000 \"text\")))",
+        );
+        #[cfg(feature = "jit2")]
+        crate::steel_vm::vm::jit::wait_for_background_compiles();
+        assert!(keeps_giving(
+            &mut ends.to,
+            "3",
+            "(list (list 'label 1006 \"text\") (list 'label 1003 \"text\") (list 'label 1000 \"text\"))"
+        ));
+    }
+    assert!(holds(
+        &mut ends.to,
+        "(equal? (only-here-c 1) (list 1 'another \"constant\" 77777))"
+    ));
 }
 
 #[test]

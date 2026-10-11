@@ -376,6 +376,15 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         globals.push((index, from_serializable_value(&mut serializer, global)?));
     }
 
+    // The functions that are about to be bound to a global of their own.
+    let own_globals: Vec<(Gc<ByteCodeLambda>, usize)> = globals
+        .iter()
+        .filter_map(|(index, global)| match global {
+            SteelVal::Closure(function) => Some((function.clone(), *index)),
+            _ => None,
+        })
+        .collect();
+
     // Nothing is defined unless all of it could be made. The heap's lock is
     // held already.
     serializer
@@ -386,11 +395,42 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
             }
         });
 
+    let made = core::mem::take(&mut serializer.made_functions);
+
     // The functions refer to their constants where running code reads them.
     // Copying the constants out is only worth it when there is a function.
-    if serializer.made_functions {
+    if !made.is_empty() {
         serializer.thread.compiler.read().constant_map.flush();
     }
+
+    // Kept for when the same functions are sent again, now that all of
+    // what they refer to is here.
+    let origin = inner.origin;
+    for (sent, function) in &made {
+        let kept = if function.captures().is_empty() {
+            function.clone()
+        } else {
+            Gc::new(ByteCodeLambda::from_prototype(function, Default::default()))
+        };
+        serializer
+            .thread
+            .received_functions
+            .insert((origin, *sent), (kept, function.captures().len()));
+    }
+
+    drop(serializer);
+
+    // Compiled now that what they refer to is here.
+    #[cfg(feature = "jit2")]
+    for (_, function) in &made {
+        let own_index = own_globals
+            .iter()
+            .find(|(own, _)| Gc::ptr_eq(own, function))
+            .map(|(_, index)| *index);
+        crate::steel_vm::vm::jit::jit_compile_received(ctx, function, own_index);
+    }
+    #[cfg(not(feature = "jit2"))]
+    let _ = (made, own_globals);
 
     Ok(result)
 }

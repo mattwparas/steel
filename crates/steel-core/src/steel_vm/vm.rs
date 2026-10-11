@@ -383,6 +383,11 @@ pub struct SteelThread {
     // The top level forms of continuations entered during the runs going on.
     // A continuation can outlive the run it was captured in, and carrying on
     // from it executes that run's instructions again.
+    // Functions made from serialized ones, by the process that sent them and
+    // the id they have there. One that is sent again shares the body made
+    // the first time, and the code compiled for it. None of them holds a
+    // captured value, so each is with how many its body expects.
+    pub(crate) received_functions: rustc_hash::FxHashMap<(u64, u32), (Gc<ByteCodeLambda>, usize)>,
     entered_roots: Vec<Gc<ByteCodeLambda>>,
 
     // Store... more stuff here
@@ -1031,6 +1036,7 @@ impl SteelThread {
             native_entry_prefix: next_native_entry_prefix(),
             escaping: None,
             entered_roots: Vec::new(),
+            received_functions: rustc_hash::FxHashMap::default(),
             compiler,
             id: EngineId::new(),
 

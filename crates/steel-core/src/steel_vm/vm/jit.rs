@@ -427,9 +427,6 @@ static BACKGROUND_ENTRIES: std::sync::LazyLock<
 pub(crate) fn resolve_background_entry(
     lambda: &ByteCodeLambda,
 ) -> Option<crate::jit2::cgen::JitFnPointer> {
-    if !jit_background_enabled() {
-        return None;
-    }
     let address = *BACKGROUND_ENTRIES
         .read()
         .unwrap_or_else(|e| e.into_inner())
@@ -525,21 +522,29 @@ fn run_background_job(queued: &mut QueuedJob) {
         std::thread::yield_now();
     }
 
-    let compiled = job
-        .jit
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .compile_bytecode(
-            core::mem::take(&mut job.name),
-            job.arity,
-            &lambda.body_exp,
-            &job.globals,
-            &job.constants,
-            job.maybe_index,
-            job.self_slot.then_some(&*lambda),
-            job.fn_ptr_name,
-            &job.closed_globals,
-        );
+    let jit = Arc::clone(&job.jit);
+    let guard = jit.lock().unwrap_or_else(|e| e.into_inner());
+    compile_and_install(job, lambda, guard);
+}
+
+/// Compiles `lambda` from what `job` captured and switches its body over.
+fn compile_and_install(
+    job: &mut BackgroundJob,
+    lambda: &Gc<ByteCodeLambda>,
+    mut jit: std::sync::MutexGuard<'_, crate::jit2::cgen::JIT>,
+) {
+    let compiled = jit.compile_bytecode(
+        core::mem::take(&mut job.name),
+        job.arity,
+        &lambda.body_exp,
+        &job.globals,
+        &job.constants,
+        job.maybe_index,
+        job.self_slot.then_some(&*lambda),
+        job.fn_ptr_name,
+        &job.closed_globals,
+    );
+    drop(jit);
 
     let Ok(fn_pointer) = compiled else {
         return;
@@ -573,6 +578,65 @@ fn run_background_job(queued: &mut QueuedJob) {
         let first = lambda.body_exp.as_ptr();
         let op = core::ptr::addr_of!((*first).op_code) as *const core::sync::atomic::AtomicU8;
         (*op).store(byte, core::sync::atomic::Ordering::Release);
+    }
+}
+
+/// Compiles a function that was made from a serialized one. It is shared
+/// already, so the compiled code is installed into it the way a background
+/// compile is. `own_index` is the global it has just been bound to, if it
+/// was sent as one.
+pub(crate) fn jit_compile_received(
+    ctx: &mut VmCore,
+    lambda: &Gc<ByteCodeLambda>,
+    own_index: Option<usize>,
+) {
+    if !crate::config::config().jit
+        || cfg!(all(target_os = "windows", target_arch = "aarch64"))
+        || !jit_should_compile(lambda.id)
+        || ctx.thread.compiler.read().kernel.is_none()
+    {
+        return;
+    }
+
+    if !crate::config::config().jit_purefunc
+        && lambda
+            .body_exp
+            .iter()
+            .any(|x| matches!(x.op_code, OpCode::PUREFUNC))
+    {
+        return;
+    }
+
+    let fn_ptr_name = own_index.and_then(|x| {
+        ctx.thread
+            .compiler
+            .read()
+            .symbol_map
+            .values()
+            .get(x)
+            .copied()
+    });
+
+    let mut job = BackgroundJob {
+        name: lambda.id.to_string(),
+        arity: lambda.arity,
+        maybe_index: own_index,
+        fn_ptr_name,
+        globals: sparse_globals_snapshot(ctx, &lambda.body_exp, own_index),
+        // The compiler's, which is where the constants were added. The one
+        // on the thread is that of whatever program is running.
+        constants: ctx.thread.compiler.read().constant_map.clone(),
+        closed_globals: closed_globals(ctx),
+        jit: Arc::clone(&ctx.thread.jit),
+        self_slot: own_index.is_some(),
+    };
+
+    if jit_background_enabled() {
+        submit_background_job(job, lambda);
+    } else {
+        let jit = Arc::clone(&ctx.thread.jit);
+        let guard = lock_jit_for_interpreter(&jit);
+        compile_and_install(&mut job, lambda, guard);
     }
 }
 
