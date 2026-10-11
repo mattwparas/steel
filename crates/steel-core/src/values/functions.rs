@@ -624,6 +624,11 @@ impl ByteCodeLambda {
                         stop!(Generic => "a function was sent without a constant it refers to");
                     };
                     let deserialized_constant = heap.built(*constant)?;
+                    // Constants are looked up by what they hold, and a cell
+                    // can hold itself.
+                    if !is_literal(&deserialized_constant, 0) {
+                        stop!(Generic => "a function was sent with a constant that is not a literal");
+                    }
                     let new_index = heap
                         .thread
                         .compiler
@@ -983,5 +988,29 @@ impl BoxedDynFunction {
     #[inline(always)]
     pub fn name(&self) -> Option<&str> {
         self.name.as_ref().map(|x| x.as_str())
+    }
+}
+
+// Whether a value is one a compiler puts in the constants: immutable all the
+// way down, so nothing in it leads back to itself.
+fn is_literal(value: &SteelVal, depth: usize) -> bool {
+    if depth > 512 {
+        return false;
+    }
+    match value {
+        SteelVal::HeapAllocated(_) | SteelVal::MutableVector(_) | SteelVal::MutableStruct(_) => {
+            false
+        }
+        SteelVal::ListV(list) => list.iter().all(|x| is_literal(x, depth + 1)),
+        SteelVal::VectorV(vector) => vector.iter().all(|x| is_literal(x, depth + 1)),
+        SteelVal::Pair(pair) => {
+            is_literal(pair.car_ref(), depth + 1) && is_literal(pair.cdr_ref(), depth + 1)
+        }
+        SteelVal::HashMapV(map) => map
+            .iter()
+            .all(|(k, v)| is_literal(k, depth + 1) && is_literal(v, depth + 1)),
+        SteelVal::HashSetV(set) => set.iter().all(|x| is_literal(x, depth + 1)),
+        SteelVal::CustomStruct(s) => s.fields().iter().all(|x| is_literal(x, depth + 1)),
+        _ => true,
     }
 }

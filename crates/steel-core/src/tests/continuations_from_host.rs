@@ -239,3 +239,73 @@ fn the_wrong_number_of_arguments_is_refused() {
     call(&mut engine, "kept", vec![SteelVal::IntV(10)]);
     assert_eq!(int(&engine, "result"), 11);
 }
+
+fn run_other_forms(engine: &mut Engine) {
+    for i in 0..40 {
+        engine
+            .run(format!(
+                "(define (other-{i} a b c)
+                   (let loop ([i 0] [acc '()])
+                     (if (= i 10) (list a b c acc) (loop (+ i 1) (cons (* i a) acc)))))
+                 (other-{i} 1 2 3)"
+            ))
+            .expect("the program runs");
+    }
+}
+
+const KEPT_UNDER_A_FRAME: &str = r#"
+    (define kept #f)
+    (define (id x) x)
+    (define (capture-here) (id (#%prim.call/cc (lambda (k) (set! kept k) 1))))
+    (define result (+ 1 (id (capture-here))))
+"#;
+
+#[test]
+fn one_kept_past_many_other_forms_still_has_its_own_form_to_run() {
+    for capture in CAPTURES {
+        let mut engine = Engine::new();
+        engine
+            .run(format!(
+                "(define kept #f)
+                 (define result (+ 1 ({capture} (lambda (k) (set! kept k) 1))))"
+            ))
+            .expect("the program runs");
+        run_other_forms(&mut engine);
+
+        call(&mut engine, "kept", vec![SteelVal::IntV(10)]);
+        assert_eq!(int(&engine, "result"), 11, "{capture}");
+    }
+
+    let mut engine = Engine::new();
+    engine.run(KEPT_UNDER_A_FRAME).expect("the program runs");
+    run_other_forms(&mut engine);
+
+    call(&mut engine, "kept", vec![SteelVal::IntV(10)]);
+    assert_eq!(int(&engine, "result"), 11);
+}
+
+#[test]
+fn one_kept_past_many_other_forms_can_be_called_from_a_later_form() {
+    let mut engine = Engine::new();
+    engine.run(KEPT_UNDER_A_FRAME).expect("the program runs");
+    run_other_forms(&mut engine);
+
+    engine.run("(kept 10)").expect("the program runs");
+    assert_eq!(int(&engine, "result"), 11);
+}
+
+#[test]
+fn a_call_refused_for_its_arity_leaves_nothing_behind() {
+    let mut engine = Engine::new();
+    engine
+        .run("(define (two a b) (+ a b)) (define (none) 5)")
+        .expect("the program runs");
+
+    for _ in 0..100 {
+        refused(&mut engine, "two", vec![SteelVal::IntV(1)]);
+    }
+
+    assert_eq!(engine.virtual_machine.stack.len(), 0);
+    assert_eq!(engine.virtual_machine.stack_frames.len(), 0);
+    assert_eq!(call(&mut engine, "none", vec![]), SteelVal::IntV(5));
+}

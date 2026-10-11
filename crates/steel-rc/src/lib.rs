@@ -1032,10 +1032,10 @@ impl QueueHandle {
 
         if let Some(mut q) = QUEUE.map.get_mut(&key) {
             q.push(wrapper());
-        } else if let Some(mut q) = QUEUE.unregistered.get_mut(&key) {
-            q.push(wrapper());
         } else {
-            QUEUE.unregistered.insert(key, vec![wrapper()]);
+            // Found or made under one lock. Two threads that each made the
+            // list would lose whichever was put in first.
+            QUEUE.unregistered.entry(key).or_default().push(wrapper());
         }
 
         core::mem::forget(value);
@@ -1052,18 +1052,14 @@ impl QueueHandle {
                 value.ptr,
             )))));
         } else {
-            if let Some(mut q) = QUEUE.unregistered.get_mut(&key) {
-                q.push(Wrapper(Box::new(ManuallyDrop::new(BiasedRc::from_inner(
+            // Found or made under one lock, as in `enqueue_merge`
+            QUEUE
+                .unregistered
+                .entry(key)
+                .or_default()
+                .push(Wrapper(Box::new(ManuallyDrop::new(BiasedRc::from_inner(
                     value.ptr,
                 )))));
-            } else {
-                QUEUE.unregistered.insert(
-                    key,
-                    vec![Wrapper(Box::new(ManuallyDrop::new(BiasedRc::from_inner(
-                        value.ptr,
-                    ))))],
-                );
-            }
 
             // Fallback thread, for something that is unclaimed
             // guard.insert_fallback(BiasedRc::from_inner(value.ptr));

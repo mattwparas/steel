@@ -1256,10 +1256,12 @@ impl BreadthFirstSearchSteelValVisitor for UnreachedWalk {
     }
 
     fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output {
-        let continuation = (*continuation.inner.read()).clone();
+        // Read in place, since a copy would hold a reference to everything
+        // in it.
+        let continuation = continuation.inner.read();
 
         // The values of one that is still open are on a stack.
-        if let ContinuationMark::Closed(continuation) = continuation {
+        if let ContinuationMark::Closed(continuation) = &*continuation {
             for value in &continuation.stack {
                 self.push_back(value.clone());
             }
@@ -1325,9 +1327,12 @@ impl BreadthFirstSearchSteelValVisitor for UnreachedWalk {
         }
 
         self.vectors_reached += 1;
-        let values: Vec<SteelVal> = cell.lock().value.iter().cloned().collect();
-        for value in values {
-            self.push_back(value);
+        // One at a time. A copy of an element still waiting its turn would
+        // be counted as a reference from outside when the same value comes
+        // up earlier in the vector.
+        let vector = cell.lock();
+        for value in vector.value.iter() {
+            self.push_back(value.clone());
         }
     }
 
@@ -1513,14 +1518,25 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         Err(err) => return Some(Err(err)),
     };
 
+    // Only a collection makes a will ready. With none ready, this runs one
+    // before it waits, or a program whose threads never happen to collect
+    // would wait forever on a value that is already garbage.
+    let mut collected = false;
+
     // The registration is only taken once this thread is running again. A
     // collection would not find it in a local.
     let Registration { value, finalizer } = loop {
-        ctx.thread.enter_safepoint(|_| executor.wait_until_ready());
-
         if let Some(registration) = executor.take_ready() {
             break registration;
         }
+
+        if !collected {
+            collected = true;
+            ctx.gc_collect();
+            continue;
+        }
+
+        ctx.thread.enter_safepoint(|_| executor.wait_until_ready());
     };
 
     apply(ctx, &[finalizer, SteelVal::ListV(vec![value].into())])
@@ -3003,20 +3019,38 @@ enum Deferred {
     Buffer(#[allow(dead_code)] HeapVec),
 }
 
-// The second field is the family of the thread when it last put something
-// aside. It is kept here since the thread's own record of it may be gone
-// by the time this is dropped.
-struct DeferredDrops(Vec<Deferred>, Option<usize>);
+// What a thread has put aside, by the family it was in when it did. One
+// thread can run more than one engine, and only the threads of a value's own
+// family can be reading it.
+struct DeferredDrops(Vec<(Option<usize>, Vec<Deferred>)>);
+
+impl DeferredDrops {
+    fn of(&mut self, family: Option<usize>) -> &mut Vec<Deferred> {
+        let index = match self.0.iter().position(|(theirs, _)| *theirs == family) {
+            Some(index) => index,
+            None => {
+                self.0.push((family, Vec::new()));
+                self.0.len() - 1
+            }
+        };
+        &mut self.0[index].1
+    }
+}
 
 impl Drop for DeferredDrops {
     fn drop(&mut self) {
-        if !self.0.is_empty() {
-            if let Ok(mut orphaned) = ORPHANED_DROPS.lock() {
-                orphaned.push((self.1, core::mem::take(&mut self.0)));
-            } else {
-                // Leaking is the only safe thing left to do with them.
-                core::mem::forget(core::mem::take(&mut self.0));
-            }
+        let left: Vec<_> = core::mem::take(&mut self.0)
+            .into_iter()
+            .filter(|(_, values)| !values.is_empty())
+            .collect();
+        if left.is_empty() {
+            return;
+        }
+        if let Ok(mut orphaned) = ORPHANED_DROPS.lock() {
+            orphaned.extend(left);
+        } else {
+            // Leaking is the only safe thing left to do with them.
+            core::mem::forget(left);
         }
     }
 }
@@ -3028,7 +3062,7 @@ thread_local! {
     // The slot and count of the engine this thread last ran.
     static MY_RUNNING: RefCell<Option<(usize, Arc<MutatorState>)>> = const { RefCell::new(None) };
 
-    static DEFERRED_DROPS: RefCell<DeferredDrops> = const { RefCell::new(DeferredDrops(Vec::new(), None)) };
+    static DEFERRED_DROPS: RefCell<DeferredDrops> = const { RefCell::new(DeferredDrops(Vec::new())) };
 }
 
 // The running count for a slot, adding the slot if it isn't known yet.
@@ -3197,45 +3231,58 @@ pub(crate) fn drop_deferred_at_collection() {
 fn drop_deferred_from(collection: bool) {
     resolve_awaited(collection);
 
+    // The threads this one can vouch for are those of the family it is
+    // running in now, so only what was put aside in that family is looked at.
+    // With no family, that is every thread and everything.
+    let family = my_family();
+
     let ready = DEFERRED_DROPS
         .try_with(|deferred| {
             let Ok(mut deferred) = deferred.try_borrow_mut() else {
                 return Vec::new();
             };
-            if deferred.0.is_empty() {
-                return Vec::new();
-            }
 
-            if others_at_safepoints() {
-                return core::mem::take(&mut deferred.0);
-            }
+            let mut ready = Vec::new();
+            let mut at_safepoints = None;
 
-            // A collection hands over however few there are. Left here, a
-            // short list would wait for a moment when every other thread
-            // happens to be at a safepoint, which in a busy process may
-            // never come, and a value on it is one more reference to that
-            // value for as long.
-            if collection || deferred.0.len() >= DEFERRED_DROP_BACKLOG {
-                let batch = AwaitedBatch {
-                    values: core::mem::take(&mut deferred.0),
-                    seen: threads_to_await(),
-                    requester: MY_RUNNING
-                        .with(|current| current.borrow().as_ref().map(|(_, state)| state.clone())),
-                    open: true,
-                };
-                match AWAITED.lock() {
-                    Ok(mut awaited) => {
-                        awaited.push(batch);
-                        drop(awaited);
-                        // After the counts were read, so a check in that
-                        // answers this is seen as one.
-                        request_check_ins();
+            for (theirs, values) in deferred.0.iter_mut() {
+                if values.is_empty() || !(family.is_none() || *theirs == family) {
+                    continue;
+                }
+
+                if *at_safepoints.get_or_insert_with(others_at_safepoints) {
+                    ready.append(values);
+                    continue;
+                }
+
+                // A collection hands over however few there are. Left here, a
+                // short list would wait for a moment when every other thread
+                // happens to be at a safepoint, which in a busy process may
+                // never come, and a value on it is one more reference to that
+                // value for as long.
+                if collection || values.len() >= DEFERRED_DROP_BACKLOG {
+                    let batch = AwaitedBatch {
+                        values: core::mem::take(values),
+                        seen: threads_to_await(),
+                        requester: MY_RUNNING.with(|current| {
+                            current.borrow().as_ref().map(|(_, state)| state.clone())
+                        }),
+                        open: true,
+                    };
+                    match AWAITED.lock() {
+                        Ok(mut awaited) => {
+                            awaited.push(batch);
+                            drop(awaited);
+                            // After the counts were read, so a check in that
+                            // answers this is seen as one.
+                            request_check_ins();
+                        }
+                        Err(_) => *values = batch.values,
                     }
-                    Err(_) => deferred.0 = batch.values,
                 }
             }
 
-            Vec::new()
+            ready
         })
         .unwrap_or_default();
 
@@ -3245,7 +3292,6 @@ fn drop_deferred_from(collection: bool) {
 
     // What this thread just found is that the threads of its own family
     // are reading nothing. With no family, that was every thread.
-    let family = my_family();
     let orphaned = ORPHANED_DROPS
         .lock()
         .map(|mut orphaned| {
@@ -3286,11 +3332,9 @@ fn defer(item: Deferred) {
     let due = DEFERRED_DROPS
         .try_with(|deferred| match deferred.try_borrow_mut() {
             Ok(mut deferred) => {
-                if deferred.0.is_empty() {
-                    deferred.1 = my_family();
-                }
-                deferred.0.extend(item.take());
-                deferred.0.len() % DEFERRED_DROP_BATCH == 0
+                let values = deferred.of(my_family());
+                values.extend(item.take());
+                values.len() % DEFERRED_DROP_BATCH == 0
             }
             Err(_) => false,
         })

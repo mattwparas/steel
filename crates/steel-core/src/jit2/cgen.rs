@@ -6273,7 +6273,12 @@ impl FunctionTranslator<'_> {
                 } else {
                     met
                 };
-                self.builder.ins().select(met, bound, far)
+                // A counter already at the last fixnum has no chunk ahead of
+                // it. The bound is somewhere it isn't, so the body runs, and
+                // its step is what finds the counter can't go further.
+                let stuck = self.builder.ins().icmp(IntCC::Equal, far, counter);
+                let unmet = self.builder.ins().select(stuck, bound, far);
+                self.builder.ins().select(met, bound, unmet)
             }
             _ if rising => self.builder.ins().smin(bound, far),
             _ => self.builder.ins().smax(bound, far),
@@ -7130,52 +7135,50 @@ impl FunctionTranslator<'_> {
     // Inline decrement of a steel_rc::weak::Weak. ptr is the ArcInner, the weak
     // count sits at offset 8.
     //
-    // Weak::drop also frees the allocation at zero, which we can't do from here, so
-    // if we're the one taking it to zero we put it back and let the real destructor
-    // run. The free list holds a strong ref while the slot is live, so that's cold.
+    // The raw counter carries an implicit +1 while the heap still owns the
+    // box. A value of 2 is the last handle to a live box, whose value has to be
+    // released now (`Drop for HeapRef`), and 1 is the last handle to one the
+    // heap already let go of, whose memory is freed by `Weak::drop`. Both go to
+    // the out-of-line drop, which is cold since the free list holds a strong
+    // ref while the slot is live.
+    //
+    // The count is read before it is changed, as `HeapRef::take_if_last` does.
+    // Taking it down first and putting it back would leave a live box reading
+    // as one with no handles in between, and a collection on another thread
+    // scans for those after it has let this thread run again.
     fn inline_weak_decrement(
         &mut self,
         ptr: Value,
         drop_fn: Helper<1, false, false, false>,
         drop_arg: Value,
     ) {
-        let one = self.builder.ins().iconst(weak_counter_type(), 1);
         let offset = self.builder.ins().iadd_imm_s(ptr, weak_counter_offset());
 
-        // atomic_rmw hands back what was in memory before the operation
-        let previous = self.builder.ins().atomic_rmw(
-            weak_counter_type(),
-            MemFlagsData::trusted(),
-            AtomicRmwOp::Sub,
-            offset,
-            one,
-        );
+        let current =
+            self.builder
+                .ins()
+                .atomic_load(weak_counter_type(), MemFlagsData::trusted(), offset);
 
-        // The raw counter carries an implicit +1 while the heap still owns the
-        // box. A previous value of 2 is the last handle to a live box, whose
-        // value has to be released now (`Drop for HeapRef`), and 1 is the last
-        // handle to one the heap already let go of, whose memory is freed here.
-        // Both cases go to the out-of-line drop.
-        let hit_zero = self
+        let last = self
             .builder
             .ins()
-            .icmp_imm_u(IntCC::UnsignedLessThanOrEqual, previous, 2);
+            .icmp_imm_u(IntCC::UnsignedLessThanOrEqual, current, 2);
 
-        self.converging_if_no_value_else_cold(
-            hit_zero,
+        self.converging_if_no_value(
+            last,
+            |ctx| {
+                ctx.call_helper_void(drop_fn, [drop_arg]);
+            },
             |ctx| {
                 let one = ctx.builder.ins().iconst(weak_counter_type(), 1);
-                let offset = ctx.builder.ins().iadd_imm_s(ptr, weak_counter_offset());
                 ctx.builder.ins().atomic_rmw(
                     weak_counter_type(),
                     MemFlagsData::trusted(),
-                    AtomicRmwOp::Add,
+                    AtomicRmwOp::Sub,
                     offset,
                     one,
                 );
-                ctx.call_helper_void(drop_fn, [drop_arg]);
             },
-            |_| {},
         );
     }
 

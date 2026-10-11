@@ -312,6 +312,7 @@ const SERIALIZED_FORMAT: u8 = 3;
 fn struct_type_here(
     thread: &SteelThread,
     entry: &SendableVTableEntry,
+    same_process: bool,
 ) -> Option<crate::values::structs::StructTypeDescriptor> {
     use crate::rvals::FromSteelVal;
     use crate::values::structs::StructTypeDescriptor;
@@ -323,7 +324,16 @@ fn struct_type_here(
         .and_then(|value| StructTypeDescriptor::from_steelval(&value).ok())
         .filter(|descriptor| VTable::matches_sendable_entry(*descriptor, entry));
 
-    known.or_else(|| VTable::get_by_sendable_entry(entry))
+    // Sent from this process, the type the sender had is right here in the
+    // table. That is the only way to tell apart types of one name, such as a
+    // struct defined inside a function, which is a new type on every call.
+    let sent = same_process
+        .then_some(entry.desc)
+        .filter(|descriptor| VTable::matches_sendable_entry(*descriptor, entry));
+
+    known
+        .or(sent)
+        .or_else(|| VTable::get_by_sendable_entry(entry))
 }
 
 fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
@@ -333,6 +343,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     let inner = SerializedValue::as_ref(&value)?;
 
     let mut built_functions = FxHashMap::default();
+    let same_process = inner.origin == crate::rvals::process_origin();
 
     // Waited for at a safepoint, since the thread that has it may be
     // collecting and waiting for this one to stop.
@@ -350,7 +361,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
 
     // Map the struct type descriptors between the two
     for entry in inner.vtable_entries.iter() {
-        let Some(here) = struct_type_here(serializer.thread, entry) else {
+        let Some(here) = struct_type_here(serializer.thread, entry, same_process) else {
             stop!(Generic => "the struct type {} is not defined here", entry.name.resolve());
         };
         serializer.map_struct_type(entry, here)?;
@@ -376,7 +387,10 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         });
 
     // The functions refer to their constants where running code reads them.
-    serializer.thread.compiler.read().constant_map.flush();
+    // Copying the constants out is only worth it when there is a function.
+    if serializer.made_functions {
+        serializer.thread.compiler.read().constant_map.flush();
+    }
 
     Ok(result)
 }
@@ -751,46 +765,49 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
 */
 
 // What has been sent and not yet received, in order, for a collection to
-// find. It can't look inside the channel.
-type InTransit = Arc<Mutex<std::collections::VecDeque<SteelVal>>>;
+// find. It can't look inside the channel. Each message has a number, since
+// the same value can be sent twice and two lists can share their storage.
+#[derive(Default)]
+struct Sent {
+    next: u64,
+    values: std::collections::VecDeque<(u64, SteelVal)>,
+}
+
+type InTransit = Arc<Mutex<Sent>>;
 
 fn visit_in_transit(
     in_transit: &InTransit,
     context: &mut crate::values::closed::MarkAndSweepContext,
 ) {
-    for value in in_transit.lock().unwrap().iter() {
+    for (_, value) in in_transit.lock().unwrap().values.iter() {
         context.push_back(value.clone());
     }
 }
 
 pub struct SteelReceiver {
-    receiver: crossbeam_channel::Receiver<SteelVal>,
+    receiver: crossbeam_channel::Receiver<(u64, SteelVal)>,
     in_transit: InTransit,
 }
 
 impl SteelReceiver {
-    // Called with a value just taken off the channel.
-    fn received(&self, value: &SteelVal) {
+    // Called with the number of a message just taken off the channel.
+    fn received(&self, message: u64) {
         crate::values::closed::leave_safepoint_for_cells();
 
         let mut in_transit = self.in_transit.lock().unwrap();
-        // Another receiver may have taken the front one in the meantime
-        match in_transit
+        // Another receiver may have taken an earlier one in the meantime
+        if let Some(position) = in_transit
+            .values
             .iter()
-            .position(|sent| SteelVal::ptr_eq(sent, value))
+            .position(|(sent, _)| *sent == message)
         {
-            Some(position) => {
-                in_transit.remove(position);
-            }
-            None => {
-                in_transit.pop_front();
-            }
+            in_transit.values.remove(position);
         }
     }
 }
 
 pub struct SteelSender {
-    sender: crossbeam_channel::Sender<SteelVal>,
+    sender: crossbeam_channel::Sender<(u64, SteelVal)>,
     in_transit: InTransit,
 }
 
@@ -810,7 +827,15 @@ impl Custom for SteelSender {
         visit_in_transit(&self.in_transit, context);
     }
 }
-impl Custom for Channels {}
+
+// The two ends are handed out on request, so this can be all a program
+// holds of a channel with something in it.
+impl Custom for Channels {
+    fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
+        context.push_back(self.sender.clone());
+        context.push_back(self.receiver.clone());
+    }
+}
 
 impl Channels {
     pub fn new() -> Self {
@@ -884,11 +909,13 @@ pub fn channel_send(sender: &SteelVal, value: SteelVal) -> Result<SteelVal> {
 
     // Held across the send so the two stay in the same order.
     let mut in_transit = sender.in_transit.lock().unwrap();
-    sender.sender.send(value.clone()).map_err(|e| {
+    let message = in_transit.next;
+    sender.sender.send((message, value.clone())).map_err(|e| {
         throw!(Generic => "channel disconnected -
-            unable to send value across channel: {:?}", e.0)()
+            unable to send value across channel: {:?}", e.0 .1)()
     })?;
-    in_transit.push_back(value);
+    in_transit.next += 1;
+    in_transit.values.push_back((message, value));
 
     Ok(SteelVal::Void)
 }
@@ -896,11 +923,11 @@ pub fn channel_send(sender: &SteelVal, value: SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "channel/recv")]
 pub fn channel_recv(receiver: &SteelVal) -> Result<SteelVal> {
     let receiver = SteelReceiver::as_ref(receiver)?;
-    let value = receiver.receiver.recv().map_err(|_| {
+    let (message, value) = receiver.receiver.recv().map_err(|_| {
         throw!(Generic => "Unable to receive on the channel.
                 The channel is empty and disconnected")()
     })?;
-    receiver.received(&value);
+    receiver.received(message);
 
     Ok(value)
 }
@@ -913,8 +940,8 @@ pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
     let value = receiver.receiver.try_recv();
 
     match value {
-        Ok(v) => {
-            receiver.received(&v);
+        Ok((message, v)) => {
+            receiver.received(message);
             Ok(v)
         }
         Err(crossbeam_channel::TryRecvError::Empty) => Ok(empty_channel()),

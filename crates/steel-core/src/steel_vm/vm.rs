@@ -380,6 +380,10 @@ pub struct SteelThread {
     // A continuation on its way out to the run it belongs to, and the
     // value it was called with.
     pub(crate) escaping: Option<(SteelVal, SteelVal)>,
+    // The top level forms of continuations entered during the runs going on.
+    // A continuation can outlive the run it was captured in, and carrying on
+    // from it executes that run's instructions again.
+    entered_roots: Vec<Gc<ByteCodeLambda>>,
 
     // Store... more stuff here
     pub(crate) compiler: alloc::sync::Arc<RwLock<Compiler>>,
@@ -661,7 +665,30 @@ impl Synchronizer {
             crate::values::closed::register_mutator(&slot);
         }
 
-        self.threads.lock().unwrap().push(context);
+        // A thread that has exited, with a handle nothing else holds, can't
+        // be joined. Kept, it would hold on to what the thread returned, and
+        // every collection would walk past it.
+        let forgotten = {
+            let mut threads = self.threads.lock().unwrap();
+            let mut forgotten = Vec::new();
+            let mut index = 0;
+            while index < threads.len() {
+                let thread = &threads[index];
+                let exited = thread.ctx.strong_count() == 0;
+                let unheld =
+                    matches!(&thread.handle, SteelVal::Custom(c) if Gc::strong_count(c) == 1);
+                if exited && unheld {
+                    forgotten.push(threads.swap_remove(index));
+                } else {
+                    index += 1;
+                }
+            }
+            threads.push(context);
+            forgotten
+        };
+
+        // Outside the lock, since this drops what they returned.
+        drop(forgotten);
     }
 
     #[inline(always)]
@@ -1003,6 +1030,7 @@ impl SteelThread {
             native_entries_made: 0,
             native_entry_prefix: next_native_entry_prefix(),
             escaping: None,
+            entered_roots: Vec::new(),
             compiler,
             id: EngineId::new(),
 
@@ -1510,7 +1538,7 @@ impl SteelThread {
         // TODO: Figure out how to keep the first set of instructions around
         // during a continuation? Does it get allocated into something? If its the
         // root one, we should move it into a function?
-        let _entered = NativeEntry::enter(self);
+        let _entered = NativeEntry::enter(self)?;
 
         let this_thread = self as *mut SteelThread;
         let _running = crate::values::closed::enter_mutator(&self.synchronizer.ctx, this_thread);
@@ -1631,19 +1659,29 @@ pub(crate) struct NativeEntry {
 }
 
 impl NativeEntry {
-    fn enter(thread: &mut SteelThread) -> Self {
+    /// Starts a run. Native code that calls back in while a continuation is on
+    /// its way out, to a run that is still going, has swallowed the error that
+    /// was carrying it. The call is refused with that error again, so the
+    /// native code is left as soon as it lets go.
+    fn enter(thread: &mut SteelThread) -> Result<Self> {
+        if let Some(home) = thread.escaping_to() {
+            if thread.native_entries.contains(&home) {
+                return Err(escape_in_flight());
+            }
+            thread.escaping = None;
+        }
+
+        // The outermost run is the same one for every top level form on a
+        // thread, and a different one on every thread.
         let id = if thread.native_entries.is_empty() {
-            0
+            thread.native_entry_prefix
         } else {
             thread.native_entries_made += 1;
             thread.native_entry_prefix | thread.native_entries_made
         };
         thread.native_entries.push(id);
 
-        // Native code that swallowed the error has dropped the escape
-        thread.escaping = None;
-
-        Self { thread }
+        Ok(Self { thread })
     }
 }
 
@@ -1651,11 +1689,23 @@ impl Drop for NativeEntry {
     fn drop(&mut self) {
         // The thread outlives every run on it
         let thread = unsafe { &mut *self.thread };
-        thread.native_entries.pop();
-        if thread.native_entries.is_empty() {
+        let ended = thread.native_entries.pop();
+        // Nothing can land in a run that is over
+        if thread.native_entries.is_empty() || thread.escaping_to() == ended {
             thread.escaping = None;
         }
+        if thread.native_entries.is_empty() {
+            thread.entered_roots.clear();
+        }
     }
+}
+
+#[cold]
+fn escape_in_flight() -> SteelErr {
+    SteelErr::new(
+        ErrorKind::Generic,
+        "a continuation was called through native code that did not pass it on".to_string(),
+    )
 }
 
 fn next_native_entry_prefix() -> u64 {
@@ -1674,7 +1724,10 @@ impl SteelThread {
     }
 
     fn current_entry(&self) -> u64 {
-        self.native_entries.last().copied().unwrap_or(0)
+        self.native_entries
+            .last()
+            .copied()
+            .unwrap_or(self.native_entry_prefix)
     }
 
     /// The run an escaping continuation is headed for.
@@ -2052,6 +2105,9 @@ impl WeakContinuation {
 pub struct ClosedContinuation {
     pub(crate) stack: Stack<SteelVal>,
     pub(crate) current_frame: StackFrame,
+    // Holds the instructions of the top level form this was captured under,
+    // which the bottom frame returns into.
+    root: Gc<ByteCodeLambda>,
     instructions: RootedInstructions,
     pub(crate) stack_frames: Stack<StackFrame>,
     ip: usize,
@@ -2404,6 +2460,7 @@ impl<'a> VmCore<'a> {
         ClosedContinuation {
             stack: self.thread.stack.clone(),
             instructions: self.instructions.clone(),
+            root: self.thread.current_frame.function.clone(),
             current_frame: self
                 .thread
                 .stack_frames
@@ -2432,6 +2489,7 @@ impl<'a> VmCore<'a> {
         ClosedContinuation {
             stack: core::mem::take(&mut self.thread.stack),
             instructions: self.instructions.clone(),
+            root: self.thread.current_frame.function.clone(),
             current_frame: self.thread.current_frame.clone(),
             stack_frames: core::mem::take(&mut self.thread.stack_frames),
             ip: self.ip,
@@ -2527,6 +2585,15 @@ impl<'a> VmCore<'a> {
                     continue;
                 }
             }
+        }
+
+        if !self
+            .thread
+            .entered_roots
+            .iter()
+            .any(|root| Gc::ptr_eq(root, &continuation.root))
+        {
+            self.thread.entered_roots.push(continuation.root);
         }
 
         self.thread.stack = continuation.stack;
@@ -2626,12 +2693,43 @@ impl<'a> VmCore<'a> {
         }
     }
 
+    /// Takes back the frame and arguments pushed for a call that is not going
+    /// to be made.
+    fn drop_pushed_frame(&mut self) {
+        if let Some(frame) = self.thread.stack_frames.pop() {
+            self.thread.stack.truncate(frame.sp as usize);
+        }
+        self.sp = self
+            .thread
+            .stack_frames
+            .last()
+            .map(|x| x.sp as _)
+            .unwrap_or(0);
+    }
+
+    fn adjust_pushed_frame(&mut self, closure: &Gc<ByteCodeLambda>, given: usize) -> Result<()> {
+        let adjusted = self.adjust_stack_for_multi_arity(closure, given, &mut 0);
+        if adjusted.is_err() {
+            self.drop_pushed_frame();
+        }
+        adjusted
+    }
+
     // Reset state FULLY
     pub(crate) fn call_with_instructions_and_reset_state(
         &mut self,
         closure: RootedInstructions,
     ) -> Result<SteelVal> {
-        let _entered = NativeEntry::enter(self.thread);
+        let _entered = match NativeEntry::enter(self.thread) {
+            Ok(entered) => entered,
+            Err(e) => {
+                self.drop_pushed_frame();
+                return Err(e);
+            }
+        };
+
+        // Where the arguments of the call start
+        let base = self.thread.stack_frames.last().map(|x| x.sp as usize);
 
         let old_ip = self.ip;
         let old_instructions = core::mem::replace(&mut self.instructions, closure);
@@ -2666,8 +2764,11 @@ impl<'a> VmCore<'a> {
             .map(|x| x.sp as _)
             .unwrap_or(0);
 
-        // println!("After: {:?}", self.thread.stack_frames.len());
-        // self.thread.stack.truncate(self.sp);
+        // A call that ended in an error unwound its frame and left what was
+        // on the stack above it.
+        if let (Err(_), Some(base)) = (&res, base) {
+            self.thread.stack.truncate(base);
+        }
 
         res
     }
@@ -2777,7 +2878,7 @@ impl<'a> VmCore<'a> {
             stop!(ArityMismatch => "continuation expected 1 argument");
         };
 
-        let _entered = NativeEntry::enter(self.thread);
+        let _entered = NativeEntry::enter(self.thread)?;
         self.leave_for_continuation(&cont, &value)?;
 
         // Whatever the host was in the middle of is put back afterwards
@@ -2876,7 +2977,7 @@ impl<'a> VmCore<'a> {
             argument_count += 1;
         }
 
-        self.adjust_stack_for_multi_arity(closure, argument_count, &mut 0)?;
+        self.adjust_pushed_frame(closure, argument_count)?;
 
         let res = self.call_with_instructions_and_reset_state(instructions);
 
@@ -2912,7 +3013,7 @@ impl<'a> VmCore<'a> {
         // self.function_stack
         //     .push(CallContext::new(Gc::clone(closure)));
 
-        self.adjust_stack_for_multi_arity(closure, 2, &mut 0)?;
+        self.adjust_pushed_frame(closure, 2)?;
 
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
@@ -2936,7 +3037,7 @@ impl<'a> VmCore<'a> {
 
         self.thread.stack.push(arg);
 
-        self.adjust_stack_for_multi_arity(closure, 1, &mut 0)?;
+        self.adjust_pushed_frame(closure, 1)?;
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
@@ -2959,7 +3060,7 @@ impl<'a> VmCore<'a> {
         self.thread.stack.push(arg);
 
         if M {
-            self.adjust_stack_for_multi_arity(closure, 1, &mut 0)?;
+            self.adjust_pushed_frame(closure, 1)?;
         }
 
         self.call_with_instructions_and_reset_state(closure.body_exp())
@@ -5462,6 +5563,8 @@ impl<'a> VmCore<'a> {
             })
         });
 
+        self.keep_escaping()?;
+
         if let Some(result) = result {
             self.thread.stack.push(result?);
             return Ok(true);
@@ -5597,10 +5700,21 @@ impl<'a> VmCore<'a> {
                 SteelVal::ContinuationFunction(continuation.clone()),
                 value.clone(),
             ));
-            stop!(Generic => "a continuation was called through native code that did not pass it on"; self.current_span());
+            return Err(escape_in_flight().with_span(self.current_span()));
         }
 
         stop!(Generic => "this continuation was captured under a call from native code that has returned"; self.current_span());
+    }
+
+    /// For when a builtin comes back. One that ran a function which called a
+    /// continuation of a run further out can have swallowed the error taking
+    /// it there, and returned as though nothing happened.
+    #[inline(always)]
+    fn keep_escaping(&self) -> Result<()> {
+        if unlikely(self.thread.escaping.is_some()) {
+            return Err(escape_in_flight().with_span(self.current_span()));
+        }
+        Ok(())
     }
 
     /// Whether the error just raised is a continuation on its way to this
@@ -5917,6 +6031,8 @@ impl<'a> VmCore<'a> {
                         }
                     })
                 });
+
+                this.keep_escaping()?;
 
                 if let Some(result) = result {
                     // this.thread.stack.push(result?);
@@ -7137,8 +7253,10 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     let fun = arg_iter.next().unwrap();
     let lst = arg_iter.next_back().unwrap();
 
-    // A struct that can be called stands for its procedure
+    // A struct that can be called stands for its procedure. One whose
+    // procedure leads back to itself never gets to a function.
     let mut fun = fun.clone();
+    let mut steps = 0;
     loop {
         let procedure = match &fun {
             SteelVal::CustomStruct(s) => s.maybe_proc().cloned(),
@@ -7148,6 +7266,11 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         match procedure {
             Some(procedure) => fun = procedure,
             None => break,
+        }
+        steps += 1;
+        if steps > 256 {
+            let err = || stop!(TypeMismatch => "apply expects a function, found a struct whose procedure never reaches one"; ctx.current_span());
+            return Some(err());
         }
     }
     let fun = &fun;

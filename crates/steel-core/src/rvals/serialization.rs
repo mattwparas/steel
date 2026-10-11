@@ -298,6 +298,9 @@ pub struct HeapSerializer<'a> {
 
     // Cache the functions that get built
     pub built_functions: &'a mut rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
+    // Whether a function has been made, and with it constants that running
+    // code has to be able to read.
+    pub made_functions: bool,
 
     pub thread: &'a mut SteelThread,
 
@@ -337,6 +340,7 @@ impl<'a> HeapSerializer<'a> {
             cyclic: vec![false; nodes.len()],
             heap,
             built_functions,
+            made_functions: false,
             thread,
             function_mapping: rustc_hash::FxHashMap::default(),
             global_mapping: rustc_hash::FxHashMap::default(),
@@ -826,12 +830,13 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
                     return Ok(SteelVal::Closure(already_made.clone()));
                 }
                 let value = Gc::new(ByteCodeLambda::from_serialized(ctx, c)?);
+                ctx.made_functions = true;
                 ctx.built_functions.insert(id, value.clone());
                 Ok(SteelVal::Closure(value))
             } else {
-                Ok(SteelVal::Closure(Gc::new(ByteCodeLambda::from_serialized(
-                    ctx, c,
-                )?)))
+                let value = Gc::new(ByteCodeLambda::from_serialized(ctx, c)?);
+                ctx.made_functions = true;
+                Ok(SteelVal::Closure(value))
             }
         }
         SerializableSteelVal::BoolV(b) => Ok(SteelVal::BoolV(*b)),
@@ -839,7 +844,13 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
         SerializableSteelVal::IntV(i) => Ok(SteelVal::IntV(*i)),
         SerializableSteelVal::CharV(c) => Ok(SteelVal::CharV(*c)),
         SerializableSteelVal::Void => Ok(SteelVal::Void),
-        SerializableSteelVal::Rational(r) => Ok(SteelVal::Rational(*r)),
+        SerializableSteelVal::Rational(r) => {
+            // Only the form arithmetic produces compares and prints right
+            if *r.denom() <= 1 || r.reduced().denom() != r.denom() {
+                stop!(Generic => "a serialized rational is not in lowest terms");
+            }
+            Ok(SteelVal::Rational(*r))
+        }
         SerializableSteelVal::StringV(s) => Ok(SteelVal::StringV(s.as_str().into())),
         SerializableSteelVal::HashMapV(entries) => {
             let mut map = HashMap::new();
@@ -878,10 +889,23 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
         }
         SerializableSteelVal::BigNum(n) => Ok(SteelVal::BigNum(Gc::new(n.clone()))),
         SerializableSteelVal::BigRational(r) => Ok(SteelVal::BigRational(Gc::new(r.clone()))),
-        SerializableSteelVal::Complex(re, im) => Ok(SteelVal::Complex(Gc::new(SteelComplex {
-            re: ctx.built(*re)?,
-            im: ctx.built(*im)?,
-        }))),
+        SerializableSteelVal::Complex(re, im) => {
+            let (re, im) = (ctx.built(*re)?, ctx.built(*im)?);
+            let real = |part: &SteelVal| {
+                matches!(
+                    part,
+                    SteelVal::IntV(_)
+                        | SteelVal::NumV(_)
+                        | SteelVal::Rational(_)
+                        | SteelVal::BigNum(_)
+                        | SteelVal::BigRational(_)
+                )
+            };
+            if !real(&re) || !real(&im) {
+                stop!(Generic => "a serialized complex number has a part that is not a real number");
+            }
+            Ok(SteelVal::Complex(Gc::new(SteelComplex { re, im })))
+        }
         SerializableSteelVal::CustomStruct(s) => {
             let type_descriptor = ctx.struct_type_here(s, false)?;
             let mut fields = steel_vec::Vec::with_capacity(s.fields.len());

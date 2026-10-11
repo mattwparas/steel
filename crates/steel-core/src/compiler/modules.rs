@@ -1377,9 +1377,17 @@ impl CompiledModule {
 
                                 // *provide = expand(l.)
 
-                                provide.0 = l.get(1).unwrap().clone();
+                                let (Some(name), Some(value)) = (l.get(1), l.get(2)) else {
+                                    stop!(BadSyntax => "provide: contract/out expects a name and a contract"; l.location)
+                                };
 
-                                let mut provide_expr = l.get(2).unwrap().clone();
+                                if name.atom_identifier().is_none() {
+                                    stop!(BadSyntax => "provide: contract/out expects an identifier, found: {}", name; l.location)
+                                }
+
+                                provide.0 = name.clone();
+
+                                let mut provide_expr = value.clone();
                                 expand(
                                     &mut provide_expr,
                                     global_macro_map,

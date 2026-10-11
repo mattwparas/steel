@@ -17,6 +17,7 @@ fn a_literal_where_a_name_is_bound_is_an_error() {
         "(define ((foo a) 5) a)",
         "(define ((foo 1) b) b)",
         "(lambda (10) 10)",
+        "(lambda (`x) 1)",
         "(lambda (x \"s\" y) x)",
         "(lambda 5 1)",
         "(define foo (lambda (a 2) a))",
@@ -99,5 +100,24 @@ fn what_can_still_become_a_parameter_is_let_through() {
 
     for source in sources {
         super::assert_script(source);
+    }
+}
+
+#[test]
+fn a_module_providing_a_contract_for_something_that_is_not_a_name_is_an_error() {
+    let provided = ["5", "(a)", "#:k"];
+
+    for (index, name) in provided.iter().enumerate() {
+        let module = format!("malformed-provide-{index}");
+        let mut engine = crate::steel_vm::engine::Engine::new();
+        engine.register_steel_module(
+            module.clone(),
+            format!("(provide (contract/out {name} any/c)) (define a 1)"),
+        );
+
+        assert!(
+            engine.run(format!("(require \"{module}\")")).is_err(),
+            "{name}"
+        );
     }
 }
