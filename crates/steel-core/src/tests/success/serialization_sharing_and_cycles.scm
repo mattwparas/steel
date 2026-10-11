@@ -121,6 +121,44 @@
                      (equal? (cadr r) (list-tail long 300))
                      (equal? (caddr r) (list 999))))))
 
+;; A tail is sent as a part of the list it is a tail of, and lists that go on
+;; into the same list send it once. What is serialized grows with the elements
+;; there are, and what arrives shares what was shared, so sending it on is no
+;; bigger.
+(define (tails l)
+  (if (null? l) '() (cons l (tails (cdr l)))))
+(define (bytes-of v)
+  (bytes-length (serialized->bytes (serialize-value v))))
+(define (no-bigger-than-a-few? v whole)
+  (< (bytes-of v) (* 4 (bytes-of whole))))
+(let* ([long (range 0 3000)]
+       [all (tails long)])
+  (assert! (no-bigger-than-a-few? all long))
+  (check-both (lambda (copy)
+                (let ([r (copy all)])
+                  (and (equal? r all) (no-bigger-than-a-few? r long))))))
+;; The same when the tails come before the list.
+(let* ([long (range 0 3000)]
+       [backwards (list (list-tail long 2000) (cddr long) (cdr long) long)])
+  (check-both (lambda (copy)
+                (let ([r (copy backwards)])
+                  (and (equal? r backwards) (no-bigger-than-a-few? r long))))))
+;; Lists made by adding to the front of one list.
+(let* ([long (range 0 3000)]
+       [fronts (map (lambda (i) (cons i long)) (range 0 200))])
+  (check-both (lambda (copy)
+                (let ([r (copy fronts)])
+                  (and (equal? r fronts) (no-bigger-than-a-few? r long))))))
+;; A list that starts with the elements of another and goes on is not that
+;; list.
+(check-both (lambda (copy)
+              (let* ([start (range 0 600)]
+                     [longer (append start (range 1000 1600))]
+                     [r (copy (list start longer start))])
+                (and (equal? (car r) start)
+                     (equal? (cadr r) longer)
+                     (= 1200 (length (cadr r)))))))
+
 ;; A bytevector referred to twice is one bytevector.
 (check-both (lambda (copy)
               (let* ([b (bytes 1 2 3)]

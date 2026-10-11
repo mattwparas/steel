@@ -299,8 +299,9 @@ impl Custom for SerializedValue {}
 // What the bytes of a serialized value start with. A table whose entries
 // name each other by place came in with 2. With 3 came names of globals
 // that mean the same in every process, and the layout of each struct type.
-// What was written before is not read.
-const SERIALIZED_FORMAT: u8 = 3;
+// With 4 a list names the list it shares a tail with. What was written
+// before is not read.
+const SERIALIZED_FORMAT: u8 = 4;
 
 // The struct type here that a struct sent from elsewhere belongs to.
 //

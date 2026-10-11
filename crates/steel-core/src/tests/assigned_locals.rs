@@ -1,0 +1,117 @@
+//! A local that is assigned with `set!` keeps what was assigned when a
+//! continuation captured before the assignment is entered again. That holds
+//! with `STEEL_BOX_ASSIGNED_LOCALS` on, and these only check anything then.
+//! With it off the first of them does not end.
+
+use crate::steel_vm::engine::Engine;
+
+const PROGRAM: &str = r#"
+(define (capture) (call/cc (lambda (k) k)))
+
+;; Bound by a `let`, with the continuation captured in a function called
+;; from the next one in.
+(define (let-local x)
+  (let ([n 0])
+    (let ([k (capture)])
+      (set! n (+ n 1))
+      (if (< n 4) (k k) (* x n)))))
+(assert! (= 20 (let-local 5)))
+
+;; The continuation captured where the local is.
+(define (captured-here x)
+  (let ([n 0])
+    (let ([k (call/cc (lambda (k) k))])
+      (set! n (+ n 1))
+      (if (< n 4) (k k) (* x n)))))
+(assert! (= 20 (captured-here 5)))
+
+;; A parameter.
+(define (parameter x n)
+  (define k (capture))
+  (set! n (+ n 1))
+  (if (< n 4) (k k) (* x n)))
+(assert! (= 20 (parameter 5 0)))
+
+;; Internal defines.
+(define (defined x)
+  (define n 0)
+  (define k (capture))
+  (set! n (+ n 1))
+  (if (< n 4) (k k) (* x n)))
+(assert! (= 20 (defined 5)))
+
+;; A local that a closure captures as well.
+(define (closed-over x)
+  (let ([n 0])
+    (let ([k (capture)])
+      (let ([read (lambda () n)])
+        (set! n (+ n 1))
+        (if (< (read) 4) (k k) (* x (read)))))))
+(assert! (= 20 (closed-over 5)))
+
+;; Two locals, one assigned before the continuation is captured and one
+;; after.
+(define (two-locals)
+  (let ([before 0] [after 0])
+    (set! before (+ before 10))
+    (let ([k (capture)])
+      (set! after (+ after 1))
+      (set! before (+ before 1))
+      (if (< after 3) (k k) (list before after)))))
+(assert! (equal? (list 13 3) (two-locals)))
+
+;; Entered again from outside the function that captured it.
+(define saved #f)
+(define (counts-entries)
+  (let ([n 0])
+    (call/cc (lambda (k) (set! saved k)))
+    (set! n (+ n 1))
+    n))
+(define (enters-three-times)
+  (let ([entries (box '())])
+    (set-box! entries (cons (counts-entries) (unbox entries)))
+    (when (< (length (unbox entries)) 3) (saved void))
+    (unbox entries)))
+(assert! (equal? (list 3 2 1) (enters-three-times)))
+
+;; Assigning without a continuation gives what it gave.
+(define (sum-to limit)
+  (let ([total 0] [i 0])
+    (let loop ()
+      (when (< i limit)
+        (set! total (+ total i))
+        (set! i (+ i 1))
+        (loop)))
+    total))
+(assert! (= 4950 (sum-to 100)))
+(define (swap a b)
+  (let ([held a])
+    (set! a b)
+    (set! b held)
+    (list a b)))
+(assert! (equal? (list 2 1) (swap 1 2)))
+"#;
+
+#[test]
+fn assigned_locals_keep_what_was_assigned_when_a_continuation_is_entered_again() {
+    if !crate::config::config().box_assigned_locals {
+        return;
+    }
+
+    Engine::new()
+        .run(PROGRAM)
+        .expect("each local holds what was last assigned to it");
+}
+
+#[test]
+fn assigned_locals_keep_what_was_assigned_in_a_module() {
+    if !crate::config::config().box_assigned_locals {
+        return;
+    }
+
+    let mut engine = Engine::new();
+    engine.register_steel_module("assigned-locals".to_owned(), PROGRAM.to_owned());
+    engine
+        .run(r#"(require "assigned-locals")"#)
+        .expect("each local holds what was last assigned to it");
+}

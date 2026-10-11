@@ -5936,6 +5936,69 @@ fn setbox_argument(ident: ExprKind, expr: ExprKind) -> ExprKind {
 
 struct ReplaceSetOperationsWithBoxes<'a> {
     analysis: &'a Analysis,
+    // Locals to box although no closure captures them.
+    assigned: FxHashSet<SyntaxObjectId>,
+}
+
+impl ReplaceSetOperationsWithBoxes<'_> {
+    fn is_boxed(&self, syntax: &SyntaxObject) -> bool {
+        self.analysis.get(syntax).is_some_and(|info| {
+            info.kind == IdentifierStatus::HeapAllocated
+                || info.refers_to.is_some_and(|id| self.assigned.contains(&id))
+        })
+    }
+
+    fn binds_assigned(&self, var: &ExprKind) -> bool {
+        var.atom_syntax_object()
+            .is_some_and(|syntax| self.assigned.contains(&syntax.syntax_object_id))
+    }
+}
+
+// Finds the locals that are assigned to: what a `set!` names that a function
+// or a `let` binds. A continuation keeps a copy of the stack, so a local
+// assigned in its stack slot goes back to what it was when the continuation
+// is entered again. In a box it is the same variable in every copy.
+struct AssignedLocals<'a> {
+    analysis: &'a Analysis,
+    bound: FxHashSet<SyntaxObjectId>,
+    assigned: FxHashSet<SyntaxObjectId>,
+}
+
+impl AssignedLocals<'_> {
+    fn bind(&mut self, var: &ExprKind) {
+        if let Some(syntax) = var.atom_syntax_object() {
+            self.bound.insert(syntax.syntax_object_id);
+        }
+    }
+}
+
+impl VisitorMutRefUnit for AssignedLocals<'_> {
+    fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
+        for var in &lambda_function.args {
+            self.bind(var);
+        }
+        self.visit(&mut lambda_function.body);
+    }
+
+    fn visit_let(&mut self, l: &mut Let) {
+        for (var, value) in l.bindings.iter_mut() {
+            self.bind(var);
+            self.visit(value);
+        }
+        self.visit(&mut l.body_expr);
+    }
+
+    fn visit_set(&mut self, s: &mut crate::parser::ast::Set) {
+        let target = s
+            .variable
+            .atom_syntax_object()
+            .and_then(|syntax| self.analysis.get(syntax))
+            .and_then(|info| info.refers_to);
+        if let Some(target) = target {
+            self.assigned.insert(target);
+        }
+        self.visit(&mut s.expr);
+    }
 }
 
 impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
@@ -5949,26 +6012,22 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             ExprKind::Quote(_) => {}
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => {
-                if let Some(analysis) = self.analysis.get(&a.syn) {
-                    // Could also be captured?
-                    if analysis.kind == IdentifierStatus::HeapAllocated {
-                        let mut dummy = ExprKind::List(List::new(ThinVec::new()));
-                        core::mem::swap(&mut dummy, expr);
+                // Could also be captured?
+                if self.is_boxed(&a.syn) {
+                    let mut dummy = ExprKind::List(List::new(ThinVec::new()));
+                    core::mem::swap(&mut dummy, expr);
 
-                        *expr = unbox_argument(dummy);
-                    }
+                    *expr = unbox_argument(dummy);
                 }
             }
             ExprKind::List(l) => self.visit_list(l),
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => {
-                if let Some(analysis) = self.analysis.get(s.variable.atom_syntax_object().unwrap())
-                {
-                    if analysis.kind != IdentifierStatus::HeapAllocated {
-                        self.visit(&mut s.expr);
+                let variable = s.variable.atom_syntax_object().unwrap();
+                if self.analysis.get(variable).is_some() && !self.is_boxed(variable) {
+                    self.visit(&mut s.expr);
 
-                        return;
-                    }
+                    return;
                 }
 
                 // Go ahead and drop down the expression
@@ -6008,7 +6067,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             for (var, _) in &l.bindings {
                 if let Some(ident) = var.atom_identifier() {
                     if let Some((_, arg)) = let_info.arguments.iter().find(|x| *x.0 == *ident) {
-                        if arg.captured && arg.mutated {
+                        if arg.captured && arg.mutated || self.binds_assigned(var) {
                             mutable_variables.push(var.clone());
                         }
                     }
@@ -6069,7 +6128,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
                 if let Some(ident) = var.atom_identifier() {
                     if let Some((_, arg)) = function_info.arguments().iter().find(|x| x.0 == *ident)
                     {
-                        if arg.captured && arg.mutated {
+                        if arg.captured && arg.mutated || self.binds_assigned(var) {
                             mutable_variables.push(var.clone());
                         }
                     }
@@ -7600,7 +7659,21 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
                     // many arguments its own call was given.
                     let outer_rest = function_a.rest;
 
-                    if all_dont_contain_references && !outer_rest {
+                    // A local that is assigned gets its box where its
+                    // function is entered. Bound together with the inner
+                    // arguments, that would be after they are evaluated, and
+                    // a continuation captured by one of them would be entered
+                    // again before the box is made.
+                    let outer_assigned = crate::config::config().box_assigned_locals
+                        && self
+                            .analysis
+                            .function_info
+                            .get(&function_a.syntax_object_id)
+                            .is_some_and(|info| {
+                                info.arguments().iter().any(|(_, arg)| arg.mutated)
+                            });
+
+                    if all_dont_contain_references && !outer_rest && !outer_assigned {
                         if let Some(function_b) =
                             inner_l.first_func_mut().filter(|inner| !inner.rest)
                         {
@@ -8940,8 +9013,26 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn replace_mutable_captured_variables_with_boxes(&mut self) -> &mut Self {
+        let mut assigned = FxHashSet::default();
+        if crate::config::config().box_assigned_locals {
+            let mut locals = AssignedLocals {
+                analysis: &self.analysis,
+                bound: FxHashSet::default(),
+                assigned: FxHashSet::default(),
+            };
+            for expr in self.exprs.iter_mut() {
+                locals.visit(expr);
+            }
+            assigned = locals
+                .assigned
+                .intersection(&locals.bound)
+                .copied()
+                .collect();
+        }
+
         let mut replacer = ReplaceSetOperationsWithBoxes {
             analysis: &self.analysis,
+            assigned,
         };
 
         for expr in self.exprs.iter_mut() {

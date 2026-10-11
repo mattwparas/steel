@@ -384,6 +384,10 @@ steel_config! {
     topo_defines: bool = true, "STEEL_TOPO_DEFINES";
     /// Log the ordering.
     topo_log: bool = false, "STEEL_TOPO_LOG";
+    /// Keep every local that is assigned with `set!` in a box, whether or not
+    /// a closure captures it. A continuation entered again then sees what was
+    /// assigned since it was captured.
+    box_assigned_locals: bool = false, "STEEL_BOX_ASSIGNED_LOCALS";
     /// Lower acyclic internal defines sequentially rather than as `letrec`.
     sequential_defines: bool = true, "STEEL_SEQUENTIAL_DEFINES";
     /// Keep module globals that are reassigned with `set!` in boxes.

@@ -74,6 +74,10 @@ pub enum SerializableSteelVal {
     StructTypeKey(StructTypeDescriptor),
     BuiltinSteelModuleRef(String, String),
     NativeStruct(String, Vec<u8>),
+    // A list of these elements followed by the list at the entry.
+    ListOnto(Vec<SerializedId>, SerializedId),
+    // The list at the entry without this many of its first elements.
+    ListTail(SerializedId, u32),
 }
 
 impl SerializableSteelVal {
@@ -128,6 +132,10 @@ impl std::fmt::Debug for SerializableSteelVal {
             SerializableSteelVal::Port(sendable_port) => write!(f, "#<port:{:?}>", sendable_port),
             SerializableSteelVal::NativeStruct(n, _) => write!(f, "#<native:{}>", n),
             SerializableSteelVal::HeapAllocatedVector(x) => write!(f, "#<mutable-vector {:?}>", x),
+            SerializableSteelVal::ListOnto(x, rest) => write!(f, "#<list {:?} onto {:?}>", x, rest),
+            SerializableSteelVal::ListTail(list, skipped) => {
+                write!(f, "#<tail {:?} of {:?}>", skipped, list)
+            }
         }
     }
 }
@@ -832,6 +840,11 @@ fn for_each_held(node: &SerializableSteelVal, mut visit: impl FnMut(SerializedId
             visit(*a);
             visit(*b);
         }
+        SerializableSteelVal::ListOnto(ids, rest) => {
+            ids.iter().copied().for_each(&mut visit);
+            visit(*rest);
+        }
+        SerializableSteelVal::ListTail(list, _) => visit(*list),
         SerializableSteelVal::CustomStruct(record) => {
             record.fields.iter().copied().for_each(&mut visit)
         }
@@ -926,6 +939,26 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
         }
         SerializableSteelVal::ListV(ids) => {
             Ok(SteelVal::ListV(ctx.built_all(ids)?.into_iter().collect()))
+        }
+        SerializableSteelVal::ListOnto(ids, rest) => {
+            let SteelVal::ListV(mut list) = ctx.built(*rest)? else {
+                stop!(Generic => "a serialized list goes on into something that is not a list");
+            };
+            // The list that follows is held by the table as well, so this
+            // adds to it without copying it.
+            for element in ctx.built_all(ids)?.into_iter().rev() {
+                list.cons_mut(element);
+            }
+            Ok(SteelVal::ListV(list))
+        }
+        SerializableSteelVal::ListTail(list, skipped) => {
+            let SteelVal::ListV(list) = ctx.built(*list)? else {
+                stop!(Generic => "a serialized tail is of something that is not a list");
+            };
+            match list.tail(*skipped as usize) {
+                Some(tail) => Ok(SteelVal::ListV(tail)),
+                None => stop!(Generic => "a serialized tail is of a list too short to have it"),
+            }
         }
         SerializableSteelVal::VectorV(ids) => Ok(SteelVal::VectorV(SteelVector(Gc::new(
             ctx.built_all(ids)?.into_iter().collect(),
@@ -1080,6 +1113,11 @@ pub struct SerializationContext<'a> {
     kept: Vec<SteelVal>,
     // Values with a place in the table and nothing in it yet.
     waiting: Vec<(SerializedId, SteelVal)>,
+    // Where each list has been put.
+    lists: rustc_hash::FxHashMap<ListPlace, SerializedId>,
+    // The longest list put down so far out of each run of elements, with
+    // how many of them it has.
+    longest: rustc_hash::FxHashMap<(usize, usize), (usize, SerializedId)>,
 }
 
 impl<'a> SerializationContext<'a> {
@@ -1102,6 +1140,8 @@ impl<'a> SerializationContext<'a> {
             seen: rustc_hash::FxHashMap::default(),
             kept: Vec::new(),
             waiting: Vec::new(),
+            lists: rustc_hash::FxHashMap::default(),
+            longest: rustc_hash::FxHashMap::default(),
         }
     }
 
@@ -1117,6 +1157,17 @@ impl<'a> SerializationContext<'a> {
     /// The place in the table of `value`, which is put down to be filled in
     /// if this is the first it has been seen.
     pub(crate) fn place(&mut self, value: SteelVal) -> Result<SerializedId> {
+        if let Some(place) = list_place(&value) {
+            if let Some(id) = self.lists.get(&place) {
+                return Ok(*id);
+            }
+            let id = self.push(SerializableSteelVal::Void)?;
+            self.lists.insert(place, id);
+            self.kept.push(value.clone());
+            self.waiting.push((id, value));
+            return Ok(id);
+        }
+
         let identity = identity(&value);
         if let Some(id) = identity.and_then(|identity| self.seen.get(&identity)) {
             return Ok(*id);
@@ -1141,9 +1192,7 @@ impl<'a> SerializationContext<'a> {
 
 // What a value that can be referred to from more than one place is told
 // apart by: its kind and where it lives. Two references to one of these are
-// one entry in the table. A list and its tail can live in the same place, so
-// a list is told apart by where its elements are and how many of them it
-// has there.
+// one entry in the table.
 fn identity(value: &SteelVal) -> Option<(u8, usize, usize)> {
     let (kind, address) = match value {
         SteelVal::Closure(gc) => (0, gc.as_ptr() as usize),
@@ -1158,13 +1207,82 @@ fn identity(value: &SteelVal) -> Option<(u8, usize, usize)> {
         SteelVal::HeapAllocated(heap_ref) => (9, heap_ref.as_ptr_usize()),
         SteelVal::FlatVector(gc) => (10, gc.as_ptr() as usize),
         SteelVal::ByteVector(bytes) => (11, bytes.vec.as_ptr() as usize),
-        SteelVal::ListV(list) if !list.is_empty() => {
-            let (elements, index) = list.identity_tuple();
-            return Some((12, elements, index));
-        }
         _ => return None,
     };
     Some((kind, address, 0))
+}
+
+// What a list is told apart by. A list keeps its elements in runs, each
+// followed by the rest of the list. Lists that share a tail share its runs,
+// and a list and its tail can have their first elements in the same run. So
+// a list is where its first run is, how many of that run's elements it has,
+// and what follows the run.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ListPlace {
+    run: usize,
+    rest: usize,
+    count: usize,
+}
+
+fn list_place(value: &SteelVal) -> Option<ListPlace> {
+    match value {
+        SteelVal::ListV(list) if !list.is_empty() => {
+            let (run, count) = list.identity_tuple();
+            Some(ListPlace {
+                run,
+                rest: list.next_ptr_as_usize().unwrap_or(0),
+                count,
+            })
+        }
+        _ => None,
+    }
+}
+
+// The entry for a list. Only its first run is written with it. What follows
+// the run is a list with an entry of its own, which every list that shares
+// it names. A list out of a run that a longer list has been put down from
+// is a tail of that one, and a longer list adds its elements to the front
+// of the one before it.
+fn list_node(
+    id: SerializedId,
+    list: crate::values::lists::List<SteelVal>,
+    ctx: &mut SerializationContext,
+) -> Result<SerializableSteelVal> {
+    let Some(place) = list_place(&SteelVal::ListV(list.clone())) else {
+        return Ok(SerializableSteelVal::ListV(Vec::new()));
+    };
+    let run = (place.run, place.rest);
+    let longest = ctx.longest.get(&run).copied();
+
+    let (written, rest) = match longest {
+        Some((count, longer)) if place.count <= count => {
+            let Ok(skipped) = u32::try_from(count - place.count) else {
+                stop!(Generic => "this list is too long to serialize");
+            };
+            return Ok(SerializableSteelVal::ListTail(longer, skipped));
+        }
+        Some((count, shorter)) => (count, Some(shorter)),
+        None if place.rest == 0 => (0, None),
+        // Going to the last of the run and on from there gives the list
+        // that follows as it is. Asking for the tail past the run would
+        // give a copy of where it starts.
+        None => match list.tail(place.count - 1).and_then(|last| last.cdr()) {
+            Some(rest) => (0, Some(ctx.place(SteelVal::ListV(rest))?)),
+            None => (0, None),
+        },
+    };
+    ctx.longest.insert(run, (place.count, id));
+
+    let elements = list
+        .current_node_iter()
+        .take(place.count - written)
+        .cloned()
+        .collect::<Vec<_>>();
+    let elements = ctx.place_all(elements)?;
+    Ok(match rest {
+        Some(rest) => SerializableSteelVal::ListOnto(elements, rest),
+        None => SerializableSteelVal::ListV(elements),
+    })
 }
 
 /// Puts `val` and everything it holds in the table, and gives its place.
@@ -1175,17 +1293,41 @@ pub fn into_serializable_value(
     let id = ctx.place(val)?;
 
     // This also takes whatever else is waiting, which is the same work
-    // whoever put it down would have gone on to do.
-    while let Some((id, value)) = ctx.waiting.pop() {
-        let node = node_for(value, ctx)?;
-        ctx.nodes[id.index()] = node;
+    // whoever put it down would have gone on to do. Lists are left until
+    // nothing else is waiting and then taken longest first, so that a list
+    // is put down before its tails where it can be.
+    let mut lists = Vec::new();
+    loop {
+        while let Some((id, value)) = ctx.waiting.pop() {
+            match value {
+                SteelVal::ListV(list) if !list.is_empty() => {
+                    lists.push((list.cursor_index(), id, list));
+                }
+                value => {
+                    let node = node_for(id, value, ctx)?;
+                    ctx.nodes[id.index()] = node;
+                }
+            }
+        }
+        if lists.is_empty() {
+            break;
+        }
+        lists.sort_by_key(|(count, ..)| core::cmp::Reverse(*count));
+        for (_, id, list) in lists.drain(..) {
+            let node = list_node(id, list, ctx)?;
+            ctx.nodes[id.index()] = node;
+        }
     }
 
     Ok(id)
 }
 
 // The entry for `val`. What it holds is given a place and left waiting.
-fn node_for(val: SteelVal, ctx: &mut SerializationContext) -> Result<SerializableSteelVal> {
+fn node_for(
+    id: SerializedId,
+    val: SteelVal,
+    ctx: &mut SerializationContext,
+) -> Result<SerializableSteelVal> {
     match val {
         SteelVal::Closure(c) => {
             closure_into_serializable(&c, ctx).map(SerializableSteelVal::Closure)
@@ -1228,7 +1370,7 @@ fn node_for(val: SteelVal, ctx: &mut SerializationContext) -> Result<Serializabl
 
             stop!(Generic => "a native function was found that can't be named to be sent: {}", val);
         }
-        SteelVal::ListV(l) => Ok(SerializableSteelVal::ListV(ctx.place_all(l)?)),
+        SteelVal::ListV(l) => list_node(id, l, ctx),
         SteelVal::Pair(pair) => Ok(SerializableSteelVal::Pair(
             ctx.place(pair.car())?,
             ctx.place(pair.cdr())?,
