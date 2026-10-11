@@ -1099,6 +1099,20 @@ pub(crate) fn spawn_native_thread(
     builtin_stop!(Generic => "the feature needed for spawn-native-thread is not enabled.")
 }
 
+#[cfg(feature = "sync")]
+fn wait_to_be_registered(
+    thread: &mut SteelThread,
+    func: &SteelVal,
+    registered: &(Mutex<bool>, std::sync::Condvar),
+) {
+    thread.enter_safepoint_holding(core::slice::from_ref(func), |_| {
+        let mut open = registered.0.lock().unwrap();
+        while !*open {
+            open = registered.1.wait(open).unwrap();
+        }
+    });
+}
+
 /// Spawns the given `func` on another thread. It is required that the arity of the
 /// given function be 0. If the arity of the given function cannot be checked until runtime,
 /// the thread will be spawned and the function will fail to execute.
@@ -1116,20 +1130,6 @@ pub(crate) fn spawn_native_thread(
 /// ```
 /// Holds a new thread at a safepoint until it has been registered. A
 /// collection only scans registered threads.
-#[cfg(feature = "sync")]
-fn wait_to_be_registered(
-    thread: &mut SteelThread,
-    func: &SteelVal,
-    registered: &(Mutex<bool>, std::sync::Condvar),
-) {
-    thread.enter_safepoint_holding(core::slice::from_ref(func), |_| {
-        let mut open = registered.0.lock().unwrap();
-        while !*open {
-            open = registered.1.wait(open).unwrap();
-        }
-    });
-}
-
 #[cfg(feature = "sync")]
 #[steel_derive::context(
     name = "spawn-native-thread",
