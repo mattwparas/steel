@@ -5,10 +5,10 @@ use crate::steel_vm::engine::Engine;
 #[cfg(all(feature = "sync", feature = "jit2"))]
 mod compiled_shape;
 mod continuations_from_host;
-#[cfg(feature = "sync")]
-mod engines_side_by_side;
 #[cfg(all(feature = "sync", feature = "jit2"))]
 mod counted_loops;
+#[cfg(feature = "sync")]
+mod engines_side_by_side;
 #[cfg(feature = "sync")]
 mod history;
 mod malformed_bindings;

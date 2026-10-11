@@ -7154,10 +7154,13 @@ impl FunctionTranslator<'_> {
     ) {
         let offset = self.builder.ins().iadd_imm_s(ptr, weak_counter_offset());
 
+        // A plain load. A count that another thread's drop has since lowered
+        // only sends this one past the out-of-line drop, which leaves the box
+        // to the next collection.
         let current =
             self.builder
                 .ins()
-                .atomic_load(weak_counter_type(), MemFlagsData::trusted(), offset);
+                .load(weak_counter_type(), MemFlagsData::trusted(), offset, 0);
 
         let last = self
             .builder

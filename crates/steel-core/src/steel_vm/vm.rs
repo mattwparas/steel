@@ -6443,7 +6443,9 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
         .module_context
         .last()
         .map(|x| x.as_str().to_owned())
-        .map(PathBuf::from);
+        .map(PathBuf::from)
+        // A module registered from a string has a name that is not a file
+        .filter(|path| path.exists());
 
     // TODO: Provide a path / context from which to do this? Or grab it implicitly?
     let res = ctx
