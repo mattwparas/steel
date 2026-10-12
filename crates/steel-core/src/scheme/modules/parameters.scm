@@ -111,13 +111,52 @@
      (set! set-Parameter-value! (λ (this4 value4) (#%mstruct-set! struct-key3 this4 1 value4)))
      void))))
 
+;; What this thread has bound with parameterize, innermost first. A new
+;; thread starts with the bindings of the one that spawned it.
+(define parameterization (make-tls '()))
+
+(define (parameter-binding param bindings)
+  (cond
+    [(null? bindings) #f]
+    [(eq? (car (car bindings)) param) (car bindings)]
+    [else (parameter-binding param (cdr bindings))]))
+
+(define (replace-parameter-binding param value bindings)
+  (if (eq? (car (car bindings)) param)
+      (cons (cons param value) (cdr bindings))
+      (cons (car bindings) (replace-parameter-binding param value (cdr bindings)))))
+
+(define (remove-parameter-binding param bindings)
+  (cond
+    [(null? bindings) bindings]
+    [(eq? (car (car bindings)) param) (cdr bindings)]
+    [else (cons (car bindings) (remove-parameter-binding param (cdr bindings)))]))
+
+(define (push-parameter-binding! param value)
+  (unless (Parameter? param)
+    (error "parameterize expects a parameter, found:" param))
+  (set-tls! parameterization (cons (cons param value) (get-tls parameterization))))
+
+(define (pop-parameter-binding! param)
+  (set-tls! parameterization (remove-parameter-binding param (get-tls parameterization))))
+
 (define (make-parameter value)
   (define param (Parameter 'uninitialized value))
 
-  (set-Parameter-getter! param
-                         (case-lambda
-                           [() (Parameter-value param)]
-                           [(new-value) (set-Parameter-value! param new-value)]))
+  (set-Parameter-getter!
+   param
+   (case-lambda
+     [()
+      (let ([bindings (get-tls parameterization)])
+        (if (null? bindings)
+            (Parameter-value param)
+            (let ([binding (parameter-binding param bindings)])
+              (if binding (cdr binding) (Parameter-value param)))))]
+     [(new-value)
+      (let ([bindings (get-tls parameterization)])
+        (if (parameter-binding param bindings)
+            (set-tls! parameterization (replace-parameter-binding param new-value bindings))
+            (set-Parameter-value! param new-value)))]))
 
   param)
 
@@ -132,12 +171,13 @@
                     rest ...)
        body ...)
 
-     (let ([old-value (var)])
-       (dynamic-wind (lambda () (set-Parameter-value! var val))
+     (let ([param var]
+           [value val])
+       (dynamic-wind (lambda () (push-parameter-binding! param value))
                      (lambda ()
                        (parameterize (rest ...)
                          body ...))
-                     (lambda () (set-Parameter-value! var old-value))))]))
+                     (lambda () (pop-parameter-binding! param))))]))
 
 ;;;;;;; Bootstrapping printing functions for various primitive structs
 

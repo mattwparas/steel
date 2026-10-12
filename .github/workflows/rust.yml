@@ -61,12 +61,19 @@ jobs:
           cd cogs/
           cargo run -- install.scm
 
-      - uses: actions-rs/cargo@v1
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Run tests
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
-        with:
-          command: test
-          args: --all
+        run: cargo nextest run --all --profile ci
+
+      # nextest doesn't run doc tests.
+      - name: Run doc tests
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: cargo test --all --doc
 
       - name: install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --force
@@ -133,21 +140,26 @@ jobs:
           cd cogs/
           cargo run -- install.scm
 
-      - uses: actions-rs/cargo@v1
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Run tests
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
-        with:
-          command: test
-          args: --all
+        run: cargo nextest run --all --profile ci
+
+      # nextest doesn't run doc tests.
+      - name: Run doc tests
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: cargo test --all --doc
 
       # We also want to test the JIT stuff as well
-      - uses: actions-rs/cargo@v1
+      - name: Run tests without the JIT
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
           STEEL_JIT: false
-        with:
-          command: test
-          args: --all
+        run: cargo nextest run --all --profile ci
 
       - name: Install shared libraries
         env:
