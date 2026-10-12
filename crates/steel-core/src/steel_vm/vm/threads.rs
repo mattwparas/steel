@@ -299,9 +299,9 @@ impl Custom for SerializedValue {}
 // What the bytes of a serialized value start with. A table whose entries
 // name each other by place came in with 2. With 3 came names of globals
 // that mean the same in every process, and the layout of each struct type.
-// With 4 a list names the list it shares a tail with. What was written
-// before is not read.
-const SERIALIZED_FORMAT: u8 = 4;
+// With 4 a list names the list it shares a tail with. With 5 a module in a
+// name has the root it was found under. What was written before is not read.
+const SERIALIZED_FORMAT: u8 = 5;
 
 // The struct type here that a struct sent from elsewhere belongs to.
 //
@@ -519,7 +519,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
     // turns up.
     loop {
         for idx in std::mem::take(&mut sctx.reachable_globals) {
-            if old_mapping.contains_key(&idx) {
+            if global_names.contains_key(&idx) {
                 continue;
             }
 
@@ -529,7 +529,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
                 stop!(Generic => "a function refers to a global that isn't there");
             };
             let global = global.clone();
-            let name = GlobalName::new(ident.resolve());
+            let name = GlobalName::new(ident.resolve(), sctx.compiled_modules.origins());
 
             // A built in that can't be sent is recorded as where to find it
             // on the other side.
@@ -559,7 +559,17 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
                 }
             }
 
-            old_mapping.insert(idx, into_serializable_value(global, &mut sctx)?);
+            let unsendable = matches!(global, SteelVal::Custom(_) | SteelVal::PortV(_));
+            let table_len = sctx.nodes.len();
+
+            match into_serializable_value(global, &mut sctx) {
+                Ok(id) => {
+                    old_mapping.insert(idx, id);
+                }
+                // Left for the receiver to find under the same name.
+                Err(_) if unsendable => sctx.nodes.truncate(table_len),
+                Err(e) => return Err(e),
+            }
             global_names.insert(idx, name);
         }
 

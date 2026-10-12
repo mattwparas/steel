@@ -38,7 +38,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -241,6 +241,133 @@ pub fn steel_home() -> Option<String> {
     STEEL_HOME.clone()
 }
 
+/// What a module's path is relative to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ModuleRoot {
+    /// The directory of the first module the main program required.
+    Entry,
+    /// The cogs directory of the steel home.
+    Home,
+    /// One of the search directories.
+    Search,
+}
+
+/// Where a module was found when it was required.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModuleOrigin {
+    pub path: PathBuf,
+    pub root: ModuleRoot,
+    pub root_dir: PathBuf,
+    /// The path from the root directory, separated by `/`.
+    pub relative: String,
+}
+
+// How a require was resolved.
+enum Found<'a> {
+    Beside,
+    Home(&'a Path),
+    Search(&'a Path),
+}
+
+/// The origin of each module that has one, by the path its prefix is
+/// numbered from, and that path by root and relative path.
+#[derive(Clone, Default)]
+pub struct ModuleOrigins {
+    entry: Option<PathBuf>,
+    by_prefix_path: FxHashMap<String, ModuleOrigin>,
+    by_relative: FxHashMap<(ModuleRoot, String), String>,
+}
+
+impl ModuleOrigins {
+    pub fn get(&self, path: &Path) -> Option<&ModuleOrigin> {
+        self.by_prefix_path.get(prefix_path(path))
+    }
+
+    pub(crate) fn by_prefix_path(&self, prefix_path: &str) -> Option<&ModuleOrigin> {
+        self.by_prefix_path.get(prefix_path)
+    }
+
+    pub(crate) fn prefix_path_for(&self, root: ModuleRoot, relative: &str) -> Option<&str> {
+        self.by_relative
+            .get(&(root, relative.to_string()))
+            .map(|x| x.as_str())
+    }
+
+    // The first origin a module is found under is kept.
+    fn record(&mut self, requirer: &Path, main: bool, found: Found, spec: &str, path: &Path) {
+        let Some(key) = path.to_str().map(|_| prefix_path(path).to_string()) else {
+            return;
+        };
+
+        if self.by_prefix_path.contains_key(&key) {
+            return;
+        }
+
+        let origin = match found {
+            Found::Beside if main => {
+                if self.entry.is_none() {
+                    self.entry = path.parent().map(|x| x.to_path_buf());
+                }
+
+                self.entry.clone().and_then(|root_dir| {
+                    let relative = relative_from("", path.strip_prefix(&root_dir).ok()?)?;
+                    Some((ModuleRoot::Entry, root_dir, relative))
+                })
+            }
+            Found::Beside => self.get(requirer).and_then(|parent| {
+                let dir = parent.relative.rsplit_once('/').map_or("", |x| x.0);
+                relative_from(dir, Path::new(spec))
+                    .map(|relative| (parent.root, parent.root_dir.clone(), relative))
+            }),
+            Found::Home(dir) => relative_from("", Path::new(spec))
+                .map(|relative| (ModuleRoot::Home, dir.to_path_buf(), relative)),
+            Found::Search(dir) => relative_from("", Path::new(spec))
+                .map(|relative| (ModuleRoot::Search, dir.to_path_buf(), relative)),
+        };
+
+        let Some((root, root_dir, relative)) = origin else {
+            return;
+        };
+
+        // Another file already has this name under the root.
+        if self.by_relative.contains_key(&(root, relative.clone())) {
+            return;
+        }
+
+        self.by_relative
+            .insert((root, relative.clone()), key.clone());
+        self.by_prefix_path.insert(
+            key,
+            ModuleOrigin {
+                path: path.to_path_buf(),
+                root,
+                root_dir,
+                relative,
+            },
+        );
+    }
+}
+
+// `path` under `dir`, or nothing if it is absolute or climbs out of the root.
+fn relative_from(dir: &str, path: &Path) -> Option<String> {
+    use std::path::Component;
+
+    let mut parts: Vec<&str> = dir.split('/').filter(|x| !x.is_empty()).collect();
+
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_str()?),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+
+    Some(parts.join("/"))
+}
+
 /// Manages the modules
 /// keeps some visited state on the manager for traversal
 /// Also keeps track of the metadata for each file in order to determine
@@ -256,6 +383,8 @@ pub struct ModuleManager {
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 
     prelude_string: Cow<'static, str>,
+
+    pub(crate) origins: ModuleOrigins,
 }
 
 pub trait SourceModuleResolver: Send + Sync {
@@ -276,7 +405,12 @@ impl ModuleManager {
             rollback_metadata: crate::HashMap::new(),
             module_resolvers: Vec::new(),
             prelude_string: Cow::Borrowed(PRELUDE_STRING),
+            origins: ModuleOrigins::default(),
         }
+    }
+
+    pub fn origins(&self) -> &ModuleOrigins {
+        &self.origins
     }
 
     pub fn add_builtin_module(&mut self, module_name: String, mut text: String) {
@@ -340,6 +474,7 @@ impl ModuleManager {
             &[],
             &self.module_resolvers,
             &self.prelude_string,
+            &mut self.origins,
         )?;
 
         module_builder.compile()?;
@@ -391,6 +526,7 @@ impl ModuleManager {
             search_dirs,
             &self.module_resolvers,
             &self.prelude_string,
+            &mut self.origins,
         )?;
 
         let mut module_statements = module_builder.compile()?;
@@ -974,55 +1110,33 @@ pub static MANGLER_PREFIX: &str = "##mm";
 pub static MODULE_PREFIX: &str = "__module-";
 pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
 
+// The path a module's prefix is numbered from.
+fn prefix_path(name: &Path) -> &str {
+    let name = name.to_str().unwrap();
+
+    match STEEL_HOME.as_ref() {
+        Some(steel_home) => name.trim_start_matches(steel_home.as_str()),
+        None => name,
+    }
+}
+
+fn push_prefix_id(base: &mut CompactString, name: &Path) {
+    let interned = InternedString::from_str(prefix_path(name));
+    let id = interned.get().into_inner();
+
+    base.push_str(&id.to_string());
+    base.push_str(MANGLER_SEPARATOR);
+}
+
 pub fn path_to_prefix_name(name: PathBuf) -> String {
     let mut base = CompactString::new(MANGLER_PREFIX);
-
-    if let Some(steel_home) = STEEL_HOME.as_ref() {
-        // Intern this?
-        let name = name
-            .to_str()
-            .unwrap()
-            .trim_start_matches(steel_home.as_str());
-
-        let interned = InternedString::from_str(name);
-        let id = interned.get().into_inner();
-
-        base.push_str(&id.to_string());
-        base.push_str(MANGLER_SEPARATOR);
-    } else {
-        let interned = InternedString::from_str(name.to_str().unwrap());
-        let id = interned.get().into_inner();
-
-        base.push_str(&id.to_string());
-        base.push_str(MANGLER_SEPARATOR);
-    }
-
+    push_prefix_id(&mut base, &name);
     base.into_string()
 }
 
 pub fn path_to_module_name(name: PathBuf) -> String {
     let mut base = CompactString::new(MANGLED_MODULE_PREFIX);
-
-    if let Some(steel_home) = STEEL_HOME.as_ref() {
-        // Intern this?
-        let name = name
-            .to_str()
-            .unwrap()
-            .trim_start_matches(steel_home.as_str());
-
-        let interned = InternedString::from_str(name);
-        let id = interned.get().into_inner();
-
-        base.push_str(&id.to_string());
-        base.push_str(MANGLER_SEPARATOR);
-    } else {
-        let interned = InternedString::from_str(name.to_str().unwrap());
-        let id = interned.get().into_inner();
-
-        base.push_str(&id.to_string());
-        base.push_str(MANGLER_SEPARATOR);
-    }
-
+    push_prefix_id(&mut base, &name);
     base.into_string()
 }
 
@@ -1039,31 +1153,7 @@ impl CompiledModule {
         downstream_builtins: Vec<PathBuf>,
     ) -> Self {
         let mut base = CompactString::new(MANGLER_PREFIX);
-
-        if let Some(steel_home) = STEEL_HOME.as_ref() {
-            // Intern this?
-            let name = name
-                .to_str()
-                .unwrap()
-                .trim_start_matches(steel_home.as_str());
-
-            let interned = InternedString::from_str(name);
-            let id = interned.get().into_inner();
-
-            // base.push_str(name);
-            base.push_str(&id.to_string());
-            base.push_str(MANGLER_SEPARATOR);
-
-            // println!("{}", base);
-            // println!("Byte length: {}", base.len());
-        } else {
-            let interned = InternedString::from_str(name.to_str().unwrap());
-            let id = interned.get().into_inner();
-
-            // base.push_str(self.name.to_str().unwrap());
-            base.push_str(&id.to_string());
-            base.push_str(MANGLER_SEPARATOR);
-        }
+        push_prefix_id(&mut base, &name);
 
         Self {
             name,
@@ -1997,6 +2087,7 @@ struct ModuleBuilder<'a> {
     search_dirs: &'a [PathBuf],
     module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
     prelude_string: &'a str,
+    origins: &'a mut ModuleOrigins,
 }
 
 #[derive(Debug)]
@@ -2025,6 +2116,7 @@ impl<'a> ModuleBuilder<'a> {
         search_dirs: &'a [PathBuf],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         prelude_string: &'a str,
+        origins: &'a mut ModuleOrigins,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -2060,6 +2152,7 @@ impl<'a> ModuleBuilder<'a> {
             search_dirs,
             module_resolvers,
             prelude_string,
+            origins,
         })
     }
 
@@ -2191,6 +2284,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.custom_builtins,
                     self.module_resolvers,
                     self.prelude_string,
+                    self.origins,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -2305,6 +2399,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.search_dirs,
                     self.module_resolvers,
                     self.prelude_string,
+                    self.origins,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -2914,22 +3009,27 @@ impl<'a> ModuleBuilder<'a> {
                 }
                 current.push(PathBuf::from(s.resolve()));
 
+                let mut found = Found::Beside;
+
                 // // If the path exists on its own, we can continue
                 // // But theres the case where we're searching for a module on the STEEL_HOME
                 if !current.exists() {
-                    if let Some(mut home) = home.clone() {
+                    if let Some(home_dir) = home.as_ref() {
+                        let mut home = home_dir.clone();
                         home.push(PathBuf::from(s.resolve()));
                         current = home;
+                        found = Found::Home(home_dir);
 
                         log::info!("Searching STEEL_HOME for {:?}", current);
 
                         if !current.exists() {
-                            for dir in self.search_dirs {
-                                let mut dir = dir.clone();
+                            for search_dir in self.search_dirs {
+                                let mut dir = search_dir.clone();
                                 dir.push(s.resolve());
 
                                 if dir.exists() {
                                     current = dir;
+                                    found = Found::Search(search_dir);
                                     break;
                                 }
                             }
@@ -2958,6 +3058,9 @@ impl<'a> ModuleBuilder<'a> {
                 // self.requires.push(current)
 
                 let current = try_canonicalize(current);
+
+                self.origins
+                    .record(&self.name, self.main, found, s.resolve(), &current);
 
                 require_object.path = Some(PathOrBuiltIn::Path(current));
             }
@@ -3073,18 +3176,23 @@ impl<'a> ModuleBuilder<'a> {
                                 }
                                 current.push(PathBuf::from(path));
 
+                                let mut found = Found::Beside;
+
                                 if !current.exists() {
-                                    if let Some(mut home) = home.clone() {
+                                    if let Some(home_dir) = home.as_ref() {
+                                        let mut home = home_dir.clone();
                                         home.push(PathBuf::from(path));
                                         current = home;
+                                        found = Found::Home(home_dir);
 
                                         if !current.exists() {
-                                            for dir in self.search_dirs {
-                                                let mut dir = dir.clone();
+                                            for search_dir in self.search_dirs {
+                                                let mut dir = search_dir.clone();
                                                 dir.push(path);
 
                                                 if dir.exists() {
                                                     current = dir;
+                                                    found = Found::Search(search_dir);
                                                     break;
                                                 }
                                             }
@@ -3108,6 +3216,8 @@ impl<'a> ModuleBuilder<'a> {
 
                                 require_object.for_syntax = true;
                                 let current = try_canonicalize(current);
+                                self.origins
+                                    .record(&self.name, self.main, found, path, &current);
                                 require_object.path = Some(PathOrBuiltIn::Path(current));
                             }
                         } else {
@@ -3209,6 +3319,7 @@ impl<'a> ModuleBuilder<'a> {
         custom_builtins: &'a HashMap<String, String>,
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         prelude_string: &'a str,
+        origins: &'a mut ModuleOrigins,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -3224,6 +3335,7 @@ impl<'a> ModuleBuilder<'a> {
             module_resolvers,
             false,
             prelude_string,
+            origins,
         )
         .parse_builtin(input)
     }
@@ -3241,6 +3353,7 @@ impl<'a> ModuleBuilder<'a> {
         search_dirs: &'a [PathBuf],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         prelude_string: &'a str,
+        origins: &'a mut ModuleOrigins,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -3256,6 +3369,7 @@ impl<'a> ModuleBuilder<'a> {
             module_resolvers,
             true,
             prelude_string,
+            origins,
         )
         .parse_from_path()
     }
@@ -3274,6 +3388,7 @@ impl<'a> ModuleBuilder<'a> {
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         canonicalize: bool,
         prelude_string: &'a str,
+        origins: &'a mut ModuleOrigins,
     ) -> Self {
         // println!("New module found: {:?}", name);
 
@@ -3304,6 +3419,7 @@ impl<'a> ModuleBuilder<'a> {
             search_dirs,
             module_resolvers,
             prelude_string,
+            origins,
         }
     }
 

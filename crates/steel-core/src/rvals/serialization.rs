@@ -15,7 +15,7 @@
 
 use super::*;
 
-use crate::compiler::modules::{MANGLER_PREFIX, MANGLER_SEPARATOR};
+use crate::compiler::modules::{ModuleOrigins, ModuleRoot, MANGLER_PREFIX, MANGLER_SEPARATOR};
 use crate::parser::interner::InternedString;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::{SendableVTableEntry, VTable};
@@ -124,7 +124,9 @@ impl std::fmt::Debug for SerializableSteelVal {
                 write!(f, "{:?}", struct_constructor_ref_spec)
             }
             SerializableSteelVal::ModuleSpec(x) => write!(f, "#<module:{}>", x),
-            SerializableSteelVal::GlobalRef(x) => write!(f, "#<global:{}>", x.here()),
+            SerializableSteelVal::GlobalRef(x) => {
+                write!(f, "#<global:{}>", x.here(&ModuleOrigins::default()))
+            }
             SerializableSteelVal::StructTypeKey(x) => write!(f, "#<struct-type-key:{:?}>", x),
             SerializableSteelVal::BuiltinSteelModuleRef(m, n) => {
                 write!(f, "#<builtin-module:{}:{}>", m, n)
@@ -171,6 +173,10 @@ pub(crate) fn process_origin() -> u64 {
 /// interned as, which is whatever the interner had got to in the process
 /// that compiled it. Here each such number is the path itself, and the name
 /// this process has for the global is put back together from that.
+///
+/// The path is where the sender has the module. With it goes the root the
+/// module was found under and its path from there, which is what a receiver
+/// that has the module somewhere else finds it by.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GlobalName(Vec<NamePart>);
 
@@ -178,12 +184,15 @@ pub struct GlobalName(Vec<NamePart>);
 enum NamePart {
     Text(String),
     // A module prefix, as the path of the module.
-    Module(String),
+    Module {
+        path: String,
+        origin: Option<(ModuleRoot, String)>,
+    },
 }
 
 impl GlobalName {
     /// Takes apart a name as it is in this process.
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &str, origins: &ModuleOrigins) -> Self {
         let mut parts = Vec::new();
         let mut text = String::new();
         let mut rest = name;
@@ -205,7 +214,12 @@ impl GlobalName {
                     if !text.is_empty() {
                         parts.push(NamePart::Text(std::mem::take(&mut text)));
                     }
-                    parts.push(NamePart::Module(path.to_string()));
+                    parts.push(NamePart::Module {
+                        path: path.to_string(),
+                        origin: origins
+                            .by_prefix_path(path)
+                            .map(|origin| (origin.root, origin.relative.clone())),
+                    });
                     rest = &after[digits + MANGLER_SEPARATOR.len()..];
                 }
                 None => {
@@ -224,12 +238,19 @@ impl GlobalName {
     }
 
     /// The name as it is in this process.
-    pub fn here(&self) -> String {
+    pub fn here(&self, origins: &ModuleOrigins) -> String {
         let mut name = String::new();
         for part in &self.0 {
             match part {
                 NamePart::Text(text) => name.push_str(text),
-                NamePart::Module(path) => {
+                NamePart::Module { path, origin } => {
+                    // A module this engine has not loaded keeps the
+                    // sender's path.
+                    let path = origin
+                        .as_ref()
+                        .and_then(|(root, relative)| origins.prefix_path_for(*root, relative))
+                        .unwrap_or(path);
+
                     name.push_str(MANGLER_PREFIX);
                     name.push_str(
                         &InternedString::from_str(path)
@@ -244,10 +265,21 @@ impl GlobalName {
         name
     }
 
+    // The name as it was written, and the module it is in where it was sent
+    // from.
+    fn described(&self) -> String {
+        match self.0.as_slice() {
+            [NamePart::Module { path, .. }, NamePart::Text(name)] => {
+                format!("{}, defined in {} where it was sent from", name, path)
+            }
+            _ => self.here(&ModuleOrigins::default()),
+        }
+    }
+
     /// The path of the module and the name in it, for a member of a module.
     pub(crate) fn module_member(&self) -> Option<(&str, &str)> {
         match self.0.as_slice() {
-            [NamePart::Module(module), NamePart::Text(name)] => Some((module, name)),
+            [NamePart::Module { path, .. }, NamePart::Text(name)] => Some((path, name)),
             _ => None,
         }
     }
@@ -263,7 +295,7 @@ impl GlobalName {
                     || text.contains("-closure-lifting-")
                     || text.contains("##gensym")
             }
-            NamePart::Module(_) => false,
+            NamePart::Module { .. } => false,
         })
     }
 
@@ -427,17 +459,20 @@ impl<'a> HeapSerializer<'a> {
 
         let here = if let Some(SerializableSteelVal::BuiltinSteelModuleRef(module, key)) = value {
             let name = GlobalName(vec![
-                NamePart::Module(module.clone()),
+                NamePart::Module {
+                    path: module.clone(),
+                    origin: None,
+                },
                 NamePart::Text(key.clone()),
             ]);
-            let interned = InternedString::from_string(name.here());
+            let interned = InternedString::from_string(self.name_here(&name));
             let index = self.thread.compiler.read().symbol_map.get(&interned)?;
             GlobalHere {
                 index,
                 as_sent: false,
             }
         } else {
-            let by_name = InternedString::from_string(name.here());
+            let by_name = InternedString::from_string(self.name_here(name));
             let here = self.defined_global(&by_name);
 
             // What tells the global apart where it was written, if it is
@@ -519,6 +554,10 @@ impl<'a> HeapSerializer<'a> {
         Ok(here)
     }
 
+    fn name_here(&self, name: &GlobalName) -> String {
+        name.here(&self.thread.compiler.read().module_manager.origins)
+    }
+
     // The index and value of the global `name`, if this engine has it.
     fn defined_global(&self, name: &InternedString) -> Option<(usize, SteelVal)> {
         let index = self.thread.compiler.read().symbol_map.get(name).ok()?;
@@ -533,7 +572,11 @@ impl<'a> HeapSerializer<'a> {
         was_sent: bool,
     ) -> Result<GlobalHere> {
         if !was_sent {
-            stop!(Generic => "a function refers to {}, which is not defined here and was not sent", name.resolve());
+            let described = match self.global_names.get(&sent) {
+                Some(name) => name.described(),
+                None => name.resolve().to_string(),
+            };
+            stop!(Generic => "a function refers to {}, which is not defined here and was not sent", described);
         }
         let index = self.thread.compiler.write().symbol_map.add(name);
         self.globals_to_define.push((sent, index));
@@ -1060,7 +1103,7 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
             }
         }
         SerializableSteelVal::GlobalRef(s) => {
-            let interned = InternedString::from_string(s.here());
+            let interned = InternedString::from_string(ctx.name_here(s));
             // Find the index of this thing:
             let idx = ctx.thread.compiler.read().symbol_map.get(&interned)?;
             match ctx.thread.global_env.roots().get(idx) {
@@ -1364,6 +1407,7 @@ fn node_for(
                     let name = ctx.symbol_map.values()[idx];
                     return Ok(SerializableSteelVal::GlobalRef(GlobalName::new(
                         name.resolve(),
+                        ctx.compiled_modules.origins(),
                     )));
                 }
             }

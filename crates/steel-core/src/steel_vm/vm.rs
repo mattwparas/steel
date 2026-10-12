@@ -6702,9 +6702,15 @@ fn get_module_relative_context(
         return Some(Ok(SteelVal::BoolV(false)));
     }
 
-    let dirs = &ctx.thread.compiler.read().search_dirs;
+    let compiler = ctx.thread.compiler.read();
 
-    let relative = fully_qualified_to_relative(last, dirs).unwrap();
+    // Where the module is under its root is the same wherever the program
+    // is and wherever it was started from.
+    if let Some(origin) = compiler.module_manager.origins().get(&last) {
+        return Some(Ok(SteelVal::StringV(origin.relative.as_str().into())));
+    }
+
+    let relative = fully_qualified_to_relative(last, &compiler.search_dirs).unwrap();
 
     Some(Ok(SteelVal::StringV(relative.to_str().unwrap().into())))
 }

@@ -1006,3 +1006,175 @@ fn bytes_that_were_changed_are_read_or_refused() {
     // Some changes leave a value that can be read, or nothing was tried.
     assert!(read > 0);
 }
+
+/// One copy of a program on disk: `main.scm`, which requires
+/// `lib/state.scm`, and an engine that has loaded it. The modules are files
+/// since where they are is what is under test.
+struct Checkout {
+    dir: std::path::PathBuf,
+    engine: Engine,
+}
+
+impl Checkout {
+    fn new(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!(
+            "steel-serialization-{}-{}",
+            std::process::id(),
+            name
+        ));
+        std::fs::create_dir_all(dir.join("lib")).unwrap();
+        std::fs::write(
+            dir.join("lib/state.scm"),
+            "(provide set-place! get-place)
+             (define place 'unset)
+             (define (set-place! x) (set! place x))
+             (define (get-place) place)",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("main.scm"),
+            "(require \"lib/state.scm\")
+             (provide set-top! get-top get-both)
+             (define top 'unset)
+             (define (set-top! x) (set! top x))
+             (define (get-top) top)
+             (define (get-both) (list top (get-place)))",
+        )
+        .unwrap();
+        let dir = std::fs::canonicalize(dir).unwrap();
+
+        let mut engine = Engine::new();
+        engine
+            .run(format!(
+                "(require \"{0}/main.scm\") (require \"{0}/lib/state.scm\")
+                 (set-top! '{1}) (set-place! '{1})",
+                dir.display(),
+                name
+            ))
+            .expect("the program loads");
+
+        Checkout { dir, engine }
+    }
+}
+
+impl Drop for Checkout {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[test]
+fn a_module_is_found_by_where_it_is_under_its_root() {
+    use crate::compiler::modules::ModuleRoot;
+
+    let checkout = Checkout::new("origins");
+    let compiler = checkout.engine.virtual_machine.compiler.read();
+    let origins = compiler.module_manager.origins();
+
+    let main = origins.get(&checkout.dir.join("main.scm")).unwrap();
+    assert_eq!(main.root, ModuleRoot::Entry);
+    assert_eq!(main.root_dir, checkout.dir);
+    assert_eq!(main.relative, "main.scm");
+
+    let state = origins.get(&checkout.dir.join("lib/state.scm")).unwrap();
+    assert_eq!(state.root, ModuleRoot::Entry);
+    assert_eq!(state.root_dir, checkout.dir);
+    assert_eq!(state.relative, "lib/state.scm");
+    assert_eq!(state.path, checkout.dir.join("lib/state.scm"));
+}
+
+#[test]
+fn a_program_in_another_directory_keeps_its_own_state() {
+    for (i, (way, send)) in WAYS.into_iter().enumerate() {
+        let sender = format!("sender{}", i);
+        let receiver = format!("receiver{}", i);
+        let mut from = Checkout::new(&sender);
+        let mut to = Checkout::new(&receiver);
+
+        for function in ["get-top", "get-place"] {
+            send(&mut from.engine, &mut to.engine, function)
+                .unwrap_or_else(|e| panic!("{}: sending failed: {}", way, e));
+            assert!(
+                holds(
+                    &mut to.engine,
+                    &format!("(equal? (received) '{})", receiver)
+                ),
+                "{}: {}",
+                way,
+                function
+            );
+        }
+
+        send(&mut from.engine, &mut to.engine, "get-both").unwrap();
+        assert!(
+            holds(
+                &mut to.engine,
+                &format!("(equal? (received) '({0} {0}))", receiver)
+            ),
+            "{}",
+            way
+        );
+
+        // Without the program, the function brings the state it had.
+        let mut to = engine();
+        send(&mut from.engine, &mut to, "get-both").unwrap();
+        assert!(
+            holds(&mut to, &format!("(equal? (received) '({0} {0}))", sender)),
+            "{}",
+            way
+        );
+    }
+}
+
+struct Handle(usize);
+
+impl crate::rvals::Custom for Handle {}
+
+impl Handle {
+    fn number(&self) -> usize {
+        self.0
+    }
+}
+
+fn with_handle(n: usize) -> Engine {
+    use crate::rvals::IntoSteelVal;
+    use crate::steel_vm::register_fn::RegisterFn;
+
+    let mut engine = engine();
+    engine
+        .register_fn("handle-number", Handle::number)
+        .register_value("handle", Handle(n).into_steelval().unwrap());
+    engine
+}
+
+#[test]
+fn a_global_that_cannot_be_sent_is_the_one_that_is_here() {
+    for (way, send) in WAYS {
+        let mut from = with_handle(1);
+        from.run("(define (number) (handle-number handle))")
+            .unwrap();
+
+        let mut to = with_handle(2);
+        send(&mut from, &mut to, "number")
+            .unwrap_or_else(|e| panic!("{}: sending failed: {}", way, e));
+        assert!(holds(&mut to, "(= (received) 2)"), "{}", way);
+
+        // One without it says which global is missing.
+        let mut to = engine();
+        crate::steel_vm::register_fn::RegisterFn::register_fn(
+            &mut to,
+            "handle-number",
+            Handle::number,
+        );
+        let error = send(&mut from, &mut to, "number").unwrap_err();
+        assert!(error.contains("handle"), "{}: {}", way, error);
+        assert!(error.contains("not defined here"), "{}: {}", way, error);
+
+        // Held in something else, it still can't be sent.
+        from.run(
+            "(define handles (list handle)) (define (first-number) (handle-number (car handles)))",
+        )
+        .unwrap();
+        assert!(send(&mut from, &mut with_handle(3), "first-number").is_err());
+    }
+}
