@@ -1241,6 +1241,42 @@ fn expr_usize(value: usize) -> ExprKind {
     ))))
 }
 
+struct MentionsAny<'a> {
+    names: &'a [InternedString],
+    found: bool,
+}
+
+impl<'a> crate::compiler::passes::VisitorMutUnitRef<'a> for MentionsAny<'a> {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let Some(ident) = a.ident() {
+            self.found |= self.names.contains(ident);
+        }
+    }
+}
+
+fn mentions_any(expr: &ExprKind, names: &[InternedString]) -> bool {
+    use crate::compiler::passes::VisitorMutUnitRef;
+
+    let mut finder = MentionsAny {
+        names,
+        found: false,
+    };
+    finder.visit(expr);
+    finder.found
+}
+
+// Where the parameter `name` is among the parameters as they were written.
+fn written_at(parameters: &[ExprKind], name: &ExprKind) -> usize {
+    let name = name.atom_identifier();
+    parameters
+        .iter()
+        .position(|parameter| match parameter {
+            ExprKind::List(l) => l.first().and_then(|x| x.atom_identifier()) == name,
+            parameter => parameter.atom_identifier() == name,
+        })
+        .unwrap_or(usize::MAX)
+}
+
 // Requirements:
 // - Don't actually implement using a hashmap. Most likely
 //   not necessary, and we don't need to introduce _another_
@@ -1524,13 +1560,43 @@ fn expand_keyword_and_default_arguments(
     // TODO: Pick up all keyword args before the start
     non_keyword_or_default_args.push(ExprKind::ident(REST_ARG));
 
-    let mut inner_application = thin_vec![ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-        bindings.iter().map(|x| x.0.clone()).collect(),
-        lambda_function.body.clone(),
-        SyntaxObject::default(TokenType::Lambda),
-    )))];
+    // A default can use the arguments before it. When one does, the
+    // arguments are bound one after another in the order they were written.
+    let names: SmallVec<[InternedString; 6]> = bindings
+        .iter()
+        .filter_map(|x| x.0.atom_identifier().copied())
+        .collect();
+    let sequential = bindings.iter().any(|x| mentions_any(&x.1, &names));
 
-    inner_application.extend(bindings.iter().map(|x| x.1.clone()));
+    let inner_application = if sequential {
+        let mut in_order: Vec<_> = bindings.iter().collect();
+        in_order.sort_by_key(|x| written_at(&lambda_function.args, &x.0));
+
+        in_order
+            .into_iter()
+            .rev()
+            .fold(lambda_function.body.clone(), |body, (name, value)| {
+                ExprKind::List(List::new(thin_vec![
+                    ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                        thin_vec![name.clone()],
+                        body,
+                        SyntaxObject::default(TokenType::Lambda),
+                    ))),
+                    value.clone(),
+                ]))
+            })
+    } else {
+        let mut inner_application =
+            thin_vec![ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                bindings.iter().map(|x| x.0.clone()).collect(),
+                lambda_function.body.clone(),
+                SyntaxObject::default(TokenType::Lambda),
+            )))];
+
+        inner_application.extend(bindings.iter().map(|x| x.1.clone()));
+
+        ExprKind::List(List::new(inner_application))
+    };
 
     // TODO: This check has to be a little bit better.
     // For this to behave, we have to check the arity of the positional arguments,
@@ -1550,7 +1616,7 @@ fn expand_keyword_and_default_arguments(
             expr_usize(optional_positional_arg_count),
             ExprKind::bool_lit(is_rest),
         ])),
-        ExprKind::List(List::new(inner_application)),
+        inner_application,
         expr_list![
             ExprKind::ident("#%prim.error-with-span"),
             expr_list![ExprKind::ident("#%prim.current-function-span")],

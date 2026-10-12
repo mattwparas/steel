@@ -666,6 +666,70 @@
           body ...))
       val)]))
 
+;; Multiple values are a list, and one value can be given as it is.
+(define-syntax #%values->list
+  (syntax-rules ()
+    [(#%values->list expr) ((lambda (produced) (if (#%prim.list? produced) produced (#%prim.list produced))) expr)]))
+
+;;@doc
+;; (let*-values ([formals expr] ...) body ...)
+;;
+;; Binds the values of each expression to its formals in turn, so a later
+;; expression can use what an earlier one bound.
+;;
+;; # Examples
+;; ```scheme
+;; (let*-values ([(a b) (values 1 2)]
+;;               [(c) (values (+ a b))])
+;;     (list a b c)) ;; => '(1 2 3)
+;; ```
+(define-syntax let*-values
+  (syntax-rules ()
+    [(let*-values ()
+       body ...)
+     ((lambda ()
+        body ...))]
+    [(let*-values ([formals expr]
+                   rest ...)
+       body ...)
+     (#%prim.apply (lambda formals
+                     (let*-values (rest ...)
+                       body ...))
+                   (#%values->list expr))]))
+
+;;@doc
+;; (let-values ([formals expr] ...) body ...)
+;;
+;; Binds the values of each expression to its formals. Every expression is
+;; evaluated before any of the formals are bound.
+;;
+;; # Examples
+;; ```scheme
+;; (let-values ([(a b) (values 1 2)]
+;;              [(c . rest) (values 3 4 5)])
+;;     (list a b c rest)) ;; => '(1 2 3 (4 5))
+;; ```
+(define-syntax let-values
+  (syntax-rules ()
+    [(let-values ()
+       body ...)
+     ((lambda ()
+        body ...))]
+    [(let-values ([formals expr] ...)
+       body ...)
+     ((lambda (produced) (#%let-values-bind produced (formals ...) body ...))
+      (#%prim.list (#%values->list expr) ...))]))
+
+(define-syntax #%let-values-bind
+  (syntax-rules ()
+    [(#%let-values-bind produced () body ...)
+     ((lambda ()
+        body ...))]
+    [(#%let-values-bind produced (formals rest ...) body ...)
+     (#%prim.apply (lambda formals
+                     (#%let-values-bind (#%prim.cdr produced) (rest ...) body ...))
+                   (#%prim.car produced))]))
+
 (define-syntax #%letrec*-helper
   (syntax-rules ()
     [(#%letrec*-helper () body ...)

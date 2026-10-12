@@ -536,6 +536,10 @@ pub struct FunctionInterner {
 const STOP_REQUESTED: u8 = 1;
 const SUSPENDED: u8 = 2;
 const INTERRUPTED: u8 = 4;
+// An interrupt the thread has yet to raise. It is raised once in a run, so
+// that handlers and `dynamic-wind` exits run on the way out, while
+// `INTERRUPTED` stays until it is undone and stops each run that starts.
+const INTERRUPT_PENDING: u8 = 8;
 
 #[derive(Clone, Default)]
 pub struct ThreadStateController {
@@ -573,13 +577,25 @@ impl ThreadStateController {
 
     /// Undoes `suspend` and `interrupt`.
     pub fn resume(&self) {
-        self.flags
-            .fetch_and(!(SUSPENDED | INTERRUPTED), AtomicOrdering::SeqCst);
+        self.flags.fetch_and(
+            !(SUSPENDED | INTERRUPTED | INTERRUPT_PENDING),
+            AtomicOrdering::SeqCst,
+        );
     }
 
     pub fn interrupt(&self) {
-        self.flags.fetch_or(INTERRUPTED, AtomicOrdering::SeqCst);
+        self.flags
+            .fetch_or(INTERRUPTED | INTERRUPT_PENDING, AtomicOrdering::SeqCst);
         self.send_to_safepoint();
+    }
+
+    // Called as an outermost run starts. An interrupt that hasn't been
+    // undone stops it too.
+    fn starting_run(&self) {
+        if self.flags.load(AtomicOrdering::Relaxed) & INTERRUPTED != 0 {
+            self.flags
+                .fetch_or(INTERRUPT_PENDING, AtomicOrdering::SeqCst);
+        }
     }
 
     // Jitted code doesn't look at the flags. This gets a thread that is in
@@ -1687,6 +1703,7 @@ impl NativeEntry {
         // The outermost run has one id for every top level form on a thread,
         // and a different one per thread.
         let id = if thread.native_entries.is_empty() {
+            thread.synchronizer.state.starting_run();
             thread.native_entry_prefix
         } else {
             thread.native_entries_made += 1;
@@ -2364,7 +2381,12 @@ impl<'a> VmCore<'a> {
                 .state
                 .flags
                 .load(AtomicOrdering::SeqCst);
-            if found & INTERRUPTED != 0 {
+            if found & INTERRUPT_PENDING != 0 {
+                self.thread
+                    .synchronizer
+                    .state
+                    .flags
+                    .fetch_and(!INTERRUPT_PENDING, AtomicOrdering::SeqCst);
                 stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
             }
         }

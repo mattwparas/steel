@@ -1895,6 +1895,8 @@ where
                 Ok(ExprKind::Define(Box::new(Define::new(name, lambda, syn))))
             } else {
                 args_stack.insert(0, List::new_maybe_improper(args, l.improper));
+                // The innermost head is the outermost function
+                args_stack.reverse();
 
                 for parameters in &args_stack {
                     parameters_are_valid(&parameters.args, syn.span)?;
