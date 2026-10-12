@@ -110,10 +110,6 @@ Reads a line from an input port.
 ### **read-line\***
 Reads a line from an input port, without waiting.
 
-Returns a would-block object if no complete line is ready and the port has
-not reached its end; the partial line stays buffered, so a later read picks
-up where this one left off.
-
 (read-line* [port]) -> (or string? would-block-object?)
 
 * port : input-port? = (current-input-port)
@@ -126,10 +122,6 @@ Reads the entire content of an input port into a byte vector.
 ### **read-port-to-bytes\***
 Reads the entire content of an input port into a byte vector, without waiting.
 
-Returns a would-block object if the port has not reached its end and has
-nothing more ready; nothing is consumed in that case, so a later read picks
-up where this one left off.
-
 (read-port-to-bytes* [port]) -> (or bytes? would-block-object?)
 
 * [port] : input-port? = (current-input-port)
@@ -141,10 +133,6 @@ Reads the entire content of an input port into a string.
 * [port] : input-port? = (current-input-port)
 ### **read-port-to-string\***
 Reads the entire content of an input port into a string, without waiting.
-
-Returns a would-block object if the port has not reached its end and has
-nothing more ready; nothing is consumed in that case, so a later read picks
-up where this one left off.
 
 (read-port-to-string* [port]) -> (or string? would-block-object?)
 

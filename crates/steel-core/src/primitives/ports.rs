@@ -698,11 +698,7 @@ pub fn would_block_objectp(value: &SteelVal) -> bool {
     }
 }
 
-/// The readers that have to produce a whole line or a whole stream cannot
-/// report a blocked port as a value without giving up on the difference between
-/// "nothing yet" and "nothing at all", so they raise instead. Every one of them
-/// raises this, so a caller has a single message to match rather than whatever
-/// the platform happened to name its errno.
+// Every waiting read raises this, so callers have one message to match
 fn nonblocking<T>(value: MaybeBlocking<T>) -> Result<T> {
     match value {
         MaybeBlocking::Nonblocking(value) => Ok(value),
@@ -900,9 +896,7 @@ mod would_block_tests {
         }
     }
 
-    /// A live connection with nothing on it, so a read finds the socket open and
-    /// empty rather than closed. The client end comes back so the caller can keep
-    /// it from being dropped.
+    // The client end comes back so the connection stays open, not closed
     fn blocked_tcp_port() -> (SteelPort, TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
@@ -987,7 +981,7 @@ mod would_block_tests {
         assert_eq!(
             read_line(&tcp).unwrap_err().message(),
             read_line(&blocked_port()).unwrap_err().message(),
-            "read-line describes a blocked socket by which reader was asked for it"
+            "read-line describes a blocked socket differently depending on the reader"
         );
     }
 }

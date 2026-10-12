@@ -348,6 +348,8 @@ impl<R: Read> Peekable<R> {
     }
 
     fn unconsume(&mut self, bytes: &[u8], at_source_start: bool) {
+        debug_assert!(self.pending_is_empty());
+
         self.buf.splice(..self.pos, bytes.iter().copied());
         self.pos = 0;
         self.consumed_any = !at_source_start;
@@ -470,10 +472,7 @@ fn into_utf8(bytes: Vec<u8>) -> io::Result<String> {
     String::from_utf8(bytes).map_err(|_| invalid_utf8())
 }
 
-/// Reads until `buf` is full, the source ends, or the source stops making
-/// progress. `amt` carries in whatever the caller has already gathered and
-/// carries out what this added, on every path including the error one, so a
-/// caller never has to guess how far the source moved.
+// `amt` is in/out, and is updated on the error path too
 fn read_full<R: Read>(
     mut reader: R,
     mut buf: &mut [u8],
