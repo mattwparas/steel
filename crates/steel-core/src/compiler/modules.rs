@@ -310,7 +310,7 @@ impl ModuleOrigins {
                 }
 
                 self.entry.clone().and_then(|root_dir| {
-                    let relative = relative_from("", path.strip_prefix(&root_dir).ok()?)?;
+                    let relative = relative_to_root(&root_dir, path)?;
                     Some((ModuleRoot::Entry, root_dir, relative))
                 })
             }
@@ -348,7 +348,8 @@ impl ModuleOrigins {
     }
 }
 
-// `path` under `dir`, or nothing if it is absolute or climbs out of the root.
+// `path` from `dir`, or nothing if it is absolute. A path that climbs out of
+// the root keeps its leading `..`.
 fn relative_from(dir: &str, path: &Path) -> Option<String> {
     use std::path::Component;
 
@@ -358,11 +359,30 @@ fn relative_from(dir: &str, path: &Path) -> Option<String> {
         match component {
             Component::Normal(part) => parts.push(part.to_str()?),
             Component::CurDir => {}
-            Component::ParentDir => {
-                parts.pop()?;
-            }
+            Component::ParentDir => match parts.last() {
+                Some(&"..") | None => parts.push(".."),
+                Some(_) => {
+                    parts.pop();
+                }
+            },
             Component::RootDir | Component::Prefix(_) => return None,
         }
+    }
+
+    Some(parts.join("/"))
+}
+
+// `path` from `root`, where both are absolute.
+fn relative_to_root(root: &Path, path: &Path) -> Option<String> {
+    let shared = root
+        .components()
+        .zip(path.components())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let mut parts = vec![".."; root.components().count() - shared];
+    for component in path.components().skip(shared) {
+        parts.push(component.as_os_str().to_str()?);
     }
 
     Some(parts.join("/"))

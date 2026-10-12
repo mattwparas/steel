@@ -301,7 +301,7 @@ impl Custom for SerializedValue {}
 // that mean the same in every process, and the layout of each struct type.
 // With 4 a list names the list it shares a tail with. With 5 a module in a
 // name has the root it was found under. What was written before is not read.
-const SERIALIZED_FORMAT: u8 = 5;
+const SERIALIZED_FORMAT: u8 = 6;
 
 // The struct type here that a struct sent from elsewhere belongs to.
 //

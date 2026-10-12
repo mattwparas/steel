@@ -1041,6 +1041,15 @@ impl Checkout {
              (define (get-both) (list top (get-place)))",
         )
         .unwrap();
+        std::fs::create_dir_all(dir.join("app")).unwrap();
+        std::fs::write(
+            dir.join("app/run.scm"),
+            "(require \"../lib/state.scm\")
+             (provide set-outside! get-outside)
+             (define (set-outside! x) (set-place! x))
+             (define (get-outside) (get-place))",
+        )
+        .unwrap();
         let dir = std::fs::canonicalize(dir).unwrap();
 
         let mut engine = Engine::new();
@@ -1081,6 +1090,50 @@ fn a_module_is_found_by_where_it_is_under_its_root() {
     assert_eq!(state.root_dir, checkout.dir);
     assert_eq!(state.relative, "lib/state.scm");
     assert_eq!(state.path, checkout.dir.join("lib/state.scm"));
+}
+
+impl Checkout {
+    // Starts over from the program in `app`, which reaches above itself.
+    fn from_app(name: &str) -> Self {
+        let mut checkout = Checkout::new(name);
+        let mut engine = Engine::new();
+        engine
+            .run(format!(
+                "(require \"{}/app/run.scm\") (set-outside! '{})",
+                checkout.dir.display(),
+                name
+            ))
+            .expect("the program loads");
+        checkout.engine = engine;
+        checkout
+    }
+}
+
+#[test]
+fn a_module_above_the_program_is_found_by_the_way_up_to_it() {
+    use crate::compiler::modules::ModuleRoot;
+
+    let mut from = Checkout::from_app("above-sender");
+    let mut to = Checkout::from_app("above-receiver");
+
+    {
+        let compiler = from.engine.virtual_machine.compiler.read();
+        let origins = compiler.module_manager.origins();
+        let state = origins.get(&from.dir.join("lib/state.scm")).unwrap();
+        assert_eq!(state.root, ModuleRoot::Entry);
+        assert_eq!(state.root_dir, from.dir.join("app"));
+        assert_eq!(state.relative, "../lib/state.scm");
+    }
+
+    for (way, send) in WAYS {
+        send(&mut from.engine, &mut to.engine, "get-outside")
+            .unwrap_or_else(|e| panic!("{}: sending failed: {}", way, e));
+        assert!(
+            holds(&mut to.engine, "(equal? (received) 'above-receiver)"),
+            "{}",
+            way
+        );
+    }
 }
 
 #[test]
