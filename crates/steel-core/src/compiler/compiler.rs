@@ -577,7 +577,7 @@ impl Compiler {
     pub(crate) fn into_serializable_compiler(self) -> Result<SerializableCompiler> {
         Ok(SerializableCompiler {
             symbol_map: self.symbol_map,
-            constant_map: self.constant_map.into_serializable_map(),
+            constant_map: self.constant_map.into_serializable_map()?,
             macro_env: self.macro_env,
             opt_level: self.opt_level,
             module_manager: self.module_manager,
