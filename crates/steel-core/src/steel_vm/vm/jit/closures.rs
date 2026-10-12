@@ -1,5 +1,3 @@
-//! Closure setup and entry into pure functions from jitted code.
-
 use super::*;
 
 #[cross_platform_fn]

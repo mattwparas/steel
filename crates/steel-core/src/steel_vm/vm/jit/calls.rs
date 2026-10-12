@@ -1,6 +1,3 @@
-//! Calls from jitted code that come back to it: to a global, to a value off the
-//! stack, and to the function being run.
-
 use super::*;
 
 /// Whether `func` takes a frame when called, instead of returning a value.

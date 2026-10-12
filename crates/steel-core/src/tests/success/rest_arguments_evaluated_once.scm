@@ -1,6 +1,3 @@
-;; An argument passed to a case-lambda or variadic function is evaluated once,
-;; however deep the call ends up after inlining.
-
 (define calls 0)
 (define (tick x)
   (set! calls (+ calls 1))
@@ -21,7 +18,7 @@
 (define (go)
   (one-or-none (tick (in-dir (string-append other ".addr")))))
 
-;; The call is inlined into the argument of another variadic call.
+;; Inlined into the argument of another variadic call
 (define result (collect (go)))
 (assert! (equal? result '("./x.addr!")))
 (assert! (= calls 1))
@@ -40,8 +37,7 @@
 (assert! (equal? listed '("./x!")))
 (assert! (= calls 5))
 
-;; The arguments are evaluated where the call is written, in order, whatever
-;; the function does with its rest list afterwards.
+;; Arguments are evaluated in order where the call is written
 
 (define seen '())
 (define (note! x)
@@ -57,7 +53,7 @@
          (assert! (equal? value expected-value))
          (assert! (equal? (reverse seen) expected-order))))]))
 
-;; The rest list is applied behind a test that fails.
+;; The rest list is applied behind a failing test
 (define (behind-if y . args)
   (if (note! #f)
       (let ()
@@ -87,7 +83,7 @@
        '((1 2 0) no)
        '(0 1 2 5 1 2))
 
-;; Something else in the body runs first.
+;; Something else in the body runs first
 (define (after-an-effect y . args)
   (note! 'body)
   (let ()
@@ -110,7 +106,7 @@
     (list k (note! 'after))))
 (check (in-a-binding (note! 0) (note! 1) (note! 2)) '((1 2 0) after) '(0 1 2 #t after))
 
-;; The applied function uses what the let around it binds.
+;; The applied function uses a binding from the enclosing let
 (define (uses-a-parameter y . args)
   (apply (lambda (a b) (list a b y)) args))
 (check (uses-a-parameter (note! 0) (note! 1) (note! 2)) '(1 2 0) '(0 1 2))
@@ -126,7 +122,7 @@
       (apply (lambda (a b) (list a b y)) args))))
 (check (shadowing-a-binding (note! 0) (note! 1) (note! 2)) '(1 2 0) '(0 1 2 shadowed))
 
-;; An argument is read before the body changes what it named.
+;; An argument is read before the body mutates it
 (define cell 0)
 (define (changes-the-cell y . args)
   (set! cell 9)
@@ -134,12 +130,12 @@
     (apply (lambda (a) (list a y cell)) args)))
 (check (changes-the-cell 0 cell) '(0 0 9) '())
 
-;; A keyword argument beside a rest list.
+;; A keyword argument with a rest list
 (define (keyword-and-rest #:y y . r)
   (list y r))
 (check (keyword-and-rest (note! 0) #:y (note! 'ky)) '(ky (0 #:y ky)) '(0 ky))
 
-;; Functions with rest parameters called where they are written.
+;; Rest parameters on immediately applied lambdas
 (assert! (equal? ((lambda (x . r) ((lambda (y) (list x y r)) 5)) 0 1 2) '(0 5 (1 2))))
 (assert! (equal? ((lambda (x) ((lambda (y . r) (list x y r)) 5 6 7)) 0) '(0 5 (6 7))))
 (assert! (equal? ((lambda args

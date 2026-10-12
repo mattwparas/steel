@@ -1,6 +1,3 @@
-;; Struct types that share a name are still different types, and a struct
-;; that goes through serialization in one process comes back as its own.
-
 (define (round-trip value)
   (deserialize-value (bytes->serialized (serialized->bytes (serialize-value value)))))
 
@@ -36,8 +33,7 @@
 (assert! (= 5 ((round-trip setting))))
 (assert! (= 5 (thread-join! (spawn-native-thread (lambda () (setting))))))
 
-;; Many values that each bring a symbol this engine has not seen cost the
-;; same each, not more as they add up.
+;; Sending many unseen symbols is linear
 (define (send-symbols from to)
   (when (< from to)
     (round-trip (string->symbol (string-append "fresh-symbol-" (number->string from))))

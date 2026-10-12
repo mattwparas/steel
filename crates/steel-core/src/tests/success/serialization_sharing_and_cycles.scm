@@ -121,9 +121,8 @@
                      (equal? (cadr r) (list-tail long 300))
                      (equal? (caddr r) (list 999))))))
 
-;; A tail is sent as a part of the list it is a tail of, and lists that go on
-;; into the same list send it once. What is serialized grows with the elements
-;; there are, and what arrives shares what was shared, so sending it on is no
+;; Tails are sent as part of their list, and a shared tail is sent once. The
+;; size grows with the number of elements, and sending the result on is no
 ;; bigger.
 (define (tails l)
   (if (null? l) '() (cons l (tails (cdr l)))))
@@ -137,20 +136,19 @@
   (check-both (lambda (copy)
                 (let ([r (copy all)])
                   (and (equal? r all) (no-bigger-than-a-few? r long))))))
-;; The same when the tails come before the list.
+;; Tails before the list
 (let* ([long (range 0 3000)]
        [backwards (list (list-tail long 2000) (cddr long) (cdr long) long)])
   (check-both (lambda (copy)
                 (let ([r (copy backwards)])
                   (and (equal? r backwards) (no-bigger-than-a-few? r long))))))
-;; Lists made by adding to the front of one list.
+;; Lists consed onto one list
 (let* ([long (range 0 3000)]
        [fronts (map (lambda (i) (cons i long)) (range 0 200))])
   (check-both (lambda (copy)
                 (let ([r (copy fronts)])
                   (and (equal? r fronts) (no-bigger-than-a-few? r long))))))
-;; A list that starts with the elements of another and goes on is not that
-;; list.
+;; A list that starts with another list's elements and goes on
 (check-both (lambda (copy)
               (let* ([start (range 0 600)]
                      [longer (append start (range 1000 1600))]

@@ -1,5 +1,3 @@
-;; A binding made with parameterize is seen by the thread that made it and
-;; by threads it spawns, and by no other.
 (require-builtin steel/time)
 
 (define p (make-parameter 'default))
@@ -16,7 +14,7 @@
 
 (assert! (equal? (with-handler (lambda (e) (p)) (parameterize ([p 1]) (error "raised"))) 'default))
 
-;; Threads bound to different values at the same time.
+;; Threads bound to different values at once
 (define (bound-for name ms)
   (spawn-native-thread (lambda ()
                          (parameterize ([p name])
@@ -29,7 +27,7 @@
 (assert! (equal? (map thread-join! threads) '(a b c d)))
 (assert! (equal? (p) 'default))
 
-;; A thread starts with what was bound where it was spawned.
+;; A thread starts with its spawner's bindings
 (define child
   (parameterize ([p 'parent])
     (spawn-native-thread (lambda ()
@@ -39,11 +37,11 @@
 (assert! (equal? (thread-join! child) '(parent changed child)))
 (assert! (equal? (p) 'default))
 
-;; Without a binding, assigning changes the default for every thread.
+;; Without a binding, assigning sets the default for every thread
 (p 'assigned)
 (assert! (equal? (thread-join! (spawn-native-thread (lambda () (p)))) 'assigned))
 
-;; Output captured on one thread while another prints.
+;; Output captured on one thread while another prints
 (define printer
   (spawn-native-thread (lambda ()
                          (parameterize ([current-output-port (open-output-string)])

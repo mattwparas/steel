@@ -1,23 +1,3 @@
-//! Signatures of host functions written as data, for the language server.
-//!
-//! An embedding application tells the language server about its functions with
-//! files in `STEEL_LSP_HOME`, which [`Engine::emit_lsp_definitions`] can write:
-//!
-//! ```scheme
-//! (define demo (#%module "host/demo"))
-//! (#%module-add demo "host-add" (#%signature (args Int Int) (returns Int)))
-//! (#%module-add demo "host-shout" (#%signature (args (or String Symbol)) (returns String)))
-//! (#%module-add demo "host-log" (#%signature (args String (rest Any)) (returns Void) (raises BadArgs)))
-//! ```
-//!
-//! The vocabulary is the one the function macros use: `crate::value_type::ValueType`
-//! variants, unions written `(or List Pair)`, the type of every argument past
-//! the fixed ones as `(rest T)`, and a `crate::value_type::Raises` variant.
-//! A host type is `(custom "app::Counter")`, by its full Rust type name.
-//! Arity follows from `args`.
-//!
-//! [`Engine::emit_lsp_definitions`]: crate::steel_vm::engine::Engine::emit_lsp_definitions
-
 use crate::rvals::{Result, SteelVal};
 use crate::steel_vm::builtin::{get_function_metadata, BuiltInFunctionType, BuiltInModule};
 use crate::value_type::{ArgType, ArgTypes, CustomTypeName, Raises, ValueType};

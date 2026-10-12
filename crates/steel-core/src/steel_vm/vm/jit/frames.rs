@@ -1,5 +1,3 @@
-//! The value stack, call frames and locals, for jitted code.
-
 use super::*;
 
 #[cross_platform_fn]

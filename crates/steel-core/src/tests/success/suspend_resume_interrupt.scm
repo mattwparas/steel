@@ -19,10 +19,8 @@
 (define (raised? thread)
   (eq? 'raised (with-handler (lambda (e) 'raised) (thread-join! thread))))
 
-;; A suspended thread stops at the next place it looks, which it can be a
-;; while getting to when the machine is busy. Once it has, a collection
-;; doesn't start it again. Gives what the counter stopped at, or #f if it
-;; never held still.
+;; A suspended thread stops at its next poll, which can take a while on a
+;; busy machine. Returns what the counter stopped at, or #f if it never did.
 (define (stopped-at tries)
   (let ([seen (unbox counter)])
     (#%gc-collect)

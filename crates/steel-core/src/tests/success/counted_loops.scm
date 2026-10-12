@@ -182,8 +182,8 @@
 (define near-the-end 4611686018427387000)
 (assert! (= (up-by-three near-the-end (+ near-the-end 30000) 0) 10000))
 
-;; A count that starts beside the last fixnum, toward a bound it never meets,
-;; steps past it like any other. The second exit is what ends these.
+;; Starting next to the last fixnum with a bound it never meets. The second
+;; exit ends these.
 (define (rising-until-equal from n)
   (let lp ([i from] [k 0])
     (if (= i n)

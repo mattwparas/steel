@@ -1,6 +1,3 @@
-//! Binding forms with a literal where the name goes. Each has to be an
-//! error and not a panic.
-
 use super::assert_script_error;
 
 #[test]

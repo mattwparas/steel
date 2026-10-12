@@ -1,6 +1,3 @@
-;; Only a collection makes a will ready, and here nothing runs one. The call
-;; that waits for a will runs one itself first.
-
 (define executor (make-will-executor))
 (define ran (box 0))
 

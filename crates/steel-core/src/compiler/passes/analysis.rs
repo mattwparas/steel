@@ -1028,7 +1028,7 @@ impl<'a> AnalysisPass<'a> {
         arguments: &[(InternedString, ScopeInfo)],
     ) {
         for var in &lambda_function.args {
-            // Anything else is reported when the arguments are visited.
+            // Anything that isn't an identifier is reported later.
             let Some(ident) = var.atom_identifier() else {
                 continue;
             };
@@ -4416,12 +4416,12 @@ struct LowerRestArguments<'a> {
     analysis: &'a Analysis,
     bindings: ScopeMap<InternedString, ExprKind, FxBuildHasher>,
     used_bindings: ScopeSet<InternedString, FxBuildHasher>,
-    // Const lists holding an argument that can't be copied or moved as is.
-    // The let binding such a list binds those arguments to names first.
     // Whether every argument of a const list in scope can be moved.
     movable: ScopeMap<InternedString, bool, FxBuildHasher>,
+    // Const lists with an argument that can't be moved. Their arguments are
+    // let bound first.
     needs_names: FxHashSet<InternedString>,
-    // The names made for those arguments.
+    // The names generated for those arguments.
     argument_names: FxHashSet<InternedString>,
     changed: bool,
 }
@@ -4439,10 +4439,9 @@ impl<'a> LowerRestArguments<'a> {
         }
     }
 
-    // Whether an argument reads the same wherever it is evaluated, and however
-    // many times. Lowering copies arguments out of the list and into the place
-    // that reads them, which can be under a branch, after other effects, or in
-    // several places.
+    // Whether an argument gives the same result wherever it is evaluated, any
+    // number of times. Lowering can move it under a branch, past other effects,
+    // or into several places.
     fn can_move(&self, expr: &ExprKind) -> bool {
         match expr {
             ExprKind::Quote(_) => true,
@@ -4475,8 +4474,8 @@ impl<'a> LowerRestArguments<'a> {
         }
     }
 
-    // The const list a getter or an apply reads, as long as its arguments can
-    // be copied to where they are read. Otherwise notes that they need names.
+    // The const list bound to `ident` if its arguments can be moved. Otherwise
+    // marks it as needing names.
     fn movable_const_list(&mut self, ident: &InternedString) -> Option<&List> {
         if !*self.movable.get(ident)? {
             self.needs_names.insert(*ident);
@@ -4499,8 +4498,8 @@ impl<'a> LowerRestArguments<'a> {
     // (%plain-let ((a A) (x X) (y Y) (b B))
     //   (%plain-let ((args (#%prim.#%const-list x y))) body))
     //
-    // for the lists in `needs_names`, so each argument is evaluated once, where
-    // it was written, and the list holds only names.
+    // for the lists in `needs_names`, so each argument is evaluated once and in
+    // order.
     fn name_arguments(&mut self, expr: &mut ExprKind) {
         let ExprKind::Let(l) = expr else {
             return;
@@ -4584,8 +4583,8 @@ impl<'a> LowerRestArguments<'a> {
                 if original_ident.usage_count == 1 {
                     let ty = *ty;
 
-                    // Each argument has to land on one parameter. Anything
-                    // else is left for apply to sort out when it runs.
+                    // Only lower when the argument count matches the
+                    // parameters. Otherwise leave it to apply.
                     let ExprKind::LambdaFunction(function) = apply_body.args.get(1)? else {
                         return None;
                     };
@@ -4826,8 +4825,8 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
 
                 let mut binding_expr_replace = Vec::new();
 
-                // The getters among the binding values read lists bound further
-                // out, so they are looked at before this let's lists are in scope.
+                // Getters in the binding values read lists bound further out, so
+                // handle them before this let's lists are in scope.
                 for (index, (_, value)) in l.bindings.iter().enumerate() {
                     let Some(getter) = value.list().and_then(|x| x.first_ident()) else {
                         continue;
@@ -4883,8 +4882,7 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
 
                 self.visit(&mut l.body_expr);
 
-                // The const list an apply was lowered from, when an enclosing
-                // let binds it.
+                // The outer const list this apply was lowered from, if any.
                 let mut lowered_from_outer = None;
 
                 if let ExprKind::List(apply_body) = &mut l.body_expr {
@@ -4906,8 +4904,8 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                                 lowered_from_outer = Some(list_name);
                             }
 
-                            // The parameters become a let of their own, so
-                            // whatever this let binds stays in scope for the body.
+                            // Bind the parameters in their own let, so this let's
+                            // bindings stay in scope for the body.
                             let parameters = f.args.into_iter().zip(arguments).collect::<Vec<_>>();
                             l.body_expr = ExprKind::Let(Box::new(Let::new(
                                 parameters,
@@ -4932,8 +4930,8 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                 self.bindings.pop_layer();
                 self.movable.pop_layer();
 
-                // The arguments now live in this let, so the let that bound the
-                // list has to drop it.
+                // The arguments moved into this let, so the outer let can drop
+                // the list.
                 if let Some(outer) = lowered_from_outer {
                     self.used_bindings.define(outer);
                 }
@@ -4956,8 +4954,8 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                             .is_some_and(|key| self.needs_names.contains(key))
                 });
 
-                // The binding values have been visited. Only the let now
-                // holding the lists needs another look.
+                // The binding values are already visited, so only visit the
+                // new inner let.
                 if wants_names {
                     self.name_arguments(expr);
                     if let ExprKind::Let(l) = expr {
@@ -5936,7 +5934,7 @@ fn setbox_argument(ident: ExprKind, expr: ExprKind) -> ExprKind {
 
 struct ReplaceSetOperationsWithBoxes<'a> {
     analysis: &'a Analysis,
-    // Locals to box although no closure captures them.
+    // Locals to box even though no closure captures them.
     assigned: FxHashSet<SyntaxObjectId>,
 }
 
@@ -5954,10 +5952,9 @@ impl ReplaceSetOperationsWithBoxes<'_> {
     }
 }
 
-// Finds the locals that are assigned to: what a `set!` names that a function
-// or a `let` binds. A continuation keeps a copy of the stack, so a local
-// assigned in its stack slot goes back to what it was when the continuation
-// is entered again. In a box it is the same variable in every copy.
+// Finds the locals assigned with `set!`. A continuation copies the stack, so
+// a local assigned in its stack slot is reset when the continuation is
+// entered again. A box is shared by every copy.
 struct AssignedLocals<'a> {
     analysis: &'a Analysis,
     bound: FxHashSet<SyntaxObjectId>,
@@ -7655,15 +7652,12 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
                         .iter()
                         .all(|x| !ExprContainsIds::contains(self.analysis, &arg_ids, x));
 
-                    // A rest parameter has to stay last, and takes however
-                    // many arguments its own call was given.
+                    // A rest parameter has to stay last.
                     let outer_rest = function_a.rest;
 
-                    // A local that is assigned gets its box where its
-                    // function is entered. Bound together with the inner
-                    // arguments, that would be after they are evaluated, and
-                    // a continuation captured by one of them would be entered
-                    // again before the box is made.
+                    // An assigned local is boxed on function entry. Merged, the
+                    // box would be made after the inner arguments are evaluated,
+                    // and a continuation captured by one of them would miss it.
                     let outer_assigned = crate::config::config().box_assigned_locals
                         && self
                             .analysis

@@ -1,7 +1,3 @@
-//! Checks that cranelift keeps the jit's re-reads of a sequence number. If
-//! the second load is folded into the first, a shared read is never checked
-//! and nothing that runs can tell.
-
 use std::time::{Duration, Instant};
 
 use crate::jit2::cgen::atomic_load_watch::SEEN;

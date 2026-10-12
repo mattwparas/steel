@@ -1254,8 +1254,6 @@ mod host_function_call_tests {
 
 #[cfg(test)]
 mod typed_host_call_tests {
-    //! Host functions called from module code, where the globals are closed,
-    //! so the jit types results and arguments from their signatures.
     use crate::steel_vm::builtin::BuiltInModule;
     use crate::steel_vm::engine::Engine;
     use crate::steel_vm::register_fn::RegisterFn;
@@ -1420,10 +1418,6 @@ mod exported_macro_quote_tests {
 
 #[cfg(test)]
 mod set_after_compile_tests {
-    //! Each `run` is a separate compile, like input at the repl. Callers are
-    //! compiled before a later input `set!`s the global they call. A callee is
-    //! defined in its own input, since the compiler inlines a function into
-    //! callers compiled with it.
     use crate::steel_vm::engine::Engine;
 
     fn engine() -> Engine {

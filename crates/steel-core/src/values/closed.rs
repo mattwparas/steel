@@ -1256,8 +1256,7 @@ impl BreadthFirstSearchSteelValVisitor for UnreachedWalk {
     }
 
     fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output {
-        // Read in place, since a copy would hold a reference to everything
-        // in it.
+        // Read in place. A clone would add a reference to everything in it.
         let continuation = continuation.inner.read();
 
         // The values of one that is still open are on a stack.
@@ -1327,9 +1326,9 @@ impl BreadthFirstSearchSteelValVisitor for UnreachedWalk {
         }
 
         self.vectors_reached += 1;
-        // One at a time. A copy of an element still waiting its turn would
-        // be counted as a reference from outside when the same value comes
-        // up earlier in the vector.
+        // One at a time. A copy of an element still waiting would count as
+        // an outside reference when the same value comes up earlier in the
+        // vector.
         let vector = cell.lock();
         for value in vector.value.iter() {
             self.push_back(value.clone());
@@ -1518,9 +1517,8 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         Err(err) => return Some(Err(err)),
     };
 
-    // Only a collection makes a will ready. With none ready, this runs one
-    // before it waits, or a program whose threads never happen to collect
-    // would wait forever on a value that is already garbage.
+    // Wills only become ready in a collection. With none ready, run one
+    // before waiting, or a program that never collects waits forever.
     let mut collected = false;
 
     // The registration is only taken once this thread is running again. A
@@ -3019,9 +3017,8 @@ enum Deferred {
     Buffer(#[allow(dead_code)] HeapVec),
 }
 
-// What a thread has put aside, by the family it was in when it did. One
-// thread can run more than one engine, and only the threads of a value's own
-// family can be reading it.
+// Deferred drops by the family the thread was in. A thread can run more
+// than one engine, and only threads of a value's family can be reading it.
 struct DeferredDrops(Vec<(Option<usize>, Vec<Deferred>)>);
 
 impl DeferredDrops {
@@ -3231,9 +3228,8 @@ pub(crate) fn drop_deferred_at_collection() {
 fn drop_deferred_from(collection: bool) {
     resolve_awaited(collection);
 
-    // The threads this one can vouch for are those of the family it is
-    // running in now, so only what was put aside in that family is looked at.
-    // With no family, that is every thread and everything.
+    // Only look at what was deferred in the current family, since those are
+    // the threads we can check. With no family that is everything.
     let family = my_family();
 
     let ready = DEFERRED_DROPS
@@ -3255,11 +3251,9 @@ fn drop_deferred_from(collection: bool) {
                     continue;
                 }
 
-                // A collection hands over however few there are. Left here, a
-                // short list would wait for a moment when every other thread
-                // happens to be at a safepoint, which in a busy process may
-                // never come, and a value on it is one more reference to that
-                // value for as long.
+                // A collection hands over even a short list. Otherwise it
+                // waits for every other thread to be at a safepoint at once,
+                // which may never happen in a busy process.
                 if collection || values.len() >= DEFERRED_DROP_BACKLOG {
                     let batch = AwaitedBatch {
                         values: core::mem::take(values),
@@ -3273,8 +3267,8 @@ fn drop_deferred_from(collection: bool) {
                         Ok(mut awaited) => {
                             awaited.push(batch);
                             drop(awaited);
-                            // After the counts were read, so a check in that
-                            // answers this is seen as one.
+                            // After the counts were read, so a check in that answers
+                            // this is counted.
                             request_check_ins();
                         }
                         Err(_) => *values = batch.values,
@@ -4489,14 +4483,6 @@ pub struct HeapRef<T: HeapAble> {
     pub(crate) inner: core::mem::ManuallyDrop<steel_rc::weak::Weak<SpinLock<HeapAllocated<T>>>>,
 }
 
-/// A box can only be read through a handle, so once the last handle is gone
-/// nothing can observe its value again, and the value is released right away.
-/// The heap decides when to collect by how many boxes it holds and not by what
-/// they keep alive, so a few boxes each pinning a large structure might
-/// otherwise never be collected. The slot itself is still reclaimed by the heap.
-///
-/// Cycles through boxes keep their handles alive and are left to mark and
-/// sweep.
 /// Copies a value out of memory that another thread may be writing. What
 /// comes back can be half of one value and half of another, so it must not
 /// be used until the caller has checked that no write was in the way.
@@ -4588,6 +4574,14 @@ impl HeapRef<HeapVec> {
     }
 }
 
+/// A box can only be read through a handle, so once the last handle is gone
+/// nothing can observe its value again, and the value is released right away.
+/// The heap decides when to collect by how many boxes it holds and not by what
+/// they keep alive, so a few boxes each pinning a large structure might
+/// otherwise never be collected. The slot itself is still reclaimed by the heap.
+///
+/// Cycles through boxes keep their handles alive and are left to mark and
+/// sweep.
 impl<T: HeapAble> Drop for HeapRef<T> {
     #[inline]
     fn drop(&mut self) {

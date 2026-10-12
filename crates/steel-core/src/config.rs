@@ -1,21 +1,3 @@
-//! Every `STEEL_*` tuning and debugging switch, in one place.
-//!
-//! Each setting is declared once below with its field, type, default, environment
-//! variable and description, and read once, the first time anything asks for
-//! [`config()`]. Code reads the field (`config().jit_frameless`) instead of the environment.
-//!
-//! Parsing is the same for every setting of a type:
-//! - `bool`: unset means the default; `0`, `false`, `off` or `no` mean off, and
-//!   anything else, including an empty value, means on.
-//! - numbers: parsed after trimming; a value that doesn't parse means the default.
-//! - `Option<String>`: the raw value, when set.
-//! - `Option<Vec<u32>>` / `Option<Vec<String>>`: a comma separated list, when set.
-//!
-//! `STEEL_HOME`, `STEEL_LSP_HOME` and `STEEL_SEARCH_PATHS` are not here since they
-//! are search paths, and other crates read them too.
-//!
-//! [`describe`] lists every setting with its current value.
-
 /// How one type of setting is read from its environment variable.
 pub trait ConfigValue: Sized {
     fn parse(raw: &str) -> Option<Self>;
@@ -263,7 +245,7 @@ steel_config! {
     jit_strip_mine: usize = 1024, "STEEL_JIT_STRIP_MINE";
     /// Load the running closure's captures once on entry.
     jit_cache_captures: bool = true, "STEEL_JIT_CACHE_CAPTURES";
-    /// Read and write a thread local storage slot in place when its handle is a closed global.
+    /// Read and write thread local storage slots in place when the handle is a closed global.
     jit_inline_tls: bool = true, "STEEL_JIT_INLINE_TLS";
     /// Keep a pushed closed global as a reference to its slot until it is used.
     jit_closed_global_operands: bool = true, "STEEL_JIT_CLOSED_GLOBAL_OPERANDS";
@@ -386,9 +368,8 @@ steel_config! {
     topo_defines: bool = true, "STEEL_TOPO_DEFINES";
     /// Log the ordering.
     topo_log: bool = false, "STEEL_TOPO_LOG";
-    /// Keep every local that is assigned with `set!` in a box, whether or not
-    /// a closure captures it. A continuation entered again then sees what was
-    /// assigned since it was captured.
+    /// Box every local assigned with `set!`, captured or not, so a continuation
+    /// entered again sees the assignment.
     box_assigned_locals: bool = true, "STEEL_BOX_ASSIGNED_LOCALS";
     /// Lower acyclic internal defines sequentially rather than as `letrec`.
     sequential_defines: bool = true, "STEEL_SEQUENTIAL_DEFINES";

@@ -1,9 +1,4 @@
-;; A thread takes a value out of a cell other threads are reading, and then
-;; expands a macro, which runs another engine on the same thread. That
-;; engine's own cells have no readers, which says nothing about the first
-;; value.
-
-;; Defined through eval so that it is there when this file runs as a module.
+;; Defined through eval so it exists when this file runs as a module
 (eval '(define-syntax (churn-in-the-expander stx)
          (syntax-case stx ()
            [(_)

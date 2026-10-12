@@ -2336,8 +2336,6 @@ impl<'a> FunctionTranslator<'a> {
         )
     }
 
-    // TODO: Replace the spin lock with an actual mutex implementation,
-    // eventually.
     /// Starts a join of several arms that each end in a value. Every arm
     /// starts from what the translator knows now, and only what all of them
     /// agree on is kept once they have joined.
@@ -2500,6 +2498,8 @@ impl<'a> FunctionTranslator<'a> {
         self.join_finish(join)
     }
 
+    // TODO: Replace the spin lock with an actual mutex implementation,
+    // eventually.
     pub(super) fn with_spinlock<O>(
         &mut self,
         lock_pointer: Value,

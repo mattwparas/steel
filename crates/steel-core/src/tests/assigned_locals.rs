@@ -1,15 +1,9 @@
-//! A local that is assigned with `set!` keeps what was assigned when a
-//! continuation captured before the assignment is entered again. That holds
-//! with `STEEL_BOX_ASSIGNED_LOCALS` on, and these only check anything then.
-//! With it off the first of them does not end.
-
 use crate::steel_vm::engine::Engine;
 
 const PROGRAM: &str = r#"
 (define (capture) (call/cc (lambda (k) k)))
 
-;; Bound by a `let`, with the continuation captured in a function called
-;; from the next one in.
+;; A let local, with the continuation captured in a called function.
 (define (let-local x)
   (let ([n 0])
     (let ([k (capture)])
@@ -17,7 +11,7 @@ const PROGRAM: &str = r#"
       (if (< n 4) (k k) (* x n)))))
 (assert! (= 20 (let-local 5)))
 
-;; The continuation captured where the local is.
+;; The continuation captured inline.
 (define (captured-here x)
   (let ([n 0])
     (let ([k (call/cc (lambda (k) k))])
@@ -40,7 +34,7 @@ const PROGRAM: &str = r#"
   (if (< n 4) (k k) (* x n)))
 (assert! (= 20 (defined 5)))
 
-;; A local that a closure captures as well.
+;; A local that a closure also captures.
 (define (closed-over x)
   (let ([n 0])
     (let ([k (capture)])
@@ -49,8 +43,7 @@ const PROGRAM: &str = r#"
         (if (< (read) 4) (k k) (* x (read)))))))
 (assert! (= 20 (closed-over 5)))
 
-;; Two locals, one assigned before the continuation is captured and one
-;; after.
+;; One local assigned before the capture and one after.
 (define (two-locals)
   (let ([before 0] [after 0])
     (set! before (+ before 10))
@@ -60,7 +53,7 @@ const PROGRAM: &str = r#"
       (if (< after 3) (k k) (list before after)))))
 (assert! (equal? (list 13 3) (two-locals)))
 
-;; Entered again from outside the function that captured it.
+;; Entered again from outside the function.
 (define saved #f)
 (define (counts-entries)
   (let ([n 0])
@@ -74,7 +67,7 @@ const PROGRAM: &str = r#"
     (unbox entries)))
 (assert! (equal? (list 3 2 1) (enters-three-times)))
 
-;; Assigning without a continuation gives what it gave.
+;; Plain assignment still works.
 (define (sum-to limit)
   (let ([total 0] [i 0])
     (let loop ()

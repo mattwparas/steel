@@ -1,9 +1,3 @@
-//! Values serialized by one engine and read by another, which is what the
-//! bytes are for, and random values sent both ways.
-//!
-//! The round trips within one engine are in
-//! `success/serialization_round_trips.scm`.
-
 use crate::rvals::SteelVal;
 use crate::steel_vm::engine::Engine;
 use crate::values::functions::ByteCodeLambda;
@@ -249,7 +243,6 @@ fn received_function(engine: &mut Engine, expression: &str) -> crate::gc::Gc<Byt
     }
 }
 
-/// A function that arrives is compiled like one that was defined here.
 #[cfg(feature = "jit2")]
 #[test]
 fn received_functions_are_compiled() {
@@ -286,8 +279,6 @@ fn received_functions_are_compiled() {
     }
 }
 
-/// A function that is sent again runs the body that was made for it the
-/// first time, whatever each copy closes over.
 #[test]
 fn a_function_sent_again_shares_what_was_made_for_it() {
     let mut ends = Ends::new();
@@ -310,7 +301,7 @@ fn a_function_sent_again_shares_what_was_made_for_it() {
     let two = received_function(&mut ends.to, "received");
     assert!(core::ptr::eq(one.body_exp.as_ptr(), two.body_exp.as_ptr()));
 
-    // Several in one value, and the ones from before still give their own.
+    // Several in one value. The earlier ones keep their captures.
     ends.arrives(
         "(map sent-adder (list 10 20 30))",
         "(equal? (map (lambda (add) (add 1)) received) (list 11 21 31))",
@@ -320,13 +311,10 @@ fn a_function_sent_again_shares_what_was_made_for_it() {
     assert!(holds(&mut ends.to, "(= (kept-adder 10) 11)"));
 }
 
-/// Two engines in one process give their globals and constants different
-/// places, and a function keeps its id between them. What it refers to is
-/// what is here, in its loops and inner functions too.
 #[test]
 fn functions_refer_to_what_is_here_in_the_same_process() {
     let mut ends = Ends::new();
-    // Globals and constants that only the reader has, to move its indices.
+    // Globals and constants only the reader has, to shift its indices.
     ends.to
         .run(
             "(define only-here-a 'only-here)
@@ -343,8 +331,7 @@ fn functions_refer_to_what_is_here_in_the_same_process() {
                  (if (= i n)
                      (map (lambda (x) (sent-label (+ x sent-offset))) acc)
                      (loop (+ i 1) (cons (* i 3) acc)))))
-             ;; Run where it was defined, so that its inner functions exist
-             ;; there too.
+             ;; Run it here so its inner functions exist on this side too.
              (sent-walk 3)",
         )
         .unwrap();
@@ -1007,9 +994,8 @@ fn bytes_that_were_changed_are_read_or_refused() {
     assert!(read > 0);
 }
 
-/// One copy of a program on disk: `main.scm`, which requires
-/// `lib/state.scm`, and an engine that has loaded it. The modules are files
-/// since where they are is what is under test.
+/// A program on disk, `main.scm` requiring `lib/state.scm`, and an engine that
+/// loaded it. These are real files since the paths are what is tested.
 struct Checkout {
     dir: std::path::PathBuf,
     engine: Engine,
@@ -1093,7 +1079,7 @@ fn a_module_is_found_by_where_it_is_under_its_root() {
 }
 
 impl Checkout {
-    // Starts over from the program in `app`, which reaches above itself.
+    // Loads the program in `app`, which requires a module above itself.
     fn from_app(name: &str) -> Self {
         let mut checkout = Checkout::new(name);
         let mut engine = Engine::new();
@@ -1168,7 +1154,7 @@ fn a_program_in_another_directory_keeps_its_own_state() {
             way
         );
 
-        // Without the program, the function brings the state it had.
+        // Without the program loaded, the function brings its state along.
         let mut to = engine();
         send(&mut from.engine, &mut to, "get-both").unwrap();
         assert!(
@@ -1212,7 +1198,7 @@ fn a_global_that_cannot_be_sent_is_the_one_that_is_here() {
             .unwrap_or_else(|e| panic!("{}: sending failed: {}", way, e));
         assert!(holds(&mut to, "(= (received) 2)"), "{}", way);
 
-        // One without it says which global is missing.
+        // Without the handle, the error names the missing global.
         let mut to = engine();
         crate::steel_vm::register_fn::RegisterFn::register_fn(
             &mut to,
@@ -1223,7 +1209,7 @@ fn a_global_that_cannot_be_sent_is_the_one_that_is_here() {
         assert!(error.contains("handle"), "{}: {}", way, error);
         assert!(error.contains("not defined here"), "{}: {}", way, error);
 
-        // Held in something else, it still can't be sent.
+        // Still can't be sent when held in a list.
         from.run(
             "(define handles (list handle)) (define (first-number) (handle-number (car handles)))",
         )

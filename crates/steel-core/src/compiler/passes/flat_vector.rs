@@ -1,12 +1,3 @@
-//! Promotes vector construction sites to flat vectors.
-//!
-//! A constructed vector usually escapes right away, e.g. into a cons cell, so
-//! this works backwards from the mutations instead. Every mutating vector call has
-//! its target resolved to the binding it came from, and if that binding was
-//! initialized by a construction site then only that site has to stay mutable. A
-//! target that does not resolve means some unknown vector gets mutated, and the
-//! whole unit is left alone.
-
 use rustc_hash::{FxHashMap, FxHashSet};
 use steel_parser::{
     ast::{Define, ExprKind, LambdaFunction, Let, List},

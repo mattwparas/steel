@@ -381,14 +381,13 @@ pub struct SteelThread {
     // A continuation on its way out to the run it belongs to, and the
     // value it was called with.
     pub(crate) escaping: Option<(SteelVal, SteelVal)>,
-    // The top level forms of continuations entered during the runs going on.
-    // A continuation can outlive the run it was captured in, and carrying on
-    // from it executes that run's instructions again.
-    // Functions made from serialized ones, by the process that sent them and
-    // the id they have there. One that is sent again shares the body made
-    // the first time, and the code compiled for it. None of them holds a
-    // captured value, so each is with how many its body expects.
+    // Functions built from serialized ones, by sending process and the id
+    // they have there. One sent again reuses the body and its compiled code.
+    // Kept without captures, with the capture count the body expects.
     pub(crate) received_functions: rustc_hash::FxHashMap<(u64, u32), (Gc<ByteCodeLambda>, usize)>,
+    // Top level forms of continuations entered during the current runs. A
+    // continuation can outlive its run, and resuming it executes that run's
+    // instructions.
     entered_roots: Vec<Gc<ByteCodeLambda>>,
 
     // Store... more stuff here
@@ -671,9 +670,8 @@ impl Synchronizer {
             crate::values::closed::register_mutator(&slot);
         }
 
-        // A thread that has exited, with a handle nothing else holds, can't
-        // be joined. Kept, it would hold on to what the thread returned, and
-        // every collection would walk past it.
+        // Forget exited threads whose handle nothing else holds. They can't be
+        // joined, and keeping them keeps what they returned.
         let forgotten = {
             let mut threads = self.threads.lock().unwrap();
             let mut forgotten = Vec::new();
@@ -693,7 +691,7 @@ impl Synchronizer {
             forgotten
         };
 
-        // Outside the lock, since this drops what they returned.
+        // Dropped outside the lock, since this drops what they returned.
         drop(forgotten);
     }
 
@@ -1659,17 +1657,16 @@ impl SteelThread {
 /// one has to unwind the native code in between, and once its run has
 /// returned there is nothing left to go back to.
 ///
-/// The outermost run on a thread is always `0`, so that a continuation kept
-/// from one top level form can be called from the next.
+/// The outermost run on a thread always has the same id, so that a
+/// continuation kept from one top level form can be called from the next.
 pub(crate) struct NativeEntry {
     thread: *mut SteelThread,
 }
 
 impl NativeEntry {
-    /// Starts a run. Native code that calls back in while a continuation is on
-    /// its way out, to a run that is still going, has swallowed the error that
-    /// was carrying it. The call is refused with that error again, so the
-    /// native code is left as soon as it lets go.
+    /// Starts a run. Native code that calls back in while a continuation is
+    /// escaping to a run that is still going has swallowed the escape error.
+    /// Raise it again so the native code returns.
     fn enter(thread: &mut SteelThread) -> Result<Self> {
         if let Some(home) = thread.escaping_to() {
             if thread.native_entries.contains(&home) {
@@ -1678,8 +1675,8 @@ impl NativeEntry {
             thread.escaping = None;
         }
 
-        // The outermost run is the same one for every top level form on a
-        // thread, and a different one on every thread.
+        // The outermost run has one id for every top level form on a thread,
+        // and a different one per thread.
         let id = if thread.native_entries.is_empty() {
             thread.native_entry_prefix
         } else {
@@ -1697,7 +1694,7 @@ impl Drop for NativeEntry {
         // The thread outlives every run on it
         let thread = unsafe { &mut *self.thread };
         let ended = thread.native_entries.pop();
-        // Nothing can land in a run that is over
+        // An escape can't target a run that is over
         if thread.native_entries.is_empty() || thread.escaping_to() == ended {
             thread.escaping = None;
         }
@@ -2112,8 +2109,8 @@ impl WeakContinuation {
 pub struct ClosedContinuation {
     pub(crate) stack: Stack<SteelVal>,
     pub(crate) current_frame: StackFrame,
-    // Holds the instructions of the top level form this was captured under,
-    // which the bottom frame returns into.
+    // Keeps the top level form's instructions alive, since the bottom frame
+    // returns into them.
     root: Gc<ByteCodeLambda>,
     instructions: RootedInstructions,
     pub(crate) stack_frames: Stack<StackFrame>,
@@ -2700,8 +2697,7 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    /// Takes back the frame and arguments pushed for a call that is not going
-    /// to be made.
+    /// Pops the frame and arguments pushed for a call that won't be made.
     fn drop_pushed_frame(&mut self) {
         if let Some(frame) = self.thread.stack_frames.pop() {
             self.thread.stack.truncate(frame.sp as usize);
@@ -2771,8 +2767,8 @@ impl<'a> VmCore<'a> {
             .map(|x| x.sp as _)
             .unwrap_or(0);
 
-        // A call that ended in an error unwound its frame and left what was
-        // on the stack above it.
+        // A call that errored unwound its frame but left values on the stack
+        // above it.
         if let (Err(_), Some(base)) = (&res, base) {
             self.thread.stack.truncate(base);
         }
@@ -5713,9 +5709,9 @@ impl<'a> VmCore<'a> {
         stop!(Generic => "this continuation was captured under a call from native code that has returned"; self.current_span());
     }
 
-    /// For when a builtin comes back. One that ran a function which called a
-    /// continuation of a run further out can have swallowed the error taking
-    /// it there, and returned as though nothing happened.
+    /// Called when a builtin returns. If it ran a function that called a
+    /// continuation of an outer run, it may have swallowed the escape error
+    /// and returned normally.
     #[inline(always)]
     fn keep_escaping(&self) -> Result<()> {
         if unlikely(self.thread.escaping.is_some()) {
@@ -6451,7 +6447,7 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
         .last()
         .map(|x| x.as_str().to_owned())
         .map(PathBuf::from)
-        // A module registered from a string has a name that is not a file
+        // A module registered from a string has no file
         .filter(|path| path.exists());
 
     // TODO: Provide a path / context from which to do this? Or grab it implicitly?
@@ -6705,8 +6701,8 @@ fn get_module_relative_context(
 
     let compiler = ctx.thread.compiler.read();
 
-    // Where the module is under its root is the same wherever the program
-    // is and wherever it was started from.
+    // The path under the module's root doesn't depend on where the program
+    // is or where it was started from.
     if let Some(origin) = compiler.module_manager.origins().get(&last) {
         return Some(Ok(SteelVal::StringV(origin.relative.as_str().into())));
     }
@@ -7268,8 +7264,8 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     let fun = arg_iter.next().unwrap();
     let lst = arg_iter.next_back().unwrap();
 
-    // A struct that can be called stands for its procedure. One whose
-    // procedure leads back to itself never gets to a function.
+    // A callable struct stands for its procedure. The walk is bounded in
+    // case the procedure leads back to the struct.
     let mut fun = fun.clone();
     let mut steps = 0;
     loop {

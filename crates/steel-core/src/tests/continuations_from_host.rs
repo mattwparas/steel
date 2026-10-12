@@ -1,6 +1,3 @@
-//! A continuation called from the host carries on with what it had left to
-//! do, and the host gets that computation's result.
-
 use crate::rvals::SteelVal;
 use crate::steel_vm::engine::Engine;
 

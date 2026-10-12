@@ -1,18 +1,3 @@
-//! Values in a form that can be sent to another thread, engine or process.
-//!
-//! A serialized value is a table. Each entry is one value, and where a value
-//! holds others it names them by their place in the table, so nothing is
-//! nested inside anything else. That is what lets both directions work
-//! through a list of what is left to do instead of going down the stack once
-//! for each level of the value: a chain of a million pairs is a million
-//! entries, and takes no more stack than three. Copying a table, dropping
-//! one and turning one to and from bytes are loops over it for the same
-//! reason.
-//!
-//! A value that is referred to from two places is one entry named twice, so
-//! it comes back as one value. A box, a mutable vector or a mutable struct
-//! that is part of a cycle is an entry that, some way down, names itself.
-
 use super::*;
 
 use crate::compiler::modules::{ModuleOrigins, ModuleRoot, MANGLER_PREFIX, MANGLER_SEPARATOR};
@@ -74,9 +59,9 @@ pub enum SerializableSteelVal {
     StructTypeKey(StructTypeDescriptor),
     BuiltinSteelModuleRef(String, String),
     NativeStruct(String, Vec<u8>),
-    // A list of these elements followed by the list at the entry.
+    // These elements consed onto the list at the entry.
     ListOnto(Vec<SerializedId>, SerializedId),
-    // The list at the entry without this many of its first elements.
+    // The list at the entry without its first n elements.
     ListTail(SerializedId, u32),
 }
 
@@ -174,9 +159,9 @@ pub(crate) fn process_origin() -> u64 {
 /// that compiled it. Here each such number is the path itself, and the name
 /// this process has for the global is put back together from that.
 ///
-/// The path is where the sender has the module. With it goes the root the
-/// module was found under and its path from there, which is what a receiver
-/// that has the module somewhere else finds it by.
+/// The path is the sender's. The root the module was found under and its
+/// relative path go with it, so a receiver with the module somewhere else
+/// can find it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GlobalName(Vec<NamePart>);
 
@@ -244,8 +229,8 @@ impl GlobalName {
             match part {
                 NamePart::Text(text) => name.push_str(text),
                 NamePart::Module { path, origin } => {
-                    // A module this engine has not loaded keeps the
-                    // sender's path.
+                    // Use the sender's path if this engine hasn't loaded
+                    // the module.
                     let path = origin
                         .as_ref()
                         .and_then(|(root, relative)| origins.prefix_path_for(*root, relative))
@@ -265,8 +250,7 @@ impl GlobalName {
         name
     }
 
-    // The name as it was written, and the module it is in where it was sent
-    // from.
+    // The name as written with the sender's module path, for errors.
     fn described(&self) -> String {
         match self.0.as_slice() {
             [NamePart::Module { path, .. }, NamePart::Text(name)] => {
@@ -338,12 +322,11 @@ pub struct HeapSerializer<'a> {
 
     // Cache the functions that get built
     pub built_functions: &'a mut rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
-    // The functions that have been made, one for each body. With them come
-    // constants that running code has to be able to read.
-    // Each is with the id it was sent under.
+    // The functions built so far, one per body, with the id each was sent
+    // under.
     pub made_functions: Vec<(u32, Gc<ByteCodeLambda>)>,
-    // The first function made for each id that closes over something. The
-    // others with that id share its body.
+    // The first closure built for each id. Later ones with that id share
+    // its body.
     shared_bodies: rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
 
     pub thread: &'a mut SteelThread,
@@ -398,8 +381,7 @@ impl<'a> HeapSerializer<'a> {
         }
     }
 
-    /// The function made for `sent` when an earlier value brought it here.
-    /// It holds no captured values of its own.
+    /// The function built for `sent` by an earlier value. It has no captures.
     fn received_before(&self, sent: &SerializedLambda) -> Option<Gc<ByteCodeLambda>> {
         self.thread
             .received_functions
@@ -408,17 +390,13 @@ impl<'a> HeapSerializer<'a> {
             .map(|(made, _)| made.clone())
     }
 
-    /// The id here of the function that had `sent` where it was written,
-    /// the same each time it comes up in this value.
+    /// The id here for the function sent as `sent`. The same within one value.
     ///
-    /// Always a new one. Another process hands out its own ids, and another
-    /// engine in this process has its globals and constants in other places,
-    /// while compiled code is kept for the whole process by the id of the
-    /// function it was compiled from.
+    /// Always a fresh id. Compiled code is cached per process by function id,
+    /// and another engine or process has different globals and constants.
     pub(crate) fn function_id_here(&mut self, sent: u32) -> u32 {
         let here = self.fresh_function_id_for(sent);
-        // Where the function was written, for errors, if this is the thread
-        // that knows.
+        // Copy the span over for errors when the sender is in this process.
         if self.same_process {
             let spans = &mut self.thread.function_interner.spans;
             if let Some(known) = spans.get(&sent).cloned() {
@@ -899,7 +877,7 @@ fn for_each_held(node: &SerializableSteelVal, mut visit: impl FnMut(SerializedId
     }
 }
 
-// Whether `sent` can run the body that was made for `made`.
+// Whether `sent` can reuse the body built for `made`.
 fn same_shape(made: &ByteCodeLambda, sent: &SerializedLambda) -> bool {
     made.arity() == sent.arity
         && made.is_multi_arity() == sent.is_multi_arity
@@ -927,8 +905,8 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
                 Ok(SteelVal::Closure(value))
             } else {
                 let id = ctx.function_id_here(c.id);
-                // Closures of one function share its body, as they did where
-                // they were made, so that it is compiled once.
+                // Closures of one function share a body, so it is compiled
+                // once.
                 let first = ctx
                     .shared_bodies
                     .get(&id)
@@ -959,7 +937,7 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
         SerializableSteelVal::CharV(c) => Ok(SteelVal::CharV(*c)),
         SerializableSteelVal::Void => Ok(SteelVal::Void),
         SerializableSteelVal::Rational(r) => {
-            // Only the form arithmetic produces compares and prints right
+            // Arithmetic only produces rationals in lowest terms.
             if *r.denom() <= 1 || r.reduced().denom() != r.denom() {
                 stop!(Generic => "a serialized rational is not in lowest terms");
             }
@@ -987,8 +965,8 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
             let SteelVal::ListV(mut list) = ctx.built(*rest)? else {
                 stop!(Generic => "a serialized list goes on into something that is not a list");
             };
-            // The list that follows is held by the table as well, so this
-            // adds to it without copying it.
+            // The table also holds the tail, so cons onto it without
+            // copying.
             for element in ctx.built_all(ids)?.into_iter().rev() {
                 list.cons_mut(element);
             }
@@ -1156,10 +1134,10 @@ pub struct SerializationContext<'a> {
     kept: Vec<SteelVal>,
     // Values with a place in the table and nothing in it yet.
     waiting: Vec<(SerializedId, SteelVal)>,
-    // Where each list has been put.
+    // The table entry of each list.
     lists: rustc_hash::FxHashMap<ListPlace, SerializedId>,
-    // The longest list put down so far out of each run of elements, with
-    // how many of them it has.
+    // The longest list written from each run, and how many of the run's
+    // elements it has.
     longest: rustc_hash::FxHashMap<(usize, usize), (usize, SerializedId)>,
 }
 
@@ -1233,9 +1211,8 @@ impl<'a> SerializationContext<'a> {
     }
 }
 
-// What a value that can be referred to from more than one place is told
-// apart by: its kind and where it lives. Two references to one of these are
-// one entry in the table.
+// The kind and address of a value that can be shared. Two references to
+// the same one are one entry in the table.
 fn identity(value: &SteelVal) -> Option<(u8, usize, usize)> {
     let (kind, address) = match value {
         SteelVal::Closure(gc) => (0, gc.as_ptr() as usize),
@@ -1255,11 +1232,10 @@ fn identity(value: &SteelVal) -> Option<(u8, usize, usize)> {
     Some((kind, address, 0))
 }
 
-// What a list is told apart by. A list keeps its elements in runs, each
-// followed by the rest of the list. Lists that share a tail share its runs,
-// and a list and its tail can have their first elements in the same run. So
-// a list is where its first run is, how many of that run's elements it has,
-// and what follows the run.
+// Identifies a list. A list keeps its elements in runs, each followed by the
+// rest of the list. Lists that share a tail share its runs, and a list and
+// its tail can start in the same run. So a list is its first run, how many
+// of that run's elements it has, and what follows the run.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct ListPlace {
     run: usize,
@@ -1281,11 +1257,10 @@ fn list_place(value: &SteelVal) -> Option<ListPlace> {
     }
 }
 
-// The entry for a list. Only its first run is written with it. What follows
-// the run is a list with an entry of its own, which every list that shares
-// it names. A list out of a run that a longer list has been put down from
-// is a tail of that one, and a longer list adds its elements to the front
-// of the one before it.
+// The entry for a list. Only its first run is written. What follows the run
+// is its own entry, shared by every list with that tail. A list in a run
+// that a longer list was written from is a tail of it, and a longer list
+// adds its elements onto the previous one.
 fn list_node(
     id: SerializedId,
     list: crate::values::lists::List<SteelVal>,
@@ -1306,9 +1281,8 @@ fn list_node(
         }
         Some((count, shorter)) => (count, Some(shorter)),
         None if place.rest == 0 => (0, None),
-        // Going to the last of the run and on from there gives the list
-        // that follows as it is. Asking for the tail past the run would
-        // give a copy of where it starts.
+        // The cdr of the run's last cell is the following list as is.
+        // `tail(count)` would copy its first cell.
         None => match list.tail(place.count - 1).and_then(|last| last.cdr()) {
             Some(rest) => (0, Some(ctx.place(SteelVal::ListV(rest))?)),
             None => (0, None),
@@ -1335,10 +1309,9 @@ pub fn into_serializable_value(
 ) -> Result<SerializedId> {
     let id = ctx.place(val)?;
 
-    // This also takes whatever else is waiting, which is the same work
-    // whoever put it down would have gone on to do. Lists are left until
-    // nothing else is waiting and then taken longest first, so that a list
-    // is put down before its tails where it can be.
+    // This also takes whatever else is waiting. Lists are left until nothing
+    // else is waiting and then taken longest first, so a list is written
+    // before its tails when possible.
     let mut lists = Vec::new();
     loop {
         while let Some((id, value)) = ctx.waiting.pop() {

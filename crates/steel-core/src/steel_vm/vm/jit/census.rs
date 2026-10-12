@@ -1,5 +1,3 @@
-//! `STEEL_DEOPT_CENSUS`: counts calls that leave compiled code.
-
 use super::*;
 
 #[inline(always)]

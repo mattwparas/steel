@@ -1,7 +1,3 @@
-//! Tail calls from jitted code. A callee that takes a frame replaces the
-//! current one and the interpreter runs it. A native function's value is the
-//! current frame's return value.
-
 use super::*;
 
 /// Hands a tail call's result to the interpreter. A value from a native

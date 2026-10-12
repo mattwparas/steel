@@ -1,7 +1,3 @@
-;; A box made, put in a list, read and dropped in one expression, while another
-;; thread collects. Compiled code drops the box without a call, and the
-;; collector looks for boxes with no handles while this thread is running.
-
 (define stop (box #f))
 
 (define (collect n)

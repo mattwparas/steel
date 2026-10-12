@@ -1,5 +1,3 @@
-//! Lists, pairs, vectors, boxes, predicates and constructors for jitted code.
-
 use super::*;
 
 #[cross_platform_fn]
@@ -1162,8 +1160,7 @@ helper_family! {
     }
 }
 
-// The out of line arm of an inlined `get-tls`: a slot this thread doesn't
-// have.
+// Slow path of an inlined `get-tls`, when this thread doesn't have the slot.
 #[cross_platform_fn]
 fn tls_ref_slow(ctx: *mut VmCore, slot: usize) -> SteelVal {
     let this = unsafe { &mut *ctx };
@@ -1178,7 +1175,7 @@ fn tls_ref_slow(ctx: *mut VmCore, slot: usize) -> SteelVal {
     }
 }
 
-// The same for `set-tls!`.
+// Slow path of an inlined `set-tls!`.
 #[cross_platform_fn]
 fn tls_set_slow(ctx: *mut VmCore, slot: usize, value: SteelVal) -> SteelVal {
     let this = unsafe { &mut *ctx };

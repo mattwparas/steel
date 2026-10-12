@@ -1,6 +1,3 @@
-;; A value in a cycle of garbage is ready however many times the cycle holds
-;; it. A mutable vector here holds the same list two and three times over.
-
 (require-builtin steel/time)
 
 (struct frozen (payload label))

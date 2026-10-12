@@ -1,13 +1,3 @@
-//! Which primitive calls the jit lowers inline, in one table.
-//!
-//! A call to a primitive (a global bound to a native function) normally goes
-//! out through a generic helper. The primitives in [`inline_primitives`] have
-//! lowerings of their own. Each entry says which function it is, for which
-//! arity, whether it applies in operand position and in tail position (each
-//! behind its own switch), any further shape check, and how it lowers.
-//! `try_inline_primitive` and `try_inline_primitive_tail` are the only
-//! dispatchers, so recognising a new primitive is one entry here.
-
 use super::native::CharClass;
 use super::*;
 
@@ -475,8 +465,8 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
                 returns(|t, arity| t.inline_packed_struct_call(arity)),
             )
             .tail(always),
-            // Thread local storage whose handle is a closed global, so the
-            // slot is known here.
+            // Thread local storage with a closed global handle, so the slot
+            // is known at compile time.
             inline(
                 "get-tls",
                 crate::steel_vm::vm::threads::get_tls as *const (),

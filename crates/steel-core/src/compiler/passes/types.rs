@@ -1,29 +1,3 @@
-//! Type inference over the expanded AST.
-//!
-//! Computes, for every binding (`define`, `let`, lambda parameter), every
-//! identifier reference, every call and every lambda's return, the set of kinds
-//! of value it can hold ([`Ty`]). Used by the language server for inlay
-//! hints, and meant to feed the jit.
-//!
-//! Types come from:
-//! - literals and quoted data;
-//! - native functions' declared return types, and their `args` declarations.
-//!   A call that returns normally proves its arguments had the declared types,
-//!   so an immutable variable passed to one is narrowed from then on;
-//! - type predicates in `if` tests (`string?`, `pair?`, `not`, `and`, ...),
-//!   narrowing the tested variable in each branch;
-//! - user functions. Return types come from their bodies, and for functions
-//!   that never escape (a local helper or loop only ever called directly),
-//!   parameter types come from their call sites. Both are solved as a
-//!   fixpoint, so recursive loops get types.
-//!
-//! Every value an expression produces is in its set (so an empty set means
-//! "cannot return"), assuming a call to a native function behaves as its
-//! annotations say and a global binding is not redefined from outside the
-//! program being analyzed. Mutated variables, parameters of functions that
-//! escape (including every global function, since it can be called from
-//! anywhere) and results of calls to unknown functions are `any`.
-
 use crate::compiler::passes::analysis::Analysis;
 use crate::parser::ast::{Atom, ExprKind, LambdaFunction, List};
 use crate::parser::interner::InternedString;
@@ -2845,8 +2819,7 @@ mod tests {
              (define (string-length x) \"shadow\")
              (define (u) (string-length \"a\"))",
             &[
-                // A boxed local is bound to what it starts as, and read
-                // through the box.
+                // A boxed local has the type of its initial value.
                 (
                     "v",
                     if crate::config::config().box_assigned_locals {

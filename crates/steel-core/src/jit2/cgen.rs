@@ -6083,8 +6083,8 @@ impl FunctionTranslator<'_> {
         Some(result)
     }
 
-    /// The slot of a `(get-tls handle)` or `(set-tls! handle value)` call,
-    /// when the handle is a closed global that holds one here.
+    /// The slot of a `get-tls` or `set-tls!` call whose handle is a closed
+    /// global.
     fn tls_slot(&self, arity: usize) -> Option<usize> {
         let base = self.shadow_stack.len().checked_sub(arity)?;
 
@@ -6100,8 +6100,8 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    /// Where this thread's slots are, and whether `slot` is one of them. A
-    /// thread has only the slots that were made before it was spawned.
+    /// The thread's slot buffer, and whether `slot` is in bounds. A thread only
+    /// has the slots made before it was spawned.
     fn tls_slots(&mut self, slot: usize) -> (Value, Value) {
         let storage = offset_of!(SteelThread, thread_local_storage);
         let vm_ctx = self.get_ctx();
@@ -6123,12 +6123,12 @@ impl FunctionTranslator<'_> {
         (slots, has_slot)
     }
 
-    /// `(get-tls handle)` as a read of the thread's slot.
+    /// Inlines `(get-tls handle)` as a load from the thread's slot.
     fn inline_get_tls(&mut self, arity: usize) -> Option<Value> {
         let slot = self.tls_slot(arity)?;
         let offset = (slot * core::mem::size_of::<SteelVal>()) as i32;
 
-        // The handle is a constant, which is not on the vm stack.
+        // The handle is a constant, so it isn't on the vm stack.
         self.shadow_stack.pop();
 
         let (slots, has_slot) = self.tls_slots(slot);
@@ -6151,7 +6151,7 @@ impl FunctionTranslator<'_> {
         ))
     }
 
-    /// `(set-tls! handle value)` as a write of the thread's slot.
+    /// Inlines `(set-tls! handle value)` as a store to the thread's slot.
     fn inline_set_tls(&mut self, arity: usize) -> Option<Value> {
         let slot = self.tls_slot(arity)?;
         let offset = (slot * core::mem::size_of::<SteelVal>()) as i32;
@@ -6372,9 +6372,8 @@ impl FunctionTranslator<'_> {
                 } else {
                     met
                 };
-                // A counter already at the last fixnum has no chunk ahead of
-                // it. The bound is somewhere it isn't, so the body runs, and
-                // its step is what finds the counter can't go further.
+                // A counter at the last fixnum has no chunk ahead of it. Use
+                // the bound so the body runs and its step hits the overflow.
                 let stuck = self.builder.ins().icmp(IntCC::Equal, far, counter);
                 let unmet = self.builder.ins().select(stuck, bound, far);
                 self.builder.ins().select(met, bound, unmet)
@@ -7234,17 +7233,14 @@ impl FunctionTranslator<'_> {
     // Inline decrement of a steel_rc::weak::Weak. ptr is the ArcInner, the weak
     // count sits at offset 8.
     //
-    // The raw counter carries an implicit +1 while the heap still owns the
-    // box. A value of 2 is the last handle to a live box, whose value has to be
-    // released now (`Drop for HeapRef`), and 1 is the last handle to one the
-    // heap already let go of, whose memory is freed by `Weak::drop`. Both go to
-    // the out-of-line drop, which is cold since the free list holds a strong
-    // ref while the slot is live.
+    // The raw counter has an implicit +1 while the heap owns the box. 2 is the
+    // last handle to a live box, whose value is released now (`Drop for
+    // HeapRef`). 1 is the last handle to a box the heap already let go of, which
+    // `Weak::drop` frees. Both take the out-of-line drop.
     //
-    // The count is read before it is changed, as `HeapRef::take_if_last` does.
-    // Taking it down first and putting it back would leave a live box reading
-    // as one with no handles in between, and a collection on another thread
-    // scans for those after it has let this thread run again.
+    // Read the count before changing it, like `HeapRef::take_if_last`.
+    // Decrementing first and restoring it would briefly show a live box with no
+    // handles, and a collection on another thread scans for those.
     fn inline_weak_decrement(
         &mut self,
         ptr: Value,
@@ -7253,9 +7249,8 @@ impl FunctionTranslator<'_> {
     ) {
         let offset = self.builder.ins().iadd_imm_s(ptr, weak_counter_offset());
 
-        // A plain load. A count that another thread's drop has since lowered
-        // only sends this one past the out-of-line drop, which leaves the box
-        // to the next collection.
+        // A plain load. If another thread's drop lowers the count after this, we
+        // skip the out-of-line drop and the next collection frees the box.
         let current =
             self.builder
                 .ins()

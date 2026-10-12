@@ -1,5 +1,3 @@
-;; Thread local storage read and written from loops, where the handle is a
-;; global and where it is passed in, on one thread and on several.
 (define slot (make-tls 0))
 (define other (make-tls 'other))
 
@@ -15,7 +13,7 @@
   (if (= n 0) acc (sum-of handle (- n 1) (+ acc (get-tls handle)))))
 (assert! (= 25000000 (sum-of slot 5000 0)))
 
-;; What a slot held is let go when it is replaced.
+;; The old value is released when a slot is replaced
 (define (fresh-lists n)
   (when (> n 0)
     (set-tls! other (list n n n))
@@ -26,8 +24,7 @@
 (set-tls! other 'other)
 (assert! (equal? (list 1 1 1) kept))
 
-;; A thread starts with what the one that spawned it had, and what it
-;; writes is its own.
+;; A thread starts with its spawner's values and writes its own
 (define (in-thread)
   (let ([before (get-tls slot)])
     (count-up 3000)
@@ -39,7 +36,7 @@
           threads)
 (assert! (= 5100 (get-tls slot)))
 
-;; A slot made after a thread was spawned is not one that thread has.
+;; A thread doesn't have slots made after it was spawned
 (define ready (box #f))
 (define (wait-for-reader)
   (if (unbox ready) (unbox ready) (wait-for-reader)))
@@ -65,6 +62,6 @@
   (spawn-native-thread (lambda () (list (get-tls late) (begin (write-late 500) (get-tls late))))))
 (assert! (equal? (list 1 1) (thread-join! writing)))
 
-;; Not a handle.
+;; Not a handle
 (assert! (eq? 'refused (with-handler (lambda (e) 'refused) (get-tls 5))))
 (assert! (eq? 'refused (with-handler (lambda (e) 'refused) (set-tls! 'slot 5))))

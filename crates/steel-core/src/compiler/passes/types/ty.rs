@@ -1,13 +1,3 @@
-//! The type the inference pass computes for an expression: the kinds of value
-//! it can be ([`TypeSet`]), and for immutable containers the kinds of what they
-//! hold. Lists, pairs (their `car`), immutable vectors and hash sets have
-//! `elements`, and hash maps have `keys` and `elements` (their values). None of
-//! these can change once made, so what they hold is known for good. A mutable
-//! vector's contents can change, so they are never tracked.
-//!
-//! Only one level is tracked: a list of lists is a list whose elements are
-//! lists, with nothing said about their elements.
-
 use crate::value_type::TypeSet;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]

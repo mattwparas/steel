@@ -296,11 +296,8 @@ struct SerializedValue {
 
 impl Custom for SerializedValue {}
 
-// What the bytes of a serialized value start with. A table whose entries
-// name each other by place came in with 2. With 3 came names of globals
-// that mean the same in every process, and the layout of each struct type.
-// With 4 a list names the list it shares a tail with. With 5 a module in a
-// name has the root it was found under. What was written before is not read.
+// The first byte of a serialized value. Bumped when the layout changes.
+// Older formats are not read.
 const SERIALIZED_FORMAT: u8 = 6;
 
 // The struct type here that a struct sent from elsewhere belongs to.
@@ -325,9 +322,9 @@ fn struct_type_here(
         .and_then(|value| StructTypeDescriptor::from_steelval(&value).ok())
         .filter(|descriptor| VTable::matches_sendable_entry(*descriptor, entry));
 
-    // Sent from this process, the type the sender had is right here in the
-    // table. That is the only way to tell apart types of one name, such as a
-    // struct defined inside a function, which is a new type on every call.
+    // Within one process the sender's descriptor is valid here. It is the
+    // only way to tell apart types with the same name, like a struct defined
+    // inside a function.
     let sent = same_process
         .then_some(entry.desc)
         .filter(|descriptor| VTable::matches_sendable_entry(*descriptor, entry));
@@ -377,7 +374,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         globals.push((index, from_serializable_value(&mut serializer, global)?));
     }
 
-    // The functions that are about to be bound to a global of their own.
+    // Functions that will be bound to a global of their own.
     let own_globals: Vec<(Gc<ByteCodeLambda>, usize)> = globals
         .iter()
         .filter_map(|(index, global)| match global {
@@ -398,14 +395,12 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
 
     let made = core::mem::take(&mut serializer.made_functions);
 
-    // The functions refer to their constants where running code reads them.
-    // Copying the constants out is only worth it when there is a function.
+    // Functions read their constants from the flushed map.
     if !made.is_empty() {
         serializer.thread.compiler.read().constant_map.flush();
     }
 
-    // Kept for when the same functions are sent again, now that all of
-    // what they refer to is here.
+    // Kept for when the same functions are sent again.
     let origin = inner.origin;
     for (sent, function) in &made {
         let kept = if function.captures().is_empty() {
@@ -421,7 +416,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
 
     drop(serializer);
 
-    // Compiled now that what they refer to is here.
+    // Compile now that everything they refer to is here.
     #[cfg(feature = "jit2")]
     for (_, function) in &made {
         let own_index = own_globals
@@ -566,7 +561,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
                 Ok(id) => {
                     old_mapping.insert(idx, id);
                 }
-                // Left for the receiver to find under the same name.
+                // Leave it for the receiver to find by name.
                 Err(_) if unsendable => sctx.nodes.truncate(table_len),
                 Err(e) => return Err(e),
             }
@@ -815,9 +810,9 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
 }
 */
 
-// What has been sent and not yet received, in order, for a collection to
-// find. It can't look inside the channel. Each message has a number, since
-// the same value can be sent twice and two lists can share their storage.
+// Values sent and not yet received, in order. A collection can't look inside
+// the channel, so it finds them here. Messages are numbered since the same
+// value can be sent twice.
 #[derive(Default)]
 struct Sent {
     next: u64,
@@ -879,8 +874,8 @@ impl Custom for SteelSender {
     }
 }
 
-// The two ends are handed out on request, so this can be all a program
-// holds of a channel with something in it.
+// The ends are handed out on request, so this can be all that holds a
+// channel with something in it.
 impl Custom for Channels {
     fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
         context.push_back(self.sender.clone());
@@ -1109,6 +1104,8 @@ pub(crate) fn spawn_native_thread(
     builtin_stop!(Generic => "the feature needed for spawn-native-thread is not enabled.")
 }
 
+/// Holds a new thread at a safepoint until it has been registered. A
+/// collection only scans registered threads.
 #[cfg(feature = "sync")]
 fn wait_to_be_registered(
     thread: &mut SteelThread,
@@ -1138,8 +1135,6 @@ fn wait_to_be_registered(
 /// ```scheme
 /// (define thread (spawn-native-thread (lambda () (displayln "Hello world!"))))
 /// ```
-/// Holds a new thread at a safepoint until it has been registered. A
-/// collection only scans registered threads.
 #[cfg(feature = "sync")]
 #[steel_derive::context(
     name = "spawn-native-thread",
@@ -1301,8 +1296,8 @@ impl ThreadLocalStorage {
     }
 }
 
-/// What this thread has in `slot`. A slot made after this thread was spawned
-/// was made on another thread, and this one has nothing there.
+/// Reads this thread's `slot`. A slot made after this thread was spawned
+/// doesn't exist here.
 pub(crate) fn tls_slot_ref(ctx: &VmCore, slot: usize) -> Result<SteelVal> {
     match ctx.thread.thread_local_storage.get(slot) {
         Some(value) => Ok(value.clone()),
@@ -1310,7 +1305,7 @@ pub(crate) fn tls_slot_ref(ctx: &VmCore, slot: usize) -> Result<SteelVal> {
     }
 }
 
-/// Puts `value` in this thread's `slot`.
+/// Writes `value` to this thread's `slot`.
 pub(crate) fn tls_slot_set(ctx: &mut VmCore, slot: usize, value: SteelVal) -> Result<SteelVal> {
     match ctx.thread.thread_local_storage.get_mut(slot) {
         Some(place) => {

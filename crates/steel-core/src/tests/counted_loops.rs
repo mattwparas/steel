@@ -1,7 +1,3 @@
-//! Checks that the loops in `success/counted_loops.scm` are compiled a
-//! stretch of trips at a time. If they stop being, that test still passes
-//! and no longer covers anything.
-
 use std::time::{Duration, Instant};
 
 use crate::jit2::cgen::strip_mine_watch::APPLIED;

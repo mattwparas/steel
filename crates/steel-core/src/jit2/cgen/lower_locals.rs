@@ -1,8 +1,3 @@
-//! Lowering of locals: constants, let slots, `set!` and captured values.
-//!
-//! The bodies of `stack_to_ssa`'s larger match arms. The arms themselves, with
-//! their guards, stay in `stack_to_ssa`, in order.
-
 use super::*;
 
 impl FunctionTranslator<'_> {

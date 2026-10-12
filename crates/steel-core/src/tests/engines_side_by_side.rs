@@ -1,7 +1,3 @@
-//! Several engines in one process, each with threads of its own that come
-//! and go. What one engine's threads leave behind when they exit is only
-//! another engine's to deal with if nothing of the first is still using it.
-
 use crate::steel_vm::engine::Engine;
 
 const COMES_AND_GOES: &str = include_str!("success/threads_come_and_go.scm");

@@ -111,8 +111,8 @@
      (set! set-Parameter-value! (λ (this4 value4) (#%mstruct-set! struct-key3 this4 1 value4)))
      void))))
 
-;; What this thread has bound with parameterize, innermost first. A new
-;; thread starts with the bindings of the one that spawned it.
+;; The bindings this thread made with parameterize, innermost first. A new
+;; thread starts with its spawner's bindings.
 (define parameterization (make-tls '()))
 
 (define (parameter-binding param bindings)

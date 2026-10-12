@@ -1,5 +1,3 @@
-//! Arithmetic and comparison helpers for jitted code.
-
 use super::*;
 
 #[cross_platform_fn]

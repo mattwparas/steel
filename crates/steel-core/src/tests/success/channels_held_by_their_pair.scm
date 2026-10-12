@@ -1,6 +1,3 @@
-;; A program can hold nothing of a channel but the pair it came in, and ask
-;; for an end each time. What is waiting in the channel is still in use.
-
 (define (collect n)
   (when (> n 0)
     (#%gc-collect)
@@ -16,7 +13,7 @@
 (send-all 1000)
 (collect 5)
 
-;; So that slots freed by mistake are filled with something else
+;; Fills any slots freed by mistake
 (define other-boxes (map (lambda (i) (box i)) (range 0 5000)))
 
 (define (receive-all n)
@@ -27,8 +24,7 @@
 (receive-all 1000)
 (assert! (= (length other-boxes) 5000))
 
-;; The same value sent twice, and lists that share their storage, are each
-;; kept until they are received.
+;; The same value sent twice, and lists sharing storage
 (define shared (list (box 'a) (box 'b) (box 'c)))
 (define (send-shared)
   (channel/send (channels-sender channels) shared)

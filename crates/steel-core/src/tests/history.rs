@@ -1,20 +1,3 @@
-//! Checks what threads see of shared boxes, structs and vectors against a
-//! model that does one operation at a time.
-//!
-//! Each round a few threads run short random lists of operations on the same
-//! cells at once, and note for every operation when it started, when it
-//! finished and what it returned. The round passes if the operations can be
-//! put in some order, one after another, that gives every one of them the
-//! result it got, without moving an operation ahead of one that had already
-//! finished when it started. If there is no such order, the threads saw
-//! something that no sequence of whole operations produces: a lost write, a
-//! value handed out twice, a vector in between two states.
-//!
-//! The search is the one from Wing and Gong, with Lowe's cache of the states
-//! already tried.
-//!
-//! `STEEL_HISTORY_ROUNDS` sets how many rounds each test runs.
-
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicIsize, Ordering};
 

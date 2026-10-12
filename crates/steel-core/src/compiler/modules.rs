@@ -241,7 +241,7 @@ pub fn steel_home() -> Option<String> {
     STEEL_HOME.clone()
 }
 
-/// What a module's path is relative to.
+/// The directory a module's path is relative to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ModuleRoot {
     /// The directory of the first module the main program required.
@@ -269,8 +269,8 @@ enum Found<'a> {
     Search(&'a Path),
 }
 
-/// The origin of each module that has one, by the path its prefix is
-/// numbered from, and that path by root and relative path.
+/// Module origins by prefix path, and prefix paths by root and relative
+/// path.
 #[derive(Clone, Default)]
 pub struct ModuleOrigins {
     entry: Option<PathBuf>,
@@ -293,7 +293,7 @@ impl ModuleOrigins {
             .map(|x| x.as_str())
     }
 
-    // The first origin a module is found under is kept.
+    // Keeps the first origin recorded for a module.
     fn record(&mut self, requirer: &Path, main: bool, found: Found, spec: &str, path: &Path) {
         let Some(key) = path.to_str().map(|_| prefix_path(path).to_string()) else {
             return;
@@ -348,8 +348,8 @@ impl ModuleOrigins {
     }
 }
 
-// `path` from `dir`, or nothing if it is absolute. A path that climbs out of
-// the root keeps its leading `..`.
+// `path` relative to `dir`, or None if `path` is absolute. A path that
+// leaves the root keeps its leading `..`.
 fn relative_from(dir: &str, path: &Path) -> Option<String> {
     use std::path::Component;
 
@@ -372,7 +372,7 @@ fn relative_from(dir: &str, path: &Path) -> Option<String> {
     Some(parts.join("/"))
 }
 
-// `path` from `root`, where both are absolute.
+// `path` relative to `root`. Both are absolute.
 fn relative_to_root(root: &Path, path: &Path) -> Option<String> {
     let shared = root
         .components()
@@ -1130,7 +1130,7 @@ pub static MANGLER_PREFIX: &str = "##mm";
 pub static MODULE_PREFIX: &str = "__module-";
 pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
 
-// The path a module's prefix is numbered from.
+// The module path without the steel home, which its prefix is keyed on.
 fn prefix_path(name: &Path) -> &str {
     let name = name.to_str().unwrap();
 

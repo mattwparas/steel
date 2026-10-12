@@ -1,5 +1,3 @@
-//! Reference count and drop slow paths for jitted code.
-
 use super::*;
 
 #[cross_platform_fn]

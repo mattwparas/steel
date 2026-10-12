@@ -1033,8 +1033,8 @@ impl QueueHandle {
         if let Some(mut q) = QUEUE.map.get_mut(&key) {
             q.push(wrapper());
         } else {
-            // Found or made under one lock. Two threads that each made the
-            // list would lose whichever was put in first.
+            // Find or create under one lock. Two threads each creating the
+            // list would lose one.
             QUEUE.unregistered.entry(key).or_default().push(wrapper());
         }
 
@@ -1052,7 +1052,7 @@ impl QueueHandle {
                 value.ptr,
             )))));
         } else {
-            // Found or made under one lock, as in `enqueue_merge`
+            // Find or create under one lock, as in `enqueue_merge`
             QUEUE
                 .unregistered
                 .entry(key)

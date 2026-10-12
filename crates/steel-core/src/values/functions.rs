@@ -624,8 +624,8 @@ impl ByteCodeLambda {
                         stop!(Generic => "a function was sent without a constant it refers to");
                     };
                     let deserialized_constant = heap.built(*constant)?;
-                    // Constants are looked up by what they hold, and a cell
-                    // can hold itself.
+                    // Constants are looked up by value, so they can't hold
+                    // themselves.
                     if !is_literal(&deserialized_constant, 0) {
                         stop!(Generic => "a function was sent with a constant that is not a literal");
                     }
@@ -662,8 +662,8 @@ impl ByteCodeLambda {
             new_body[idx].payload_size = u24::from_u32(id);
         }
 
-        // What the body starts with, for when this is compiled and then
-        // serialized again.
+        // The first op code, for when this is compiled and serialized
+        // again.
         let header = new_body.first().map(|instr| instr.op_code);
 
         let mut made = ByteCodeLambda::new(
@@ -994,8 +994,7 @@ impl BoxedDynFunction {
     }
 }
 
-// Whether a value is one a compiler puts in the constants: immutable all the
-// way down, so nothing in it leads back to itself.
+// Whether a value could be a compiler constant, immutable all the way down.
 fn is_literal(value: &SteelVal, depth: usize) -> bool {
     if depth > 512 {
         return false;

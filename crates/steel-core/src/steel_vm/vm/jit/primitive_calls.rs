@@ -1,6 +1,3 @@
-//! Calls from jitted code to a primitive it knows at compile time, passed in as
-//! a function pointer.
-
 use super::*;
 
 /// Hands an error from a primitive to the interpreter, which reports it from

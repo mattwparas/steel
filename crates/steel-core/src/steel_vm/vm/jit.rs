@@ -581,10 +581,9 @@ fn compile_and_install(
     }
 }
 
-/// Compiles a function that was made from a serialized one. It is shared
-/// already, so the compiled code is installed into it the way a background
-/// compile is. `own_index` is the global it has just been bound to, if it
-/// was sent as one.
+/// Compiles a function built from a serialized one. It is already shared,
+/// so the code is installed the way a background compile does. `own_index`
+/// is the global it was just bound to, if any.
 pub(crate) fn jit_compile_received(
     ctx: &mut VmCore,
     lambda: &Gc<ByteCodeLambda>,
@@ -623,8 +622,8 @@ pub(crate) fn jit_compile_received(
         maybe_index: own_index,
         fn_ptr_name,
         globals: sparse_globals_snapshot(ctx, &lambda.body_exp, own_index),
-        // The compiler's, which is where the constants were added. The one
-        // on the thread is that of whatever program is running.
+        // The compiler's map is where the constants were added. The thread's
+        // belongs to the running program.
         constants: ctx.thread.compiler.read().constant_map.clone(),
         closed_globals: closed_globals(ctx),
         jit: Arc::clone(&ctx.thread.jit),

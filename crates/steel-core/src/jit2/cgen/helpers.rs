@@ -1,21 +1,3 @@
-//! The runtime helpers jitted code calls, declared once.
-//!
-//! Each line of [`jit_helpers!`] below is one helper: the constant jitted code
-//! refers to it by, the symbol it is registered under, the Rust function, and
-//! its signature. The macro generates the registration (`register_helpers`) and
-//! a typed handle. `FunctionTranslator::call_helper` takes the handle with as
-//! many arguments as the helper has, so a wrong count is a compile error instead
-//! of a verifier failure or a crash in generated code.
-//!
-//! A `ctx` helper takes the `*mut VmCore` first and gets it implicitly. A `plain`
-//! one takes only what is listed. `ctx_raises` / `plain_raises` mark a helper
-//! that can raise, which changes how it may be called (see [`Helper`]).
-//! [`KEEPS_STACK`] lists the helpers that never move the vm's value stack.
-//!
-//! Helpers that come in one function per arity (`helper_family!` in
-//! `steel_vm/vm/jit.rs`) are registered with their families, and called by the
-//! name their family gives for an arity.
-
 use super::*;
 
 /// A helper declared in [`jit_helpers!`]. `N` is the argument count not counting

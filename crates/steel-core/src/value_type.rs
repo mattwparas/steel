@@ -1,13 +1,3 @@
-//! What kind of value something is, as far as optimizations are concerned.
-//!
-//! Native function definitions carry their return type as one of these (filled
-//! in by the `steel_derive` function macros), and the jit turns it into its own
-//! `InferredType`, which also tracks whether a value is unboxed in a register.
-//!
-//! The optimizer relies on these types, so a type has to hold for every value
-//! the function can return. [`ValueType::Int`] means a fixnum. A function that
-//! can return a bignum is [`ValueType::Number`].
-
 use crate::gc::shared::ShareableMut;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
