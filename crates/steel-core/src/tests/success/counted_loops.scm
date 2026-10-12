@@ -253,3 +253,27 @@
 (for-each thread-interrupt counting)
 (#%gc-collect)
 (for-each (lambda (thread) (assert! (raised? thread))) counting)
+
+;; Loops that include a vector's length, once another thread has run
+(define (up-through-length v)
+  (let loop ([i 0] [trips 0])
+    (if (<= i (vector-length v)) (loop (+ i 1) (+ trips 1)) (list i trips))))
+(define (up-past-length v w)
+  (let loop ([i 0])
+    (if (> i (vector-length v))
+        i
+        (begin
+          (vector-set! w i i)
+          (loop (+ i 1))))))
+(define (down-through-length v)
+  (let loop ([i 600] [trips 0])
+    (if (>= i (vector-length v)) (loop (- i 1) (+ trips 1)) (list i trips))))
+(define three-hundred (make-vector 300 0))
+(define one-more (make-vector 301 0))
+(define (through-length-holds n)
+  (when (> n 0)
+    (assert! (equal? (up-through-length three-hundred) (list 301 301)))
+    (assert! (= (up-past-length three-hundred one-more) 301))
+    (assert! (equal? (down-through-length three-hundred) (list 299 301)))
+    (through-length-holds (- n 1))))
+(through-length-holds 3000)

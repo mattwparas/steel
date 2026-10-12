@@ -1296,23 +1296,50 @@ impl ThreadLocalStorage {
     }
 }
 
+// What a thread has in a slot that was made on another thread after the two
+// went their own ways. Nothing else holds this function.
+fn tls_missing(_: &mut VmCore, _: &[SteelVal]) -> Option<Result<SteelVal>> {
+    None
+}
+
+struct MissingSlot(SteelVal);
+
+// It holds a function pointer and nothing else.
+unsafe impl Sync for MissingSlot {}
+
+static TLS_MISSING: MissingSlot = MissingSlot(SteelVal::BuiltIn(tls_missing));
+
+// Where jitted code reads the marker for a slot that is out of bounds.
+pub(crate) fn tls_missing_place() -> usize {
+    &TLS_MISSING.0 as *const SteelVal as usize
+}
+
+fn is_tls_missing(value: &SteelVal) -> bool {
+    match (value, &TLS_MISSING.0) {
+        (SteelVal::BuiltIn(function), SteelVal::BuiltIn(missing)) => {
+            *function as usize == *missing as usize
+        }
+        _ => false,
+    }
+}
+
 /// Reads this thread's `slot`. A slot made after this thread was spawned
 /// doesn't exist here.
 pub(crate) fn tls_slot_ref(ctx: &VmCore, slot: usize) -> Result<SteelVal> {
     match ctx.thread.thread_local_storage.get(slot) {
-        Some(value) => Ok(value.clone()),
-        None => stop!(Generic => "get-tls: this thread has no such thread local storage slot"),
+        Some(value) if !is_tls_missing(value) => Ok(value.clone()),
+        _ => stop!(Generic => "get-tls: this thread has no such thread local storage slot"),
     }
 }
 
 /// Writes `value` to this thread's `slot`.
 pub(crate) fn tls_slot_set(ctx: &mut VmCore, slot: usize, value: SteelVal) -> Result<SteelVal> {
     match ctx.thread.thread_local_storage.get_mut(slot) {
-        Some(place) => {
+        Some(place) if !is_tls_missing(place) => {
             *place = value;
             Ok(SteelVal::Void)
         }
-        None => stop!(Generic => "set-tls!: this thread has no such thread local storage slot"),
+        _ => stop!(Generic => "set-tls!: this thread has no such thread local storage slot"),
     }
 }
 
@@ -1322,8 +1349,15 @@ pub(crate) fn tls_slot_set(ctx: &mut VmCore, slot: usize, value: SteelVal) -> Re
 /// future updates to the slot will be local to that thread.
 #[steel_derive::context(name = "make-tls", arity = Exact(1), args(Any), raises = Never)]
 pub(crate) fn make_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    let index = ctx.thread.thread_local_storage.len();
-    ctx.thread.thread_local_storage.push(args[0].clone());
+    let index = ctx
+        .thread
+        .thread_local_slots
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let storage = &mut ctx.thread.thread_local_storage;
+    while storage.len() < index {
+        storage.push(TLS_MISSING.0.clone());
+    }
+    storage.push(args[0].clone());
     Some(ThreadLocalStorage(index).into_steelval())
 }
 

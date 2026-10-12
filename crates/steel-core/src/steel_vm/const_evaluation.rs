@@ -896,7 +896,14 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             let span = l.location.span;
 
-            for (var, arg) in l.args.iter().zip(args.iter()) {
+            // A rest parameter takes every argument from its position on
+            let positional = if l.rest {
+                l.args.len().saturating_sub(1)
+            } else {
+                l.args.len()
+            };
+
+            for (var, arg) in l.args.iter().take(positional).zip(args.iter()) {
                 let identifier = var.atom_identifier_or_else(
                     throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); span),
                 )?;
@@ -911,11 +918,24 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 }
             }
 
+            let mut rest_used = false;
+            if l.rest {
+                if let Some(identifier) = l.args.last().and_then(|var| var.atom_identifier()) {
+                    rest_used = self.bindings.borrow().used_bindings.contains(identifier);
+                }
+                for arg in args.iter().skip(positional) {
+                    if self.to_constant(arg).is_none() {
+                        non_constant_arguments.push(arg);
+                    }
+                }
+            }
+
             // Found no arguments are there are no non constant arguments
             // TODO: @Matt 12/30/23 - this is causing a miscompilation - actually used
             // arguments is found to be empty.
             if actually_used_arguments.is_empty()
                 && non_constant_arguments.is_empty()
+                && !rest_used
                 && !self.scope_contains_define
             {
                 // Unwind the recursion before we bail out

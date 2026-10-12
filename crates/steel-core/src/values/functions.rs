@@ -300,6 +300,18 @@ impl Operand {
 }
 
 impl SerializedLambda {
+    /// Looks up the globals the body refers to, for a function whose body
+    /// an earlier value made. One the sender brought then takes what was
+    /// sent with it this time.
+    pub(crate) fn refresh_globals(&self, heap: &mut HeapSerializer) -> Result<(), SteelErr> {
+        for instr in self.body_exp.iter() {
+            if let Operand::Global = Operand::of(instr.op_code) {
+                heap.global_here(instr.payload_size.to_usize())?;
+            }
+        }
+        Ok(())
+    }
+
     /// Checks that the body hangs together: that it refers to constants it
     /// was sent with and captures it has, that jumps land inside it, and
     /// that the functions it makes are laid out as the interpreter reads

@@ -1258,6 +1258,7 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
                 Ok(n) => Rational32::new(1, n).into_steelval(),
             },
             SteelVal::NumV(n) => n.recip().into_steelval(),
+            SteelVal::Rational(r) if *r.numer() == i32::MIN => widen(r).recip().into_steelval(),
             SteelVal::Rational(r) => r.recip().into_steelval(),
             SteelVal::BigRational(r) => r.recip().into_steelval(),
             SteelVal::BigNum(n) => BigRational::new(1.into(), n.as_ref().clone()).into_steelval(),
@@ -1488,6 +1489,27 @@ fn infinitep(number: &SteelVal) -> Result<SteelVal> {
     infinitep_impl(number)?.into_steelval()
 }
 
+// A small rational's numerator and denominator can be the least i32, which
+// has no negation there.
+fn wider(rational: &Rational32) -> Ratio<i64> {
+    Ratio::new_raw(*rational.numer() as i64, *rational.denom() as i64)
+}
+
+fn widen(rational: &Rational32) -> BigRational {
+    BigRational::new(
+        BigInt::from(*rational.numer()),
+        BigInt::from(*rational.denom()),
+    )
+}
+
+fn rational_abs(rational: &Rational32) -> Result<SteelVal> {
+    if *rational.numer() == i32::MIN {
+        widen(rational).abs().into_steelval()
+    } else {
+        rational.abs().into_steelval()
+    }
+}
+
 /// Computes the absolute value of the given number.
 ///
 /// (abs number) -> number?
@@ -1503,9 +1525,12 @@ fn infinitep(number: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "abs", constant = true, returns = Number, args(Number))]
 fn abs(number: &SteelVal) -> Result<SteelVal> {
     match number {
-        SteelVal::IntV(i) => Ok(SteelVal::IntV(i.abs())),
+        SteelVal::IntV(i) => match i.checked_abs() {
+            Some(i) => Ok(SteelVal::IntV(i)),
+            None => BigInt::from(*i).abs().into_steelval(),
+        },
         SteelVal::NumV(n) => Ok(SteelVal::NumV(n.abs())),
-        SteelVal::Rational(f) => f.abs().into_steelval(),
+        SteelVal::Rational(f) => rational_abs(f),
         SteelVal::BigRational(f) => f.abs().into_steelval(),
         SteelVal::BigNum(n) => n.as_ref().abs().into_steelval(),
         _ => steelerr!(TypeMismatch => "abs expects a real number, found: {}", number),
@@ -1772,7 +1797,7 @@ fn floor(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::NumV(x) => Ok(SteelVal::NumV(x.floor())),
         SteelVal::IntV(x) => x.into_steelval(),
-        SteelVal::Rational(x) => x.floor().into_steelval(),
+        SteelVal::Rational(x) => (wider(x).floor().to_integer() as isize).into_steelval(),
         SteelVal::BigNum(x) => Ok(SteelVal::BigNum(x.clone())),
         SteelVal::BigRational(x) => x.floor().into_steelval(),
         _ => steelerr!(Generic => "floor expects a real number, found: {}", number),
@@ -1796,7 +1821,7 @@ fn ceiling(number: &SteelVal) -> Result<SteelVal> {
     match number {
         n @ SteelVal::IntV(_) | n @ SteelVal::BigNum(_) => Ok(n.clone()),
         SteelVal::NumV(n) => Ok(SteelVal::NumV(n.ceil())),
-        SteelVal::Rational(f) => f.ceil().into_steelval(),
+        SteelVal::Rational(f) => (wider(f).ceil().to_integer() as isize).into_steelval(),
         SteelVal::BigRational(f) => f.ceil().into_steelval(),
         _ => steelerr!(TypeMismatch => "ceiling expects a real number, found: {}", number),
     }
@@ -1899,7 +1924,9 @@ fn round(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => i.into_steelval(),
         SteelVal::NumV(n) => n.round_ties_even().into_steelval(),
-        SteelVal::Rational(f) => rational_round_ties_even(f).into_steelval(),
+        SteelVal::Rational(f) => {
+            (rational_round_ties_even(&wider(f)).to_integer() as isize).into_steelval()
+        }
         SteelVal::BigRational(f) => rational_round_ties_even(f).into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
         _ => steelerr!(TypeMismatch => "round expects a real number, found: {}", number),
@@ -2161,8 +2188,11 @@ pub fn imag_part(value: &SteelVal) -> Result<SteelVal> {
 fn magnitude(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::NumV(x) => x.abs().into_steelval(),
-        SteelVal::IntV(x) => x.abs().into_steelval(),
-        SteelVal::Rational(x) => x.abs().into_steelval(),
+        SteelVal::IntV(x) => match x.checked_abs() {
+            Some(x) => x.into_steelval(),
+            None => BigInt::from(*x).abs().into_steelval(),
+        },
+        SteelVal::Rational(x) => rational_abs(x),
         SteelVal::BigNum(x) => x.as_ref().abs().into_steelval(),
         SteelVal::BigRational(x) => x.as_ref().abs().into_steelval(),
         SteelVal::Complex(x) => {

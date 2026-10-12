@@ -144,3 +144,19 @@
                   1
                   2)
                  '(1 2 x)))
+
+;; A lambda with a rest parameter applied inside a function
+(define (rest-of-one) ((lambda (a . r) r) 1))
+(assert! (equal? (rest-of-one) '()))
+(define (rest-of-three) ((lambda (a . r) (list a r)) 1 2 3))
+(assert! (equal? (rest-of-three) '(1 (2 3))))
+(define bumps 0)
+(define (bump!)
+  (set! bumps (+ bumps 1))
+  bumps)
+(define (unused-rest) ((lambda (a . r) 5) 1 2 (bump!)))
+(assert! (equal? (list (unused-rest) bumps) '(5 1)))
+(define (unused-rest-of-two x) ((lambda (a . r) x) 1 2 (bump!) (bump!)))
+(assert! (equal? (list (unused-rest-of-two 7) bumps) '(7 3)))
+(define (only-rest) ((lambda r (length r)) (bump!) 2))
+(assert! (equal? (list (only-rest) bumps) '(2 4)))

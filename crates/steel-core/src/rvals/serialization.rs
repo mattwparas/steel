@@ -490,11 +490,26 @@ impl<'a> HeapSerializer<'a> {
 
             if !made_up {
                 match here {
+                    // A global the sender brought earlier is the sender's,
+                    // and takes what it has now.
+                    Some((index, _))
+                        if !same && value.is_some() && self.brought_by_sender(index, &by_name) =>
+                    {
+                        self.globals_to_define.push((sent, index));
+                        GlobalHere {
+                            index,
+                            as_sent: false,
+                        }
+                    }
                     Some((index, _)) => GlobalHere {
                         index,
                         as_sent: same,
                     },
-                    None => self.global_to_define(sent, &by_name, value.is_some())?,
+                    // It can be given again, so calls to it check.
+                    None => GlobalHere {
+                        as_sent: false,
+                        ..self.global_to_define(sent, &by_name, value.is_some())?
+                    },
                 }
             } else {
                 static APART: core::sync::atomic::AtomicUsize =
@@ -536,6 +551,15 @@ impl<'a> HeapSerializer<'a> {
         name.here(&self.thread.compiler.read().module_manager.origins)
     }
 
+    // Whether the global at `index` was defined from what this sender sent
+    // with an earlier function.
+    fn brought_by_sender(&self, index: usize, name: &InternedString) -> bool {
+        self.thread
+            .received_globals
+            .get(&index)
+            .is_some_and(|(brought, origin)| brought == name && *origin == self.origin)
+    }
+
     // The index and value of the global `name`, if this engine has it.
     fn defined_global(&self, name: &InternedString) -> Option<(usize, SteelVal)> {
         let index = self.thread.compiler.read().symbol_map.get(name).ok()?;
@@ -557,6 +581,9 @@ impl<'a> HeapSerializer<'a> {
             stop!(Generic => "a function refers to {}, which is not defined here and was not sent", described);
         }
         let index = self.thread.compiler.write().symbol_map.add(name);
+        self.thread
+            .received_globals
+            .insert(index, (*name, self.origin));
         self.globals_to_define.push((sent, index));
         Ok(GlobalHere {
             index,
@@ -603,6 +630,15 @@ impl<'a> HeapSerializer<'a> {
             if sent != here {
                 stop!(Generic => "the struct type {} has the fields {:?} where it was sent from and {:?} here", name, sent, here);
             }
+        }
+
+        // Two types the sender tells apart can't both be this one.
+        if self
+            .struct_map
+            .iter()
+            .any(|(sent, mapped)| *mapped == here && *sent != entry.desc)
+        {
+            stop!(Generic => "two struct types named {} were sent, and they can't be told apart here", name);
         }
 
         self.struct_map.insert(entry.desc, here);
@@ -896,6 +932,7 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
                     return Ok(SteelVal::Closure(already_made.clone()));
                 }
                 if let Some(received_before) = ctx.received_before(c) {
+                    c.refresh_globals(ctx)?;
                     ctx.built_functions.insert(id, received_before.clone());
                     return Ok(SteelVal::Closure(received_before));
                 }
@@ -917,6 +954,7 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
                     .or_else(|| ctx.received_before(c));
                 if let Some(first) = first {
                     c.validate()?;
+                    c.refresh_globals(ctx)?;
                     let captures = c
                         .captures
                         .iter()

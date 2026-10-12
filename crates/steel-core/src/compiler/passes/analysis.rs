@@ -7658,14 +7658,12 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
                     // An assigned local is boxed on function entry. Merged, the
                     // box would be made after the inner arguments are evaluated,
                     // and a continuation captured by one of them would miss it.
-                    let outer_assigned = crate::config::config().box_assigned_locals
-                        && self
-                            .analysis
-                            .function_info
-                            .get(&function_a.syntax_object_id)
-                            .is_some_and(|info| {
-                                info.arguments().iter().any(|(_, arg)| arg.mutated)
-                            });
+                    // This looks at the arguments merged in so far as well.
+                    let outer_assigned = function_a.args.iter().any(|arg| {
+                        arg.atom_syntax_object()
+                            .and_then(|syntax| self.analysis.get(syntax))
+                            .is_some_and(|info| info.set_bang)
+                    });
 
                     if all_dont_contain_references && !outer_rest && !outer_assigned {
                         if let Some(function_b) =

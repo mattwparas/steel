@@ -1219,6 +1219,25 @@ pub fn voidp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::Void)
 }
 
+/// Checks if the given value is a box made with `box`.
+///
+/// (box? value) -> bool?
+///
+/// * value : any? - The value to check
+///
+/// # Examples
+/// ```scheme
+/// > (box? (box 1))
+/// #true
+///
+/// > (box? 1)
+/// #false
+/// ```
+#[steel_derive::function(name = "box?", constant = true, args(Any), raises = Never)]
+pub fn boxp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::HeapAllocated(_))
+}
+
 #[steel_derive::function(name = "struct?", constant = true, args(Any), raises = Never)]
 pub fn structp(value: &SteelVal) -> bool {
     match value {
@@ -1339,6 +1358,7 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(BOOLEANP_DEFINITION)
         .register_native_fn_definition(BOOLP_DEFINITION)
         .register_native_fn_definition(VOIDP_DEFINITION)
+        .register_native_fn_definition(BOXP_DEFINITION)
         .register_native_fn_definition(STRUCTP_DEFINITION)
         .register_native_fn_definition(PORTP_DEFINITION)
         .register_native_fn_definition(EOF_OBJECTP_DEFINITION)

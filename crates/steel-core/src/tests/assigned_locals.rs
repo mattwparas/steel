@@ -34,6 +34,24 @@ const PROGRAM: &str = r#"
   (if (< n 4) (k k) (* x n)))
 (assert! (= 20 (defined 5)))
 
+;; An unassigned binding around the local.
+(define (under-another a)
+  (let ([b a])
+    (let ([n 0])
+      (let ([k (capture)])
+        (set! n (+ n 1))
+        (if (< n 4) (k k) (* b n))))))
+(assert! (= 20 (under-another 5)))
+
+;; Internal defines in a body of their own.
+(define (defined-in-a-let x)
+  (let ()
+    (define n 0)
+    (define k (capture))
+    (set! n (+ n 1))
+    (if (< n 4) (k k) (* x n))))
+(assert! (= 20 (defined-in-a-let 5)))
+
 ;; A local that a closure also captures.
 (define (closed-over x)
   (let ([n 0])

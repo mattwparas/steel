@@ -1044,14 +1044,25 @@ impl From<Gc<Vector<SteelVal>>> for SteelVector {
 pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
 
 #[cfg(feature = "imbl")]
+// Hashes a hash map's or a hash set's entries so that the order they come in
+// doesn't matter, since two that are equal can iterate differently.
+fn hash_unordered<T: Hash, H: Hasher>(len: usize, entries: impl Iterator<Item = T>, state: &mut H) {
+    let mut sum = 0u64;
+    for entry in entries {
+        let mut hasher = rustc_hash::FxHasher::default();
+        entry.hash(&mut hasher);
+        sum = sum.wrapping_add(hasher.finish());
+    }
+    len.hash(state);
+    sum.hash(state);
+}
+
 impl Hash for SteelHashMap {
     fn hash<H>(&self, state: &mut H)
     where
         H: Hasher,
     {
-        for i in self.iter() {
-            i.hash(state);
-        }
+        hash_unordered(self.len(), self.iter(), state);
     }
 }
 
@@ -1079,9 +1090,7 @@ impl Hash for SteelHashSet {
     where
         H: Hasher,
     {
-        for i in self.iter() {
-            i.hash(state);
-        }
+        hash_unordered(self.len(), self.iter(), state);
     }
 }
 

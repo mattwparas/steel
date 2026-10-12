@@ -62,6 +62,38 @@
   (spawn-native-thread (lambda () (list (get-tls late) (begin (write-late 500) (get-tls late))))))
 (assert! (equal? (list 1 1) (thread-join! writing)))
 
+;; Two threads that each make a slot get different slots
+(define go (box #f))
+(define theirs (box #f))
+(define (wait-for b)
+  (if (unbox b) (unbox b) (wait-for b)))
+(define (read-mine n acc)
+  (if (= n 0) acc (read-mine (- n 1) (+ acc (get-tls mine)))))
+(define (write-mine n)
+  (when (> n 0)
+    (set-tls! mine n)
+    (write-mine (- n 1))))
+(define apart
+  (spawn-native-thread
+   (lambda ()
+     (let ([own (make-tls 'theirs)])
+       (set-box! theirs own)
+       (wait-for go)
+       (list (get-tls own)
+             (with-handler (lambda (e) 'none) (read-mine 2000 0))
+             (with-handler (lambda (e) 'none) (write-mine 2000))
+             (let ([after (make-tls 'after)]) (get-tls after))
+             (with-handler (lambda (e) 'none) (read-mine 2000 0))
+             (get-tls own))))))
+(define from-them (wait-for theirs))
+(define mine (make-tls 3))
+(assert! (= 6000 (read-mine 2000 0)))
+(set-box! go #t)
+(assert! (equal? (list 'theirs 'none 'none 'after 'none 'theirs) (thread-join! apart)))
+(assert! (eq? 'none (with-handler (lambda (e) 'none) (get-tls from-them))))
+(assert! (eq? 'none (with-handler (lambda (e) 'none) (set-tls! from-them 1))))
+(assert! (= 3 (get-tls mine)))
+
 ;; Not a handle
 (assert! (eq? 'refused (with-handler (lambda (e) 'refused) (get-tls 5))))
 (assert! (eq? 'refused (with-handler (lambda (e) 'refused) (set-tls! 'slot 5))))

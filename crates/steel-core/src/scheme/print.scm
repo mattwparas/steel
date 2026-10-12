@@ -124,6 +124,9 @@
                      (simple-display ")"))
                    (cdr list-obj)))
        (simple-display ")"))]
+    [(box? obj)
+     (simple-display "'#&")
+     (#%print (unbox obj) collector)]
     [(#%private-struct? obj)
      (let ([printer (#%struct-property-ref obj '#:printer)])
        (if (function? printer)
@@ -201,6 +204,9 @@
                      (simple-display ")"))
                    (cdr list-obj)))
        (simple-display ")"))]
+    [(box? obj)
+     (simple-display "'#&")
+     (#%print (unbox obj) collector)]
     [(#%private-struct? obj)
      (let ([printer (#%struct-property-ref obj '#:printer)])
        (if (function? printer)
@@ -271,6 +277,9 @@
                  (cdr obj)))
      (simple-display ")")]
     [(pair? obj) (emit-pair (λ (x) (#%display x collector)) obj)]
+    [(box? obj)
+     (simple-display "'#&")
+     (#%display (unbox obj) collector)]
     [(#%private-struct? obj)
 
      (let ([printer (#%struct-property-ref obj '#:printer)])
@@ -362,6 +371,9 @@
                  (cdr obj)))
      (simple-display ")")]
     [(pair? obj) (emit-pair (λ (x) (#%display x collector)) obj)]
+    [(box? obj)
+     (simple-display "'#&")
+     (#%display (unbox obj) collector)]
     [(#%private-struct? obj)
 
      (let ([printer (#%struct-property-ref obj '#:printer)])

@@ -1127,6 +1127,10 @@ struct UnreachedWalk {
     // Lists share their buffers, and an element is referred to once by the
     // buffer however many lists show it.
     buffers: rustc_hash::FxHashMap<usize, usize>,
+    // Where the entries of the hash maps, hash sets and immutable vectors gone
+    // through are stored. Ones made from each other share their storage, and
+    // an entry there is one reference however many of them show it.
+    slots: rustc_hash::FxHashSet<usize>,
     // Values the walk doesn't look inside, for the marker to go through.
     opaque: Vec<SteelVal>,
     cells_reached: usize,
@@ -1166,6 +1170,16 @@ impl UnreachedWalk {
     fn refer(&mut self, node: u32) {
         self.nodes[node as usize].found += 1;
         self.edges.push(node);
+    }
+
+    // Goes on to a value stored at `slot`, counting the reference the first
+    // time the slot comes up.
+    fn push_slot(&mut self, slot: &SteelVal) {
+        if self.slots.insert(slot as *const SteelVal as usize) {
+            self.push_back(slot.clone());
+        } else if let Some(node) = self.node(slot.clone()) {
+            self.edges.push(node);
+        }
     }
 
     // What is found from here on is referred to by `node`.
@@ -1290,15 +1304,15 @@ impl BreadthFirstSearchSteelValVisitor for UnreachedWalk {
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output {
         self.shares = true;
         for (key, value) in hashmap.iter() {
-            self.push_back(key.clone());
-            self.push_back(value.clone());
+            self.push_slot(key);
+            self.push_slot(value);
         }
     }
 
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output {
         self.shares = true;
         for value in hashset.iter() {
-            self.push_back(value.clone());
+            self.push_slot(value);
         }
     }
 
@@ -1350,7 +1364,7 @@ impl BreadthFirstSearchSteelValVisitor for UnreachedWalk {
     fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output {
         self.shares = true;
         for value in vector.iter() {
-            self.push_back(value.clone());
+            self.push_slot(value);
         }
     }
 
@@ -1518,8 +1532,10 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     };
 
     // Wills only become ready in a collection. With none ready, run one
-    // before waiting, or a program that never collects waits forever.
-    let mut collected = false;
+    // before waiting, or a program that never collects waits forever. What
+    // one collection frees can be what held a value, so this goes on for as
+    // long as a collection frees something.
+    let mut collect = true;
 
     // The registration is only taken once this thread is running again. A
     // collection would not find it in a local.
@@ -1528,9 +1544,8 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
             break registration;
         }
 
-        if !collected {
-            collected = true;
-            ctx.gc_collect();
+        if collect {
+            collect = ctx.gc_collect() > 0;
             continue;
         }
 
@@ -1579,8 +1594,43 @@ pub fn will_register(
 /// A weak box, as in Racket. The collector doesn't trace its value, so once
 /// nothing else holds the value, `weak-box-value` returns the default.
 pub struct WeakBox {
-    value: SpinLock<Option<WeaklyHeld>>,
+    value: Arc<SpinLock<Option<WeaklyHeld>>>,
 }
+
+// Every weak box that may still hold something, for a collection to go
+// through.
+#[cfg(feature = "sync")]
+static WEAK_BOXES: Mutex<Vec<std::sync::Weak<SpinLock<Option<WeaklyHeld>>>>> =
+    Mutex::new(Vec::new());
+
+// Empties the weak boxes whose value nothing else holds. Until a box is
+// emptied its value still holds whatever it refers to, which would keep a
+// will on one of those from ever being ready.
+#[cfg(feature = "sync")]
+fn clear_dead_weak_boxes() {
+    let mut dead = Vec::new();
+    WEAK_BOXES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|slot| {
+            let Some(slot) = slot.upgrade() else {
+                return false;
+            };
+            let mut held = slot.lock();
+            match held.as_ref() {
+                Some(value) if value.is_alive() => true,
+                _ => {
+                    dead.extend(held.take());
+                    false
+                }
+            }
+        });
+    // Outside the lock, since this drops the values.
+    drop(dead);
+}
+
+#[cfg(not(feature = "sync"))]
+fn clear_dead_weak_boxes() {}
 
 impl Custom for WeakBox {}
 
@@ -1678,12 +1728,13 @@ impl Drop for WeaklyHeld {
     raises = Never
 )]
 pub fn make_weak_box(_ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
-    Some(
-        WeakBox {
-            value: SpinLock::new(Some(WeaklyHeld::new(args[0].clone()))),
-        }
-        .into_steelval(),
-    )
+    let value = Arc::new(SpinLock::new(Some(WeaklyHeld::new(args[0].clone()))));
+    #[cfg(feature = "sync")]
+    WEAK_BOXES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(Arc::downgrade(&value));
+    Some(WeakBox { value }.into_steelval())
 }
 
 /// Returns the value contained in the weak box.
@@ -3614,6 +3665,8 @@ pub struct Heap {
     memory_free_list: FreeList<SteelVal>,
     vector_free_list: FreeList<HeapVec>,
     mutable_structs: MutableStructList,
+    // How many boxes, vectors and structs the sweeps have emptied.
+    swept: usize,
 }
 
 #[cfg(feature = "sync")]
@@ -3635,6 +3688,7 @@ impl Heap {
             memory_free_list: FreeList::new(),
             vector_free_list: FreeList::new(),
             mutable_structs: MutableStructList::new(),
+            swept: 0,
         }
     }
 
@@ -3647,6 +3701,7 @@ impl Heap {
             memory_free_list: FreeList::new(),
             vector_free_list: FreeList::new(),
             mutable_structs: MutableStructList::new(),
+            swept: 0,
         }
     }
 
@@ -3668,6 +3723,10 @@ impl Heap {
             synchronizer,
             force_full,
         );
+    }
+
+    pub(crate) fn swept(&self) -> usize {
+        self.swept
     }
 
     // With no collection to make room, a full list has to grow, or the
@@ -3764,6 +3823,7 @@ impl Heap {
     ) {
         run_explicit_merge();
         drop_deferred_at_collection();
+        clear_dead_weak_boxes();
 
         // The cheap pass, which frees the structs whose handles are all gone.
         let before = self.mutable_structs.cells.len();
@@ -3809,6 +3869,7 @@ impl Heap {
         if self.memory_free_list.nearly_full() || force {
             run_explicit_merge();
             drop_deferred_at_collection();
+            clear_dead_weak_boxes();
             // let now = crate::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "SteelVal gc invocation");
@@ -4032,6 +4093,7 @@ impl Heap {
         let values = self.memory_free_list.take_unreachable();
         let vectors = self.vector_free_list.take_unreachable();
         let fields = self.mutable_structs.take_unreachable();
+        self.swept += values.len() + vectors.len() + fields.len();
         drop(values);
         drop(vectors);
         drop(fields);

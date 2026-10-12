@@ -72,8 +72,7 @@ impl CycleDetector {
                     self.cycles.get(&(ptr_addr, 0)).unwrap()
                 }
                 SteelVal::HeapAllocated(b) => {
-                    // Get the object that THIS points to
-                    let ptr_addr = b.get().as_ptr_usize().unwrap();
+                    let ptr_addr = b.as_ptr_usize();
                     self.cycles.get(&(ptr_addr, 0)).unwrap()
                 }
                 SteelVal::ListV(l) => {
@@ -427,19 +426,21 @@ impl CycleDetector {
                 }
             }
             BoxedIterator(_) => write!(f, "#<iterator>"),
-            Boxed(b) => write!(f, "'#&{}", b.read()),
+            Boxed(b) => {
+                let value = b.read().clone();
+                write!(f, "'#&")?;
+                self.format_with_cycles(&value, f, FormatType::Normal)
+            }
             Reference(x) => write!(f, "{}", x.format()?),
             HeapAllocated(b) => {
-                let maybe_id = b
-                    .get()
-                    .as_ptr_usize()
-                    .and_then(|x| self.cycles.get(&(x, 0)));
+                let maybe_id = self.cycles.get(&(b.as_ptr_usize(), 0));
                 match (maybe_id, format_type) {
                     (Some(id), FormatType::Normal) => {
                         write!(f, "#{id}#")
                     }
                     _ => {
-                        write!(f, "'#&{}", b.get())
+                        write!(f, "'#&")?;
+                        self.format_with_cycles(&b.get(), f, FormatType::Normal)
                     }
                 }
             }
@@ -509,8 +510,7 @@ impl SteelCycleCollector {
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::HeapAllocated(b) => {
-                // Get the object that THIS points to
-                let ptr_addr = (b.get().as_ptr_usize()?, 0);
+                let ptr_addr = (b.as_ptr_usize(), 0);
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::MutableVector(v) => {
@@ -2138,7 +2138,7 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
 thread_local! {
     static LEFT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
     static RIGHT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
-    static VISITED_SET: RefCell<FxHashSet<(usize, usize)>> = RefCell::new(FxHashSet::default());
+    static VISITED_SET: RefCell<FxHashSet<((usize, usize), (usize, usize))>> = RefCell::new(FxHashSet::default());
     static EQ_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
@@ -2168,7 +2168,8 @@ fn eq_depth() -> usize {
 struct RecursiveEqualityHandler<'a> {
     left: EqualityVisitor<'a>,
     right: EqualityVisitor<'a>,
-    visited: &'a mut FxHashSet<(usize, usize)>,
+    // The pairs that have been compared, or are being compared.
+    visited: &'a mut FxHashSet<((usize, usize), (usize, usize))>,
 }
 
 impl<'a> RecursiveEqualityHandler<'a> {
@@ -2179,16 +2180,8 @@ impl<'a> RecursiveEqualityHandler<'a> {
         self.visit()
     }
 
-    fn should_visit(&mut self, value: (usize, usize)) -> bool {
-        // if !self.found_mutable_object {
-        // return true;
-        // }
-
-        if self.visited.insert(value) {
-            return true;
-        }
-
-        false
+    fn should_visit(&mut self, left: (usize, usize), right: (usize, usize)) -> bool {
+        self.visited.insert((left, right))
     }
 
     fn visit(&mut self) -> bool {
@@ -2214,9 +2207,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit(l.identity_tuple())
-                        && self.should_visit(r.identity_tuple())
-                    {
+                    if self.should_visit(l.identity_tuple(), r.identity_tuple()) {
                         if l.len() != r.len() {
                             return false;
                         }
@@ -2254,9 +2245,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit((l.as_ptr() as usize, 0))
-                        && self.should_visit((r.as_ptr() as usize, 0))
-                    {
+                    if self.should_visit((l.as_ptr() as usize, 0), (r.as_ptr() as usize, 0)) {
                         self.left.push_back(l.car());
                         self.right.push_back(r.car());
 
@@ -2327,13 +2316,9 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     }
 
                     // Should we visit these?
-                    if self.should_visit((l.0.as_ptr() as usize, 0))
-                        && self.should_visit((r.0.as_ptr() as usize, 0))
-                    {
+                    if self.should_visit((l.0.as_ptr() as usize, 0), (r.0.as_ptr() as usize, 0)) {
                         self.left.visit_immutable_vector(l);
                         self.right.visit_immutable_vector(r);
-                    } else {
-                        return false;
                     }
 
                     continue;
@@ -2532,9 +2517,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit((l.0.as_ptr() as usize, 0))
-                        && self.should_visit((r.0.as_ptr() as usize, 0))
-                    {
+                    if self.should_visit((l.0.as_ptr() as usize, 0), (r.0.as_ptr() as usize, 0)) {
                         if l.len() != r.len() {
                             return false;
                         }
@@ -2581,9 +2564,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit((l.0.as_ptr() as usize, 0))
-                        && self.should_visit((r.0.as_ptr() as usize, 0))
-                    {
+                    if self.should_visit((l.0.as_ptr() as usize, 0), (r.0.as_ptr() as usize, 0)) {
                         if l.len() != r.len() {
                             return false;
                         }
@@ -2594,7 +2575,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         }
 
                         for key in l.0.iter() {
-                            if !l.0.contains(key) {
+                            if !r.0.contains(key) {
                                 return false;
                             }
                         }
@@ -2607,9 +2588,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit((l.as_ptr() as usize, 0))
-                        && self.should_visit((r.as_ptr() as usize, 0))
-                    {
+                    if self.should_visit((l.as_ptr() as usize, 0), (r.as_ptr() as usize, 0)) {
                         if l.descriptor() != r.descriptor() || l.len() != r.len() {
                             return false;
                         }
@@ -2626,9 +2605,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit((l.as_ptr() as usize, 0))
-                        && self.should_visit((r.as_ptr() as usize, 0))
-                    {
+                    if self.should_visit((l.as_ptr() as usize, 0), (r.as_ptr() as usize, 0)) {
                         // Check the top level equality indicators to make sure
                         // that these two types are the same
                         if !(l.descriptor() == r.descriptor() && l.name() == r.name()) {
@@ -2746,9 +2723,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit((l.as_ptr_usize(), 0))
-                        && self.should_visit((r.as_ptr_usize(), 0))
-                    {
+                    if self.should_visit((l.as_ptr_usize(), 0), (r.as_ptr_usize(), 0)) {
                         if l.borrow(|x| x.len()) != r.borrow(|x| x.len()) {
                             return false;
                         }

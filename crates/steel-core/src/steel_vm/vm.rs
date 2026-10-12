@@ -366,6 +366,9 @@ pub struct SteelThread {
     // This will be static, for the thread. Jitted code reads and writes
     // the slots in place.
     pub(crate) thread_local_storage: steel_vec::Vec<SteelVal>,
+    // The next slot, shared with the threads spawned from this one, so a
+    // slot has one index on all of them.
+    pub(crate) thread_local_slots: Arc<std::sync::atomic::AtomicUsize>,
 
     // Values native code is holding while it waits at a safepoint, where
     // another thread's collection would otherwise not find them.
@@ -385,6 +388,10 @@ pub struct SteelThread {
     // they have there. One sent again reuses the body and its compiled code.
     // Kept without captures, with the capture count the body expects.
     pub(crate) received_functions: rustc_hash::FxHashMap<(u64, u32), (Gc<ByteCodeLambda>, usize)>,
+    // Globals defined from what a function was sent with, with their name
+    // and the process that sent them. This engine didn't have them, so they
+    // follow what that process sends.
+    pub(crate) received_globals: rustc_hash::FxHashMap<usize, (InternedString, u64)>,
     // Top level forms of continuations entered during the current runs. A
     // continuation can outlive its run, and resuming it executes that run's
     // instructions.
@@ -1029,6 +1036,7 @@ impl SteelThread {
             interrupted: Default::default(),
             synchronizer,
             thread_local_storage: steel_vec::Vec::new(),
+            thread_local_slots: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             pending_roots: Vec::new(),
             native_entries: Vec::new(),
             native_entries_made: 0,
@@ -1036,6 +1044,7 @@ impl SteelThread {
             escaping: None,
             entered_roots: Vec::new(),
             received_functions: rustc_hash::FxHashMap::default(),
+            received_globals: rustc_hash::FxHashMap::default(),
             compiler,
             id: EngineId::new(),
 
@@ -2411,10 +2420,13 @@ impl<'a> VmCore<'a> {
         SteelVal::MutableVector(allocated_var)
     }
 
-    pub(crate) fn gc_collect(&mut self) {
+    /// Runs a collection, and gives how many boxes, vectors and structs it
+    /// emptied.
+    pub(crate) fn gc_collect(&mut self) -> usize {
         // Before we acquire a lock on the heap, make sure we're not going to block
         // anything since we could deadlock up to this point.
         let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+        let swept = heap_lock.swept();
 
         heap_lock.collection(
             &self.thread.stack,
@@ -2424,6 +2436,8 @@ impl<'a> VmCore<'a> {
             &mut self.thread.synchronizer,
             true,
         );
+
+        heap_lock.swept() - swept
     }
 
     // TODO: Expose a function for this! Or alternatively, set up an incremental

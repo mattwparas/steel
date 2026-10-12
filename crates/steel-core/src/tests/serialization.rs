@@ -1217,3 +1217,63 @@ fn a_global_that_cannot_be_sent_is_the_one_that_is_here() {
         assert!(send(&mut from, &mut with_handle(3), "first-number").is_err());
     }
 }
+
+#[test]
+fn struct_types_of_one_name_from_elsewhere_are_refused() {
+    let types = "(define (make-type) (struct local (a)) local)
+                 (define one ((make-type) 1))
+                 (define two ((make-type) 2))";
+    let mut from = engine();
+    let mut to = engine();
+    from.run(types).unwrap();
+    to.run(types).unwrap();
+
+    send_from_elsewhere(&mut from, &mut to, "(list one one)").unwrap();
+    let error = send_from_elsewhere(&mut from, &mut to, "(list one two)").unwrap_err();
+    assert!(error.contains("can't be told apart"), "{}", error);
+}
+
+#[test]
+fn a_global_a_function_brought_follows_its_sender() {
+    for (way, send) in WAYS {
+        let mut from = engine();
+        from.run(
+            "(define rate 5)
+             (define (set-rate! to) (set! rate to))
+             (define helper (lambda (x) (+ x 1)))
+             (define (set-helper! to) (set! helper to))
+             (define (price x) (helper (* x rate)))",
+        )
+        .unwrap();
+
+        let mut to = engine();
+        to.run("(define own 100)").unwrap();
+        send(&mut from, &mut to, "price").unwrap();
+        to.run("(define first received)").unwrap();
+        assert!(keeps_giving(&mut to, "1", "6"), "{}", way);
+
+        // The same function again, after what it uses has changed
+        from.run("(set-rate! 7)").unwrap();
+        send(&mut from, &mut to, "price").unwrap();
+        assert!(keeps_giving(&mut to, "1", "8"), "{}", way);
+        assert!(holds(&mut to, "(= (first 1) 8)"), "{}", way);
+
+        // A helper that takes another number of arguments is found out
+        from.run("(set-helper! (lambda (x y) (+ x y 100)))")
+            .unwrap();
+        send(&mut from, &mut to, "(lambda () helper)").unwrap();
+        let error = to.run("(first 1)").unwrap_err().to_string();
+        assert!(error.contains("rity"), "{}: {}", way, error);
+
+        from.run("(set-helper! (lambda (x) (+ x 2)))").unwrap();
+        send(&mut from, &mut to, "price").unwrap();
+        assert!(keeps_giving(&mut to, "1", "9"), "{}", way);
+        assert!(holds(&mut to, "(= (first 1) 9)"), "{}", way);
+
+        // A global that was here first stays as it is
+        from.run("(define own 1) (define (set-own! to) (set! own to)) (define (read-own) own)")
+            .unwrap();
+        send(&mut from, &mut to, "read-own").unwrap();
+        assert!(holds(&mut to, "(= (received) 100)"), "{}", way);
+    }
+}

@@ -1464,6 +1464,17 @@ struct CountedLoop {
     loops_when_true: bool,
 }
 
+impl CountedLoop {
+    // How far past the counter a chunk's limit is for the chunk to be one
+    // trip. A test that includes its bound passes at the limit itself.
+    fn one_trip(&self) -> i64 {
+        match self.while_cc {
+            IntCC::SignedLessThanOrEqual | IntCC::SignedGreaterThanOrEqual => 0,
+            _ => self.step,
+        }
+    }
+}
+
 /// Finds a loop that can poll once per chunk of iterations instead of on
 /// every one.
 ///
@@ -6100,9 +6111,11 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    /// The thread's slot buffer, and whether `slot` is in bounds. A thread only
-    /// has the slots made before it was spawned.
-    fn tls_slots(&mut self, slot: usize) -> (Value, Value) {
+    /// Where the thread keeps `slot`, what is there, and whether the thread
+    /// has the slot. A thread that doesn't have it either has fewer slots or
+    /// has the missing marker there, which is the only builtin function a
+    /// slot is checked for, so any builtin function takes the slow path.
+    fn tls_slot_value(&mut self, slot: usize) -> (Value, Value, Value) {
         let storage = offset_of!(SteelThread, thread_local_storage);
         let vm_ctx = self.get_ctx();
         let thread = self.get_thread_pointer(vm_ctx);
@@ -6111,7 +6124,7 @@ impl FunctionTranslator<'_> {
             thread,
             storage + steel_vec::Vec::<SteelVal>::len_offset(),
         );
-        let has_slot = self
+        let in_bounds = self
             .builder
             .ins()
             .icmp_imm_u(IntCC::UnsignedGreaterThan, len, slot as i64);
@@ -6120,26 +6133,38 @@ impl FunctionTranslator<'_> {
             thread,
             storage + steel_vec::Vec::<SteelVal>::buf_offset(),
         );
-        (slots, has_slot)
+        let place = self
+            .builder
+            .ins()
+            .iadd_imm_s(slots, (slot * core::mem::size_of::<SteelVal>()) as i64);
+        // Out of bounds reads a marker that is always there instead.
+        let missing = self.i64_const(crate::steel_vm::vm::threads::tls_missing_place() as i64);
+        let place = self.builder.ins().select(in_bounds, place, missing);
+        let value = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlagsData::trusted(), place, 0);
+        let tag = self.builder.ins().ireduce(types::I8, value);
+        let present = self.builder.ins().icmp_imm_s(
+            IntCC::NotEqual,
+            tag,
+            SteelVal::BUILTIN_FUNCTION_TAG as i64,
+        );
+        (place, value, present)
     }
 
     /// Inlines `(get-tls handle)` as a load from the thread's slot.
     fn inline_get_tls(&mut self, arity: usize) -> Option<Value> {
         let slot = self.tls_slot(arity)?;
-        let offset = (slot * core::mem::size_of::<SteelVal>()) as i32;
 
         // The handle is a constant, so it isn't on the vm stack.
         self.shadow_stack.pop();
 
-        let (slots, has_slot) = self.tls_slots(slot);
+        let (_, value, present) = self.tls_slot_value(slot);
 
         Some(self.converging_if(
-            has_slot,
+            present,
             |ctx| {
-                let value =
-                    ctx.builder
-                        .ins()
-                        .load(types::I128, MemFlagsData::trusted(), slots, offset);
                 ctx.clone_value(value);
                 value
             },
@@ -6154,23 +6179,18 @@ impl FunctionTranslator<'_> {
     /// Inlines `(set-tls! handle value)` as a store to the thread's slot.
     fn inline_set_tls(&mut self, arity: usize) -> Option<Value> {
         let slot = self.tls_slot(arity)?;
-        let offset = (slot * core::mem::size_of::<SteelVal>()) as i32;
 
         let value = self.pop_boxed();
         self.shadow_stack.pop();
 
-        let (slots, has_slot) = self.tls_slots(slot);
+        let (place, old, present) = self.tls_slot_value(slot);
 
         Some(self.converging_if(
-            has_slot,
+            present,
             |ctx| {
-                let old =
-                    ctx.builder
-                        .ins()
-                        .load(types::I128, MemFlagsData::trusted(), slots, offset);
                 ctx.builder
                     .ins()
-                    .store(MemFlagsData::trusted(), value, slots, offset);
+                    .store(MemFlagsData::trusted(), value, place, 0);
                 ctx.drop_value(old);
                 ctx.encode_void()
             },
@@ -6325,7 +6345,10 @@ impl FunctionTranslator<'_> {
             // length is read again on every trip.
             CountBound::VectorLength(_) => {
                 let alone = self.single_threaded();
-                let one_trip = self.builder.ins().iconst(types::I64, pace);
+                let one_trip = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, plan.one_trip().saturating_abs());
                 let length = self.builder.declare_var(types::I64);
                 self.builder.def_var(length, bound);
                 (
@@ -6481,7 +6504,7 @@ impl FunctionTranslator<'_> {
                 self.builder.switch_to_block(one_trip);
                 self.builder.seal_block(one_trip);
                 self.emit_check_in_poll();
-                let far = self.builder.ins().iadd_imm_s(counter, plan.step);
+                let far = self.builder.ins().iadd_imm_s(counter, plan.one_trip());
                 self.builder.def_var(limit, far);
                 self.builder.def_var(length, bound);
                 // Not straight to the body, which would then have two ways
