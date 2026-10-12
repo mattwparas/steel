@@ -2139,6 +2139,8 @@ thread_local! {
     static LEFT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
     static RIGHT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
     static VISITED_SET: RefCell<FxHashSet<((usize, usize), (usize, usize))>> = RefCell::new(FxHashSet::default());
+    // The pairs added by comparisons that started inside another one, in order.
+    static VISITED_NESTED: RefCell<Vec<((usize, usize), (usize, usize))>> = const { RefCell::new(Vec::new()) };
     static EQ_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
@@ -2168,8 +2170,11 @@ fn eq_depth() -> usize {
 struct RecursiveEqualityHandler<'a> {
     left: EqualityVisitor<'a>,
     right: EqualityVisitor<'a>,
-    // The pairs that have been compared, or are being compared.
-    visited: &'a mut FxHashSet<((usize, usize), (usize, usize))>,
+    // Whether this comparison started inside another one, which looking a key
+    // up in a hash map or a hash set does. The pairs compared are shared with
+    // it, so a value both reach is compared once. A comparison that fails
+    // takes its pairs back out, since the one around it goes on.
+    nested: bool,
 }
 
 impl<'a> RecursiveEqualityHandler<'a> {
@@ -2181,7 +2186,11 @@ impl<'a> RecursiveEqualityHandler<'a> {
     }
 
     fn should_visit(&mut self, left: (usize, usize), right: (usize, usize)) -> bool {
-        self.visited.insert((left, right))
+        let added = VISITED_SET.with(|visited| visited.borrow_mut().insert((left, right)));
+        if added && self.nested {
+            VISITED_NESTED.with(|nested| nested.borrow_mut().push((left, right)));
+        }
+        added
     }
 
     fn visit(&mut self) -> bool {
@@ -2967,62 +2976,70 @@ impl PartialEq for SteelVal {
             (left, right) => {
                 LEFT_QUEUE.with(|left_queue| {
                     RIGHT_QUEUE.with(|right_queue| {
-                        VISITED_SET.with(|visited_set| {
-                            match (
-                                left_queue.try_borrow_mut(),
-                                right_queue.try_borrow_mut(),
-                                visited_set.try_borrow_mut(),
-                            ) {
-                                (Ok(mut left_queue), Ok(mut right_queue), Ok(mut visited_set)) => {
-                                    let mut equality_handler = RecursiveEqualityHandler {
-                                        left: EqualityVisitor {
-                                            queue: &mut left_queue,
-                                        },
-                                        right: EqualityVisitor {
-                                            queue: &mut right_queue,
-                                        },
-                                        visited: &mut visited_set,
-                                    };
+                        match (left_queue.try_borrow_mut(), right_queue.try_borrow_mut()) {
+                            (Ok(mut left_queue), Ok(mut right_queue)) => {
+                                let mut equality_handler = RecursiveEqualityHandler {
+                                    left: EqualityVisitor {
+                                        queue: &mut left_queue,
+                                    },
+                                    right: EqualityVisitor {
+                                        queue: &mut right_queue,
+                                    },
+                                    nested: false,
+                                };
 
-                                    let res = equality_handler
-                                        .compare_equality(left.clone(), right.clone());
+                                let res =
+                                    equality_handler.compare_equality(left.clone(), right.clone());
 
-                                    reset_eq_depth();
+                                reset_eq_depth();
 
-                                    // Clean up!
-                                    equality_handler.left.queue.clear();
-                                    equality_handler.right.queue.clear();
-                                    equality_handler.visited.clear();
+                                // Clean up!
+                                equality_handler.left.queue.clear();
+                                equality_handler.right.queue.clear();
+                                VISITED_SET.with(|visited| visited.borrow_mut().clear());
+                                VISITED_NESTED.with(|nested| nested.borrow_mut().clear());
 
-                                    res
-                                }
-                                _ => {
-                                    let mut left_queue = Vec::new();
-                                    let mut right_queue = Vec::new();
-
-                                    let mut visited_set = FxHashSet::default();
-
-                                    increment_eq_depth();
-
-                                    let mut equality_handler = RecursiveEqualityHandler {
-                                        left: EqualityVisitor {
-                                            queue: &mut left_queue,
-                                        },
-                                        right: EqualityVisitor {
-                                            queue: &mut right_queue,
-                                        },
-                                        visited: &mut visited_set,
-                                    };
-
-                                    let res = equality_handler
-                                        .compare_equality(left.clone(), right.clone());
-
-                                    decrement_eq_depth();
-
-                                    res
-                                }
+                                res
                             }
-                        })
+                            // The queues are in use, so this is inside
+                            // another comparison.
+                            _ => {
+                                let mut left_queue = Vec::new();
+                                let mut right_queue = Vec::new();
+
+                                let added = VISITED_NESTED.with(|nested| nested.borrow().len());
+
+                                increment_eq_depth();
+
+                                let mut equality_handler = RecursiveEqualityHandler {
+                                    left: EqualityVisitor {
+                                        queue: &mut left_queue,
+                                    },
+                                    right: EqualityVisitor {
+                                        queue: &mut right_queue,
+                                    },
+                                    nested: true,
+                                };
+
+                                let res =
+                                    equality_handler.compare_equality(left.clone(), right.clone());
+
+                                decrement_eq_depth();
+
+                                if !res {
+                                    VISITED_NESTED.with(|nested| {
+                                        VISITED_SET.with(|visited| {
+                                            let mut visited = visited.borrow_mut();
+                                            for pair in nested.borrow_mut().drain(added..) {
+                                                visited.remove(&pair);
+                                            }
+                                        })
+                                    });
+                                }
+
+                                res
+                            }
+                        }
                     })
                 })
             }

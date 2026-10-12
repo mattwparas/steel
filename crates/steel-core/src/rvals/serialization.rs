@@ -1037,8 +1037,14 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
             }
             Ok(SteelVal::FlatVector(Gc::new(values)))
         }
-        SerializableSteelVal::BigNum(n) => Ok(SteelVal::BigNum(Gc::new(n.clone()))),
-        SerializableSteelVal::BigRational(r) => Ok(SteelVal::BigRational(Gc::new(r.clone()))),
+        // As arithmetic would give them. One that fits is not a big number.
+        SerializableSteelVal::BigNum(n) => n.clone().into_steelval(),
+        SerializableSteelVal::BigRational(r) => {
+            if num_traits::Zero::is_zero(r.denom()) {
+                stop!(Generic => "a serialized rational has a denominator of zero");
+            }
+            num_rational::BigRational::new(r.numer().clone(), r.denom().clone()).into_steelval()
+        }
         SerializableSteelVal::Complex(re, im) => {
             let (re, im) = (ctx.built(*re)?, ctx.built(*im)?);
             let real = |part: &SteelVal| {

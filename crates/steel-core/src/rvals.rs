@@ -1858,6 +1858,79 @@ fn hash_vector_elements<'a, H: Hasher>(
     }
 }
 
+// How many values holding others one hash goes through before it starts
+// keeping what each came to.
+const SHARED_HASH_AFTER: usize = 4096;
+
+#[derive(Default)]
+struct SharedHashes {
+    depth: usize,
+    visits: usize,
+    hashes: rustc_hash::FxHashMap<(usize, usize), u64>,
+}
+
+thread_local! {
+    static SHARED_HASHES: RefCell<SharedHashes> = RefCell::new(SharedHashes::default());
+}
+
+struct HashingContainer;
+
+impl Drop for HashingContainer {
+    fn drop(&mut self) {
+        let _ = SHARED_HASHES.try_with(|shared| {
+            let mut shared = shared.borrow_mut();
+            shared.depth -= 1;
+            if shared.depth == 0 {
+                shared.visits = 0;
+                shared.hashes.clear();
+            }
+        });
+    }
+}
+
+// Hashes a value that holds others by itself, and feeds the result to
+// `state`. A value can hold the same value many times over, and hashed
+// through it would be gone through once for each way there is to reach it. So
+// past a point one hash keeps what each value came to, by `identity`.
+fn hash_container<H: Hasher>(
+    identity: Option<(usize, usize)>,
+    state: &mut H,
+    contents: impl FnOnce(&mut rustc_hash::FxHasher),
+) {
+    // A thread on its way out has nothing to keep them in.
+    let entered = SHARED_HASHES.try_with(|shared| {
+        let mut shared = shared.borrow_mut();
+        shared.depth += 1;
+        shared.visits += 1;
+        if shared.visits > SHARED_HASH_AFTER {
+            identity.and_then(|identity| shared.hashes.get(&identity).copied())
+        } else {
+            None
+        }
+    });
+    let (known, _leaving) = match entered {
+        Ok(known) => (known, Some(HashingContainer)),
+        Err(_) => (None, None),
+    };
+
+    let hash = known.unwrap_or_else(|| {
+        let mut hasher = rustc_hash::FxHasher::default();
+        contents(&mut hasher);
+        let hash = hasher.finish();
+        if let Some(identity) = identity {
+            let _ = SHARED_HASHES.try_with(|shared| {
+                let mut shared = shared.borrow_mut();
+                if shared.visits > SHARED_HASH_AFTER {
+                    shared.hashes.insert(identity, hash);
+                }
+            });
+        }
+        hash
+    });
+
+    hash.hash(state);
+}
+
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -1873,8 +1946,12 @@ impl Hash for SteelVal {
             IntV(i) => i.hash(state),
             Rational(f) => f.hash(state),
             CharV(c) => c.hash(state),
-            VectorV(v) => hash_vector_elements(v.len(), v.iter(), state),
-            FlatVector(v) => hash_vector_elements(v.len(), v.iter(), state),
+            VectorV(v) => hash_container(Some((v.0.as_ptr() as usize, 0)), state, |state| {
+                hash_vector_elements(v.len(), v.iter(), state)
+            }),
+            FlatVector(v) => hash_container(Some((Gc::as_ptr(v) as usize, 0)), state, |state| {
+                hash_vector_elements(v.len(), v.iter(), state)
+            }),
             Void => {}
             StringV(s) => s.hash(state),
             FuncV(s) => s.hash(state),
@@ -1886,15 +1963,21 @@ impl Hash for SteelVal {
             },
             #[cfg(not(feature = "custom-hash"))]
             Custom(v) => Gc::as_ptr(v).hash(state),
-            HashMapV(hm) => hm.hash(state),
-            HashSetV(hs) => hs.hash(state),
-            CustomStruct(s) => s.hash(state),
-            MutableStruct(s) => {
+            HashMapV(hm) => hash_container(Some((hm.0.as_ptr() as usize, 0)), state, |state| {
+                hm.hash(state)
+            }),
+            HashSetV(hs) => hash_container(Some((hs.0.as_ptr() as usize, 0)), state, |state| {
+                hs.hash(state)
+            }),
+            CustomStruct(s) => {
+                hash_container(Some((s.as_ptr() as usize, 0)), state, |state| s.hash(state))
+            }
+            MutableStruct(s) => hash_container(Some((s.as_ptr() as usize, 0)), state, |state| {
                 s.descriptor().hash(state);
                 for field in s.fields() {
                     field.hash(state);
                 }
-            }
+            }),
             PortV(port) => port.hash(state),
             IterV(s) => s.hash(state),
             ReducerV(r) => r.hash(state),
@@ -1903,13 +1986,18 @@ impl Hash for SteelVal {
             StreamV(s) => Gc::as_ptr(s).hash(state),
             BoxedFunction(fun) => Gc::as_ptr(fun).hash(state),
             ContinuationFunction(cont) => StandardShared::as_ptr(&cont.inner).hash(state),
-            ListV(l) => l.hash(state),
-            Pair(p) => (**p).hash(state),
+            ListV(l) => {
+                let identity = (!l.is_empty()).then(|| l.identity_tuple());
+                hash_container(identity, state, |state| l.hash(state))
+            }
+            Pair(p) => hash_container(Some((p.as_ptr() as usize, 0)), state, |state| {
+                (**p).hash(state)
+            }),
             MutFunc(fun) => fun.hash(state),
             BuiltIn(fun) => fun.hash(state),
-            MutableVector(vec) => {
+            MutableVector(vec) => hash_container(Some((vec.as_ptr_usize(), 0)), state, |state| {
                 vec.borrow(|vec| hash_vector_elements(vec.len(), vec.iter(), state))
-            }
+            }),
             BoxedIterator(iter) => Gc::as_ptr(iter).hash(state),
             SyntaxObject(s) => s.raw.hash(state),
             Boxed(val) => val.read().hash(state),
