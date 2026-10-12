@@ -263,6 +263,8 @@ steel_config! {
     jit_strip_mine: usize = 1024, "STEEL_JIT_STRIP_MINE";
     /// Load the running closure's captures once on entry.
     jit_cache_captures: bool = true, "STEEL_JIT_CACHE_CAPTURES";
+    /// Read and write a thread local storage slot in place when its handle is a closed global.
+    jit_inline_tls: bool = true, "STEEL_JIT_INLINE_TLS";
     /// Keep a pushed closed global as a reference to its slot until it is used.
     jit_closed_global_operands: bool = true, "STEEL_JIT_CLOSED_GLOBAL_OPERANDS";
     /// Read `(vector-ref (unbox G) i)` on a closed global box without cloning the vector.
@@ -387,7 +389,7 @@ steel_config! {
     /// Keep every local that is assigned with `set!` in a box, whether or not
     /// a closure captures it. A continuation entered again then sees what was
     /// assigned since it was captured.
-    box_assigned_locals: bool = false, "STEEL_BOX_ASSIGNED_LOCALS";
+    box_assigned_locals: bool = true, "STEEL_BOX_ASSIGNED_LOCALS";
     /// Lower acyclic internal defines sequentially rather than as `letrec`.
     sequential_defines: bool = true, "STEEL_SEQUENTIAL_DEFINES";
     /// Keep module globals that are reassigned with `set!` in boxes.

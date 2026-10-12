@@ -1291,6 +1291,36 @@ impl crate::rvals::Custom for ThreadLocalStorage {
     }
 }
 
+impl ThreadLocalStorage {
+    /// The slot `value` names, if it is a thread local storage handle.
+    pub(crate) fn slot_of(value: &SteelVal) -> Option<usize> {
+        let SteelVal::Custom(c) = value else {
+            return None;
+        };
+        as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()).map(|tls| tls.0)
+    }
+}
+
+/// What this thread has in `slot`. A slot made after this thread was spawned
+/// was made on another thread, and this one has nothing there.
+pub(crate) fn tls_slot_ref(ctx: &VmCore, slot: usize) -> Result<SteelVal> {
+    match ctx.thread.thread_local_storage.get(slot) {
+        Some(value) => Ok(value.clone()),
+        None => stop!(Generic => "get-tls: this thread has no such thread local storage slot"),
+    }
+}
+
+/// Puts `value` in this thread's `slot`.
+pub(crate) fn tls_slot_set(ctx: &mut VmCore, slot: usize, value: SteelVal) -> Result<SteelVal> {
+    match ctx.thread.thread_local_storage.get_mut(slot) {
+        Some(place) => {
+            *place = value;
+            Ok(SteelVal::Void)
+        }
+        None => stop!(Generic => "set-tls!: this thread has no such thread local storage slot"),
+    }
+}
+
 /// Creates a thread local storage slot. These slots are static, and will _not_ be reclaimed.
 ///
 /// When spawning a new thread, the value inside will be shared into that slot, however
@@ -1305,17 +1335,11 @@ pub(crate) fn make_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Ste
 /// Get the value out of the thread local storage slot.
 #[steel_derive::context(name = "get-tls", arity = Exact(1))]
 pub(crate) fn get_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    if let SteelVal::Custom(c) = &args[0] {
-        if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {
-            ctx.thread
-                .thread_local_storage
-                .get(tls_index.0)
-                .map(|x| Ok(x.clone()))
-        } else {
-            todo!()
+    match ThreadLocalStorage::slot_of(&args[0]) {
+        Some(slot) => Some(tls_slot_ref(ctx, slot)),
+        None => {
+            builtin_stop!(Generic => "get-tls expects a thread local storage handler, found: {:?}", &args[0])
         }
-    } else {
-        builtin_stop!(Generic => "get-tls expects a thread local storage handler, found: {:?}", &args[0])
     }
 }
 
@@ -1323,16 +1347,11 @@ pub(crate) fn get_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Stee
 /// with this TLS.
 #[steel_derive::context(name = "set-tls!", arity = Exact(2), returns = Void)]
 pub(crate) fn set_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    if let SteelVal::Custom(c) = &args[0] {
-        if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {
-            ctx.thread.thread_local_storage[tls_index.0] = args[1].clone();
-
-            Some(Ok(SteelVal::Void))
-        } else {
-            todo!()
+    match ThreadLocalStorage::slot_of(&args[0]) {
+        Some(slot) => Some(tls_slot_set(ctx, slot, args[1].clone())),
+        None => {
+            builtin_stop!(Generic => "set-tls! expects a thread local storage handler, found: {:?}", &args[0])
         }
-    } else {
-        todo!()
     }
 }
 

@@ -363,8 +363,9 @@ pub struct SteelThread {
     pub(crate) constant_map: ConstantMap,
     pub(crate) interrupted: Option<Arc<AtomicBool>>,
     pub(crate) synchronizer: Synchronizer,
-    // This will be static, for the thread.
-    pub(crate) thread_local_storage: Vec<SteelVal>,
+    // This will be static, for the thread. Jitted code reads and writes
+    // the slots in place.
+    pub(crate) thread_local_storage: steel_vec::Vec<SteelVal>,
 
     // Values native code is holding while it waits at a safepoint, where
     // another thread's collection would otherwise not find them.
@@ -1029,7 +1030,7 @@ impl SteelThread {
             constant_map: DEFAULT_CONSTANT_MAP.with(|x| x.clone()),
             interrupted: Default::default(),
             synchronizer,
-            thread_local_storage: Vec::new(),
+            thread_local_storage: steel_vec::Vec::new(),
             pending_roots: Vec::new(),
             native_entries: Vec::new(),
             native_entries_made: 0,

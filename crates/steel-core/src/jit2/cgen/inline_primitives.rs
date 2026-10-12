@@ -105,6 +105,10 @@ fn bytevector() -> bool {
     inline_bytevector_enabled()
 }
 
+fn tls() -> bool {
+    crate::config::config().jit_inline_tls
+}
+
 // Reached from an inlined accessor's `(#%unbox (getter x))`, which is an
 // operand position call, so the tail call switch also gates operand position.
 fn boxes() -> bool {
@@ -471,6 +475,25 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
                 returns(|t, arity| t.inline_packed_struct_call(arity)),
             )
             .tail(always),
+            // Thread local storage whose handle is a closed global, so the
+            // slot is known here.
+            inline(
+                "get-tls",
+                crate::steel_vm::vm::threads::get_tls as *const (),
+                returns(|t, arity| t.inline_get_tls(arity)),
+            )
+            .arity(1)
+            .operand(tls)
+            .guard(|t, arity| t.tls_slot(arity).is_some()),
+            inline(
+                "set-tls!",
+                crate::steel_vm::vm::threads::set_tls as *const (),
+                returns(|t, arity| t.inline_set_tls(arity)),
+            )
+            .arity(2)
+            .operand(tls)
+            .guard(|t, arity| t.tls_slot(arity).is_some())
+            .result(InferredType::Void),
             inline(
                 "#%mstruct-ref",
                 packed_struct_ref as *const (),

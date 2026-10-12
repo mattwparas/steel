@@ -6083,6 +6083,105 @@ impl FunctionTranslator<'_> {
         Some(result)
     }
 
+    /// The slot of a `(get-tls handle)` or `(set-tls! handle value)` call,
+    /// when the handle is a closed global that holds one here.
+    fn tls_slot(&self, arity: usize) -> Option<usize> {
+        let base = self.shadow_stack.len().checked_sub(arity)?;
+
+        match self.shadow_stack.get(base)? {
+            &MaybeStackValue::Constant(ConstantValue::Global(index))
+                if self.global_is_closed(index) =>
+            {
+                self._globals
+                    .get(index)
+                    .and_then(crate::steel_vm::vm::threads::ThreadLocalStorage::slot_of)
+            }
+            _ => None,
+        }
+    }
+
+    /// Where this thread's slots are, and whether `slot` is one of them. A
+    /// thread has only the slots that were made before it was spawned.
+    fn tls_slots(&mut self, slot: usize) -> (Value, Value) {
+        let storage = offset_of!(SteelThread, thread_local_storage);
+        let vm_ctx = self.get_ctx();
+        let thread = self.get_thread_pointer(vm_ctx);
+        let len = self.load_field(
+            types::I64,
+            thread,
+            storage + steel_vec::Vec::<SteelVal>::len_offset(),
+        );
+        let has_slot = self
+            .builder
+            .ins()
+            .icmp_imm_u(IntCC::UnsignedGreaterThan, len, slot as i64);
+        let slots = self.load_field(
+            types::I64,
+            thread,
+            storage + steel_vec::Vec::<SteelVal>::buf_offset(),
+        );
+        (slots, has_slot)
+    }
+
+    /// `(get-tls handle)` as a read of the thread's slot.
+    fn inline_get_tls(&mut self, arity: usize) -> Option<Value> {
+        let slot = self.tls_slot(arity)?;
+        let offset = (slot * core::mem::size_of::<SteelVal>()) as i32;
+
+        // The handle is a constant, which is not on the vm stack.
+        self.shadow_stack.pop();
+
+        let (slots, has_slot) = self.tls_slots(slot);
+
+        Some(self.converging_if(
+            has_slot,
+            |ctx| {
+                let value =
+                    ctx.builder
+                        .ins()
+                        .load(types::I128, MemFlagsData::trusted(), slots, offset);
+                ctx.clone_value(value);
+                value
+            },
+            |ctx| {
+                let slot = ctx.i64_const(slot as i64);
+                ctx.call_helper_checked(TLS_REF_SLOW, [slot])
+            },
+            types::I128,
+        ))
+    }
+
+    /// `(set-tls! handle value)` as a write of the thread's slot.
+    fn inline_set_tls(&mut self, arity: usize) -> Option<Value> {
+        let slot = self.tls_slot(arity)?;
+        let offset = (slot * core::mem::size_of::<SteelVal>()) as i32;
+
+        let value = self.pop_boxed();
+        self.shadow_stack.pop();
+
+        let (slots, has_slot) = self.tls_slots(slot);
+
+        Some(self.converging_if(
+            has_slot,
+            |ctx| {
+                let old =
+                    ctx.builder
+                        .ins()
+                        .load(types::I128, MemFlagsData::trusted(), slots, offset);
+                ctx.builder
+                    .ins()
+                    .store(MemFlagsData::trusted(), value, slots, offset);
+                ctx.drop_value(old);
+                ctx.encode_void()
+            },
+            |ctx| {
+                let slot = ctx.i64_const(slot as i64);
+                ctx.call_helper_checked(TLS_SET_SLOW, [slot, value])
+            },
+            types::I128,
+        ))
+    }
+
     /// The type and field of a `(#%mstruct-ref key struct index)` or
     /// `(#%mstruct-set! key struct index value)` call, when both are known
     /// here: the type's key is a closed global and the index a literal.

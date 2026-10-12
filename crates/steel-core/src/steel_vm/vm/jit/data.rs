@@ -1162,6 +1162,37 @@ helper_family! {
     }
 }
 
+// The out of line arm of an inlined `get-tls`: a slot this thread doesn't
+// have.
+#[cross_platform_fn]
+fn tls_ref_slow(ctx: *mut VmCore, slot: usize) -> SteelVal {
+    let this = unsafe { &mut *ctx };
+
+    match crate::steel_vm::vm::threads::tls_slot_ref(this, slot) {
+        Ok(v) => v,
+        Err(e) => {
+            this.is_native = false;
+            this.result = Some(Err(e.set_span_if_none(this.current_span())));
+            SteelVal::Void
+        }
+    }
+}
+
+// The same for `set-tls!`.
+#[cross_platform_fn]
+fn tls_set_slow(ctx: *mut VmCore, slot: usize, value: SteelVal) -> SteelVal {
+    let this = unsafe { &mut *ctx };
+
+    match crate::steel_vm::vm::threads::tls_slot_set(this, slot, value) {
+        Ok(v) => v,
+        Err(e) => {
+            this.is_native = false;
+            this.result = Some(Err(e.set_span_if_none(this.current_span())));
+            SteelVal::Void
+        }
+    }
+}
+
 // The out of line arm of an inlined `#%mstruct-ref`: a struct another thread
 // can reach, which needs its lock, or an argument of the wrong type. `value`
 // is only lent, so it is not dropped here.

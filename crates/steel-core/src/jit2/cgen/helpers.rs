@@ -199,6 +199,8 @@ jit_helpers! {
     VECTOR_SET_SHARED = "vector-set-shared" => vector_set_shared: plain fn(SteelVal, usize, SteelVal) -> bool;
     MSTRUCT_REF_SLOW = "mstruct-ref-slow" => mstruct_ref_slow: ctx_raises fn(usize, SteelVal, usize) -> SteelVal;
     MSTRUCT_SET_SLOW = "mstruct-set-slow" => mstruct_set_slow: ctx_raises fn(usize, SteelVal, usize, SteelVal) -> SteelVal;
+    TLS_REF_SLOW = "tls-ref-slow" => tls_ref_slow: ctx_raises fn(usize) -> SteelVal;
+    TLS_SET_SLOW = "tls-set-slow" => tls_set_slow: ctx_raises fn(usize, SteelVal) -> SteelVal;
     SET_BOX_HANDLER = "set-box-handler" => setbox_handler_c: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
     LIST_REF_VALUE = "list-ref-value" => list_ref_handler_c: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
     VECTOR_REF_VALUE = "vector-ref-value" => vector_ref_handler_c: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
