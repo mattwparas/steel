@@ -88,6 +88,8 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(PLIST_GET_CONTEXT_DEFINITION)
         .register_native_fn_definition(PLIST_GET_POSITIONAL_DEFINITION)
         .register_native_fn_definition(PLIST_TRY_GET_POSITIONAL_DEFINITION)
+        .register_native_fn_definition(PLIST_HAS_POSITIONAL_DEFINITION)
+        .register_native_fn_definition(PLIST_HAS_KWARG_DEFINITION)
         .register_native_fn_definition(PLIST_GET_POSITIONAL_LIST_DEFINITION)
         .register_native_fn_definition(PLIST_VALIDATE_ARGS_DEFINITION)
         .register_native_fn_definition(DROP_START_DEFINITION)
@@ -1125,6 +1127,41 @@ pub fn plist_try_get_positional(
     }
 
     Ok(default_value)
+}
+
+// Whether there is a positional arg at the index, skipping keyword pairs
+#[steel_derive::function(
+    name = "plist-has-positional-arg?",
+    constant = true,
+    args(List, Number)
+)]
+pub fn plist_has_positional(list: &List<SteelVal>, index: usize) -> bool {
+    let mut iter = list.iter();
+    let mut positional_arg_offset = 0;
+
+    while let Some(next) = iter.next() {
+        if let SteelVal::SymbolV(v) = next {
+            // If we found a keyword, skip the next one.
+            if v.starts_with("#:") {
+                iter.next();
+            }
+        } else {
+            if index == positional_arg_offset {
+                return true;
+            }
+
+            positional_arg_offset += 1;
+        }
+    }
+
+    false
+}
+
+// Whether the keyword is there with a value after it
+#[steel_derive::function(name = "plist-has-kwarg?", constant = true, args(List, Any))]
+pub fn plist_has_kwarg(list: &List<SteelVal>, key: &SteelVal) -> bool {
+    let mut iter = list.iter();
+    iter.find(|x| x.ptr_eq(key)).is_some() && iter.next().is_some()
 }
 
 #[steel_derive::function(name = "plist-get-kwarg", constant = true, args(List, Any, Any))]

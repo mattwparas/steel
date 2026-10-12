@@ -1241,6 +1241,12 @@ fn expr_usize(value: usize) -> ExprKind {
     ))))
 }
 
+// Whether a default costs nothing to evaluate when the argument was given:
+// a literal, a quoted value or a variable.
+fn evaluates_eagerly(default: &ExprKind) -> bool {
+    matches!(default, ExprKind::Atom(_) | ExprKind::Quote(_))
+}
+
 struct MentionsAny<'a> {
     names: &'a [InternedString],
     found: bool,
@@ -1470,20 +1476,33 @@ fn expand_keyword_and_default_arguments(
                     var.introduced_via_macro = true;
                 }
 
-                let expression = expr_list![
-                    // TODO: this should actually be the call site span? How do we anchor against
-                    // the calling function? Tail calls seem to mess that up - how do we reserve that
-                    // information?
-                    ExprKind::ident("#%prim.plist-try-get-positional-arg",),
-                    ExprKind::ident(REST_ARG),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
-                        NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
-                            steel_parser::tokens::IntLiteral::Small(index as _)
-                        ))
-                        .into()
-                    )))),
-                    default_value.clone()
-                ];
+                let expression = if evaluates_eagerly(default_value) {
+                    expr_list![
+                        // TODO: this should actually be the call site span? How do we anchor against
+                        // the calling function? Tail calls seem to mess that up - how do we reserve that
+                        // information?
+                        ExprKind::ident("#%prim.plist-try-get-positional-arg",),
+                        ExprKind::ident(REST_ARG),
+                        expr_usize(index),
+                        default_value.clone()
+                    ]
+                } else {
+                    // The default only runs if the argument is missing
+                    ExprKind::If(Box::new(ast::If::new(
+                        expr_list![
+                            ExprKind::ident("#%prim.plist-has-positional-arg?"),
+                            ExprKind::ident(REST_ARG),
+                            expr_usize(index),
+                        ],
+                        expr_list![
+                            ExprKind::ident("#%prim.plist-get-positional-arg"),
+                            ExprKind::ident(REST_ARG),
+                            expr_usize(index),
+                        ],
+                        default_value.clone(),
+                        SyntaxObject::default(TokenType::If),
+                    )))
+                };
 
                 Ok((p.clone(), expression))
             }
@@ -1532,7 +1551,7 @@ fn expand_keyword_and_default_arguments(
                         lambda_function.location.clone()
                     )))
                 ]
-            } else {
+            } else if evaluates_eagerly(&expr) {
                 expr_list![
                     ExprKind::ident("#%prim.plist-try-get"),
                     ExprKind::ident(REST_ARG),
@@ -1542,12 +1561,31 @@ fn expand_keyword_and_default_arguments(
                     ))),
                     expr
                 ]
+            } else {
+                // The default only runs if the keyword is missing
+                let quoted = ExprKind::Quote(Box::new(Quote::new(
+                    keyword.clone(),
+                    lambda_function.location.clone(),
+                )));
+                ExprKind::If(Box::new(ast::If::new(
+                    expr_list![
+                        ExprKind::ident("#%prim.plist-has-kwarg?"),
+                        ExprKind::ident(REST_ARG),
+                        quoted.clone(),
+                    ],
+                    expr_list![
+                        ExprKind::ident("#%prim.plist-try-get"),
+                        ExprKind::ident(REST_ARG),
+                        quoted,
+                        ExprKind::bool_lit(false),
+                    ],
+                    expr,
+                    SyntaxObject::default(TokenType::If),
+                )))
             };
 
             if let ExprKind::List(l) = &mut expression {
                 l.location = lambda_function.location.span;
-            } else {
-                unreachable!()
             }
 
             Ok((var_name, expression))

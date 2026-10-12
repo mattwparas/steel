@@ -12,8 +12,8 @@ use crate::{
         modules::{CompiledModule, MANGLER_PREFIX, MODULE_PREFIX},
         program::{
             PRIM_APPLY, PRIM_CONST_LIST, PRIM_PLIST_GET_KWARG, PRIM_PLIST_GET_POSITIONAL_ARG,
-            PRIM_PLIST_GET_POSITIONAL_ARG_LIST, PRIM_PLIST_TRY_GET, PRIM_PLIST_TRY_GET_POSITIONAL,
-            SETBOX, UNBOX,
+            PRIM_PLIST_GET_POSITIONAL_ARG_LIST, PRIM_PLIST_HAS_KWARG, PRIM_PLIST_HAS_POSITIONAL,
+            PRIM_PLIST_TRY_GET, PRIM_PLIST_TRY_GET_POSITIONAL, SETBOX, UNBOX,
         },
     },
     parser::ast::List,
@@ -3442,6 +3442,21 @@ impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
     fn visit(&mut self, expr: &ExprKind) {
         self.count = self.count.saturating_add(1);
         match expr {
+            // An optional argument's `(if (has? args i) (get args i) default)`
+            // is lowered to the argument or the default once the arguments
+            // are known. Count it as the one call it stands for.
+            ExprKind::If(f)
+                if f.test_expr
+                    .list()
+                    .and_then(|l| l.first_ident())
+                    .is_some_and(|ident| {
+                        *ident == *PRIM_PLIST_HAS_POSITIONAL || *ident == *PRIM_PLIST_HAS_KWARG
+                    }) =>
+            {
+                self.count = self.count.saturating_add(3);
+                self.prims = self.prims.saturating_add(1);
+                self.visit(&f.else_expr);
+            }
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
@@ -4767,6 +4782,63 @@ impl<'a> LowerRestArguments<'a> {
         Some(())
     }
 
+    // An optional argument whose default is only evaluated when the argument
+    // is missing: `(if (has? args which) (get args which) default)`. With
+    // the arguments known, this is the argument or the default.
+    fn handle_lazy_default(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        let ExprKind::If(f) = value else {
+            return None;
+        };
+        let test = f.test_expr.list()?;
+        let has = test.first_ident()?;
+        let ident = test.get(1)?.atom_identifier()?;
+
+        if *has == *PRIM_PLIST_HAS_POSITIONAL {
+            let int_index = test.get(2)?.int_literal()?;
+
+            let const_list = self.movable_const_list(ident)?.clone();
+            self.used_bindings.define(*ident);
+            let mut iter = const_list.iter();
+            let mut positional_arg_offset = 0;
+
+            while let Some(next) = iter.next() {
+                if next.atom_keyword().is_some() {
+                    iter.next();
+                } else {
+                    if int_index == positional_arg_offset {
+                        binding_expr_replace.push((index, next.clone()));
+                        return Some(());
+                    }
+
+                    positional_arg_offset += 1;
+                }
+            }
+
+            binding_expr_replace.push((index, f.else_expr.clone()));
+            Some(())
+        } else if *has == *PRIM_PLIST_HAS_KWARG {
+            let key = test.get(2)?.atom_keyword()?;
+
+            let const_list = self.movable_const_list(ident)?.clone();
+            self.used_bindings.define(*ident);
+            let mut iter = const_list.iter();
+            let expr_to_replace = iter
+                .find(|x| x.atom_identifier() == Some(key) || x.atom_keyword() == Some(key))
+                .and_then(|_| iter.next())
+                .unwrap_or(&f.else_expr);
+
+            binding_expr_replace.push((index, expr_to_replace.clone()));
+            Some(())
+        } else {
+            None
+        }
+    }
+
     fn handle_plist_try_get(
         &mut self,
         binding_expr_replace: &mut Vec<(usize, ExprKind)>,
@@ -4828,6 +4900,11 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                 // Getters in the binding values read lists bound further out, so
                 // handle them before this let's lists are in scope.
                 for (index, (_, value)) in l.bindings.iter().enumerate() {
+                    if matches!(value, ExprKind::If(_)) {
+                        self.handle_lazy_default(&mut binding_expr_replace, index, value);
+                        continue;
+                    }
+
                     let Some(getter) = value.list().and_then(|x| x.first_ident()) else {
                         continue;
                     };
