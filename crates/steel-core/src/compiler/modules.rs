@@ -47,7 +47,9 @@ use crate::stop;
 
 use crate::time::SystemTime;
 
-use crate::parser::expand_visitor::{expand, extract_macro_defs, lift_macro_defs_from_begins};
+use crate::parser::expand_visitor::{
+    define_generated_macros, expand, extract_macro_defs, lift_macro_defs_from_begins,
+};
 
 use super::{
     compiler::KernelDefMacroSpec,
@@ -2624,6 +2626,7 @@ impl<'a> ModuleBuilder<'a> {
             )?;
 
             expand(expr, &many_expander.map, globals)?;
+            define_generated_macros(expr, many_expander.map)?;
 
             for RequiredMacroMap {
                 changed,

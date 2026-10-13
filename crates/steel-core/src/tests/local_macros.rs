@@ -51,6 +51,43 @@ fn local_macros_in_a_module() {
     );
 }
 
+const GENERATED: &str = r#"
+(provide scaled add-offset)
+
+(define offset 100)
+
+(define-syntax define-adder
+  (syntax-rules ()
+    [(_ name n)
+     (define-syntax name
+       (syntax-rules ()
+         [(_ x) (list 'name (+ x n offset))]))]))
+
+(define-adder add-offset 5)
+
+(define (scaled factor)
+  (define-syntax scale
+    (syntax-rules ()
+      [(_ x) (* x factor)]))
+  (map (lambda (factor) (scale factor)) (list 1 2 (cadr (add-offset 0)))))
+"#;
+
+#[test]
+fn a_module_macro_defined_by_a_macro() {
+    let mut engine = Engine::new();
+    engine.register_steel_module("generated-macros".to_owned(), GENERATED.to_owned());
+
+    assert_eq!(
+        run(
+            &mut engine,
+            r#"(require "generated-macros")
+               (define offset 0)
+               (to-string (list (scaled 3) (add-offset 1)))"#
+        ),
+        "((3 6 315) (add-offset 106))"
+    );
+}
+
 #[test]
 fn local_macros_in_evaluated_code() {
     let mut engine = Engine::new();

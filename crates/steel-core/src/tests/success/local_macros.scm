@@ -225,3 +225,95 @@
          [(_) 100]))]))
 (define-constant-macro hundred)
 (assert! (= (hundred) 100))
+
+;; A template keeps referring to the variable it saw where it was defined
+(define (rebound-by-let acc)
+  (define-syntax add-acc
+    (syntax-rules ()
+      [(_ x) (+ x acc)]))
+  (let ([acc 1000])
+    (list acc (add-acc acc))))
+(assert! (equal? (rebound-by-let 10) '(1000 1010)))
+
+(define (rebound-by-parameter acc)
+  (define-syntax add-acc
+    (syntax-rules ()
+      [(_ x) (+ x acc)]))
+  (define (inner acc)
+    (add-acc acc))
+  (inner 1000))
+(assert! (= (rebound-by-parameter 10) 1010))
+
+(define (assigned-through-a-loop acc)
+  (define-syntax bump!
+    (syntax-rules ()
+      [(_) (set! acc (+ acc 1))]))
+  (let loop ([acc 0] [i 0])
+    (when (< i 3)
+      (bump!)
+      (loop (+ acc 100) (+ i 1))))
+  acc)
+(assert! (= (assigned-through-a-loop 10) 13))
+
+(define (rebound-define)
+  (define total 5)
+  (define-syntax show
+    (syntax-rules ()
+      [(_ x) (list 'total total x)]))
+  (map (lambda (total) (show total)) '(1 2)))
+(assert! (equal? (rebound-define) '((total 5 1) (total 5 2))))
+
+(define (nested-captures acc)
+  (define-syntax outer
+    (syntax-rules ()
+      [(_) acc]))
+  (let ([acc 2])
+    (define-syntax inner
+      (syntax-rules ()
+        [(_) (list acc (outer))]))
+    (let ([acc 3])
+      (list acc (inner) (outer)))))
+(assert! (equal? (nested-captures 1) '(3 (2 1) 1)))
+
+(define (rebound-by-match acc)
+  (define-syntax add-acc
+    (syntax-rules ()
+      [(_ x) (+ x acc)]))
+  (match '(1000 2000)
+    [(list acc other) (list acc (add-acc other))]))
+(assert! (equal? (rebound-by-match 10) '(1000 2010)))
+
+;; A use that a procedural macro expands to
+(define-syntax (call-it stx)
+  (syntax-case stx ()
+    [(_ m x) #'(m x)]))
+
+(define (through-a-procedural-macro y)
+  (define-syntax twice
+    (syntax-rules ()
+      [(_ x) (* 2 x)]))
+  (call-it twice y))
+(assert! (= (through-a-procedural-macro 21) 42))
+
+;; A macro that defines one with patterns and quoted names
+(define-syntax define-adder
+  (syntax-rules ()
+    [(_ name n)
+     (define-syntax name
+       (syntax-rules ()
+         [(_ x) (list 'name (+ x n))]))]))
+(define-adder add5 5)
+(assert! (equal? (add5 1) '(add5 6)))
+
+(define-syntax define-pair-of-macros
+  (syntax-rules ()
+    [(_ first second)
+     (begin
+       (define-syntax first
+         (syntax-rules ()
+           [(_ x) (car x)]))
+       (define-syntax second
+         (syntax-rules ()
+           [(_ x) (first (cdr x))])))]))
+(define-pair-of-macros my-first my-second)
+(assert! (equal? (list (my-first '(1 2)) (my-second '(1 2))) '(1 2)))

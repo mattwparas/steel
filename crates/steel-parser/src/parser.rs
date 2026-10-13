@@ -1696,15 +1696,18 @@ struct ASTLowerPass {
     expanded: bool,
     // Whether the expression being lowered is at the top level
     top_level: bool,
+    // Whether the expression being lowered is one of the forms of a body
+    in_body: bool,
 }
 
 impl ASTLowerPass {
     fn lower(&mut self, expr: &mut ExprKind) -> Result<()> {
         let top_level = core::mem::replace(&mut self.top_level, false);
+        let in_body = core::mem::replace(&mut self.in_body, false);
 
         match expr {
             ExprKind::List(ref mut value) => {
-                // The body this is in takes it out when it is expanded
+                // The body this is in defines it when it is expanded
                 if !top_level
                     && self.quote_depth == 0
                     && value.is_define_syntax()
@@ -1713,7 +1716,7 @@ impl ASTLowerPass {
                         .and_then(ExprKind::list)
                         .is_some_and(List::is_syntax_rules)
                 {
-                    if self.expanded {
+                    if self.expanded && !in_body {
                         return Err(ParseError::SyntaxError(
                             "define-syntax is only allowed at the top level or in a body"
                                 .to_string(),
@@ -1738,12 +1741,42 @@ impl ASTLowerPass {
                 //     .map(|x| self.lower(x))
                 //     .collect::<Result<_>>()?;
 
-                // A begin at the top level is part of the top level
-                let in_begin = top_level
-                    && (value.is_begin() || value.first_ident().is_some_and(|x| *x == *BEGIN));
+                let is_begin =
+                    value.is_begin() || value.first_ident().is_some_and(|x| *x == *BEGIN);
 
-                for expr in value.args.iter_mut() {
+                // A begin at the top level is part of the top level
+                let in_begin = top_level && is_begin;
+
+                let body_start = if self.quote_depth > 0 {
+                    usize::MAX
+                } else if is_begin {
+                    1
+                } else {
+                    let function = matches!(value.get(1), Some(ExprKind::List(_)));
+
+                    // Code handed to eval has these names as plain identifiers
+                    match value.first() {
+                        Some(ExprKind::Atom(a)) => match &a.syn.ty {
+                            TokenType::Lambda | TokenType::Let => 2,
+                            TokenType::Define if function => 2,
+                            TokenType::Identifier(i)
+                                if *i == *LAMBDA
+                                    || *i == *LAMBDA_FN
+                                    || *i == *LAMBDA_SYMBOL
+                                    || *i == *LET
+                                    || *i == *DEFINE && function =>
+                            {
+                                2
+                            }
+                            _ => usize::MAX,
+                        },
+                        _ => usize::MAX,
+                    }
+                };
+
+                for (index, expr) in value.args.iter_mut().enumerate() {
                     self.top_level = in_begin;
+                    self.in_body = index >= body_start;
                     self.lower(expr)?;
                 }
 
@@ -1925,6 +1958,7 @@ impl ASTLowerPass {
             ExprKind::Begin(b) => {
                 for expr in b.exprs.iter_mut() {
                     self.top_level = top_level;
+                    self.in_body = true;
                     self.lower(expr)?;
                 }
 
@@ -1977,6 +2011,7 @@ pub fn lower_entire_ast(expr: &mut ExprKind) -> Result<()> {
         quote_depth: 0,
         expanded: false,
         top_level: true,
+        in_body: false,
     }
     .lower(expr)
 }
@@ -1987,6 +2022,7 @@ pub fn lower_expanded_ast(expr: &mut ExprKind) -> Result<()> {
         quote_depth: 0,
         expanded: true,
         top_level: true,
+        in_body: false,
     }
     .lower(expr)
 }

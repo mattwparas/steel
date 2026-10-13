@@ -494,7 +494,6 @@ test_harness_failure! {
     identifier_used_before_definition,
     local_define_does_not_escape,
     local_define_does_not_escape_non_const,
-    local_macro_captured_local_rebound,
     local_macro_does_not_escape,
     local_struct_inaccessible,
     require_only_in_missing_identifier,

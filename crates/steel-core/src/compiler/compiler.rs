@@ -965,6 +965,7 @@ impl Compiler {
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
+            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
             lower_entire_ast(expr)?;
 
             for (module, shadowed_vars) in &self.lifted_macro_environments {
@@ -1010,6 +1011,7 @@ impl Compiler {
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
+            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
 
             // for expr in expanded_statements.iter_mut() {
             lower_expanded_ast(expr)?;
@@ -1164,6 +1166,7 @@ impl Compiler {
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
+            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
             lower_entire_ast(expr)?;
 
             for (module, shadowed_vars) in &self.lifted_macro_environments {
@@ -1211,6 +1214,7 @@ impl Compiler {
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
+            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
 
             // for expr in expanded_statements.iter_mut() {
             lower_expanded_ast(expr)?;
