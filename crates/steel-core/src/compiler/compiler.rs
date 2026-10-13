@@ -15,7 +15,10 @@ use crate::{
         expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change, GlobalMap},
         interner::InternedString,
         kernel::Kernel,
-        parser::{lower_entire_ast, lower_macro_and_require_definitions, SourcesCollector},
+        parser::{
+            lower_entire_ast, lower_expanded_ast, lower_macro_and_require_definitions,
+            SourcesCollector,
+        },
     },
     rvals::{AsRefSteelVal, SteelString},
     steel_vm::{cache::MemoizationTable, engine::ModuleContainer, primitives::constant_primitives},
@@ -1009,7 +1012,7 @@ impl Compiler {
             )?;
 
             // for expr in expanded_statements.iter_mut() {
-            lower_entire_ast(expr)?;
+            lower_expanded_ast(expr)?;
 
             ResolveExpansionMarks::resolve(expr);
         }
@@ -1210,7 +1213,7 @@ impl Compiler {
             )?;
 
             // for expr in expanded_statements.iter_mut() {
-            lower_entire_ast(expr)?;
+            lower_expanded_ast(expr)?;
 
             ResolveExpansionMarks::resolve(expr);
         }

@@ -1692,12 +1692,39 @@ pub fn lower_macro_and_require_definitions(expr: ExprKind) -> Result<ExprKind> {
 
 struct ASTLowerPass {
     quote_depth: usize,
+    // Whether macro expansion is over
+    expanded: bool,
+    // Whether the expression being lowered is at the top level
+    top_level: bool,
 }
 
 impl ASTLowerPass {
     fn lower(&mut self, expr: &mut ExprKind) -> Result<()> {
+        let top_level = core::mem::replace(&mut self.top_level, false);
+
         match expr {
             ExprKind::List(ref mut value) => {
+                // The body this is in takes it out when it is expanded
+                if !top_level
+                    && self.quote_depth == 0
+                    && value.is_define_syntax()
+                    && value
+                        .get(2)
+                        .and_then(ExprKind::list)
+                        .is_some_and(List::is_syntax_rules)
+                {
+                    if self.expanded {
+                        return Err(ParseError::SyntaxError(
+                            "define-syntax is only allowed at the top level or in a body"
+                                .to_string(),
+                            value.location,
+                            None,
+                        ));
+                    }
+
+                    return Ok(());
+                }
+
                 if value.is_quote() {
                     // println!("Found quote: {:?}", value);
                     self.quote_depth += 1;
@@ -1711,7 +1738,12 @@ impl ASTLowerPass {
                 //     .map(|x| self.lower(x))
                 //     .collect::<Result<_>>()?;
 
+                // A begin at the top level is part of the top level
+                let in_begin = top_level
+                    && (value.is_begin() || value.first_ident().is_some_and(|x| *x == *BEGIN));
+
                 for expr in value.args.iter_mut() {
+                    self.top_level = in_begin;
                     self.lower(expr)?;
                 }
 
@@ -1892,6 +1924,7 @@ impl ASTLowerPass {
             }
             ExprKind::Begin(b) => {
                 for expr in b.exprs.iter_mut() {
+                    self.top_level = top_level;
                     self.lower(expr)?;
                 }
 
@@ -1940,7 +1973,22 @@ impl ASTLowerPass {
 
 // TODO: Lower the rest of the AST post expansion, such that
 pub fn lower_entire_ast(expr: &mut ExprKind) -> Result<()> {
-    ASTLowerPass { quote_depth: 0 }.lower(expr)
+    ASTLowerPass {
+        quote_depth: 0,
+        expanded: false,
+        top_level: true,
+    }
+    .lower(expr)
+}
+
+// The same, for when no macro expansion comes after it
+pub fn lower_expanded_ast(expr: &mut ExprKind) -> Result<()> {
+    ASTLowerPass {
+        quote_depth: 0,
+        expanded: true,
+        top_level: true,
+    }
+    .lower(expr)
 }
 
 #[derive(Debug)]

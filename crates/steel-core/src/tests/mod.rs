@@ -12,6 +12,7 @@ mod counted_loops;
 mod engines_side_by_side;
 #[cfg(feature = "sync")]
 mod history;
+mod local_macros;
 mod malformed_bindings;
 #[cfg(feature = "sync")]
 mod serialization;
@@ -187,6 +188,7 @@ test_harness_success! {
     hashing_shared_values,
     default_arguments_in_order,
     let_values,
+    local_macros,
     interrupt_runs_dynamic_wind_exits,
     will_execute_with_nothing_else_collecting,
     serialization_struct_types_of_one_name,
@@ -350,6 +352,7 @@ test_harness_success_module! {
     hashing_shared_values,
     default_arguments_in_order,
     let_values,
+    local_macros,
     interrupt_runs_dynamic_wind_exits,
     will_execute_with_nothing_else_collecting,
     serialization_struct_types_of_one_name,
@@ -484,11 +487,15 @@ test_harness_success_module! {
 test_harness_failure! {
     capped_depth_defmacro,
     constant_fold_rest,
+    define_syntax_ends_a_body,
+    define_syntax_outside_a_body,
     function_used_before_definition,
     global_env,
     identifier_used_before_definition,
     local_define_does_not_escape,
     local_define_does_not_escape_non_const,
+    local_macro_captured_local_rebound,
+    local_macro_does_not_escape,
     local_struct_inaccessible,
     require_only_in_missing_identifier,
     syntax_rules_empty_list,
