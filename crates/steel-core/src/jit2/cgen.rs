@@ -163,7 +163,7 @@ pub trait FunctionToCranelift2 {
 
 macro_rules! register_function_pointers_return {
     ($($typ:ident),*) => {
-        #[cfg(target_os = "windows")]
+        #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
         impl<RET, $($typ),*> FunctionToCranelift for extern "sysv64-unwind" fn(*mut VmCore, $($typ),*) -> RET {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
                 let mut sig = module.make_signature();
@@ -191,7 +191,7 @@ macro_rules! register_function_pointers_return {
         }
 
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
         impl<RET, $($typ),*> FunctionToCranelift for extern "C-unwind" fn(*mut VmCore, $($typ),*) -> RET {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
                 let mut sig = module.make_signature();
@@ -218,7 +218,7 @@ macro_rules! register_function_pointers_return {
             }
         }
 
-        #[cfg(target_os = "windows")]
+        #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
         impl<RET, $($typ),*> FunctionToCranelift2 for extern "sysv64-unwind" fn($($typ),*) -> RET {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
                 let mut sig = module.make_signature();
@@ -242,7 +242,7 @@ macro_rules! register_function_pointers_return {
         }
 
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
         impl<RET, $($typ),*> FunctionToCranelift2 for extern "C-unwind" fn($($typ),*) -> RET {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
                 let mut sig = module.make_signature();
@@ -346,12 +346,12 @@ impl PrimitiveTable {
 macro_rules! abi {
     ($func:ident as $($tokens:tt)*) => {
         {
-            #[cfg(target_os = "windows")]
+            #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
             {
                 $func as extern "sysv64-unwind" $($tokens)*
             }
 
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
             {
                 $func as extern "C-unwind" $($tokens)*
             }
@@ -576,31 +576,31 @@ impl Default for JIT {
             abi! { push_to_vm_stack_two as fn(ctx: *mut VmCore, value: SteelVal, value2: SteelVal) },
         );
 
-        #[cfg(target_os = "windows")]
+        #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
         type Vm01 = extern "sysv64-unwind" fn(*mut VmCore) -> SteelVal;
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
         type Vm01 = extern "C-unwind" fn(*mut VmCore) -> SteelVal;
 
-        #[cfg(target_os = "windows")]
+        #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
         type Vm02 = extern "sysv64-unwind" fn(*mut VmCore, SteelVal) -> SteelVal;
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
         type Vm02 = extern "C-unwind" fn(*mut VmCore, SteelVal) -> SteelVal;
 
         #[allow(improper_ctypes_definitions)]
-        #[cfg(target_os = "windows")]
+        #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
         type VmBinOp =
             extern "sysv64-unwind" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
         #[allow(improper_ctypes_definitions)]
         type VmBinOp = extern "C-unwind" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
 
         #[allow(improper_ctypes_definitions)]
-        #[cfg(target_os = "windows")]
+        #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
         type BinOp = extern "sysv64-unwind" fn(a: SteelVal, b: SteelVal) -> SteelVal;
         #[allow(improper_ctypes_definitions)]
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(all(target_os = "windows", not(target_arch = "aarch64"))))]
         type BinOp = extern "C-unwind" fn(a: SteelVal, b: SteelVal) -> SteelVal;
 
         // TODO: Add type checked variants as well which can allow
@@ -5403,7 +5403,7 @@ impl FunctionTranslator<'_> {
 
     fn get_signature(&self, name: &str) -> Signature {
         let mut sig = self.intrinsics.get_signature(name, &self.module);
-        if cfg!(target_os = "windows") {
+        if cfg!(all(target_os = "windows", not(target_arch = "aarch64"))) {
             sig.call_conv = CallConv::SystemV;
         }
         sig
