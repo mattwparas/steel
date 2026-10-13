@@ -182,17 +182,37 @@
 
 (#%define-syntax (struct expr)
                  (define unwrapped (syntax-e expr))
-                 (define struct-name (syntax->datum (second unwrapped)))
-                 (define fields (syntax->datum (third unwrapped)))
+                 ;; A name from a template is prefixed when it collides with a variable
+                 ;; where the macro is used, and the names made from it here have to
+                 ;; match what the rest of the template calls them.
+                 (define (written-name name)
+                   (if (and (symbol? name) (starts-with? (symbol->string name) "##"))
+                       (string->symbol (substring (symbol->string name) 2))
+                       name))
+                 (define prefixed-name (syntax->datum (second unwrapped)))
+                 (define struct-name (written-name prefixed-name))
+                 (define fields
+                   (let ([fields (syntax->datum (third unwrapped))])
+                     (if (list? fields)
+                         (map written-name fields)
+                         fields)))
                  (define options
                    (let ([raw (cdddr unwrapped)])
                      ; (displayln raw)
                      (if (empty? raw)
                          raw
                          (map syntax->datum raw))))
-                 (define result (struct-impl struct-name fields options))
-                 (syntax/loc result
-                   (syntax-span expr)))
+                 (define result
+                   (let ([result (struct-impl struct-name fields options)])
+                     (if (equal? prefixed-name struct-name)
+                         result
+                         `(begin
+                            ,result
+                            (define ,prefixed-name ,struct-name)))))
+                 ;; The names this defines belong with the name of the struct
+                 (#%syntax/with-mark-of (syntax/loc result
+                                          (syntax-span expr))
+                                        (second unwrapped)))
 
 ;; Macro for creating a new struct, in the form of:
 ;; `(struct <struct-name> (fields ...) options ...)`
@@ -400,7 +420,7 @@
  (define-values expr)
  ; (displayln expr)
  (define underlying (syntax-e expr))
- (define bindings (syntax->datum (second underlying)))
+ (define bindings (syntax-e (second underlying)))
  (define expression (third underlying))
  (define unreadable-list-name (make-unreadable '#%proto-define-values-binding-gensym__))
  `(begin

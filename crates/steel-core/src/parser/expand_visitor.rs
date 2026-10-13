@@ -296,21 +296,37 @@ struct LocalMacro {
 
 static LOCAL_MACRO_CAPTURE: &str = "##local-macro##";
 
+static LOCAL_MACRO_CAPTURES: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
 // The name a template uses for a local variable of the body its macro is defined in.
 // `ResolveExpansionMarks` puts the variable back once it can tell binders apart.
 fn local_macro_capture(macro_name: &InternedString, name: &InternedString) -> InternedString {
+    LOCAL_MACRO_CAPTURES.store(true, core::sync::atomic::Ordering::Relaxed);
+
+    let name = name.resolve();
+
     format!(
-        "{}{}##{}",
+        "{}{}#{}{}",
         LOCAL_MACRO_CAPTURE,
-        macro_name.resolve(),
-        name.resolve()
+        name.len(),
+        name,
+        macro_name.resolve()
     )
     .into()
 }
 
-// The rest of a captured name, which is the macro and then the variable
-pub(crate) fn local_macro_captured(name: &str) -> Option<&str> {
-    name.strip_prefix(LOCAL_MACRO_CAPTURE)
+// The macro and the variable of a captured name
+pub(crate) fn local_macro_captured(name: &str) -> Option<(&str, &str)> {
+    let (len, rest) = name.strip_prefix(LOCAL_MACRO_CAPTURE)?.split_once('#')?;
+    let len = len.parse::<usize>().ok()?;
+
+    Some((rest.get(len..)?, rest.get(..len)?))
+}
+
+// Whether any captured name was made, which is rare enough to skip looking for them
+pub(crate) fn any_local_macro_captures() -> bool {
+    LOCAL_MACRO_CAPTURES.load(core::sync::atomic::Ordering::Relaxed)
 }
 
 pub(crate) fn is_local_macro_definition(expr: &ExprKind) -> bool {

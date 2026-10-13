@@ -737,6 +737,21 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
 
 impl ast::TryFromSteelValVisitorForExprKind {
     pub fn visit_syntax_object(&mut self, value: &Syntax) -> Result<ExprKind> {
+        // The names in a list of plain data take the mark the list was given
+        let mark = if value.mark.is_template() {
+            value.mark
+        } else {
+            self.mark
+        };
+
+        let outer = core::mem::replace(&mut self.mark, mark);
+        let expr = self.syntax_object_to_expr(value);
+        self.mark = outer;
+
+        expr
+    }
+
+    fn syntax_object_to_expr(&mut self, value: &Syntax) -> Result<ExprKind> {
         let span = value.span;
 
         // dbg!(&span);
@@ -836,6 +851,25 @@ impl ast::TryFromSteelValVisitorForExprKind {
     }
 }
 
+// Data has the name of a variable, where the syntax has the name that says which
+// binding of it a macro defined in a body refers to
+fn without_local_macro_captures(value: &SteelVal) -> SteelVal {
+    use crate::parser::expand_visitor::{any_local_macro_captures, local_macro_captured};
+
+    if !any_local_macro_captures() {
+        return value.clone();
+    }
+
+    match value {
+        SymbolV(name) => match local_macro_captured(name.as_str()) {
+            Some((_, variable)) => SymbolV(variable.into()),
+            None => value.clone(),
+        },
+        ListV(l) => ListV(l.iter().map(without_local_macro_captures).collect()),
+        _ => value.clone(),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Syntax {
     pub(crate) raw: Option<SteelVal>,
@@ -869,7 +903,7 @@ impl Syntax {
     }
 
     pub fn syntax_e(&self) -> SteelVal {
-        self.syntax.clone()
+        without_local_macro_captures(&self.syntax)
     }
 
     pub fn new_with_source(syntax: SteelVal, span: Span) -> Syntax {
@@ -885,11 +919,33 @@ impl Syntax {
         self.span
     }
 
-    pub fn syntax_datum(&self) -> SteelVal {
+    // Keeps the names that say which binding a macro defined in a body refers to, for
+    // macros that turn the data back into code
+    pub fn syntax_datum_raw(&self) -> SteelVal {
         self.raw.clone().unwrap()
     }
 
+    pub fn syntax_datum(&self) -> SteelVal {
+        without_local_macro_captures(self.raw.as_ref().unwrap())
+    }
+
+    // A macro that builds its expansion out of data can give the names in it the mark of
+    // an identifier it was handed, which is what tells them apart from the globals.
+    pub(crate) fn with_mark_of(mut self, other: &Syntax) -> Syntax {
+        if other.mark.is_template() {
+            self.mark = other.mark;
+        }
+
+        self
+    }
+
     pub(crate) fn steelval_to_exprkind(value: &SteelVal) -> Result<ExprKind> {
+        Self::steelval_to_marked_exprkind(value, ExpansionMark::UNKNOWN)
+    }
+
+    fn steelval_to_marked_exprkind(value: &SteelVal, mark: ExpansionMark) -> Result<ExprKind> {
+        let convert = |value: &SteelVal| Self::steelval_to_marked_exprkind(value, mark);
+
         match value {
             // Mutual recursion case
             SyntaxObject(s) => s.to_exprkind(),
@@ -903,8 +959,7 @@ impl Syntax {
                 RealLiteral::Int(IntLiteral::Small(*x)).into(),
             )))),
             VectorV(lst) => {
-                let items: Result<ThinVec<ExprKind>> =
-                    lst.iter().map(Self::steelval_to_exprkind).collect();
+                let items: Result<ThinVec<ExprKind>> = lst.iter().map(convert).collect();
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
@@ -914,12 +969,11 @@ impl Syntax {
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => {
                 let mut syn = SyntaxObject::default(TokenType::Identifier(x.as_str().into()));
-                syn.mark = ExpansionMark::UNKNOWN;
+                syn.mark = mark;
                 Ok(ExprKind::Atom(Atom::new(syn)))
             }
             ListV(l) => {
-                let items: Result<ThinVec<ExprKind>> =
-                    l.iter().map(Self::steelval_to_exprkind).collect();
+                let items: Result<ThinVec<ExprKind>> = l.iter().map(convert).collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
@@ -934,6 +988,11 @@ impl Syntax {
     // Otherwise, reconstruct the ExprKind and replace the span and source information into the representation
     pub fn to_exprkind(&self) -> Result<ExprKind> {
         let span = self.span;
+        let mark = if self.mark.is_template() {
+            self.mark
+        } else {
+            ExpansionMark::UNKNOWN
+        };
         // let source = self.source.clone();
         match &self.syntax {
             // Mutual recursion case
@@ -951,8 +1010,10 @@ impl Syntax {
                 span,
             )))),
             VectorV(lst) => {
-                let items: Result<ThinVec<ExprKind>> =
-                    lst.iter().map(Self::steelval_to_exprkind).collect();
+                let items: Result<ThinVec<ExprKind>> = lst
+                    .iter()
+                    .map(|x| Self::steelval_to_marked_exprkind(x, mark))
+                    .collect();
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
@@ -967,8 +1028,10 @@ impl Syntax {
                 Ok(ExprKind::Atom(Atom::new(syn)))
             }
             ListV(l) => {
-                let items: Result<ThinVec<ExprKind>> =
-                    l.iter().map(Self::steelval_to_exprkind).collect();
+                let items: Result<ThinVec<ExprKind>> = l
+                    .iter()
+                    .map(|x| Self::steelval_to_marked_exprkind(x, mark))
+                    .collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }

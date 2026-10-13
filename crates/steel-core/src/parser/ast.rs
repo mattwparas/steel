@@ -51,6 +51,8 @@ pub(crate) struct TryFromSteelValVisitorForExprKind {
     pub(crate) qq_depth: usize,
     pub(crate) quoted: bool,
     pub(crate) force_hir: bool,
+    // The mark for the names in plain data
+    pub(crate) mark: ExpansionMark,
 }
 
 impl TryFromSteelValVisitorForExprKind {
@@ -59,6 +61,7 @@ impl TryFromSteelValVisitorForExprKind {
             qq_depth: 0,
             quoted: false,
             force_hir: false,
+            mark: ExpansionMark::UNKNOWN,
         }
         .visit(value)
     }
@@ -68,6 +71,7 @@ impl TryFromSteelValVisitorForExprKind {
             qq_depth: 0,
             quoted: false,
             force_hir: true,
+            mark: ExpansionMark::UNKNOWN,
         }
         .visit(value)
     }
@@ -109,7 +113,7 @@ impl TryFromSteelValVisitorForExprKind {
 
             SymbolV(x) => {
                 let mut syn = SyntaxObject::default(Identifier(x.as_str().into()));
-                syn.mark = ExpansionMark::UNKNOWN;
+                syn.mark = self.mark;
                 Ok(ExprKind::Atom(Atom::new(syn)))
             }
 

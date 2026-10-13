@@ -24,6 +24,8 @@ struct Binder {
     name: InternedString,
     mark: ExpansionMark,
     id: usize,
+    // The macro defined in a body whose template wrote this binder
+    local_macro: Option<InternedString>,
 }
 
 #[derive(Default)]
@@ -43,13 +45,13 @@ pub struct ResolveExpansionMarks {
 }
 
 // Puts the variable back where a captured name ended up in quoted data
-struct RestoreCapturedNames<'a>(&'a ResolveExpansionMarks);
+struct RestoreCapturedNames;
 
-impl VisitorMutRefUnit for RestoreCapturedNames<'_> {
+impl VisitorMutRefUnit for RestoreCapturedNames {
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(name) = a.syn.ty.identifier_mut() {
-            if let Some(captured) = local_macro_captured(name.resolve()) {
-                *name = self.0.captured_variable(captured).0;
+            if let Some((_, variable)) = local_macro_captured(name.resolve()) {
+                *name = variable.into();
             }
         }
     }
@@ -77,6 +79,14 @@ impl ResolveExpansionMarks {
             return;
         };
 
+        // A template that binds the name does not refer to the variable around its macro
+        let mut local_macro = None;
+
+        if let Some((macro_name, variable)) = local_macro_captured(name.resolve()) {
+            local_macro = Some(macro_name.into());
+            *name = variable.into();
+        }
+
         let id = self.next_id;
         self.next_id += 1;
 
@@ -88,6 +98,7 @@ impl ResolveExpansionMarks {
             name: *name,
             mark,
             id,
+            local_macro,
         });
 
         if self.renaming && self.conflicts.contains(&id) {
@@ -138,20 +149,15 @@ impl ResolveExpansionMarks {
 
     // The variable a captured name stands for, and how many binders were in scope
     // where the macro that refers to it is defined
-    fn captured_variable(&self, captured: &str) -> (InternedString, usize) {
-        for (name, depth) in self.local_macros.iter().rev() {
-            let variable = captured
-                .strip_prefix(name.resolve())
-                .and_then(|x| x.strip_prefix("##"));
+    fn captured_variable(&self, macro_name: &str, variable: &str) -> (InternedString, usize) {
+        let depth = self
+            .local_macros
+            .iter()
+            .rev()
+            .find(|x| x.0.resolve() == macro_name)
+            .map_or(self.scope.len(), |x| x.1);
 
-            if let Some(variable) = variable {
-                return (variable.into(), *depth);
-            }
-        }
-
-        let variable = captured.rsplit_once("##").map_or(captured, |x| x.1);
-
-        (variable.into(), self.scope.len())
+        (variable.into(), depth)
     }
 
     // A template of a macro defined in a body refers to the variables that were in
@@ -259,7 +265,7 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
 
     fn visit_quote(&mut self, quote: &mut Quote) {
         if self.renaming && self.has_local_macros {
-            RestoreCapturedNames(self).visit(&mut quote.expr);
+            RestoreCapturedNames.visit(&mut quote.expr);
         }
     }
 
@@ -270,10 +276,22 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
             return;
         };
 
-        if let Some(captured) = local_macro_captured(name.resolve()) {
-            let (variable, depth) = self.captured_variable(captured);
-            self.resolve_captured(a, variable, depth);
-            return;
+        if let Some((macro_name, variable)) = local_macro_captured(name.resolve()) {
+            let (variable, depth) = self.captured_variable(macro_name, variable);
+
+            // The binder keeps the mark, or the captured name if a macro made it from data
+            let macro_name: InternedString = macro_name.into();
+            let bound_by_template = self.scope.iter().any(|b| {
+                b.name == variable
+                    && (mark.is_template() && b.mark == mark || b.local_macro == Some(macro_name))
+            });
+
+            if !bound_by_template {
+                self.resolve_captured(a, variable, depth);
+                return;
+            }
+
+            *name = variable;
         }
 
         if mark == ExpansionMark::NONE {
@@ -325,6 +343,9 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
 
         if !self.renaming {
             if let Some(binder) = by_mark {
+                // The same expansion introduced its binder, so it is not a global
+                a.syn.unresolved = false;
+
                 if self.innermost(*name).map(|b| b.id) != Some(binder.id) {
                     self.conflicts.insert(binder.id);
                 }

@@ -317,3 +317,56 @@
            [(_ x) (first (cdr x))])))]))
 (define-pair-of-macros my-first my-second)
 (assert! (equal? (list (my-first '(1 2)) (my-second '(1 2))) '(1 2)))
+
+;; A template can bind a name that is also a variable where the macro is defined
+(define (template-binds-the-name acc)
+  (define-syntax doubled
+    (syntax-rules ()
+      [(_ x) (let ([acc (* 2 x)]) (+ acc 1))]))
+  (define-syntax both
+    (syntax-rules ()
+      [(_ x) (let ([old acc]) (let ([acc x]) (list old acc)))]))
+  (define-syntax defined
+    (syntax-rules ()
+      [(_) (let () (define acc 5) acc)]))
+  (list (doubled acc) (both 7) (defined) acc))
+(assert! (equal? (template-binds-the-name 10) '(21 (10 7) 5 10)))
+
+(define-syntax two-values
+  (syntax-rules ()
+    [(_ x)
+     (let ()
+       (define-values (acc other) (values x 2))
+       (list acc other))]))
+
+(define (template-defines-values acc)
+  (define-syntax local-two-values
+    (syntax-rules ()
+      [(_ x) (begin (define-values (acc other) (values x 2)) (list acc other))]))
+  (list (two-values acc) (let () (local-two-values 50)) acc))
+(assert! (equal? (template-defines-values 10) '((10 2) (50 2) 10)))
+
+;; A procedural macro sees the name of the variable
+(define-syntax (name-of stx)
+  (syntax-case stx ()
+    [(_ x) (symbol->string (syntax->datum #'x))]))
+
+(define-syntax (name-and-value stx)
+  (syntax-case stx ()
+    [(_ x) #`(list #,(symbol->string (syntax-e #'x)) x)]))
+
+(define (named-by-a-procedural-macro acc)
+  (define-syntax describe
+    (syntax-rules ()
+      [(_) (list (name-of acc) (name-and-value acc))]))
+  (let ([acc 100])
+    (describe)))
+(assert! (equal? (named-by-a-procedural-macro 10) '("acc" ("acc" 10))))
+
+;; A pattern in a template binds over the variable around the macro
+(define (template-matches a)
+  (define-syntax sum-of
+    (syntax-rules ()
+      [(_ v) (match v [(list a b) (+ a b)])]))
+  (list (sum-of '(1 2)) a))
+(assert! (equal? (template-matches 10) '(3 10)))
