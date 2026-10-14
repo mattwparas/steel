@@ -412,24 +412,6 @@
   (set! *gensym-counter* (+ 1 *gensym-counter*))
   (string->symbol (string-append "##gensym" (to-string *gensym-counter*))))
 
-;; TODO: @Matt -> for whatever reason, using ~> plus (lambda (x) ...) generates a stack overflow... look into that
-(define (make-unreadable symbol)
-  (~>> symbol (symbol->string) (string-append "##") (string->symbol)))
-
-(#%define-syntax
- (define-values expr)
- ; (displayln expr)
- (define underlying (syntax-e expr))
- (define bindings (syntax-e (second underlying)))
- (define expression (third underlying))
- (define unreadable-list-name (make-unreadable '#%proto-define-values-binding-gensym__))
- `(begin
-    (define ,unreadable-list-name ,expression)
-    ,@(map (lambda (binding-index-pair)
-             `(define ,(car binding-index-pair)
-                (#%prim.list-ref ,unreadable-list-name ,(#%prim.list-ref binding-index-pair 1))))
-           (enumerate 0 '() bindings))))
-
 (#%define-syntax (#%better-lambda expr) (quasisyntax (list 10 20 30)))
 
 ;; TODO: make this not so suspect, but it does work!
@@ -618,6 +600,24 @@
                                 (%proto-hash-insert% ,(string->symbol env) (quote ,name) ,func)))
                    (register-macro-transformer! name env)))
  'void)
+
+;; Written with syntax-case, so that the names keep what says which expansion they
+;; came from. This is what `define-syntax` does with a definition outside of a module.
+(let ([transformer
+       (parse-def-syntax
+        '(define-syntax (define-values stx)
+           (syntax-case stx ()
+             [(_ (name ...) expr)
+              (let ([names (syntax-e #'(name ...))]
+                    [packed (gensym)])
+                #`(begin
+                    (define #,packed expr)
+                    #,@(map (lambda (id index)
+                              #`(define #,id (#%prim.list-ref #,packed #,index)))
+                            names
+                            (range 0 (length names)))))])))])
+  (eval `(define define-values ,transformer))
+  (register-macro-transformer! 'define-values "default"))
 
 (require-builtin #%private/steel/reader as reader.)
 
