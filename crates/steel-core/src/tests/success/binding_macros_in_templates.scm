@@ -72,3 +72,55 @@
          (list acc rest))]))
   (list (split '(1 2)) acc))
 (assert! (equal? (in-a-local-macro 10) '((1 2) 10)))
+
+;; The names a template writes for top level definitions stay with that use of the macro
+(define-syntax template-values
+  (syntax-rules ()
+    [(_ get)
+     (begin
+       (define-values (list hidden) (values 1 2))
+       (define (get) (+ list hidden)))]))
+(template-values first-sum)
+(template-values second-sum)
+(assert! (= (first-sum) 3))
+(assert! (= (second-sum) 3))
+(assert! (equal? (list 1 2) '(1 2)))
+
+(define-syntax template-struct
+  (syntax-rules ()
+    [(_ get)
+     (begin
+       (struct hidden-point (x y))
+       (define (get) (hidden-point-x (hidden-point 7 8))))]))
+(template-struct hidden-x)
+(assert! (= (hidden-x) 7))
+
+(define hidden-point 10)
+(define shared 5)
+(define-syntax template-and-use-site
+  (syntax-rules ()
+    [(_ get)
+     (begin
+       (define-values (shared other) (values 1 2))
+       (define (get) (list shared other hidden-point)))]))
+(template-and-use-site get-all)
+(assert! (equal? (get-all) '(1 2 10)))
+(assert! (= shared 5))
+
+(define-syntax template-match
+  (syntax-rules ()
+    [(_ get)
+     (begin
+       (define-values (pair extra) (values '(1 2) 2))
+       (define (get)
+         (match pair
+           [(list u v) (+ u v extra)])))]))
+(template-match matched-sum)
+(assert! (= (matched-sum) 5))
+
+;; A name from where the macro is used is defined there
+(define-syntax define-with-hidden
+  (syntax-rules ()
+    [(_ name v) (define-values (name hidden) (values v 0))]))
+(define-with-hidden visible 42)
+(assert! (= visible 42))

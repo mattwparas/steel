@@ -42,6 +42,8 @@ pub struct ResolveExpansionMarks {
     local_macros: Vec<(InternedString, usize)>,
     // Whether a macro defined in a body was found
     has_local_macros: bool,
+    // The top level definitions whose names were written by a template
+    template_globals: FxHashSet<(InternedString, ExpansionMark)>,
 }
 
 // Puts the variable back where a captured name ended up in quoted data
@@ -61,15 +63,49 @@ impl ResolveExpansionMarks {
     pub fn resolve(expr: &mut ExprKind) {
         let mut pass = Self::default();
 
+        pass.define_template_globals(expr);
         pass.visit(expr);
 
-        if pass.conflicts.is_empty() && !pass.has_local_macros {
+        if pass.conflicts.is_empty() && !pass.has_local_macros && pass.template_globals.is_empty() {
             return;
         }
 
         pass.renaming = true;
         pass.next_id = 0;
         pass.visit(expr);
+    }
+
+    fn template_global(name: InternedString, mark: ExpansionMark) -> InternedString {
+        format!("##{}#{}", name.resolve(), mark.0).into()
+    }
+
+    // A name a template wrote for a top level definition belongs to that expansion,
+    // so the definition is renamed and only the same expansion can refer to it.
+    fn define_template_globals(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::Begin(b) => {
+                for expr in b.exprs.iter_mut() {
+                    self.define_template_globals(expr);
+                }
+            }
+            ExprKind::Define(d) => {
+                let Some(syn) = d.name.atom_syntax_object_mut() else {
+                    return;
+                };
+
+                let mark = syn.mark;
+
+                if !mark.is_template() {
+                    return;
+                }
+
+                if let Some(name) = syn.ty.identifier_mut() {
+                    self.template_globals.insert((*name, mark));
+                    *name = Self::template_global(*name, mark);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn bind(&mut self, syn: &mut SyntaxObject) {
@@ -330,6 +366,12 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
                 .rev()
                 .find(|b| b.name == *name && b.mark == mark)
         };
+
+        if by_mark.is_none() && self.template_globals.contains(&(*name, mark)) {
+            *name = Self::template_global(*name, mark);
+            a.syn.unresolved = false;
+            return;
+        }
 
         // A builtin's name from a template that was resolved where its macro
         // was defined, and that the template doesn't bind itself, is the

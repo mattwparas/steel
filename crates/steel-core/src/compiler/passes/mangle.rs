@@ -26,12 +26,21 @@ Steps for doing having scoped macros
     - Copy the code for B, mangle it and then include it in A directly
 */
 
+// A name a template wrote for a definition belongs to that expansion, not to the module
+fn written_by_template(name: &ExprKind) -> bool {
+    name.atom_syntax_object()
+        .is_some_and(|syn| syn.mark.is_template())
+}
+
 pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
     let mut global_defs = FxHashSet::default();
 
     for expr in exprs {
         match expr {
             ExprKind::Define(d) => {
+                if written_by_template(&d.name) {
+                    continue;
+                }
                 if let Some(name) = d.name.atom_identifier() {
                     if name.resolve().starts_with(MANGLER_PREFIX) {
                         continue;
@@ -47,6 +56,7 @@ pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
                         .unwrap_or_default() =>
             {
                 match l.get(1) {
+                    Some(name) if written_by_template(name) => {}
                     Some(ExprKind::Atom(_)) => {
                         if let Some(name) = l.second_ident() {
                             if name.resolve().starts_with(MANGLER_PREFIX) {
