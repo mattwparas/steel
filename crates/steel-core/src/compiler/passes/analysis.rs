@@ -1631,14 +1631,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Set the single used to this scope to be a new set
         // self.vars_used = im_rc::HashSet::new();
 
-        self.vars_used = SmallVec::new();
+        let mut enclosing_vars_used = core::mem::take(&mut self.vars_used);
 
         self.contains_lambda_func = false;
 
         // TODO: Better abstract this pattern - perhaps have the function call be passed in?
         self.visit_with_tail_call_eligibility(&lambda_function.body, true);
-
-        let lambda_bottoms_out = !self.contains_lambda_func;
 
         self.contains_lambda_func = true;
 
@@ -1664,6 +1662,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         //             .collect::<Vec<_>>()
         //     );
         // }
+
+        // What this function refers to from outside is also used by the
+        // function it is in, which has to capture it to pass it on.
+        let vars_used = core::mem::take(&mut self.vars_used);
+        for (var, _) in captured_vars.iter() {
+            if vars_used.contains(var) && !enclosing_vars_used.contains(var) {
+                enclosing_vars_used.push(*var);
+            }
+        }
+        self.vars_used = enclosing_vars_used;
 
         for i in 0..captured_vars.len() {
             let var = captured_vars[i].0;
@@ -1711,21 +1719,19 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         {
             let mut slated_for_removal = SmallVec::<[InternedString; 5]>::new();
 
-            if lambda_bottoms_out {
-                captured_vars.retain(|(x, _)| self.vars_used.contains(x));
+            captured_vars.retain(|(x, _)| vars_used.contains(x));
 
-                for (var, _) in info.captured_vars.iter() {
-                    if !captured_vars.iter().find(|x| x.0 == *var).is_some() {
-                        slated_for_removal.push(*var);
-                    }
+            for (var, _) in info.captured_vars.iter() {
+                if !captured_vars.iter().find(|x| x.0 == *var).is_some() {
+                    slated_for_removal.push(*var);
                 }
+            }
 
-                for var in slated_for_removal {
-                    let position = info.captured_vars.iter().position(|x| x.0 == var);
+            for var in slated_for_removal {
+                let position = info.captured_vars.iter().position(|x| x.0 == var);
 
-                    if let Some(position) = position {
-                        info.captured_vars.remove(position);
-                    }
+                if let Some(position) = position {
+                    info.captured_vars.remove(position);
                 }
             }
 

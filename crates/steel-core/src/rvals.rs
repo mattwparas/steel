@@ -1106,7 +1106,6 @@ impl From<Gc<Vector<SteelVal>>> for SteelVector {
 #[repr(transparent)]
 pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
 
-#[cfg(feature = "imbl")]
 // Hashes a hash map's or a hash set's entries so that the order they come in
 // doesn't matter, since two that are equal can iterate differently.
 fn hash_unordered<T: Hash, H: Hasher>(len: usize, entries: impl Iterator<Item = T>, state: &mut H) {
@@ -1147,7 +1146,6 @@ impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
 #[repr(transparent)]
 pub struct SteelHashSet(pub(crate) Gc<HashSet<SteelVal>>);
 
-#[cfg(feature = "imbl")]
 impl Hash for SteelHashSet {
     fn hash<H>(&self, state: &mut H)
     where
