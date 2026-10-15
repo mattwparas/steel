@@ -4589,37 +4589,35 @@ impl<'a> VmCore<'a> {
     // TODO: Tail calls see to obfuscate the proper span information.
     // These will need to be rewritten, somehow, assuming we have knowledge
     // if the last function was called in tail position.
+    /// The span of the call that entered the running function. A call site
+    /// with no place in any source, like one in code a compiler pass wrote, is
+    /// part of whatever called that code, so the search moves on to its caller.
     fn enclosing_span(&self) -> Option<Span> {
-        if self.thread.stack_frames.len() > 1 {
-            if let [second, last] = &self.thread.stack_frames[self.thread.stack_frames.len() - 2..]
-            {
-                let spans = self.thread.function_interner.spans.get(&second.function.id);
-
-                spans
-                    .and_then(|x| {
-                        if last.ip > 1 {
-                            x.get(last.ip as usize - 1)
-                        } else {
-                            None
-                        }
-                    })
-                    .copied()
-            } else {
-                todo!()
+        let frames = &self.thread.stack_frames;
+        let call_site = |index: usize| {
+            let frame = &frames[index];
+            if frame.ip <= 1 {
+                return None;
             }
-        } else {
-            self.thread
-                .stack_frames
-                .last()
-                .and_then(|frame| {
-                    if frame.ip > 1 {
-                        self.root_spans.get(frame.ip as usize - 1)
-                    } else {
-                        None
-                    }
-                })
-                .copied()
-        }
+            let at = frame.ip as usize - 1;
+            if index == 0 {
+                self.root_spans.get(at).copied()
+            } else {
+                self.thread
+                    .function_interner
+                    .spans
+                    .get(&frames[index - 1].function.id)
+                    .and_then(|spans| spans.get(at))
+                    .copied()
+            }
+        };
+
+        let nearest = call_site(frames.len().checked_sub(1)?);
+        (0..frames.len())
+            .rev()
+            .filter_map(call_site)
+            .find(|span| span.source_id.is_some())
+            .or(nearest)
     }
 
     // TODO: Anytime we genuinely close a continuation mark, we should check that we

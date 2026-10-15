@@ -2595,6 +2595,41 @@ impl<'a> VisitorMutUnitRef<'a> for CalledParams {
 /// inlined into different functions must not share those names. Binders are
 /// already unique within one function by this point, so renaming by name is
 /// enough.
+/// Gives the parts of an inlined copy that have no place in any source, like
+/// the code a compiler pass wrote, the place of the call the copy replaces. An
+/// error raised there, or a lookup of the calling span, then points at that
+/// call.
+fn anchor_to_call_site(copy: &mut LambdaFunction, call: &List) {
+    let span = call
+        .args
+        .first()
+        .and_then(|operator| operator.atom_syntax_object())
+        .map(|syn| syn.span)
+        .filter(|span| span.source_id.is_some());
+    if let Some(span) = span {
+        AnchorSpans(span).visit_lambda_function(copy);
+    }
+}
+
+struct AnchorSpans(Span);
+
+impl VisitorMutRefUnit for AnchorSpans {
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if a.syn.span.source_id.is_none() {
+            a.syn.span = self.0;
+        }
+    }
+
+    fn visit_list(&mut self, l: &mut List) {
+        if l.location.source_id.is_none() {
+            l.location = self.0;
+        }
+        for expr in l.args.iter_mut() {
+            self.visit(expr);
+        }
+    }
+}
+
 struct FreshenBinders {
     renames: HashMap<InternedString, InternedString>,
 }
@@ -3073,6 +3108,7 @@ impl<'a> VisitorMutRefUnit for SubstituteLambdaCalls<'a> {
         {
             let mut copy = self.lambda.clone();
             FreshenBinders::run(&mut copy);
+            anchor_to_call_site(&mut copy, l);
             l.args[0] = ExprKind::LambdaFunction(Box::new(copy));
         }
     }
@@ -8919,6 +8955,7 @@ impl<'a> SemanticAnalysis<'a> {
                             {
                                 let mut copy = l.clone();
                                 FreshenBinders::run(&mut copy);
+                                anchor_to_call_site(&mut copy, lst);
                                 lst.args[0] = ExprKind::LambdaFunction(copy);
                                 changed.set(true);
                             }
@@ -8973,6 +9010,7 @@ impl<'a> SemanticAnalysis<'a> {
                             {
                                 let mut copy = l.clone();
                                 FreshenBinders::run(&mut copy);
+                                anchor_to_call_site(&mut copy, lst);
                                 lst.args[0] = ExprKind::LambdaFunction(copy);
                                 changed.set(true);
                             }
@@ -9024,6 +9062,7 @@ impl<'a> SemanticAnalysis<'a> {
                                 if freshen {
                                     FreshenBinders::run(&mut copy);
                                 }
+                                anchor_to_call_site(&mut copy, lst);
                                 lst.args[0] = ExprKind::LambdaFunction(copy);
                                 changed.set(true);
                             }
@@ -9052,7 +9091,9 @@ impl<'a> SemanticAnalysis<'a> {
             .clone();
 
         self.find_call_sites_and_modify_with(name.as_ref(), |_: &Analysis, lst: &mut List| {
-            lst.args[0] = ExprKind::LambdaFunction(Box::new(top_level_define_body.clone()));
+            let mut copy = top_level_define_body.clone();
+            anchor_to_call_site(&mut copy, lst);
+            lst.args[0] = ExprKind::LambdaFunction(Box::new(copy));
         });
 
         Ok(())

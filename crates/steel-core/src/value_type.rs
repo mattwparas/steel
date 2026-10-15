@@ -37,6 +37,10 @@ pub enum ValueType {
     Procedure,
     /// A value of a host type (`SteelVal::Custom`), by the type's name.
     Custom(CustomTypeName),
+    /// A proper list whose elements are all of this type.
+    ListOf(ArgType),
+    /// An immutable hash map with keys of the first type and values of the second.
+    HashOf(ArgType, ArgType),
 }
 
 /// The name of a host type: `core::any::type_name` of it, which is also what
@@ -115,7 +119,7 @@ impl core::fmt::Debug for CustomTypeName {
 }
 
 impl ValueType {
-    /// Every variant but [`ValueType::Custom`].
+    /// Every variant but [`ValueType::Custom`] and the containers of a type.
     pub const ALL: [ValueType; 18] = [
         ValueType::Any,
         ValueType::Bool,
@@ -173,6 +177,22 @@ impl ValueType {
             ValueType::Custom(name) => {
                 matches!(value, Custom(custom) if custom.read().name() == name.name())
             }
+            ValueType::ListOf(elements) => {
+                matches!(value, ListV(list) if list.iter().all(|x| elements.matches(x)))
+            }
+            ValueType::HashOf(keys, values) => matches!(
+                value,
+                HashMapV(map) if map.iter().all(|(k, v)| keys.matches(k) && values.matches(v))
+            ),
+        }
+    }
+
+    /// The type without what a container holds: `List` for `ListOf(Int)`.
+    pub fn kind(&self) -> ValueType {
+        match self {
+            ValueType::ListOf(_) => ValueType::List,
+            ValueType::HashOf(_, _) => ValueType::HashMap,
+            other => *other,
         }
     }
 
@@ -198,6 +218,8 @@ impl ValueType {
             Self::FlatVector => "flat-vector",
             Self::Procedure => "procedure",
             Self::Custom(name) => name.name(),
+            Self::ListOf(_) => "list",
+            Self::HashOf(_, _) => "hashmap",
         }
     }
 }
@@ -514,6 +536,8 @@ impl TypeSet {
             ValueType::FlatVector => Self::OTHER,
             ValueType::Procedure => Self::PROCEDURE,
             ValueType::Custom(name) => Self::custom(name.name()),
+            ValueType::ListOf(_) => Self::LIST,
+            ValueType::HashOf(_, _) => Self::HASHMAP,
         }
     }
 

@@ -1336,6 +1336,16 @@ pub fn procedurep(value: &SteelVal) -> bool {
             | SteelVal::BuiltIn(_)
     )
 }
+/// The name of a host value's type, which is what `(custom "...")` in a
+/// signature refers to, or `#false` for any other value.
+#[steel_derive::function(name = "#%custom-type-name", args(Any), raises = Never)]
+pub fn custom_type_name(value: &SteelVal) -> SteelVal {
+    match value {
+        SteelVal::Custom(custom) => SteelVal::StringV(custom.read().name().into()),
+        _ => SteelVal::BoolV(false),
+    }
+}
+
 fn identity_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/identity");
     module
@@ -1345,6 +1355,7 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::FLOATP_DEFINITION)
         .register_native_fn_definition(numbers::INTEGERP_DEFINITION)
         .register_native_fn_definition(numbers::INTP_DEFINITION)
+        .register_native_fn_definition(numbers::FIXNUMP_DEFINITION)
         .register_native_fn_definition(numbers::NUMBERP_DEFINITION)
         .register_native_fn_definition(numbers::RATIONALP_DEFINITION)
         .register_native_fn_definition(numbers::REALP_DEFINITION)
@@ -1371,7 +1382,8 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(FUNCTIONP_DEFINITION)
         .register_native_fn_definition(IS_FUNCTION_POINTER_DEFINITION)
         .register_native_fn_definition(PROCEDUREP_DEFINITION)
-        .register_native_fn_definition(ATOMP_DEFINITION);
+        .register_native_fn_definition(ATOMP_DEFINITION)
+        .register_native_fn_definition(CUSTOM_TYPE_NAME_DEFINITION);
     module
 }
 
@@ -2811,6 +2823,10 @@ fn meta_module() -> BuiltInModule {
         .register_fn("function-arity", arity)
         .register_fn("arity-object->list", arity_to_list)
         .register_fn("function-name", lookup_function_name)
+        .register_fn(
+            "function-signature",
+            super::host_signature::signature_clauses,
+        )
         .register_fn("#%native-fn-ptr-doc", lookup_doc)
         .register_fn("#%native-fn-ptr-doc->string", lookup_doc_value)
         .register_fn("multi-arity?", is_multi_arity)

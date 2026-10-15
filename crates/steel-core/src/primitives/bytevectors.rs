@@ -390,7 +390,7 @@ pub fn bytes_clear(value: &mut SteelByteVector) -> Result<SteelVal> {
 /// ```
 #[function(
     name = "bytes->list",
-    returns = List,
+    returns = ListOf(Int),
     args(ByteVector),
     raises = BadArgs
 )]

@@ -67,11 +67,22 @@ impl Ty {
     }
 
     pub fn from_value_type(ty: crate::value_type::ValueType) -> Ty {
-        Ty::kinds(TypeSet::from_value_type(ty))
+        use crate::value_type::ValueType;
+        match ty {
+            ValueType::ListOf(elements) => Ty::list_of(TypeSet::from_arg_type(elements)),
+            ValueType::HashOf(keys, values) => Ty::holding(
+                TypeSet::HASHMAP,
+                TypeSet::from_arg_type(values),
+                TypeSet::from_arg_type(keys),
+            ),
+            ty => Ty::kinds(TypeSet::from_value_type(ty)),
+        }
     }
 
     pub fn from_arg_type(ty: crate::value_type::ArgType) -> Ty {
-        Ty::kinds(TypeSet::from_arg_type(ty))
+        ty.0.iter().fold(Ty::BOTTOM, |union, ty| {
+            union.union(Ty::from_value_type(*ty))
+        })
     }
 
     /// `elements` and `keys` only describe container kinds that are there.

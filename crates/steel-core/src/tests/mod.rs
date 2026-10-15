@@ -14,6 +14,7 @@ mod engines_side_by_side;
 mod history;
 mod local_macros;
 mod malformed_bindings;
+mod module_contracts;
 #[cfg(feature = "sync")]
 mod serialization;
 
@@ -217,6 +218,9 @@ test_harness_success! {
     serialization_across_threads,
     parameterize_per_thread,
     closure_captures_only_what_it_uses,
+    contract_signatures,
+    dotted_ellipsis_patterns,
+    jit_type_test_narrowing,
     serialization_deep_values,
     identity_and_equality,
     immutable_structs,
@@ -383,6 +387,9 @@ test_harness_success_module! {
     serialization_across_threads,
     parameterize_per_thread,
     closure_captures_only_what_it_uses,
+    contract_signatures,
+    dotted_ellipsis_patterns,
+    jit_type_test_narrowing,
     serialization_deep_values,
     identity_and_equality,
     immutable_structs,

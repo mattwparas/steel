@@ -76,6 +76,7 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(LIST_TO_STRING_DEFINITION)
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
         .register_native_fn_definition(PAIR_DEFINITION)
+        .register_native_fn_definition(IMPROPER_PAIR_DEFINITION)
         .register_native_fn_definition(APPLY_DEFINITION)
         .register_native_fn_definition(SECOND_DEFINITION)
         .register_native_fn_definition(THIRD_DEFINITION)
@@ -478,6 +479,23 @@ pub fn pair(list: &SteelVal) -> bool {
         SteelVal::Pair(_) => true,
         _ => false,
     }
+}
+
+/// Checks if the given value is a pair that is not a proper list, the result
+/// of `cons` onto something other than a list.
+///
+/// (improper-pair? any/c) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (improper-pair? (cons 1 2)) ;; => #true
+/// > (improper-pair? '(1 2)) ;; => #false
+/// > (improper-pair? '()) ;; => #false
+/// ```
+#[steel_derive::function(name = "improper-pair?", constant = true, args(Any), raises = Never)]
+pub fn improper_pair(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::Pair(_))
 }
 
 /// Returns a newly allocated list whose first element is `a` and second element is `d`.
@@ -1251,7 +1269,8 @@ pub fn list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
     name = "list->string",
     constant = true,
     returns = String,
-    args(List)
+    args(ListOf(Char)),
+    raises = BadArgs
 )]
 fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
     list.iter()

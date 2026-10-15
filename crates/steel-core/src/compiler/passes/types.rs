@@ -192,6 +192,8 @@ fn predicate(name: &str) -> Option<(Ty, Ty)> {
         "int?" | "integer?" | "rational?" => (T::NUMBER, T::INT),
         "exact-integer?" => (T::INT.union(T::OTHER_NUMBER), T::INT),
         "float?" => (T::FLOAT, T::FLOAT),
+        "fixnum?" => (T::INT, T::INT),
+        "improper-pair?" => (T::PAIR, T::PAIR),
         "function?" => (T::PROCEDURE, T::PROCEDURE),
         // A struct with a procedure property is callable.
         "procedure?" => (T::PROCEDURE.union(T::OTHER).union(T::STRUCTS), T::PROCEDURE),

@@ -139,11 +139,7 @@ pub struct ByteCodeLambda {
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
 
     // This is a little suspicious, but it should give us the necessary information to attach a struct of metadata
-    #[cfg(feature = "sync")]
-    contract: SharedMut<Option<StructRef>>,
-
-    #[cfg(not(feature = "sync"))]
-    contract: MutContainer<Option<StructRef>>,
+    contract: ContractSlot,
 
     /// The compiled entry point, or null when not compiled.
     #[cfg(feature = "jit2")]
@@ -151,6 +147,55 @@ pub struct ByteCodeLambda {
 
     #[cfg(feature = "jit2")]
     pub(crate) tier2: Option<JitFnPointer>,
+}
+
+/// The contract attached to a closure. Most closures have none, so the cell
+/// holding it is only allocated when one is attached. A copy starts with the
+/// same contract.
+#[derive(Default)]
+struct ContractSlot(once_cell::race::OnceBox<MutContainer<Option<StructRef>>>);
+
+impl ContractSlot {
+    fn get(&self) -> Option<StructRef> {
+        let cell = self.0.get()?;
+
+        #[cfg(feature = "sync")]
+        return cell.read().clone();
+
+        #[cfg(not(feature = "sync"))]
+        return cell.borrow().clone();
+    }
+
+    fn set(&self, steel_struct: StructRef) {
+        let cell = self.0.get_or_init(|| Box::new(MutContainer::new(None)));
+
+        #[cfg(feature = "sync")]
+        {
+            *cell.write() = Some(steel_struct);
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            *cell.borrow_mut() = Some(steel_struct);
+        }
+    }
+}
+
+impl Clone for ContractSlot {
+    fn clone(&self) -> Self {
+        match self.get() {
+            Some(contract) => Self(once_cell::race::OnceBox::with_value(Box::new(
+                MutContainer::new(Some(contract)),
+            ))),
+            None => Self::default(),
+        }
+    }
+}
+
+impl std::fmt::Debug for ContractSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.get().fmt(f)
+    }
 }
 
 /// A lambda's compiled entry point, null until compiled.
@@ -211,10 +256,7 @@ impl Default for ByteCodeLambda {
             is_multi_arity: false,
             header: None,
             body_exp: Vec::new().into(),
-            #[cfg(feature = "sync")]
-            contract: SharedMut::new(MutContainer::new(None)),
-            #[cfg(not(feature = "sync"))]
-            contract: MutContainer::new(None),
+            contract: ContractSlot::default(),
             captures: Default::default(),
             #[cfg(feature = "jit2")]
             super_instructions: JitEntry::new(None),
@@ -536,11 +578,7 @@ impl ByteCodeLambda {
             is_multi_arity,
             captures,
 
-            #[cfg(feature = "sync")]
-            contract: SharedMut::new(MutContainer::new(None)),
-
-            #[cfg(not(feature = "sync"))]
-            contract: MutContainer::new(None),
+            contract: ContractSlot::default(),
 
             #[cfg(feature = "dynamic")]
             blocks: RefCell::new(Vec::new()),
@@ -563,6 +601,7 @@ impl ByteCodeLambda {
             header: proto.header,
             body_exp: proto.body_exp.clone(),
             captures,
+            // Each closure has its own contract, starting from the prototype's
             contract: proto.contract.clone(),
             #[cfg(feature = "jit2")]
             super_instructions: {
@@ -796,37 +835,11 @@ impl ByteCodeLambda {
     // }
 
     pub fn attach_contract_information(&self, steel_struct: StructRef) {
-        #[cfg(feature = "sync")]
-        {
-            let mut guard = self.contract.write();
-
-            *guard = Some(steel_struct);
-        }
-
-        #[cfg(not(feature = "sync"))]
-        {
-            let mut guard = self.contract.borrow_mut();
-
-            *guard = Some(steel_struct);
-        }
+        self.contract.set(steel_struct);
     }
 
     pub fn get_contract_information(&self) -> Option<SteelVal> {
-        #[cfg(feature = "sync")]
-        {
-            self.contract
-                .read()
-                .as_ref()
-                .map(|x| SteelVal::CustomStruct(x.clone()))
-        }
-
-        #[cfg(not(feature = "sync"))]
-        {
-            self.contract
-                .borrow()
-                .as_ref()
-                .map(|x| SteelVal::CustomStruct(x.clone()))
-        }
+        self.contract.get().map(SteelVal::CustomStruct)
     }
 
     // pub fn mark_hot(&self) {

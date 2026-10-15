@@ -123,6 +123,24 @@ fn intp(value: &SteelVal) -> bool {
     }
 }
 
+/// Checks if the given value is a fixnum, an integer small enough to be stored
+/// without allocating. Bignums and integral floats are not fixnums.
+///
+/// (fixnum? value) -> boolean?
+///
+/// * value : any - The value to check
+///
+/// # Examples
+/// ```scheme
+/// > (fixnum? 42) ;; => #t
+/// > (fixnum? (expt 2 70)) ;; => #f
+/// > (fixnum? 1.0) ;; => #f
+/// ```
+#[steel_derive::function(name = "fixnum?", constant = true, args(Any), raises = Never)]
+pub fn fixnump(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::IntV(_))
+}
+
 /// Checks if the given value is an integer, an alias for `int?`
 ///
 /// (integer? value) -> boolean?
@@ -175,7 +193,7 @@ fn exact_integerp(value: &SteelVal) -> bool {
 /// > (float? #t) ;; => #f
 /// ```
 #[steel_derive::function(name = "float?", constant = true, args(Any), raises = Never)]
-fn floatp(value: &SteelVal) -> bool {
+pub fn floatp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::NumV(_))
 }
 

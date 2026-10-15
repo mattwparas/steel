@@ -306,6 +306,67 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             .arity(1)
             .result(InferredType::UnboxedBool),
             inline(
+                "fixnum?",
+                crate::primitives::numbers::steel_fixnump as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::INT_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "float?",
+                crate::primitives::numbers::steel_floatp as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::FLOAT_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "number?",
+                crate::primitives::numbers::steel_numberp as *const (),
+                returns(|t, _| {
+                    Some(t.tag_predicate(
+                        &[
+                            SteelVal::INT_TAG,
+                            SteelVal::FLOAT_TAG,
+                            SteelVal::RATIO_TAG,
+                            SteelVal::BIG_NUM_TAG,
+                            SteelVal::BIG_RATIONAL_TAG,
+                            SteelVal::COMPLEX_TAG,
+                        ],
+                        false,
+                    ))
+                }),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "char?",
+                crate::steel_vm::primitives::steel_charp as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::CHAR_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "boolean?",
+                crate::steel_vm::primitives::steel_booleanp as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::BOOL_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "bool?",
+                crate::steel_vm::primitives::steel_boolp as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::BOOL_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "improper-pair?",
+                crate::primitives::lists::steel_improper_pair as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::PAIR_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
                 "integer?",
                 crate::primitives::numbers::steel_integerp as *const (),
                 returns(|t, _| {

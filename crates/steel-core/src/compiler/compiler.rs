@@ -1367,6 +1367,10 @@ impl Compiler {
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
+        if super::passes::contracts::specialize_flat_contracts(semantic.exprs, self.modules()) {
+            semantic.refresh_variables();
+        }
+
         // Inline across module boundaries
         if crate::config::config().module_inline {
             semantic.inline_idents_across_module_boundaries(self.modules())?;

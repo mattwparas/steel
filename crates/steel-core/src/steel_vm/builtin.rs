@@ -420,6 +420,8 @@ pub(crate) fn generate_function(
 
     let lambda = Gc::new(lambda);
 
+    super::host_signature::note_context_wrapper(lambda.id, f);
+
     // Now we generate a new closure, update the values
     // in the map to have that thing.
 

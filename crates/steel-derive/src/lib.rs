@@ -607,21 +607,30 @@ pub fn derive_steel_internal(input: TokenStream) -> TokenStream {
 /// `args` has one type per argument, a union joined with `|`, and the type of
 /// every argument past those as `rest = T`. The types are
 /// `crate::value_type::ValueType` variants, and `raises` is a
-/// `crate::value_type::Raises` variant.
+/// `crate::value_type::Raises` variant. A list or hash map can say what it
+/// holds, as in `ListOf(Int)` or `HashOf(String, Int | Float)`.
 struct Attrs {
     /// `name`, `alias`, `constant` (`"true"` / `"false"`) and `arity`, as text
     /// (`"AtLeast(1)"`).
     strings: HashMap<String, String>,
     args: Option<ArgsAttr>,
     raises: Option<Ident>,
-    returns: Option<Ident>,
+    returns: Option<TypeAttr>,
 }
 
 /// `args(T, T | U, rest = T)`: each argument's type, a union of
 /// `ValueType` variants.
 struct ArgsAttr {
-    fixed: Vec<Vec<Ident>>,
-    rest: Option<Vec<Ident>>,
+    fixed: Vec<Vec<TypeAttr>>,
+    rest: Option<Vec<TypeAttr>>,
+}
+
+/// One `ValueType` as written: a variant, or a container with the types of
+/// what it holds.
+enum TypeAttr {
+    Variant(Ident),
+    ListOf(Ident, Vec<TypeAttr>),
+    HashOf(Ident, Vec<TypeAttr>, Vec<TypeAttr>),
 }
 
 impl Attrs {
@@ -694,22 +703,26 @@ fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> Attrs {
                             .collect();
                         attrs.strings.insert(key, text);
                     }
-                    "raises" | "returns" => {
+                    "raises" => {
                         let ident = match value {
                             Expr::Path(path) => path.path.get_ident().cloned(),
                             _ => None,
                         }
                         .unwrap_or_else(|| {
                             panic!(
-                                "`{key}` is a single variant without quotes, as in `{key} = {}`",
-                                if key == "raises" { "BadArgs" } else { "List" }
+                                "`raises` is a single variant without quotes, as in `raises = BadArgs`"
                             )
                         });
-                        if key == "raises" {
-                            attrs.raises = Some(ident);
-                        } else {
-                            attrs.returns = Some(ident);
+                        attrs.raises = Some(ident);
+                    }
+                    "returns" => {
+                        let mut members = union_members(value);
+                        if members.len() != 1 {
+                            panic!(
+                                "`returns` is a single type, as in `returns = List`, not a union"
+                            );
                         }
+                        attrs.returns = members.pop();
                     }
                     "args" => panic!(
                         "`args` is written as a list, as in `args(List | Pair, Int, rest = Any)`"
@@ -750,20 +763,43 @@ fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> Attrs {
     attrs
 }
 
-/// The variants of one argument's type: `Int`, or a union `List | Pair`.
-fn union_members(expr: &Expr) -> Vec<Ident> {
+/// The members of one argument's type: `Int`, a union `List | Pair`, or a
+/// container like `ListOf(Int)`.
+fn union_members(expr: &Expr) -> Vec<TypeAttr> {
     match expr {
-        Expr::Path(path) => vec![path
-            .path
-            .get_ident()
-            .cloned()
-            .unwrap_or_else(|| panic!("an argument type is a `ValueType` variant, like `List`"))],
+        Expr::Path(path) => vec![TypeAttr::Variant(
+            path.path.get_ident().cloned().unwrap_or_else(|| {
+                panic!("an argument type is a `ValueType` variant, like `List`")
+            }),
+        )],
+        Expr::Call(call) => {
+            let container = match &*call.func {
+                Expr::Path(path) => path.path.get_ident().cloned(),
+                _ => None,
+            };
+            let mut parts = call.args.iter().map(union_members);
+            match (container, call.args.len()) {
+                (Some(name), 1) if name == "ListOf" => {
+                    vec![TypeAttr::ListOf(name, parts.next().unwrap())]
+                }
+                (Some(name), 2) if name == "HashOf" => {
+                    let keys = parts.next().unwrap();
+                    let values = parts.next().unwrap();
+                    vec![TypeAttr::HashOf(name, keys, values)]
+                }
+                _ => panic!(
+                    "unexpected container type `{}`: write `ListOf(T)` or `HashOf(K, V)`",
+                    quote! { #call }
+                ),
+            }
+        }
         Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => {
             let mut members = union_members(&binary.left);
             members.extend(union_members(&binary.right));
             members
         }
         Expr::Group(group) => union_members(&group.expr),
+        Expr::Paren(paren) => union_members(&paren.expr),
         other => panic!(
             "unexpected argument type `{}`: write a `ValueType` variant or a union like `List | Pair`",
             quote! { #other }
@@ -773,8 +809,25 @@ fn union_members(expr: &Expr) -> Vec<Ident> {
 
 /// `ArgType(&[ValueType::List, ValueType::Pair])`, keeping the spans of the
 /// names as written so rustc reports a misspelled one there.
-fn arg_type_union_tokens(members: &[Ident]) -> proc_macro2::TokenStream {
-    quote! { crate::value_type::ArgType(&[#(crate::value_type::ValueType::#members),*]) }
+fn arg_type_union_tokens(members: &[TypeAttr]) -> proc_macro2::TokenStream {
+    let members = members.iter().map(value_type_tokens);
+    quote! { crate::value_type::ArgType(&[#(#members),*]) }
+}
+
+/// The `ValueType` expression for one type.
+fn value_type_tokens(ty: &TypeAttr) -> proc_macro2::TokenStream {
+    match ty {
+        TypeAttr::Variant(variant) => quote! { crate::value_type::ValueType::#variant },
+        TypeAttr::ListOf(name, elements) => {
+            let elements = arg_type_union_tokens(elements);
+            quote! { crate::value_type::ValueType::#name(#elements) }
+        }
+        TypeAttr::HashOf(name, keys, values) => {
+            let keys = arg_type_union_tokens(keys);
+            let values = arg_type_union_tokens(values);
+            quote! { crate::value_type::ValueType::#name(#keys, #values) }
+        }
+    }
 }
 
 fn parse_doc_comment(input: ItemFn) -> Option<proc_macro2::TokenStream> {
@@ -1020,14 +1073,16 @@ fn return_type_tokens(
     keyword_map: &Attrs,
     output: Option<&ReturnType>,
 ) -> proc_macro2::TokenStream {
-    let variant = match &keyword_map.returns {
-        Some(explicit) => explicit.clone(),
-        None => Ident::new(
-            output.map(rust_return_type_name).unwrap_or("Any"),
-            proc_macro2::Span::call_site(),
-        ),
-    };
-    quote! { crate::value_type::ValueType::#variant }
+    match &keyword_map.returns {
+        Some(explicit) => value_type_tokens(explicit),
+        None => {
+            let variant = Ident::new(
+                output.map(rust_return_type_name).unwrap_or("Any"),
+                proc_macro2::Span::call_site(),
+            );
+            quote! { crate::value_type::ValueType::#variant }
+        }
+    }
 }
 
 /// How many arguments a function always takes, and whether it can take more.

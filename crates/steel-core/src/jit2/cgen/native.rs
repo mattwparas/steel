@@ -1319,12 +1319,12 @@ impl<'a> FunctionTranslator<'a> {
     /// `tags`, or, with `integral_float`, is a float with no fractional part, as
     /// `integer?` counts those. An unboxed bool.
     pub(super) fn tag_predicate(&mut self, tags: &[u8], integral_float: bool) -> Value {
-        let (value, owned) = match self.shadow_stack.last().copied() {
+        let (value, owned, register) = match self.shadow_stack.last().copied() {
             Some(MaybeStackValue::Register(r) | MaybeStackValue::MutRegister(r)) => {
                 self.shadow_stack.pop();
-                (self.read_from_vm_stack(r), false)
+                (self.read_from_vm_stack(r), false, Some(r))
             }
-            _ => (self.pop_boxed(), true),
+            _ => (self.pop_boxed(), true, None),
         };
 
         let mut hit = self.builder.ins().iconst(types::I8, 0);
@@ -1347,6 +1347,22 @@ impl<'a> FunctionTranslator<'a> {
 
         if owned {
             self.drop_tagged_value(value);
+        }
+
+        // So that the arm where it holds knows the register's type.
+        let typ = match tags {
+            _ if integral_float => None,
+            [tag] if *tag == SteelVal::INT_TAG => Some(InferredType::Int),
+            [tag] if *tag == SteelVal::FLOAT_TAG => Some(InferredType::Float),
+            [tag] if *tag == SteelVal::CHAR_TAG => Some(InferredType::Char),
+            [tag] if *tag == SteelVal::BOOL_TAG => Some(InferredType::Bool),
+            _ => None,
+        };
+        if let (Some(r), Some(typ)) = (register, typ) {
+            self.properties.add_property(
+                ValueOrRegister::Value(hit),
+                Properties::CheckedType(ValueOrRegister::Register(r), typ),
+            );
         }
         hit
     }

@@ -1236,7 +1236,18 @@ fn collect_bindings(
 ) -> Result<()> {
     let mut expr_iter = list.iter().enumerate();
 
-    let expected_many_captures = list.len() + 1 - patterns.len();
+    // The same count `match_list_pattern` matched with: the rest pattern only
+    // takes the improper tail, and the ellipsis everything before it
+    let fixed_patterns = match patterns.last() {
+        Some(MacroPattern::Rest(_)) => patterns.len() - 1,
+        _ => patterns.len(),
+    };
+    let proper_len = if improper {
+        list.len().saturating_sub(1)
+    } else {
+        list.len()
+    };
+    let expected_many_captures = (proper_len + 1).saturating_sub(fixed_patterns);
 
     for pattern in patterns {
         match pattern {

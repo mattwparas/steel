@@ -3399,7 +3399,7 @@ impl InferredType {
     /// A value of `ty`, held the ordinary way (boxed, tagged).
     pub(crate) fn from_value_type(ty: crate::value_type::ValueType) -> Self {
         use crate::value_type::ValueType;
-        match ty {
+        match ty.kind() {
             ValueType::Any => InferredType::Any,
             ValueType::Bool => InferredType::Bool,
             ValueType::Int => InferredType::Int,
@@ -3419,7 +3419,9 @@ impl InferredType {
             | ValueType::ByteVector
             | ValueType::FlatVector
             | ValueType::Procedure
-            | ValueType::Custom(_) => InferredType::Any,
+            | ValueType::Custom(_)
+            | ValueType::ListOf(_)
+            | ValueType::HashOf(_, _) => InferredType::Any,
         }
     }
 
@@ -3967,6 +3969,15 @@ impl PropertyMap {
                         }
                         break;
                     }
+                    Properties::CheckedType(value_or_register, typ) => {
+                        let (register, typ) = (*value_or_register, *typ);
+                        if branch {
+                            let facts = self.props.entry(register).or_default();
+                            facts.retain(|f| !matches!(f, Properties::InferredType(_)));
+                            facts.push(Properties::InferredType(typ));
+                        }
+                        break;
+                    }
                     Properties::ConditionLessThan(value_or_register, integer) => {
                         if branch {
                             self.add_property(*value_or_register, Properties::LessThan(*integer));
@@ -4016,6 +4027,8 @@ enum Properties {
     CheckedNull(ValueOrRegister),
     // `(not (null? x))`, the same test with its arms swapped.
     CheckedNotNull(ValueOrRegister),
+    // A tag check like `fixnum?`. Where it holds, the register has the type.
+    CheckedType(ValueOrRegister, InferredType),
 
     ProperList,
 
@@ -12549,7 +12562,75 @@ impl FunctionTranslator<'_> {
         // since we've truncated the stack back by that much.
         self.properties.cached_lookups.stack_length_capacity += amt;
 
-        self.truncate_stack(vm_ctx, rollback_index, Some(count as _));
+        self.truncate_let_slots(vm_ctx, rollback_index, amt, count);
+    }
+
+    /// Truncates the stack to `index`, releasing the `count` let slots from
+    /// register `first` on. Slots known to hold an immediate are skipped, and
+    /// the rest have their tags checked inline, so a scope whose values are
+    /// all immediates releases nothing. Otherwise the loop in
+    /// `truncate_stack` runs, in a cold block.
+    fn truncate_let_slots(&mut self, vm_ctx: Value, index: Value, first: usize, count: usize) {
+        let thread_pointer = self.get_thread_pointer(vm_ctx);
+        let stack_offset = offset_of!(SteelThread, stack);
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        self.builder.ins().store(
+            MemFlagsData::trusted(),
+            index,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let unknown: Vec<usize> = (0..count)
+            .filter(|i| !self.register_is_immediate(first + i))
+            .collect();
+        if unknown.is_empty() {
+            return;
+        }
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlagsData::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+        let byte_offset = self
+            .builder
+            .ins()
+            .imul_imm_s(index, size_of::<SteelVal>() as i64);
+        let base = self.builder.ins().iadd(buf_ptr, byte_offset);
+
+        let mask = self.i64_const(SteelVal::UNBOXED_MASK as i64);
+        let mut all_unboxed = self.builder.ins().iconst(types::I64, 1);
+        for i in unknown {
+            let tag = self.builder.ins().uload8(
+                types::I64,
+                MemFlagsData::trusted(),
+                base,
+                (i * size_of::<SteelVal>()) as i32,
+            );
+            let shifted = self.builder.ins().ushr(mask, tag);
+            all_unboxed = self.builder.ins().band(all_unboxed, shifted);
+        }
+        let all_unboxed = self.builder.ins().band_imm_u(all_unboxed, 1);
+
+        let release = self.builder.create_block();
+        let done = self.builder.create_block();
+        self.builder.set_cold_block(release);
+        self.builder
+            .ins()
+            .brif(all_unboxed, done, &[], release, &[]);
+
+        self.builder.switch_to_block(release);
+        self.builder.seal_block(release);
+        let count = self.i64_const(count as i64);
+        self.drop_stack_slots(buf_ptr, index, count);
+        self.builder.ins().jump(done, &[]);
+
+        self.builder.switch_to_block(done);
+        self.builder.seal_block(done);
     }
 
     fn truncate_stack_with_args(&mut self, vm_ctx: Value, index: Value, args: &[Value]) {
@@ -12804,51 +12885,54 @@ impl FunctionTranslator<'_> {
         let count = count
             .map(|count| self.i64_const(count as i64))
             .unwrap_or_else(|| self.builder.ins().isub(stack_length, index));
-        {
-            let loop_header = self.builder.create_block();
-            let loop_body = self.builder.create_block();
-            let loop_exit = self.builder.create_block();
+        self.drop_stack_slots(buf_ptr, index, count);
+    }
 
-            self.builder.append_block_param(loop_header, types::I64);
+    /// Releases the `count` values on the stack from `index` on.
+    fn drop_stack_slots(&mut self, buf_ptr: Value, index: Value, count: Value) {
+        let loop_header = self.builder.create_block();
+        let loop_body = self.builder.create_block();
+        let loop_exit = self.builder.create_block();
 
-            let zero = BlockArg::Value(self.i64_const(0));
-            self.builder.ins().jump(loop_header, &[zero]);
+        self.builder.append_block_param(loop_header, types::I64);
 
-            self.builder.switch_to_block(loop_header);
-            let i = self.builder.block_params(loop_header)[0];
+        let zero = BlockArg::Value(self.i64_const(0));
+        self.builder.ins().jump(loop_header, &[zero]);
 
-            let done = self
-                .builder
-                .ins()
-                .icmp(IntCC::SignedGreaterThanOrEqual, i, count);
-            self.builder
-                .ins()
-                .brif(done, loop_exit, &[], loop_body, &[]);
+        self.builder.switch_to_block(loop_header);
+        let i = self.builder.block_params(loop_header)[0];
 
-            self.builder.switch_to_block(loop_body);
-            self.builder.seal_block(loop_body);
+        let done = self
+            .builder
+            .ins()
+            .icmp(IntCC::SignedGreaterThanOrEqual, i, count);
+        self.builder
+            .ins()
+            .brif(done, loop_exit, &[], loop_body, &[]);
 
-            let slot_index = self.builder.ins().iadd(index, i);
-            let byte_offset = self
-                .builder
-                .ins()
-                .imul_imm_s(slot_index, size_of::<SteelVal>() as i64);
-            let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
-            let val = self
-                .builder
-                .ins()
-                .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
+        self.builder.switch_to_block(loop_body);
+        self.builder.seal_block(loop_body);
 
-            self.drop_tagged_value(val);
+        let slot_index = self.builder.ins().iadd(index, i);
+        let byte_offset = self
+            .builder
+            .ins()
+            .imul_imm_s(slot_index, size_of::<SteelVal>() as i64);
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
+        let val = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlagsData::trusted(), slot_ptr, 0);
 
-            let i_next = BlockArg::Value(self.builder.ins().iadd_imm_s(i, 1));
-            self.builder.ins().jump(loop_header, &[i_next]);
+        self.drop_tagged_value(val);
 
-            self.builder.seal_block(loop_header);
+        let i_next = BlockArg::Value(self.builder.ins().iadd_imm_s(i, 1));
+        self.builder.ins().jump(loop_header, &[i_next]);
 
-            self.builder.switch_to_block(loop_exit);
-            self.builder.seal_block(loop_exit);
-        }
+        self.builder.seal_block(loop_header);
+
+        self.builder.switch_to_block(loop_exit);
+        self.builder.seal_block(loop_exit);
     }
 
     fn invalidate_buf_ptr(&mut self) {

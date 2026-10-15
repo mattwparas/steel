@@ -792,7 +792,7 @@ pub fn string_to_int(value: &SteelString) -> Result<SteelVal> {
 /// > (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
 /// > (string->list "one two three" 4 7) ;; => '(#\t #\w #\o)
 /// ```
-#[function(name = "string->list", returns = List, args(String, rest = Int))]
+#[function(name = "string->list", returns = ListOf(Char), args(String, rest = Int))]
 pub fn string_to_list(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
     let i = rest.next().transpose()?;
     let j = rest.next().transpose()?;
@@ -960,7 +960,7 @@ pub fn trim_start_matches(value: &SteelString, pat: &SteelString) -> String {
 /// ```
 #[function(
     name = "split-whitespace",
-    returns = List,
+    returns = ListOf(String),
     args(String),
     raises = BadArgs
 )]
@@ -1009,7 +1009,7 @@ pub fn split_once(value: &SteelString, pat: &SteelString) -> SteelVal {
 /// ```
 #[function(
     name = "split-many",
-    returns = List,
+    returns = ListOf(String),
     args(String, String),
     raises = BadArgs
 )]
@@ -1657,7 +1657,11 @@ fn char_to_number(c: char) -> Option<u32> {
 /// (string-join '("a" "b" "c")) ;; => "abc"
 /// (string-join '("one" "two" "three") ", ") ;; => "one, two, three"
 /// ```
-#[function(name = "string-join", returns = String, args(List, rest = String))]
+#[function(
+    name = "string-join",
+    returns = String,
+    args(ListOf(String), rest = String)
+)]
 fn string_join(
     strings: SteelList<SteelVal>,
     mut rest: RestArgsIter<'_, &SteelString>,

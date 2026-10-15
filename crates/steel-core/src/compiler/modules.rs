@@ -131,7 +131,8 @@ declare_builtins!(
     "#%private/steel/stdlib" => "../scheme/stdlib.scm",
     "#%private/steel/match" => "../scheme/modules/match.scm",
     "#%private/steel/sort" => "../scheme/modules/sort.scm",
-    "steel/serde" => "../scheme/modules/serde.scm"
+    "steel/serde" => "../scheme/modules/serde.scm",
+    "steel/signatures" => "../scheme/modules/signatures.scm"
 );
 
 create_prelude!(

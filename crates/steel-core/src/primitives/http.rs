@@ -131,7 +131,10 @@ pub fn body_offset(value: &SteelVal) -> Result<SteelVal> {
 /// (http-request-headers request) -> hash?
 ///
 /// * request : http-request?
-#[steel_derive::function(name = "http-request-headers", returns = HashMap)]
+#[steel_derive::function(
+    name = "http-request-headers",
+    returns = HashOf(String, ByteVector)
+)]
 pub fn headers(value: &SteelVal) -> Result<SteelVal> {
     let req = SteelRequest::as_ref(value)?;
 
@@ -154,7 +157,10 @@ pub fn headers(value: &SteelVal) -> Result<SteelVal> {
 /// (http-response-headers response) -> hash?
 ///
 /// * response : http-response?
-#[steel_derive::function(name = "http-response-headers", returns = HashMap)]
+#[steel_derive::function(
+    name = "http-response-headers",
+    returns = HashOf(String, ByteVector)
+)]
 pub fn resp_headers(value: &SteelVal) -> Result<SteelVal> {
     let resp = SteelResponse::as_ref(value)?;
 

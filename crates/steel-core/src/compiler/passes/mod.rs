@@ -1,5 +1,6 @@
 pub mod analysis;
 pub mod begin;
+pub mod contracts;
 pub mod flat_vector;
 pub mod hygiene;
 pub mod manager;
