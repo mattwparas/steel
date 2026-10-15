@@ -1,5 +1,6 @@
 use crate::rvals::{Result, SteelVal};
 use crate::steel_vm::builtin::{get_function_metadata, BuiltInFunctionType, BuiltInModule};
+use crate::steel_vm::vm::VmCore;
 use crate::value_type::{ArgType, ArgTypes, CustomTypeName, Raises, ValueType};
 use crate::values::functions::{BoxedDynFunction, HostSignature};
 use crate::SteelErr;
@@ -148,6 +149,11 @@ pub fn declared(value: &SteelVal) -> Option<HostSignature> {
         return_type: metadata.return_type,
         raises: metadata.raises,
     })
+}
+
+#[steel_derive::context(name = "function-signature", arity = Exact(1), args(Any), raises = Never)]
+pub fn function_signature(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(Ok(ctx.intern_symbols(signature_clauses(args[0].clone()))))
 }
 
 /// What a native or host function declares about its arguments, result and

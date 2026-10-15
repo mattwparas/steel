@@ -39,7 +39,11 @@ pub fn transducer_module() -> BuiltInModule {
         .register_value("into-nth", crate::values::transducers::NTH)
         .register_value("into-reducer", crate::values::transducers::REDUCER)
         .register_native_fn_definition(TRANSDUCERS_FUNC_DEFINITION)
-        .register_native_fn_definition(REDUCER_TO_INT_DEFINITION);
+        .register_native_fn_definition(REDUCER_TO_INT_DEFINITION)
+        .register_native_fn_definition(TRANSDUCER_STAGES_DEFINITION)
+        .register_native_fn_definition(REDUCER_PARTS_DEFINITION)
+        .register_native_fn_definition(TRANSDUCE_ERROR_DEFINITION)
+        .register_native_fn_definition(TRANSDUCE_PLAN_DEFINITION);
 
     module
 }
@@ -169,6 +173,165 @@ pub fn transducers_func(arg: &SteelVal) -> Option<SteelVal> {
     None
 }
 
+/// The stages of a transducer in order, each a pair of its kind and what it
+/// was made with, or #f for anything that isn't a transducer. The kinds are
+/// numbers, since a symbol made here isn't `eq?` to the same symbol in a
+/// program: map 0, filter 1, take 2, drop 3, flat-map 4, flatten 5, extend 6,
+/// enumerate 7, zip 8, interleave 9, and 10 for the kinds nothing makes.
+#[steel_derive::function(name = "#%transducer-stages", args(Any), raises = Never)]
+pub fn transducer_stages(value: &SteelVal) -> SteelVal {
+    let SteelVal::IterV(transducer) = value else {
+        return SteelVal::BoolV(false);
+    };
+    let mut stages = Vec::new();
+    push_stages(transducer, &mut stages);
+    SteelVal::ListV(stages.into())
+}
+
+fn push_stages(transducer: &Transducer, stages: &mut Vec<SteelVal>) {
+    let stage = |kind: isize, argument: &SteelVal| {
+        SteelVal::Pair(Gc::new(crate::values::lists::Pair::cons(
+            SteelVal::IntV(kind),
+            argument.clone(),
+        )))
+    };
+    stages.extend(transducer.ops.iter().map(|op| match op {
+        Transducers::Map(f) => stage(0, f),
+        Transducers::Filter(f) => stage(1, f),
+        Transducers::Take(n) => stage(2, n),
+        Transducers::Drop(n) => stage(3, n),
+        Transducers::FlatMap(f) => stage(4, f),
+        Transducers::Flatten => stage(5, &SteelVal::Void),
+        Transducers::Extend(c) => stage(6, c),
+        Transducers::Enumerating => stage(7, &SteelVal::Void),
+        Transducers::Zipping(c) => stage(8, c),
+        Transducers::Interleaving(c) => stage(9, c),
+        Transducers::Window(_)
+        | Transducers::TakeWhile(_)
+        | Transducers::DropWhile(_)
+        | Transducers::Cycle
+        | Transducers::MapPair(_) => stage(10, &SteelVal::Void),
+    }));
+}
+
+/// A reducer as a list of its kind and what it was made with, or #f for
+/// anything that isn't a reducer. The kinds are numbers, as for
+/// `#%transducer-stages`: sum 0, product 1, max 2, min 3, count 4, nth 5,
+/// list 6, vector 7, hashmap 8, hashset 9, string 10, last 11, for-each 12,
+/// reducer 13.
+#[steel_derive::function(name = "#%reducer-parts", args(Any), raises = Never)]
+pub fn reducer_parts(value: &SteelVal) -> SteelVal {
+    use crate::values::transducers::Reducer;
+
+    let SteelVal::ReducerV(reducer) = value else {
+        return SteelVal::BoolV(false);
+    };
+    let parts = match reducer.as_ref() {
+        Reducer::Sum => vec![SteelVal::IntV(0)],
+        Reducer::Multiply => vec![SteelVal::IntV(1)],
+        Reducer::Max => vec![SteelVal::IntV(2)],
+        Reducer::Min => vec![SteelVal::IntV(3)],
+        Reducer::Count => vec![SteelVal::IntV(4)],
+        Reducer::Nth(n) => vec![SteelVal::IntV(5), SteelVal::IntV(*n as isize)],
+        Reducer::List => vec![SteelVal::IntV(6)],
+        Reducer::Vector => vec![SteelVal::IntV(7)],
+        Reducer::HashMap => vec![SteelVal::IntV(8)],
+        Reducer::HashSet => vec![SteelVal::IntV(9)],
+        Reducer::String => vec![SteelVal::IntV(10)],
+        Reducer::Last => vec![SteelVal::IntV(11)],
+        Reducer::ForEach(f) => vec![SteelVal::IntV(12), f.clone()],
+        Reducer::Generic(r) => vec![
+            SteelVal::IntV(13),
+            r.function.clone(),
+            r.initial_value.clone(),
+        ],
+    };
+    SteelVal::ListV(parts.into())
+}
+
+/// What `transduce` was given, checked as `transduce` checks it: the stages
+/// of all the transducers, last first, as `#%transducer-stages` gives them,
+/// paired with the reducer's parts, as `#%reducer-parts` gives them. Streams
+/// are scheme values, so the second argument says whether the collection is
+/// one.
+#[steel_derive::native(name = "#%transduce-plan", arity = Exact(2))]
+pub fn transduce_plan(args: &[SteelVal]) -> Result<SteelVal> {
+    let args_stream = &args[1];
+    let SteelVal::ListV(args) = &args[0] else {
+        stop!(TypeMismatch => "#%transduce-plan expects a list")
+    };
+    if args.len() < 2 {
+        stop!(ArityMismatch => format!("transduce expects at least 2 arguments, found: {}", args.len()))
+    }
+    let mut stages = Vec::new();
+    let mut transducers = args.iter().skip(1).take(args.len() - 2);
+    for value in &mut transducers {
+        match value {
+            SteelVal::IterV(transducer) => push_stages(transducer, &mut stages),
+            _ => stop!(TypeMismatch => format!("transduce expects a transducer, found: {value}")),
+        }
+    }
+    let reducer = args.iter().last().unwrap();
+    let parts = reducer_parts(reducer);
+    if let SteelVal::BoolV(false) = parts {
+        stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {reducer}"))
+    }
+    let collection = args.iter().next().unwrap();
+    if !matches!(
+        collection,
+        ListV(_) | VectorV(_) | MutableVector(_) | StringV(_) | HashSetV(_) | HashMapV(_)
+    ) && !matches!(args_stream, SteelVal::BoolV(true))
+    {
+        stop!(TypeMismatch => format!("value unable to be converted to an iterable: {collection}"))
+    }
+    for stage in &stages {
+        let SteelVal::Pair(stage) = stage else {
+            continue;
+        };
+        match (&stage.car, &stage.cdr) {
+            (IntV(2), IntV(n)) if *n < 0 => {
+                stop!(ContractViolation => format!("taking expects a non-negative integer, found: {n}"))
+            }
+            (IntV(3), IntV(n)) if *n < 0 => {
+                stop!(ContractViolation => format!("dropping expects a non-negative integer, found: {n}"))
+            }
+            _ => {}
+        }
+    }
+    stages.reverse();
+    Ok(SteelVal::Pair(Gc::new(crate::values::lists::Pair::cons(
+        SteelVal::ListV(stages.into()),
+        parts,
+    ))))
+}
+
+/// Raises the error `transduce` would: an error of `kind` (`type-mismatch`,
+/// `arity-mismatch`, `contract-violation` or `generic`) whose message is
+/// `message`, then `value` and `suffix` if given, with `value` shown as the
+/// rest of `transduce`'s messages show values.
+#[steel_derive::native(name = "#%transduce-error", arity = Range(2, 4))]
+pub fn transduce_error(args: &[SteelVal]) -> Result<SteelVal> {
+    use crate::rerrs::ErrorKind;
+
+    let kind = match &args[0] {
+        SteelVal::SymbolV(s) if s.as_str() == "type-mismatch" => ErrorKind::TypeMismatch,
+        SteelVal::SymbolV(s) if s.as_str() == "arity-mismatch" => ErrorKind::ArityMismatch,
+        SteelVal::SymbolV(s) if s.as_str() == "contract-violation" => ErrorKind::ContractViolation,
+        _ => ErrorKind::Generic,
+    };
+    let SteelVal::StringV(message) = &args[1] else {
+        stop!(TypeMismatch => "#%transduce-error expects a message")
+    };
+    let mut message = message.to_string();
+    if let Some(value) = args.get(2) {
+        message.push_str(&value.to_string());
+    }
+    if let Some(SteelVal::StringV(suffix)) = args.get(3) {
+        message.push_str(suffix);
+    }
+    Err(SteelErr::new(kind, message))
+}
+
 /// Compose multiple iterators into one iterator
 ///
 /// (compose . iters) -> iterator?
@@ -213,7 +376,7 @@ impl Iterator for FlattenOk<'_> {
 #[steel_derive::context(name = "transduce", arity = AtLeast(2))]
 pub fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() < 2 {
-        builtin_stop!(ArityMismatch => format!("transduce expects at least 2 arguments, found {}", args.len()); ctx.previous_span())
+        builtin_stop!(ArityMismatch => format!("transduce expects at least 2 arguments, found: {}", args.len()); ctx.previous_span())
     }
 
     let (reducer, args) = args.split_last().expect("already verified length above");
@@ -281,7 +444,8 @@ pub fn enumerating() -> Result<SteelVal> {
 #[steel_derive::function(name = "zipping")]
 pub fn zipping(iterable: &SteelVal) -> Result<SteelVal> {
     match iterable {
-        VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
+        // A struct can be a stream
+        VectorV(_) | CustomStruct(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
             let mut transducer = Transducer::new();
             transducer.push(Transducers::Zipping(iterable.clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
@@ -303,7 +467,8 @@ pub fn zipping(iterable: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "interleaving")]
 pub fn interleaving(iterable: &SteelVal) -> Result<SteelVal> {
     match &iterable {
-        VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
+        // A struct can be a stream
+        VectorV(_) | CustomStruct(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
             let mut transducer = Transducer::new();
             transducer.push(Transducers::Interleaving(iterable.clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
@@ -345,7 +510,8 @@ pub fn mapping(func: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "extending")]
 pub fn extending(iterable: &SteelVal) -> Result<SteelVal> {
     match &iterable {
-        VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
+        // A struct can be a stream
+        VectorV(_) | CustomStruct(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
             let mut transducer = Transducer::new();
             transducer.push(Transducers::Extend(iterable.clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))

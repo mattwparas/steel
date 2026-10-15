@@ -171,11 +171,11 @@ fn nth(args: &[SteelVal]) -> Result<SteelVal> {
 
     if let SteelVal::IntV(n) = number {
         if n < 0 {
-            stop!(TypeMismatch => format!("nth expected a (postive) integer, found: {number}"));
+            stop!(TypeMismatch => format!("nth expected a non-negative integer, found: {number}"));
         }
         Ok(SteelVal::ReducerV(Gc::new(Reducer::Nth(n as usize))))
     } else {
-        stop!(TypeMismatch => format!("nth expected a (postive) integer, found: {number}"))
+        stop!(TypeMismatch => format!("nth expected a non-negative integer, found: {number}"))
     }
 }
 

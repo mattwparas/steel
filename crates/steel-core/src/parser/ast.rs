@@ -318,7 +318,6 @@ impl TryFrom<&SteelVal> for ExprKind {
                 IterV(_) => Err("Can't convert from iterator to expression!"),
                 FutureFunc(_) => Err("Can't convert from future function to expression!"),
                 FutureV(_) => Err("Can't convert future to expression!"),
-                StreamV(_) => Err("Can't convert from stream to expression!"),
                 BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
                 ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
                 MutFunc(_) => Err("Can't convert from function to expression!"),

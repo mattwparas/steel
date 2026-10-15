@@ -17,7 +17,6 @@ pub mod polling;
 pub mod ports;
 pub mod process;
 pub mod random;
-mod streams;
 pub mod strings;
 mod symbols;
 pub mod tcp;
@@ -61,7 +60,6 @@ use num_rational::{BigRational, Rational32};
 use num_traits::ToPrimitive;
 pub use numbers::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 pub use ports::port_module;
-pub use streams::StreamOperations;
 pub use strings::string_module;
 pub use symbols::symbol_module;
 

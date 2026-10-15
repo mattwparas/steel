@@ -187,9 +187,9 @@ fn one_from_a_callback_of_a_builtin_is_refused() {
                 r#"
                 (define kept #f)
                 (define (keep-one)
-                  (transduce (list 1 2 3)
-                             (mapping (lambda (x) ({capture} (lambda (k) (set! kept k) x))))
-                             (into-list)))
+                  (#%prim.transduce (list 1 2 3)
+                                    (mapping (lambda (x) ({capture} (lambda (k) (set! kept k) x))))
+                                    (into-list)))
                 (keep-one)
                 "#
             ))

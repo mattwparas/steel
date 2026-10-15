@@ -28,7 +28,6 @@ use crate::{
     values::{
         closed::{HeapRef, HeapVec, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
-        lazy_stream::{LazyStream, SerializableStream},
         lists::Pair,
         port::{SendablePort, SteelPort},
         serde::call_deserializer_by_name,
@@ -1228,10 +1227,9 @@ pub enum SteelVal {
     FutureFunc(BoxedAsyncFunctionSignature),
     // Boxed Future Result
     FutureV(Gc<FutureResult>),
-    // A stream of `SteelVal`.
-    StreamV(Gc<LazyStream>),
-    /// Custom closure
-    BoxedFunction(Gc<BoxedDynFunction>),
+    /// Custom closure. The discriminant skips 20, which streams had, so that
+    /// the tags after it are unchanged.
+    BoxedFunction(Gc<BoxedDynFunction>) = 21,
     // Continuation
     ContinuationFunction(Continuation),
     // Function Pointer
@@ -1302,7 +1300,6 @@ impl Clone for SteelVal {
             ReducerV(gc) => SteelVal::ReducerV(gc.clone()),
             FutureFunc(f) => SteelVal::FutureFunc(f.clone()),
             FutureV(gc) => SteelVal::FutureV(gc.clone()),
-            StreamV(gc) => SteelVal::StreamV(gc.clone()),
             BoxedFunction(gc) => SteelVal::BoxedFunction(gc.clone()),
             ContinuationFunction(continuation) => {
                 SteelVal::ContinuationFunction(continuation.clone())
@@ -1346,7 +1343,6 @@ pub(crate) enum SteelValPointer {
     MutableStruct(crate::values::structs::MutableStructCell),
     IterV(*const Transducer),
     ReducerV(*const Reducer),
-    StreamV(*const LazyStream),
     ContinuationFunction(*const RwLock<ContinuationMark>),
     ListV(crate::values::lists::CellPointer<SteelVal>),
     Pair(*const crate::values::lists::Pair),
@@ -1375,7 +1371,6 @@ impl SteelValPointer {
             MutableStruct(s) => Some(Self::MutableStruct(s.cell())),
             IterV(gc) => Some(Self::IterV(gc.as_ptr())),
             ReducerV(gc) => Some(Self::ReducerV(gc.as_ptr())),
-            StreamV(gc) => Some(Self::StreamV(gc.as_ptr())),
             ListV(generic_list) => Some(Self::ListV(generic_list.as_ptr())),
             Pair(gc) => Some(Self::Pair(gc.as_ptr())),
             SteelVal::ContinuationFunction(continuation) => Some(Self::ContinuationFunction(
@@ -1564,7 +1559,6 @@ impl SteelVal {
             // ReducerV(_) => todo!(),
             // FutureFunc(_) => todo!(),
             // FutureV(_) => todo!(),
-            // StreamV(_) => todo!(),
             // BoxedFunction(_) => todo!(),
             // ContinuationFunction(_) => todo!(),
             ListV(l) => Some(l.as_ptr_usize()),
@@ -1828,7 +1822,6 @@ impl SteelVal {
             (ReducerV(l), ReducerV(r)) => Gc::ptr_eq(l, r),
             (FutureFunc(l), FutureFunc(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
-            (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
             (BoxedFunction(l), BoxedFunction(r)) => Gc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Continuation::ptr_eq(l, r),
             (ListV(l), ListV(r)) => {
@@ -2065,7 +2058,6 @@ impl Hash for SteelVal {
             ReducerV(r) => r.hash(state),
             FutureFunc(fun) => crate::gc::Shared::as_ptr(fun).hash(state),
             FutureV(f) => Gc::as_ptr(f).hash(state),
-            StreamV(s) => Gc::as_ptr(s).hash(state),
             BoxedFunction(fun) => Gc::as_ptr(fun).hash(state),
             ContinuationFunction(cont) => StandardShared::as_ptr(&cont.inner).hash(state),
             ListV(l) => hash_container(
@@ -2371,7 +2363,6 @@ impl SteelVal {
     pub const REDUCER_TAG: u8 = 17;
     pub const ASYNC_FUNCTION_POINTER_TAG: u8 = 18;
     pub const BOXED_FUTURE_TAG: u8 = 19;
-    pub const STREAM_TAG: u8 = 20;
     pub const BOXED_FUNCTION_TAG: u8 = 21;
     pub const CONTINUATION_TAG: u8 = 22;
     pub const LIST_TAG: u8 = 23;
@@ -2391,7 +2382,7 @@ impl SteelVal {
     pub const FLAT_VECTOR_TAG: u8 = 37;
     pub const MUTABLE_STRUCT_TAG: u8 = 38;
 
-    pub const SPECIAL_RC_TAGS: [u8; 26] = [
+    pub const SPECIAL_RC_TAGS: [u8; 25] = [
         SteelVal::MUTABLE_STRUCT_TAG,
         SteelVal::CLOSURE_TAG,
         SteelVal::VECTOR_TAG,
@@ -2406,7 +2397,6 @@ impl SteelVal {
         SteelVal::REDUCER_TAG,
         SteelVal::ASYNC_FUNCTION_POINTER_TAG,
         SteelVal::BOXED_FUTURE_TAG,
-        SteelVal::STREAM_TAG,
         SteelVal::LIST_TAG,
         SteelVal::PAIR_TAG,
         SteelVal::BOXED_ITERATOR_TAG,
@@ -2467,7 +2457,6 @@ impl SteelVal {
         | (1 << SteelVal::REDUCER_TAG)
         | (1 << SteelVal::ASYNC_FUNCTION_POINTER_TAG)
         | (1 << SteelVal::BOXED_FUTURE_TAG)
-        | (1 << SteelVal::STREAM_TAG)
         | (1 << SteelVal::LIST_TAG)
         | (1 << SteelVal::PAIR_TAG)
         | (1 << SteelVal::BOXED_ITERATOR_TAG)

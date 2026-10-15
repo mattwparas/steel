@@ -337,7 +337,6 @@ impl CycleDetector {
             HashSetV(hs) => write!(f, "#<hashset {:?}>", hs.0),
             FutureFunc(_) => write!(f, "#<future-func>"),
             FutureV(_) => write!(f, "#<future>"),
-            StreamV(_) => write!(f, "#<stream>"),
             BoxedFunction(b) => {
                 if let Some(name) = b.name() {
                     write!(f, "#<function:{}>", name)
@@ -449,16 +448,6 @@ impl CycleDetector {
         self.depth -= 1;
 
         res
-    }
-}
-
-fn replace_with_void(value: &mut SteelVal) -> SteelVal {
-    core::mem::replace(value, SteelVal::Void)
-}
-
-impl SteelVal {
-    fn make_void(&mut self) -> SteelVal {
-        core::mem::replace(self, SteelVal::Void)
     }
 }
 
@@ -709,7 +698,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn visit_reducer(&mut self, _reducer: Gc<Reducer>) -> Self::Output {}
     fn visit_future_function(&mut self, _function: BoxedAsyncFunctionSignature) -> Self::Output {}
     fn visit_future(&mut self, _future: Gc<FutureResult>) -> Self::Output {}
-    fn visit_stream(&mut self, _stream: Gc<LazyStream>) -> Self::Output {}
     fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
     fn visit_continuation(&mut self, _continuation: Continuation) -> Self::Output {}
 
@@ -963,25 +951,6 @@ pub(crate) mod drop_impls {
         }
     }
 
-    impl Drop for LazyStream {
-        fn drop(&mut self) {
-            if self.initial_value == SteelVal::Void && self.stream_thunk == SteelVal::Void {
-                return;
-            }
-
-            DROP_BUFFER
-                .try_with(|drop_buffer| {
-                    if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                        drop_buffer.push_back(self.initial_value.make_void());
-                        drop_buffer.push_back(self.stream_thunk.make_void());
-
-                        IterativeDropHandler::bfs(&mut drop_buffer);
-                    }
-                })
-                .ok();
-        }
-    }
-
     // impl Drop for ByteCodeLambda {
     //     fn drop(&mut self) {
     //         if self.captures.is_empty() {
@@ -1161,13 +1130,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_stream(&mut self, stream: Gc<LazyStream>) {
-        if let Ok(mut inner) = stream.try_unwrap() {
-            self.push_back(replace_with_void(&mut inner.initial_value));
-            self.push_back(replace_with_void(&mut inner.stream_thunk));
-        }
-    }
-
     // Walk the whole thing! This includes the stack and all the stack frames
     fn visit_continuation(&mut self, continuation: Continuation) {
         if let Ok(inner) =
@@ -1321,7 +1283,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 ReducerV(r) => self.visit_reducer(r),
                 FutureFunc(f) => self.visit_future_function(f),
                 FutureV(f) => self.visit_future(f),
-                StreamV(s) => self.visit_stream(s),
                 BoxedFunction(b) => self.visit_boxed_function(b),
                 ContinuationFunction(c) => self.visit_continuation(c),
                 ListV(l) => self.visit_list(l),
@@ -1553,13 +1514,6 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
         }
     }
 
-    fn visit_stream(&mut self, stream: Gc<LazyStream>) {
-        if let Ok(mut inner) = stream.try_unwrap() {
-            self.push_back(replace_with_void(&mut inner.initial_value));
-            self.push_back(replace_with_void(&mut inner.stream_thunk));
-        }
-    }
-
     // Walk the whole thing! This includes the stack and all the stack frames
     fn visit_continuation(&mut self, continuation: Continuation) {
         if let Ok(inner) = crate::gc::Shared::try_unwrap(continuation.inner).map(|x| x.consume()) {
@@ -1710,7 +1664,6 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
                 ReducerV(r) => self.visit_reducer(r),
                 FutureFunc(f) => self.visit_future_function(f),
                 FutureV(f) => self.visit_future(f),
-                StreamV(s) => self.visit_stream(s),
                 BoxedFunction(b) => self.visit_boxed_function(b),
                 ContinuationFunction(c) => self.visit_continuation(c),
                 ListV(l) => self.visit_list(l),
@@ -1785,7 +1738,6 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 ReducerV(r) => self.visit_reducer(r),
                 FutureFunc(f) => self.visit_future_function(f),
                 FutureV(f) => self.visit_future(f),
-                StreamV(s) => self.visit_stream(s),
                 BoxedFunction(b) => self.visit_boxed_function(b),
                 ContinuationFunction(c) => self.visit_continuation(c),
                 ListV(l) => self.visit_list(l),
@@ -1832,7 +1784,6 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
     fn visit_future_function(&mut self, function: BoxedAsyncFunctionSignature) -> Self::Output;
     fn visit_future(&mut self, future: Gc<FutureResult>) -> Self::Output;
-    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output;
     fn visit_boxed_function(&mut self, function: Gc<BoxedDynFunction>) -> Self::Output;
     fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output;
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output;
@@ -1894,7 +1845,6 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
                 ReducerV(r) => self.visit_reducer(r),
                 FutureFunc(f) => self.visit_future_function(f),
                 FutureV(f) => self.visit_future(f),
-                StreamV(s) => self.visit_stream(s),
                 BoxedFunction(b) => self.visit_boxed_function(b),
                 ContinuationFunction(c) => self.visit_continuation(c),
                 ListV(l) => self.visit_list(l),
@@ -1941,7 +1891,6 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
     fn visit_future_function(&mut self, function: BoxedAsyncFunctionSignature) -> Self::Output;
     fn visit_future(&mut self, future: Gc<FutureResult>) -> Self::Output;
-    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output;
     fn visit_boxed_function(&mut self, function: Gc<BoxedDynFunction>) -> Self::Output;
     fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output;
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output;
@@ -2003,7 +1952,6 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
                 ReducerV(r) => self.visit_reducer(r),
                 FutureFunc(f) => self.visit_future_function(f),
                 FutureV(f) => self.visit_future(f),
-                StreamV(s) => self.visit_stream(s),
                 BoxedFunction(b) => self.visit_boxed_function(b),
                 ContinuationFunction(c) => self.visit_continuation(c),
                 ListV(l) => self.visit_list(l),
@@ -2051,7 +1999,6 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_reducer(&mut self, reducer: &'a Gc<Reducer>) -> Self::Output;
     fn visit_future_function(&mut self, function: &'a BoxedAsyncFunctionSignature) -> Self::Output;
     fn visit_future(&mut self, future: &'a Gc<FutureResult>) -> Self::Output;
-    fn visit_stream(&mut self, stream: &'a Gc<LazyStream>) -> Self::Output;
     fn visit_boxed_function(&mut self, function: &'a Gc<BoxedDynFunction>) -> Self::Output;
     fn visit_continuation(&mut self, continuation: &'a Continuation) -> Self::Output;
     fn visit_list(&mut self, list: &'a List<SteelVal>) -> Self::Output;
@@ -2095,7 +2042,6 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
                 SteelValPointer::MutableStruct(cell) => self.visit_mutable_struct(cell),
                 SteelValPointer::IterV(p) => self.visit_transducer(unsafe { &(*p) }),
                 SteelValPointer::ReducerV(p) => self.visit_reducer(unsafe { &(*p) }),
-                SteelValPointer::StreamV(p) => self.visit_stream(unsafe { &(*p) }),
                 SteelValPointer::ContinuationFunction(p) => {
                     self.visit_continuation(unsafe { &(*p) })
                 }
@@ -2124,7 +2070,6 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
     ) -> Self::Output;
     fn visit_transducer(&mut self, transducer: &'a Transducer) -> Self::Output;
     fn visit_reducer(&mut self, reducer: &'a Reducer) -> Self::Output;
-    fn visit_stream(&mut self, stream: &'a LazyStream) -> Self::Output;
     fn visit_continuation(&mut self, continuation: &'a RwLock<ContinuationMark>) -> Self::Output;
     fn visit_list(&mut self, list: crate::values::lists::CellPointer<SteelVal>) -> Self::Output;
     fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output;
@@ -2177,12 +2122,47 @@ struct RecursiveEqualityHandler<'a> {
     nested: bool,
 }
 
+/// Whether two values that hold no other values are `equal?`, as `visit`
+/// decides it, or None when either one can hold other values.
+fn plain_equal(left: &SteelVal, right: &SteelVal) -> Option<bool> {
+    match (left, right) {
+        (IntV(l), IntV(r)) => Some(l == r),
+        (NumV(l), NumV(r)) => Some(l == r),
+        (BoolV(l), BoolV(r)) => Some(l == r),
+        (CharV(l), CharV(r)) => Some(l == r),
+        (Void, Void) => Some(true),
+        (StringV(l), StringV(r)) => Some(l == r),
+        (SymbolV(l), SymbolV(r)) => Some(l == r),
+        _ => None,
+    }
+}
+
 impl<'a> RecursiveEqualityHandler<'a> {
     pub fn compare_equality(&mut self, left: SteelVal, right: SteelVal) -> bool {
         self.left.push_back(left);
         self.right.push_back(right);
 
         self.visit()
+    }
+
+    /// Compares the elements of two vectors pairwise. Values that hold no others
+    /// are compared here, and the rest are queued, which saves a clone, a push
+    /// and a pop per element for vectors of plain values.
+    fn compare_elements<'v>(
+        &mut self,
+        pairs: impl Iterator<Item = (&'v SteelVal, &'v SteelVal)>,
+    ) -> bool {
+        for (l, r) in pairs {
+            match plain_equal(l, r) {
+                Some(true) => {}
+                Some(false) => return false,
+                None => {
+                    self.left.push_back(l.clone());
+                    self.right.push_back(r.clone());
+                }
+            }
+        }
+        true
     }
 
     fn should_visit(&mut self, left: (usize, usize), right: (usize, usize)) -> bool {
@@ -2325,9 +2305,10 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     }
 
                     // Should we visit these?
-                    if self.should_visit((l.0.as_ptr() as usize, 0), (r.0.as_ptr() as usize, 0)) {
-                        self.left.visit_immutable_vector(l);
-                        self.right.visit_immutable_vector(r);
+                    if self.should_visit((l.0.as_ptr() as usize, 0), (r.0.as_ptr() as usize, 0))
+                        && !self.compare_elements(l.iter().zip(r.iter()))
+                    {
+                        return false;
                     }
 
                     continue;
@@ -2342,9 +2323,8 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    for (a, b) in l.iter().zip(r.iter()) {
-                        self.left.push_back(a.clone());
-                        self.right.push_back(b.clone());
+                    if !self.compare_elements(l.iter().zip(r.iter())) {
+                        return false;
                     }
                 }
 
@@ -2353,8 +2333,9 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         return false;
                     }
 
-                    self.left.visit_immutable_vector(l);
-                    self.right.visit_mutable_vector(r);
+                    if !r.borrow(|r| self.compare_elements(l.iter().zip(r.iter()))) {
+                        return false;
+                    }
 
                     continue;
                 }
@@ -2363,8 +2344,9 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         return false;
                     }
 
-                    self.left.visit_mutable_vector(l);
-                    self.right.visit_immutable_vector(r);
+                    if !l.borrow(|l| self.compare_elements(l.iter().zip(r.iter()))) {
+                        return false;
+                    }
 
                     continue;
                 }
@@ -2374,10 +2356,9 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         return false;
                     }
 
-                    for value in l.iter() {
-                        self.left.push_back(value.clone());
+                    if !self.compare_elements(l.iter().zip(r.iter())) {
+                        return false;
                     }
-                    self.right.visit_immutable_vector(r);
 
                     continue;
                 }
@@ -2386,9 +2367,8 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         return false;
                     }
 
-                    self.left.visit_immutable_vector(l);
-                    for value in r.iter() {
-                        self.right.push_back(value.clone());
+                    if !self.compare_elements(l.iter().zip(r.iter())) {
+                        return false;
                     }
 
                     continue;
@@ -2398,10 +2378,9 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         return false;
                     }
 
-                    for value in l.iter() {
-                        self.left.push_back(value.clone());
+                    if !r.borrow(|r| self.compare_elements(l.iter().zip(r.iter()))) {
+                        return false;
                     }
-                    self.right.visit_mutable_vector(r);
 
                     continue;
                 }
@@ -2410,9 +2389,8 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         return false;
                     }
 
-                    self.left.visit_mutable_vector(l);
-                    for value in r.iter() {
-                        self.right.push_back(value.clone());
+                    if !l.borrow(|l| self.compare_elements(l.iter().zip(r.iter()))) {
+                        return false;
                     }
 
                     continue;
@@ -2678,13 +2656,6 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
-                (StreamV(l), StreamV(r)) => {
-                    if !Gc::ptr_eq(&l, &r) {
-                        return false;
-                    }
-
-                    continue;
-                }
                 // MutableVector(b) => self.visit_mutable_vector(b),
                 // BoxedIterator(b) => self.visit_boxed_iterator(b),
                 // SteelVal::SyntaxObject(s) => self.visit_syntax_object(s),
@@ -2737,8 +2708,12 @@ impl<'a> RecursiveEqualityHandler<'a> {
                             return false;
                         }
 
-                        self.left.visit_mutable_vector(l);
-                        self.right.visit_mutable_vector(r);
+                        // A copy of one side, so that only one vector is locked
+                        // at a time
+                        let left: Vec<SteelVal> = l.borrow(|x| x.iter().cloned().collect());
+                        if !r.borrow(|r| self.compare_elements(left.iter().zip(r.iter()))) {
+                            return false;
+                        }
                     }
 
                     continue;
@@ -2896,8 +2871,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
 
     fn visit_future_function(&mut self, _function: BoxedAsyncFunctionSignature) -> Self::Output {}
     fn visit_future(&mut self, _future: Gc<FutureResult>) -> Self::Output {}
-
-    fn visit_stream(&mut self, _stream: Gc<LazyStream>) -> Self::Output {}
 
     fn visit_continuation(&mut self, _continuation: Continuation) -> Self::Output {}
 

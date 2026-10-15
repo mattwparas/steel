@@ -3,7 +3,6 @@ pub(crate) mod closed;
 pub(crate) mod contracts;
 pub(crate) mod functions;
 pub(crate) mod json_vals;
-pub(crate) mod lazy_stream;
 pub(crate) mod lists;
 pub mod lock;
 pub(crate) mod port;

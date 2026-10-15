@@ -1,11 +1,11 @@
 use crate::rvals::{PrimitiveAsRef, RestArgsIter, Result, SteelString, SteelVal};
-use crate::steel_vm::builtin::BuiltInModule;
+use crate::steel_vm::{builtin::BuiltInModule, vm::VmCore};
 use crate::stop;
 
 pub fn symbol_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/symbols");
     module
-        .register_native_fn_definition(CONCAT_SYMBOLS_DEFINITION)
+        .register_native_fn_definition(CONCAT_SYMBOLS_INTERNED_DEFINITION)
         .register_native_fn_definition(SYMBOL_TO_STRING_DEFINITION)
         .register_native_fn_definition(SYMBOL_EQUALS_DEFINITION);
     module
@@ -84,13 +84,17 @@ pub fn symbol_equals(mut iter: RestArgsIter<SteelSymbol<'_>>) -> Result<SteelVal
 /// > (concat-symbols)
 /// => '
 /// ```
-#[steel_derive::native(
+#[steel_derive::context(
     name = "concat-symbols",
     arity = AtLeast(0),
     returns = Symbol,
     args(rest = Symbol),
     raises = BadArgs
 )]
+fn concat_symbols_interned(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(concat_symbols(args).map(|symbol| ctx.intern_symbols(symbol)))
+}
+
 fn concat_symbols(args: &[SteelVal]) -> Result<SteelVal> {
     let mut new_symbol = String::new();
 

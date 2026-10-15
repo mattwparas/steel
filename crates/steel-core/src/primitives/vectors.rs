@@ -97,9 +97,15 @@ fn immutable_vector_to_list(
 ) -> Result<SteelVal> {
     let (start, end) = bounds(rest, "immutable-vector->list", 3, vector)?;
 
-    let items = vector.iter().skip(start).take(end - start).cloned();
+    let items = values_in(vector, start, end).cloned();
 
     Ok(SteelVal::ListV(items.collect()))
+}
+
+/// The values of `vector` from `start` up to `end`. Iterating from the front
+/// and skipping would step through the first `start` of them one at a time.
+fn values_in(vector: &SteelVector, start: usize, end: usize) -> impl Iterator<Item = &SteelVal> {
+    vector.focus().narrow(start..end).into_iter()
 }
 
 /// Converts a vector of characters into a string.
@@ -156,7 +162,7 @@ fn immutable_vector_to_string(
     let (start, end) = bounds(rest, "immutable-vector->string", 3, vector)?;
 
     chars_to_string(
-        vector.iter().skip(start).take(end - start),
+        values_in(vector, start, end),
         end - start,
         "immutable-vector->string",
     )
@@ -222,16 +228,15 @@ fn vector_copy(
                 )))
             }
             Some(SteelVal::MutableVector(vector)) => {
-                let vector = vector.get();
-                let (start, end) = bounds_mut(rest, "vector-copy", 3, &vector)?;
-
-                // Have to allocate another thing
-                let copy: HeapVec = vector
-                    .iter()
-                    .skip(start)
-                    .take(end - start)
-                    .cloned()
-                    .collect();
+                let copy: HeapVec = vector.borrow(|vector| -> Result<HeapVec> {
+                    let (start, end) = bounds_mut(rest, "vector-copy", 3, vector)?;
+                    Ok(vector
+                        .iter()
+                        .skip(start)
+                        .take(end - start)
+                        .cloned()
+                        .collect())
+                })?;
 
                 let vec = ctx.make_mutable_vector(copy);
 
@@ -266,12 +271,7 @@ fn vector_copy(
 fn immutable_vector_copy(vector: &SteelVector, rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let (start, end) = bounds(rest, "immutable-vector-copy", 3, vector)?;
 
-    let copy: Vector<_> = vector
-        .iter()
-        .skip(start)
-        .take(end - start)
-        .cloned()
-        .collect();
+    let copy: Vector<_> = values_in(vector, start, end).cloned().collect();
 
     Ok(SteelVal::VectorV(Gc::new(copy).into()))
 }
@@ -311,7 +311,7 @@ fn vector_append(
                     vector.extend(v.iter().cloned());
                 }
                 SteelVal::MutableVector(v) => {
-                    vector.extend(v.get().iter().cloned());
+                    v.borrow(|v| vector.extend(v.iter().cloned()));
                 }
                 SteelVal::FlatVector(v) => {
                     vector.extend(v.iter().cloned());
@@ -987,9 +987,7 @@ pub fn mut_vector_copy(
                     Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
             }
 
-            src.iter()
-                .skip(src_start)
-                .take(src_end - src_start)
+            values_in(src, src_start, src_end)
                 .zip(dest_guard.iter_mut().skip(dest_start))
                 .for_each(|(src, dest)| {
                     retire_removed(core::mem::replace(dest, src.clone()));

@@ -236,7 +236,7 @@
 
 (define new-into-product
   (case-lambda
-    [() 0]
+    [() 1]
     [(v) v]
     [(v elem) (* v elem)]))
 

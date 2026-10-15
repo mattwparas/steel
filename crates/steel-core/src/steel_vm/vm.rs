@@ -2208,6 +2208,16 @@ pub struct VmCore<'a> {
 }
 
 impl<'a> VmCore<'a> {
+    /// `value` with its symbols replaced by the interned ones, so they are
+    /// `eq?` to the same symbols written in the program.
+    pub(crate) fn intern_symbols(&mut self, value: SteelVal) -> SteelVal {
+        self.thread
+            .compiler
+            .write()
+            .constant_map
+            .intern_symbols(value)
+    }
+
     fn new_unchecked(
         instructions: RootedInstructions,
         constants: ConstantMap,

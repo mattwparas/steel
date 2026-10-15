@@ -376,6 +376,67 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             .arity(1)
             .result(InferredType::UnboxedBool),
             inline(
+                "function?",
+                crate::steel_vm::primitives::steel_functionp as *const (),
+                returns(|t, _| {
+                    Some(t.tag_predicate(
+                        &[
+                            SteelVal::CLOSURE_TAG,
+                            SteelVal::FUNCTION_POINTER_TAG,
+                            SteelVal::BOXED_FUNCTION_TAG,
+                            SteelVal::CONTINUATION_TAG,
+                            SteelVal::MUT_FUNCTION_TAG,
+                            SteelVal::BUILTIN_FUNCTION_TAG,
+                        ],
+                        false,
+                    ))
+                }),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "continuation?",
+                crate::steel_vm::primitives::steel_continuationp as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::CONTINUATION_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "symbol?",
+                crate::steel_vm::primitives::steel_symbolp as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::SYMBOL_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "hash?",
+                crate::steel_vm::primitives::steel_hashp as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::HASHMAP_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "set?",
+                crate::steel_vm::primitives::steel_hashsetp as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::HASHSET_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "immutable-vector?",
+                crate::steel_vm::primitives::steel_immutable_vectorp as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::VECTOR_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
+                "mutable-vector?",
+                crate::steel_vm::primitives::steel_mutable_vectorp as *const (),
+                returns(|t, _| Some(t.tag_predicate(&[SteelVal::HEAP_REF_VECTOR_TAG], false))),
+            )
+            .arity(1)
+            .result(InferredType::UnboxedBool),
+            inline(
                 "vector?",
                 crate::steel_vm::primitives::steel_vectorp as *const (),
                 returns(|t, _| {

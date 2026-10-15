@@ -259,6 +259,46 @@ impl ConstantMap {
         }
     }
 
+    /// `value` with each symbol in it, including in lists, vectors and hash
+    /// maps, replaced by the interned one. Symbols are `eq?` only when they are
+    /// the same object, so a symbol made at runtime has to come from here to be
+    /// `eq?` to the same symbol written in the program.
+    pub fn intern_symbols(&mut self, value: SteelVal) -> SteelVal {
+        use crate::gc::Gc;
+
+        match value {
+            SteelVal::SymbolV(_) => {
+                let idx = self.add_or_get(value);
+                self.get(idx)
+            }
+            SteelVal::ListV(l) => {
+                SteelVal::ListV(l.iter().map(|v| self.intern_symbols(v.clone())).collect())
+            }
+            SteelVal::VectorV(v) => SteelVal::VectorV(
+                Gc::new(
+                    v.iter()
+                        .map(|v| self.intern_symbols(v.clone()))
+                        .collect::<crate::values::Vector<_>>(),
+                )
+                .into(),
+            ),
+            SteelVal::HashMapV(m) => SteelVal::HashMapV(
+                Gc::new(
+                    m.iter()
+                        .map(|(k, v)| {
+                            (
+                                self.intern_symbols(k.clone()),
+                                self.intern_symbols(v.clone()),
+                            )
+                        })
+                        .collect::<crate::values::HashMap<_, _>>(),
+                )
+                .into(),
+            ),
+            other => other,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.values.read().len()
     }

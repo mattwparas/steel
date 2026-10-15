@@ -1,5 +1,7 @@
 (require "transducers.scm")
 
+(provide transduce)
+
 (define (split-last lst)
   (define (loop accum lst)
     (if (empty? (cdr lst))
@@ -24,7 +26,7 @@
        [(8) (tdrop-while func)]
        [(9) (textend func)]
        [(10) (error "implement cycle")]
-       [(11) tenumerate]
+       [(11) (tenumerate)]
        [(12) (tzip func)]
        [(13) (tinterleave func)]
        [(14) (error "implement map pair")]
@@ -36,20 +38,20 @@
   (cond
     [(int? kind)
      (case kind
-       [(0) (new-into-sum)]
-       [(1) (new-into-product)]
+       [(0) new-into-sum]
+       [(1) new-into-product]
        [(2) new-into-max]
        [(3) new-into-min]
-       [(4) (rcount)]
+       [(4) rcount]
        [(6) new-into-list]
        [(7) (new-into-vector)]
        [(8) new-into-hashmap]
        [(9) new-into-hashset]
        [(10) new-into-string]
-       [(11) (new-into-last)]
+       [(11) new-into-last]
        [else (error "Unknown or unimplemented reducer: " kind)])]
 
-    [(list? kind) (new-into-reducer (list-ref kind 1) (list-ref kind 2))]
+    [(list? kind) (new-into-reducer (list-ref kind 2) (list-ref kind 1))]
     [(pair? kind)
      (define id (car kind))
      (case id

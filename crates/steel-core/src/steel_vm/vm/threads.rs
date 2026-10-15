@@ -298,7 +298,7 @@ impl Custom for SerializedValue {}
 
 // The first byte of a serialized value. Bumped when the layout changes.
 // Older formats are not read.
-const SERIALIZED_FORMAT: u8 = 6;
+const SERIALIZED_FORMAT: u8 = 7;
 
 // The struct type here that a struct sent from elsewhere belongs to.
 //

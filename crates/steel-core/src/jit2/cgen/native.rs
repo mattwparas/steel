@@ -736,7 +736,6 @@ impl<'a> FunctionTranslator<'a> {
             SteelVal::REDUCER_TAG,
             SteelVal::ASYNC_FUNCTION_POINTER_TAG,
             SteelVal::BOXED_FUTURE_TAG,
-            SteelVal::STREAM_TAG,
             SteelVal::BOXED_FUNCTION_TAG,
             SteelVal::CONTINUATION_TAG,
             SteelVal::PAIR_TAG,

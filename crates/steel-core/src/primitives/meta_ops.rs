@@ -92,7 +92,6 @@ impl MetaOperations {
                 // SteelVal::ReducerV(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
                 // SteelVal::FutureFunc(_) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
                 // SteelVal::FutureV(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
-                // SteelVal::StreamV(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
                 // SteelVal::BoxedFunction(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
                 // SteelVal::ContinuationFunction(continuation) => {
                 //     Ok(SteelVal::StringV(format!("{:p}", gc).into()))

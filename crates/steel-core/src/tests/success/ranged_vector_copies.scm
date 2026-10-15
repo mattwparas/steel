@@ -1,0 +1,23 @@
+;; Copies and conversions over part of a vector take that part, at any
+;; offset, and reject ranges outside it.
+
+(define v (vector 0 1 2 3 4 5 6 7 8 9))
+(define iv (immutable-vector 0 1 2 3 4 5 6 7 8 9))
+(define big (apply immutable-vector (range 0 1000)))
+(assert! (equal? (vector-copy v 2 5) (vector 2 3 4)))
+(assert! (equal? (vector-copy v 10 10) (vector)))
+(assert! (equal? (vector-copy v 0) v))
+(assert! (equal? (vector-copy iv 7) (immutable-vector 7 8 9)))
+(assert! (equal? (immutable-vector->list big 995 1000) '(995 996 997 998 999)))
+(assert! (equal? (immutable-vector->list big 500 503) '(500 501 502)))
+(assert! (equal? (immutable-vector->string (immutable-vector #\a #\b #\c #\d) 1 3) "bc"))
+(define d (vector 'a 'b 'c 'd))
+(vector-copy! d 1 big 998 1000)
+(assert! (equal? d (vector 'a 998 999 'd)))
+(assert! (equal? (vector-copy big 990 993) (immutable-vector 990 991 992)))
+(define m (vector-copy v 3 6))
+(vector-set! m 0 'x)
+(assert! (equal? (vector-ref v 3) 3))
+(assert! (equal? (with-handler (lambda (e) 'err) (vector-copy v 5 11)) 'err))
+(assert! (equal? (with-handler (lambda (e) 'err) (vector-copy v 6 5)) 'err))
+(assert! (equal? (with-handler (lambda (e) 'err) (vector-copy iv 3 12)) 'err))

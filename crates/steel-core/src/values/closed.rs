@@ -64,7 +64,6 @@ use crate::{
 
 use super::{
     functions::BoxedDynFunction,
-    lazy_stream::LazyStream,
     port::SteelPort,
     structs::{
         MutableStructCell, MutableStructRef, StructRef, StructTypeDescriptor, MUTABLE_STRUCT_DEAD,
@@ -208,7 +207,6 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 ReducerV(r) => self.visit_reducer(r),
                 FutureFunc(f) => self.visit_future_function(f),
                 FutureV(f) => self.visit_future(f),
-                StreamV(s) => self.visit_stream(s),
                 BoxedFunction(b) => self.visit_boxed_function(b),
                 ContinuationFunction(c) => self.visit_continuation(c),
                 ListV(l) => self.visit_list(l),
@@ -442,11 +440,6 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
         for field in unsafe { cell.fields_unlocked() } {
             self.push_back(field.clone());
         }
-    }
-
-    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
-        self.push_back(stream.initial_value.clone());
-        self.push_back(stream.stream_thunk.clone());
     }
 
     fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
@@ -999,7 +992,6 @@ fn counted_address(value: &SteelVal) -> Option<usize> {
         SteelVal::IterV(gc) => gc.as_ptr() as usize,
         SteelVal::ReducerV(gc) => gc.as_ptr() as usize,
         SteelVal::FutureV(gc) => gc.as_ptr() as *const u8 as usize,
-        SteelVal::StreamV(gc) => gc.as_ptr() as usize,
         SteelVal::BoxedFunction(gc) => gc.as_ptr() as *const u8 as usize,
         SteelVal::ContinuationFunction(continuation) => {
             crate::gc::shared::StandardShared::as_ptr(&continuation.inner) as *const u8 as usize
@@ -1035,7 +1027,6 @@ fn reference_count(value: &SteelVal) -> Option<usize> {
         SteelVal::IterV(gc) => Gc::strong_count(gc),
         SteelVal::ReducerV(gc) => Gc::strong_count(gc),
         SteelVal::FutureV(gc) => Gc::strong_count(gc),
-        SteelVal::StreamV(gc) => Gc::strong_count(gc),
         SteelVal::BoxedFunction(gc) => Gc::strong_count(gc),
         SteelVal::ContinuationFunction(continuation) => {
             crate::gc::shared::StandardShared::strong_count(&continuation.inner)
@@ -1442,11 +1433,6 @@ impl BreadthFirstSearchSteelValVisitor for UnreachedWalk {
             }
             _ => {}
         }
-    }
-
-    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
-        self.push_back(stream.initial_value.clone());
-        self.push_back(stream.stream_thunk.clone());
     }
 
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
@@ -5268,11 +5254,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
 
-    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
-        self.push_back(stream.initial_value.clone());
-        self.push_back(stream.stream_thunk.clone());
-    }
-
     fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
 
     fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
@@ -5521,11 +5502,6 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         for field in unsafe { cell.fields_unlocked() } {
             self.push_back(field);
         }
-    }
-
-    fn visit_stream(&mut self, stream: &LazyStream) -> Self::Output {
-        self.push_back(&stream.initial_value);
-        self.push_back(&stream.stream_thunk);
     }
 
     fn visit_syntax_object(&mut self, syntax_object: &Syntax) -> Self::Output {

@@ -81,10 +81,6 @@ fn drop_value_post_fast_decrement(arg: SteelVal) {
             r.0.fast_decrement_post_ref_count_dec();
         }
 
-        StreamV(s) => {
-            s.0.fast_decrement_post_ref_count_dec();
-        }
-
         BoxedFunction(f) => {
             f.0.fast_decrement_post_ref_count_dec();
         }
@@ -213,10 +209,6 @@ fn drop_value_slow_decrement(arg: SteelVal) {
 
         ReducerV(r) => {
             r.0.raw_slow_decrement();
-        }
-
-        StreamV(s) => {
-            s.0.raw_slow_decrement();
         }
 
         BoxedFunction(f) => {

@@ -1,4 +1,6 @@
+use crate::builtin_stop;
 use crate::rvals::SteelString;
+use crate::steel_vm::vm::VmCore;
 use crate::values::lists::List;
 use crate::values::HashMap;
 use crate::{
@@ -20,7 +22,14 @@ use steel_derive::function;
 /// ```scheme
 /// (string->jsexpr "{\"foo\": [3]}") ;; => '#hash((foo . (3)))
 /// ```
-#[function(name = "string->jsexpr", args(String))]
+#[steel_derive::context(name = "string->jsexpr", arity = Exact(1), args(String))]
+pub fn string_to_jsexpr_interned(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let SteelVal::StringV(value) = &args[0] else {
+        builtin_stop!(TypeMismatch => "string->jsexpr expected a string, found: {}", &args[0]);
+    };
+    Some(string_to_jsexpr(value).map(|value| ctx.intern_symbols(value)))
+}
+
 pub fn string_to_jsexpr(value: &SteelString) -> Result<SteelVal> {
     // let unescaped = unescape(&value);
     let unescaped = value;
@@ -180,7 +189,6 @@ impl TryFrom<SteelVal> for Value {
             // SteelVal::IterV(_) => {}
             // SteelVal::FutureFunc(_) => {}
             // SteelVal::FutureV(_) => {}
-            // SteelVal::StreamV(_) => {}
         }
 
         // unimplemented!()

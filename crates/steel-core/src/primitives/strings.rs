@@ -728,13 +728,7 @@ pub fn string_to_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<St
         val => builtin_stop!(TypeMismatch => "steel->string: expected string, found {}", val),
     };
 
-    let sym = SteelVal::SymbolV(value);
-
-    let mut guard = ctx.thread.compiler.write();
-    let interned = guard.constant_map.add_or_get(sym);
-    let value = guard.constant_map.get(interned);
-
-    Some(Ok(value))
+    Some(Ok(ctx.intern_symbols(SteelVal::SymbolV(value))))
 }
 
 /// Converts an integer into a string.

@@ -49,7 +49,6 @@ pub enum SerializableSteelVal {
     MutableStruct(SerializableUserDefinedStruct),
     Port(SendablePort),
     Rational(Rational32),
-    Stream(SerializableStream),
     NativeRef(NativeRefSpec),
     StructConstructorSpec(StructConstructorRefSpec),
     ModuleSpec(String),
@@ -103,7 +102,6 @@ impl std::fmt::Debug for SerializableSteelVal {
             SerializableSteelVal::CustomStruct(x) => write!(f, "{:?}", x),
             SerializableSteelVal::HeapAllocated(x) => write!(f, "#<box {:?}>", x),
             SerializableSteelVal::Rational(x) => write!(f, "{:?}", x),
-            SerializableSteelVal::Stream(x) => write!(f, "{:?}", x),
             SerializableSteelVal::NativeRef(x) => write!(f, "{:?}", x),
             SerializableSteelVal::StructConstructorSpec(struct_constructor_ref_spec) => {
                 write!(f, "{:?}", struct_constructor_ref_spec)
@@ -905,10 +903,6 @@ fn for_each_held(node: &SerializableSteelVal, mut visit: impl FnMut(SerializedId
         SerializableSteelVal::CustomStruct(record) => {
             record.fields.iter().copied().for_each(&mut visit)
         }
-        SerializableSteelVal::Stream(stream) => {
-            visit(stream.initial_value);
-            visit(stream.stream_thunk);
-        }
         _ => {}
     }
 }
@@ -1076,11 +1070,6 @@ fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<Steel
         SerializableSteelVal::Pair(car, cdr) => {
             Ok(crate::values::lists::Pair::cons(ctx.built(*car)?, ctx.built(*cdr)?).into())
         }
-        SerializableSteelVal::Stream(value) => Ok(SteelVal::StreamV(Gc::new(LazyStream {
-            initial_value: ctx.built(value.initial_value)?,
-            stream_thunk: ctx.built(value.stream_thunk)?,
-            empty_stream: value.empty_stream,
-        }))),
         SerializableSteelVal::NativeRef(s) => {
             let guard = ctx.thread.compiler.read();
             let module_map = guard.builtin_modules.inner();
@@ -1265,7 +1254,6 @@ fn identity(value: &SteelVal) -> Option<(u8, usize, usize)> {
         SteelVal::HashSetV(set) => (3, set.0.as_ptr() as usize),
         SteelVal::CustomStruct(s) => (4, s.as_ptr() as usize),
         SteelVal::MutableStruct(s) => (5, s.as_ptr() as usize),
-        SteelVal::StreamV(gc) => (6, gc.as_ptr() as usize),
         SteelVal::Pair(gc) => (7, gc.as_ptr() as usize),
         SteelVal::MutableVector(heap_ref) => (8, heap_ref.as_ptr_usize()),
         SteelVal::HeapAllocated(heap_ref) => (9, heap_ref.as_ptr_usize()),
@@ -1495,12 +1483,6 @@ fn node_for(
         }
 
         SteelVal::Rational(r) => Ok(SerializableSteelVal::Rational(r)),
-
-        SteelVal::StreamV(s) => Ok(SerializableSteelVal::Stream(SerializableStream {
-            initial_value: ctx.place(s.initial_value.clone())?,
-            stream_thunk: ctx.place(s.stream_thunk.clone())?,
-            empty_stream: s.empty_stream,
-        })),
 
         SteelVal::HashSetV(s) => Ok(SerializableSteelVal::HashSet(
             ctx.place_all(s.iter().cloned())?,

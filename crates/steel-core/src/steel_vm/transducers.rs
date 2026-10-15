@@ -4,18 +4,20 @@ use crate::values::{lists::List, HashSet};
 // use itertools::Itertools;
 
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
-use super::{lazy_stream::LazyStreamIter, vm::VmCore};
+use super::vm::VmCore;
 use crate::{
     gc::Gc,
     parser::span::Span,
+    primitives::numbers::{add_primitive, multiply_primitive},
     primitives::vectors::vec_construct_iter,
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
+    steel_vm::primitives::{greater_than, less_than},
     values::transducers::{Reducer, Transducers},
 };
 
 use crate::values::HashMap;
-use core::{cell::RefCell, convert::TryInto};
+use core::cell::RefCell;
 use std::{iter::Fuse, rc::Rc};
 
 /// An iterator adaptor that alternates elements from two iterators until both
@@ -104,7 +106,7 @@ macro_rules! generate_take {
     ($iter:expr, $num:expr, $cur_inst_span:expr) => {
         if let SteelVal::IntV(num) = $num {
             if *num < 0 {
-                stop!(ContractViolation => "take transducer must have a position number"; *$cur_inst_span)
+                stop!(ContractViolation => format!("taking expects a non-negative integer, found: {num}"); *$cur_inst_span)
             }
             Box::new($iter.take(*num as usize))
         } else {
@@ -118,7 +120,7 @@ macro_rules! generate_drop {
     ($iter:expr, $num:expr, $cur_inst_span:expr) => {
         if let SteelVal::IntV(num) = $num {
             if *num < 0 {
-                stop!(ContractViolation => "drop transducer must have a position number"; *$cur_inst_span)
+                stop!(ContractViolation => format!("dropping expects a non-negative integer, found: {num}"); *$cur_inst_span)
             }
             Box::new($iter.skip(*num as usize))
         } else {
@@ -134,18 +136,11 @@ impl<'global, 'a> VmCore<'a> {
     // This could either be a function that returns a single value, or a generic collection type
     pub(crate) fn res_iterator(
         value: &'global SteelVal,
-        vm_ctx: Rc<RefCell<&'global mut Self>>,
-        cur_inst_span: &'global Span,
         // The nursery here is for iterating over a vec since its wrapped inside the refcell
         nursery: &'global mut Option<HeapVec>,
     ) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + 'global>> {
         match value {
             SteelVal::VectorV(v) => Ok(Box::new(v.iter().cloned().map(Ok))),
-            SteelVal::StreamV(lazy_stream) => Ok(Box::new(LazyStreamIter::new(
-                lazy_stream.unwrap(),
-                vm_ctx,
-                cur_inst_span,
-            ))),
             SteelVal::StringV(s) => Ok(Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x))))),
             SteelVal::ListV(l) => Ok(Box::new(l.clone().into_iter().map(Ok))),
             SteelVal::HashSetV(hs) => Ok(Box::new(hs.iter().cloned().map(Ok))),
@@ -166,6 +161,41 @@ impl<'global, 'a> VmCore<'a> {
         }
     }
 
+    /// The values of a collection a transducer brings in, in the order
+    /// `transduce` would see them. Anything else is an error, which `what`
+    /// names.
+    fn collection_iterator(
+        value: SteelVal,
+        cur_inst_span: &'global Span,
+        what: &str,
+    ) -> Box<dyn Iterator<Item = Result<SteelVal>> + 'global> {
+        match value {
+            SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
+            SteelVal::VectorV(v) => Box::new(v.0.unwrap().into_iter().map(Ok)),
+            SteelVal::MutableVector(v) => Box::new(v.get().into_iter().map(Ok)),
+            SteelVal::StringV(s) => Box::new(
+                s.chars()
+                    .map(|x| Ok(SteelVal::CharV(x)))
+                    .collect::<Vec<_>>()
+                    .into_iter(),
+            ),
+            SteelVal::HashSetV(hs) => {
+                Box::new(hs.iter().cloned().map(Ok).collect::<Vec<_>>().into_iter())
+            }
+            SteelVal::HashMapV(hm) => Box::new(
+                hm.iter()
+                    .map(|(k, v)| Ok(SteelVal::ListV(vec![k.clone(), v.clone()].into())))
+                    .collect::<Vec<_>>()
+                    .into_iter(),
+            ),
+            other => Box::new(core::iter::once(Err(SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!("{what} expected a traversable value, found: {other}"),
+            )
+            .with_span(*cur_inst_span)))),
+        }
+    }
+
     pub(crate) fn transduce(
         &mut self,
         ops: &[Transducers],
@@ -177,7 +207,7 @@ impl<'global, 'a> VmCore<'a> {
 
         let mut nursery = None;
 
-        let mut iter = Self::res_iterator(&root, Rc::clone(&vm), cur_inst_span, &mut nursery)?;
+        let mut iter = Self::res_iterator(&root, &mut nursery)?;
 
         // TODO: Almost assuredly, this will not work with continuations, since we won't be
         // able to capture the rust stack. The best thing to do is probably to "reconstruct"
@@ -206,14 +236,10 @@ impl<'global, 'a> VmCore<'a> {
                             let mut arg_vec = [arg?];
                             func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
                         })),
+                        // A closure that doesn't take one argument raises
+                        // when it's first called, like any other call
                         SteelVal::Closure(closure) => {
-                            let multi_arity = if !closure.is_multi_arity() && closure.arity != 1 {
-                                stop!(ArityMismatch => "map expects a function with one arg");
-                            } else {
-                                closure.is_multi_arity()
-                            };
-
-                            if multi_arity {
+                            if closure.is_multi_arity() {
                                 Box::new(iter.map(move |arg| {
                                     vm_copy
                                         .borrow_mut()
@@ -270,29 +296,7 @@ impl<'global, 'a> VmCore<'a> {
 
                                     match res {
                                         Ok(x) => {
-                                            match x {
-                                                SteelVal::VectorV(v) => {
-                                                    Box::new(v.0.unwrap().into_iter().map(Ok))
-                                                }
-                                                // TODO this needs to be fixed
-                                                SteelVal::StringV(s) => Box::new(
-                                                    s.chars()
-                                                        .map(|x| Ok(SteelVal::CharV(x)))
-                                                        .collect::<Vec<_>>()
-                                                        .into_iter(),
-                                                ),
-                                                SteelVal::ListV(l) => {
-                                                    Box::new(l.into_iter().map(Ok))
-                                                }
-                                                // SteelVal::StructV(s) => {
-                                                //     Box::new(s.unwrap().fields.into_iter().map(Ok))
-                                                // }
-                                                els => {
-                                                    let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {els}")).with_span(*cur_inst_span);
-
-                                                    Box::new(core::iter::once(Err(err)))
-                                                }
-                                            }
+                                            Self::collection_iterator(x, cur_inst_span, "flatten")
                                         }
                                         err => Box::new(core::iter::once(err)),
                                     }
@@ -305,78 +309,29 @@ impl<'global, 'a> VmCore<'a> {
                     Box::new(iter.flat_map(switch_statement))
                 }
                 Transducers::Flatten => {
-                    // TODO figure out how to use strings here
                     let switch_statement =
                         move |arg: Result<SteelVal>| -> Box<dyn Iterator<Item = Result<SteelVal>>> {
                             match arg {
-                                Ok(x) => {
-                                    match x {
-                                        SteelVal::VectorV(v) => {
-                                            Box::new(v.0.unwrap().into_iter().map(Ok))
-                                        }
-                                        // TODO this needs to be fixed
-                                        SteelVal::StringV(s) => Box::new(
-                                            s.chars()
-                                                .map(|x| Ok(SteelVal::CharV(x)))
-                                                .collect::<Vec<_>>()
-                                                .into_iter(),
-                                        ),
-                                        SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
-                                        // SteelVal::StructV(s) => {
-                                        //     Box::new(s.unwrap().fields.into_iter().map(Ok))
-                                        // }
-                                        els => {
-                                            let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {els}")).with_span(*cur_inst_span);
-
-                                            Box::new(core::iter::once(Err(err)))
-                                        }
-                                    }
-                                }
+                                Ok(x) => Self::collection_iterator(x, cur_inst_span, "flatten"),
                                 err => Box::new(core::iter::once(err)),
                             }
                         };
 
                     Box::new(iter.flat_map(switch_statement))
-
-                    // todo!()
                 }
-                Transducers::Window(_num) => {
-                    todo!()
-                }
-                Transducers::TakeWhile(_func) => {
-                    todo!()
-                }
-                Transducers::DropWhile(_func) => {
-                    todo!()
+                // No function makes these
+                Transducers::Window(_)
+                | Transducers::TakeWhile(_)
+                | Transducers::DropWhile(_)
+                | Transducers::Cycle
+                | Transducers::MapPair(_) => {
+                    stop!(Generic => "transduce: this transducer is not implemented"; *cur_inst_span)
                 }
                 Transducers::Extend(collection) => {
-                    let extender: Box<dyn Iterator<Item = Result<SteelVal>>> =
-                        match collection.clone() {
-                            SteelVal::VectorV(v) => Box::new(v.0.unwrap().into_iter().map(Ok)),
-                            // TODO this needs to be fixed
-                            SteelVal::StringV(s) => Box::new(
-                                s.chars()
-                                    .map(|x| Ok(SteelVal::CharV(x)))
-                                    .collect::<Vec<_>>()
-                                    .into_iter(),
-                            ),
-                            SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
-                            // SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
-                            els => {
-                                let err = SteelErr::new(
-                                    ErrorKind::TypeMismatch,
-                                    format!("extending expected a traversable value, found: {els}"),
-                                )
-                                .with_span(*cur_inst_span);
-
-                                Box::new(core::iter::once(Err(err)))
-                            }
-                        };
+                    let extender =
+                        Self::collection_iterator(collection.clone(), cur_inst_span, "extending");
 
                     Box::new(iter.chain(extender))
-                }
-                Transducers::Cycle => {
-                    todo!()
                 }
                 Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),
                 Transducers::Drop(num) => generate_drop!(iter, num, cur_inst_span),
@@ -386,61 +341,20 @@ impl<'global, 'a> VmCore<'a> {
                     ))
                 })),
                 Transducers::Zipping(collection) => {
-                    let zipped: Box<dyn Iterator<Item = Result<SteelVal>>> =
-                        match collection.clone() {
-                            SteelVal::VectorV(v) => Box::new(v.0.unwrap().into_iter().map(Ok)),
-                            // TODO this needs to be fixed
-                            SteelVal::StringV(s) => Box::new(
-                                s.chars()
-                                    .map(|x| Ok(SteelVal::CharV(x)))
-                                    .collect::<Vec<_>>()
-                                    .into_iter(),
-                            ),
-                            SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
-                            // SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
-                            els => {
-                                let err = SteelErr::new(
-                                    ErrorKind::TypeMismatch,
-                                    format!("extending expected a traversable value, found: {els}"),
-                                )
-                                .with_span(*cur_inst_span);
-
-                                Box::new(core::iter::once(Err(err)))
-                            }
-                        };
+                    let zipped =
+                        Self::collection_iterator(collection.clone(), cur_inst_span, "zipping");
                     Box::new(
                         iter.zip(zipped)
                             .map(|x| Ok(SteelVal::ListV(vec![x.0?, x.1?].into()))),
                     )
                 }
                 Transducers::Interleaving(collection) => {
-                    let other: Box<dyn Iterator<Item = Result<SteelVal>>> = match collection.clone()
-                    {
-                        SteelVal::VectorV(v) => Box::new(v.0.unwrap().into_iter().map(Ok)),
-                        // TODO this needs to be fixed
-                        SteelVal::StringV(s) => Box::new(
-                            s.chars()
-                                .map(|x| Ok(SteelVal::CharV(x)))
-                                .collect::<Vec<_>>()
-                                .into_iter(),
-                        ),
-                        SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
-                        // SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
-                        els => {
-                            let err = SteelErr::new(
-                                ErrorKind::TypeMismatch,
-                                format!("extending expected a traversable value, found: {els}"),
-                            )
-                            .with_span(*cur_inst_span);
-
-                            Box::new(core::iter::once(Err(err)))
-                        }
-                    };
+                    let other = Self::collection_iterator(
+                        collection.clone(),
+                        cur_inst_span,
+                        "interleaving",
+                    );
                     Box::new(interleave(iter, other))
-                }
-
-                Transducers::MapPair(_p) => {
-                    todo!("Implement mapping a function with two args over a collection that produces two args")
                 }
             }
         }
@@ -455,39 +369,41 @@ impl<'global, 'a> VmCore<'a> {
         cur_inst_span: &Span,
     ) -> Result<SteelVal> {
         match reducer {
-            // TODO this only works with integer values right now
-            Reducer::Sum => {
-                iter.map(|x| match x? {
-                    SteelVal::IntV(v) => {
-                        Ok(v)
-                    }
-                    other => {
-                        stop!(TypeMismatch => "sum expects an integer value, found: {:?}", other)
-                    }
-                })
-                .sum::<Result<isize>>()
-                .map(SteelVal::IntV)
-            },
+            // The same arithmetic and comparisons as `+`, `*`, `max` and `min`
+            Reducer::Sum => iter.try_fold(SteelVal::IntV(0), |acc, x| add_primitive(&[acc, x?])),
             Reducer::Multiply => {
-                iter.map(|x| match x? {
-                    SteelVal::IntV(v) => {
-                        Ok(v)
-                    }
-                    other => {
-                        stop!(TypeMismatch => "sum expects an integer value, found: {:?}", other)
-                    }
-                })
-                .product::<Result<isize>>()
-                .map(SteelVal::IntV)
+                iter.try_fold(SteelVal::IntV(1), |acc, x| multiply_primitive(&[acc, x?]))
             }
-            Reducer::Max => todo!(),
-            Reducer::Min => todo!(),
-            Reducer::Count => {
-                Ok(SteelVal::IntV(iter.count().try_into().unwrap())) // TODO have proper big int
-            },
-            Reducer::Nth(usize) => {
-                iter.nth(*usize).unwrap_or_else(|| stop!(Generic => "`nth` - index given is greater than the length of the iterator"))
-            },
+            Reducer::Max | Reducer::Min => {
+                let (name, better): (&str, fn(&[SteelVal]) -> Result<SteelVal>) =
+                    if matches!(reducer, Reducer::Max) {
+                        ("max", greater_than)
+                    } else {
+                        ("min", less_than)
+                    };
+                let mut best: Option<SteelVal> = None;
+                for x in iter {
+                    let x = x?;
+                    best = Some(match best {
+                        Some(b) if better(&[x.clone(), b.clone()])? != SteelVal::BoolV(true) => b,
+                        _ => x,
+                    });
+                }
+                best.ok_or_else(throw!(Generic => format!("`{name}` found empty list - `{name}` requires at least one element in the sequence")))
+            }
+            // Each of these stops at the first error, without running anything after it
+            Reducer::Count => iter
+                .try_fold(0isize, |count, x| x.map(|_| count + 1))
+                .map(SteelVal::IntV),
+            Reducer::Nth(n) => {
+                for (i, x) in iter.enumerate() {
+                    let x = x?;
+                    if i == *n {
+                        return Ok(x);
+                    }
+                }
+                stop!(Generic => "`nth` - index given is greater than the length of the iterator")
+            }
             Reducer::List => iter.collect::<Result<List<_>>>().map(SteelVal::ListV),
             Reducer::Vector => vec_construct_iter(iter),
             Reducer::HashMap => {
@@ -495,7 +411,7 @@ impl<'global, 'a> VmCore<'a> {
                     match x? {
                         SteelVal::ListV(l) => {
                             if l.len() != 2 {
-                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {l:?}"));
+                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {}", SteelVal::ListV(l)));
                             } else {
                                 let mut iter = l.into_iter();
                                 Ok((iter.next().unwrap(), iter.next().unwrap()))
@@ -503,7 +419,7 @@ impl<'global, 'a> VmCore<'a> {
                         }
                         SteelVal::VectorV(l) => {
                             if l.len() != 2 {
-                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {:?}", &l.0));
+                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {}", SteelVal::VectorV(l)));
                             } else {
                                 let mut iter = l.iter();
                                 Ok((iter.next().cloned().unwrap(), iter.next().cloned().unwrap()))
@@ -531,7 +447,9 @@ impl<'global, 'a> VmCore<'a> {
                     }
                 })).collect::<Result<String>>().map(|x| SteelVal::StringV(x.into()))
             },
-            Reducer::Last => iter.last().unwrap_or_else(|| stop!(Generic => "`last` found empty list - `last` requires at least one element in the sequence")),
+            Reducer::Last => iter
+                .try_fold(None, |_, x| x.map(Some))?
+                .ok_or_else(throw!(Generic => "`last` found empty list - `last` requires at least one element in the sequence")),
             Reducer::ForEach(f) => {
                 for value in iter {
                     vm_ctx.borrow_mut().call_func_or_else(
@@ -545,20 +463,15 @@ impl<'global, 'a> VmCore<'a> {
                 Ok(SteelVal::Void)
             },
             Reducer::Generic(reducer) => {
-
-                let initial_value = Ok(reducer.initial_value.clone());
-
-                let switch_statement = move |acc, x| {
+                iter.try_fold(reducer.initial_value.clone(), |acc, x| {
                     vm_ctx.borrow_mut().call_func_or_else_two_args(
                         &reducer.function,
-                        acc?,
+                        acc,
                         x?,
                         cur_inst_span,
                         throw!(TypeMismatch => "reduce expected a function"; *cur_inst_span),
                     )
-                };
-
-                iter.fold(initial_value, switch_statement)
+                })
             }
         }
     }

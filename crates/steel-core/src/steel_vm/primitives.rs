@@ -50,7 +50,7 @@ use crate::{
             VEC_CAR_DEFINITION, VEC_CDR_DEFINITION, VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION,
             VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION, VEC_REF_DEFINITION,
         },
-        ControlOperations, IoFunctions, MetaOperations, StreamOperations,
+        ControlOperations, IoFunctions, MetaOperations,
     },
     rerrs::ErrorKind,
     rvals::{
@@ -1126,7 +1126,7 @@ pub fn symbolp(value: &SteelVal) -> bool {
 /// #false
 /// ```
 #[steel_derive::function(name = "hash?", constant = true, args(Any), raises = Never)]
-fn hashp(value: &SteelVal) -> bool {
+pub fn hashp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashMapV(_))
 }
 
@@ -1387,15 +1387,10 @@ fn identity_module() -> BuiltInModule {
     module
 }
 
+// Streams are written in scheme, in `#%private/steel/streams`. The module
+// stays so that requiring it still works.
 fn stream_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/streams");
-    module
-        .register_value("stream-cons", StreamOperations::stream_cons())
-        .register_value("empty-stream", StreamOperations::empty_stream())
-        .register_value("stream-empty?", StreamOperations::stream_empty_huh())
-        .register_value("stream-car", StreamOperations::stream_car())
-        .register_value("#%stream-cdr", StreamOperations::stream_cdr());
-    module
+    BuiltInModule::new("steel/streams")
 }
 
 // fn contract_module() -> BuiltInModule {
@@ -2711,7 +2706,7 @@ fn module_exports(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal
             }
         }
     }
-    Some(module_exports_impl(ctx, args))
+    Some(module_exports_impl(ctx, args).map(|exports| ctx.intern_symbols(exports)))
 }
 
 fn meta_module() -> BuiltInModule {
@@ -2823,10 +2818,7 @@ fn meta_module() -> BuiltInModule {
         .register_fn("function-arity", arity)
         .register_fn("arity-object->list", arity_to_list)
         .register_fn("function-name", lookup_function_name)
-        .register_fn(
-            "function-signature",
-            super::host_signature::signature_clauses,
-        )
+        .register_native_fn_definition(super::host_signature::FUNCTION_SIGNATURE_DEFINITION)
         .register_fn("#%native-fn-ptr-doc", lookup_doc)
         .register_fn("#%native-fn-ptr-doc->string", lookup_doc_value)
         .register_fn("multi-arity?", is_multi_arity)
@@ -2932,7 +2924,7 @@ fn command_line() -> SteelList<String> {
 fn json_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/json");
     module
-        .register_native_fn_definition(crate::values::json_vals::STRING_TO_JSEXPR_DEFINITION)
+        .register_native_fn_definition(crate::values::json_vals::STRING_TO_JSEXPR_INTERNED_DEFINITION)
         .register_native_fn_definition(
             crate::values::json_vals::SERIALIZE_VAL_TO_STRING_DEFINITION,
         );

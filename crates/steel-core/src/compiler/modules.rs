@@ -131,6 +131,8 @@ declare_builtins!(
     "#%private/steel/stdlib" => "../scheme/stdlib.scm",
     "#%private/steel/match" => "../scheme/modules/match.scm",
     "#%private/steel/sort" => "../scheme/modules/sort.scm",
+    "#%private/steel/streams" => "../scheme/modules/streams.scm",
+    "#%private/steel/transducers" => "../scheme/modules/transducers.scm",
     "steel/serde" => "../scheme/modules/serde.scm",
     "steel/signatures" => "../scheme/modules/signatures.scm"
 );
@@ -144,6 +146,8 @@ create_prelude!(
     "#%private/steel/reader",
     "#%private/steel/match",
     "#%private/steel/sort",
+    "#%private/steel/streams",
+    "#%private/steel/transducers",
     for_syntax "#%private/steel/control",
     for_syntax "#%private/steel/contract"
 );
