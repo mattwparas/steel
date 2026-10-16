@@ -3,6 +3,7 @@ use alloc::borrow::Cow;
 use crate::steel_vm::engine::Engine;
 
 mod assigned_locals;
+mod bytevectors_from_host;
 #[cfg(all(feature = "sync", feature = "jit2"))]
 mod compiled_shape;
 mod continuations_from_host;

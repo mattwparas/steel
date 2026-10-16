@@ -1425,6 +1425,100 @@ impl SteelByteVector {
             vec: Gc::new(SpinLock::new(vec)),
         }
     }
+
+    /// The bytes, readable until the returned guard drops.
+    ///
+    /// The guard holds the bytevector's lock, which isn't reentrant. Don't
+    /// run Steel code while holding it. Code that touches this bytevector
+    /// would wait on the lock forever, or, compiled and with only one thread
+    /// running, which skips the lock, write to the bytes while they're
+    /// borrowed. [`SteelByteVector::with_bytes`] scopes the borrow to a
+    /// closure, which makes that harder to get wrong.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use steel::rvals::SteelByteVector;
+    /// let bytes = SteelByteVector::new(vec![1, 2, 3]);
+    /// assert_eq!(&*bytes.bytes(), &[1, 2, 3]);
+    /// ```
+    pub fn bytes(&self) -> ByteVectorBytes<'_> {
+        ByteVectorBytes(self.vec.read())
+    }
+
+    /// The bytes, writable until the returned guard drops. They can be
+    /// changed but not added to or removed. The same rules as
+    /// [`SteelByteVector::bytes`] apply.
+    pub fn bytes_mut(&self) -> ByteVectorBytesMut<'_> {
+        ByteVectorBytesMut(self.vec.write())
+    }
+
+    /// Calls `f` with the bytes. The same rules as [`SteelByteVector::bytes`]
+    /// apply inside `f`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use steel::rvals::SteelByteVector;
+    /// let bytes = SteelByteVector::new(vec![1, 2, 3]);
+    /// assert_eq!(bytes.with_bytes(|b| b.iter().map(|&x| x as u32).sum::<u32>()), 6);
+    /// ```
+    pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+        f(&self.bytes())
+    }
+
+    /// Calls `f` with the bytes, which it can change but not add to or
+    /// remove. The same rules as [`SteelByteVector::bytes`] apply inside `f`.
+    pub fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+        f(&mut self.bytes_mut())
+    }
+
+    /// A copy of the bytes.
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.bytes().to_vec()
+    }
+
+    /// The number of bytes.
+    pub fn len(&self) -> usize {
+        self.vec.read().len()
+    }
+
+    /// Whether there are no bytes.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// The bytes of a [`SteelByteVector`], from [`SteelByteVector::bytes`].
+/// Holds the bytevector's lock until dropped.
+#[must_use = "the lock is released as soon as the guard drops"]
+pub struct ByteVectorBytes<'a>(crate::values::lock::SpinGuard<'a, steel_vec::Vec<u8>>);
+
+impl core::ops::Deref for ByteVectorBytes<'_> {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// The bytes of a [`SteelByteVector`], from [`SteelByteVector::bytes_mut`].
+/// Holds the bytevector's lock until dropped.
+#[must_use = "the lock is released as soon as the guard drops"]
+pub struct ByteVectorBytesMut<'a>(crate::values::lock::SpinGuard<'a, steel_vec::Vec<u8>>);
+
+impl core::ops::Deref for ByteVectorBytesMut<'_> {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl core::ops::DerefMut for ByteVectorBytesMut<'_> {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
 }
 
 impl PartialEq for SteelByteVector {
