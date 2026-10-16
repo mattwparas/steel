@@ -4,8 +4,7 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
-# Its own workspace, so the parent one does not try to build it without the afl
-# instrumentation.
+# Its own workspace, so the parent one does not build it without afl instrumentation.
 [workspace]
 
 [dependencies]
@@ -13,8 +12,7 @@ afl = "0.15"
 steel-parser = { path = ".." }
 
 [profile.release]
-# The parser states a number of its invariants as `debug_assert!`, which are worth
-# checking while fuzzing.
+# The parser has `debug_assert!` invariants worth checking while fuzzing.
 debug-assertions = true
 overflow-checks = true
 # A panic has to look like a crash to afl.
