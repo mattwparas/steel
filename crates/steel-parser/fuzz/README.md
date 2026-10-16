@@ -10,7 +10,7 @@ cargo afl build --release
 cargo afl fuzz -i in -o out -x steel.dict target/release/chunked # Or pick which one
 ```
 
-## Replaying a crash
+## Replaying
 
 ```sh
 target/release/chunked < out/default/crashes/id:000000,...

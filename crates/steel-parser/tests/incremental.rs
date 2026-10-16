@@ -1,6 +1,6 @@
 use steel_parser::differential::{check, rework};
 
-const CORPUS: &[&str] = &[
+const PROGRAMS: &[&str] = &[
     "1",
     "(a b c)",
     "(a (b (c (d))))",
@@ -57,16 +57,31 @@ const CORPUS: &[&str] = &[
     "(equal? x '(quote ()))",
     "'(quote ())",
     "(a)#!eof\n(b)",
-    "#!,e)",       // shebang line split across a chunk
-    "#! x\n(a b)", // shebang line that is complete
-    ",@#;a b ",    // a prefix whose datum is behind a `#;`
+    "#!,e)",
+    "#! x\n(a b)",
+    ",@#;a b ",
     ",@#;(a b) c ",
-    ".||mn",                // malformed identifier the lexer carries on past
-    "(list \"a\" #\\b 'c)", // `#\` split from its character
+    ".||mn",
+    "(list \"a\" #\\b 'c)",
     "#u8(-2.5 (#u8(1 2)",
     "\"\\\u{1}\u{0}\u{b} a",
     "('(a .) a (...) ; comment\n a a (,@|odd ident|) '#| block |# '; comment\n a)",
+    "; line\n#| block |# (a #;(b) c)",
+    "#;(skipped) (kept)",
+    "((((((((((((x))))))))))))",
+    "(1 -2.5 1/2 #x1f +inf.0)",
+    "`(a ,b ,@c (d ,(e f)))",
+    "''(1 2)",
+    ")",
+    "(\"a\\nb\" #\\a #\\space |odd ident|)",
+    "(a #'b #`c #,d #,@e)",
+    "(a (b",
+    "#(1 2 #u8(3 4))",
 ];
+
+fn programs() -> impl Iterator<Item = &'static str> {
+    PROGRAMS.iter().copied()
+}
 
 fn long(prefix: &str, suffix: &str) -> String {
     let mut out = String::from(prefix);
@@ -81,11 +96,22 @@ fn long(prefix: &str, suffix: &str) -> String {
     out
 }
 
+fn shapes() -> [String; 6] {
+    [
+        long("", ""),
+        long("'", ""),
+        long("`", ""),
+        long("''", ""),
+        long("(define data '", ")"),
+        long("#;(skipped) ", ""),
+    ]
+}
+
 #[test]
 fn chunked_matches_one_shot() {
     let mut failures = Vec::new();
 
-    for input in CORPUS {
+    for input in programs() {
         for chunk in [1usize, 2, 3, 5, 7, 13, 64] {
             if let Err(err) = check(input, chunk) {
                 failures.push(err);
@@ -103,10 +129,10 @@ fn chunked_matches_one_shot() {
 
 #[test]
 fn chunked_matches_one_shot_on_a_large_datum() {
-    let input = long("", "");
-
-    for chunk in [1usize, 3, 17, 256] {
-        check(&input, chunk).unwrap();
+    for input in shapes() {
+        for chunk in [1usize, 3, 17, 256] {
+            check(&input, chunk).unwrap();
+        }
     }
 }
 
@@ -120,7 +146,7 @@ fn chunked_matches_one_shot_at_pseudorandom_boundaries() {
         seed
     };
 
-    for input in CORPUS {
+    for input in programs() {
         for _ in 0..25 {
             check(input, (next() % 9) as usize + 1).unwrap();
         }
@@ -129,14 +155,7 @@ fn chunked_matches_one_shot_at_pseudorandom_boundaries() {
 
 #[test]
 fn a_long_datum_is_not_reparsed() {
-    for shape in [
-        long("", ""),                // plain
-        long("'", ""),               // prefix outside any list
-        long("`", ""),               // quasiquote outside any list
-        long("''", ""),              // stacked prefixes
-        long("(define data '", ")"), // prefix inside a list
-        long("#;(skipped) ", ""),    // after a datum comment
-    ] {
+    for shape in shapes() {
         let factor = rework(&shape, 1);
 
         assert!(
@@ -150,7 +169,7 @@ fn a_long_datum_is_not_reparsed() {
 
 #[test]
 fn short_datums_resume_too() {
-    for input in CORPUS {
+    for input in programs() {
         assert!(rework(input, 1) < 1.5, "reparsed {:?}", input);
     }
 }
