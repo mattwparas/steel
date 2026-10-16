@@ -1,6 +1,9 @@
 (struct Foo (a b c))
 
-(assert! (equal? (Foo 10 20 30) (Foo 10 20 30)))
+;; An opaque struct is only equal? to itself
+(assert! (not (equal? (Foo 10 20 30) (Foo 10 20 30))))
+(let ([foo (Foo 10 20 30)])
+  (assert! (equal? foo foo)))
 
 (assert! (Foo? (Foo 10 20 30)))
 (assert! (not (Foo? 10)))

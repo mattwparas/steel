@@ -1,4 +1,4 @@
-(struct s (x))
+(struct s (x) #:transparent)
 
 ;; The same value twice on each side
 (define (same-twice? a b)

@@ -58,6 +58,9 @@ pub struct VTableEntry {
     pub(crate) proc: Option<usize>,
     pub(crate) transparent: bool,
     pub(crate) mutable: bool,
+    // The fields `equal?` and hashing leave out, from `#:equality-skip`, by
+    // index
+    pub(crate) equality_skip: Option<Arc<[usize]>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -128,7 +131,42 @@ impl VTableEntry {
             properties: DEFAULT_PROPERTIES.with(|x| x.clone()),
             transparent: false,
             mutable: false,
+            equality_skip: None,
         }
+    }
+}
+
+/// How `equal?` and hashing treat the instances of a struct type. An opaque
+/// struct is only equal to itself. A transparent one is equal to another of
+/// the same type whose fields are equal, except the ones in `skip`.
+pub(crate) struct StructEquality {
+    pub(crate) transparent: bool,
+    pub(crate) skip: Option<Arc<[usize]>>,
+}
+
+impl StructEquality {
+    #[inline]
+    pub(crate) fn compares(&self, index: usize) -> bool {
+        self.skip.as_ref().is_none_or(|skip| !skip.contains(&index))
+    }
+}
+
+/// The field indices in a struct's `#:equality-skip` option.
+fn equality_skip_of(
+    properties: &HashMap<SteelVal, SteelVal>,
+    key: &SteelVal,
+) -> Option<Arc<[usize]>> {
+    match properties.get(key) {
+        Some(SteelVal::ListV(indices)) if !indices.is_empty() => Some(
+            indices
+                .iter()
+                .filter_map(|index| match index {
+                    SteelVal::IntV(i) if *i >= 0 => Some(*i as usize),
+                    _ => None,
+                })
+                .collect(),
+        ),
+        _ => None,
     }
 }
 
@@ -210,6 +248,30 @@ impl StructTypeDescriptor {
 
     pub fn key(&self) -> usize {
         self.0
+    }
+
+    /// How `equal?` and hashing treat this type's instances. Copied out, so
+    /// the table isn't locked while the fields are compared or hashed.
+    #[cfg(feature = "sync")]
+    pub(crate) fn equality(&self) -> StructEquality {
+        let guard = STATIC_VTABLE.read();
+        let entry = &guard.entries[self.0];
+        StructEquality {
+            transparent: entry.transparent,
+            skip: entry.equality_skip.clone(),
+        }
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub(crate) fn equality(&self) -> StructEquality {
+        VTABLE.with(|x| {
+            let guard = x.borrow();
+            let entry = &guard.entries[self.0];
+            StructEquality {
+                transparent: entry.transparent,
+                skip: entry.equality_skip.clone(),
+            }
+        })
     }
 
     /// The descriptor whose `key` this is.
@@ -947,9 +1009,57 @@ impl core::fmt::Display for StructRef {
     }
 }
 
+// Equal and hashed as `equal?` sees them. See `StructEquality`.
 impl PartialEq for StructRef {
     fn eq(&self, other: &Self) -> bool {
-        self.descriptor() == other.descriptor() && self.fields() == other.fields()
+        self.ptr_eq(other)
+            || fields_equal(
+                self.descriptor(),
+                self.fields(),
+                other.descriptor(),
+                other.fields(),
+            )
+    }
+}
+
+/// Whether two structs are `equal?`, given their types and fields. Neither is
+/// the other.
+fn fields_equal(
+    left: StructTypeDescriptor,
+    left_fields: &[SteelVal],
+    right: StructTypeDescriptor,
+    right_fields: &[SteelVal],
+) -> bool {
+    if left != right || left_fields.len() != right_fields.len() {
+        return false;
+    }
+    let equality = left.equality();
+    equality.transparent
+        && left_fields
+            .iter()
+            .zip(right_fields)
+            .enumerate()
+            .all(|(i, (l, r))| !equality.compares(i) || l == r)
+}
+
+/// Hashes a struct as `equal?` sees it, `identity` standing for the struct
+/// itself.
+fn hash_struct<H: std::hash::Hasher>(
+    descriptor: StructTypeDescriptor,
+    fields: &[SteelVal],
+    identity: usize,
+    state: &mut H,
+) {
+    let equality = descriptor.equality();
+    if !equality.transparent {
+        identity.hash(state);
+        return;
+    }
+    descriptor.hash(state);
+    for (i, field) in fields.iter().enumerate() {
+        if equality.compares(i) {
+            field.hash(state);
+        }
     }
 }
 
@@ -957,8 +1067,12 @@ impl Eq for StructRef {}
 
 impl Hash for StructRef {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.descriptor().hash(state);
-        self.fields().hash(state);
+        hash_struct(
+            self.descriptor(),
+            self.fields(),
+            self.as_ptr() as usize,
+            state,
+        )
     }
 }
 
@@ -1030,14 +1144,24 @@ impl UserDefinedStruct {
 // TODO: This could blow the stack for big trees...
 impl PartialEq for UserDefinedStruct {
     fn eq(&self, other: &Self) -> bool {
-        self.type_descriptor == other.type_descriptor && self.fields.deref() == other.fields.deref()
+        core::ptr::eq(self, other)
+            || fields_equal(
+                self.type_descriptor,
+                &self.fields,
+                other.type_descriptor,
+                &other.fields,
+            )
     }
 }
 
 impl Hash for UserDefinedStruct {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.type_descriptor.hash(state);
-        self.fields.deref().hash(state);
+        hash_struct(
+            self.type_descriptor,
+            &self.fields,
+            self as *const Self as usize,
+            state,
+        )
     }
 }
 
@@ -1953,6 +2077,21 @@ impl VTable {
         })
     }
 
+    /// A new entry for a struct type defined in rust whose instances compare
+    /// by their fields, as `Ok`, `Err`, `Some`, `None` and `TypeId` do.
+    pub fn new_transparent_entry(name: InternedString) -> StructTypeDescriptor {
+        let descriptor = Self::new_entry(name, None, None);
+        #[cfg(feature = "sync")]
+        {
+            STATIC_VTABLE.write().entries[descriptor.0].transparent = true;
+        }
+        #[cfg(not(feature = "sync"))]
+        {
+            VTABLE.with(|x| x.borrow_mut().entries[descriptor.0].transparent = true);
+        }
+        descriptor
+    }
+
     #[cfg(feature = "sync")]
     pub fn new_entry(
         name: InternedString,
@@ -1991,6 +2130,7 @@ impl VTable {
                 .get(&MUTABLE_KEY.with(|x| x.clone()))
                 .and_then(|x| x.as_bool())
                 .unwrap_or_default();
+            value.equality_skip = EQUALITY_SKIP_KEY.with(|key| equality_skip_of(&properties, key));
 
             value.properties = properties;
         })
@@ -2019,6 +2159,7 @@ impl VTable {
             .get(&STATIC_MUTABLE_KEY)
             .and_then(|x| x.as_bool())
             .unwrap_or_default();
+        value.equality_skip = equality_skip_of(&properties, &STATIC_EQUALITY_SKIP_KEY);
 
         value.properties = properties;
     }
@@ -2069,15 +2210,18 @@ pub static STATIC_TRANSPARENT_KEY: Lazy<SteelVal> =
 pub static STATIC_MUTABLE_KEY: Lazy<SteelVal> = Lazy::new(|| SteelVal::SymbolV("#:mutable".into()));
 #[cfg(feature = "sync")]
 pub static STATIC_FIELDS_KEY: Lazy<SteelVal> = Lazy::new(|| SteelVal::SymbolV("#:fields".into()));
+#[cfg(feature = "sync")]
+pub static STATIC_EQUALITY_SKIP_KEY: Lazy<SteelVal> =
+    Lazy::new(|| SteelVal::SymbolV("#:equality-skip".into()));
 
 pub static STATIC_OK_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*OK_RESULT_LABEL, None, None));
+    Lazy::new(|| VTable::new_transparent_entry(*OK_RESULT_LABEL));
 pub static STATIC_ERR_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*ERR_RESULT_LABEL, None, None));
+    Lazy::new(|| VTable::new_transparent_entry(*ERR_RESULT_LABEL));
 pub static STATIC_SOME_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*SOME_OPTION_LABEL, None, None));
+    Lazy::new(|| VTable::new_transparent_entry(*SOME_OPTION_LABEL));
 pub static STATIC_NONE_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*NONE_OPTION_LABEL, None, None));
+    Lazy::new(|| VTable::new_transparent_entry(*NONE_OPTION_LABEL));
 
 // TODO: Just make these Arc'd and lazy static instead of thread local.
 thread_local! {
@@ -2085,6 +2229,7 @@ thread_local! {
     pub static TRANSPARENT_KEY: SteelVal = SteelVal::SymbolV("#:transparent".into());
     pub static MUTABLE_KEY: SteelVal = SteelVal::SymbolV("#:mutable".into());
     pub static FIELDS_KEY: SteelVal = SteelVal::SymbolV("#:fields".into());
+    pub static EQUALITY_SKIP_KEY: SteelVal = SteelVal::SymbolV("#:equality-skip".into());
 
     // Consult this to get values. It is possible, the vtable is _not_ populated for a given thread.
     // The only way that can happen is if a struct is constructed on another thread?
@@ -2194,7 +2339,7 @@ pub(crate) fn build_type_id_module() -> BuiltInModule {
 
     let name = *TYPE_ID;
 
-    let type_descriptor = VTable::new_entry(name, None, None);
+    let type_descriptor = VTable::new_transparent_entry(name);
 
     // Build the getter for the first index
     let getter = UserDefinedStruct::getter_prototype_index(type_descriptor, 0);

@@ -169,6 +169,25 @@
                       (hash-ref hm k)))
               keys)))
 
+;; The indices of the fields named in `#:equality-skip`, which `equal?` and
+;; hashing leave out. Only a transparent struct compares its fields at all.
+(define (equality-skip-indices skipped fields transparent? struct-name)
+  (unless transparent?
+    (error! "struct #:equality-skip needs #:transparent, since an opaque struct is only equal? to itself:"
+            struct-name))
+  (unless (and (list? skipped)
+               (let loop ([rest skipped])
+                 (or (null? rest) (and (symbol? (car rest)) (loop (cdr rest))))))
+    (error! "struct #:equality-skip expects a list of field names, found " skipped))
+  (map (lambda (name)
+         (let loop ([rest fields]
+                    [i 0])
+           (cond
+             [(null? rest) (error! "struct #:equality-skip names a field the struct doesn't have:" name)]
+             [(equal? (car rest) name) i]
+             [else (loop (cdr rest) (+ i 1))])))
+       skipped))
+
 (define (mutable-keyword? x)
   (equal? x '#:mutable))
 (define (transparent-keyword? x)
@@ -291,6 +310,16 @@
          [options-map (if (hash-try-get options-map '#:printer)
                           options-map
                           (hash-insert options-map '#:printer default-printer-function))]
+         [options-map (if (hash-contains? options-map '#:equality-skip)
+                          (hash-insert options-map
+                                       '#:equality-skip
+                                       (list 'quote
+                                             (equality-skip-indices (hash-ref options-map
+                                                                              '#:equality-skip)
+                                                                    fields
+                                                                    transparent?
+                                                                    struct-name)))
+                          options-map)]
          [maybe-procedure-field (hash-try-get options-map '#:prop:procedure)]
          [maybe-finalizer (hash-try-get options-map '#:finalizer)])
 

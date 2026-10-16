@@ -3,7 +3,7 @@
   (let loop ([i 0]
              [value (make 7 7)])
     (if (= i n) value (loop (+ i 1) (make value value)))))
-(struct two (x y))
+(struct two (x y) #:transparent)
 (define (found-again? make)
   (let ([key (doubled-with 50 make)]
         [same (doubled-with 50 make)])

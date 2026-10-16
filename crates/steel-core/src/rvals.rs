@@ -2132,21 +2132,46 @@ impl Hash for SteelVal {
                 state,
                 |state| hs.hash(state),
             ),
-            CustomStruct(s) => hash_container(
-                || Some((s.as_ptr() as usize, 0)),
-                state,
-                |state| s.hash(state),
-            ),
-            MutableStruct(s) => hash_container(
-                || Some((s.as_ptr() as usize, 0)),
-                state,
-                |state| {
-                    s.descriptor().hash(state);
-                    for field in s.fields() {
-                        field.hash(state);
-                    }
-                },
-            ),
+            // As `equal?` sees them: an opaque struct by its identity, and a
+            // transparent one by its type and the fields it compares
+            CustomStruct(s) => {
+                let equality = s.descriptor().equality();
+                if equality.transparent {
+                    hash_container(
+                        || Some((s.as_ptr() as usize, 0)),
+                        state,
+                        |state| {
+                            s.descriptor().hash(state);
+                            for (i, field) in s.fields().iter().enumerate() {
+                                if equality.compares(i) {
+                                    field.hash(state);
+                                }
+                            }
+                        },
+                    )
+                } else {
+                    (s.as_ptr() as usize).hash(state)
+                }
+            }
+            MutableStruct(s) => {
+                let equality = s.descriptor().equality();
+                if equality.transparent {
+                    hash_container(
+                        || Some((s.as_ptr() as usize, 0)),
+                        state,
+                        |state| {
+                            s.descriptor().hash(state);
+                            for (i, field) in s.fields().iter().enumerate() {
+                                if equality.compares(i) {
+                                    field.hash(state);
+                                }
+                            }
+                        },
+                    )
+                } else {
+                    (s.as_ptr() as usize).hash(state)
+                }
+            }
             PortV(port) => port.hash(state),
             IterV(s) => s.hash(state),
             ReducerV(r) => r.hash(state),

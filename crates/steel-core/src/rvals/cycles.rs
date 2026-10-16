@@ -2570,37 +2570,62 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
+                // An opaque struct is only equal to itself. Transparent ones of
+                // the same type compare their fields, less any the type skips.
                 (MutableStruct(l), MutableStruct(r)) => {
                     if l.ptr_eq(&r) {
                         continue;
                     }
 
+                    if l.descriptor() != r.descriptor() || l.len() != r.len() {
+                        return false;
+                    }
+
+                    let equality = l.descriptor().equality();
+                    if !equality.transparent {
+                        return false;
+                    }
+
                     if self.should_visit((l.as_ptr() as usize, 0), (r.as_ptr() as usize, 0)) {
-                        if l.descriptor() != r.descriptor() || l.len() != r.len() {
+                        let (left, right) = (l.fields(), r.fields());
+                        let pairs = left
+                            .iter()
+                            .zip(right.iter())
+                            .enumerate()
+                            .filter(|(i, _)| equality.compares(*i))
+                            .map(|(_, pair)| pair);
+                        if !self.compare_elements(pairs) {
                             return false;
                         }
-
-                        self.left.visit_mutable_struct(l);
-                        self.right.visit_mutable_struct(r);
                     }
 
                     continue;
                 }
                 (CustomStruct(l), CustomStruct(r)) => {
-                    // If these are the same object, just continue
                     if l.ptr_eq(&r) {
                         continue;
                     }
 
+                    if l.descriptor() != r.descriptor() {
+                        return false;
+                    }
+
+                    let equality = l.descriptor().equality();
+                    if !equality.transparent {
+                        return false;
+                    }
+
                     if self.should_visit((l.as_ptr() as usize, 0), (r.as_ptr() as usize, 0)) {
-                        // Check the top level equality indicators to make sure
-                        // that these two types are the same
-                        if !(l.descriptor() == r.descriptor() && l.name() == r.name()) {
+                        let pairs = l
+                            .fields()
+                            .iter()
+                            .zip(r.fields().iter())
+                            .enumerate()
+                            .filter(|(i, _)| equality.compares(*i))
+                            .map(|(_, pair)| pair);
+                        if !self.compare_elements(pairs) {
                             return false;
                         }
-
-                        self.left.visit_steel_struct(l);
-                        self.right.visit_steel_struct(r);
                     }
 
                     continue;

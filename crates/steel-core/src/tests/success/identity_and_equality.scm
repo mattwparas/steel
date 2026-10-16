@@ -1,6 +1,6 @@
 ;; `eq?` and `eqv?` say that a value is itself, for every kind that has an
 ;; identity, and `equal?` compares numbers of every kind wherever they are.
-(struct point (x y))
+(struct point (x y) #:transparent)
 (struct counter (n) #:mutable)
 
 ;; Run often enough that the compiled comparison is the one checked too.

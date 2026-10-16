@@ -1,4 +1,4 @@
-(struct thing (x))
+(struct thing (x) #:transparent)
 (define port (open-output-string))
 
 (define set (hashset (cons 0 0) (thing 1) (box 2) (box-strong 3) void eval (into-sum) port 'sym))
