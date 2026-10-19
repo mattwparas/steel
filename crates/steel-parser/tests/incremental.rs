@@ -112,7 +112,7 @@ fn chunked_matches_one_shot() {
     let mut failures = Vec::new();
 
     for input in programs() {
-        for chunk in [1usize, 2, 3, 5, 7, 13, 64] {
+        for chunk in [1usize, 2, 3, 4, 5, 6, 7, 8, 9, 13, 64] {
             if let Err(err) = check(input, chunk) {
                 failures.push(err);
             }
@@ -132,23 +132,6 @@ fn chunked_matches_one_shot_on_a_large_datum() {
     for input in shapes() {
         for chunk in [1usize, 3, 17, 256] {
             check(&input, chunk).unwrap();
-        }
-    }
-}
-
-#[test]
-fn chunked_matches_one_shot_at_pseudorandom_boundaries() {
-    let mut seed = 0x243f_6a88_85a3_08d3u64;
-    let mut next = move || {
-        seed ^= seed << 13;
-        seed ^= seed >> 7;
-        seed ^= seed << 17;
-        seed
-    };
-
-    for input in programs() {
-        for _ in 0..25 {
-            check(input, (next() % 9) as usize + 1).unwrap();
         }
     }
 }
