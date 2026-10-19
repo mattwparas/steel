@@ -131,7 +131,9 @@ fn chunked_matches_one_shot() {
 fn chunked_matches_one_shot_on_a_large_datum() {
     for input in shapes() {
         for chunk in [1usize, 3, 17, 256] {
-            check(&input, chunk).unwrap();
+            if let Err(err) = check(&input, chunk) {
+                panic!("{}", err);
+            }
         }
     }
 }

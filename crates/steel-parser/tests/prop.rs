@@ -3,7 +3,7 @@ use proptest::test_runner::FileFailurePersistence;
 use steel_parser::differential::{check, one_shot, rework};
 use steel_parser::parser::{Parser, SourceId};
 
-fn atom() -> impl Strategy<Value = String> {
+fn atom_strategy() -> impl Strategy<Value = String> {
     prop_oneof![
         Just("a".to_string()),
         Just("b".to_string()),
@@ -23,7 +23,7 @@ fn atom() -> impl Strategy<Value = String> {
     ]
 }
 
-fn prefix() -> impl Strategy<Value = String> {
+fn prefix_strategy() -> impl Strategy<Value = String> {
     prop_oneof![
         Just("'".to_string()),
         Just("`".to_string()),
@@ -37,7 +37,7 @@ fn prefix() -> impl Strategy<Value = String> {
     ]
 }
 
-fn open() -> impl Strategy<Value = (String, String)> {
+fn open_strategy() -> impl Strategy<Value = (String, String)> {
     prop_oneof![
         Just(("(".to_string(), ")".to_string())),
         Just(("[".to_string(), "]".to_string())),
@@ -47,23 +47,25 @@ fn open() -> impl Strategy<Value = (String, String)> {
     ]
 }
 
-fn source() -> impl Strategy<Value = String> {
-    atom().prop_recursive(5, 48, 5, |inner| {
+fn source_strategy() -> impl Strategy<Value = String> {
+    atom_strategy().prop_recursive(5, 48, 5, |inner| {
         prop_oneof![
-            (open(), prop::collection::vec(inner.clone(), 0..5))
+            (open_strategy(), prop::collection::vec(inner.clone(), 0..5))
                 .prop_map(|((open, close), parts)| format!("{}{}{}", open, parts.join(" "), close)),
-            (prefix(), inner.clone()).prop_map(|(prefix, inner)| format!("{}{}", prefix, inner)),
+            (prefix_strategy(), inner.clone())
+                .prop_map(|(prefix, inner)| format!("{}{}", prefix, inner)),
             (inner.clone(), inner).prop_map(|(left, right)| format!("{} {}", left, right)),
         ]
     })
 }
 
-fn long_source() -> impl Strategy<Value = String> {
-    prop::collection::vec(source(), 8..20).prop_map(|parts| format!("({})", parts.join(" ")))
+fn long_source_strategy() -> impl Strategy<Value = String> {
+    prop::collection::vec(source_strategy(), 8..20)
+        .prop_map(|parts| format!("({})", parts.join(" ")))
 }
 
-fn truncated_source() -> impl Strategy<Value = String> {
-    (source(), any::<prop::sample::Index>()).prop_map(|(text, index)| {
+fn truncated_source_strategy() -> impl Strategy<Value = String> {
+    (source_strategy(), any::<prop::sample::Index>()).prop_map(|(text, index)| {
         let mut at = index.index(text.len() + 1);
         while at < text.len() && !text.is_char_boundary(at) {
             at += 1;
@@ -82,7 +84,7 @@ proptest! {
 
     #[test]
     fn chunking_does_not_change_the_result(
-        input in truncated_source(),
+        input in truncated_source_strategy(),
         chunk in 1usize..40,
     ) {
         if let Err(err) = check(&input, chunk) {
@@ -106,7 +108,7 @@ proptest! {
     }
 
     #[test]
-    fn spans_stay_inside_the_input(input in source()) {
+    fn spans_stay_inside_the_input(input in source_strategy()) {
         for expr in Parser::new_flat(&input, SourceId::none()) {
             let Ok(expr) = expr else { break };
 
@@ -121,7 +123,7 @@ proptest! {
     }
 
     #[test]
-    fn offsets_advance_within_the_input(input in source()) {
+    fn offsets_advance_within_the_input(input in source_strategy()) {
         let mut parser = Parser::new_flat(&input, SourceId::none());
         let mut previous = 0;
 
@@ -139,7 +141,7 @@ proptest! {
     }
 
     #[test]
-    fn chunked_reading_does_not_reparse(input in long_source()) {
+    fn chunked_reading_does_not_reparse(input in long_source_strategy()) {
         let factor = rework(&input, 8);
         prop_assert!(factor < 1.5, "reparsed {:.1}x for {:?}", factor, input);
     }

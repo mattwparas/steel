@@ -294,7 +294,7 @@ pub fn with_stdout(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelE
 
                 Err(err) => {
                     let buffered = err.is_buffered();
-                    // Make sure we drop the guard before formatting since we'll take a lock during display
+                    // Drop the guard before formatting, since display takes a lock
                     *guard = err.into_port();
                     drop(guard);
 
@@ -348,7 +348,7 @@ pub fn with_stderr(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelE
 
                 Err(err) => {
                     let buffered = err.is_buffered();
-                    // Make sure we drop the guard before formatting since we'll take a lock during display
+                    // Drop the guard before formatting, since display takes a lock
                     *guard = err.into_port();
                     drop(guard);
 
@@ -402,7 +402,7 @@ pub fn with_stdin(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelEr
 
                 Err(err) => {
                     let buffered = err.is_buffered();
-                    // Make sure we drop the guard before formatting since we'll take a lock during display
+                    // Drop the guard before formatting, since display takes a lock
                     *guard = err.into_port();
                     drop(guard);
 
