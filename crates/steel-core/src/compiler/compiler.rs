@@ -542,7 +542,11 @@ impl Compiler {
             }
 
             // All the macros that exist in the modules macro environments
-            for module in self.modules().values() {
+            for (path, module) in self.modules() {
+                if let Some(id) = self.sources.get_source_id(path) {
+                    sources.add(id);
+                }
+
                 for expr in &module.ast {
                     sources.visit(expr);
                 }

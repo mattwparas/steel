@@ -1113,3 +1113,24 @@ mod ffi_shared_receiver_tests {
         assert_eq!(result, "(#true #false #true)");
     }
 }
+
+#[cfg(test)]
+mod source_gc_tests {
+    use crate::steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
+
+    #[test]
+    fn required_module_survives_sources_gc() {
+        let mut engine = Engine::new();
+        let mut module = BuiltInModule::new("#%test/builtin");
+        module.register_fn("one", || 1);
+        engine.register_module(module);
+        engine.register_steel_module(
+            "reexport".to_string(),
+            "(require-builtin #%test/builtin) (provide one)".to_string(),
+        );
+        let program = format!("(require \"reexport\")\n;{}", "x".repeat(1 << 20));
+        for _ in 0..10 {
+            engine.compile_and_run_raw_program(program.clone()).unwrap();
+        }
+    }
+}
