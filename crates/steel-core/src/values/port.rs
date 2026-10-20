@@ -198,6 +198,8 @@ impl<R: Read> Peekable<R> {
             return Err(err.into());
         }
 
+        self.consumed_any = true;
+
         Ok(MaybeBlocking::Nonblocking(Some(byte[0])))
     }
 
@@ -286,7 +288,11 @@ impl<R: Read> Peekable<R> {
         let peeked = amt;
 
         match read_full(&mut self.inner, &mut buf[peeked..], &mut amt) {
-            Ok(MaybeBlocking::Nonblocking(())) => Ok(MaybeBlocking::Nonblocking(amt)),
+            Ok(MaybeBlocking::Nonblocking(())) => {
+                self.consumed_any |= amt > 0;
+
+                Ok(MaybeBlocking::Nonblocking(amt))
+            }
             Ok(MaybeBlocking::WouldBlock) => Ok(MaybeBlocking::WouldBlock),
             Err(err) => {
                 self.unconsume(&buf[..amt], at_source_start);
@@ -312,6 +318,8 @@ impl<R: Read> Peekable<R> {
             return Err(err.into());
         }
 
+        self.consumed_any |= buf.len() > start;
+
         Ok(MaybeBlocking::Nonblocking(buf.len() - start))
     }
 
@@ -336,6 +344,7 @@ impl<R: Read> Peekable<R> {
         match String::from_utf8(bytes) {
             Ok(str) => {
                 buf.push_str(&str);
+                self.consumed_any |= amt > 0;
 
                 Ok(MaybeBlocking::Nonblocking(amt))
             }
@@ -1405,6 +1414,29 @@ mod port_tests {
 
         peekable.consume(1);
         assert!(!peekable.at_source_start());
+    }
+
+    #[test]
+    fn read_byte_past_the_buffer_hands_a_byte_out() {
+        let mut peekable = Peekable::new(Cursor::new(b"abc".to_vec()));
+
+        assert_eq!(nonblocking(peekable.read_byte().unwrap()), Some(b'a'));
+        assert!(
+            !peekable.at_source_start(),
+            "the byte came straight from the source"
+        );
+    }
+
+    #[test]
+    fn read_bytes_past_the_buffer_hands_bytes_out() {
+        let mut peekable = Peekable::new(Cursor::new(b"abc".to_vec()));
+        let mut out = [0; 2];
+
+        assert_eq!(nonblocking(peekable.read_bytes_amt(&mut out).unwrap()), 2);
+        assert!(
+            !peekable.at_source_start(),
+            "the bytes came straight from the source"
+        );
     }
 
     #[test]
