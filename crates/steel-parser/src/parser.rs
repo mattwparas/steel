@@ -93,10 +93,9 @@ impl ExpansionMark {
     // instead of syntax objects.
     pub const UNKNOWN: Self = ExpansionMark(u32::MAX);
 
-    // Set on the marks of a macro whose template was resolved where the macro
-    // was defined, which is every macro of the prelude or provided by a
-    // module. The definer's own names were rewritten in the template, so a
-    // plain name left in it is a local of the template or a builtin.
+    // Set on macros whose template was resolved where they were defined, which is every macro
+    // in the prelude or provided by a module. A plain name left in such a template is a local of
+    // the template or a builtin.
     const DEFINITION_RESOLVED: u32 = 1 << 31;
 
     pub fn fresh() -> Self {
@@ -120,8 +119,7 @@ impl ExpansionMark {
         }
     }
 
-    // Whether the template this identifier came from was resolved where its
-    // macro was defined.
+    // Whether the template was resolved where its macro was defined
     pub fn is_definition_resolved(self) -> bool {
         self.is_template() && self.0 & Self::DEFINITION_RESOLVED != 0
     }
@@ -1585,7 +1583,24 @@ pub fn lower_syntax_rules(expr: ExprKind) -> Result<SyntaxRules> {
         .into_atom_syntax_object()
         .unwrap();
 
-    let syntax_vec = if let Some(ExprKind::List(l)) = value_iter.next() {
+    // `(syntax-rules <ellipsis> (literal ...) rule ...)`
+    let mut next = value_iter.next();
+    let custom_ellipsis = match &next {
+        Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(ellipsis),
+                    ..
+                },
+        })) => {
+            let ellipsis = *ellipsis;
+            next = value_iter.next();
+            Some(ellipsis)
+        }
+        _ => None,
+    };
+
+    let syntax_vec = if let Some(ExprKind::List(l)) = next {
         l.args
     } else {
         return Err(ParseError::SyntaxError(
@@ -1609,8 +1624,13 @@ pub fn lower_syntax_rules(expr: ExprKind) -> Result<SyntaxRules> {
             }
 
             let mut pair_iter = l.args.into_iter();
-            let pair_object =
-                PatternPair::new(pair_iter.next().unwrap(), pair_iter.next().unwrap())?;
+            let mut pattern = pair_iter.next().unwrap();
+            let mut template = pair_iter.next().unwrap();
+            if let Some(ellipsis) = custom_ellipsis {
+                with_custom_ellipsis(&mut pattern, ellipsis, false)?;
+                with_custom_ellipsis(&mut template, ellipsis, true)?;
+            }
+            let pair_object = PatternPair::new(pattern, template)?;
             pairs.push(pair_object);
         } else {
             return Err(ParseError::SyntaxError(
@@ -1622,6 +1642,64 @@ pub fn lower_syntax_rules(expr: ExprKind) -> Result<SyntaxRules> {
     }
 
     Ok(SyntaxRules::new(syntax_vec, pairs, syn))
+}
+
+/// Rewrites a `syntax-rules` with a custom ellipsis into the usual form. The custom ellipsis
+/// becomes `...`, and a `...` in a template becomes `(... ...)`, which expands to one.
+/// Patterns have no such escape.
+fn with_custom_ellipsis(
+    expr: &mut ExprKind,
+    ellipsis: InternedString,
+    template: bool,
+) -> Result<()> {
+    match expr {
+        ExprKind::Atom(atom) => match &atom.syn.ty {
+            TokenType::Identifier(ident) if *ident == ellipsis => {
+                atom.syn.ty = TokenType::Ellipses;
+            }
+            TokenType::Ellipses if template => {
+                let literal = ExprKind::Atom(atom.clone());
+                *expr = ExprKind::List(List::new(thin_vec![literal.clone(), literal]));
+            }
+            TokenType::Ellipses => {
+                return Err(ParseError::SyntaxError(
+                    "syntax-rules with a custom ellipsis can't match `...` in a pattern"
+                        .to_string(),
+                    atom.syn.span,
+                    None,
+                ));
+            }
+            _ => {}
+        },
+        ExprKind::List(l) => {
+            // `(ellipsis template)` is an escape, so `template` stays as written
+            let escape = template
+                && !l.improper
+                && l.args.len() == 2
+                && matches!(
+                    &l.args[0],
+                    ExprKind::Atom(Atom { syn: SyntaxObject { ty: TokenType::Identifier(ident), .. } })
+                        if *ident == ellipsis
+                );
+            if escape {
+                if let ExprKind::Atom(atom) = &mut l.args[0] {
+                    atom.syn.ty = TokenType::Ellipses;
+                }
+                return Ok(());
+            }
+            for arg in l.args.iter_mut() {
+                with_custom_ellipsis(arg, ellipsis, template)?;
+            }
+        }
+        ExprKind::Vector(v) if !v.bytes => {
+            for arg in v.args.iter_mut() {
+                with_custom_ellipsis(arg, ellipsis, template)?;
+            }
+        }
+        ExprKind::Quote(q) => with_custom_ellipsis(&mut q.expr, ellipsis, template)?,
+        _ => {}
+    }
+    Ok(())
 }
 
 // Lower define-syntax down from the list representation
@@ -1692,11 +1770,9 @@ pub fn lower_macro_and_require_definitions(expr: ExprKind) -> Result<ExprKind> {
 
 struct ASTLowerPass {
     quote_depth: usize,
-    // Whether macro expansion is over
     expanded: bool,
-    // Whether the expression being lowered is at the top level
     top_level: bool,
-    // Whether the expression being lowered is one of the forms of a body
+    // Whether the expression is one of the forms of a body
     in_body: bool,
 }
 
@@ -1707,7 +1783,7 @@ impl ASTLowerPass {
 
         match expr {
             ExprKind::List(ref mut value) => {
-                // The body this is in defines it when it is expanded
+                // The enclosing body defines it when expanded
                 if !top_level
                     && self.quote_depth == 0
                     && value.is_define_syntax()
@@ -1754,7 +1830,7 @@ impl ASTLowerPass {
                 } else {
                     let function = matches!(value.get(1), Some(ExprKind::List(_)));
 
-                    // Code handed to eval has these names as plain identifiers
+                    // Code passed to eval has these as plain identifiers
                     match value.first() {
                         Some(ExprKind::Atom(a)) => match &a.syn.ty {
                             TokenType::Lambda | TokenType::Let => 2,
@@ -2016,7 +2092,7 @@ pub fn lower_entire_ast(expr: &mut ExprKind) -> Result<()> {
     .lower(expr)
 }
 
-// The same, for when no macro expansion comes after it
+// The same, when no macro expansion comes after
 pub fn lower_expanded_ast(expr: &mut ExprKind) -> Result<()> {
     ASTLowerPass {
         quote_depth: 0,

@@ -124,3 +124,59 @@
     [(_ name v) (define-values (name hidden) (values v 0))]))
 (define-with-hidden visible 42)
 (assert! (= visible 42))
+
+;; A macro that defines one and uses it in the same begin
+(define-syntax define-and-use
+  (syntax-rules ()
+    [(_ name) (begin (define-syntax plus-one (syntax-rules () [(_ v) (+ v 1)])) (define name (plus-one 1)))]))
+(define-and-use two)
+(assert! (= two 2))
+
+;; A generated macro that calls itself
+(define-syntax define-counter
+  (syntax-rules ()
+    [(_ name)
+     (begin
+       (define-syntax count-args
+         (syntax-rules ()
+           [(_) 0]
+           [(_ x . rest) (+ 1 (count-args . rest))]))
+       (define (name) (count-args a b c)))]))
+(define-counter three)
+(assert! (= (three) 3))
+
+;; A top level macro's builtin, where the use site binds its name
+(define-syntax top-first (syntax-rules () [(_ l) (car l)]))
+(define (top-first-of lst)
+  (let ([car cdr]) (top-first lst)))
+(assert! (equal? (top-first-of (list 1 2)) 1))
+
+;; A struct whose name a procedural macro makes with gensym
+(defmacro (gensym-struct stx)
+  (let* ([name (gensym)]
+         [getter (string->symbol (string-append (symbol->string name) "-a"))])
+    `(begin (struct ,name (a)) (define gensym-struct-field (,getter (,name 5))))))
+(gensym-struct)
+(assert! (= gensym-struct-field 5))
+
+;; A template that names a macro through another macro, and uses it
+(define-syntax define-doubler
+  (syntax-rules ()
+    [(_ name) (define-syntax name (syntax-rules () [(_ v) (* v 2)]))]))
+(define-syntax define-ten
+  (syntax-rules ()
+    [(_ name) (begin (define-doubler double) (define name (double 5)))]))
+(define-ten ten)
+(assert! (= ten 10))
+(define (local-ten)
+  (define-ten ten)
+  ten)
+(assert! (= (local-ten) 10))
+
+;; Each expansion gets its own generated macro
+(define-syntax define-constant-fn
+  (syntax-rules ()
+    [(_ name n) (begin (define-syntax constant (syntax-rules () [(_) n])) (define (name) (constant)))]))
+(define-constant-fn one 1)
+(define-constant-fn two-fn 2)
+(assert! (equal? (list (one) (two-fn)) (list 1 2)))

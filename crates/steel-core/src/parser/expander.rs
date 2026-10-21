@@ -159,8 +159,8 @@ pub struct SteelMacro {
     mangled: bool,
     pub(crate) location: Span,
     pub(crate) special_mangled: bool,
-    // The template was resolved where the macro was defined, in the prelude
-    // or a module, so a builtin's name left in it means the builtin.
+    // Resolved where the macro was defined, in the prelude or a module, so a builtin's
+    // name left in it is the builtin.
     #[serde(default)]
     definition_resolved: bool,
 }
@@ -275,6 +275,16 @@ impl SteelMacro {
             //     println!("{:?}", case.args);
             //     println!("{}", expr);
             // }
+
+            let written = a.ident().and_then(|x| {
+                crate::parser::expand_visitor::template_macro_written_name(x.resolve())
+            });
+
+            if let Some(written) = written {
+                let mut expr = expr.clone();
+                expr.args[0] = ExprKind::ident(written);
+                stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
+            }
 
             stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
         } else {
@@ -1236,8 +1246,7 @@ fn collect_bindings(
 ) -> Result<()> {
     let mut expr_iter = list.iter().enumerate();
 
-    // The same count `match_list_pattern` matched with: the rest pattern only
-    // takes the improper tail, and the ellipsis everything before it
+    // The count `match_list_pattern` matched with. The rest pattern only takes the improper tail.
     let fixed_patterns = match patterns.last() {
         Some(MacroPattern::Rest(_)) => patterns.len() - 1,
         _ => patterns.len(),

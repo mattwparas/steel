@@ -142,6 +142,7 @@ pub fn declared(value: &SteelVal) -> Option<HostSignature> {
         SteelVal::FuncV(f) => BuiltInFunctionType::Reference(*f),
         SteelVal::MutFunc(f) => BuiltInFunctionType::Mutable(*f),
         SteelVal::BuiltIn(f) => BuiltInFunctionType::Context(*f),
+        SteelVal::Closure(c) => return WRAPPERS.lock().unwrap().get(&c.id).copied(),
         _ => return None,
     })?;
     Some(HostSignature {
@@ -170,7 +171,7 @@ pub fn signature_clauses(value: SteelVal) -> SteelVal {
         SteelVal::FuncV(f) => metadata(BuiltInFunctionType::Reference(*f)),
         SteelVal::MutFunc(f) => metadata(BuiltInFunctionType::Mutable(*f)),
         SteelVal::BuiltIn(f) => metadata(BuiltInFunctionType::Context(*f)),
-        SteelVal::Closure(c) => CONTEXT_WRAPPERS
+        SteelVal::Closure(c) => WRAPPERS
             .lock()
             .unwrap()
             .get(&c.id)
@@ -254,16 +255,22 @@ fn without_context(signature: HostSignature) -> Option<HostSignature> {
     })
 }
 
-// The signatures of the closures that pass a context function its context, by
-// function id
-static CONTEXT_WRAPPERS: Lazy<Mutex<FxHashMap<u32, HostSignature>>> =
+// The signatures of the closures that call host functions for programs: the
+// ones that pass a context function its context, and the ones that pass a
+// runtime function the runtime. By function id.
+static WRAPPERS: Lazy<Mutex<FxHashMap<u32, HostSignature>>> =
     Lazy::new(|| Mutex::new(FxHashMap::default()));
 
 /// Records that the closure with id `wrapper` calls `function` with the context.
 pub(crate) fn note_context_wrapper(wrapper: u32, function: &BoxedDynFunction) {
     if let Some(signature) = function.signature.and_then(without_context) {
-        CONTEXT_WRAPPERS.lock().unwrap().insert(wrapper, signature);
+        note_wrapper(wrapper, signature);
     }
+}
+
+/// Records the signature of the closure with id `wrapper`, as programs call it.
+pub(crate) fn note_wrapper(wrapper: u32, signature: HostSignature) {
+    WRAPPERS.lock().unwrap().insert(wrapper, signature);
 }
 
 fn error(what: &str) -> SteelErr {

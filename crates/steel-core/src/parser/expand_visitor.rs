@@ -1,3 +1,4 @@
+use core::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashSet;
 
 use quickscope::ScopeSet;
@@ -10,9 +11,10 @@ use steel_parser::parser::{lower_macro_and_require_definitions, SourceId};
 use steel_parser::tokens::NumberLiteral;
 
 use crate::compiler::modules::RequiredModuleMacros;
+use crate::compiler::passes::VisitorMutRefUnit;
 use crate::compiler::program::{LAMBDA, LAMBDA_SYMBOL, LET};
 use crate::parser::ast::ExprKind;
-use crate::parser::parser::SyntaxObject;
+use crate::parser::parser::{ExpansionMark, SyntaxObject};
 use crate::parser::span_visitor::get_span;
 use crate::steel_vm::engine::ModuleContainer;
 use crate::{compiler::program::AS_KEYWORD, parser::tokens::TokenType};
@@ -59,8 +61,7 @@ fn take_macro_defs<B: BodyForms>(
     Ok(())
 }
 
-// A begin at the top level is part of the top level, so the macros defined in one
-// are moved out in front of it.
+// Top level begins are part of the top level, so the macros they define are lifted out
 pub(crate) fn lift_macro_defs_from_begins(exprs: &mut Vec<ExprKind>) -> Result<()> {
     let mut found = Vec::new();
     let mut index = 0;
@@ -81,8 +82,16 @@ pub(crate) fn lift_macro_defs_from_begins(exprs: &mut Vec<ExprKind>) -> Result<(
     Ok(())
 }
 
-// A macro used at the top level can expand to the definition of another one
+// A macro used at the top level can expand into another macro definition
 pub(crate) fn define_generated_macros(
+    expr: &mut ExprKind,
+    macro_map: &mut FxHashMap<InternedString, SteelMacro>,
+) -> Result<()> {
+    rename_template_macros(core::slice::from_mut(expr));
+    define_generated_macro_forms(expr, macro_map)
+}
+
+fn define_generated_macro_forms(
     expr: &mut ExprKind,
     macro_map: &mut FxHashMap<InternedString, SteelMacro>,
 ) -> Result<()> {
@@ -103,12 +112,12 @@ pub(crate) fn define_generated_macros(
         }
         ExprKind::Begin(b) => {
             for expr in b.exprs.iter_mut() {
-                define_generated_macros(expr, macro_map)?;
+                define_generated_macro_forms(expr, macro_map)?;
             }
         }
         ExprKind::List(l) if is_begin(l) => {
             for expr in l.args.iter_mut().skip(1) {
-                define_generated_macros(expr, macro_map)?;
+                define_generated_macro_forms(expr, macro_map)?;
             }
         }
         _ => {}
@@ -251,7 +260,7 @@ fn is_let_head(head: &ExprKind) -> bool {
     }
 }
 
-// Code handed to eval has the name as a plain identifier
+// Code passed to eval has `begin` as a plain identifier
 fn is_begin(l: &List) -> bool {
     l.is_begin() || l.first_ident().is_some_and(|x| *x == *BEGIN)
 }
@@ -261,6 +270,68 @@ fn defines_local_macro(l: &List) -> bool {
         && l.get(2)
             .and_then(ExprKind::list)
             .is_some_and(List::is_syntax_rules)
+}
+
+// The macros a template defines, written with the mark of its expansion
+fn template_macro_names(forms: &[ExprKind], names: &mut Vec<(InternedString, ExpansionMark)>) {
+    for form in forms {
+        match form {
+            ExprKind::List(l) if defines_local_macro(l) => {
+                if let Some(syn) = l.get(1).and_then(ExprKind::atom_syntax_object) {
+                    if let TokenType::Identifier(name) = syn.ty {
+                        if syn.mark.is_template() && !name.resolve().starts_with("##") {
+                            names.push((name, syn.mark));
+                        }
+                    }
+                }
+            }
+            ExprKind::Begin(b) => template_macro_names(&b.exprs, names),
+            ExprKind::List(l) if is_begin(l) => template_macro_names(&l.args[1..], names),
+            _ => {}
+        }
+    }
+}
+
+struct RenameTemplateMacros<'a> {
+    names: &'a [(InternedString, ExpansionMark)],
+}
+
+impl VisitorMutRefUnit for RenameTemplateMacros<'_> {
+    fn visit_atom(&mut self, a: &mut Atom) {
+        let mark = a.syn.mark;
+
+        if let TokenType::Identifier(name) = &mut a.syn.ty {
+            if self.names.contains(&(*name, mark)) {
+                *name = format!("##{}#{}", name.resolve(), mark.0).into();
+            }
+        }
+    }
+
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
+}
+
+// The name a renamed template macro was written with
+pub(crate) fn template_macro_written_name(name: &str) -> Option<&str> {
+    let (written, mark) = name.strip_prefix("##")?.rsplit_once('#')?;
+    (!written.is_empty() && !mark.is_empty() && mark.bytes().all(|x| x.is_ascii_digit()))
+        .then_some(written)
+}
+
+// A macro named by a template is only visible to that expansion, so the name and the
+// uses from the same expansion are renamed
+fn rename_template_macros(forms: &mut [ExprKind]) {
+    let mut names = Vec::new();
+    template_macro_names(forms, &mut names);
+
+    if names.is_empty() {
+        return;
+    }
+
+    let mut rename = RenameTemplateMacros { names: &names };
+
+    for form in forms {
+        rename.visit(form);
+    }
 }
 
 trait BodyForms {
@@ -290,19 +361,18 @@ impl BodyForms for ThinVec<ExprKind> {
 
 struct LocalMacro {
     expander: SteelMacro,
-    // How many scopes were open where the macro was defined
+    // Scopes open where the macro was defined
     depth: usize,
 }
 
 static LOCAL_MACRO_CAPTURE: &str = "##local-macro##";
 
-static LOCAL_MACRO_CAPTURES: core::sync::atomic::AtomicBool =
-    core::sync::atomic::AtomicBool::new(false);
+static LOCAL_MACRO_CAPTURES: AtomicBool = AtomicBool::new(false);
 
-// The name a template uses for a local variable of the body its macro is defined in.
-// `ResolveExpansionMarks` puts the variable back once it can tell binders apart.
+// The name a template uses for a local of the body its macro is defined in.
+// `ResolveExpansionMarks` puts the variable back.
 fn local_macro_capture(macro_name: &InternedString, name: &InternedString) -> InternedString {
-    LOCAL_MACRO_CAPTURES.store(true, core::sync::atomic::Ordering::Relaxed);
+    LOCAL_MACRO_CAPTURES.store(true, Ordering::Relaxed);
 
     let name = name.resolve();
 
@@ -316,7 +386,7 @@ fn local_macro_capture(macro_name: &InternedString, name: &InternedString) -> In
     .into()
 }
 
-// The macro and the variable of a captured name
+// The macro and the variable a captured name refers to
 pub(crate) fn local_macro_captured(name: &str) -> Option<(&str, &str)> {
     let (len, rest) = name.strip_prefix(LOCAL_MACRO_CAPTURE)?.split_once('#')?;
     let len = len.parse::<usize>().ok()?;
@@ -324,9 +394,9 @@ pub(crate) fn local_macro_captured(name: &str) -> Option<(&str, &str)> {
     Some((rest.get(len..)?, rest.get(..len)?))
 }
 
-// Whether any captured name was made, which is rare enough to skip looking for them
+// Lets callers skip the search when nothing was captured
 pub(crate) fn any_local_macro_captures() -> bool {
-    LOCAL_MACRO_CAPTURES.load(core::sync::atomic::Ordering::Relaxed)
+    LOCAL_MACRO_CAPTURES.load(Ordering::Relaxed)
 }
 
 pub(crate) fn is_local_macro_definition(expr: &ExprKind) -> bool {
@@ -339,7 +409,7 @@ struct CaptureLocals<'a> {
     macro_name: InternedString,
 }
 
-impl crate::compiler::passes::VisitorMutRefUnit for CaptureLocals<'_> {
+impl VisitorMutRefUnit for CaptureLocals<'_> {
     fn visit_atom(&mut self, a: &mut Atom) {
         if !a.syn.unresolved {
             return;
@@ -349,7 +419,7 @@ impl crate::compiler::passes::VisitorMutRefUnit for CaptureLocals<'_> {
             return;
         };
 
-        // The bottom scope is the top level
+        // Height 0 is the top level
         let local = self.scope.height_of(name).is_some_and(|height| height > 0)
             || self.scope.depth() > 1 && self.body_defines.contains(name);
 
@@ -391,7 +461,7 @@ fn body_defines(forms: &[ExprKind], names: &mut Vec<InternedString>) {
 }
 
 impl LocalMacro {
-    // A variable bound inside the body that defines the macro hides it
+    // A binding inside the defining body shadows the macro
     fn shadowed(&self, scope: &ScopeSet<InternedString, FxBuildHasher>) -> bool {
         scope
             .height_of(self.expander.name())
@@ -405,8 +475,7 @@ impl LocalMacro {
         scope: &ScopeSet<InternedString, FxBuildHasher>,
         globals: GlobalMap,
     ) -> Result<ExprKind> {
-        // The template can refer to anything that was in scope where the macro was
-        // defined, so only what was bound after that counts as a collision.
+        // Only bindings made after the macro was defined can collide with its template
         let mut bound_since = ScopeSet::default();
 
         for name in scope.iter() {
@@ -431,9 +500,8 @@ fn ends_with_definition(form: &ExprKind) -> bool {
     }
 }
 
-// Macros defined with `define-syntax` inside a body. These are visible in that body only.
-// The definitions stay in the body, so that every round of expansion sees them. The last
-// lowering leaves them for `ResolveExpansionMarks`, which takes them out.
+// Macros defined with define-syntax in a body, visible only there. The definitions stay in
+// the body so every round of expansion sees them, and `ResolveExpansionMarks` removes them.
 #[derive(Default)]
 struct LocalMacros {
     macros: Vec<LocalMacro>,
@@ -450,6 +518,16 @@ impl LocalMacros {
         start: usize,
         depth: usize,
     ) -> Result<()> {
+        rename_template_macros(body.forms().get_mut(start..).unwrap_or_default());
+        self.define_body_macros(body, start, depth)
+    }
+
+    fn define_body_macros<B: BodyForms>(
+        &mut self,
+        body: &mut B,
+        start: usize,
+        depth: usize,
+    ) -> Result<()> {
         for form in body.forms().iter_mut().skip(start) {
             match form {
                 ExprKind::List(l) if defines_local_macro(l) => {
@@ -458,7 +536,7 @@ impl LocalMacros {
                         .and_then(ExprKind::atom_syntax_object)
                         .map(|x| x.span);
 
-                    // The body this begin is part of has defined it
+                    // Already defined by the body this begin is part of
                     let defined = l
                         .get(1)
                         .and_then(ExprKind::atom_identifier)
@@ -482,8 +560,10 @@ impl LocalMacros {
                     }
                 }
                 // A begin in a body is part of that body
-                ExprKind::Begin(b) => self.define_from(&mut b.exprs, 0, depth)?,
-                ExprKind::List(l) if is_begin(l) => self.define_from(&mut l.args, 1, depth)?,
+                ExprKind::Begin(b) => self.define_body_macros(&mut b.exprs, 0, depth)?,
+                ExprKind::List(l) if is_begin(l) => {
+                    self.define_body_macros(&mut l.args, 1, depth)?
+                }
                 _ => {}
             }
         }
@@ -491,8 +571,7 @@ impl LocalMacros {
         Ok(())
     }
 
-    // Makes the macros the body defines visible until `leave` is called with the
-    // returned value.
+    // Returns what to pass to `leave` once the body is done
     fn enter<B: BodyForms>(
         &mut self,
         body: &mut B,
@@ -530,7 +609,7 @@ impl LocalMacros {
             };
 
             for template in local.expander.exprs_mut() {
-                crate::compiler::passes::VisitorMutRefUnit::visit(&mut capture, template);
+                VisitorMutRefUnit::visit(&mut capture, template);
             }
         }
 
@@ -657,7 +736,6 @@ pub struct Expander<'a> {
     source_id: Option<SourceId>,
     depth: usize,
     local_macros: LocalMacros,
-    // Whether the expression about to be visited is at the top level
     top_level: bool,
 }
 
@@ -680,7 +758,6 @@ pub struct ExpanderMany<'a> {
     source_id: Option<SourceId>,
     depth: usize,
     local_macros: LocalMacros,
-    // Whether the expression about to be visited is at the top level
     top_level: bool,
 }
 
@@ -750,25 +827,35 @@ impl<'a> VisitorMutRef for Expander<'a> {
             stop!(Generic => "macro expansion depth reached!");
         }
 
-        // A begin at the top level is part of the top level
         let top_level = core::mem::replace(&mut self.top_level, false);
 
         if top_level {
+            // Its macros are defined for the rest of it, and for the top level after it
             match expr {
                 ExprKind::Begin(b) => {
+                    let visible = self.local_macros.macros.len();
+                    let depth = self.in_scope_values.depth();
+                    self.local_macros.define_from(&mut b.exprs, 0, depth)?;
+
                     for expr in b.exprs.iter_mut() {
                         self.top_level = true;
                         self.visit(expr)?;
                     }
 
+                    self.local_macros.leave(visible);
                     return Ok(());
                 }
                 ExprKind::List(l) if is_begin(l) => {
+                    let visible = self.local_macros.macros.len();
+                    let depth = self.in_scope_values.depth();
+                    self.local_macros.define_from(&mut l.args, 1, depth)?;
+
                     for expr in l.args.iter_mut().skip(1) {
                         self.top_level = true;
                         self.visit(expr)?;
                     }
 
+                    self.local_macros.leave(visible);
                     return Ok(());
                 }
                 _ => {}
@@ -786,7 +873,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
-                // Left for the body that holds it, or for the top level to define
+                // Defined by the enclosing body, or at the top level
                 if defines_local_macro(l) {
                     return Ok(());
                 }
@@ -933,10 +1020,9 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         return Ok(());
                     }
 
-                    // Only parse a well-formed lambda. A list starting with `lambda`
-                    // can be data, e.g. a `case` clause `((lambda) ...)` before `case`
-                    // is expanded. Malformed code is still reported by the lowering
-                    // that runs after expansion.
+                    // A list starting with `lambda` can be data before `case` is expanded,
+                    // e.g. `((lambda) ...)`, so only a well formed one is parsed. Lowering
+                    // reports malformed code later.
                     Some(ExprKind::Atom(
                         ident @ Atom {
                             syn:
@@ -970,8 +1056,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 ..
                             },
                     })) if l.args.len() > 1 => {
-                        // Needs a head, since `(define)` alone can be data, as with
-                        // lambda above.
+                        // `(define)` alone can be data too
 
                         let is_function = match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
@@ -1263,25 +1348,35 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
             stop!(Generic => "macro expansion depth reached!");
         }
 
-        // A begin at the top level is part of the top level
         let top_level = core::mem::replace(&mut self.top_level, false);
 
         if top_level {
+            // Its macros are defined for the rest of it, and for the top level after it
             match expr {
                 ExprKind::Begin(b) => {
+                    let visible = self.local_macros.macros.len();
+                    let depth = self.in_scope_values.depth();
+                    self.local_macros.define_from(&mut b.exprs, 0, depth)?;
+
                     for expr in b.exprs.iter_mut() {
                         self.top_level = true;
                         self.visit(expr)?;
                     }
 
+                    self.local_macros.leave(visible);
                     return Ok(());
                 }
                 ExprKind::List(l) if is_begin(l) => {
+                    let visible = self.local_macros.macros.len();
+                    let depth = self.in_scope_values.depth();
+                    self.local_macros.define_from(&mut l.args, 1, depth)?;
+
                     for expr in l.args.iter_mut().skip(1) {
                         self.top_level = true;
                         self.visit(expr)?;
                     }
 
+                    self.local_macros.leave(visible);
                     return Ok(());
                 }
                 _ => {}
@@ -1299,7 +1394,7 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
-                // Left for the body that holds it, or for the top level to define
+                // Defined by the enclosing body, or at the top level
                 if defines_local_macro(l) {
                     return Ok(());
                 }
@@ -1914,8 +2009,7 @@ fn expr_usize(value: usize) -> ExprKind {
     ))))
 }
 
-// Whether a default costs nothing to evaluate when the argument was given:
-// a literal, a quoted value or a variable.
+// A literal, a quoted value or a variable, which costs nothing to evaluate
 fn evaluates_eagerly(default: &ExprKind) -> bool {
     matches!(default, ExprKind::Atom(_) | ExprKind::Quote(_))
 }
@@ -1944,7 +2038,7 @@ fn mentions_any(expr: &ExprKind, names: &[InternedString]) -> bool {
     finder.found
 }
 
-// Where the parameter `name` is among the parameters as they were written.
+// The position of `name` among the parameters as written
 fn written_at(parameters: &[ExprKind], name: &ExprKind) -> usize {
     let name = name.atom_identifier();
     parameters
@@ -2271,8 +2365,7 @@ fn expand_keyword_and_default_arguments(
     // TODO: Pick up all keyword args before the start
     non_keyword_or_default_args.push(ExprKind::ident(REST_ARG));
 
-    // A default can use the arguments before it. When one does, the
-    // arguments are bound one after another in the order they were written.
+    // When a default uses an earlier argument, the arguments are bound one after another
     let names: SmallVec<[InternedString; 6]> = bindings
         .iter()
         .filter_map(|x| x.0.atom_identifier().copied())
@@ -2491,7 +2584,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
                 {
-                    // Left for the body that holds it, or for the top level to define
+                    // Defined by the enclosing body, or at the top level
                     if defines_local_macro(l) {
                         return Ok(());
                     }

@@ -51,7 +51,7 @@ pub(crate) struct TryFromSteelValVisitorForExprKind {
     pub(crate) qq_depth: usize,
     pub(crate) quoted: bool,
     pub(crate) force_hir: bool,
-    // The mark for the names in plain data
+    // Mark given to the names in plain data
     pub(crate) mark: ExpansionMark,
 }
 

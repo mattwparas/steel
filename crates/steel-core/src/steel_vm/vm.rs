@@ -650,6 +650,48 @@ pub struct Synchronizer {
     pub(crate) ctx: Arc<AtomicPtr<SteelThread>>,
 
     spawned_via_make_thread: bool,
+
+    // The arguments of the builtins running on this thread, which are off the
+    // stack while they run. See `BuiltinArguments`.
+    pub(crate) builtin_arguments: BuiltinArguments,
+}
+
+/// Where the arguments of each builtin running on a thread are, and how many
+/// there are, innermost last.
+///
+/// A builtin's arguments are moved off the stack before it runs. One that calls
+/// back into Steel, like `#%prim.transduce`, can then be holding the only
+/// reference to a box or a mutable vector while the code it calls collects,
+/// so collections treat these as roots too.
+///
+/// A copy of a thread starts with none, since the builtins in it are the
+/// original thread's and their arguments are in its frames.
+#[derive(Default)]
+pub(crate) struct BuiltinArguments(Vec<(usize, usize)>);
+
+impl Clone for BuiltinArguments {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl BuiltinArguments {
+    /// The values. Their owners are still running, so the slices are live.
+    pub(crate) fn values(&self) -> impl Iterator<Item = &SteelVal> {
+        self.0.iter().flat_map(|&(address, len)| unsafe {
+            core::slice::from_raw_parts(address as *const SteelVal, len).iter()
+        })
+    }
+}
+
+// Removes a builtin's arguments from `BuiltinArguments` when it returns, or
+// unwinds.
+struct HeldArguments(*mut Vec<(usize, usize)>);
+
+impl Drop for HeldArguments {
+    fn drop(&mut self) {
+        unsafe { (*self.0).pop() };
+    }
 }
 
 // TODO: Until I figure out how to note have this be the case
@@ -667,6 +709,7 @@ impl Synchronizer {
             },
             ctx: Arc::new(AtomicPtr::new(core::ptr::null_mut())),
             spawned_via_make_thread: false,
+            builtin_arguments: BuiltinArguments::default(),
         }
     }
 
@@ -906,6 +949,10 @@ impl Synchronizer {
                                 context.push_back(value.clone());
                             }
 
+                            for value in live_ctx.synchronizer.builtin_arguments.values() {
+                                context.push_back(value.clone());
+                            }
+
                             if let Some((continuation, value)) = &live_ctx.escaping {
                                 context.push_back(continuation.clone());
                                 context.push_back(value.clone());
@@ -943,6 +990,12 @@ impl Synchronizer {
                                             }
 
                                             for value in &live_ctx.pending_roots {
+                                                context.push_back(value.clone());
+                                            }
+
+                                            for value in
+                                                live_ctx.synchronizer.builtin_arguments.values()
+                                            {
                                                 context.push_back(value.clone());
                                             }
 
@@ -5597,6 +5650,14 @@ impl<'a> VmCore<'a> {
             .stack
             .drain(self.thread.stack.len() - payload_size..)
             .collect::<SmallVec<[_; 4]>>();
+
+        // Seen by collections while they're off the stack
+        self.thread
+            .synchronizer
+            .builtin_arguments
+            .0
+            .push((args.as_ptr() as usize, args.len()));
+        let _held = HeldArguments(&mut self.thread.synchronizer.builtin_arguments.0);
 
         let result = func(self, &args).map(|x| {
             x.map_err(|x| {

@@ -1208,6 +1208,15 @@ impl<'a> SerializationContext<'a> {
         Ok(SerializedId(id))
     }
 
+    /// Drops every entry from `len` on, as if they had never been made.
+    pub(crate) fn rewind(&mut self, len: usize) {
+        self.nodes.truncate(len);
+        self.seen.retain(|_, id| id.index() < len);
+        self.lists.retain(|_, id| id.index() < len);
+        self.longest.retain(|_, (_, id)| id.index() < len);
+        self.waiting.retain(|(id, _)| id.index() < len);
+    }
+
     /// The place in the table of `value`, which is put down to be filled in
     /// if this is the first it has been seen.
     pub(crate) fn place(&mut self, value: SteelVal) -> Result<SerializedId> {

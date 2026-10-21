@@ -64,7 +64,7 @@ impl PrimitiveSignatures {
                     let Some(value) = module.try_get_ref(&name) else {
                         continue;
                     };
-                    let metadata = signature_of(&value);
+                    let metadata = signature_of(&name, &value);
                     (value, metadata)
                 }
             };
@@ -139,7 +139,7 @@ fn host_metadata(
     }
 }
 
-fn signature_of(value: &SteelVal) -> Option<FunctionSignatureMetadata> {
+fn signature_of(name: &str, value: &SteelVal) -> Option<FunctionSignatureMetadata> {
     get_function_metadata(match value {
         SteelVal::FuncV(f) => BuiltInFunctionType::Reference(*f),
         SteelVal::MutFunc(f) => BuiltInFunctionType::Mutable(*f),
@@ -147,6 +147,14 @@ fn signature_of(value: &SteelVal) -> Option<FunctionSignatureMetadata> {
         // A function registered with `register_fn` carries its own.
         SteelVal::BoxedFunction(f) => {
             return Some(host_metadata(f.name().unwrap_or_default(), f.signature?));
+        }
+        // A closure that calls a host function for programs, such as one
+        // registered with `register_fn_with_runtime`, has the one it records.
+        SteelVal::Closure(_) => {
+            return Some(host_metadata(
+                name,
+                crate::steel_vm::host_signature::declared(value)?,
+            ));
         }
         _ => return None,
     })
@@ -3180,7 +3188,7 @@ mod tests {
                 let Some(value) = module.try_get_ref(&name) else {
                     continue;
                 };
-                if let Some(meta) = signature_of(&value) {
+                if let Some(meta) = signature_of(&name, &value) {
                     lines.push(format!(
                         "{name} | {:?} | {:?} | {:?} | {:?} | {}",
                         meta.arity, meta.return_type, meta.arg_types, meta.raises, meta.is_const
@@ -3459,6 +3467,63 @@ mod tests {
         assert_eq!(failures_for(src), Vec::<String>::new());
         let src = "(define (f) (mutable-vector->list \"no\"))";
         assert_eq!(failures_for(src).len(), 1);
+    }
+
+    #[test]
+    fn runtime_functions() {
+        use crate::steel_vm::builtin::BuiltInModule;
+        use crate::steel_vm::runtime_fn::{RegisterRuntimeFn, Runtime};
+        let mut engine = Engine::new();
+        let mut module = BuiltInModule::new("host/runtime");
+        module.register_fn_with_runtime(
+            "rt-scale",
+            |runtime: &mut Runtime, f: SteelVal, n: isize| -> crate::rvals::Result<isize> {
+                match runtime.call_function(&f, [SteelVal::IntV(n)])? {
+                    SteelVal::IntV(m) => Ok(m * 10),
+                    _ => Ok(0),
+                }
+            },
+        );
+        engine.register_module(module);
+        let src = "(require-builtin host/runtime)
+(define (a) (rt-scale (lambda (x) x) \"x\"))
+(define (b) (rt-scale (lambda (x) x)))
+(define (c) (string-length (rt-scale (lambda (x) x) 1)))
+(define (ok) (+ 1 (rt-scale (lambda (x) (+ x 1)) 1)))";
+        let mut exprs = engine
+            .emit_expanded_ast_without_optimizations(src, None)
+            .unwrap();
+        let source = exprs.last().and_then(|e| e.span().source_id()).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        let primitives = PrimitiveSignatures::from_modules(engine.builtin_modules());
+        let info = infer_types(&analysis.exprs, &analysis.analysis, &primitives);
+        let failures: Vec<String> = written_call_failures(&info, source, src)
+            .map(|failure| {
+                format!(
+                    "{} {}",
+                    &src[failure.span.start as usize..failure.span.end as usize],
+                    failure.message()
+                )
+            })
+            .collect();
+        // The runtime is passed by the wrapper, so callers give one less.
+        assert_eq!(
+            failures,
+            vec![
+                "\"x\" `rt-scale` always raises here: argument 2 is always string, but it must be int",
+                "(rt-scale (lambda (x) x) 1) `string-length` always raises here: argument 1 is always int, but it must be string",
+            ]
+        );
+        let arity: Vec<String> = written_arity_failures(&info, source, src)
+            .map(|(failure, written)| failure.message(written))
+            .collect();
+        assert_eq!(arity.len(), 1, "{arity:?}");
+        assert!(arity[0].contains("rt-scale"), "{arity:?}");
+
+        let result = engine
+            .compile_and_run_raw_program(format!("{src}\n(ok)"))
+            .unwrap();
+        assert_eq!(result.last().unwrap().to_string(), "21");
     }
 
     #[test]

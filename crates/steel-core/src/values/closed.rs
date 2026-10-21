@@ -4189,6 +4189,10 @@ impl Heap {
             push_root!(root);
         }
 
+        for root in synchronizer.builtin_arguments.values() {
+            push_root!(root);
+        }
+
         log::debug!(target: "gc", "Globals size: {}", globals.len());
         for root in globals {
             push_root!(root);

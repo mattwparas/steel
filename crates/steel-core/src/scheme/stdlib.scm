@@ -1295,8 +1295,7 @@
                                   (lambda ()
                                     expr ...))]))
 
-;; The names this expands into are the primitives' own, so a module that
-;; defines its own `length` or `apply` doesn't change what a clause dispatch does.
+;; Uses the primitives' own names, so a module's `length` or `apply` doesn't change the dispatch
 (define-syntax case-lambda
   (syntax-rules ()
     [(case-lambda) (lambda args (error "CASE-LAMBDA without any clauses."))]

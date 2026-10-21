@@ -2619,6 +2619,19 @@ pub fn black_box(a: &[SteelVal]) -> Result<SteelVal> {
     Ok(a.get(0).cloned().unwrap_or(SteelVal::Void))
 }
 
+// Names the instruction set this steel was built with. Functions sent between
+// processes carry their instructions by number, so two processes can only
+// share them if this is the same in both.
+fn opcode_fingerprint() -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for op in steel_gen::opcode::OPCODES_ARRAY {
+        for byte in format!("{op:?};").bytes() {
+            hash = (hash ^ byte as u64).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
 #[steel_derive::function(name = "struct->list")]
 pub fn struct_to_list(value: &SteelVal) -> Result<SteelVal> {
     match value {
@@ -2713,6 +2726,7 @@ fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
         .register_value("#%black-box", SteelVal::FuncV(black_box))
+        .register_fn("#%opcode-fingerprint", opcode_fingerprint)
         .register_value(
             "#%function-ptr-table",
             LambdaMetadataTable::new().into_steelval().unwrap(),

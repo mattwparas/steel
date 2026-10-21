@@ -2580,8 +2580,8 @@ fn must_be_identifier(what: &str, name: &ExprKind, span: Span) -> Result<(), Par
     }
 }
 
-/// A parameter is an identifier, a keyword followed by its parameter, or a
-/// list that starts with an identifier, which is one with a default.
+/// An identifier, a keyword followed by its parameter, or a list starting
+/// with an identifier, which is a parameter with a default.
 fn parameters_are_valid(args: &[ExprKind], span: Span) -> Result<(), ParseError> {
     const WHAT: &str = "a function's parameter";
 

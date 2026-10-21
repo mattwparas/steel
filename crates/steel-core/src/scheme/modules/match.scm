@@ -391,7 +391,6 @@
     (define compile-pattern (compile-cons-to-list pattern 0))
     (match-p-syntax compile-pattern input final-body-expr 0 (hashset) #f 0 introduced-identifiers))
 
-  ;; The identifiers in a pattern, as syntax
   (define (pattern-identifiers pattern found)
     (define inner (syntax-e pattern))
     (cond
@@ -413,8 +412,7 @@
       [(equal? (#%syntax->datum (car identifiers)) name) (car identifiers)]
       [else (written-identifier name (cdr identifiers))])))
 
-;; Defines the variables of the pattern where the form is written, so the value
-;; is named inside the expression that makes them.
+;; Defines the pattern variables where the form is written
 (defmacro (single-match-define expression)
           (define unwrapped (syntax-e expression))
           (define value (second unwrapped))
@@ -428,8 +426,8 @@
           (define temp (gensym))
           (define written (pattern-identifiers (third unwrapped) '()))
           (define final-expr
-            ;; Defined under the identifiers as the pattern has them, which is how a
-            ;; variable from a macro template is told apart from one written by hand.
+            ;; Uses the identifiers as the pattern has them, which tells a template's
+            ;; variables apart from ones written by hand.
             `(define-values (,@(map (lambda (name) (written-identifier name written))
                                     list-identifiers))
                (let ([,variable ,value])

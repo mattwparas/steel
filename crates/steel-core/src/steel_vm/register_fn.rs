@@ -2643,7 +2643,7 @@ impl<
 /// Signature of a function registered with `register_fn`. The argument types are
 /// what each conversion guarantees and the return type is what the result converts
 /// to. Both the conversions and the function can fail, so it may raise.
-const fn host_signature(
+pub(crate) const fn host_signature(
     fixed: &'static [ArgType],
     return_type: ValueType,
 ) -> crate::values::functions::HostSignature {

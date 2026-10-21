@@ -16,6 +16,7 @@ mod history;
 mod local_macros;
 mod malformed_bindings;
 mod module_contracts;
+mod runtime_functions;
 #[cfg(feature = "sync")]
 mod serialization;
 
@@ -217,6 +218,7 @@ test_harness_success! {
     serialization_refusals,
     serialization_sharing_and_cycles,
     serialization_across_threads,
+    serialization_set_globals_holding_natives,
     parameterize_per_thread,
     closure_captures_only_what_it_uses,
     contract_signatures,
@@ -227,6 +229,8 @@ test_harness_success! {
     ranged_vector_copies,
     vector_equality,
     struct_equality,
+    builtin_arguments_survive_collection,
+    escaped_ellipses,
     serialization_deep_values,
     identity_and_equality,
     immutable_structs,
@@ -391,6 +395,7 @@ test_harness_success_module! {
     serialization_refusals,
     serialization_sharing_and_cycles,
     serialization_across_threads,
+    serialization_set_globals_holding_natives,
     parameterize_per_thread,
     closure_captures_only_what_it_uses,
     contract_signatures,
@@ -401,6 +406,8 @@ test_harness_success_module! {
     ranged_vector_copies,
     vector_equality,
     struct_equality,
+    builtin_arguments_survive_collection,
+    escaped_ellipses,
     serialization_deep_values,
     identity_and_equality,
     immutable_structs,
@@ -518,6 +525,7 @@ test_harness_failure! {
     local_define_does_not_escape_non_const,
     local_macro_does_not_escape,
     template_define_values_does_not_escape,
+    template_macro_does_not_escape,
     template_struct_does_not_escape,
     local_struct_inaccessible,
     require_only_in_missing_identifier,

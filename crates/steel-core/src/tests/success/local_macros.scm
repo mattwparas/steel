@@ -370,3 +370,15 @@
       [(_ v) (match v [(list a b) (+ a b)])]))
   (list (sum-of '(1 2)) a))
 (assert! (equal? (template-matches 10) '(3 10)))
+
+;; A template's builtin is the builtin, even where the use site binds its name
+(define (first-of lst)
+  (define-syntax first* (syntax-rules () [(_ l) (car l)]))
+  (let ([car cdr]) (first* lst)))
+(assert! (equal? (first-of (list 1 2)) 1))
+
+;; A captured name in quoted data comes back as the variable, in vectors too
+(define (quoted-vector x)
+  (define-syntax show (syntax-rules () [(_) (quote #(x (x)))]))
+  (show))
+(assert! (equal? (quoted-vector 1) (vector 'x (list 'x))))

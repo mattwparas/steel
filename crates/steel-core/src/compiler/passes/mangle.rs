@@ -26,7 +26,7 @@ Steps for doing having scoped macros
     - Copy the code for B, mangle it and then include it in A directly
 */
 
-// A name a template wrote for a definition belongs to that expansion, not to the module
+// A definition named by a template belongs to that expansion, not the module
 fn written_by_template(name: &ExprKind) -> bool {
     name.atom_syntax_object()
         .is_some_and(|syn| syn.mark.is_template())
@@ -142,7 +142,6 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
     }
 }
 
-/// Whether `name` is one of the prelude's builtins.
 pub(crate) fn is_prelude_builtin(name: &InternedString) -> bool {
     crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS.with(|names| names.contains(name))
 }
@@ -221,10 +220,8 @@ pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
 impl VisitorMutRefUnit for NameMangler {
     #[inline]
     fn visit_atom(&mut self, a: &mut Atom) {
-        // A builtin's name from a template that was resolved where its macro
-        // was defined means the builtin, whatever this module calls by that
-        // name. `ResolveExpansionMarks` settles it, once it can tell a
-        // reference from a local the template binds.
+        // A builtin name in a template resolved where its macro was defined is the builtin.
+        // `ResolveExpansionMarks` handles the names the template binds itself.
         let resolved_elsewhere = a.syn.mark.is_definition_resolved();
 
         if let TokenType::Identifier(i) = &mut a.syn.ty {

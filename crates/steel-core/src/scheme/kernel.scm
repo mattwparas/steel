@@ -201,11 +201,12 @@
 
 (#%define-syntax (struct expr)
                  (define unwrapped (syntax-e expr))
-                 ;; A name from a template is prefixed when it collides with a variable
-                 ;; where the macro is used, and the names made from it here have to
-                 ;; match what the rest of the template calls them.
+                 ;; A template name that collides with a variable at the use site is prefixed,
+                 ;; and the names made from it have to match the template's.
                  (define (written-name name)
-                   (if (and (symbol? name) (starts-with? (symbol->string name) "##"))
+                   (if (and (symbol? name)
+                            (starts-with? (symbol->string name) "##")
+                            (not (starts-with? (symbol->string name) "##gensym")))
                        (string->symbol (substring (symbol->string name) 2))
                        name))
                  (define prefixed-name (syntax->datum (second unwrapped)))
@@ -228,7 +229,7 @@
                          `(begin
                             ,result
                             (define ,prefixed-name ,struct-name)))))
-                 ;; The names this defines belong with the name of the struct
+                 ;; The definitions take the mark of the struct's name
                  (#%syntax/with-mark-of (syntax/loc result
                                           (syntax-span expr))
                                         (second unwrapped)))
@@ -630,8 +631,7 @@
                    (register-macro-transformer! name env)))
  'void)
 
-;; Written with syntax-case, so that the names keep what says which expansion they
-;; came from. This is what `define-syntax` does with a definition outside of a module.
+;; Written with syntax-case so the names keep their expansion marks
 (let ([transformer
        (parse-def-syntax
         '(define-syntax (define-values stx)

@@ -554,7 +554,14 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
                 }
             }
 
-            let unsendable = matches!(global, SteelVal::Custom(_) | SteelVal::PortV(_));
+            // A global that is set! is kept in a box, which is looked inside.
+            let unsendable = match &global {
+                SteelVal::HeapAllocated(h) => {
+                    matches!(h.get(), SteelVal::Custom(_) | SteelVal::PortV(_))
+                }
+                SteelVal::Boxed(b) => matches!(*b.read(), SteelVal::Custom(_) | SteelVal::PortV(_)),
+                other => matches!(other, SteelVal::Custom(_) | SteelVal::PortV(_)),
+            };
             let table_len = sctx.nodes.len();
 
             match into_serializable_value(global, &mut sctx) {
@@ -562,7 +569,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
                     old_mapping.insert(idx, id);
                 }
                 // Leave it for the receiver to find by name.
-                Err(_) if unsendable => sctx.nodes.truncate(table_len),
+                Err(_) if unsendable => sctx.rewind(table_len),
                 Err(e) => return Err(e),
             }
             global_names.insert(idx, name);

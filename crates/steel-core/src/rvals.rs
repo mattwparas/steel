@@ -736,7 +736,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
 
 impl ast::TryFromSteelValVisitorForExprKind {
     pub fn visit_syntax_object(&mut self, value: &Syntax) -> Result<ExprKind> {
-        // The names in a list of plain data take the mark the list was given
+        // The names in plain data take the list's mark
         let mark = if value.mark.is_template() {
             value.mark
         } else {
@@ -850,21 +850,45 @@ impl ast::TryFromSteelValVisitorForExprKind {
     }
 }
 
-// Data has the name of a variable, where the syntax has the name that says which
-// binding of it a macro defined in a body refers to
+// Turns captured names in data back into their variables
 fn without_local_macro_captures(value: &SteelVal) -> SteelVal {
-    use crate::parser::expand_visitor::{any_local_macro_captures, local_macro_captured};
+    use crate::parser::expand_visitor::any_local_macro_captures;
 
-    if !any_local_macro_captures() {
+    if !any_local_macro_captures() || !has_local_macro_captures(value) {
         return value.clone();
     }
+
+    restore_local_macro_captures(value)
+}
+
+fn has_local_macro_captures(value: &SteelVal) -> bool {
+    use crate::parser::expand_visitor::local_macro_captured;
+
+    match value {
+        SymbolV(name) => local_macro_captured(name.as_str()).is_some(),
+        ListV(l) => l.iter().any(has_local_macro_captures),
+        VectorV(v) => v.iter().any(has_local_macro_captures),
+        Pair(p) => has_local_macro_captures(&p.car()) || has_local_macro_captures(&p.cdr()),
+        _ => false,
+    }
+}
+
+fn restore_local_macro_captures(value: &SteelVal) -> SteelVal {
+    use crate::parser::expand_visitor::local_macro_captured;
 
     match value {
         SymbolV(name) => match local_macro_captured(name.as_str()) {
             Some((_, variable)) => SymbolV(variable.into()),
             None => value.clone(),
         },
-        ListV(l) => ListV(l.iter().map(without_local_macro_captures).collect()),
+        ListV(l) => ListV(l.iter().map(restore_local_macro_captures).collect()),
+        VectorV(v) => VectorV(SteelVector(Gc::new(
+            v.iter().map(restore_local_macro_captures).collect(),
+        ))),
+        Pair(p) => Pair(Gc::new(crate::values::lists::Pair::cons(
+            restore_local_macro_captures(&p.car()),
+            restore_local_macro_captures(&p.cdr()),
+        ))),
         _ => value.clone(),
     }
 }
@@ -918,8 +942,7 @@ impl Syntax {
         self.span
     }
 
-    // Keeps the names that say which binding a macro defined in a body refers to, for
-    // macros that turn the data back into code
+    // Keeps captured names, for macros that turn the data back into code
     pub fn syntax_datum_raw(&self) -> SteelVal {
         self.raw.clone().unwrap()
     }
@@ -928,8 +951,7 @@ impl Syntax {
         without_local_macro_captures(self.raw.as_ref().unwrap())
     }
 
-    // A macro that builds its expansion out of data can give the names in it the mark of
-    // an identifier it was handed, which is what tells them apart from the globals.
+    // Gives the names in data the mark of another identifier, so they aren't taken as globals
     pub(crate) fn with_mark_of(mut self, other: &Syntax) -> Syntax {
         if other.mark.is_template() {
             self.mark = other.mark;

@@ -1,5 +1,4 @@
-;; A prelude macro's template names builtins. Definitions of those names where
-;; the macro is used don't change what it expands to.
+;; Definitions at the use site don't change the builtins a prelude macro's template names
 (define (cons a b)
   'my-cons)
 (define (append . xs)
@@ -25,7 +24,7 @@
 (assert! (equal? (dispatch 1 2) (#%prim.list 'two 1 2)))
 (assert! (equal? (dispatch 1 2 3) (#%prim.list 'many 1 (#%prim.list 2 3))))
 
-;; The definitions still apply to the code that names them directly.
+;; They still apply to code that names them directly
 (assert! (equal? (cons 1 2) 'my-cons))
 (assert! (equal? (list 1 2) 'my-list))
 (assert! (equal? (length '(1 2)) 'my-length))

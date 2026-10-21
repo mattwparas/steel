@@ -15,6 +15,7 @@ pub mod primitives;
 mod profiling;
 
 pub mod register_fn;
+pub mod runtime_fn;
 #[cfg(test)]
 mod test_util;
 #[cfg(test)]

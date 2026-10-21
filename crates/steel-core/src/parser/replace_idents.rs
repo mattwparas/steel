@@ -106,6 +106,8 @@ pub struct ReplaceExpressions<'a> {
     in_scope: &'a ScopeSet<InternedString, FxBuildHasher>,
     globals: GlobalMap<'a>,
     wildcard: InternedString,
+    // Inside `(... template)`
+    escaped: bool,
 }
 
 fn check_ellipses(expr: &ExprKind) -> bool {
@@ -194,6 +196,7 @@ impl<'a> ReplaceExpressions<'a> {
             in_scope,
             globals,
             wildcard: InternedString::from_static("_"),
+            escaped: false,
         }
     }
 
@@ -212,6 +215,9 @@ impl<'a> ReplaceExpressions<'a> {
 
     // Note: Returns a bool indicating if this should be made improper/rest or not
     fn expand_ellipses(&mut self, vec_exprs: &mut ThinVec<ExprKind>) -> Result<bool> {
+        if self.escaped {
+            return Ok(false);
+        }
         if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
             if ellipses_pos == 0 {
                 return Ok(false);
@@ -354,6 +360,9 @@ impl<'a> ReplaceExpressions<'a> {
     }
 
     fn expand_ellipses_vec(&mut self, vec_exprs: &mut Vec<ExprKind>) -> Result<bool> {
+        if self.escaped {
+            return Ok(false);
+        }
         if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
             if ellipses_pos == 0 {
                 return Ok(false);
@@ -670,6 +679,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                         && a.syn.unresolved
                         && !a.syn.introduced_via_macro
                         && !self.globals.actually_contains(s)
+                        && !crate::compiler::passes::mangle::is_prelude_builtin(s)
                     {
                         *s = ("##".to_string() + s.resolve()).into();
                     }
@@ -691,6 +701,18 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                 Ok(())
             }
             ExprKind::List(l) => {
+                // `(... template)` treats the ellipses in `template` as identifiers, so
+                // `(... ...)` is `...`
+                if !self.escaped && !l.improper && l.args.len() == 2 && check_ellipses(&l.args[0]) {
+                    let mut template = l.args[1].clone();
+                    self.escaped = true;
+                    let result = self.visit(&mut template);
+                    self.escaped = false;
+                    result?;
+                    *expr = template;
+                    return Ok(());
+                }
+
                 if let Some(expanded) = self.vec_expr_datum_to_syntax(&l.args)? {
                     // return Ok(expanded);
                     *expr = expanded;
