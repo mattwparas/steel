@@ -123,6 +123,28 @@ on the stream return immediately rather than waiting when they would block.
 (tcp-stream-set-non-blocking! stream) -> void?
 
 * stream : tcp-stream?
+### **tcp-stream-set-read-timeout!**
+Sets how long a read on the given TCP stream waits for bytes to arrive before
+giving up. A read that reaches the deadline behaves exactly like a read on a
+non-blocking stream: `read-line*` and the other `*` readers hand back a
+would-block object, the plain readers raise, and bytes that did arrive before
+the deadline are kept.
+
+The deadline covers a single wait, not the whole read, so a stream that keeps
+trickling bytes in can hold a reader past it.
+
+(tcp-stream-set-read-timeout! stream ms) -> void?
+
+* stream : tcp-stream?
+* ms : (or/c int? #f) - milliseconds to wait, or `#f` to wait forever
+
+#### Examples
+
+```scheme
+(define stream (tcp-connect "127.0.0.1:8080"))
+(tcp-stream-set-read-timeout! stream 5000)
+(read-line* (tcp-stream-reader stream)) ;; => a line, or a would-block object
+```
 ### **tcp-stream-writer**
 Get the writer half of this tcp stream as a port.
 

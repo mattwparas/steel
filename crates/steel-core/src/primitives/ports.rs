@@ -505,47 +505,39 @@ pub fn read_line_from_port(port: &SteelPort) -> Result<SteelVal> {
 #[function(name = "write-line!")]
 pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
     let line = line.to_string();
-    let res = port.write_string_line(line.as_str());
-
-    if res.is_ok() {
-        Ok(SteelVal::Void)
-    } else {
-        stop!(Generic => "unable to write string to file");
+    if let Err(err) = port.write_string_line(line.as_str()) {
+        stop!(Generic => "unable to write string to file: {}", err.message());
     }
+
+    Ok(SteelVal::Void)
 }
 
 #[function(name = "#%raw-write")]
 pub fn write(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
-    let res = port.write(line.to_string().as_bytes());
-
-    if res.is_ok() {
-        Ok(SteelVal::Void)
-    } else {
-        stop!(Generic => "unable to write string to port");
+    if let Err(err) = port.write(line.to_string().as_bytes()) {
+        stop!(Generic => "unable to write string to port: {}", err.message());
     }
+
+    Ok(SteelVal::Void)
 }
 
 #[function(name = "#%raw-display")]
 pub fn display(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
     let line = SteelValDisplay(line).to_string();
-    let res = port.write(line.as_bytes());
-
-    if res.is_ok() {
-        Ok(SteelVal::Void)
-    } else {
-        stop!(Generic => "unable to write string to port");
+    if let Err(err) = port.write(line.as_bytes()) {
+        stop!(Generic => "unable to write string to port: {}", err.message());
     }
+
+    Ok(SteelVal::Void)
 }
 
 #[function(name = "#%raw-write-char")]
 pub fn write_char(character: char, port: &SteelPort) -> Result<SteelVal> {
-    let res = port.write_char(character);
-
-    if res.is_ok() {
-        Ok(SteelVal::Void)
-    } else {
-        stop!(Generic => "unable to write string to port");
+    if let Err(err) = port.write_char(character) {
+        stop!(Generic => "unable to write string to port: {}", err.message());
     }
+
+    Ok(SteelVal::Void)
 }
 
 // TODO: support start and end
@@ -557,11 +549,11 @@ pub fn write_string(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
         port.write(line.to_string().as_bytes())
     };
 
-    if res.is_ok() {
-        Ok(SteelVal::Void)
-    } else {
-        stop!(Generic => "unable to write string to port");
+    if let Err(err) = res {
+        stop!(Generic => "unable to write string to port: {}", err.message());
     }
+
+    Ok(SteelVal::Void)
 }
 
 /// Extracts the string contents from a port created with `open-output-string`.
@@ -872,7 +864,7 @@ mod would_block_tests {
     use super::*;
     use crate::gc::Gc;
     use crate::rvals::SteelByteVector;
-    use std::io::{BufReader, Read};
+    use std::io::{BufReader, Read, Write};
     use std::net::{TcpListener, TcpStream};
 
     struct NothingReady;
@@ -886,14 +878,33 @@ mod would_block_tests {
         }
     }
 
-    fn blocked_port() -> SteelPort {
-        let reader: Box<dyn Read + Send + Sync> = Box::new(NothingReady);
+    // What a socket with a read timeout reports on windows, where the deadline is
+    // not the same error as a read that would block
+    struct RanOutOfTime;
 
+    impl Read for RanOutOfTime {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out",
+            ))
+        }
+    }
+
+    fn port_over(reader: Box<dyn Read + Send + Sync>) -> SteelPort {
         SteelPort {
             port: Gc::new_lock(SteelPortRepr::DynReader(Peekable::new(BufReader::new(
                 reader,
             )))),
         }
+    }
+
+    fn blocked_port() -> SteelPort {
+        port_over(Box::new(NothingReady))
+    }
+
+    fn timed_out_port() -> SteelPort {
+        port_over(Box::new(RanOutOfTime))
     }
 
     // The client end comes back so the connection stays open, not closed
@@ -902,6 +913,23 @@ mod would_block_tests {
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, _) = listener.accept().unwrap();
         server.set_nonblocking(true).unwrap();
+
+        let port = SteelPort {
+            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::new(server))),
+        };
+
+        (port, client)
+    }
+
+    // The same, except that the socket waits for a deadline rather than refusing
+    // to wait at all
+    fn timed_out_tcp_port() -> (SteelPort, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        server
+            .set_read_timeout(Some(std::time::Duration::from_millis(50)))
+            .unwrap();
 
         let port = SteelPort {
             port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::new(server))),
@@ -982,6 +1010,75 @@ mod would_block_tests {
             read_line(&tcp).unwrap_err().message(),
             read_line(&blocked_port()).unwrap_err().message(),
             "read-line describes a blocked socket differently depending on the reader"
+        );
+    }
+
+    #[test]
+    fn a_read_that_runs_out_of_time_reports_the_same_whichever_error_the_os_gives() {
+        assert!(
+            would_block_objectp(&read_line_ready(&timed_out_port()).unwrap()),
+            "read-line* reported a timed out read as something other than would-block"
+        );
+
+        assert_eq!(
+            read_line(&timed_out_port()).unwrap_err().message(),
+            read_line(&blocked_port()).unwrap_err().message(),
+            "read-line describes a timed out read differently from a would-block"
+        );
+
+        let reads: Vec<(&str, SteelVal)> = vec![
+            ("read-byte", read_byte(&timed_out_port()).unwrap()),
+            ("read-bytes", read_bytes(4, &timed_out_port()).unwrap()),
+            (
+                "read-port-to-string*",
+                read_port_to_string_ready(&timed_out_port()).unwrap(),
+            ),
+            (
+                "read-port-to-bytes*",
+                read_port_to_bytes_ready(&timed_out_port()).unwrap(),
+            ),
+        ];
+
+        for (name, value) in reads {
+            assert!(
+                would_block_objectp(&value),
+                "{name} reported a timed out read as {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_that_runs_out_of_time_reports_what_a_non_blocking_one_does() {
+        let (timed_out, _client) = timed_out_tcp_port();
+
+        assert!(
+            would_block_objectp(&read_line_ready(&timed_out).unwrap()),
+            "read-line* reported a read timeout as something other than would-block"
+        );
+
+        let (timed_out, _client) = timed_out_tcp_port();
+        let (non_blocking, _other) = blocked_tcp_port();
+
+        assert_eq!(
+            read_line(&timed_out).unwrap_err().message(),
+            read_line(&non_blocking).unwrap_err().message(),
+            "read-line describes a read timeout differently from a would-block"
+        );
+    }
+
+    #[test]
+    fn a_read_that_runs_out_of_time_keeps_what_already_arrived() {
+        let (timed_out, mut client) = timed_out_tcp_port();
+
+        client.write_all(b"ab").unwrap();
+        client.flush().unwrap();
+
+        let value = read_bytes(4, &timed_out).unwrap();
+
+        assert_eq!(
+            value.to_string(),
+            SteelVal::ByteVector(SteelByteVector::new(b"ab".to_vec())).to_string(),
+            "a read that timed out after two of the four bytes gave back {value}"
         );
     }
 }

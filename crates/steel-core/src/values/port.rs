@@ -167,7 +167,7 @@ impl<R: Read> Peekable<R> {
 
                 Ok(MaybeBlocking::Nonblocking(amt))
             }
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+            Err(err) if blocked(&err) => {
                 self.buf.truncate(start);
                 Ok(MaybeBlocking::WouldBlock)
             }
@@ -191,7 +191,7 @@ impl<R: Read> Peekable<R> {
                 return Ok(MaybeBlocking::Nonblocking(None));
             }
 
-            if err.kind() == io::ErrorKind::WouldBlock {
+            if blocked(&err) {
                 return Ok(MaybeBlocking::WouldBlock);
             }
 
@@ -466,8 +466,15 @@ fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
     MaybeBlocking::Nonblocking(Some((char::REPLACEMENT_CHARACTER, amt)))
 }
 
+// A read that reaches the deadline set by `tcp-stream-set-read-timeout!` reports
+// it as `WouldBlock` on unix and as `TimedOut` on windows, and both say the same
+// thing to a reader: nothing more has arrived yet, and whatever already came off
+// the stream still stands.
 fn blocked(err: &io::Error) -> bool {
-    err.kind() == io::ErrorKind::WouldBlock
+    matches!(
+        err.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+    )
 }
 
 fn invalid_utf8() -> io::Error {
@@ -495,7 +502,7 @@ fn read_full<R: Read>(
                 buf = &mut buf[n..];
             }
             Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+            Err(err) if blocked(&err) => {
                 if *amt == 0 {
                     return Ok(MaybeBlocking::WouldBlock);
                 } else {
@@ -1329,6 +1336,23 @@ mod port_tests {
         }
     }
 
+    struct Timeouts {
+        before: Option<&'static [u8]>,
+    }
+
+    impl Read for Timeouts {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let Some(bytes) = self.before.take() else {
+                return Err(io::Error::new(io::ErrorKind::TimedOut, "timed out"));
+            };
+
+            let amt = usize::min(bytes.len(), buf.len());
+            buf[..amt].copy_from_slice(&bytes[..amt]);
+
+            Ok(amt)
+        }
+    }
+
     struct Interrupts {
         interrupted: bool,
     }
@@ -1514,6 +1538,49 @@ mod port_tests {
             MaybeBlocking::WouldBlock
         ));
         assert_eq!(peekable.pending(), b"abc", "the pending bytes survive");
+    }
+
+    // A socket that hit the deadline set by `tcp-stream-set-read-timeout!` reports
+    // it this way on windows rather than as a read that would block
+    struct RanOutOfTime;
+
+    impl Read for RanOutOfTime {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::TimedOut, "timed out"))
+        }
+    }
+
+    #[test]
+    fn a_source_that_ran_out_of_time_is_a_source_with_nothing_ready() {
+        let mut peekable = Peekable::new(RanOutOfTime);
+
+        assert!(matches!(
+            peekable.fill_chunk(usize::MAX).unwrap(),
+            MaybeBlocking::WouldBlock
+        ));
+
+        assert!(matches!(
+            peekable.read_byte().unwrap(),
+            MaybeBlocking::WouldBlock
+        ));
+
+        let mut line = String::new();
+        assert!(matches!(
+            peekable.read_line_peeked_unbuffered(&mut line).unwrap(),
+            MaybeBlocking::WouldBlock
+        ));
+        assert_eq!(line, "");
+    }
+
+    #[test]
+    fn a_read_that_ran_out_of_time_partway_reports_what_it_already_took() {
+        let mut peekable = Peekable::new(Timeouts {
+            before: Some(b"abc"),
+        });
+
+        let mut buf = [0; 8];
+        assert_eq!(nonblocking(peekable.read_bytes_amt(&mut buf).unwrap()), 3);
+        assert_eq!(&buf[..3], b"abc");
     }
 
     #[test]

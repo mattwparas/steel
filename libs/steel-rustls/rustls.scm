@@ -3,6 +3,7 @@
     gz-decode
     tcp-connect
     tcp-reader
+    tcp-set-read-timeout!
     tcp-writer
     tls-reader
     tls-stream
@@ -13,6 +14,7 @@
     gz-decode
     tcp-connect
     tcp-reader
+    tcp-set-read-timeout!
     tcp-writer
     tls-reader
     tls-stream
