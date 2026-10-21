@@ -2,7 +2,6 @@
   (values (take lst pos) (drop lst pos)))
 
 (define (associative-join f zero xs)
-  ; (f x0 x1 ...) = (f (f2 x0 x1) (f2 x2 x3) ...)
   (cond
     [(null? xs) zero]
     [(null? (cdr xs)) (car xs)]
@@ -30,7 +29,6 @@
 
 (associative-join (merger = <) '() (map list '(1 3 2 3 2 1)))
 
-;; The innermost head is the outermost function
 (define ((pair-with a) b)
   (list a b))
 (assert! (equal? ((pair-with 1) 2) '(1 2)))

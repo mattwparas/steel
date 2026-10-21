@@ -24,7 +24,6 @@ struct Binder {
     name: InternedString,
     mark: ExpansionMark,
     id: usize,
-    // The local macro whose template wrote this binder
     local_macro: Option<InternedString>,
 }
 
@@ -37,14 +36,12 @@ pub struct ResolveExpansionMarks {
     conflicts: FxHashSet<usize>,
     renamed: FxHashMap<usize, InternedString>,
     renaming: bool,
-    // Macros defined in the enclosing bodies, with the binder count at each definition
+    // usize here is the binder count
     local_macros: Vec<(InternedString, usize)>,
     has_local_macros: bool,
-    // Top level definitions named by a template
     template_globals: FxHashSet<(InternedString, ExpansionMark)>,
 }
 
-// Turns captured names in quoted data back into their variables
 struct RestoreCapturedNames;
 
 impl VisitorMutRefUnit for RestoreCapturedNames {
@@ -77,7 +74,6 @@ impl ResolveExpansionMarks {
         format!("##{}#{}", name.resolve(), mark.0).into()
     }
 
-    // A top level definition named by a template is renamed, so only that expansion refers to it.
     fn define_template_globals(&mut self, expr: &mut ExprKind) {
         match expr {
             ExprKind::Begin(b) => {
@@ -112,7 +108,6 @@ impl ResolveExpansionMarks {
             return;
         };
 
-        // A template that binds the name doesn't refer to the outer variable
         let mut local_macro = None;
 
         if let Some((macro_name, variable)) = local_macro_captured(name.resolve()) {
@@ -135,7 +130,6 @@ impl ResolveExpansionMarks {
         });
 
         if self.renaming && self.conflicts.contains(&id) {
-            // Unmarked binders can only be told apart by position
             let fresh: InternedString = if mark == ExpansionMark::NONE {
                 format!("##{}#{}#{}", name.resolve(), mark.0, id).into()
             } else {
@@ -164,7 +158,6 @@ impl ResolveExpansionMarks {
         self.visit(body);
     }
 
-    // A begin in a body is part of that body
     fn define_local_macros(&mut self, exprs: &[ExprKind]) {
         for expr in exprs {
             match expr {
@@ -180,7 +173,6 @@ impl ResolveExpansionMarks {
         }
     }
 
-    // The variable a captured name stands for, and the binder count where its macro was defined
     fn captured_variable(&self, macro_name: &str, variable: &str) -> (InternedString, usize) {
         let depth = self
             .local_macros
@@ -192,8 +184,6 @@ impl ResolveExpansionMarks {
         (variable.into(), depth)
     }
 
-    // A local macro's template refers to the variables in scope at its definition,
-    // so later binders of the same name are renamed.
     fn resolve_captured(&mut self, a: &mut Atom, variable: InternedString, depth: usize) {
         let depth = depth.min(self.scope.len());
 
@@ -271,8 +261,6 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
         self.exit_scope(depth);
     }
 
-    // Internal define names are bound in `visit_body`. Top level defines are
-    // globals, which this pass doesn't touch.
     fn visit_define(&mut self, define: &mut Define) {
         self.visit(&mut define.body);
     }
@@ -311,7 +299,8 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
         if let Some((macro_name, variable)) = local_macro_captured(name.resolve()) {
             let (variable, depth) = self.captured_variable(macro_name, variable);
 
-            // Keep the mark, or the captured name if a macro built this from data
+            // We want to keep the mark, or the captured name if a macro built
+            // this from quoted values
             let macro_name: InternedString = macro_name.into();
             let bound_by_template = self.scope.iter().any(|b| {
                 b.name == variable
@@ -338,7 +327,6 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
                 }
             }
 
-            // Its binder may have been renamed for a local macro
             if self.renaming && self.has_local_macros {
                 let binder = self
                     .scope
@@ -369,8 +357,6 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
             return;
         }
 
-        // A builtin name in a template resolved where its macro was defined, and not
-        // bound by the template, is the builtin, so definitions at the use site can't capture it.
         if by_mark.is_none() && mark.is_definition_resolved() && is_prelude_builtin(name) {
             *name = builtin_to_reserved(name.resolve());
             a.syn.unresolved = false;
@@ -379,7 +365,6 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
 
         if !self.renaming {
             if let Some(binder) = by_mark {
-                // Bound by the same expansion, so not a global
                 a.syn.unresolved = false;
 
                 if self.innermost(*name).map(|b| b.id) != Some(binder.id) {
@@ -390,7 +375,6 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
             return;
         }
 
-        // Without a binder with the same mark, resolve by name
         let binder = by_mark.or_else(|| self.innermost(*name));
 
         if let Some(fresh) = binder.and_then(|b| self.renamed.get(&b.id)) {

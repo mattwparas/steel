@@ -522,21 +522,8 @@ fn run_r7rs_benchmarks(benches: &[&str]) {
 #[test]
 fn r7rs_benchmark_test_suite_one() {
     run_r7rs_benchmarks(&[
-        "ack",
-        "cat",
-        "cpstak",
-        "diviter",
-        "equal",
-        "fibfp",
-        "matrix",
-        "mbrotz",
-        "ntakl",
-        "peval",
-        "puzzle",
-        "sboyer",
-        "string",
-        "tail",
-        "wc",
+        "ack", "cat", "cpstak", "diviter", "equal", "fibfp", "matrix", "mbrotz", "ntakl", "peval",
+        "puzzle", "sboyer", "string", "tail", "wc",
     ]);
 }
 

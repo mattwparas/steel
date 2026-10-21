@@ -106,7 +106,6 @@ pub struct ReplaceExpressions<'a> {
     in_scope: &'a ScopeSet<InternedString, FxBuildHasher>,
     globals: GlobalMap<'a>,
     wildcard: InternedString,
-    // Inside `(... template)`
     escaped: bool,
 }
 
@@ -701,8 +700,6 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                 Ok(())
             }
             ExprKind::List(l) => {
-                // `(... template)` treats the ellipses in `template` as identifiers, so
-                // `(... ...)` is `...`
                 if !self.escaped && !l.improper && l.args.len() == 2 && check_ellipses(&l.args[0]) {
                     let mut template = l.args[1].clone();
                     self.escaped = true;

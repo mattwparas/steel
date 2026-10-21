@@ -1295,7 +1295,6 @@
                                   (lambda ()
                                     expr ...))]))
 
-;; Uses the primitives' own names, so a module's `length` or `apply` doesn't change the dispatch
 (define-syntax case-lambda
   (syntax-rules ()
     [(case-lambda) (lambda args (error "CASE-LAMBDA without any clauses."))]
@@ -1320,8 +1319,8 @@
         ?e1 ...])
      (if (#%prim.= ?l (#%prim.length '(?a1 ...)))
          (#%prim.apply (lambda (?a1 ...)
-                  ?e1 ...)
-                ?args)
+                         ?e1 ...)
+                       ?args)
          (error! "Arity mismatch in case lambda: attempted to call function with arg length: "
                  ?l
                  "expecting length: "
@@ -1335,8 +1334,8 @@
        ?clause1 ...)
      (if (#%prim.= ?l (#%prim.length '(?a1 ...)))
          (#%prim.apply (lambda (?a1 ...)
-                  ?e1 ...)
-                ?args)
+                         ?e1 ...)
+                       ?args)
          (case-lambda
            "CLAUSE"
            ?args
@@ -1403,8 +1402,8 @@
        ?clause1 ...)
      (if (#%prim.>= ?l ?k)
          (#%prim.apply (lambda ?al
-                  ?e1 ...)
-                ?args)
+                         ?e1 ...)
+                       ?args)
          (case-lambda
            "CLAUSE"
            ?args

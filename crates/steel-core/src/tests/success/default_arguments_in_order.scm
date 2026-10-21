@@ -1,4 +1,3 @@
-;; A default can use the arguments written before it
 (define (after-required a [b (+ a 1)] [c (+ b 10)])
   (list a b c))
 (assert! (equal? (after-required 1) '(1 2 12)))
@@ -29,14 +28,12 @@
 (assert! (equal? (with-rest 1) '(1 2 ())))
 (assert! (equal? (with-rest 1 5 6 7) '(1 5 (6 7))))
 
-;; Called through a value
 (define (call f . args)
   (apply f args))
 (assert! (equal? (call after-required 1) '(1 2 12)))
 (assert! (equal? (call keyword-first 1 #:k 5) '(1 5 6)))
 (assert! (equal? (map (lambda (x) (after-required x)) '(1 2)) '((1 2 12) (2 3 13))))
 
-;; Defaults that don't use each other
 (define (independent a [b 2] #:k [k 3])
   (list a b k))
 (assert! (equal? (independent 1) '(1 2 3)))
@@ -44,10 +41,11 @@
 (assert! (equal? (independent 1 #:k 9) '(1 2 9)))
 
 (define (in-a-loop n acc)
-  (if (= n 0) acc (in-a-loop (- n 1) (+ acc (car (after-required n)) (cadr (all-optional n n))))))
+  (if (= n 0)
+      acc
+      (in-a-loop (- n 1) (+ acc (car (after-required n)) (cadr (all-optional n n))))))
 (assert! (= (in-a-loop 3000 0) 9003000))
 
-;; A default only runs when its argument is missing
 (define runs 0)
 (define (ran!)
   (set! runs (+ runs 1))
@@ -76,7 +74,6 @@
 (assert! (equal? (call rest-after 1 2 3) '(1 2 (3))))
 (assert! (= runs 0))
 
-;; A default that would raise for the argument given
 (assert! (= (with-length 5 0) 0))
 (assert! (= (call with-length 5 0) 0))
 (assert! (= (with-length '(1 2 3)) 3))

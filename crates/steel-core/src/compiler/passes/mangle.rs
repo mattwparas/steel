@@ -16,17 +16,6 @@ use crate::{
 
 use super::VisitorMutRefUnit;
 
-/*
-Steps for doing having scoped macros
-
-- A requires a macro (or macros) from B
-    - Expand A with macros from A
-    - Then expand A with macros from B / C / D
-        - A must be done first, but then the rest can be done in phases
-    - Copy the code for B, mangle it and then include it in A directly
-*/
-
-// A definition named by a template belongs to that expansion, not the module
 fn written_by_template(name: &ExprKind) -> bool {
     name.atom_syntax_object()
         .is_some_and(|syn| syn.mark.is_template())
@@ -220,8 +209,6 @@ pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
 impl VisitorMutRefUnit for NameMangler {
     #[inline]
     fn visit_atom(&mut self, a: &mut Atom) {
-        // A builtin name in a template resolved where its macro was defined is the builtin.
-        // `ResolveExpansionMarks` handles the names the template binds itself.
         let resolved_elsewhere = a.syn.mark.is_definition_resolved();
 
         if let TokenType::Identifier(i) = &mut a.syn.ty {

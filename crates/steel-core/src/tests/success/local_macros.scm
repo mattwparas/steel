@@ -20,7 +20,6 @@
               (add 1 3))
             4))
 
-;; The template sees the variables around the definition
 (assert! (= (let ([y 5])
               (define-syntax plus-y
                 (syntax-rules ()
@@ -40,21 +39,26 @@
     (define-syntax next
       (syntax-rules ()
         [(_) (loop (+ i 1) (+ acc i))]))
-    (if (= i n) acc (next)))
+    (if (= i n)
+        acc
+        (next)))
   (loop 0 0))
 (assert! (= (calls-itself 5) 10))
 
 (define (in-named-let n)
-  (let loop ([i 0] [acc 0])
+  (let loop ([i 0]
+             [acc 0])
     (define-syntax next
       (syntax-rules ()
         [(_) (loop (+ i 1) (+ acc i))]))
-    (if (= i n) acc (next))))
+    (if (= i n)
+        acc
+        (next))))
 (assert! (= (in-named-let 5) 10))
 
-;; Used before it is defined, and by a later define of the same body
 (define (used-early x)
-  (define (helper) (doubled x))
+  (define (helper)
+    (doubled x))
   (define-syntax doubled
     (syntax-rules ()
       [(_ a) (* 2 a)]))
@@ -65,15 +69,18 @@
   (define-syntax via-helper
     (syntax-rules ()
       [(_ a) (helper a)]))
-  (define (helper v) (list 'helped v))
+  (define (helper v)
+    (list 'helped v))
   (via-helper x))
 (assert! (equal? (refers-to-later-define 1) '(helped 1)))
 
-;; Inside the forms a body holds, and in nested functions
 (define (nested lst)
   (define-syntax choose
     (syntax-rules ()
-      [(_ c t e) (cond [c t] [else e])]))
+      [(_ c t e)
+       (cond
+         [c t]
+         [else e])]))
   (let* ([n (length lst)])
     (define-syntax bump
       (syntax-rules ()
@@ -86,7 +93,8 @@
   (define-syntax add1*
     (syntax-rules ()
       [(_ v) (+ v 1)]))
-  (define (inner y) (add1* (add1* y)))
+  (define (inner y)
+    (add1* (add1* y)))
   (map (lambda (z) (add1* (inner z))) (list x x)))
 (assert! (equal? (in-closures 1) '(4 4)))
 
@@ -120,7 +128,6 @@
   (scaled x))
 (assert! (equal? (list (with-default 3) (with-default 3 #:scale 10)) '(6 30)))
 
-;; Recursive, with literals and ellipses, and one local macro using another
 (define (recursive n)
   (define-syntax first-true
     (syntax-rules ()
@@ -128,7 +135,9 @@
       [(_ a) a]
       [(_ a b ...)
        (let ([t a])
-         (if t t (first-true b ...)))]))
+         (if t
+             t
+             (first-true b ...)))]))
   (first-true #f #f n))
 (assert! (= (recursive 9) 9))
 
@@ -149,28 +158,20 @@
   (both 'k))
 (assert! (equal? (one-uses-another) '((k . 1) (k . 2))))
 
-;; A variable the template binds does not capture the caller's
 (define (hygienic t)
   (define-syntax add-through-tmp
     (syntax-rules ()
-      [(_ a b)
-       (let ([tmp a])
-         (+ tmp b))]))
-  (let ([tmp 100])
-    (add-through-tmp t tmp)))
+      [(_ a b) (let ([tmp a]) (+ tmp b))]))
+  (let ([tmp 100]) (add-through-tmp t tmp)))
 (assert! (= (hygienic 1) 101))
 
-;; A variable bound inside the body hides the macro
 (define (hidden-by-a-variable)
   (define-syntax m
     (syntax-rules ()
       [(_) 'macro]))
-  (list (m)
-        (let ([m (lambda () 'variable)])
-          (m))))
+  (list (m) (let ([m (lambda () 'variable)]) (m))))
 (assert! (equal? (hidden-by-a-variable) '(macro variable)))
 
-;; A local macro hides a global one of the same name, in its body only
 (define-syntax pick
   (syntax-rules ()
     [(_ a) (list 'global a)]))
@@ -182,7 +183,6 @@
 (assert! (equal? (hides-a-global 1) '(local 1)))
 (assert! (equal? (pick 1) '(global 1)))
 
-;; A macro whose template defines one
 (define-syntax with-twice
   (syntax-rules ()
     [(_ v)
@@ -193,7 +193,6 @@
        (twice t))]))
 (assert! (equal? (with-twice 5) '(5 5)))
 
-;; A begin at the top level defines for the rest of the file
 (begin
   (define-syntax squared
     (syntax-rules ()
@@ -201,7 +200,6 @@
   (define nine (squared 3)))
 (assert! (equal? (list nine (squared 4)) '(9 16)))
 
-;; The body of a when is a body too
 (define (in-a-when x)
   (when x
     (define-syntax tagged
@@ -216,7 +214,6 @@
       [(_ a) (list 'top a)]))
   (assert! (equal? (at-the-top 1) '(top 1))))
 
-;; A macro that defines one at the top level
 (define-syntax define-constant-macro
   (syntax-rules ()
     [(_ name)
@@ -226,13 +223,11 @@
 (define-constant-macro hundred)
 (assert! (= (hundred) 100))
 
-;; A template keeps referring to the variable it saw where it was defined
 (define (rebound-by-let acc)
   (define-syntax add-acc
     (syntax-rules ()
       [(_ x) (+ x acc)]))
-  (let ([acc 1000])
-    (list acc (add-acc acc))))
+  (let ([acc 1000]) (list acc (add-acc acc))))
 (assert! (equal? (rebound-by-let 10) '(1000 1010)))
 
 (define (rebound-by-parameter acc)
@@ -248,7 +243,8 @@
   (define-syntax bump!
     (syntax-rules ()
       [(_) (set! acc (+ acc 1))]))
-  (let loop ([acc 0] [i 0])
+  (let loop ([acc 0]
+             [i 0])
     (when (< i 3)
       (bump!)
       (loop (+ acc 100) (+ i 1))))
@@ -271,8 +267,7 @@
     (define-syntax inner
       (syntax-rules ()
         [(_) (list acc (outer))]))
-    (let ([acc 3])
-      (list acc (inner) (outer)))))
+    (let ([acc 3]) (list acc (inner) (outer)))))
 (assert! (equal? (nested-captures 1) '(3 (2 1) 1)))
 
 (define (rebound-by-match acc)
@@ -283,7 +278,6 @@
     [(list acc other) (list acc (add-acc other))]))
 (assert! (equal? (rebound-by-match 10) '(1000 2010)))
 
-;; A use that a procedural macro expands to
 (define-syntax (call-it stx)
   (syntax-case stx ()
     [(_ m x) #'(m x)]))
@@ -295,7 +289,6 @@
   (call-it twice y))
 (assert! (= (through-a-procedural-macro 21) 42))
 
-;; A macro that defines one with patterns and quoted names
 (define-syntax define-adder
   (syntax-rules ()
     [(_ name n)
@@ -318,7 +311,6 @@
 (define-pair-of-macros my-first my-second)
 (assert! (equal? (list (my-first '(1 2)) (my-second '(1 2))) '(1 2)))
 
-;; A template can bind a name that is also a variable where the macro is defined
 (define (template-binds-the-name acc)
   (define-syntax doubled
     (syntax-rules ()
@@ -328,7 +320,10 @@
       [(_ x) (let ([old acc]) (let ([acc x]) (list old acc)))]))
   (define-syntax defined
     (syntax-rules ()
-      [(_) (let () (define acc 5) acc)]))
+      [(_)
+       (let ()
+         (define acc 5)
+         acc)]))
   (list (doubled acc) (both 7) (defined) acc))
 (assert! (equal? (template-binds-the-name 10) '(21 (10 7) 5 10)))
 
@@ -342,11 +337,13 @@
 (define (template-defines-values acc)
   (define-syntax local-two-values
     (syntax-rules ()
-      [(_ x) (begin (define-values (acc other) (values x 2)) (list acc other))]))
+      [(_ x)
+       (begin
+         (define-values (acc other) (values x 2))
+         (list acc other))]))
   (list (two-values acc) (let () (local-two-values 50)) acc))
 (assert! (equal? (template-defines-values 10) '((10 2) (50 2) 10)))
 
-;; A procedural macro sees the name of the variable
 (define-syntax (name-of stx)
   (syntax-case stx ()
     [(_ x) (symbol->string (syntax->datum #'x))]))
@@ -359,26 +356,28 @@
   (define-syntax describe
     (syntax-rules ()
       [(_) (list (name-of acc) (name-and-value acc))]))
-  (let ([acc 100])
-    (describe)))
+  (let ([acc 100]) (describe)))
 (assert! (equal? (named-by-a-procedural-macro 10) '("acc" ("acc" 10))))
 
-;; A pattern in a template binds over the variable around the macro
 (define (template-matches a)
   (define-syntax sum-of
     (syntax-rules ()
-      [(_ v) (match v [(list a b) (+ a b)])]))
+      [(_ v)
+       (match v
+         [(list a b) (+ a b)])]))
   (list (sum-of '(1 2)) a))
 (assert! (equal? (template-matches 10) '(3 10)))
 
-;; A template's builtin is the builtin, even where the use site binds its name
 (define (first-of lst)
-  (define-syntax first* (syntax-rules () [(_ l) (car l)]))
+  (define-syntax first*
+    (syntax-rules ()
+      [(_ l) (car l)]))
   (let ([car cdr]) (first* lst)))
 (assert! (equal? (first-of (list 1 2)) 1))
 
-;; A captured name in quoted data comes back as the variable, in vectors too
 (define (quoted-vector x)
-  (define-syntax show (syntax-rules () [(_) (quote #(x (x)))]))
+  (define-syntax show
+    (syntax-rules ()
+      [(_) (quote #(x (x)))]))
   (show))
 (assert! (equal? (quoted-vector 1) (vector 'x (list 'x))))

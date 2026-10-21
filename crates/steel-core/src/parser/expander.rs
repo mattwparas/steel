@@ -159,9 +159,6 @@ pub struct SteelMacro {
     mangled: bool,
     pub(crate) location: Span,
     pub(crate) special_mangled: bool,
-    // Resolved where the macro was defined, in the prelude or a module, so a builtin's
-    // name left in it is the builtin.
-    #[serde(default)]
     definition_resolved: bool,
 }
 
@@ -1246,7 +1243,6 @@ fn collect_bindings(
 ) -> Result<()> {
     let mut expr_iter = list.iter().enumerate();
 
-    // The count `match_list_pattern` matched with. The rest pattern only takes the improper tail.
     let fixed_patterns = match patterns.last() {
         Some(MacroPattern::Rest(_)) => patterns.len() - 1,
         _ => patterns.len(),

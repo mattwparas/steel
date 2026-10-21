@@ -638,7 +638,6 @@ impl Engine {
         // values won't leak when top level macros are defined - and modules can clone from
         // this to begin seeding their environment.
 
-        // Builtin names in prelude macros are the builtins
         for prelude_macro in vm.in_scope_macros_mut().values_mut() {
             prelude_macro.mark_definition_resolved();
         }

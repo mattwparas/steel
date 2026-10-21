@@ -15,15 +15,13 @@
        (set-pt-y! p 5)
        (list (pt? p) (pt-x p) (pt-y p)))]))
 
-;; The names of the struct and of a field are also variables where it is used
 (define (uses-boxed x pt)
   (list (boxed x) pt))
 (assert! (equal? (uses-boxed 1 'outer) '((#t 1 5) outer)))
 
 (define-syntax define-point
   (syntax-rules ()
-    [(_ name)
-     (struct name (x y))]))
+    [(_ name) (struct name (x y))]))
 (define-point point)
 (assert! (= (point-y (point 3 4)) 4))
 
@@ -53,7 +51,6 @@
   (list (sum-of-pair a) a))
 (assert! (equal? (uses-sum-of-pair '(1 2)) '(3 (1 2))))
 
-;; The variables can come from where the macro is used
 (define-syntax bind-pair
   (syntax-rules ()
     [(_ p q v) (match-define (list p q) v)]))
@@ -73,13 +70,13 @@
   (list (split '(1 2)) acc))
 (assert! (equal? (in-a-local-macro 10) '((1 2) 10)))
 
-;; The names a template writes for top level definitions stay with that use of the macro
 (define-syntax template-values
   (syntax-rules ()
     [(_ get)
      (begin
        (define-values (list hidden) (values 1 2))
-       (define (get) (+ list hidden)))]))
+       (define (get)
+         (+ list hidden)))]))
 (template-values first-sum)
 (template-values second-sum)
 (assert! (= (first-sum) 3))
@@ -91,7 +88,8 @@
     [(_ get)
      (begin
        (struct hidden-point (x y))
-       (define (get) (hidden-point-x (hidden-point 7 8))))]))
+       (define (get)
+         (hidden-point-x (hidden-point 7 8))))]))
 (template-struct hidden-x)
 (assert! (= (hidden-x) 7))
 
@@ -102,7 +100,8 @@
     [(_ get)
      (begin
        (define-values (shared other) (values 1 2))
-       (define (get) (list shared other hidden-point)))]))
+       (define (get)
+         (list shared other hidden-point)))]))
 (template-and-use-site get-all)
 (assert! (equal? (get-all) '(1 2 10)))
 (assert! (= shared 5))
@@ -118,21 +117,23 @@
 (template-match matched-sum)
 (assert! (= (matched-sum) 5))
 
-;; A name from where the macro is used is defined there
 (define-syntax define-with-hidden
   (syntax-rules ()
     [(_ name v) (define-values (name hidden) (values v 0))]))
 (define-with-hidden visible 42)
 (assert! (= visible 42))
 
-;; A macro that defines one and uses it in the same begin
 (define-syntax define-and-use
   (syntax-rules ()
-    [(_ name) (begin (define-syntax plus-one (syntax-rules () [(_ v) (+ v 1)])) (define name (plus-one 1)))]))
+    [(_ name)
+     (begin
+       (define-syntax plus-one
+         (syntax-rules ()
+           [(_ v) (+ v 1)]))
+       (define name (plus-one 1)))]))
 (define-and-use two)
 (assert! (= two 2))
 
-;; A generated macro that calls itself
 (define-syntax define-counter
   (syntax-rules ()
     [(_ name)
@@ -141,31 +142,39 @@
          (syntax-rules ()
            [(_) 0]
            [(_ x . rest) (+ 1 (count-args . rest))]))
-       (define (name) (count-args a b c)))]))
+       (define (name)
+         (count-args a b c)))]))
 (define-counter three)
 (assert! (= (three) 3))
 
-;; A top level macro's builtin, where the use site binds its name
-(define-syntax top-first (syntax-rules () [(_ l) (car l)]))
+(define-syntax top-first
+  (syntax-rules ()
+    [(_ l) (car l)]))
 (define (top-first-of lst)
   (let ([car cdr]) (top-first lst)))
 (assert! (equal? (top-first-of (list 1 2)) 1))
 
-;; A struct whose name a procedural macro makes with gensym
 (defmacro (gensym-struct stx)
-  (let* ([name (gensym)]
-         [getter (string->symbol (string-append (symbol->string name) "-a"))])
-    `(begin (struct ,name (a)) (define gensym-struct-field (,getter (,name 5))))))
+          (let* ([name (gensym)]
+                 [getter (string->symbol (string-append (symbol->string name) "-a"))])
+            `(begin
+               (struct ,name (a))
+               (define gensym-struct-field (,getter (,name 5))))))
 (gensym-struct)
 (assert! (= gensym-struct-field 5))
 
-;; A template that names a macro through another macro, and uses it
 (define-syntax define-doubler
   (syntax-rules ()
-    [(_ name) (define-syntax name (syntax-rules () [(_ v) (* v 2)]))]))
+    [(_ name)
+     (define-syntax name
+       (syntax-rules ()
+         [(_ v) (* v 2)]))]))
 (define-syntax define-ten
   (syntax-rules ()
-    [(_ name) (begin (define-doubler double) (define name (double 5)))]))
+    [(_ name)
+     (begin
+       (define-doubler double)
+       (define name (double 5)))]))
 (define-ten ten)
 (assert! (= ten 10))
 (define (local-ten)
@@ -173,10 +182,15 @@
   ten)
 (assert! (= (local-ten) 10))
 
-;; Each expansion gets its own generated macro
 (define-syntax define-constant-fn
   (syntax-rules ()
-    [(_ name n) (begin (define-syntax constant (syntax-rules () [(_) n])) (define (name) (constant)))]))
+    [(_ name n)
+     (begin
+       (define-syntax constant
+         (syntax-rules ()
+           [(_) n]))
+       (define (name)
+         (constant)))]))
 (define-constant-fn one 1)
 (define-constant-fn two-fn 2)
 (assert! (equal? (list (one) (two-fn)) (list 1 2)))

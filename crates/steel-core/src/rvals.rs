@@ -736,7 +736,6 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
 
 impl ast::TryFromSteelValVisitorForExprKind {
     pub fn visit_syntax_object(&mut self, value: &Syntax) -> Result<ExprKind> {
-        // The names in plain data take the list's mark
         let mark = if value.mark.is_template() {
             value.mark
         } else {
@@ -850,7 +849,6 @@ impl ast::TryFromSteelValVisitorForExprKind {
     }
 }
 
-// Turns captured names in data back into their variables
 fn without_local_macro_captures(value: &SteelVal) -> SteelVal {
     use crate::parser::expand_visitor::any_local_macro_captures;
 
@@ -942,7 +940,6 @@ impl Syntax {
         self.span
     }
 
-    // Keeps captured names, for macros that turn the data back into code
     pub fn syntax_datum_raw(&self) -> SteelVal {
         self.raw.clone().unwrap()
     }
@@ -951,7 +948,6 @@ impl Syntax {
         without_local_macro_captures(self.raw.as_ref().unwrap())
     }
 
-    // Gives the names in data the mark of another identifier, so they aren't taken as globals
     pub(crate) fn with_mark_of(mut self, other: &Syntax) -> Syntax {
         if other.mark.is_template() {
             self.mark = other.mark;

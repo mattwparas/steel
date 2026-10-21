@@ -1,7 +1,20 @@
 use crate::steel_vm::engine::Engine;
 use crate::SteelVal;
 
-const MODULE: &str = r#"
+fn run(engine: &mut Engine, program: &'static str) -> String {
+    let results = engine.run(program).unwrap();
+
+    match results.last() {
+        Some(SteelVal::StringV(s)) => s.as_str().to_owned(),
+        other => panic!("expected a string, found {other:?}"),
+    }
+}
+
+#[test]
+fn local_macros_in_a_module() {
+    let mut engine = Engine::new();
+
+    let module = r#"
 (provide area describe with-twice)
 
 (define (area r)
@@ -27,19 +40,7 @@ const MODULE: &str = r#"
        (twice t))]))
 "#;
 
-fn run(engine: &mut Engine, program: &'static str) -> String {
-    let results = engine.run(program).unwrap();
-
-    match results.last() {
-        Some(SteelVal::StringV(s)) => s.as_str().to_owned(),
-        other => panic!("expected a string, found {other:?}"),
-    }
-}
-
-#[test]
-fn local_macros_in_a_module() {
-    let mut engine = Engine::new();
-    engine.register_steel_module("local-macros".to_owned(), MODULE.to_owned());
+    engine.register_steel_module("local-macros".to_owned(), module.to_owned());
 
     assert_eq!(
         run(
@@ -51,7 +52,11 @@ fn local_macros_in_a_module() {
     );
 }
 
-const GENERATED: &str = r#"
+#[test]
+fn a_module_macro_defined_by_a_macro() {
+    let mut engine = Engine::new();
+
+    let generated = r#"
 (provide scaled add-offset)
 
 (define offset 100)
@@ -72,10 +77,7 @@ const GENERATED: &str = r#"
   (map (lambda (factor) (scale factor)) (list 1 2 (cadr (add-offset 0)))))
 "#;
 
-#[test]
-fn a_module_macro_defined_by_a_macro() {
-    let mut engine = Engine::new();
-    engine.register_steel_module("generated-macros".to_owned(), GENERATED.to_owned());
+    engine.register_steel_module("generated-macros".to_owned(), generated.to_owned());
 
     assert_eq!(
         run(

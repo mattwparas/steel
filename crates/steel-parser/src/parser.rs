@@ -85,17 +85,10 @@ static EXPANSION_MARK_COUNTER: AtomicU32 = AtomicU32::new(1);
 pub struct ExpansionMark(pub u32);
 
 impl ExpansionMark {
-    // For identifiers that weren't introduced by a template
     pub const NONE: Self = ExpansionMark(0);
 
-    // For identifiers whose mark was lost, e.g. when a kernel macro rebuilds them from a datum
-    // since the steelval -> exprkind conversion is lossy when going through lists of atoms
-    // instead of syntax objects.
     pub const UNKNOWN: Self = ExpansionMark(u32::MAX);
 
-    // Set on macros whose template was resolved where they were defined, which is every macro
-    // in the prelude or provided by a module. A plain name left in such a template is a local of
-    // the template or a builtin.
     const DEFINITION_RESOLVED: u32 = 1 << 31;
 
     pub fn fresh() -> Self {
@@ -119,12 +112,10 @@ impl ExpansionMark {
         }
     }
 
-    // Whether the template was resolved where its macro was defined
     pub fn is_definition_resolved(self) -> bool {
         self.is_template() && self.0 & Self::DEFINITION_RESOLVED != 0
     }
 
-    // Whether the identifier with this mark was introduced by a template
     pub fn is_template(self) -> bool {
         self != Self::NONE && self != Self::UNKNOWN
     }
@@ -1583,6 +1574,7 @@ pub fn lower_syntax_rules(expr: ExprKind) -> Result<SyntaxRules> {
         .into_atom_syntax_object()
         .unwrap();
 
+    // This matches this form:
     // `(syntax-rules <ellipsis> (literal ...) rule ...)`
     let mut next = value_iter.next();
     let custom_ellipsis = match &next {
@@ -1644,9 +1636,9 @@ pub fn lower_syntax_rules(expr: ExprKind) -> Result<SyntaxRules> {
     Ok(SyntaxRules::new(syntax_vec, pairs, syn))
 }
 
-/// Rewrites a `syntax-rules` with a custom ellipsis into the usual form. The custom ellipsis
-/// becomes `...`, and a `...` in a template becomes `(... ...)`, which expands to one.
-/// Patterns have no such escape.
+// Once again, a bit of a hack
+// Rewrites a syntax-rules with a custom ellipsis into the usual form. The custom ellipsis
+// becomes `...`, and a `...` in a template becomes `(... ...)`
 fn with_custom_ellipsis(
     expr: &mut ExprKind,
     ellipsis: InternedString,
@@ -1672,7 +1664,8 @@ fn with_custom_ellipsis(
             _ => {}
         },
         ExprKind::List(l) => {
-            // `(ellipsis template)` is an escape, so `template` stays as written
+            // Bit of a hack:
+            // `(ellipsis template)` is an escape, so `template` stays
             let escape = template
                 && !l.improper
                 && l.args.len() == 2
@@ -1772,7 +1765,6 @@ struct ASTLowerPass {
     quote_depth: usize,
     expanded: bool,
     top_level: bool,
-    // Whether the expression is one of the forms of a body
     in_body: bool,
 }
 
@@ -1783,7 +1775,6 @@ impl ASTLowerPass {
 
         match expr {
             ExprKind::List(ref mut value) => {
-                // The enclosing body defines it when expanded
                 if !top_level
                     && self.quote_depth == 0
                     && value.is_define_syntax()
@@ -1820,7 +1811,6 @@ impl ASTLowerPass {
                 let is_begin =
                     value.is_begin() || value.first_ident().is_some_and(|x| *x == *BEGIN);
 
-                // A begin at the top level is part of the top level
                 let in_begin = top_level && is_begin;
 
                 let body_start = if self.quote_depth > 0 {

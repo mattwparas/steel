@@ -2938,7 +2938,9 @@ fn command_line() -> SteelList<String> {
 fn json_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/json");
     module
-        .register_native_fn_definition(crate::values::json_vals::STRING_TO_JSEXPR_INTERNED_DEFINITION)
+        .register_native_fn_definition(
+            crate::values::json_vals::STRING_TO_JSEXPR_INTERNED_DEFINITION,
+        )
         .register_native_fn_definition(
             crate::values::json_vals::SERIALIZE_VAL_TO_STRING_DEFINITION,
         );

@@ -201,8 +201,6 @@
 
 (#%define-syntax (struct expr)
                  (define unwrapped (syntax-e expr))
-                 ;; A template name that collides with a variable at the use site is prefixed,
-                 ;; and the names made from it have to match the template's.
                  (define (written-name name)
                    (if (and (symbol? name)
                             (starts-with? (symbol->string name) "##")
@@ -229,7 +227,6 @@
                          `(begin
                             ,result
                             (define ,prefixed-name ,struct-name)))))
-                 ;; The definitions take the mark of the struct's name
                  (#%syntax/with-mark-of (syntax/loc result
                                           (syntax-span expr))
                                         (second unwrapped)))
@@ -631,20 +628,18 @@
                    (register-macro-transformer! name env)))
  'void)
 
-;; Written with syntax-case so the names keep their expansion marks
-(let ([transformer
-       (parse-def-syntax
-        '(define-syntax (define-values stx)
-           (syntax-case stx ()
-             [(_ (name ...) expr)
-              (let ([names (syntax-e #'(name ...))]
-                    [packed (gensym)])
-                #`(begin
-                    (define #,packed expr)
-                    #,@(map (lambda (id index)
-                              #`(define #,id (#%prim.list-ref #,packed #,index)))
-                            names
-                            (range 0 (length names)))))])))])
+(let ([transformer (parse-def-syntax '(define-syntax (define-values stx)
+                                        (syntax-case stx ()
+                                          [(_ (name ...) expr)
+                                           (let ([names (syntax-e #'(name ...))]
+                                                 [packed (gensym)])
+                                             #`(begin
+                                                 (define #,packed expr)
+                                                 #,@(map (lambda (id index)
+                                                           #`(define #,id
+                                                               (#%prim.list-ref #,packed #,index)))
+                                                         names
+                                                         (range 0 (length names)))))])))])
   (eval `(define define-values ,transformer))
   (register-macro-transformer! 'define-values "default"))
 

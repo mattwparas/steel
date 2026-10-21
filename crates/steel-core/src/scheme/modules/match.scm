@@ -413,34 +413,31 @@
       [else (written-identifier name (cdr identifiers))])))
 
 ;; Defines the pattern variables where the form is written
-(defmacro (single-match-define expression)
-          (define unwrapped (syntax-e expression))
-          (define value (second unwrapped))
-          (define variable (gensym))
-          (define pattern (#%syntax->datum (third unwrapped)))
-          (define body (list-ref unwrapped 3))
-          (define introduced-identifiers (mutable-vector))
-          (define res (go-match pattern variable body introduced-identifiers))
-          ;; I _think_ this drains the values from the vector into the list?
-          (define list-identifiers (reverse (mutable-vector->list introduced-identifiers)))
-          (define temp (gensym))
-          (define written (pattern-identifiers (third unwrapped) '()))
-          (define final-expr
-            ;; Uses the identifiers as the pattern has them, which tells a template's
-            ;; variables apart from ones written by hand.
-            `(define-values (,@(map (lambda (name) (written-identifier name written))
-                                    list-identifiers))
-               (let ([,variable ,value])
-                 (let ([,temp
-                        ,(go-match pattern variable `(list ,@list-identifiers) (mutable-vector))])
-                   (if (not (equal? #f ,temp))
-                       ,temp
-                       (error-with-span (quote ,(syntax-span (third unwrapped)))
-                                        "Unable to match the given expression: "
-                                        ,variable
-                                        "to any of the patterns"))))))
-          (syntax/loc final-expr
-            (syntax-span expression)))
+(defmacro
+ (single-match-define expression)
+ (define unwrapped (syntax-e expression))
+ (define value (second unwrapped))
+ (define variable (gensym))
+ (define pattern (#%syntax->datum (third unwrapped)))
+ (define body (list-ref unwrapped 3))
+ (define introduced-identifiers (mutable-vector))
+ (define res (go-match pattern variable body introduced-identifiers))
+ ;; I _think_ this drains the values from the vector into the list?
+ (define list-identifiers (reverse (mutable-vector->list introduced-identifiers)))
+ (define temp (gensym))
+ (define written (pattern-identifiers (third unwrapped) '()))
+ (define final-expr
+   `(define-values (,@(map (lambda (name) (written-identifier name written)) list-identifiers))
+      (let ([,variable ,value])
+        (let ([,temp ,(go-match pattern variable `(list ,@list-identifiers) (mutable-vector))])
+          (if (not (equal? #f ,temp))
+              ,temp
+              (error-with-span (quote ,(syntax-span (third unwrapped)))
+                               "Unable to match the given expression: "
+                               ,variable
+                               "to any of the patterns"))))))
+ (syntax/loc final-expr
+   (syntax-span expression)))
 
 ;; Match a single pattern
 (defmacro (single-match expression)
@@ -587,8 +584,7 @@
 
 (define-syntax match-define
   (syntax-rules ()
-    [(match-define pattern expr)
-     (single-match-define expr pattern 'empty-body)]))
+    [(match-define pattern expr) (single-match-define expr pattern 'empty-body)]))
 
 (define-syntax match
   (syntax-rules ()

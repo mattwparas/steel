@@ -16,7 +16,6 @@ pub struct MacroTemplate {
     bindings: FxHashMap<InternedString, u8>,
     depth: u8,
     result: Result<(), SteelErr>,
-    // Inside `(... template)`
     escaped: bool,
 }
 
@@ -49,10 +48,12 @@ impl MacroTemplate {
         let len = elements.len();
 
         while let Some((i, expr)) = iter.next() {
+            // Note: `(... template)` treats the ellipses in `template` as identifiers, and we have this
+            // silly business with the TokenType::Ellipses we have to deal with. So while we still have that,
+            // we have to hack around it.
             let ellipsis =
                 expr.atom_syntax_object().map(|syn| syn.ty.clone()) == Some(TokenType::Ellipses);
 
-            // `(... template)` treats the ellipses in `template` as identifiers
             if !self.escaped && i == 0 && len == 2 && ellipsis && list_ty == ListType::Normal {
                 let (_, next) = iter.next().unwrap();
 
