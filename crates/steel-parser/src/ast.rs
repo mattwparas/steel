@@ -2579,11 +2579,7 @@ fn must_be_identifier(what: &str, name: &ExprKind, span: Span) -> Result<(), Par
     }
 }
 
-/// An identifier, a keyword followed by its parameter, or a list starting
-/// with an identifier, which is a parameter with a default.
 fn parameters_are_valid(args: &[ExprKind], span: Span) -> Result<(), ParseError> {
-    const WHAT: &str = "a function's parameter";
-
     for (index, arg) in args.iter().enumerate() {
         let valid = match arg {
             ExprKind::List(l) => l.args.first().is_some_and(is_identifier),
@@ -2592,7 +2588,7 @@ fn parameters_are_valid(args: &[ExprKind], span: Span) -> Result<(), ParseError>
         };
 
         if !valid {
-            return Err(not_an_identifier(WHAT, arg, span));
+            return Err(not_an_identifier("a function's parameter", arg, span));
         }
     }
 
