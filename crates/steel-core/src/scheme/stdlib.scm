@@ -1253,7 +1253,7 @@
         ?e1 ...]
        ?clause1 ...)
      (lambda args
-       (let ([l (length args)])
+       (let ([l (#%prim.length args)])
          (case-lambda
            "CLAUSE"
            args
@@ -1267,14 +1267,14 @@
        ?l
        [(?a1 ...)
         ?e1 ...])
-     (if (= ?l (length '(?a1 ...)))
-         (apply (lambda (?a1 ...)
-                  ?e1 ...)
-                ?args)
+     (if (#%prim.= ?l (#%prim.length '(?a1 ...)))
+         (#%prim.apply (lambda (?a1 ...)
+                         ?e1 ...)
+                       ?args)
          (error! "Arity mismatch in case lambda: attempted to call function with arg length: "
                  ?l
                  "expecting length: "
-                 (length '(?a1 ...))))]
+                 (#%prim.length '(?a1 ...))))]
     [(case-lambda
        "CLAUSE"
        ?args
@@ -1282,10 +1282,10 @@
        [(?a1 ...)
         ?e1 ...]
        ?clause1 ...)
-     (if (= ?l (length '(?a1 ...)))
-         (apply (lambda (?a1 ...)
-                  ?e1 ...)
-                ?args)
+     (if (#%prim.= ?l (#%prim.length '(?a1 ...)))
+         (#%prim.apply (lambda (?a1 ...)
+                         ?e1 ...)
+                       ?args)
          (case-lambda
            "CLAUSE"
            ?args
@@ -1334,7 +1334,7 @@
        "IMPROPER"
        ?args
        ?l
-       [+
+       [#%prim.+
         ?k
         1]
        ?al
@@ -1350,10 +1350,10 @@
        [?ar
         ?e1 ...]
        ?clause1 ...)
-     (if (>= ?l ?k)
-         (apply (lambda ?al
-                  ?e1 ...)
-                ?args)
+     (if (#%prim.>= ?l ?k)
+         (#%prim.apply (lambda ?al
+                         ?e1 ...)
+                       ?args)
          (case-lambda
            "CLAUSE"
            ?args

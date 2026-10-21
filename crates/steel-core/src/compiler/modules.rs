@@ -47,7 +47,9 @@ use crate::stop;
 
 use crate::time::SystemTime;
 
-use crate::parser::expand_visitor::{expand, extract_macro_defs};
+use crate::parser::expand_visitor::{
+    define_generated_macros, expand, extract_macro_defs, lift_macro_defs_from_begins,
+};
 
 use super::{
     compiler::KernelDefMacroSpec,
@@ -821,6 +823,7 @@ impl ModuleManager {
                             name_mangler.visit(expr);
                         }
                         smacro.mark_mangled();
+                        smacro.mark_definition_resolved();
                     }
                 }
             }
@@ -2500,6 +2503,7 @@ impl<'a> ModuleBuilder<'a> {
             )?;
 
             expand(expr, &many_expander.map, globals)?;
+            define_generated_macros(expr, many_expander.map)?;
 
             for RequiredMacroMap {
                 changed,
@@ -2658,6 +2662,8 @@ impl<'a> ModuleBuilder<'a> {
         // let mut macro_indices = SmallVec::<[usize; 128]>::new();
 
         // let exprs = core::mem::take(&mut self.source_ast);
+
+        lift_macro_defs_from_begins(&mut self.source_ast)?;
 
         let mut error = None;
 
