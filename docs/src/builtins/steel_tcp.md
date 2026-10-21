@@ -124,14 +124,11 @@ on the stream return immediately rather than waiting when they would block.
 
 * stream : tcp-stream?
 ### **tcp-stream-set-read-timeout!**
-Sets how long a read on the given TCP stream waits for bytes to arrive before
-giving up. A read that reaches the deadline behaves exactly like a read on a
-non-blocking stream: `read-line*` and the other `*` readers hand back a
-would-block object, the plain readers raise, and bytes that did arrive before
-the deadline are kept.
-
-The deadline covers a single wait, not the whole read, so a stream that keeps
-trickling bytes in can hold a reader past it.
+Sets how long a read on the given TCP stream waits for bytes before giving
+up. A read that reaches the deadline behaves like one on a non-blocking
+stream: the `*` readers hand back a would-block object, the plain readers
+raise, and bytes that arrived before the deadline are kept. The deadline
+covers a single wait rather than the whole read.
 
 (tcp-stream-set-read-timeout! stream ms) -> void?
 

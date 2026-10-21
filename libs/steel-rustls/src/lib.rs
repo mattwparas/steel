@@ -38,11 +38,10 @@ impl RustlsClientConnection {
         let root_store = RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.into(),
         };
-        // The provider is named rather than inferred from the crate features.
-        // `ClientConfig::builder` picks one by looking at which of rustls'
-        // `aws-lc-rs` and `ring` features are on, and panics when it finds both -
-        // which is what happens as soon as anything else in the build turns on the
-        // other one, `ureq` among them.
+        // The provider is named rather than inferred from the crate features:
+        // `ClientConfig::builder` looks at which of rustls' `aws-lc-rs` and
+        // `ring` features are on and panics when both are, which happens as soon
+        // as anything else in the build turns on the other - `ureq` does.
         let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
         let mut config = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
@@ -89,8 +88,7 @@ enum RustlsError {
 }
 
 // Written out rather than derived because the ffi boundary formats an error with
-// `{:?}`, so this is the form that reaches a steel program: `Io(Os { code: 111,
-// .. })` is not what anyone wants to read.
+// `{:?}`, so this is the form that reaches a steel program.
 impl std::fmt::Debug for RustlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -116,11 +114,10 @@ fn connect(addr: &str) -> Result<RustlsTcpStream, RustlsError> {
         .map_err(RustlsError::Io)
 }
 
-// The deadline is set on the socket rather than on the tls stream above it, so
-// that it covers the handshake too: that is where a server which accepts the
-// connection and then says nothing would otherwise hold the calling thread.
-// `tls-stream` moves this socket in, and a deadline belongs to the socket, so it
-// stays in force afterwards.
+// The deadline goes on the socket rather than on the tls stream above it, so it
+// covers the handshake: that is where a server which accepts the connection and
+// then says nothing would otherwise hold the calling thread. `tls-stream` moves
+// this socket in, and a deadline belongs to the socket, so it stays in force.
 fn set_read_timeout(stream: &mut RustlsTcpStream, ms: Option<isize>) -> Result<(), RustlsError> {
     stream
         .0
@@ -131,8 +128,8 @@ fn set_read_timeout(stream: &mut RustlsTcpStream, ms: Option<isize>) -> Result<(
 fn read_timeout(ms: Option<isize>) -> Result<Option<Duration>, RustlsError> {
     match ms {
         None => Ok(None),
-        // A zero timeout is what the os uses to mean "no timeout at all", so it
-        // is refused rather than quietly turned into waiting forever.
+        // A zero timeout means "no timeout at all" to the os, so it is refused
+        // rather than turned into waiting forever.
         Some(ms) if ms > 0 => Ok(Some(Duration::from_millis(ms as u64))),
         Some(ms) => Err(RustlsError::Argument(format!(
             "tcp-set-read-timeout!: expected a positive number of milliseconds, found {}",

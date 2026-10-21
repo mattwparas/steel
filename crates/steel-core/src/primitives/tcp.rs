@@ -217,14 +217,11 @@ pub fn tcp_stream_set_non_blocking(value: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
-/// Sets how long a read on the given TCP stream waits for bytes to arrive before
-/// giving up. A read that reaches the deadline behaves exactly like a read on a
-/// non-blocking stream: `read-line*` and the other `*` readers hand back a
-/// would-block object, the plain readers raise, and bytes that did arrive before
-/// the deadline are kept.
-///
-/// The deadline covers a single wait, not the whole read, so a stream that keeps
-/// trickling bytes in can hold a reader past it.
+/// Sets how long a read on the given TCP stream waits for bytes before giving
+/// up. A read that reaches the deadline behaves like one on a non-blocking
+/// stream: the `*` readers hand back a would-block object, the plain readers
+/// raise, and bytes that arrived before the deadline are kept. The deadline
+/// covers a single wait rather than the whole read.
 ///
 /// (tcp-stream-set-read-timeout! stream ms) -> void?
 ///
@@ -247,8 +244,8 @@ pub fn tcp_stream_set_read_timeout(value: &SteelVal, ms: &SteelVal) -> Result<St
 fn read_timeout(ms: &SteelVal) -> Result<Option<Duration>> {
     match ms {
         SteelVal::BoolV(false) => Ok(None),
-        // A zero timeout is what the os uses to mean "no timeout at all", so it is
-        // refused rather than quietly turned into waiting forever.
+        // A zero timeout means "no timeout at all" to the os, so it is refused
+        // rather than turned into waiting forever.
         SteelVal::IntV(0) => {
             stop!(Generic => "tcp-stream-set-read-timeout!: a timeout of zero is not a timeout - use tcp-stream-set-non-blocking! to stop waiting entirely")
         }

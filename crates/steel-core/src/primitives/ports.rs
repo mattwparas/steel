@@ -878,8 +878,7 @@ mod would_block_tests {
         }
     }
 
-    // What a socket with a read timeout reports on windows, where the deadline is
-    // not the same error as a read that would block
+    // What a socket with a read deadline reports on windows
     struct RanOutOfTime;
 
     impl Read for RanOutOfTime {
@@ -921,8 +920,7 @@ mod would_block_tests {
         (port, client)
     }
 
-    // The same, except that the socket waits for a deadline rather than refusing
-    // to wait at all
+    // The same, with a deadline rather than a refusal to wait at all
     fn timed_out_tcp_port() -> (SteelPort, TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();

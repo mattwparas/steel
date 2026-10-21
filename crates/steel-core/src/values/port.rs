@@ -467,9 +467,8 @@ fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
 }
 
 // A read that reaches the deadline set by `tcp-stream-set-read-timeout!` reports
-// it as `WouldBlock` on unix and as `TimedOut` on windows, and both say the same
-// thing to a reader: nothing more has arrived yet, and whatever already came off
-// the stream still stands.
+// it as `WouldBlock` on unix and `TimedOut` on windows. Both say the same thing:
+// nothing more has arrived yet, and what already came off the stream stands.
 fn blocked(err: &io::Error) -> bool {
     matches!(
         err.kind(),
