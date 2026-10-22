@@ -58,6 +58,9 @@ cargo install --path crates/cargo-steel-lib
 cd libs/steel-rustls && cargo steel-lib
 ```
 
+The dylib is loaded on the first https request rather than when the module is
+required, so requiring `tls.scm` does not need it installed.
+
 ```scheme
 (require "steel/http/client.scm")
 (require "steel/http/tls.scm")
@@ -216,3 +219,8 @@ can be served - they are the same two structs.
   Chunked *bodies* are read, trailers and all.
 - **No routing, no static files, no TLS on the server side.** A handler is a
   procedure, and dispatch is whatever `cond` you write in it.
+- **The server reads a bounded request, the client an unbounded response.** A
+  request is held to `*max-header-lines*` lines of `*max-line-length*`
+  characters each and a body of `*max-body-bytes*`, which is answered with a
+  413 rather than read. A response is as long as the server says it is, since
+  that is a server the caller picked.

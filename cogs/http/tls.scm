@@ -5,15 +5,6 @@
          https-connector
          gzip-decode)
 
-;; Tls lives in the `steel-rustls` dylib rather than in the interpreter, so it
-;; is loaded on the first https request rather than when this module is
-;; required, and requiring this file does not need the dylib installed.
-;;
-;; To install it:
-;;
-;;   cargo install --path crates/cargo-steel-lib
-;;   cd libs/steel-rustls && cargo steel-lib
-
 (define *loaded* (box #f))
 
 (define (load-rustls!)
@@ -53,7 +44,7 @@
 ;; The deadline covers the handshake too, so a server that accepts the
 ;; connection and never answers the ClientHello is given up on.
 ;;
-;; Needs the `steel-rustls` dylib; see the comment at the top of this file.
+;; Needs the `steel-rustls` dylib, which the readme says how to install.
 (define (tls-connector url #:read-timeout [read-timeout #f])
   (define host (url-host url))
   (define ports (tls-ports host (string-append host ":" (int->string (url-port url))) read-timeout))
@@ -84,6 +75,6 @@
 ;; Decompresses a gzipped body. The client asks for `Accept-Encoding: identity`
 ;; unless told otherwise, so this is only needed when it has been.
 ;;
-;; Needs the `steel-rustls` dylib; see the comment at the top of this file.
+;; Needs the `steel-rustls` dylib, which the readme says how to install.
 (define (gzip-decode body)
   (read-port-to-bytes ((rustls 'gz-decode) body)))

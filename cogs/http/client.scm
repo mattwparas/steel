@@ -6,6 +6,7 @@
 (provide *http-version*
          *user-agent*
          *max-header-lines*
+         *max-line-length*
          request?
          request-method
          request-url
@@ -194,6 +195,8 @@
     (string->number (trim (if (list? after-code)
                               (car after-code)
                               (list-ref after-version 1)))))
+  (unless (known-version? (car after-version))
+    (error "http: a response spoke" (car after-version) "- this client speaks HTTP/1.1"))
   (unless (and (int? code) (>= code 100) (< code 1000))
     (error "http: a response had no status code:" line))
   (list (car after-version)
@@ -203,7 +206,11 @@
             "")))
 
 ;; A 1xx other than a 101 is an interim answer; the real response follows it.
-(define (read-status-line-past-interim reader)
+;; They are counted, because a server that sends nothing else would hold the
+;; read forever.
+(define *max-interim-responses* 8)
+
+(define (read-status-line-past-interim reader [interim 0])
   (define line (read-wire-line reader))
   (when (eof-object? line)
     (error "http: the connection closed before the response"))
@@ -211,8 +218,10 @@
   (define status (list-ref status-line 1))
   (cond
     [(and (>= status 100) (< status 200) (not (equal? status 101)))
+     (when (>= interim *max-interim-responses*)
+       (error "http: more than" *max-interim-responses* "interim responses, giving up"))
      (read-wire-headers reader)
-     (read-status-line-past-interim reader)]
+     (read-status-line-past-interim reader (+ interim 1))]
     [else status-line]))
 
 (define (bodyless-status? status method)

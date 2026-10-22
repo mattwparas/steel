@@ -892,9 +892,9 @@ mod would_block_tests {
 
     fn port_over(reader: Box<dyn Read + Send + Sync>) -> SteelPort {
         SteelPort {
-            port: Gc::new_lock(SteelPortRepr::DynReader(Peekable::new(BufReader::new(
-                reader,
-            )))),
+            port: Gc::new_lock(SteelPortRepr::DynReader(Peekable::with_deadline(
+                BufReader::new(reader),
+            ))),
         }
     }
 
@@ -914,23 +914,23 @@ mod would_block_tests {
         server.set_nonblocking(true).unwrap();
 
         let port = SteelPort {
-            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::new(server))),
+            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::with_deadline(server))),
         };
 
         (port, client)
     }
 
     // The same, with a deadline rather than a refusal to wait at all
-    fn timed_out_tcp_port() -> (SteelPort, TcpStream) {
+    fn timed_out_tcp_port(ms: u64) -> (SteelPort, TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, _) = listener.accept().unwrap();
         server
-            .set_read_timeout(Some(std::time::Duration::from_millis(50)))
+            .set_read_timeout(Some(std::time::Duration::from_millis(ms)))
             .unwrap();
 
         let port = SteelPort {
-            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::new(server))),
+            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::with_deadline(server))),
         };
 
         (port, client)
@@ -1047,14 +1047,14 @@ mod would_block_tests {
 
     #[test]
     fn a_read_that_runs_out_of_time_reports_what_a_non_blocking_one_does() {
-        let (timed_out, _client) = timed_out_tcp_port();
+        let (timed_out, _client) = timed_out_tcp_port(50);
 
         assert!(
             would_block_objectp(&read_line_ready(&timed_out).unwrap()),
             "read-line* reported a read timeout as something other than would-block"
         );
 
-        let (timed_out, _client) = timed_out_tcp_port();
+        let (timed_out, _client) = timed_out_tcp_port(50);
         let (non_blocking, _other) = blocked_tcp_port();
 
         assert_eq!(
@@ -1066,7 +1066,7 @@ mod would_block_tests {
 
     #[test]
     fn a_read_that_runs_out_of_time_keeps_what_already_arrived() {
-        let (timed_out, mut client) = timed_out_tcp_port();
+        let (timed_out, mut client) = timed_out_tcp_port(500);
 
         client.write_all(b"ab").unwrap();
         client.flush().unwrap();

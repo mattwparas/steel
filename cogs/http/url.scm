@@ -95,8 +95,6 @@
 (define (drop-prefix str at)
   (substring str at (string-length str)))
 
-;; A scheme is a letter followed by letters, digits, `+`, `-` and `.`. Anything
-;; else in front of a `://` belongs to the path.
 (define (scheme-name? str)
   (and (> (string-length str) 0)
        (ascii-letter? (string-ref str 0))
@@ -109,6 +107,13 @@
                         (char=? char #\-)
                         (char=? char #\.))
                     (loop (+ at 1))))))))
+
+;; The scheme of a url that has one. A scheme is a letter followed by letters,
+;; digits, `+`, `-` and `.`, so a reference that carries a `://` further along,
+;; as `/login?next=https://b` does, has none and is relative.
+(define (leading-scheme str)
+  (define split (split-once str "://"))
+  (and (list? split) (scheme-name? (car split)) (string-downcase (car split))))
 
 (define (split-host-and-port authority)
   (cond
@@ -147,14 +152,10 @@
       (parse-url-string input)))
 
 (define (parse-url-string str)
-  (define split (split-once str "://"))
-  (define scheme
-    (if (and (list? split) (scheme-name? (car split)))
-        (string-downcase (car split))
-        #f))
+  (define scheme (leading-scheme str))
   (define rest
     (if scheme
-        (list-ref split 1)
+        (drop-prefix str (+ (string-length scheme) 3))
         str))
   (define authority-end (or (index-of-any rest (list #\/ #\? #\#)) (string-length rest)))
   (define authority (substring rest 0 authority-end))
@@ -289,7 +290,7 @@
   (define from (parse-url base))
   (cond
     [(url? reference) reference]
-    [(list? (split-once reference "://")) (parse-url reference)]
+    [(leading-scheme reference) (parse-url reference)]
     [(starts-with? reference "//") (parse-url (string-append (url-scheme from) ":" reference))]
     [(equal? reference "") from]
     [(starts-with? reference "#")
@@ -346,11 +347,11 @@
 
 ;;@doc
 ;; Percent encodes a string. Letters, digits and `-._~` are left alone, every
-;; other byte becomes `%XX`. Characters in *safe* are left alone too, which is
-;; what keeps the `/` in a path.
+;; other byte becomes `%XX`. The ascii characters in *safe* are left alone too,
+;; which is what keeps the `/` in a path.
 (define (url-encode str #:safe [safe ""])
   (define out (open-output-string))
-  (define safe-bytes (bytes->list (string->bytes safe)))
+  (define safe-bytes (filter (lambda (byte) (< byte 128)) (bytes->list (string->bytes safe))))
   (for-each (lambda (byte)
               (if (or (unreserved-byte? byte) (member byte safe-bytes))
                   (display (bytes->string/utf8 (bytes byte)) out)
@@ -419,15 +420,21 @@
                     alist)
                "&"))
 
+;; An escape that is not utf8 cannot become a string, so the part keeps the
+;; escapes it was written with rather than taking the whole query down.
+(define (url-decode-or-raw part)
+  (with-handler (lambda (err) part) (url-decode part)))
+
 ;;@doc
 ;; Decodes a query string into an association list. A key with no `=` comes
-;; back with an empty value, and repeated keys are all kept, in order.
+;; back with an empty value, and repeated keys are all kept, in order. A part
+;; whose escapes are not utf8 is left as it was written.
 (define (query->alist query)
   (if (not query)
       '()
       (map (lambda (part)
              (define split (split-once part "="))
              (if (list? split)
-                 (cons (url-decode (car split)) (url-decode (list-ref split 1)))
-                 (cons (url-decode part) "")))
+                 (cons (url-decode-or-raw (car split)) (url-decode-or-raw (list-ref split 1)))
+                 (cons (url-decode-or-raw part) "")))
            (filter (lambda (part) (not (equal? part ""))) (split-many query "&")))))

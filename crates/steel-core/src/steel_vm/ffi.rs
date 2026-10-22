@@ -1052,7 +1052,9 @@ pub struct DynReader {
 
 impl DynReader {
     fn into_port(self) -> SteelPortRepr {
-        SteelPortRepr::DynReader(Peekable::new(BufReader::new(Box::new(self.reader))))
+        SteelPortRepr::DynReader(Peekable::with_deadline(BufReader::new(Box::new(
+            self.reader,
+        ))))
     }
 }
 

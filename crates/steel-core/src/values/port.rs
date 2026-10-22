@@ -82,6 +82,7 @@ pub struct Peekable<R> {
     pos: usize,
     chunk: usize,
     consumed_any: bool,
+    deadline: bool,
 }
 
 impl<T> Peekable<T> {
@@ -92,6 +93,16 @@ impl<T> Peekable<T> {
             pos: 0,
             chunk: MIN_CHUNK,
             consumed_any: false,
+            deadline: false,
+        }
+    }
+
+    // For a source a read deadline can be set on: a socket, or anything a
+    // dylib hands over, which may be a socket underneath.
+    pub fn with_deadline(inner: T) -> Self {
+        Peekable {
+            deadline: true,
+            ..Peekable::new(inner)
         }
     }
 
@@ -135,7 +146,12 @@ impl<R: Read> Peekable<R> {
         self.buf.resize(start + amt, 0);
 
         let mut filled = 0;
-        let result = read_full(&mut self.inner, &mut self.buf[start..], &mut filled);
+        let result = read_full(
+            &mut self.inner,
+            &mut self.buf[start..],
+            &mut filled,
+            self.deadline,
+        );
 
         self.buf.truncate(start + filled);
 
@@ -167,7 +183,7 @@ impl<R: Read> Peekable<R> {
 
                 Ok(MaybeBlocking::Nonblocking(amt))
             }
-            Err(err) if blocked(&err) => {
+            Err(err) if blocked(&err, self.deadline) => {
                 self.buf.truncate(start);
                 Ok(MaybeBlocking::WouldBlock)
             }
@@ -191,7 +207,7 @@ impl<R: Read> Peekable<R> {
                 return Ok(MaybeBlocking::Nonblocking(None));
             }
 
-            if blocked(&err) {
+            if blocked(&err, self.deadline) {
                 return Ok(MaybeBlocking::WouldBlock);
             }
 
@@ -287,7 +303,7 @@ impl<R: Read> Peekable<R> {
 
         let peeked = amt;
 
-        match read_full(&mut self.inner, &mut buf[peeked..], &mut amt) {
+        match read_full(&mut self.inner, &mut buf[peeked..], &mut amt, self.deadline) {
             Ok(MaybeBlocking::Nonblocking(())) => {
                 self.consumed_any |= amt > 0;
 
@@ -311,7 +327,7 @@ impl<R: Read> Peekable<R> {
         if let Err(err) = self.inner.read_to_end(buf) {
             self.put_back(buf.split_off(start), at_source_start);
 
-            if blocked(&err) {
+            if blocked(&err, self.deadline) {
                 return Ok(MaybeBlocking::WouldBlock);
             }
 
@@ -332,7 +348,7 @@ impl<R: Read> Peekable<R> {
         if let Err(err) = self.inner.read_to_end(&mut bytes) {
             self.put_back(bytes, at_source_start);
 
-            if blocked(&err) {
+            if blocked(&err, self.deadline) {
                 return Ok(MaybeBlocking::WouldBlock);
             }
 
@@ -429,7 +445,7 @@ impl<R: BufRead> Peekable<R> {
         }
 
         if let Err(err) = self.inner.read_until(b'\n', &mut self.buf) {
-            if blocked(&err) {
+            if blocked(&err, self.deadline) {
                 return Ok(MaybeBlocking::WouldBlock);
             }
 
@@ -447,7 +463,7 @@ impl Peekable<Stdin> {
         }
 
         if let Err(err) = self.inner.lock().read_until(b'\n', &mut self.buf) {
-            if blocked(&err) {
+            if blocked(&err, self.deadline) {
                 return Ok(MaybeBlocking::WouldBlock);
             }
 
@@ -468,12 +484,10 @@ fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
 
 // A read that reaches the deadline set by `tcp-stream-set-read-timeout!` reports
 // it as `WouldBlock` on unix and `TimedOut` on windows. Both say the same thing:
-// nothing more has arrived yet, and what already came off the stream stands.
-fn blocked(err: &io::Error) -> bool {
-    matches!(
-        err.kind(),
-        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-    )
+// nothing more has arrived yet, and what already came off the stream stands. A
+// source that cannot carry a deadline has hit a real error instead.
+fn blocked(err: &io::Error, deadline: bool) -> bool {
+    err.kind() == io::ErrorKind::WouldBlock || (deadline && err.kind() == io::ErrorKind::TimedOut)
 }
 
 fn invalid_utf8() -> io::Error {
@@ -492,6 +506,7 @@ fn read_full<R: Read>(
     mut reader: R,
     mut buf: &mut [u8],
     amt: &mut usize,
+    deadline: bool,
 ) -> Result<MaybeBlocking<()>> {
     while !buf.is_empty() {
         match reader.read(buf) {
@@ -501,7 +516,7 @@ fn read_full<R: Read>(
                 buf = &mut buf[n..];
             }
             Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
-            Err(err) if blocked(&err) => {
+            Err(err) if blocked(&err, deadline) => {
                 if *amt == 0 {
                     return Ok(MaybeBlocking::WouldBlock);
                 } else {
@@ -1551,7 +1566,7 @@ mod port_tests {
 
     #[test]
     fn a_source_that_ran_out_of_time_is_a_source_with_nothing_ready() {
-        let mut peekable = Peekable::new(RanOutOfTime);
+        let mut peekable = Peekable::with_deadline(RanOutOfTime);
 
         assert!(matches!(
             peekable.fill_chunk(usize::MAX).unwrap(),
@@ -1573,13 +1588,26 @@ mod port_tests {
 
     #[test]
     fn a_read_that_ran_out_of_time_partway_reports_what_it_already_took() {
-        let mut peekable = Peekable::new(Timeouts {
+        let mut peekable = Peekable::with_deadline(Timeouts {
             before: Some(b"abc"),
         });
 
         let mut buf = [0; 8];
         assert_eq!(nonblocking(peekable.read_bytes_amt(&mut buf).unwrap()), 3);
         assert_eq!(&buf[..3], b"abc");
+    }
+
+    #[test]
+    fn a_source_that_cannot_have_a_deadline_reports_a_timeout_as_the_error_it_is() {
+        let mut peekable = Peekable::new(Timeouts {
+            before: Some(b"abc"),
+        });
+
+        let mut buf = [0; 8];
+        assert!(
+            peekable.read_bytes_amt(&mut buf).is_err(),
+            "a file that timed out was read as a source with nothing ready"
+        );
     }
 
     #[test]
@@ -1797,7 +1825,7 @@ mod port_tests {
 
         let mut buf = [0; 8];
         let mut amt = 0;
-        assert!(read_full(&mut reader, &mut buf, &mut amt).is_err());
+        assert!(read_full(&mut reader, &mut buf, &mut amt, false).is_err());
         assert_eq!(amt, 3);
         assert_eq!(&buf[..amt], b"abc");
     }

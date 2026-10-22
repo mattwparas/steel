@@ -133,6 +133,9 @@
                (list (cons "q" "a b") (cons "page" "2") (cons "flag" ""))
                (query->alist "q=a%20b&page=2&flag"))
  (check-equal? "an empty query has no pairs" '() (query->alist #f))
+ (check-equal? "a part whose escapes are not utf8 is left as it was written"
+               (list (cons "a" "%FF"))
+               (query->alist "a=%FF"))
  (check-equal? "a full url replaces the one it was found on"
                "http://z/q"
                (url->string (url-join "http://a/b/c" "http://z/q")))
@@ -153,7 +156,11 @@
                (url->string (url-join "http://a/b?x=1" "#top")))
  (check-equal? "a bare query replaces the query"
                "http://a/b?y=2"
-               (url->string (url-join "http://a/b?x=1" "?y=2"))))
+               (url->string (url-join "http://a/b?x=1" "?y=2")))
+ (check-equal? "a reference is relative even with a url in its query"
+               "http://a/login?next=https://b/x"
+               (url->string (url-join "http://a/b/c" "/login?next=https://b/x")))
+ (check-equal? "a non ascii safe character is encoded anyway" "%C3%A9" (url-encode "é" #:safe "é")))
 
 ;; ------------------------------------------------------------------ headers
 
@@ -192,7 +199,11 @@
  (check-err? "a newline in a value is refused"
              (normalize-headers (list (cons "X" "a\r\nY: b")))
              'raises)
- (check-err? "a colon in a name is refused" (normalize-headers (list (cons "X:Y" "a"))) 'raises))
+ (check-err? "a colon in a name is refused" (normalize-headers (list (cons "X:Y" "a"))) 'raises)
+ (check-err? "a space in a name is refused" (normalize-headers (list (cons "X Y" "a"))) 'raises)
+ (check-equal? "the punctuation a token allows is kept"
+               "X-Not_A.Token!: 1\r\n"
+               (headers->string (header-add '() "X-Not_A.Token!" 1))))
 
 ;; ------------------------------------------------------------------- base64
 
@@ -209,7 +220,12 @@
                (bytes 0 255 128)
                (base64-decode (base64-encode (bytes 0 255 128))))
  (check-equal? "whitespace in the middle is ignored" (bytes 102 111 111) (base64-decode "Zm\n9v"))
- (check-err? "a digit outside the alphabet is refused" (base64-decode "a*b") 'raises))
+ (check-err? "a digit outside the alphabet is refused" (base64-decode "a*b") 'raises)
+ (check-err? "a digit after the padding is refused" (base64-decode "QQ=A") 'raises)
+ (check-equal? "a payload of many groups survives a round trip"
+               #t
+               (let ([long (apply string-append (map (lambda (n) "0123456789") (range 0 30)))])
+                 (equal? long (bytes->string/utf8 (base64-decode (base64-encode long)))))))
 
 ;; ---------------------------------------------------------- reading a reply
 
@@ -312,6 +328,40 @@
              'raises)
  (check-err? "a chunk size that is not a number is refused"
              (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n")
+                       (lambda () (http-get "http://x/")))
+             'raises)
+ (check-err? "a header line with no end to it is refused"
+             (reply-to (list (string-append "HTTP/1.1 200 OK\r\nX: "
+                                            (apply string-append
+                                                   (map (lambda (n) "0123456789")
+                                                        (range 0 (quotient *max-line-length* 5))))))
+                       (lambda () (http-get "http://x/")))
+             'raises)
+ (check-err? "a version this client does not speak is refused"
+             (reply-to (list "HTTP/2 200 OK\r\nContent-Length: 0\r\n\r\n")
+                       (lambda () (http-get "http://x/")))
+             'raises)
+ (check-equal?
+  "a body longer than one read comes back whole"
+  (list 70000 #t)
+  (let* ([body (apply string-append (map (lambda (n) "0123456789") (range 0 7000)))]
+         [text (response-text (reply-to (list (string-append "HTTP/1.1 200 OK\r\nContent-Length: "
+                                                             (int->string (string-length body))
+                                                             "\r\n\r\n"
+                                                             body))
+                                        (lambda () (http-get "http://x/"))))])
+    (list (string-length text) (equal? text body))))
+ (check-err? "more header lines than are allowed is refused"
+             (reply-to (list (string-append "HTTP/1.1 200 OK\r\n"
+                                            (headers->string (map (lambda (n)
+                                                                    (cons "X" (int->string n)))
+                                                                  (range 0 (+ *max-header-lines* 1))))
+                                            "\r\n"))
+                       (lambda () (http-get "http://x/")))
+             'raises)
+ (check-err? "interim responses that never end are refused"
+             (reply-to (list (apply string-append
+                                    (map (lambda (n) "HTTP/1.1 100 Continue\r\n\r\n") (range 0 20))))
                        (lambda () (http-get "http://x/")))
              'raises))
 
@@ -627,6 +677,9 @@
                                     #:headers (list (cons "Transfer-Encoding" "chunked")))))
              'raises)
  (check-err? "a negative redirect count is refused" (http-get "http://x/" #:follow -1) 'raises)
+ (check-err? "a method that is not a token is refused"
+             (make-request (string-append "GET" (string (integer->char 127))) "http://x/")
+             'raises)
  (check-equal?
   "a 100 Continue is stepped over"
   (list 200 "ok")
@@ -818,12 +871,18 @@
  (check-equal? "a 304 sends no length either, since it stands in for a body it is not sending"
                #f
                (string-contains? (answer *get* (lambda (sent) (make-response 304))) "Content-Length"))
- (check-err?
-  "an answer this server cannot frame is refused rather than sent broken"
-  (answer *get*
-          (lambda (sent)
-            (make-response 200 #:headers (list (cons "Transfer-Encoding" "chunked")) #:body "x")))
-  'raises)
+ (check-equal? "an answer this server cannot frame is a 500, rather than sent broken"
+               "HTTP/1.1 500 Internal Server Error"
+               (answer-status *get*
+                              (lambda (sent)
+                                (make-response 200
+                                               #:headers (list (cons "Transfer-Encoding" "chunked"))
+                                               #:body "x"))))
+ (check-err? "writing one directly is still refused"
+             (http-write-response!
+              (open-output-string)
+              (make-response 200 #:headers (list (cons "Transfer-Encoding" "chunked")) #:body "x"))
+             'raises)
  (check-err? "a status code that is not one is refused" (make-response 99) 'raises)
  (check-equal?
   "a bytevector body goes out as it is"
@@ -850,7 +909,15 @@
                              (lambda (sent)
                                (set-box! calls (+ (unbox calls) 1))
                                (make-response 200)))
-                 (unbox calls))))
+                 (unbox calls)))
+ (check-equal? "an answer that cannot be written ends the connection rather than raising"
+               0
+               (let ([writer (open-output-string)])
+                 (close-output-port writer)
+                 (http-serve-connection (open-input-string *get*) writer hello)))
+ (check-equal? "a response this server cannot frame is a 500, not the end of the loop"
+               "HTTP/1.1 500 Internal Server Error"
+               (answer-status *get* (lambda (sent) (response "HTTP/1.1" 200 "OK" '() #f)))))
 
 (test-module
  "http-server-framing-tests"
@@ -883,6 +950,23 @@
  (check-equal? "a transfer encoding this server cannot read is a 501"
                "HTTP/1.1 501 Not Implemented"
                (answer-status "POST /a HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\n\r\n" hello))
+ (check-equal? "a body longer than this server reads is a 413, before it is read"
+               "HTTP/1.1 413 Content Too Large"
+               (answer-status (string-append "POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: "
+                                             (int->string (+ *max-body-bytes* 1))
+                                             "\r\n\r\n")
+                              hello))
+ (check-equal? "a chunked body longer than it is allowed stops rather than being read whole"
+               'too-large
+               (read-chunked (open-input-string "4\r\nabcd\r\n0\r\n\r\n") #:limit 2))
+ (check-equal? "a line of the head longer than it is allowed is a 400"
+               "HTTP/1.1 400 Bad Request"
+               (answer-status (string-append "GET /a HTTP/1.1\r\nHost: x\r\nX: "
+                                             (apply string-append
+                                                    (map (lambda (n) "0123456789")
+                                                         (range 0 (quotient *max-line-length* 5))))
+                                             "\r\n\r\n")
+                              hello))
  (check-equal? "a body that stops early is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nshort" hello))

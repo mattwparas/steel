@@ -4,6 +4,7 @@
 (require "message.scm")
 
 (provide *server-name*
+         *max-body-bytes*
          server?
          server-listener
          server-address
@@ -17,6 +18,12 @@
 ;;@doc
 ;; What this server calls itself in the `Server` header.
 (define *server-name* "steel-http/0.1.0")
+
+;;@doc
+;; How much of a request body this server is willing to read. A longer one is
+;; answered with a 413 rather than read, since a body is as long as the other
+;; end says it is.
+(define *max-body-bytes* 8388608)
 
 ;; ------------------------------------------------------------------ listening
 
@@ -37,9 +44,6 @@
   ;; is refused rather than guessed at.
   (define parts (split-many line " "))
   (if (equal? (length parts) 3) parts #f))
-
-(define (known-version? version)
-  (or (equal? version "HTTP/1.1") (equal? version "HTTP/1.0")))
 
 ;; The target may be origin form (`/a?b`), absolute form (`http://host/a`, what
 ;; a proxy is sent), or `*` for an `OPTIONS` about the server itself.
@@ -66,6 +70,9 @@
          (problem-report 400 "a request carried both Transfer-Encoding: chunked and Content-Length")
          'chunked)]
     [encoding (problem-report 501 (string-append "unsupported Transfer-Encoding: " encoding))]
+    [(and declared (> declared *max-body-bytes*))
+     (problem-report 413
+                     (string-append "a request declared a body of " (int->string declared) " bytes"))]
     ;; No framing at all means no body: reading until the connection closed
     ;; instead would leave nothing to answer on.
     [declared declared]
@@ -141,15 +148,20 @@
      ;; `Expect: 100-continue` has the client waiting for a go ahead, which has
      ;; to go out before the body is read.
      (when (and writer (expects-continue? headers))
-       (display (string-append *http-version* " 100 Continue\r\n\r\n") writer)
-       (flush-output-port writer))
+       (with-handler (lambda (err) void)
+                     (begin
+                       (display (string-append *http-version* " 100 Continue\r\n\r\n") writer)
+                       (flush-output-port writer))))
      (let ([body-and-trailers (or-bad-request (lambda ()
                                                 (cond
                                                   [(equal? mode 'none) (cons #f '())]
-                                                  [(equal? mode 'chunked) (read-chunked reader)]
+                                                  [(equal? mode 'chunked)
+                                                   (read-chunked reader #:limit *max-body-bytes*)]
                                                   [else (cons (read-exactly reader mode) '())])))])
        (cond
          [(problem-report? body-and-trailers) body-and-trailers]
+         [(equal? body-and-trailers 'too-large)
+          (problem-report 413 "a chunked request body grew past what this server reads")]
          [else
           (request (string-upcase (car parts))
                    url
@@ -196,32 +208,37 @@
       ;; headers of the body it does not send.
       (header-default headers "Content-Length" (int->string (bytes-length body)))))
 
+;; The head and the body as they go out. A response this server cannot frame is
+;; refused here, before any of it has been written.
+(define (response->wire received keep-alive method)
+  (define status (response-status received))
+  (define reason (response-reason received))
+  (cons (string-append *http-version*
+                       " "
+                       (int->string status)
+                       (if (equal? reason "")
+                           ""
+                           (string-append " " reason))
+                       "\r\n"
+                       (headers->string (wire-headers received keep-alive))
+                       "\r\n")
+        (if (or (bodyless-status? status) (equal? (method->string method) "HEAD"))
+            (bytes)
+            (response-body received))))
+
+(define (write-wire! writer wire)
+  (if (equal? (bytes-length (cdr wire)) 0)
+      (display (car wire) writer)
+      (write-bytes (bytes-append (string->bytes (car wire)) (cdr wire)) writer))
+  (flush-output-port writer))
+
 ;;@doc
 ;; Writes *response* out over *writer*. The head and the body go out in one
 ;; write. *method* is the method being answered: the answer to a `HEAD` carries
 ;; the headers of a body it does not send, and a 1xx, a 204 and a 304 send no
 ;; body whatever the method.
 (define (http-write-response! writer received #:keep-alive [keep-alive #f] #:method [method "GET"])
-  (define status (response-status received))
-  (define reason (response-reason received))
-  (define head
-    (string-append *http-version*
-                   " "
-                   (int->string status)
-                   (if (equal? reason "")
-                       ""
-                       (string-append " " reason))
-                   "\r\n"
-                   (headers->string (wire-headers received keep-alive))
-                   "\r\n"))
-  (define body
-    (if (or (bodyless-status? status) (equal? (method->string method) "HEAD"))
-        (bytes)
-        (response-body received)))
-  (if (equal? (bytes-length body) 0)
-      (display head writer)
-      (write-bytes (bytes-append (string->bytes head) body) writer))
-  (flush-output-port writer))
+  (write-wire! writer (response->wire received keep-alive method)))
 
 ;; ------------------------------------------------------------------- serving
 
@@ -231,9 +248,20 @@
                     ;; What the handler raised stays on this side of the wire.
                     (make-response 500))
                   (handler sent)))
-  (if (response? answered)
+  (if (framable? answered (request-method sent))
       answered
       (make-response 500)))
+
+;; A response this server cannot frame - one carrying `Transfer-Encoding`, or
+;; built with the bare constructor and no body - is a 500 rather than the end
+;; of the loop serving the connection. `http-write-response!` still raises, for
+;; a caller writing an answer themselves.
+(define (framable? answered method)
+  (and (response? answered)
+       (with-handler (lambda (err) #f)
+                     (begin
+                       (response->wire answered #f method)
+                       #t))))
 
 ;; The body is the reason phrase and nothing else; a detail read off the wire
 ;; would be going straight back out again. `http-read-request` raises with the
@@ -242,6 +270,14 @@
   (make-response (problem-report-status report)
                  #:headers (list (cons "Content-Type" "text/plain; charset=utf-8"))
                  #:body (string-append (reason-phrase (problem-report-status report)) "\n")))
+
+;; A client that hangs up before its answer is written ends the connection
+;; rather than the loop serving it.
+(define (write-answer writer answered keep-alive? method)
+  (with-handler (lambda (err) #f)
+                (begin
+                  (write-wire! writer (response->wire answered keep-alive? method))
+                  #t)))
 
 ;;@doc
 ;; Serves requests on one connection until it ends, and returns how many it
@@ -261,8 +297,9 @@
            [(problem-report? outcome)
             ;; A request that could not be read leaves the connection at an
             ;; unknown place in the stream, so this is the last answer on it.
-            (http-write-response! writer (problem-response outcome))
-            (+ served 1)]
+            (if (write-answer writer (problem-response outcome) #f "GET")
+                (+ served 1)
+                served)]
            [else
             (let* ([sent outcome]
                    [answered (answer-to handler sent)]
@@ -270,13 +307,10 @@
                                 (request-keep-alive? sent)
                                 (response-keep-alive? answered)
                                 (not (and limit (>= (+ served 1) limit))))])
-              (http-write-response! writer
-                                    answered
-                                    #:keep-alive again?
-                                    #:method (request-method sent))
-              (if again?
-                  (loop (+ served 1))
-                  (+ served 1)))]))])))
+              (cond
+                [(not (write-answer writer answered again? (request-method sent))) served]
+                [again? (loop (+ served 1))]
+                [else (+ served 1)]))]))])))
 
 (define (connection-ports server stream)
   (when (server-read-timeout server)

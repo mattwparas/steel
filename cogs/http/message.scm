@@ -4,6 +4,8 @@
 
 (provide *http-version*
          *max-header-lines*
+         *max-line-length*
+         known-version?
          ;; The bare struct constructors. `make-request` and `make-response` are
          ;; what a caller wants; these are for building a message off the wire.
          request
@@ -50,17 +52,14 @@
 ;; that the other end cannot hold a connection open forever.
 (define *max-header-lines* 200)
 
+;;@doc
+;; How long one line of a head is allowed to be. A line with no end to it would
+;; otherwise get past `*max-header-lines*` on its own.
+(define *max-line-length* 8192)
+
 ;; ------------------------------------------------------------------ requests
 
 (struct request (method url headers body version) #:transparent)
-
-(define (method-token? method)
-  (and (> (string-length method) 0)
-       (let loop ([at 0])
-         (or (>= at (string-length method))
-             (and (not (member (string-ref method at) (list #\space #\tab #\return #\newline)))
-                  (> (char->integer (string-ref method at)) 32)
-                  (loop (+ at 1)))))))
 
 (define (method->string method)
   (define text
@@ -68,7 +67,7 @@
       [(string? method) (string-upcase method)]
       [(symbol? method) (string-upcase (symbol->string method))]
       [else (error "http: a method has to be a string or a symbol, got:" method)]))
-  (unless (method-token? text)
+  (unless (token? text)
     (error "http: not a usable method:" text))
   text)
 
@@ -168,33 +167,33 @@
 
 ;;@doc
 ;; Whether the status is a 2xx.
-(define (response-ok? response)
-  (and (>= (response-status response) 200) (< (response-status response) 300)))
+(define (response-ok? received)
+  (and (>= (response-status received) 200) (< (response-status received) 300)))
 
 ;;@doc
 ;; The body read as utf8. Raises if the body is not utf8, so reach for
 ;; `response-body` when it might not be text.
-(define (response-text response)
-  (bytes->string/utf8 (response-body response)))
+(define (response-text received)
+  (bytes->string/utf8 (response-body received)))
 
 ;;@doc
 ;; The first value of a response header, or *default* when it is absent.
-(define (response-header response name [default #f])
-  (header-ref (response-headers response) name default))
+(define (response-header received name [default #f])
+  (header-ref (response-headers received) name default))
 
 ;;@doc
 ;; Every value of a response header, which is what `Set-Cookie` needs.
-(define (response-header* response name)
-  (header-ref* (response-headers response) name))
+(define (response-header* received name)
+  (header-ref* (response-headers received) name))
 
 ;;@doc
 ;; Whether the connection may be used for another exchange, according to the
 ;; response itself.
-(define (response-keep-alive? response)
-  (define asked (response-header response "Connection"))
+(define (response-keep-alive? received)
+  (define asked (response-header received "Connection"))
   (cond
     [(and asked (token-member? asked "close")) #f]
-    [(equal? (response-version response) "HTTP/1.1") #t]
+    [(equal? (response-version received) "HTTP/1.1") #t]
     [asked (token-member? asked "keep-alive")]
     [else #f]))
 
@@ -272,12 +271,33 @@
       (substring line 0 (- (string-length line) 1))
       line))
 
+(define (would-block-error)
+  (error "http: this read would block - the port is non blocking, or its read timeout ran out"))
+
+(define (line-so-far chars)
+  (strip-cr (list->string (reverse chars))))
+
+;; `read-line` reads to the end of the line however far off that is, so a line
+;; is taken a character at a time and given up on at `*max-line-length*`.
 (define (read-wire-line reader)
-  (define line (read-line reader))
-  (cond
-    [(eof-object? line) line]
-    [(would-block-object? line) (error "http: reading a message needs a blocking port")]
-    [else (strip-cr line)]))
+  (let loop ([chars '()]
+             [length 0])
+    (define char (read-char reader))
+    (cond
+      [(would-block-object? char) (would-block-error)]
+      [(eof-object? char)
+       (if (empty? chars)
+           char
+           (line-so-far chars))]
+      [(char=? char #\newline) (line-so-far chars)]
+      [(>= length *max-line-length*)
+       (error "http: a line of the head was longer than" *max-line-length* "characters")]
+      [else (loop (cons char chars) (+ length 1))])))
+
+;;@doc
+;; Whether *version* is one this cog speaks.
+(define (known-version? version)
+  (or (equal? version "HTTP/1.1") (equal? version "HTTP/1.0")))
 
 (define (token-member? value token)
   (if (member token (map (lambda (part) (string-downcase (trim part))) (split-many value ",")))
@@ -290,7 +310,7 @@
 (define (read-wire-headers reader)
   (let loop ([headers '()]
              [lines 0])
-    (when (> lines *max-header-lines*)
+    (when (>= lines *max-header-lines*)
       (error "http: a message had more than" *max-header-lines* "header lines"))
     (define line (read-wire-line reader))
     (cond
@@ -329,17 +349,21 @@
                  lengths)
        (car lengths))]))
 
+;; `read-bytes` allocates what it is asked for before it reads anything, so a
+;; length the other end declared is read a chunk at a time rather than at once.
+(define *read-chunk-bytes* 65536)
+
 (define (read-exactly reader amount)
   (let loop ([chunks '()]
              [left amount])
     (cond
       [(equal? left 0) (apply bytes-append (reverse chunks))]
       [else
-       (let ([chunk (read-bytes left reader)])
+       (let ([chunk (read-bytes (min left *read-chunk-bytes*) reader)])
          (when (eof-object? chunk)
            (error "http: the connection closed with" left "bytes of the body still to come"))
          (when (would-block-object? chunk)
-           (error "http: reading a message needs a blocking port"))
+           (would-block-error))
          (when (equal? (bytes-length chunk) 0)
            (error "http: the port stopped handing out bytes with" left "left to read"))
          (loop (cons chunk chunks) (- left (bytes-length chunk))))])))
@@ -357,14 +381,20 @@
     (error "http: not a usable chunk size:" line))
   size)
 
-;; Returns the body and the trailer headers, which only chunked bodies have.
-(define (read-chunked reader)
-  (let loop ([chunks '()])
+;;@doc
+;; Reads a chunked body off *reader*, and returns it with the trailer headers
+;; that followed it. With a *limit*, a body that grows past it is given up on
+;; and `'too-large` comes back instead, since nothing can be read after a body
+;; that was not read whole.
+(define (read-chunked reader #:limit [limit #f])
+  (let loop ([chunks '()]
+             [read-so-far 0])
     (define line (read-wire-line reader))
     (when (eof-object? line)
       (error "http: the connection closed before a chunk size"))
     (define size (parse-chunk-size line))
     (cond
+      [(and limit (> (+ read-so-far size) limit)) 'too-large]
       [(equal? size 0) (cons (apply bytes-append (reverse chunks)) (read-wire-headers reader))]
       [else
        ;; let*, because the chunk has to come off the port before the crlf
@@ -373,4 +403,4 @@
               [terminator (read-wire-line reader)])
          (unless (equal? terminator "")
            (error "http: a chunk did not end in a crlf:" terminator))
-         (loop (cons chunk chunks)))])))
+         (loop (cons chunk chunks) (+ read-so-far size)))])))

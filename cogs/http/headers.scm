@@ -1,4 +1,5 @@
 (provide header-name=?
+         token?
          normalize-headers
          header-ref
          header-ref*
@@ -10,10 +11,6 @@
          header-names
          headers->string
          parse-header-line)
-
-;; Headers are an association list of (name . value), both strings, in the
-;; order they were given. Names repeat, because `Set-Cookie` does, so a lookup
-;; returns the first match and `header-ref*` returns all of them.
 
 ;;@doc
 ;; Whether two header names are the same name. Header names are not case
@@ -28,13 +25,26 @@
     [(number? value) (number->string value)]
     [else (error "http: a header value has to be a string, symbol or number, got:" value)]))
 
-;; A name or value carrying a newline would let a caller write their own
-;; request line, so none of them get through.
+(define (token-char? char)
+  (define code (char->integer char))
+  (or (and (>= code 48) (<= code 57))
+      (and (>= code 65) (<= code 90))
+      (and (>= code 97) (<= code 122))
+      (string-contains? "!#$%&'*+-.^_`|~" (string char))))
+
+;;@doc
+;; Whether *str* is a token: letters, digits and `!#$%&'*+-.^_`|~`, and at
+;; least one of them. A header name is one, and so is a request method.
+;; Anything else, a space included, is read differently by different proxies.
+(define (token? str)
+  (and (> (string-length str) 0)
+       (let loop ([at 0])
+         (or (>= at (string-length str)) (and (token-char? (string-ref str at)) (loop (+ at 1)))))))
+
+;; A value carrying a newline would let a caller write their own headers after
+;; it, so none of them get through.
 (define (check-header name value)
-  (when (or (string-contains? name "\r")
-            (string-contains? name "\n")
-            (string-contains? name ":")
-            (equal? name ""))
+  (unless (token? name)
     (error "http: not a usable header name:" name))
   (when (or (string-contains? value "\r") (string-contains? value "\n"))
     (error "http: a header value cannot contain a newline:" value))

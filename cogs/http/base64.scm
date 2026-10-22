@@ -52,34 +52,49 @@
 ;;@doc
 ;; Decodes base64 into bytes. Padding and whitespace are optional, and anything
 ;; outside the alphabet is an error.
+(define (digits-of str)
+  (let loop ([chars (string->list str)]
+             [digits '()]
+             [padded #f])
+    (cond
+      [(empty? chars) (reverse digits)]
+      [(char=? (car chars) #\=) (loop (cdr chars) digits #t)]
+      [(char-whitespace? (car chars)) (loop (cdr chars) digits padded)]
+      ;; Padding ends the input, so `QQ=A` is not two digits and a stray byte.
+      [padded (error "base64: a digit after the padding:" str)]
+      [else
+       (let ([value (hash-try-get *values-by-char* (car chars))])
+         (unless value
+           (error "base64: not a base64 digit:" (car chars)))
+         (loop (cdr chars) (cons value digits) padded))])))
+
 (define (base64-decode str)
-  (define digits
-    (filter (lambda (value) value)
-            (map (lambda (char)
-                   (cond
-                     [(char=? char #\=) #f]
-                     [(char-whitespace? char) #f]
-                     [else
-                      (or (hash-try-get *values-by-char* char)
-                          (error "base64: not a base64 digit:" char))]))
-                 (string->list str))))
+  (define digits (digits-of str))
   (define out (bytes))
+  ;; The digits are walked rather than indexed, because asking a list its
+  ;; length once per group of four is quadratic in the length of the input.
   (let loop ([rest digits])
     (cond
       [(empty? rest) out]
-      [(equal? (length rest) 1) (error "base64: the input ends in the middle of a byte")]
+      [(empty? (cdr rest)) (error "base64: the input ends in the middle of a byte")]
       [else
-       (let* ([taken (min 4 (length rest))]
-              [at (lambda (index)
-                    (if (< index taken)
-                        (list-ref rest index)
-                        0))]
-              [packed (+ (* (at 0) 262144) (* (at 1) 4096) (* (at 2) 64) (at 3))])
+       (let* ([after-two (cdr (cdr rest))]
+              [third (if (empty? after-two)
+                         #f
+                         (car after-two))]
+              [after-three (if third
+                               (cdr after-two)
+                               '())]
+              [fourth (if (empty? after-three)
+                          #f
+                          (car after-three))]
+              [packed
+               (+ (* (car rest) 262144) (* (car (cdr rest)) 4096) (* (or third 0) 64) (or fourth 0))])
          (bytes-push! out (quotient packed 65536))
-         (when (>= taken 3)
+         (when third
            (bytes-push! out (modulo (quotient packed 256) 256)))
-         (when (>= taken 4)
+         (when fourth
            (bytes-push! out (modulo packed 256)))
-         (loop (if (<= taken 4)
-                   (list-tail rest taken)
+         (loop (if fourth
+                   (cdr after-three)
                    '())))])))
