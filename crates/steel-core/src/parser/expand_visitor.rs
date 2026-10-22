@@ -1036,8 +1036,6 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 ..
                             },
                     })) if l.args.len() > 1 => {
-                        // `(define)` alone can be data too
-
                         let is_function = match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
                                 self.in_scope_values.define(*l.first_ident().unwrap());
