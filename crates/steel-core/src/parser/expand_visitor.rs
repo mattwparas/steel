@@ -2013,7 +2013,8 @@ fn mentions_any(expr: &ExprKind, names: &[InternedString]) -> bool {
     finder.found
 }
 
-// The position of `name` among the parameters as written
+// The position of `name` among the parameters as written in the parameter list
+// e.g. (a b c), b => 1
 fn written_at(parameters: &[ExprKind], name: &ExprKind) -> usize {
     let name = name.atom_identifier();
     parameters
