@@ -920,10 +920,6 @@ impl Syntax {
         self
     }
 
-    pub(crate) fn steelval_to_exprkind(value: &SteelVal) -> Result<ExprKind> {
-        Self::steelval_to_marked_exprkind(value, ExpansionMark::UNKNOWN)
-    }
-
     fn steelval_to_marked_exprkind(value: &SteelVal, mark: ExpansionMark) -> Result<ExprKind> {
         let convert = |value: &SteelVal| Self::steelval_to_marked_exprkind(value, mark);
 
