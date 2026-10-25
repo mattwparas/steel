@@ -4,8 +4,7 @@
 
 ;; This should get preloaded at the top of every require, except the built ins!
 (require-builtin steel/base)
-(require "#%private/steel/contract"
-         (for-syntax "#%private/steel/contract"))
+(require "#%private/steel/contract")
 
 (provide Result?
          Ok

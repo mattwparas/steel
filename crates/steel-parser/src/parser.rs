@@ -91,10 +91,13 @@ impl ExpansionMark {
 
     const DEFINITION_RESOLVED: u32 = 1 << 31;
 
+    // From a template of a prelude macro
+    const PRELUDE: u32 = 1 << 30;
+
     pub fn fresh() -> Self {
         loop {
             let count = EXPANSION_MARK_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let mark = ExpansionMark(count & !Self::DEFINITION_RESOLVED);
+            let mark = ExpansionMark(count & !(Self::DEFINITION_RESOLVED | Self::PRELUDE));
 
             if mark.is_template() {
                 return mark;
@@ -110,6 +113,18 @@ impl ExpansionMark {
                 return mark;
             }
         }
+    }
+
+    pub fn with_prelude(self) -> Self {
+        if self.is_template() {
+            ExpansionMark(self.0 | Self::PRELUDE)
+        } else {
+            self
+        }
+    }
+
+    pub fn is_prelude(self) -> bool {
+        self.is_template() && self.0 & Self::PRELUDE != 0
     }
 
     pub fn is_definition_resolved(self) -> bool {

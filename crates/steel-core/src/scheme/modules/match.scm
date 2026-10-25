@@ -392,7 +392,7 @@
     (match-p-syntax compile-pattern input final-body-expr 0 (hashset) #f 0 introduced-identifiers))
 
   (define (pattern-identifiers pattern found)
-    (define inner (syntax-e pattern))
+    (define inner (#%syntax-e pattern))
     (cond
       [(symbol? inner) (cons pattern found)]
       [(list? inner)

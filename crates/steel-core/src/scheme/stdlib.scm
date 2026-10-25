@@ -160,93 +160,45 @@
   (syntax-rules ()
     [(#%proto-syntax-object x) (#%syntax/raw 'x 'x (#%syntax-span x))]))
 
-;; TODO: @Matt
-;; Bootstrap this by expanding first, then expanding the resulting
-;; TODO: Add syntax->span in the macro expander as a special case function.
-;; That just inlines the span object '(left right <source-id>)
-;; And then also calls the constructor for the
+;;@doc
+;; (define-syntax-rule (name . pattern) template)
+;;
+;; Defines a macro with a single pattern, like `(define-syntax name (syntax-rules () [(_ . pattern) template]))`.
+;;
+;; # Examples
+;; ```scheme
+;; (define-syntax-rule (swap! a b) (let ([tmp a]) (set! a b) (set! b tmp)))
+;; ```
+(define-syntax define-syntax-rule
+  (syntax-rules ()
+    [(_ (name . pattern) template)
+     (define-syntax name
+       (syntax-rules ()
+         [(_ . pattern) template]))]))
+
+;; Macros visible in the body only, as local define-syntax forms. Their own templates see the
+;; macros outside, which the marker tells the expander.
+(define-syntax let-syntax
+  (syntax-rules ()
+    [(_ ([name transformer] ...) body ...)
+     (let ()
+       '#%let-syntax
+       (define-syntax name transformer) ...
+       (let ()
+         body ...))]))
+
+(define-syntax letrec-syntax
+  (syntax-rules ()
+    [(_ ([name transformer] ...) body ...)
+     (let ()
+       (define-syntax name transformer) ...
+       (let ()
+         body ...))]))
+
+;; Each #, and #,@ in the template becomes a pattern variable, and the rest is a syntax template
 (define-syntax quasisyntax
-  (syntax-rules (syntax unsyntax unsyntax-splicing #%unsyntax #%unsyntax-splicing #%internal-crunch)
-
-    [(quasisyntax #%internal-crunch ((syntax x) xs ...))
-     (cons (list 'syntax (quasisyntax #%internal-crunch x)) (quasisyntax #%internal-crunch (xs ...)))]
-
-    ;; What the heck is going on here?
-    [(quasisyntax #%internal-crunch (syntax x))
-     (#%syntax/raw (quote x) (quasisyntax #%internal-crunch x) (#%syntax-span x))]
-
-    [(quasisyntax #%internal-crunch ((unsyntax x) xs ...))
-     (cons (list 'unsyntax (quasisyntax #%internal-crunch x))
-           (quasisyntax #%internal-crunch (xs ...)))]
-    [(quasisyntax #%internal-crunch (unsyntax x)) (list 'unsyntax (quasisyntax #%internal-crunch x))]
-
-    [(quasisyntax #%internal-crunch ((#%unsyntax x) xs ...))
-     (#%syntax/raw (quote (xs ...))
-                   (cons x (syntax-e (quasisyntax #%internal-crunch (xs ...))))
-                   (#%syntax-span (xs ...)))]
-
-    [(quasisyntax #%internal-crunch (#%unsyntax x)) x]
-
-    ; [(quasisyntax #%internal-crunch (#%unsyntax-splicing x xs ...))
-    ;  (#%syntax/raw (quote x) (append (syntax-e x) '()) (#%syntax-span x))]
-
-    ; (let ([evald x])
-    ;   (begin
-    ;     (stdout-simple-displayln "first case" evald)
-    ;     (#%syntax/raw (quote x) evald (#%syntax-span x))))
-    [(quasisyntax #%internal-crunch (#%unsyntax-splicing x)) x]
-
-    [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x)))
-     (let ([evald x]) (#%syntax/raw (quote x) evald (#%syntax-span x)))]
-
-    [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x) xs ...))
-     (let ([evald x])
-       (#%syntax/raw (quote (xs ...))
-                     (append (if (list? evald) evald (syntax-e evald))
-                             (syntax-e (quasisyntax #%internal-crunch (xs ...))))
-                     (#%syntax-span (xs ...))))]
-
-    ;; TODO: Do unquote-splicing as well, follow the same rules as unquote
-    [(quasisyntax #%internal-crunch ((unsyntax-splicing x)))
-     (#%syntax/raw (quote '())
-                   (append (list (list 'unsyntax-splicing (quasisyntax #%internal-crunch x))) '())
-                   (#%syntax-span x))]
-
-    [(quasisyntax #%internal-crunch ((unsyntax-splicing x) xs ...))
-     (#%syntax/raw (quote xs ...)
-                   (append (list (list 'unsyntax-splicing (quasisyntax #%internal-crunch x)))
-                           (syntax-e (quasisyntax #%internal-crunch (xs ...))))
-                   (#%syntax-span (xs ...)))]
-
-    [(quasisyntax #%internal-crunch ()) (#%syntax/raw '() '() '(0 0 0))]
-    [(quasisyntax #%internal-crunch (x xs ...))
-     ;; TODO: Wrap this up in a syntax/raw?
-     (#%syntax/raw (quote (x xs ...))
-                   (cons (quasisyntax #%internal-crunch x)
-                         (syntax-e (quasisyntax #%internal-crunch (xs ...))))
-                   (#%syntax-span (x xs ...)))]
-
-    ;; Internal, we don't do anything special
-    [(quasisyntax #%internal-crunch x)
-     (if (empty? 'x) (#%syntax/raw '() '() (#%syntax-span x)) (#%syntax/raw 'x 'x (#%syntax-span x)))]
-
-    ;; This is the absolute worst!
-    [(quasisyntax (x))
-     (syntax (#%syntax/raw (quote (x)) (quasisyntax #%internal-crunch x) (#%syntax-span (x xs ...))))]
-
-    [(quasisyntax (x xs ...))
-     (syntax (#%syntax/raw (quote (x xs ...))
-                           (cons (quasisyntax #%internal-crunch x)
-                                 (syntax-e (quasisyntax #%internal-crunch (xs ...))))
-                           (#%syntax-span (x xs ...))))]
-
-    ;; If x is something like (lambda (x) ...)
-    ;; it won't match properly, because the lambda is not getting
-    ;; destructed into a list.
-    [(quasisyntax x)
-     (if (empty? 'x)
-         (#%syntax/raw '() '() (#%syntax-span x))
-         (syntax (#%syntax/raw 'x 'x (#%syntax-span x))))]))
+  (syntax-rules ()
+    [(quasisyntax x) (#%quasisyntax x)]))
 
 ;;@doc
 ;; Syntax:
@@ -391,11 +343,12 @@
         =>
         e2 ...]
        c1 ...)
-     (let ([res e1]
-           [function (begin
-                       e2 ...)])
+     ;; The function is only evaluated when the test is true
+     (let ([res e1])
        (if res
-           (function res)
+           ((begin
+              e2 ...)
+            res)
            (cond
              c1 ...)))]
     [(cond
@@ -671,6 +624,27 @@
   (syntax-rules ()
     [(#%values->list expr) ((lambda (produced) (if (#%prim.list? produced) produced (#%prim.list produced))) expr)]))
 
+;; One value for one formal. `values` is `list`, so a list of one is what `(values x)` gives,
+;; and any other value is itself.
+(define-syntax #%single-value
+  (syntax-rules ()
+    [(_ expr)
+     ((lambda (v)
+        (if (#%prim.list? v)
+            (if (#%prim.null? v)
+                v
+                (if (#%prim.null? (#%prim.cdr v))
+                    (#%prim.car v)
+                    v))
+            v))
+      expr)]))
+
+;; The values for some formals
+(define-syntax #%values-for
+  (syntax-rules ()
+    [(_ (x) expr) (#%prim.list (#%single-value expr))]
+    [(_ formals expr) (#%values->list expr)]))
+
 ;;@doc
 ;; (let*-values ([formals expr] ...) body ...)
 ;;
@@ -695,7 +669,7 @@
      (#%prim.apply (lambda formals
                      (let*-values (rest ...)
                        body ...))
-                   (#%values->list expr))]))
+                   (#%values-for formals expr))]))
 
 ;;@doc
 ;; (let-values ([formals expr] ...) body ...)
@@ -718,7 +692,7 @@
     [(let-values ([formals expr] ...)
        body ...)
      ((lambda (produced) (#%let-values-bind produced (formals ...) body ...))
-      (#%prim.list (#%values->list expr) ...))]))
+      (#%prim.list (#%values-for formals expr) ...))]))
 
 (define-syntax #%let-values-bind
   (syntax-rules ()
@@ -729,6 +703,33 @@
      (#%prim.apply (lambda formals
                      (#%let-values-bind (#%prim.cdr produced) (rest ...) body ...))
                    (#%prim.car produced))]))
+
+;;@doc
+;; (define-values (name ...) expr)
+;;
+;; Defines each name as one of the values of the expression, in order.
+;;
+;; # Examples
+;; ```scheme
+;; (define-values (a b) (values 1 2))
+;; (list a b) ;; => '(1 2)
+;; ```
+(define-syntax define-values
+  (syntax-rules ()
+    [(define-values () expr) (define packed expr)]
+    [(define-values (name) expr) (define name (#%single-value expr))]
+    [(define-values (name ...) expr)
+     (begin
+       (define packed (#%values->list expr))
+       (#%define-values-each packed 0 name ...))]))
+
+(define-syntax #%define-values-each
+  (syntax-rules ()
+    [(#%define-values-each packed index name) (define name (#%prim.list-ref packed index))]
+    [(#%define-values-each packed index name rest ...)
+     (begin
+       (define name (#%prim.list-ref packed index))
+       (#%define-values-each packed (#%prim.+ index 1) rest ...))]))
 
 (define-syntax #%letrec*-helper
   (syntax-rules ()

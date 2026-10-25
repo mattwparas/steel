@@ -1,8 +1,6 @@
+use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use steel_parser::{
-    ast::{Define, If, Let, Macro, Quote, Require, Return, SyntaxRules, Vector},
-    tokens::IntLiteral,
-};
+use steel_parser::ast::{Define, If, Let, Macro, Quote, Require, Return, SyntaxRules, Vector};
 
 use crate::parser::{
     ast::{Atom, Begin, ExprKind, LambdaFunction, List, Set},
@@ -84,7 +82,9 @@ impl VisitorMutRef for CheckDefinesAreInLegalPositions {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -172,7 +172,9 @@ impl VisitorMutRefUnit for FlattenBegin {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(begin) => {
                 for expr in begin.exprs.iter_mut() {
                     self.visit(expr);
@@ -227,7 +229,7 @@ pub fn flatten_begins_and_expand_defines(
 ) -> crate::rvals::Result<Vec<ExprKind>> {
     for expr in exprs.iter_mut() {
         FlattenBegin::flatten(expr);
-        ConvertDefinesToLetsMut::convert_defines_mut(expr);
+        ConvertDefinesToLetsMut::convert_defines_mut(expr)?;
         let mut checker = CheckDefinesAreInLegalPositions { depth: 0 };
         checker.visit(expr)?;
     }
@@ -269,14 +271,21 @@ impl VisitorMutUnit for DefinedVars {
 
 struct ConvertDefinesToLetsMut {
     depth: usize,
+    // The first define in a body that refers to a later one as it runs
+    error: Option<crate::rerrs::SteelErr>,
 }
 
 impl ConvertDefinesToLetsMut {
     fn new() -> Self {
-        Self { depth: 0 }
+        Self {
+            depth: 0,
+            error: None,
+        }
     }
-    fn convert_defines_mut(expr: &mut ExprKind) {
-        ConvertDefinesToLetsMut::new().visit(expr)
+    fn convert_defines_mut(expr: &mut ExprKind) -> crate::rvals::Result<()> {
+        let mut converter = ConvertDefinesToLetsMut::new();
+        converter.visit(expr);
+        converter.error.map_or(Ok(()), Err)
     }
 }
 
@@ -293,7 +302,9 @@ impl VisitorMutRefUnit for ConvertDefinesToLetsMut {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(begin) => {
                 if self.depth > 0 {
                     let contains_defines =
@@ -304,7 +315,7 @@ impl VisitorMutRefUnit for ConvertDefinesToLetsMut {
 
                         let boxed = Box::new(fake_begin);
 
-                        let mut converted = convert_exprs_to_let(boxed);
+                        let mut converted = convert_exprs_to_let(boxed, &mut self.error);
 
                         match &mut converted {
                             ExprKind::Begin(b) => {
@@ -469,6 +480,17 @@ fn apply_ident(func: ExprKind) -> ExprKind {
 struct ForwardReferences {
     names: smallvec::SmallVec<[InternedString; 32]>,
     found: bool,
+    // Found in a function body, which runs after the group is bound
+    found_in_lambda: bool,
+    // Found where it always runs as the define does, which is an error
+    found_directly: bool,
+    lambdas: usize,
+    // Branches of an `if`, which might not run
+    branches: usize,
+    // The first name, of this define or a later one, it always refers to as it runs
+    before_definition: Option<(InternedString, steel_parser::span::Span)>,
+    // Parameters and let bindings, which aren't the group's names in their bodies
+    shadowed: Vec<InternedString>,
 }
 
 impl ForwardReferences {
@@ -476,6 +498,12 @@ impl ForwardReferences {
         ForwardReferences {
             names: smallvec::SmallVec::default(),
             found: false,
+            found_in_lambda: false,
+            found_directly: false,
+            lambdas: 0,
+            branches: 0,
+            before_definition: None,
+            shadowed: Vec::new(),
         }
     }
 
@@ -487,12 +515,239 @@ impl ForwardReferences {
 impl VisitorMutUnit for ForwardReferences {
     fn visit_atom(&mut self, a: &Atom) {
         if let TokenType::Identifier(ident) = &a.syn.ty {
-            self.found = self.found || self.names.contains(ident);
+            if self.names.contains(ident) && !self.shadowed.contains(ident) {
+                self.found = true;
+                // A branch might only run once the group is bound, as a function's body does
+                self.found_in_lambda |= self.lambdas > 0 || self.branches > 0;
+                self.found_directly |= self.lambdas == 0 && self.branches == 0;
+
+                if self.lambdas == 0 && self.branches == 0 && self.before_definition.is_none() {
+                    self.before_definition = Some((*ident, a.syn.span));
+                }
+            }
+        }
+    }
+
+    fn visit_lambda_function(&mut self, lambda_function: &LambdaFunction) {
+        let depth = self.shadowed.len();
+        self.shadowed.extend(
+            lambda_function
+                .args
+                .iter()
+                .filter_map(|x| x.atom_identifier().copied()),
+        );
+
+        self.lambdas += 1;
+        self.visit(&lambda_function.body);
+        self.lambdas -= 1;
+
+        self.shadowed.truncate(depth);
+    }
+
+    fn visit_let(&mut self, l: &Let) {
+        for (_, value) in &l.bindings {
+            self.visit(value);
+        }
+
+        let depth = self.shadowed.len();
+        self.shadowed.extend(
+            l.bindings
+                .iter()
+                .filter_map(|x| x.0.atom_identifier().copied()),
+        );
+        self.visit(&l.body_expr);
+        self.shadowed.truncate(depth);
+    }
+
+    fn visit_if(&mut self, f: &If) {
+        self.visit(&f.test_expr);
+
+        // With a literal test, the branch it picks always runs. The other one is still
+        // counted as a branch, since its names have to be bound.
+        match literal_truth(&f.test_expr) {
+            Some(truth) => {
+                let (taken, other) = if truth {
+                    (&f.then_expr, &f.else_expr)
+                } else {
+                    (&f.else_expr, &f.then_expr)
+                };
+
+                self.visit(taken);
+                self.branches += 1;
+                self.visit(other);
+                self.branches -= 1;
+            }
+            None => {
+                self.branches += 1;
+                self.visit(&f.then_expr);
+                self.visit(&f.else_expr);
+                self.branches -= 1;
+            }
+        }
+    }
+
+    fn visit_list(&mut self, l: &List) {
+        // A lambda applied where it's written runs its body there
+        if let Some(ExprKind::LambdaFunction(lambda_function)) = l.args.first() {
+            for arg in &l.args[1..] {
+                self.visit(arg);
+            }
+
+            let depth = self.shadowed.len();
+            self.shadowed.extend(
+                lambda_function
+                    .args
+                    .iter()
+                    .filter_map(|x| x.atom_identifier().copied()),
+            );
+            self.visit(&lambda_function.body);
+            self.shadowed.truncate(depth);
+            return;
+        }
+
+        for arg in &l.args {
+            self.visit(arg);
         }
     }
 
     // Quoted data doesn't refer to anything.
     fn visit_quote(&mut self, _quote: &Quote) {}
+}
+
+// Whether a literal `if` test is true, or None if it isn't a literal
+fn literal_truth(expr: &ExprKind) -> Option<bool> {
+    match expr {
+        ExprKind::Atom(Atom { syn, .. }) if ExpressionType::is_atom(syn) => {
+            Some(!matches!(syn.ty, TokenType::BooleanLiteral(false)))
+        }
+        ExprKind::Quote(q) => Some(!matches!(
+            &q.expr,
+            ExprKind::Atom(Atom { syn, .. }) if matches!(syn.ty, TokenType::BooleanLiteral(false))
+        )),
+        _ => None,
+    }
+}
+
+// The names of the group an expression refers to anywhere, functions it makes included
+struct GroupReferences<'a> {
+    names: &'a FxHashMap<InternedString, usize>,
+    found: Vec<usize>,
+}
+
+impl VisitorMutUnit for GroupReferences<'_> {
+    fn visit_atom(&mut self, a: &Atom) {
+        if let TokenType::Identifier(ident) = &a.syn.ty {
+            if let Some(index) = self.names.get(ident) {
+                self.found.push(*index);
+            }
+        }
+    }
+
+    fn visit_quote(&mut self, _quote: &Quote) {}
+}
+
+fn group_references(expr: &ExprKind, names: &FxHashMap<InternedString, usize>) -> Vec<usize> {
+    let mut references = GroupReferences {
+        names,
+        found: Vec::new(),
+    };
+    references.visit(expr);
+    references.found
+}
+
+// For each function define, the first form that runs code able to call it, as it runs or
+// through the other functions of the group. Its body can then run before the defines from
+// that form on have, so what it reads of them is checked.
+fn called_early(exprs: &[ExprKind], types: &[ExpressionType]) -> Vec<Option<usize>> {
+    let mut functions = FxHashMap::default();
+
+    for (index, ty) in types.iter().enumerate() {
+        if let ExpressionType::DefineFunction(name) = ty {
+            functions.insert(*name, index);
+        }
+    }
+
+    let mut first = vec![None; exprs.len()];
+
+    if functions.is_empty() {
+        return first;
+    }
+
+    let mut calls: Vec<Option<Vec<usize>>> = vec![None; exprs.len()];
+
+    for (index, expr) in exprs.iter().enumerate() {
+        if matches!(types[index], ExpressionType::DefineFunction(_)) {
+            continue;
+        }
+
+        let runs = match expr {
+            ExprKind::Define(d) => &d.body,
+            other => other,
+        };
+
+        let mut pending = group_references(runs, &functions);
+
+        while let Some(function) = pending.pop() {
+            if first[function].is_some() {
+                continue;
+            }
+
+            first[function] = Some(index);
+
+            let body = calls[function].get_or_insert_with(|| match &exprs[function] {
+                ExprKind::Define(d) => group_references(&d.body, &functions),
+                _ => Vec::new(),
+            });
+
+            pending.extend(body.iter().copied());
+        }
+    }
+
+    first
+}
+
+// Whether a function in the group refers to a name bound at or after the define it is in,
+// which only the letrec encoding binds by the time the function runs, and whether a
+// define refers to one as it runs, which is an error that encoding would hide
+// Also the first reference that always runs before the define it names, this one or a later
+// one, which is an error, as it is in Racket
+fn forward_references(
+    exprs: &[ExprKind],
+) -> (
+    bool,
+    bool,
+    Option<(InternedString, steel_parser::span::Span)>,
+) {
+    let names: Vec<_> = exprs
+        .iter()
+        .map(|expr| match expr {
+            ExprKind::Define(d) => d.name.atom_identifier().copied(),
+            _ => None,
+        })
+        .collect();
+
+    let mut in_lambda = false;
+    let mut directly = false;
+    let mut before_definition = None;
+
+    for (index, expr) in exprs.iter().enumerate() {
+        let mut later = ForwardReferences::new();
+
+        for name in names[index..].iter().flatten() {
+            later.insert(*name);
+        }
+
+        match expr {
+            ExprKind::Define(d) => later.visit(&d.body),
+            other => later.visit(other),
+        }
+
+        in_lambda |= later.found_in_lambda;
+        directly |= later.found_directly;
+        before_definition = before_definition.or(later.before_definition);
+    }
+
+    (in_lambda, directly, before_definition)
 }
 
 /// `STEEL_SEQUENTIAL_DEFINES=0` encodes every internal define group as letrec.
@@ -580,10 +835,186 @@ fn defines_are_sequential(exprs: &[ExprKind]) -> bool {
     true
 }
 
-fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
+// A name as the code wrote it, without the renames modules and macro hygiene give it
+fn written_name(name: &str) -> String {
+    let name = crate::parser::expand_visitor::unmangled(name).trim_start_matches("##");
+
+    // Hygiene renames end in `#<mark>` or `#<mark>#<id>`
+    match name.find('#') {
+        Some(i)
+            if i > 0
+                && name[i + 1..]
+                    .split('#')
+                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())) =>
+        {
+            name[..i].to_string()
+        }
+        _ => name.to_string(),
+    }
+}
+
+// What a name of the group is until its define runs
+fn uninitialized() -> ExprKind {
+    ExprKind::atom("#%prim.#%uninitialized")
+}
+
+// A name of the group read where it can run before its define has, in a value or an
+// expression of the group, is checked, so reading it early is an error, as in Racket. So is
+// what a function define's body reads, when code before those defines can call it.
+fn check_before_initialization(exprs: &mut [ExprKind], types: &mut [ExpressionType]) {
+    let names: Vec<Option<InternedString>> = exprs
+        .iter()
+        .map(|expr| match expr {
+            ExprKind::Define(d) => d.name.atom_identifier().copied(),
+            _ => None,
+        })
+        .collect();
+
+    let mut checked = Vec::new();
+    let early = called_early(exprs, types);
+
+    for (index, expr) in exprs.iter_mut().enumerate() {
+        // A function's body runs when it is called, which is only early if code before a
+        // later define can call it
+        let from = if matches!(types[index], ExpressionType::DefineFunction(_)) {
+            match early[index] {
+                Some(from) => from,
+                None => continue,
+            }
+        } else {
+            index
+        };
+
+        let mut check = CheckBeforeInitialization {
+            names: names[from..].iter().flatten().copied().collect(),
+            shadowed: Vec::new(),
+            checked: &mut checked,
+        };
+
+        match expr {
+            ExprKind::Define(d) => check.visit(&mut d.body),
+            other => check.visit(other),
+        }
+    }
+
+    // A constant read early is bound when its define runs, not up front
+    for ty in types.iter_mut() {
+        if let ExpressionType::DefineConst(name) = ty {
+            if checked.contains(name) {
+                *ty = ExpressionType::DefineFlat(*name);
+            }
+        }
+    }
+}
+
+struct CheckBeforeInitialization<'a> {
+    names: Vec<InternedString>,
+    shadowed: Vec<InternedString>,
+    checked: &'a mut Vec<InternedString>,
+}
+
+impl CheckBeforeInitialization<'_> {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::Atom(a) => {
+                let Some(name) = a.ident().copied() else {
+                    return;
+                };
+
+                if self.names.contains(&name) && !self.shadowed.contains(&name) {
+                    self.checked.push(name);
+
+                    // The error points at the read
+                    let span = a.syn.span;
+                    let read = core::mem::replace(expr, ExprKind::empty());
+                    let mut call = List::new(thin_vec![
+                        ExprKind::Atom(Atom::new(SyntaxObject::new(
+                            TokenType::Identifier("#%prim.#%check-initialized".into()),
+                            span,
+                        ))),
+                        read,
+                        ExprKind::Quote(Box::new(Quote::new(
+                            ExprKind::atom(written_name(name.resolve())),
+                            SyntaxObject::new(TokenType::Quote, span),
+                        ))),
+                    ]);
+                    call.location = span;
+                    *expr = ExprKind::List(call);
+                }
+            }
+            ExprKind::LambdaFunction(l) => {
+                let depth = self.shadowed.len();
+                self.shadowed
+                    .extend(l.args.iter().filter_map(|x| x.atom_identifier().copied()));
+                self.visit(&mut l.body);
+                self.shadowed.truncate(depth);
+            }
+            ExprKind::Let(l) => {
+                for (_, value) in l.bindings.iter_mut() {
+                    self.visit(value);
+                }
+
+                let depth = self.shadowed.len();
+                self.shadowed.extend(
+                    l.bindings
+                        .iter()
+                        .filter_map(|x| x.0.atom_identifier().copied()),
+                );
+                self.visit(&mut l.body_expr);
+                self.shadowed.truncate(depth);
+            }
+            ExprKind::If(f) => {
+                self.visit(&mut f.test_expr);
+                self.visit(&mut f.then_expr);
+                self.visit(&mut f.else_expr);
+            }
+            ExprKind::Define(d) => self.visit(&mut d.body),
+            ExprKind::Begin(b) => b.exprs.iter_mut().for_each(|x| self.visit(x)),
+            ExprKind::Return(r) => self.visit(&mut r.expr),
+            // Assigning before the define runs is an error too, once the value is made
+            ExprKind::Set(s) => {
+                self.visit(&mut s.expr);
+
+                let Some(syn) = s.variable.atom_syntax_object() else {
+                    return;
+                };
+
+                let Some(name) = syn.ty.identifier().copied() else {
+                    return;
+                };
+
+                if self.names.contains(&name) && !self.shadowed.contains(&name) {
+                    self.checked.push(name);
+
+                    let span = syn.span;
+                    let value = core::mem::replace(&mut s.expr, ExprKind::empty());
+                    let mut call = List::new(thin_vec![
+                        ExprKind::Atom(Atom::new(SyntaxObject::new(
+                            TokenType::Identifier("#%prim.#%check-assignable".into()),
+                            span,
+                        ))),
+                        ExprKind::atom(name),
+                        ExprKind::Quote(Box::new(Quote::new(
+                            ExprKind::atom(written_name(name.resolve())),
+                            SyntaxObject::new(TokenType::Quote, span),
+                        ))),
+                        value,
+                    ]);
+                    call.location = span;
+                    s.expr = ExprKind::List(call);
+                }
+            }
+            ExprKind::List(l) => l.args.iter_mut().for_each(|x| self.visit(x)),
+            // Quoted data, vectors of it and the rest don't read names
+            _ => {}
+        }
+    }
+}
+
+fn convert_exprs_to_let(begin: Box<Begin>, error: &mut Option<crate::rerrs::SteelErr>) -> ExprKind {
     // let defines = collect_defines_from_current_scope(&exprs);
 
-    let expression_types = ExpressionType::generate_expression_types(&begin.exprs);
+    let mut expression_types = ExpressionType::generate_expression_types(&begin.exprs);
 
     // Go ahead and quit if there are only expressions here
     if expression_types.iter().all(|x| x.is_expression()) {
@@ -592,9 +1023,30 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
 
     // A group without function defines can be lowered this way, and so can one
     // with them as long as nothing refers forward, see `defines_are_sequential`.
+    let (lambda_refers_forward, refers_forward_directly, before_definition) =
+        forward_references(&begin.exprs);
+
+    // The first one is reported
+    if let Some((name, span)) = before_definition.filter(|_| error.is_none()) {
+        *error = Some(
+            crate::rerrs::SteelErr::new(
+                crate::rerrs::ErrorKind::FreeIdentifier,
+                format!(
+                    "Cannot reference an identifier before its definition: {}",
+                    written_name(name.resolve())
+                ),
+            )
+            .with_span(span),
+        );
+    }
+
+    // Lowered this way, a define that always refers to a later one as it runs is reported.
+    // Functions that refer forward need the letrec encoding, which takes precedence.
     if !expression_types
         .iter()
         .any(|x| matches!(x, ExpressionType::DefineFunction(_)))
+        && !lambda_refers_forward
+        || refers_forward_directly && !lambda_refers_forward
         || (sequential_defines_enabled() && defines_are_sequential(&begin.exprs))
     {
         return begin
@@ -625,6 +1077,8 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
     }
 
     let mut exprs = begin.exprs;
+
+    check_before_initialization(&mut exprs, &mut expression_types);
 
     // let mut last_expression = expression_types.len();
 
@@ -693,9 +1147,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
             ExpressionType::DefineFunction(name) => {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
-                    top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        IntLiteral::Small(0).into(),
-                    ))));
+                    top_level_dummy_args.push(uninitialized());
                     let name_prime = ExprKind::atom(compact_str::format_compact!(
                         "_____{}{}",
                         name.resolve(),
@@ -714,9 +1166,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
             ExpressionType::DefineFlat(name) => {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
-                    top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        IntLiteral::Small(0).into(),
-                    ))));
+                    top_level_dummy_args.push(uninitialized());
                     let name_prime = ExprKind::atom(compact_str::format_compact!(
                         "_____{}{}",
                         name.resolve(),
@@ -746,9 +1196,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
             ExpressionType::DefineFlatStar(name) => {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
-                    top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        IntLiteral::Small(0).into(),
-                    ))));
+                    top_level_dummy_args.push(uninitialized());
                     let name_prime = ExprKind::atom(compact_str::format_compact!(
                         "_____{}{}",
                         name.resolve(),
@@ -864,6 +1312,7 @@ mod flatten_begin_test {
     use super::*;
     use crate::parser::ast::ExprKind;
     use crate::parser::ast::{Atom, Begin, List};
+    use steel_parser::tokens::IntLiteral;
 
     use crate::parser::parser::SyntaxObject;
     use crate::parser::tokens::TokenType;

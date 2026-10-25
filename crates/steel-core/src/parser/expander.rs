@@ -160,6 +160,9 @@ pub struct SteelMacro {
     pub(crate) location: Span,
     pub(crate) special_mangled: bool,
     definition_resolved: bool,
+    // Defined in the prelude, so the macros its templates name are the prelude's
+    #[serde(default)]
+    prelude: bool,
 }
 
 impl SteelMacro {
@@ -178,6 +181,7 @@ impl SteelMacro {
             location,
             special_mangled: false,
             definition_resolved: false,
+            prelude: false,
         }
     }
 
@@ -203,6 +207,14 @@ impl SteelMacro {
 
     pub fn is_mangled(&self) -> bool {
         self.mangled
+    }
+
+    pub fn mark_prelude(&mut self) {
+        self.prelude = true;
+    }
+
+    pub fn is_prelude(&self) -> bool {
+        self.prelude
     }
 
     pub fn mark_definition_resolved(&mut self) {
@@ -249,6 +261,7 @@ impl SteelMacro {
             location: ast_macro.location.span,
             special_mangled: false,
             definition_resolved: false,
+            prelude: false,
         })
     }
 
@@ -289,9 +302,13 @@ impl SteelMacro {
         }
     }
 
-    pub(crate) fn match_case_index(&self, expr: &List) -> Result<(&MacroCase, usize)> {
+    pub(crate) fn match_case_index(
+        &self,
+        expr: &List,
+        start: usize,
+    ) -> Result<(&MacroCase, usize)> {
         // TODO: Ellipses need to not be mangled?
-        for (index, case) in self.cases.iter().enumerate() {
+        for (index, case) in self.cases.iter().enumerate().skip(start) {
             if case.recursive_match(
                 expr,
                 &ScopeSet::default(),
@@ -315,11 +332,19 @@ impl SteelMacro {
         in_scope: &ScopeSet<InternedString, FxBuildHasher>,
         globals: GlobalMap,
     ) -> Result<ExprKind> {
-        let case_to_expand = self.match_case(&expr, in_scope, globals)?;
-        let expanded_expr =
-            case_to_expand.expand(expr, span, in_scope, globals, self.definition_resolved)?;
+        Ok(self.expand_marked(expr, span, in_scope, globals)?.0)
+    }
 
-        Ok(expanded_expr)
+    // The expansion, with the mark its template's identifiers have
+    pub(crate) fn expand_marked(
+        &self,
+        expr: List,
+        span: Span,
+        in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+        globals: GlobalMap,
+    ) -> Result<(ExprKind, ExpansionMark)> {
+        let case_to_expand = self.match_case(&expr, in_scope, globals)?;
+        case_to_expand.expand(expr, span, self.definition_resolved, self.prelude)
     }
 }
 
@@ -356,6 +381,10 @@ pub struct MacroCase {
     args: PatternList,
 
     pub(crate) body: ExprKind,
+
+    // The names the template binds, as its body has them
+    #[serde(default)]
+    binders: Vec<InternedString>,
 }
 
 struct PatternContext<'a> {
@@ -368,7 +397,11 @@ struct PatternContext<'a> {
 impl MacroCase {
     #[cfg(test)]
     pub fn new(args: PatternList, body: ExprKind) -> Self {
-        MacroCase { args, body }
+        MacroCase {
+            args,
+            body,
+            binders: Vec::new(),
+        }
     }
 
     pub fn all_bindings(&self) -> Vec<String> {
@@ -428,10 +461,14 @@ impl MacroCase {
         let args_str: SmallVec<[_; 8]> = ctx.bindings.keys().copied().collect();
 
         // TODO: @Matt - if the
-        let template_parser = MacroTemplate::new(ctx.bindings);
+        // define-syntax makes this macro of a syntax-case transformer's clauses
+        let template_parser = MacroTemplate::new(ctx.bindings)
+            .of_transformer_code(name.resolve().starts_with("__generated-"));
         template_parser.verify(&body)?;
 
-        RenameIdentifiersVisitor::new(&args_str, special_forms).rename_identifiers(&mut body);
+        let mut renamer = RenameIdentifiersVisitor::new(&args_str, special_forms);
+        renamer.rename_identifiers(&mut body);
+        let binders = renamer.introduced_binders();
 
         args.iter_mut().for_each(|x| x.mangle(special_forms));
 
@@ -441,6 +478,7 @@ impl MacroCase {
         Ok(MacroCase {
             args: PatternList::new(args).with_improper(improper),
             body,
+            binders,
         })
     }
 
@@ -477,6 +515,16 @@ impl MacroCase {
             expr.improper,
         )?;
 
+        // Unlike syntax-rules, syntax-case binds the keyword position too
+        if let (Some(MacroPattern::Single(name)), Some(keyword)) =
+            (self.args.args.first(), expr.first())
+        {
+            if name.resolve() != "_" {
+                bindings.insert(*name, keyword.clone());
+                binding_kind.insert(*name, BindingKind::Single);
+            }
+        }
+
         Ok((bindings, binding_kind))
     }
 
@@ -484,10 +532,9 @@ impl MacroCase {
         &self,
         expr: List,
         span: Span,
-        in_scope: &ScopeSet<InternedString, FxBuildHasher>,
-        globals: GlobalMap,
         definition_resolved: bool,
-    ) -> Result<ExprKind> {
+        prelude: bool,
+    ) -> Result<(ExprKind, ExpansionMark)> {
         thread_local! {
             static BINDINGS: RefCell<FxHashMap<InternedString, ExprKind>> = RefCell::new(FxHashMap::default());
             static BINDINGS_KIND: RefCell<FxHashMap<InternedString, BindingKind>> = RefCell::new(FxHashMap::default());
@@ -532,11 +579,40 @@ impl MacroCase {
                     // Give the identifiers in the template a mark unique to this expansion.
                     // This happens before the pattern variables are substituted, so only
                     // identifiers from the template get it.
-                    struct MarkTemplateIdentifiers(ExpansionMark);
-                    impl VisitorMutRefUnit for MarkTemplateIdentifiers {
+                    // An identifier another macro's template wrote, when that macro defined this
+                    // one, keeps that template's mark, so it means what it does there.
+                    // An identifier another macro's template wrote, when that macro defined this
+                    // one, means what it does there, so it gets a mark of this expansion that
+                    // resolves as that template's does. Each expansion's binders stay its own.
+                    struct MarkTemplateIdentifiers<'a>(
+                        ExpansionMark,
+                        FxHashMap<ExpansionMark, ExpansionMark>,
+                        &'a [InternedString],
+                    );
+                    impl VisitorMutRefUnit for MarkTemplateIdentifiers<'_> {
                         fn visit_atom(&mut self, a: &mut Atom) {
-                            if let TokenType::Identifier(_) = a.syn.ty {
-                                a.syn.mark = self.0;
+                            if let TokenType::Identifier(name) = a.syn.ty {
+                                if !a.syn.mark.is_template() {
+                                    a.syn.mark = self.0;
+                                } else if self.2.contains(&name) {
+                                    let outer = a.syn.mark;
+                                    a.syn.mark = *self.1.entry(outer).or_insert_with(|| {
+                                        let fresh = if outer.is_definition_resolved() {
+                                            ExpansionMark::fresh_definition_resolved()
+                                        } else {
+                                            ExpansionMark::fresh()
+                                        };
+                                        let fresh = if outer.is_prelude() {
+                                            fresh.with_prelude()
+                                        } else {
+                                            fresh
+                                        };
+                                        crate::parser::expand_visitor::inherit_local_expansion(
+                                            outer, fresh,
+                                        );
+                                        fresh
+                                    });
+                                }
                             }
                         }
                     }
@@ -547,7 +623,10 @@ impl MacroCase {
                         ExpansionMark::fresh()
                     };
 
-                    MarkTemplateIdentifiers(mark).visit(&mut body);
+                    let mark = if prelude { mark.with_prelude() } else { mark };
+
+                    MarkTemplateIdentifiers(mark, FxHashMap::default(), &self.binders)
+                        .visit(&mut body);
 
                     // println!("Expanding: {}", body);
                     // println!("Bindings");
@@ -560,12 +639,10 @@ impl MacroCase {
                         &mut bindings,
                         &mut binding_kind,
                         &mut fallback_bindings,
-                        in_scope,
-                        globals,
                         span,
                     )?;
 
-                    Ok(body)
+                    Ok((body, mark))
                 })
             })
         })
@@ -682,7 +759,12 @@ impl MacroPattern {
                 let ellipsis_span = exprs_iter
                     .peek()
                     .and_then(|(_, expr)| expr.atom_syntax_object())
-                    .filter(|syn| syn.ty == TokenType::Ellipses)
+                    .filter(|syn| match &syn.ty {
+                        TokenType::Ellipses => true,
+                        // Patterns built from data spell it as an identifier
+                        TokenType::Identifier(ty) => *ty == *ELLIPSES_SYMBOL,
+                        _ => false,
+                    })
                     .map(|syn| syn.span);
 
                 if ellipsis_span.is_some() {
@@ -1213,8 +1295,16 @@ fn match_single_pattern(
                         && match_list_pattern(&patterns.args, &v.args, false, in_scope, globals)
                 }
                 // TODO: Come back here
-                ExprKind::Quote(_) => {
-                    !is_vec && matches!(patterns.args.as_slice(), &[MacroPattern::Quote(_)])
+                ExprKind::Quote(q) => {
+                    !is_vec
+                        && (matches!(patterns.args.as_slice(), &[MacroPattern::Quote(_)])
+                            || match_list_pattern(
+                                &patterns.args,
+                                &quote_as_list(q),
+                                false,
+                                in_scope,
+                                globals,
+                            ))
                 }
                 _ => {
                     if let Some(pat) = non_list_match(&patterns.args) {
@@ -1226,6 +1316,57 @@ fn match_single_pattern(
             }
         }
     }
+}
+
+// The pattern variables of a with-syntax or syntax-case pattern, matched against `value`,
+// or None when it doesn't match
+pub(crate) fn match_with_syntax_pattern(
+    pattern: ExprKind,
+    literals: &[InternedString],
+    value: ExprKind,
+) -> Result<
+    Option<(
+        FxHashMap<InternedString, ExprKind>,
+        FxHashMap<InternedString, BindingKind>,
+    )>,
+> {
+    // Named so a `_` in the pattern is the wildcard
+    let mut ctx = PatternContext {
+        name: InternedString::from_static("#%with-syntax"),
+        special_forms: literals,
+        bindings: Default::default(),
+        depth: 0,
+    };
+
+    let list = List::new(thin_vec::thin_vec![
+        ExprKind::ident("#%with-syntax"),
+        pattern
+    ]);
+    let (patterns, _) = MacroPattern::parse_from_list(list, &mut ctx, true)?;
+
+    let globals = Default::default();
+
+    if !match_single_pattern(
+        &patterns[1],
+        &value,
+        &ScopeSet::default(),
+        GlobalMap::Set(&globals),
+    ) {
+        return Ok(None);
+    }
+
+    let mut bindings = FxHashMap::default();
+    let mut binding_kind = FxHashMap::default();
+
+    collect_bindings(
+        &patterns[1..],
+        core::slice::from_ref(&value),
+        &mut bindings,
+        &mut binding_kind,
+        false,
+    )?;
+
+    Ok(Some((bindings, binding_kind)))
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1348,8 +1489,14 @@ fn collect_bindings(
                     ExprKind::Quote(q) => {
                         if let &[MacroPattern::Quote(x)] = children.args.as_slice() {
                             bindings.insert(x, q.expr.clone());
-                        } else {
-                            stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
+                        } else if !is_vec {
+                            collect_bindings(
+                                &children.args,
+                                &quote_as_list(q),
+                                bindings,
+                                binding_kind,
+                                false,
+                            )?;
                         }
                     }
                     _ => {
@@ -1858,6 +2005,14 @@ mod collect_bindings_tests {
     }
 }
 
+// A quote matched against a list pattern is the list `(quote datum)`
+fn quote_as_list(q: &super::ast::Quote) -> thin_vec::ThinVec<ExprKind> {
+    thin_vec![
+        ExprKind::ident_with_span("quote", q.location.span),
+        q.expr.clone()
+    ]
+}
+
 fn non_list_match(patterns: &[MacroPattern]) -> Option<&MacroPattern> {
     let rest = patterns.last().and_then(|pat| match pat {
         MacroPattern::Rest(pat) => Some(&**pat),
@@ -1912,6 +2067,7 @@ mod macro_case_expand_test {
                 atom_identifier("c"),
             ])
             .into(),
+            binders: Vec::new(),
         };
 
         let input = List::new(thin_vec![
@@ -1931,14 +2087,9 @@ mod macro_case_expand_test {
         .into();
 
         let output = case
-            .expand(
-                input,
-                Span::new(0, 0, SourceId::none()),
-                &ScopeSet::default(),
-                GlobalMap::Map(&Default::default()),
-                false,
-            )
-            .unwrap();
+            .expand(input, Span::new(0, 0, SourceId::none()), false, false)
+            .unwrap()
+            .0;
 
         assert_eq!(output, expected);
     }

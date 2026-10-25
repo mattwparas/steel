@@ -3,7 +3,7 @@ use crate::rvals::{
     SteelVal,
 };
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::{steelerr, throw};
+use crate::{steelerr, stop, throw};
 use std::env::{current_dir, set_current_dir};
 use std::path::{Path, PathBuf};
 
@@ -148,9 +148,39 @@ pub fn fs_module() -> BuiltInModule {
     module
 }
 
+// The names of `module`, each raising when called, so a sandboxed engine can compile code
+// that names them and fails only when it uses them
+fn sandboxed(module: BuiltInModule, raise: rvals::FunctionSignature) -> BuiltInModule {
+    let mut sandboxed = BuiltInModule::new(module.name().to_string());
+
+    for name in module.names() {
+        sandboxed.register_value(&name, SteelVal::FuncV(raise));
+    }
+
+    sandboxed
+}
+
+fn no_file_system(_: &[SteelVal]) -> Result<SteelVal> {
+    stop!(Generic => "A sandboxed engine cannot open the file system.")
+}
+
+fn no_processes(_: &[SteelVal]) -> Result<SteelVal> {
+    stop!(Generic => "A sandboxed engine cannot run processes.")
+}
+
 #[steel_derive::define_module(name = "steel/filesystem")]
 pub fn fs_module_sandbox() -> BuiltInModule {
-    BuiltInModule::new("steel/filesystem")
+    sandboxed(fs_module(), no_file_system)
+}
+
+#[steel_derive::define_module(name = "steel/process")]
+pub fn process_module_sandbox() -> BuiltInModule {
+    sandboxed(crate::primitives::process::process_module(), no_processes)
+}
+
+#[steel_derive::define_module(name = "steel/git")]
+pub fn git_module_sandbox() -> BuiltInModule {
+    sandboxed(crate::primitives::git::git_module(), no_processes)
 }
 
 impl Custom for ReadDir {}

@@ -1,11 +1,9 @@
-use quickscope::ScopeSet;
-use rustc_hash::{FxBuildHasher, FxHashMap};
+use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use thin_vec::ThinVec;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
-use crate::compiler::program::{ELLIPSES_SYMBOL, SYNTAX_SPAN};
-use crate::parser::expand_visitor::GlobalMap;
+use crate::compiler::program::{ELLIPSES_SYMBOL, QUASISYNTAX_LOWERED, SYNTAX_SPAN};
 use crate::parser::parser::{ExpansionMark, SyntaxObject};
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
@@ -24,13 +22,198 @@ use core::ops::ControlFlow;
 
 use thin_vec::thin_vec;
 
+// `(#%quasisyntax template)`, which the quasisyntax macro expands to, becomes a syntax
+// template with a pattern variable in place of each `#,e` and `#,@e`, so the rest of the
+// template, ellipses included, means what it means in `syntax`
+fn lower_quasisyntax(l: &mut super::ast::List) -> Option<ExprKind> {
+    if l.args.len() != 2 || l.first_ident() != Some(&*QUASISYNTAX_LOWERED) {
+        return None;
+    }
+
+    let mut template = l.args.pop().unwrap();
+    let span = crate::parser::span_visitor::get_span(&template);
+
+    let mut lift = LiftUnsyntax {
+        depth: 0,
+        holes: Vec::new(),
+    };
+
+    lift.visit(&mut template);
+
+    let ident = |name: &str| ExprKind::ident_with_span(name, span);
+    let quoted = |expr: ExprKind| {
+        ExprKind::Quote(Box::new(super::ast::Quote::new(
+            expr,
+            SyntaxObject::new(TokenType::Quote, span),
+        )))
+    };
+    let call = |args: ThinVec<ExprKind>| ExprKind::List(super::ast::List::new(args));
+
+    // One hash of the holes, which nest no deeper as there are more of them
+    let mut holes = thin_vec![ident("#%prim.hash")];
+    let mut kinds = thin_vec![ident("#%prim.hash")];
+
+    for (name, expr, splicing) in lift.holes {
+        holes.push(quoted(ExprKind::ident_with_span(name.resolve(), span)));
+        holes.push(expr);
+        kinds.push(quoted(ExprKind::ident_with_span(name.resolve(), span)));
+        kinds.push(ExprKind::integer_literal(splicing as isize, span));
+    }
+
+    let bindings = call(thin_vec![
+        ident("#%prim.hash-union"),
+        call(thin_vec![ident("#%syntax-bindings")]),
+        call(holes),
+    ]);
+    let kinds = call(thin_vec![
+        ident("#%prim.hash-union"),
+        call(thin_vec![ident("#%syntax-binding-kind")]),
+        call(kinds),
+    ]);
+
+    Some(call(thin_vec![
+        ident("#%expand-syntax-case"),
+        quoted(template),
+        bindings,
+        kinds,
+    ]))
+}
+
+struct LiftUnsyntax {
+    // How many quasisyntax forms inside the template this is in
+    depth: usize,
+    holes: Vec<(InternedString, ExprKind, bool)>,
+}
+
+enum Hole {
+    No,
+    // Its parts were visited already
+    Visited,
+    Lifted { splicing: bool },
+}
+
+impl LiftUnsyntax {
+    fn hole(&mut self, expr: &mut ExprKind) -> Hole {
+        let ExprKind::List(l) = expr else {
+            return Hole::No;
+        };
+
+        let splicing = match crate::parser::kernel::form_name(l) {
+            Some("#%unsyntax") if l.args.len() == 2 => false,
+            Some("#%unsyntax-splicing") if l.args.len() == 2 => true,
+            Some("quasisyntax") => {
+                self.depth += 1;
+                self.visit_elements(&mut l.args);
+                self.depth -= 1;
+                return Hole::Visited;
+            }
+            _ => return Hole::No,
+        };
+
+        if self.depth > 0 {
+            self.depth -= 1;
+            self.visit(&mut l.args[1]);
+            self.depth += 1;
+            return Hole::Visited;
+        }
+
+        let name = format!("#%quasisyntax-hole{}", self.holes.len());
+        let value = l.args.pop().unwrap();
+        let span = crate::parser::span_visitor::get_span(&value);
+
+        *expr = ExprKind::ident_with_span(&name, span);
+        self.holes.push((name.into(), value, splicing));
+
+        Hole::Lifted { splicing }
+    }
+
+    // `(a . #,e)` reads as `(a #%unsyntax e)`, whose tail is the hole
+    fn unsyntax_tail(&mut self, l: &mut super::ast::List) {
+        if self.depth > 0 || l.improper || l.args.len() < 3 {
+            return;
+        }
+
+        let unsyntax = l.args[l.args.len() - 2]
+            .atom_syntax_object()
+            .is_some_and(|x| match &x.ty {
+                TokenType::UnquoteSyntax => true,
+                TokenType::Identifier(name) => name.resolve() == "#%unsyntax",
+                _ => false,
+            });
+
+        if !unsyntax {
+            return;
+        }
+
+        let value = l.args.pop().unwrap();
+        l.args.pop();
+
+        let name = format!("#%quasisyntax-hole{}", self.holes.len());
+        let span = crate::parser::span_visitor::get_span(&value);
+
+        l.args.push(ExprKind::ident_with_span(&name, span));
+        l.improper = true;
+        self.holes.push((name.into(), value, false));
+    }
+
+    // `#,@e` splices into the sequence it is in
+    fn visit_elements(&mut self, exprs: &mut ThinVec<ExprKind>) {
+        let mut i = 0;
+
+        while i < exprs.len() {
+            match self.hole(&mut exprs[i]) {
+                Hole::Lifted { splicing: true } => {
+                    let span = crate::parser::span_visitor::get_span(&exprs[i]);
+                    exprs.insert(i + 1, ExprKind::ident_with_span("...", span));
+                    i += 1;
+                }
+                Hole::No => self.visit(&mut exprs[i]),
+                _ => {}
+            }
+
+            i += 1;
+        }
+    }
+}
+
+impl VisitorMutRefUnit for LiftUnsyntax {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match self.hole(expr) {
+            Hole::No => {}
+            _ => return,
+        }
+
+        match expr {
+            ExprKind::List(l) => {
+                self.unsyntax_tail(l);
+                self.visit_elements(&mut l.args)
+            }
+            ExprKind::Begin(b) => {
+                let mut exprs: ThinVec<_> = core::mem::take(&mut b.exprs).into_iter().collect();
+                self.visit_elements(&mut exprs);
+                b.exprs = exprs.into_iter().collect();
+            }
+            ExprKind::LambdaFunction(f) => {
+                self.visit_elements(&mut f.args);
+                self.visit(&mut f.body);
+            }
+            ExprKind::Vector(v) => self.visit_elements(&mut v.args),
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Set(s) => self.visit_set(s),
+            _ => {}
+        }
+    }
+}
+
 pub fn replace_identifiers(
     expr: &mut ExprKind,
     bindings: &mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &mut FxHashMap<InternedString, BindingKind>,
     fallback_bindings: &mut FxHashMap<InternedString, ExprKind>,
-    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
-    globals: GlobalMap,
     span: Span,
 ) -> Result<()> {
     // let mut rewrite_spans = expr;
@@ -38,8 +221,7 @@ pub fn replace_identifiers(
     RewriteSpan::new(span).visit(expr);
 
     // TODO: Replace this here!
-    ReplaceExpressions::new(bindings, binding_kind, fallback_bindings, in_scope, globals)
-        .visit(expr)
+    ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(expr)
 }
 
 pub fn expand_template_pair(
@@ -55,13 +237,7 @@ pub fn expand_template_pair(
     }
 
     for expr in &mut exprs {
-        expand_template(
-            expr,
-            &mut bindings,
-            &mut binding_kind,
-            &Default::default(),
-            GlobalMap::Map(&Default::default()),
-        )?;
+        expand_template(expr, &mut bindings, &mut binding_kind)?;
     }
 
     if exprs.len() == 1 {
@@ -82,17 +258,8 @@ pub fn expand_template(
     expr: &mut ExprKind,
     bindings: &mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &mut FxHashMap<InternedString, BindingKind>,
-    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
-    globals: GlobalMap,
 ) -> Result<()> {
-    ReplaceExpressions::new(
-        bindings,
-        binding_kind,
-        &mut Default::default(),
-        in_scope,
-        globals,
-    )
-    .visit(expr)
+    ReplaceExpressions::new(bindings, binding_kind, &mut Default::default()).visit(expr)
 }
 
 // struct ConstExprKindTransformers {
@@ -103,8 +270,6 @@ pub struct ReplaceExpressions<'a> {
     bindings: &'a mut FxHashMap<InternedString, ExprKind>,
     fallback_bindings: &'a mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
-    in_scope: &'a ScopeSet<InternedString, FxBuildHasher>,
-    globals: GlobalMap<'a>,
     wildcard: InternedString,
     escaped: bool,
 }
@@ -156,6 +321,13 @@ impl<'a> EllipsesExpanderVisitor<'a> {
 
 impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
     fn visit_atom(&mut self, a: &Atom) -> ControlFlow<()> {
+        // A splice from a quasisyntax repeats with its own ellipsis only
+        if a.ident()
+            .is_some_and(|x| x.resolve().starts_with("#%quasisyntax-hole"))
+        {
+            return ControlFlow::Continue(());
+        }
+
         let expansion = a.ident().and_then(|x| self.bindings.get(x));
 
         if let Some(ExprKind::List(found_list)) = expansion {
@@ -185,15 +357,11 @@ impl<'a> ReplaceExpressions<'a> {
         bindings: &'a mut FxHashMap<InternedString, ExprKind>,
         binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
         fallback_bindings: &'a mut FxHashMap<InternedString, ExprKind>,
-        in_scope: &'a ScopeSet<InternedString, FxBuildHasher>,
-        globals: GlobalMap<'a>,
     ) -> Self {
         ReplaceExpressions {
             bindings,
             binding_kind,
             fallback_bindings,
-            in_scope,
-            globals,
             wildcard: InternedString::from_static("_"),
             escaped: false,
         }
@@ -211,6 +379,70 @@ impl<'a> ReplaceExpressions<'a> {
 
     //     ExprKind::Atom(expr)
     // }
+
+    // Expands each `x ...` in a list of template elements and visits the rest. What an
+    // ellipsis expands to isn't visited again, it holds the macro's input.
+    fn visit_elements(&mut self, exprs: &mut ThinVec<ExprKind>) -> Result<bool> {
+        if !exprs.iter().any(check_ellipses) {
+            for expr in exprs.iter_mut() {
+                self.visit(expr)?;
+            }
+
+            return Ok(false);
+        }
+
+        let mut improper = false;
+        let mut output = ThinVec::with_capacity(exprs.len());
+        let mut rest = core::mem::take(exprs).into_iter().peekable();
+
+        while let Some(mut expr) = rest.next() {
+            // A `#,@` still splices inside `(... template)`
+            let expands = !self.escaped
+                || expr
+                    .atom_identifier()
+                    .is_some_and(|x| x.resolve().starts_with("#%quasisyntax-hole"));
+
+            if expands && !check_ellipses(&expr) && rest.peek().is_some_and(check_ellipses) {
+                let ellipsis = rest.next().unwrap();
+
+                // `x ... ...` is `(x ...) ...` with each copy spliced in
+                let mut more = ThinVec::new();
+                while !self.escaped && rest.peek().is_some_and(check_ellipses) {
+                    more.push(rest.next().unwrap());
+                }
+
+                let nested = !more.is_empty();
+                if nested {
+                    more.insert(0, expr);
+                    expr = ExprKind::List(super::ast::List::new(more));
+                }
+
+                let mut pair = thin_vec![expr, ellipsis];
+                let escaped = core::mem::replace(&mut self.escaped, false);
+                let result = self.expand_ellipses(&mut pair);
+                self.escaped = escaped;
+                improper |= result?;
+
+                if nested {
+                    for copy in pair {
+                        match copy {
+                            ExprKind::List(l) => output.extend(l.args),
+                            other => output.push(other),
+                        }
+                    }
+                } else {
+                    output.extend(pair);
+                }
+            } else {
+                self.visit(&mut expr)?;
+                output.push(expr);
+            }
+        }
+
+        *exprs = output;
+
+        Ok(improper)
+    }
 
     // Note: Returns a bool indicating if this should be made improper/rest or not
     fn expand_ellipses(&mut self, vec_exprs: &mut ThinVec<ExprKind>) -> Result<bool> {
@@ -245,14 +477,29 @@ impl<'a> ReplaceExpressions<'a> {
                         return Ok(false);
                     };
 
+                    // A list of a quote and its datum comes back from a syntax object as a quote
+                    let quoted;
+
                     let list_of_exprs = if let ExprKind::List(list_of_exprs) = rest {
                         improper = list_of_exprs.improper;
 
                         list_of_exprs
+                    } else if let ExprKind::Quote(q) = rest {
+                        improper = false;
+                        quoted = super::ast::List::new(thin_vec![
+                            ExprKind::ident_with_span("quote", q.location.span),
+                            q.expr.clone()
+                        ]);
+
+                        &quoted
                     } else {
                         let res = if let Some(res) = self.fallback_bindings.get(var) {
                             res.list_or_else(
                         throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone())))?
+                        } else if var.resolve().starts_with("#%quasisyntax-hole") {
+                            stop!(BadSyntax => "an unsyntax before an ellipsis has to be a list, found: {}", rest)
+                        } else if let Some(BindingKind::Many) = self.binding_kind.get(var) {
+                            stop!(BadSyntax => "expected a list for {} before an ellipsis, found: {}", var, rest)
                         } else {
                             return Ok(false);
                         };
@@ -288,8 +535,10 @@ impl<'a> ReplaceExpressions<'a> {
                     Ok(improper)
                 }
 
-                ExprKind::List(bound_list) => {
-                    let improper = bound_list.improper;
+                // A template before the ellipsis
+                ExprKind::List(_) | ExprKind::Quote(_) | ExprKind::Vector(_) => {
+                    // Each copy of an improper template is an improper element, not a tail
+                    let improper = false;
 
                     let visitor = EllipsesExpanderVisitor::find_expansion_width_and_collect_ellipses_expanders(self.bindings, self.binding_kind, variable_to_lookup);
 
@@ -298,151 +547,6 @@ impl<'a> ReplaceExpressions<'a> {
                     }
 
                     let width = visitor.found_length.ok_or_else(throw!(BadSyntax => "No pattern variables before ellipses in template: at {} in {}", variable_to_lookup, ExprKind::List(super::ast::List::new(vec_exprs.clone()))))?;
-
-                    let mut original_bindings: FxHashMap<_, _> = visitor
-                        .collected
-                        .iter()
-                        .flat_map(|x| self.bindings.get(x).map(|value| (*x, value.clone())))
-                        .collect();
-
-                    core::mem::swap(self.fallback_bindings, &mut original_bindings);
-
-                    let mut expanded_expressions = SmallVec::<[ExprKind; 6]>::with_capacity(width);
-
-                    for i in 0..width {
-                        let mut template = variable_to_lookup.clone();
-
-                        for (key, value) in self.fallback_bindings.iter() {
-                            if let ExprKind::List(expansion) = value {
-                                let new_binding = expansion
-                                    .get(i)
-                                    .ok_or_else(throw!(BadSyntax => "Unreachable"))?;
-
-                                self.bindings.insert(*key, new_binding.clone());
-                            } else {
-                                stop!(BadSyntax => "Unexpected value found in ellipses expansion")
-                            }
-                        }
-
-                        self.visit(&mut template)?;
-
-                        expanded_expressions.push(template);
-                    }
-
-                    core::mem::swap(self.fallback_bindings, &mut original_bindings);
-
-                    // Move the original bindings back in
-                    for (key, value) in original_bindings {
-                        self.bindings.insert(key, value);
-                    }
-
-                    let back_chunk = vec_exprs
-                        .drain(ellipses_pos - 1..)
-                        .collect::<SmallVec<[_; 8]>>();
-
-                    // TODO: We might need to mimic the above, where we
-                    // set if the resulting expression was introduced via macro.
-                    vec_exprs.reserve(expanded_expressions.len() + back_chunk[2..].len());
-                    vec_exprs.extend(expanded_expressions);
-                    vec_exprs.extend_from_slice(&back_chunk[2..]);
-
-                    Ok(improper)
-                }
-
-                _ => {
-                    stop!(BadSyntax => "macro expansion failed at lookup!: {}", variable_to_lookup)
-                }
-            }
-        } else {
-            Ok(false)
-        }
-    }
-
-    fn expand_ellipses_vec(&mut self, vec_exprs: &mut Vec<ExprKind>) -> Result<bool> {
-        if self.escaped {
-            return Ok(false);
-        }
-        if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
-            if ellipses_pos == 0 {
-                return Ok(false);
-            }
-
-            let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(
-                throw!(BadSyntax => "macro expansion failed, could not find variable when expanding ellipses")
-            )?;
-
-            match variable_to_lookup {
-                ExprKind::Atom(Atom {
-                    syn:
-                        SyntaxObject {
-                            ty: TokenType::Identifier(var),
-                            introduced_via_macro,
-                            ..
-                        },
-                }) => {
-                    let improper;
-
-                    // let rest = self.bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?;
-
-                    let rest = if let Some(rest) = self.bindings.get(var) {
-                        rest
-                    } else {
-                        return Ok(false);
-                    };
-
-                    let list_of_exprs = if let ExprKind::List(list_of_exprs) = rest {
-                        improper = list_of_exprs.improper;
-
-                        list_of_exprs
-                    } else {
-                        let res = if let Some(res) = self.fallback_bindings.get(var) {
-                            res.list_or_else(
-                        throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone().into())))?
-                        } else {
-                            return Ok(false);
-                        };
-
-                        improper = res.improper;
-
-                        //     let res = self.fallback_bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?.list_or_else(
-                        //     throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone()))
-                        // )?;
-
-                        res
-                    };
-
-                    let mut list_of_exprs: Vec<_> = list_of_exprs.args.clone().into();
-
-                    for expr in list_of_exprs.iter_mut() {
-                        if let ExprKind::Atom(a) = expr {
-                            a.syn.introduced_via_macro = *introduced_via_macro;
-                            a.syn.unresolved = false;
-                        }
-                    }
-
-                    let back_chunk = vec_exprs
-                        .drain(ellipses_pos - 1..)
-                        .collect::<SmallVec<[_; 8]>>();
-
-                    vec_exprs.reserve(list_of_exprs.len() + back_chunk[2..].len());
-
-                    vec_exprs.append(&mut list_of_exprs);
-
-                    vec_exprs.extend_from_slice(&back_chunk[2..]);
-
-                    Ok(improper)
-                }
-
-                ExprKind::List(bound_list) => {
-                    let improper = bound_list.improper;
-
-                    let visitor = EllipsesExpanderVisitor::find_expansion_width_and_collect_ellipses_expanders(self.bindings, self.binding_kind, variable_to_lookup);
-
-                    if let Some(error) = visitor.error {
-                        stop!(BadSyntax => error);
-                    }
-
-                    let width = visitor.found_length.ok_or_else(throw!(BadSyntax => "No pattern variables before ellipses in template: at {} in {}", variable_to_lookup, ExprKind::List(super::ast::List::new(vec_exprs.clone().into()))))?;
 
                     let mut original_bindings: FxHashMap<_, _> = visitor
                         .collected
@@ -566,7 +670,13 @@ impl<'a> ReplaceExpressions<'a> {
                         ty: TokenType::Identifier(check),
                         ..
                     },
-            })) if *check == *DATUM_SYNTAX => {
+            })) if *check == *DATUM_SYNTAX
+                && vec_exprs
+                    .iter()
+                    .skip(1)
+                    .all(|x| x.atom_identifier().is_some()) =>
+            {
+                // Joining identifiers. With other arguments it's Racket's, called at run time.
                 let mut buffer = String::new();
                 if let Some((_, rest)) = vec_exprs.split_first() {
                     for syntax in rest {
@@ -674,16 +784,9 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => {
                 if let TokenType::Identifier(s) = &mut a.syn.ty {
-                    if self.in_scope.contains(s)
-                        && a.syn.unresolved
-                        && !a.syn.introduced_via_macro
-                        && !self.globals.actually_contains(s)
-                        && !crate::compiler::passes::mangle::is_prelude_builtin(s)
-                    {
-                        *s = ("##".to_string() + s.resolve()).into();
-                    }
-
-                    if *s != self.wildcard {
+                    // A quasisyntax template holds the input's identifiers, which aren't
+                    // pattern variables even when they share a name
+                    if *s != self.wildcard && !crate::parser::kernel::is_macro_input(a.syn.mark) {
                         if let Some(body) = self.bindings.get(s) {
                             let introduced_via_macro = a.syn.introduced_via_macro;
 
@@ -726,10 +829,9 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                     // return self.visit(expanded);
                 }
 
-                self.expand_ellipses(&mut l.args)?;
-
-                for expr in l.args.iter_mut() {
-                    self.visit(expr)?;
+                // An improper list spliced in at the end makes this one improper
+                if self.visit_elements(&mut l.args)? {
+                    l.improper = true;
                 }
 
                 if l.improper {
@@ -737,6 +839,11 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                 }
 
                 if let Some(expanded) = self.vec_syntax_span_object(&l.args)? {
+                    *expr = expanded;
+                    return Ok(());
+                }
+
+                if let Some(expanded) = lower_quasisyntax(l) {
                     *expr = expanded;
                     return Ok(());
                 }
@@ -773,11 +880,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
         &mut self,
         lambda_function: &mut super::ast::LambdaFunction,
     ) -> Self::Output {
-        let improper = self.expand_ellipses(&mut lambda_function.args)?;
-
-        for arg in lambda_function.args.iter_mut() {
-            self.visit(arg)?;
-        }
+        let improper = self.visit_elements(&mut lambda_function.args)?;
 
         self.visit(&mut lambda_function.body)?;
 
@@ -805,11 +908,9 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
     }
 
     fn visit_begin(&mut self, begin: &mut super::ast::Begin) -> Self::Output {
-        self.expand_ellipses_vec(&mut begin.exprs)?;
-
-        for expr in begin.exprs.iter_mut() {
-            self.visit(expr)?;
-        }
+        let mut exprs: ThinVec<_> = core::mem::take(&mut begin.exprs).into_iter().collect();
+        self.visit_elements(&mut exprs)?;
+        begin.exprs = exprs.into_iter().collect();
 
         Ok(())
     }
@@ -915,9 +1016,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
             return Ok(());
         }
 
-        for arg in &mut v.args {
-            self.visit(arg)?;
-        }
+        self.visit_elements(&mut v.args)?;
 
         Ok(())
     }
@@ -1098,8 +1197,6 @@ mod replace_expressions_tests {
             &mut bindings,
             &mut FxHashMap::default(),
             &mut FxHashMap::default(),
-            &Default::default(),
-            GlobalMap::Map(&Default::default()),
         )
         .visit(&mut expr)
         .unwrap();
@@ -1133,8 +1230,6 @@ mod replace_expressions_tests {
             &mut bindings,
             &mut FxHashMap::default(),
             &mut FxHashMap::default(),
-            &Default::default(),
-            GlobalMap::Map(&Default::default()),
         )
         .visit(&mut expr)
         .unwrap();
@@ -1170,8 +1265,6 @@ mod replace_expressions_tests {
             &mut bindings,
             &mut FxHashMap::default(),
             &mut FxHashMap::default(),
-            &Default::default(),
-            GlobalMap::Map(&Default::default()),
         )
         .visit(&mut expr)
         .unwrap();

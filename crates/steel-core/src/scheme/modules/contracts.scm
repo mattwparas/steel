@@ -112,7 +112,7 @@
 
 ;; Call a contracted function
 (define (apply-contracted-function contracted-function arguments span)
-  (define span
+  (define span*
     (if span
         span
         '(0 0 0)))
@@ -120,10 +120,10 @@
                            (ContractedFunction-name contracted-function)
                            (ContractedFunction-function contracted-function)
                            arguments
-                           span))
+                           span*))
 
 (define (apply-contracted-function-one-arg contracted-function arg span)
-  (define span
+  (define span*
     (if span
         span
         '(0 0 0)))
@@ -131,10 +131,10 @@
                                    (ContractedFunction-name contracted-function)
                                    (ContractedFunction-function contracted-function)
                                    arg
-                                   span))
+                                   span*))
 
 (define (apply-contracted-function-two-arg contracted-function arg arg2 span)
-  (define span
+  (define span*
     (if span
         span
         '(0 0 0)))
@@ -143,10 +143,10 @@
                                    (ContractedFunction-function contracted-function)
                                    arg
                                    arg2
-                                   span))
+                                   span*))
 
 (define (apply-contracted-function-three-arg contracted-function arg arg2 arg3 span)
-  (define span
+  (define span*
     (if span
         span
         '(0 0 0)))
@@ -156,7 +156,7 @@
                                      arg
                                      arg2
                                      arg3
-                                     span))
+                                     span*))
 
 (define (test-arg contract arg span name self-contract i)
   (cond
@@ -285,7 +285,7 @@
            ;; Figured it out -> its never actually a contracted function, because we're wrapping
            ;; it directly in a normal function type.
            (begin
-             (define output (get-contract-struct output))
+             (define output-contract (get-contract-struct output))
              (define pre-parent contract)
              (define contract-attachment-location
                (ContractAttachmentLocation 'RANGE

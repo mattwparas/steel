@@ -95,6 +95,28 @@ pub struct SymbolMap {
     pub(crate) non_mutable: Vec<InternedString>,
     // Indices of those that no later compile can `set!` either, see `is_closed_global`.
     pub(crate) closed_globals: HashSet<usize>,
+    // Indices compiled code defined
+    #[serde(default)]
+    defined_by_code: HashSet<usize>,
+    // Names given a new slot, with the slot they had, for rolling back a failed compile
+    #[serde(skip)]
+    replaced: Vec<(usize, InternedString, usize)>,
+}
+
+// A name the program chose, not a builtin or one the compiler made
+pub(crate) fn redefinable(ident: &InternedString) -> bool {
+    let name = ident.resolve();
+
+    // Phase 1 variables are the program's too
+    if name.starts_with("#%phase1-var:") {
+        return true;
+    }
+
+    !(name.starts_with("#%")
+        || name.starts_with("##")
+        || name.starts_with("__module-")
+        || name.starts_with("%-builtin-module")
+        || crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS.with(|x| x.contains(ident)))
 }
 
 impl Default for SymbolMap {
@@ -116,6 +138,8 @@ impl SymbolMap {
             },
             non_mutable: Vec::new(),
             closed_globals: HashSet::new(),
+            defined_by_code: HashSet::new(),
+            replaced: Vec::new(),
         }
     }
 
@@ -143,10 +167,40 @@ impl SymbolMap {
         for value in self.values.drain(index..) {
             self.map.remove(&value);
         }
+
+        // A name the failed compile defined again means what it meant before
+        while let Some((idx, name, prev)) = self.replaced.last().copied() {
+            if idx < index {
+                break;
+            }
+
+            self.replaced.pop();
+
+            if prev < index {
+                self.map.insert(name, prev);
+                self.free_list.shadowed_slots.retain(|x| *x != prev);
+            }
+        }
     }
 
     pub fn contains(&mut self, ident: InternedString) -> bool {
         self.map.contains_key(&ident)
+    }
+
+    // A definition in compiled code. Defining a global again, like at the repl, assigns
+    // its slot, so code compiled before refers to the new value. A registered value
+    // keeps getting a slot of its own.
+    pub fn define(&mut self, ident: &InternedString) -> usize {
+        if let Some(idx) = self.map.get(ident).copied() {
+            if self.defined_by_code.contains(&idx) && redefinable(ident) {
+                self.closed_globals.remove(&idx);
+                return idx;
+            }
+        }
+
+        let idx = self.add(ident);
+        self.defined_by_code.insert(idx);
+        idx
     }
 
     pub fn add(&mut self, ident: &InternedString) -> usize {
@@ -163,6 +217,7 @@ impl SymbolMap {
         // callers bake the values of closed globals into generated code. The
         // reify pass adds it back if the new symbol qualifies.
         self.closed_globals.remove(&idx);
+        self.defined_by_code.remove(&idx);
 
         if USE_LIFTED_LAMBDAS_AS_ROOTS {
             let resolved = ident.resolve();
@@ -181,6 +236,7 @@ impl SymbolMap {
         // it in the shadowed_slots.
         if let Some(prev) = prev {
             self.free_list.add_shadowed(prev);
+            self.replaced.push((idx, *ident, prev));
         }
 
         // If this is going in at the end, then we just slot it in there.

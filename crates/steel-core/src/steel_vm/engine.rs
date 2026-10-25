@@ -640,6 +640,7 @@ impl Engine {
 
         for prelude_macro in vm.in_scope_macros_mut().values_mut() {
             prelude_macro.mark_definition_resolved();
+            prelude_macro.mark_prelude();
         }
 
         set_default_prelude_macros(vm.in_scope_macros().clone(), sandbox);
@@ -1540,6 +1541,36 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new() -> Self {
+        Self::with_kernel(Kernel::new())
+    }
+
+    /// Like [`Engine::new`], but macros can do what programs can while they expand. Their
+    /// transformers, and the modules they require with `(require (for-syntax ...))`, can use
+    /// the file system, processes and the network. Otherwise those raise an error when
+    /// macros call them, and macros can still read environment variables.
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// let mut vm = Engine::new_with_unsandboxed_macros();
+    /// vm.run(r#"(+ 1 2 3)"#).unwrap();
+    /// ```
+    pub fn new_with_unsandboxed_macros() -> Self {
+        Self::with_kernel(Kernel::with_sandbox(false))
+    }
+
+    /// Lets the modules that macros require with `(require (for-syntax ...))` use the
+    /// builtin modules registered with this engine, such as those of a host application.
+    /// Sandboxed macros still can't use the network.
+    pub fn share_modules_with_macros(&mut self) -> &mut Self {
+        if let Some(kernel) = self.virtual_machine.compiler.write().kernel.as_mut() {
+            kernel.share_host_modules = true;
+        }
+
+        self
+    }
+
+    fn with_kernel(kernel: Kernel) -> Self {
         #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
         {
             steel_rc::register_thread();
@@ -1547,7 +1578,7 @@ impl Engine {
         let mut engine = fresh_kernel_image(false);
 
         {
-            engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
+            engine.virtual_machine.compiler.write().kernel = Some(kernel);
         }
 
         #[cfg(feature = "profiling")]
@@ -1673,6 +1704,10 @@ impl Engine {
             }
         }
         out
+    }
+
+    pub(crate) fn has_module(&self, name: &str) -> bool {
+        self.modules.get(name).is_some()
     }
 
     // Registers the given module into the virtual machine

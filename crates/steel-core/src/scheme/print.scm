@@ -1,6 +1,5 @@
 (require-builtin steel/base)
-(require "#%private/steel/control"
-         (for-syntax "#%private/steel/control"))
+(require "#%private/steel/control")
 
 (provide displayln
          display

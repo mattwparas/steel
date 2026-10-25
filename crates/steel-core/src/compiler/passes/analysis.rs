@@ -1653,6 +1653,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Perhaps take the diff of the vars before visiting this, and after? Then reset the state after visiting this tree?
         let mut captured_vars = self.get_captured_vars(&let_level_bindings);
 
+        let vars_used = core::mem::take(&mut self.vars_used);
+        // Most functions capture nothing, and the sets would cost more than the lookups
+        let used: FxHashSet<InternedString> = if captured_vars.is_empty() {
+            FxHashSet::default()
+        } else {
+            vars_used.iter().copied().collect()
+        };
+
         // if !captured_vars.is_empty() {
         //     log::info!(
         //         "Original: {:#?}",
@@ -1665,23 +1673,28 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         // What this function refers to from outside is also used by the
         // function it is in, which has to capture it to pass it on.
-        let vars_used = core::mem::take(&mut self.vars_used);
+        let mut enclosing_used: FxHashSet<InternedString> = if captured_vars.is_empty() {
+            FxHashSet::default()
+        } else {
+            enclosing_vars_used.iter().copied().collect()
+        };
+
         for (var, _) in captured_vars.iter() {
-            if vars_used.contains(var) && !enclosing_vars_used.contains(var) {
+            if used.contains(var) && enclosing_used.insert(*var) {
                 enclosing_vars_used.push(*var);
             }
         }
         self.vars_used = enclosing_vars_used;
 
-        for i in 0..captured_vars.len() {
-            let var = captured_vars[i].0;
+        let mut seen = FxHashSet::default();
 
-            if captured_vars[..i].iter().any(|(name, _)| *name == var) {
+        for (var, info) in captured_vars.iter_mut() {
+            if !seen.insert(*var) {
                 continue;
             }
 
-            if let Some(value) = self.captures.get(&var) {
-                captured_vars[i].1.captured_from_enclosing = value.captured_from_enclosing;
+            if let Some(value) = self.captures.get(var) {
+                info.captured_from_enclosing = value.captured_from_enclosing;
             }
         }
 
@@ -1719,10 +1732,13 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         {
             let mut slated_for_removal = SmallVec::<[InternedString; 5]>::new();
 
-            captured_vars.retain(|(x, _)| vars_used.contains(x));
+            captured_vars.retain(|(x, _)| used.contains(x));
+
+            let still_captured: FxHashSet<InternedString> =
+                captured_vars.iter().map(|x| x.0).collect();
 
             for (var, _) in info.captured_vars.iter() {
-                if !captured_vars.iter().find(|x| x.0 == *var).is_some() {
+                if !still_captured.contains(var) {
                     slated_for_removal.push(*var);
                 }
             }
@@ -2561,7 +2577,9 @@ impl<'a> VisitorMutUnitRef<'a> for CalledParams {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(_) => {}
@@ -3501,7 +3519,9 @@ impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
             }
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => {
                 // TODO: @matt there needs to be a better way
@@ -3735,7 +3755,9 @@ where
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -3802,7 +3824,9 @@ where
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -3858,7 +3882,9 @@ where
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -3909,7 +3935,9 @@ where
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -4074,7 +4102,9 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
                     )));
                 }
             }
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -4916,7 +4946,9 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -5185,7 +5217,12 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                         }
 
                         // This is a lambda function. the temporary binding is only used once.
-                        if !function_info.captured_vars().is_empty() && info.usage_count == 1 {
+                        // The captured variables become parameters after the others, which
+                        // a rest parameter has to stay after, so those aren't lifted.
+                        if !function_info.captured_vars().is_empty()
+                            && info.usage_count == 1
+                            && !r.rest
+                        {
                             let function_name = variable.atom_identifier().unwrap();
 
                             for var in function_info.captured_vars() {
@@ -5320,7 +5357,8 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                     let function_info = self.analysis.get_function_info(r).unwrap();
 
                     // This is a lambda function. the temporary binding is only used once.
-                    if !function_info.captured_vars().is_empty() && info.usage_count == 1 {
+                    if !function_info.captured_vars().is_empty() && info.usage_count == 1 && !r.rest
+                    {
                         let function_name = variable.atom_identifier().unwrap();
 
                         if let ExprKind::Begin(b) = &mut l.body_expr {
@@ -5569,7 +5607,9 @@ impl VisitorMutRefUnit for ReplaceUnboxExpressions {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -5692,7 +5732,9 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -5964,7 +6006,9 @@ impl<'a> VisitorMutRefUnit for ElideSingleArgumentLambdaApplications<'a> {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -6122,7 +6166,9 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(_) => {}
@@ -6460,7 +6506,9 @@ impl VisitorMutRefUnit for BoxModuleGlobals<'_> {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(_) => {}
@@ -7057,7 +7105,9 @@ impl VisitorMutRefUnit for SimplifyOrBindings {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -7176,7 +7226,9 @@ impl VisitorMutRefUnit for SetBoxValueFirst {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -7357,7 +7409,9 @@ impl VisitorMutRefUnit for ReplaceCarOf<'_> {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -7575,7 +7629,9 @@ fn count_car_of(expr: &ExprKind, var: &InternedString, bound: &FxHashSet<Interne
             match expr {
                 ExprKind::If(f) => self.visit_if(f),
                 ExprKind::Define(d) => self.visit_define(d),
-                ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                }
                 ExprKind::Begin(b) => self.visit_begin(b),
                 ExprKind::Return(r) => self.visit_return(r),
                 ExprKind::Quote(q) => self.visit_quote(q),
@@ -7670,7 +7726,9 @@ impl VisitorMutRefUnit for HoistCarBeforeCdr {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -7710,7 +7768,9 @@ impl VisitorMutRefUnit for FlattenEmptyLets {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -8932,6 +8992,14 @@ impl<'a> SemanticAnalysis<'a> {
             return ControlFlow::Break(());
         }
 
+        // Nor one the program can define again, like at the repl
+        if d.name
+            .atom_identifier()
+            .is_some_and(crate::compiler::map::redefinable)
+        {
+            return ControlFlow::Break(());
+        }
+
         if let ExprKind::LambdaFunction(l) = &d.body {
             let size = estimator.inline_size(SyntaxObjectId(l.syntax_object_id));
 
@@ -9383,6 +9451,7 @@ impl<'a> SemanticAnalysis<'a> {
         prefix: &str,
         macros: &FxHashMap<InternedString, SteelMacro>,
         module_manager: &ModuleManager,
+        procedural_macro_modules: &[CompactString],
     ) -> &mut Self {
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
@@ -9487,6 +9556,13 @@ impl<'a> SemanticAnalysis<'a> {
 
         let found = collected.idents;
 
+        // A module's procedural macros can expand to any of its globals
+        let kept_by_module = |name: &InternedString| {
+            procedural_macro_modules
+                .iter()
+                .any(|prefix| name.resolve().starts_with(prefix.as_str()))
+        };
+
         let mut removed = false;
 
         self.exprs.retain_mut(|expression| {
@@ -9505,7 +9581,7 @@ impl<'a> SemanticAnalysis<'a> {
                                     {
                                         if *func == module_get_interned || *func == proto_hash_get {
                                             // If this is found inside of a macro, do not remove it
-                                            if found.contains(name) {
+                                            if found.contains(name) || kept_by_module(name) {
                                                 // println!("Keeping: {}", name);
                                                 return true;
                                             }
@@ -9547,7 +9623,8 @@ impl<'a> SemanticAnalysis<'a> {
                                                     || *func == proto_hash_get
                                                 {
                                                     // If this is found inside of a macro, do not remove it
-                                                    if found.contains(name) {
+                                                    if found.contains(name) || kept_by_module(name)
+                                                    {
                                                         // println!("Keeping: {}", name);
                                                         offset += 1;
                                                         return true;

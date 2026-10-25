@@ -1,8 +1,7 @@
 (require-builtin steel/sqlite)
 (require "steel/result")
 
-(require "steel/time/time.scm"
-         (for-syntax "steel/time/time.scm"))
+(require "steel/time/time.scm")
 
 (define connection (connection/open-in-memory))
 

@@ -111,18 +111,18 @@
   ;; Keep track of all of the docs
   (define all-docs (hash-union required-docs optional-docs))
 
-  (define required-args (transduce required-args (mapping (lambda (p) (car p))) (into-hashmap)))
+  (define required-keys (transduce required-args (mapping (lambda (p) (car p))) (into-hashmap)))
   ;; Add the help options
-  (define optional-args
+  (define optional-keys
     (~> (transduce optional-args (mapping (lambda (p) (car p))) (into-hashmap))
         (hash-insert "help" #f)))
 
   (define local-spec
-    (ArgumentParserSpec (hash-union required-args optional-args)
+    (ArgumentParserSpec (hash-union required-keys optional-keys)
                         '()
                         positional-args
-                        required-args
-                        optional-args))
+                        required-keys
+                        optional-keys))
 
   (case-lambda
     [()
@@ -130,8 +130,8 @@
        (error
         "There aren't enough command line args to parse - was this called from an interactive session?"))
 
-     (parse local-spec (drop (command-line) 2) '() required-args optional-args)]
-    [(command-line-args) (parse local-spec command-line-args '() required-args optional-args)]))
+     (parse local-spec (drop (command-line) 2) '() required-keys optional-keys)]
+    [(command-line-args) (parse local-spec command-line-args '() required-keys optional-keys)]))
 
 ;; Check the value, otherwise
 (define (get-option spec option)

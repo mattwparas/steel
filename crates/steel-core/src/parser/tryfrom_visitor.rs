@@ -12,6 +12,62 @@ use super::visitors::VisitorMut;
 use super::{ast::Atom, span::Span, visitors::ConsumingVisitor};
 
 use core::convert::TryFrom;
+use thin_vec::thin_vec;
+
+// A macro definition as the list it was written as
+pub(crate) fn macro_as_list(m: super::ast::Macro) -> super::ast::List {
+    super::ast::List::new(thin_vec![
+        ExprKind::Atom(Atom::new(m.location)),
+        *m.name,
+        ExprKind::List(syntax_rules_as_list(*m.syntax_rules)),
+    ])
+}
+
+// What a procedural macro made, with the syntax-rules forms in it as the lists they're written
+// as, which is what the syntax-rules expansion after it takes them as
+pub(crate) fn syntax_rules_as_lists(expr: &mut ExprKind) {
+    struct AsLists;
+
+    impl crate::compiler::passes::VisitorMutRefUnit for AsLists {
+        fn visit_list(&mut self, l: &mut super::ast::List) {
+            for arg in l.args.iter_mut() {
+                if let ExprKind::SyntaxRules(_) = arg {
+                    let ExprKind::SyntaxRules(rules) = core::mem::replace(arg, ExprKind::empty())
+                    else {
+                        unreachable!()
+                    };
+                    *arg = ExprKind::List(syntax_rules_as_list(*rules));
+                }
+
+                self.visit(arg);
+            }
+        }
+    }
+
+    if let ExprKind::SyntaxRules(_) = expr {
+        let ExprKind::SyntaxRules(rules) = core::mem::replace(expr, ExprKind::empty()) else {
+            unreachable!()
+        };
+        *expr = ExprKind::List(syntax_rules_as_list(*rules));
+    }
+
+    crate::compiler::passes::VisitorMutRefUnit::visit(&mut AsLists, expr);
+}
+
+fn syntax_rules_as_list(s: super::ast::SyntaxRules) -> super::ast::List {
+    let mut args = thin_vec![
+        ExprKind::Atom(Atom::new(s.location)),
+        ExprKind::List(super::ast::List::new(s.syntax)),
+    ];
+
+    args.extend(
+        s.patterns
+            .into_iter()
+            .map(|x| ExprKind::List(super::ast::List::new(thin_vec![x.pattern, x.body]))),
+    );
+
+    super::ast::List::new(args)
+}
 
 pub struct TryFromExprKindForSteelVal {
     inside_quote: bool,
@@ -113,18 +169,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
     }
 
     fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
-        // TODO
-
-        Ok(SteelVal::ListV(
-            vec![
-                SteelVal::SymbolV("define-syntax".into()),
-                self.visit(*m.name)?,
-                self.visit_syntax_rules(m.syntax_rules)?,
-            ]
-            .into(),
-        ))
-
-        // stop!(Generic => "internal compiler error - could not translate macro to steel value")
+        self.visit_list(macro_as_list(*m))
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
@@ -158,30 +203,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
     }
 
     fn visit_syntax_rules(&mut self, s: Box<super::ast::SyntaxRules>) -> Self::Output {
-        Ok(SteelVal::ListV(
-            vec![
-                SteelVal::SymbolV("syntax-rules".into()),
-                SteelVal::ListV(
-                    s.syntax
-                        .into_iter()
-                        .map(|x| self.visit(x))
-                        .collect::<Result<_>>()?,
-                ),
-                SteelVal::ListV(
-                    s.patterns
-                        .into_iter()
-                        .map(|x| {
-                            Ok(SteelVal::ListV(
-                                vec![self.visit(x.pattern)?, self.visit(x.body)?].into(),
-                            ))
-                        })
-                        .collect::<Result<_>>()?,
-                ),
-            ]
-            .into(),
-        ))
-        // TODO
-        // stop!(Generic => "internal compiler error - could not translate syntax-rules to steel value")
+        self.visit_list(syntax_rules_as_list(*s))
     }
 
     fn visit_set(&mut self, s: Box<super::ast::Set>) -> Self::Output {
@@ -425,9 +447,8 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         // }
     }
 
-    fn visit_macro(&mut self, _m: &steel_parser::ast::Macro) -> Self::Output {
-        // TODO
-        stop!(Generic => "internal compiler error - could not translate macro to steel value")
+    fn visit_macro(&mut self, m: &steel_parser::ast::Macro) -> Self::Output {
+        self.visit_list(&macro_as_list(m.clone()))
     }
 
     fn visit_atom(&mut self, a: &steel_parser::ast::Atom) -> Self::Output {
@@ -471,9 +492,8 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         Ok(Syntax::proto(raw, items.into(), span).into())
     }
 
-    fn visit_syntax_rules(&mut self, _s: &steel_parser::ast::SyntaxRules) -> Self::Output {
-        // TODO
-        stop!(Generic => "internal compiler error - could not translate syntax-rules to steel value")
+    fn visit_syntax_rules(&mut self, s: &steel_parser::ast::SyntaxRules) -> Self::Output {
+        self.visit_list(&syntax_rules_as_list(s.clone()))
     }
 
     fn visit_set(&mut self, s: &steel_parser::ast::Set) -> Self::Output {
@@ -702,9 +722,8 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         // }
     }
 
-    fn visit_macro(&mut self, _m: Box<super::ast::Macro>) -> Self::Output {
-        // TODO
-        stop!(Generic => "internal compiler error - could not translate macro to steel value")
+    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
+        self.visit_list(macro_as_list(*m))
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
@@ -786,9 +805,8 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         Ok(Syntax::proto(raw, items.into(), span).into())
     }
 
-    fn visit_syntax_rules(&mut self, _s: Box<super::ast::SyntaxRules>) -> Self::Output {
-        // TODO
-        stop!(Generic => "internal compiler error - could not translate syntax-rules to steel value")
+    fn visit_syntax_rules(&mut self, s: Box<super::ast::SyntaxRules>) -> Self::Output {
+        self.visit_list(syntax_rules_as_list(*s))
     }
 
     fn visit_set(&mut self, s: Box<super::ast::Set>) -> Self::Output {

@@ -35,3 +35,9 @@
 (define (many n acc)
   (if (= n 0) acc (many (- n 1) (+ acc (apply + (in-a-function n))))))
 (assert! (= (many 3000 0) 18009000))
+
+;; define-values takes one value as it is, as let-values does
+(define-values (one) 4)
+(define-values (two three) (values 5 6))
+(define (in-a-body) (define-values (x) 7) x)
+(assert! (equal? (list one two three (in-a-body)) '(4 5 6 7)))

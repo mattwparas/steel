@@ -23,6 +23,7 @@ use crate::{
         bytevectors::bytevector_module,
         fs_module, fs_module_sandbox,
         git::git_module,
+        git_module_sandbox,
         hashes::hashes_module,
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
@@ -32,6 +33,7 @@ use crate::{
         port_module,
         ports::{port_module_without_filesystem, EOF_OBJECTP_DEFINITION},
         process::process_module,
+        process_module_sandbox,
         random::random_module,
         string_module, symbol_module,
         tcp::tcp_module,
@@ -56,7 +58,7 @@ use crate::{
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+        CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_MANY_DEFINITION,
     },
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
@@ -188,6 +190,8 @@ define_modules! {
     STEEL_IO_MODULE => io_module,
     STEEL_FS_MODULE => fs_module,
     STEEL_FS_MODULE_SB => fs_module_sandbox,
+    STEEL_PROCESS_MODULE_SB => process_module_sandbox,
+    STEEL_GIT_MODULE_SB => git_module_sandbox,
     STEEL_PORT_MODULE => port_module,
     STEEL_PORT_WITHOUT_FS_MODULE => port_module_without_filesystem,
     STEEL_META_MODULE => meta_module,
@@ -240,6 +244,8 @@ thread_local! {
     pub static IO_MODULE: BuiltInModule = io_module();
     pub static FS_MODULE: BuiltInModule = fs_module();
     pub static FS_MODULE_SB: BuiltInModule = fs_module_sandbox();
+    pub static PROCESS_MODULE_SB: BuiltInModule = process_module_sandbox();
+    pub static GIT_MODULE_SB: BuiltInModule = git_module_sandbox();
     pub static PORT_MODULE: BuiltInModule = port_module();
     pub static PORT_MODULE_WITHOUT_FILESYSTEM: BuiltInModule = port_module_without_filesystem();
     pub static META_MODULE: BuiltInModule = meta_module();
@@ -365,7 +371,7 @@ pub fn sandboxed_prelude() -> BuiltInModule {
             .with_module(STEEL_IO_MODULE.clone())
             .with_module(STEEL_FS_MODULE_SB.clone())
             .with_module(STEEL_PORT_WITHOUT_FS_MODULE.clone())
-            .with_module(STEEL_META_MODULE.clone())
+            .with_module(STEEL_SANDBOXED_META_MODULE.clone())
             .with_module(STEEL_JSON_MODULE.clone())
             .with_module(STEEL_CONSTANTS_MODULE.clone())
             .with_module(STEEL_SYNTAX_MODULE.clone())
@@ -395,7 +401,7 @@ pub fn sandboxed_prelude() -> BuiltInModule {
             .with_module(IO_MODULE.with(|x| x.clone()))
             .with_module(FS_MODULE_SB.with(|x| x.clone()))
             .with_module(PORT_MODULE_WITHOUT_FILESYSTEM.with(|x| x.clone()))
-            .with_module(META_MODULE.with(|x| x.clone()))
+            .with_module(SANDBOXED_META_MODULE.with(|x| x.clone()))
             .with_module(JSON_MODULE.with(|x| x.clone()))
             .with_module(CONSTANTS_MODULE.with(|x| x.clone()))
             .with_module(SYNTAX_MODULE.with(|x| x.clone()))
@@ -608,6 +614,9 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         } else {
             engine
                 .register_module(STEEL_FS_MODULE_SB.clone())
+                .register_module(STEEL_PROCESS_MODULE_SB.clone())
+                .register_module(STEEL_GIT_MODULE_SB.clone())
+                .register_module(STEEL_SANDBOXED_META_MODULE.clone())
                 .register_module(STEEL_PORT_WITHOUT_FS_MODULE.clone())
                 .register_module(STEEL_SB_PRELUDE.clone());
         }
@@ -665,6 +674,9 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         } else {
             engine
                 .register_module(FS_MODULE_SB.with(|x| x.clone()))
+                .register_module(PROCESS_MODULE_SB.with(|x| x.clone()))
+                .register_module(GIT_MODULE_SB.with(|x| x.clone()))
+                .register_module(SANDBOXED_META_MODULE.with(|x| x.clone()))
                 .register_module(PORT_MODULE_WITHOUT_FILESYSTEM.with(|x| x.clone()))
                 .register_module(SB_PRELUDE.with(|x| x.clone()));
         }
@@ -1579,7 +1591,7 @@ fn equality_module() -> BuiltInModule {
         .register_native_fn_definition(EQV_DEFINITION)
         .register_native_fn_definition(CASE_MEMBER_DEFINITION)
         .register_native_fn_definition(EQ_DEFINITION)
-        .register_native_fn_definition(NUMBER_EQUALITY_DEFINITION);
+        .register_native_fn_definition(NUMBER_EQUALITY_MANY_DEFINITION);
 
     module
 }
@@ -1851,31 +1863,28 @@ fn steel_home_location() -> Option<String> {
     steel_home()
 }
 
+fn no_engines(_: &[SteelVal]) -> Result<SteelVal> {
+    stop!(Generic => "A sandboxed engine cannot make engines, load files or set environment variables.")
+}
+
+// The meta module, where what would leave the sandbox raises when called
 fn sandboxed_meta_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/meta");
-    module
-        // .register_value("assert!", MetaOperations::assert_truthy())
-        .register_value("active-object-count", MetaOperations::active_objects())
-        // .register_value("memory-address", MetaOperations::memory_address())
-        // .register_value("async-exec", MetaOperations::exec_async())
-        // .register_value("poll!", MetaOperations::poll_value())
-        // .register_value("block-on", MetaOperations::block_on())
-        // .register_value("join!", MetaOperations::join_futures())
-        // .register_value("struct-ref", struct_ref())
-        // .register_value("struct->list", struct_to_list())
-        // .register_value("struct->vector", struct_to_vector())
-        .register_fn("value->string", super::meta::value_to_string)
-        // .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
-        // .register_value("read!", SteelVal::FuncV(super::meta::read))
-        // .register_value("eval!", SteelVal::FuncV(super::meta::eval))
-        // TODO: @Matt -> implement the traits for modules as well
-        // .register_fn("Engine::new", super::meta::EngineWrapper::new)
-        .register_fn("eval!", super::meta::eval)
-        .register_fn("value->iterator", crate::rvals::value_into_iterator)
-        .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next));
-    // .register_fn("run!", super::meta::EngineWrapper::call)
-    // .register_fn("get-value", super::meta::EngineWrapper::get_value)
-    // .register_fn("env-var", get_environment_variable);
+    let mut module = meta_module();
+
+    for name in [
+        "Engine::new",
+        "Engine::clone",
+        "Engine::add-module",
+        "run!",
+        "get-value",
+        "load",
+        "emit-expanded",
+        "load-expanded",
+        "set-env-var!",
+    ] {
+        module.register_value(name, SteelVal::FuncV(no_engines));
+    }
+
     module
 }
 
@@ -2233,6 +2242,187 @@ impl Reader {
     }
 }
 
+// The bindings and their kinds a with-syntax pattern gives, as the syntax-case matcher
+// returns them
+fn with_syntax_match(pattern: SteelVal, value: SteelVal) -> Result<SteelVal> {
+    match syntax_case_match(pattern, SteelVal::ListV(Default::default()), value.clone())? {
+        SteelVal::BoolV(false) => {
+            stop!(BadSyntax => "with-syntax: the pattern doesn't match {}", value)
+        }
+        matched => Ok(matched),
+    }
+}
+
+// The same for a syntax-case clause, or #f when the clause doesn't match
+fn syntax_case_match(pattern: SteelVal, literals: SteelVal, value: SteelVal) -> Result<SteelVal> {
+    use crate::parser::ast::TryFromSteelValVisitorForExprKind;
+    use crate::parser::expander::BindingKind;
+    use crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind;
+
+    let pattern = TryFromSteelValVisitorForExprKind::root_quoted(&pattern)?;
+    let value = TryFromSteelValVisitorForExprKind::root_quoted(&value)?;
+
+    let SteelVal::ListV(literals) = &literals else {
+        stop!(TypeMismatch => "syntax-case expects a list of literals, found: {}", literals);
+    };
+
+    let literals = literals
+        .iter()
+        .map(|x| match x {
+            SteelVal::SymbolV(s) => Ok(InternedString::from(s.as_str())),
+            other => stop!(TypeMismatch => "syntax-case expects identifiers as literals, found: {}", other),
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let Some((bindings, binding_kind)) =
+        crate::parser::expander::match_with_syntax_pattern(pattern, &literals, value)?
+    else {
+        return Ok(SteelVal::BoolV(false));
+    };
+
+    let name = |k: InternedString| SteelVal::SymbolV(k.resolve().trim_start_matches("##").into());
+
+    let bindings = bindings
+        .into_iter()
+        .map(|(k, v)| Ok((name(k), SyntaxObjectFromExprKind::try_from_expr_kind(v)?)))
+        .collect::<Result<crate::values::HashMap<_, _>>>()?;
+
+    let kinds = binding_kind
+        .into_iter()
+        .map(|(k, v)| (name(k), SteelVal::IntV((v == BindingKind::Many) as isize)))
+        .collect::<crate::values::HashMap<_, _>>();
+
+    Ok(crate::list![
+        SteelVal::HashMapV(crate::gc::Gc::new(bindings).into()),
+        SteelVal::HashMapV(crate::gc::Gc::new(kinds).into())
+    ])
+}
+
+// Syntax for a datum with the lexical context of `context`, as Racket's `datum->syntax`
+fn datum_to_syntax(context: SteelVal, datum: SteelVal) -> Result<SteelVal> {
+    let SteelVal::SyntaxObject(context) = &context else {
+        stop!(TypeMismatch => "datum->syntax expects syntax for its context, found: {}", context);
+    };
+
+    // A template rebuilds the list around what a pattern variable holds, so a list's
+    // context is that of what's in it, as the input wrote it
+    fn context_mark(context: &crate::rvals::Syntax) -> crate::parser::parser::ExpansionMark {
+        match &context.syntax {
+            SteelVal::ListV(items) => match items.iter().next() {
+                Some(SteelVal::SyntaxObject(first)) => context_mark(first),
+                _ => context.mark(),
+            },
+            _ => context.mark(),
+        }
+    }
+
+    let mark = context_mark(context);
+
+    fn convert(
+        context: &crate::rvals::Syntax,
+        mark: crate::parser::parser::ExpansionMark,
+        datum: &SteelVal,
+    ) -> SteelVal {
+        let span = context.syntax_loc();
+
+        match datum {
+            SteelVal::SyntaxObject(_) => datum.clone(),
+            SteelVal::ListV(items) => crate::rvals::Syntax::proto(
+                datum.clone(),
+                SteelVal::ListV(items.iter().map(|x| convert(context, mark, x)).collect()),
+                span,
+            )
+            .with_mark(mark)
+            .into(),
+            _ => crate::rvals::Syntax::proto(datum.clone(), datum.clone(), span)
+                .with_mark(mark)
+                .into(),
+        }
+    }
+
+    Ok(convert(context, mark, &datum))
+}
+
+// A part of a syntax object, with its symbols the interned ones under the names the code
+// gave them, so they are `eq?` to the same symbols written in the program
+fn interned_syntax_part(
+    ctx: &mut VmCore,
+    value: &SteelVal,
+    part: fn(&crate::rvals::Syntax) -> SteelVal,
+    written: bool,
+) -> Result<SteelVal> {
+    match value {
+        SteelVal::SyntaxObject(syntax) => {
+            let value = part(syntax);
+
+            if !written {
+                return Ok(ctx.intern_symbols(value));
+            }
+
+            let written = ctx
+                .thread
+                .compiler
+                .write()
+                .constant_map
+                .written_symbols(&value);
+            Ok(written.unwrap_or(value))
+        }
+        _ => stop!(TypeMismatch => "expected a syntax object, found: {}", value),
+    }
+}
+
+#[steel_derive::context(name = "syntax-e", arity = Exact(1), args(Any), raises = BadArgs)]
+fn syntax_e(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(interned_syntax_part(
+        ctx,
+        &args[0],
+        crate::rvals::Syntax::syntax_e,
+        true,
+    ))
+}
+
+#[steel_derive::context(name = "syntax->datum", arity = Exact(1), args(Any), raises = BadArgs)]
+fn syntax_to_datum(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(interned_syntax_part(
+        ctx,
+        &args[0],
+        crate::rvals::Syntax::syntax_datum,
+        true,
+    ))
+}
+
+// The parts of syntax as the code names them, for macros that put them back in code
+#[steel_derive::context(name = "#%syntax-e", arity = Exact(1), args(Any), raises = BadArgs)]
+fn kernel_syntax_e(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(interned_syntax_part(
+        ctx,
+        &args[0],
+        crate::rvals::Syntax::syntax_e,
+        false,
+    ))
+}
+
+// The datum as the code names it, which the kernel reads its own forms with
+#[steel_derive::context(name = "#%syntax->datum/kernel", arity = Exact(1), args(Any), raises = BadArgs)]
+fn kernel_syntax_to_datum(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(interned_syntax_part(
+        ctx,
+        &args[0],
+        crate::rvals::Syntax::syntax_datum,
+        false,
+    ))
+}
+
+#[steel_derive::context(name = "#%syntax->datum", arity = Exact(1), args(Any), raises = BadArgs)]
+fn raw_syntax_to_datum(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(interned_syntax_part(
+        ctx,
+        &args[0],
+        crate::rvals::Syntax::syntax_datum_raw,
+        false,
+    ))
+}
+
 #[steel_derive::context(name = "#%intern", arity = Exact(1), args(Any), raises = Never)]
 pub fn intern_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut guard = ctx.thread.compiler.write();
@@ -2278,6 +2468,40 @@ fn mutable_vector_module() -> BuiltInModule {
         .register_fn("mutable-vector-from-list", MutableVector::vector_from_list);
 
     module
+}
+
+// What a variable of a group of internal defines holds until its define runs. Code can't
+// make one, so no other value is taken for it.
+#[derive(Clone)]
+struct Uninitialized;
+
+impl crate::rvals::Custom for Uninitialized {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
+        Some(Ok("#<uninitialized>".to_string()))
+    }
+}
+
+// A variable of a group of internal defines, read before its define ran
+fn check_initialized(value: SteelVal, name: SteelVal) -> Result<SteelVal> {
+    if let SteelVal::Custom(custom) = &value {
+        if custom.read().as_any_ref().is::<Uninitialized>() {
+            stop!(FreeIdentifier => "{}: undefined; cannot use before initialization", name);
+        }
+    }
+
+    Ok(value)
+}
+
+// A variable of a group of internal defines, assigned before its define ran. The value is
+// what it's being given.
+fn check_assignable(current: SteelVal, name: SteelVal, value: SteelVal) -> Result<SteelVal> {
+    if let SteelVal::Custom(custom) = &current {
+        if custom.read().as_any_ref().is::<Uninitialized>() {
+            stop!(FreeIdentifier => "{}: assignment disallowed; cannot assign before initialization", name);
+        }
+    }
+
+    Ok(value)
 }
 
 #[steel_derive::function(name = "#%unbox")]
@@ -2847,6 +3071,12 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(MAKE_WEAK_BOX_DEFINITION)
         .register_native_fn_definition(WEAK_BOX_VALUE_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
+        .register_fn("#%check-initialized", check_initialized)
+        .register_fn("#%check-assignable", check_assignable)
+        .register_value(
+            "#%uninitialized",
+            Uninitialized.into_steelval().unwrap(),
+        )
         .register_value("#%mstruct", SteelVal::BuiltIn(make_packed_struct))
         .register_value("#%mstruct-ref", SteelVal::FuncV(packed_struct_ref))
         .register_value("#%mstruct-set!", SteelVal::FuncV(packed_struct_set))
@@ -3017,10 +3247,22 @@ fn path_to_source_id(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Steel
 fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
-        .register_fn("syntax->datum", crate::rvals::Syntax::syntax_datum)
-        .register_fn("#%syntax->datum", crate::rvals::Syntax::syntax_datum_raw)
+        .register_native_fn_definition(SYNTAX_TO_DATUM_DEFINITION)
+        .register_native_fn_definition(RAW_SYNTAX_TO_DATUM_DEFINITION)
+        .register_native_fn_definition(KERNEL_SYNTAX_TO_DATUM_DEFINITION)
+        .register_native_fn_definition(KERNEL_SYNTAX_E_DEFINITION)
         .register_fn("syntax-loc", crate::rvals::Syntax::syntax_loc)
         .register_fn("syntax/loc", crate::rvals::Syntax::new)
+        .register_fn("#%datum->syntax", datum_to_syntax)
+        .register_fn("#%with-syntax-match", with_syntax_match)
+        .register_fn("#%syntax-case-match", syntax_case_match)
+        // Whether two syntax objects came from the same expansion, or both from the input
+        .register_fn("#%syntax-same-mark?", |a: SteelVal, b: SteelVal| {
+            match (&a, &b) {
+                (SteelVal::SyntaxObject(a), SteelVal::SyntaxObject(b)) => a.mark() == b.mark(),
+                _ => false,
+            }
+        })
         .register_fn(
             "#%syntax/with-mark-of",
             |syntax: SteelVal, other: SteelVal| match (&syntax, &other) {
@@ -3030,10 +3272,14 @@ fn syntax_module() -> BuiltInModule {
                 _ => syntax,
             },
         )
+        .register_fn(
+            "#%syntax/hygienic",
+            crate::parser::kernel::hygienic_macro_input,
+        )
         .register_fn("syntax-span", crate::rvals::Syntax::syntax_loc)
         .register_fn("span-file-id", |span: Span| span.source_id.map(|x| x.0))
         .register_native_fn_definition(SYNTAX_RAW_DEFINITION)
-        .register_fn("syntax-e", crate::rvals::Syntax::syntax_e)
+        .register_native_fn_definition(SYNTAX_E_DEFINITION)
         .register_native_fn_definition(SYNTAXP_DEFINITION)
         .register_native_fn_definition(PATH_TO_SOURCE_ID_DEFINITION)
         .register_fn("#%debug-syntax->exprkind", |value| {

@@ -1179,8 +1179,7 @@
                            "twentytwo"
                            "two")))
 
-(require "steel/time/time.scm"
-         (for-syntax "steel/time/time.scm"))
+(require "steel/time/time.scm")
 
 (define (run)
 

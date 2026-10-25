@@ -1,6 +1,5 @@
 (require "slack.scm")
-(require "steel/time/time.scm"
-         (for-syntax "steel/time/time.scm"))
+(require "steel/time/time.scm")
 
 (require "steel/logging/log.scm")
 

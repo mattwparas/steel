@@ -51,7 +51,7 @@ use crate::{
 pub use control::ControlOperations;
 use core::convert::TryFrom;
 use core::result;
-pub use fs::{fs_module, fs_module_sandbox};
+pub use fs::{fs_module, fs_module_sandbox, git_module_sandbox, process_module_sandbox};
 pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
 pub use meta_ops::MetaOperations;

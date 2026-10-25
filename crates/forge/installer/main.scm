@@ -72,12 +72,12 @@
 
 (define (install-package-temp index args)
   (define force (list? (member "--force" args)))
-  (define args (filter (lambda (x) (not (equal? "--force" x))) args))
+  (define package-args (filter (lambda (x) (not (equal? "--force" x))) args))
 
   (define cogs-to-install
-    (if (empty? args)
+    (if (empty? package-args)
         (list (current-directory))
-        args))
+        package-args))
   (transduce cogs-to-install
              (flat-mapping parse-cog)
              (into-for-each (lambda (x) (check-install-package index x force)))))
@@ -125,19 +125,19 @@
     (displayln "Package not found:" package)
     (return! void))
 
-  (define package (hash-ref index pkg))
+  (define installed (hash-ref index pkg))
   ;; TODO: Contracts called in tail position get the call site location
   ;; wrong, since that is removed from the stack.
-  (uninstall-package package))
+  (uninstall-package installed))
 
 ;; Automatically re-installing isn't good. We'll fix that - how to tell if the package has changed?
 ;; Perhaps calculate the hash of the project and see if anything has changed?
 (define (install-dependencies index args)
   (define dry-run? (list? (member "--dry-run" args)))
-  (define args (filter (lambda (x) (not (equal? x "--dry-run"))) args))
+  (define dependency-args (filter (lambda (x) (not (equal? x "--dry-run"))) args))
 
   ;; Find all the dependencies, install those
-  (match args
+  (match dependency-args
     [(list)
      ;; Only discover top level projects here
      (define top-level-files (read-dir (current-directory)))
@@ -153,7 +153,7 @@
 
     [(list package)
      ;; Get the passed in argument
-     (define path-to-package (car args))
+     (define path-to-package (car dependency-args))
      (define spec (car (parse-cog path-to-package)))
      (walk-and-install spec #:dry-run dry-run?)
      (displayln "Package built!")]))

@@ -21,6 +21,49 @@ use crate::parser::ast::{
     SyntaxRules,
 };
 
+// A fresh stack for a walk that recurses without checking, like hashing nested data
+#[inline(always)]
+pub(crate) fn with_large_stack<R>(f: impl FnOnce() -> R) -> R {
+    #[cfg(feature = "stacker")]
+    {
+        stacker::grow(256 * 1024 * 1024, f)
+    }
+
+    #[cfg(not(feature = "stacker"))]
+    {
+        f()
+    }
+}
+
+// Compiling a program, whose passes recurse as deep as its code nests. A compile that runs
+// inside another keeps its stack.
+pub(crate) fn with_compile_stack<R>(f: impl FnOnce() -> R) -> R {
+    #[cfg(feature = "stacker")]
+    {
+        stacker::maybe_grow(64 * 1024 * 1024, 256 * 1024 * 1024, f)
+    }
+
+    #[cfg(not(feature = "stacker"))]
+    {
+        f()
+    }
+}
+
+// A body of thousands of internal defines nests that many functions deep, which every
+// pass recurses through
+#[inline(always)]
+pub(crate) fn with_stack<R>(f: impl FnOnce() -> R) -> R {
+    #[cfg(feature = "stacker")]
+    {
+        stacker::maybe_grow(256 * 1024, 8 * 1024 * 1024, f)
+    }
+
+    #[cfg(not(feature = "stacker"))]
+    {
+        f()
+    }
+}
+
 pub trait Folder {
     fn fold(&mut self, ast: Vec<ExprKind>) -> Vec<ExprKind> {
         ast.into_iter().map(|x| self.visit(x)).collect()
@@ -35,7 +78,7 @@ pub trait Folder {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => with_stack(|| self.visit_lambda_function(l)),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -146,7 +189,7 @@ pub trait VisitorMutUnit {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => with_stack(|| self.visit_lambda_function(l)),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -234,7 +277,7 @@ pub trait VisitorMutControlFlow {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => with_stack(|| self.visit_lambda_function(l)),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -357,7 +400,7 @@ pub trait VisitorMutUnitRef<'a> {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => with_stack(|| self.visit_lambda_function(l)),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -457,7 +500,7 @@ pub trait VisitorMutRefUnit {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => with_stack(|| self.visit_lambda_function(l)),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),

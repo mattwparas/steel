@@ -2,9 +2,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::parser::{
     ast::{Atom, Begin, Define, ExprKind, LambdaFunction, Let, Quote},
-    expand_visitor::{is_local_macro_definition, local_macro_captured},
+    expand_visitor::{is_local_macro_definition, kernel_local_macro, local_macro_captured},
     interner::InternedString,
-    parser::{ExpansionMark, SyntaxObject},
+    parser::{ExpansionMark, SyntaxObject, SyntaxObjectId},
 };
 
 use super::{mangle::is_prelude_builtin, VisitorMutRefUnit};
@@ -25,6 +25,7 @@ struct Binder {
     mark: ExpansionMark,
     id: usize,
     local_macro: Option<InternedString>,
+    syntax: SyntaxObjectId,
 }
 
 #[derive(Default)]
@@ -40,6 +41,21 @@ pub struct ResolveExpansionMarks {
     local_macros: Vec<(InternedString, usize)>,
     has_local_macros: bool,
     template_globals: FxHashSet<(InternedString, ExpansionMark)>,
+    // How many functions and lets the visit is in
+    bodies: usize,
+}
+
+// The globals templates defined in earlier compiles, which a macro those templates defined can
+// still name, from a later input or another module. Marks are never reused.
+static TEMPLATE_GLOBALS: std::sync::Mutex<Option<FxHashSet<(InternedString, ExpansionMark)>>> =
+    std::sync::Mutex::new(None);
+
+fn earlier_template_global(name: InternedString, mark: ExpansionMark) -> bool {
+    TEMPLATE_GLOBALS
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|x| x.contains(&(name, mark)))
 }
 
 struct RestoreCapturedNames;
@@ -94,6 +110,11 @@ impl ResolveExpansionMarks {
 
                 if let Some(name) = syn.ty.identifier_mut() {
                     self.template_globals.insert((*name, mark));
+                    TEMPLATE_GLOBALS
+                        .lock()
+                        .unwrap()
+                        .get_or_insert_with(FxHashSet::default)
+                        .insert((*name, mark));
                     *name = Self::template_global(*name, mark);
                 }
             }
@@ -127,6 +148,7 @@ impl ResolveExpansionMarks {
             mark,
             id,
             local_macro,
+            syntax: syn.syntax_object_id,
         });
 
         if self.renaming && self.conflicts.contains(&id) {
@@ -167,6 +189,11 @@ impl ResolveExpansionMarks {
                         self.local_macros.push((*name, self.scope.len()));
                         self.has_local_macros = true;
                     }
+                }
+                _ if kernel_local_macro(expr).is_some() => {
+                    self.local_macros
+                        .push((kernel_local_macro(expr).unwrap(), self.scope.len()));
+                    self.has_local_macros = true;
                 }
                 _ => {}
             }
@@ -238,7 +265,9 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
             self.bind(syn);
         }
 
+        self.bodies += 1;
         self.visit_body(&mut lambda_function.body);
+        self.bodies -= 1;
 
         self.exit_scope(depth);
     }
@@ -256,7 +285,9 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
             }
         }
 
+        self.bodies += 1;
         self.visit_body(&mut l.body_expr);
+        self.bodies -= 1;
 
         self.exit_scope(depth);
     }
@@ -267,6 +298,21 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
 
     fn visit_begin(&mut self, begin: &mut Begin) {
         let visible = self.local_macros.len();
+
+        // A template's defines in a body that's nested in a branch are in scope after them
+        if self.bodies > 0 {
+            for expr in begin.exprs.iter_mut() {
+                if let ExprKind::Define(d) = expr {
+                    if let Some(syn) = d.name.atom_syntax_object_mut() {
+                        let id = syn.syntax_object_id;
+
+                        if syn.mark.is_template() && !self.scope.iter().any(|b| b.syntax == id) {
+                            self.bind(syn);
+                        }
+                    }
+                }
+            }
+        }
 
         self.define_local_macros(&begin.exprs);
 
@@ -327,7 +373,7 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
                 }
             }
 
-            if self.renaming && self.has_local_macros {
+            if self.renaming && !self.renamed.is_empty() {
                 let binder = self
                     .scope
                     .iter()
@@ -351,7 +397,10 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
                 .find(|b| b.name == *name && b.mark == mark)
         };
 
-        if by_mark.is_none() && self.template_globals.contains(&(*name, mark)) {
+        if by_mark.is_none()
+            && (self.template_globals.contains(&(*name, mark))
+                || mark.is_template() && earlier_template_global(*name, mark))
+        {
             *name = Self::template_global(*name, mark);
             a.syn.unresolved = false;
             return;
@@ -363,6 +412,11 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
             return;
         }
 
+        // A name a template leaves free means the global, so a variable of the use site with
+        // the same name is renamed out of its way. The names a macro defined in a function
+        // has of that function's locals are captured already.
+        let free = by_mark.is_none() && a.syn.unresolved && mark.is_template();
+
         if !self.renaming {
             if let Some(binder) = by_mark {
                 a.syn.unresolved = false;
@@ -370,8 +424,16 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
                 if self.innermost(*name).map(|b| b.id) != Some(binder.id) {
                     self.conflicts.insert(binder.id);
                 }
+            } else if free {
+                if let Some(binder) = self.innermost(*name) {
+                    self.conflicts.insert(binder.id);
+                }
             }
 
+            return;
+        }
+
+        if free {
             return;
         }
 

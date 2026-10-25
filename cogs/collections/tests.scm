@@ -1,6 +1,5 @@
 (require "dll.scm")
-(require "steel/tests/unit-test.scm"
-         (for-syntax "steel/tests/unit-test.scm"))
+(require "steel/tests/unit-test.scm")
 
 (define __dll-module 'dll-module)
 

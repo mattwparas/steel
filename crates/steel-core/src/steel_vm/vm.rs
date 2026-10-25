@@ -9,11 +9,7 @@ use crate::gc::shared::{
 };
 #[cfg(feature = "jit2")]
 use crate::jit2::cgen::JitFnPointer;
-use crate::parser::expand_visitor::GlobalMap;
 use crate::parser::expander::BindingKind;
-use crate::parser::kernel::{
-    GlobalSymbolMap, ParentScopeSet, TOP_LEVEL_GLOBAL_MAP, TOP_LEVEL_SCOPE_MAP,
-};
 use crate::parser::replace_idents::expand_template;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
@@ -22,6 +18,7 @@ use crate::primitives::lists::steel_cons;
 use crate::primitives::lists::steel_list_ref;
 use crate::primitives::numbers::add_two_fallible;
 use crate::primitives::vectors::vec_ref;
+use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
 use crate::rvals::AsRefMutSteelVal;
@@ -29,7 +26,6 @@ use crate::rvals::AsRefSteelVal;
 use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::rvals::FromSteelVal as _;
 use crate::rvals::SteelString;
-use crate::rvals::{as_underlying_type, AsRefSteelValFromRef};
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive, steel_not};
@@ -7014,21 +7010,6 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, _args: &[SteelVal]) -> Option
 // back and forth will probably hamper performance significantly. That being said,
 // it is entirely at compile time, so probably _okay_
 pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let (scope_value, global_value) = {
-        let guard = ctx.thread.compiler.read();
-        let scope_index = guard
-            .symbol_map
-            .get(&(InternedString::from(TOP_LEVEL_SCOPE_MAP)));
-        let global_index = guard
-            .symbol_map
-            .get(&(InternedString::from(TOP_LEVEL_GLOBAL_MAP)));
-
-        let scope_value = scope_index.map(|x| ctx.thread.global_env.repl_lookup_idx(x));
-        let global_value = global_index.map(|x| ctx.thread.global_env.repl_lookup_idx(x));
-
-        (scope_value, global_value)
-    };
-
     let mut bindings: rustc_hash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
         h.iter()
             .map(|(k, v)| match (k, v) {
@@ -7093,29 +7074,7 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
 
     UnresolvedByMacro.visit(&mut template);
 
-    match (scope_value, global_value) {
-        (Ok(scope_value), Ok(map_value)) => {
-            let scope_guard = ParentScopeSet::as_ref_from_ref(&scope_value)?;
-            let map_guard = GlobalSymbolMap::as_ref_from_ref(&map_value)?;
-
-            expand_template(
-                &mut template,
-                &mut bindings,
-                &mut binding_kind,
-                &scope_guard.as_ro().set,
-                *map_guard.as_ro().map,
-            )?;
-        }
-        _ => {
-            expand_template(
-                &mut template,
-                &mut bindings,
-                &mut binding_kind,
-                &Default::default(),
-                GlobalMap::Map(&Default::default()),
-            )?;
-        }
-    }
+    expand_template(&mut template, &mut bindings, &mut binding_kind)?;
 
     // TODO: Pass a reference from the parent symbol map
     // down to the child one, as well as "whatever" values are currently
@@ -7163,11 +7122,13 @@ pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     let macro_object = guard.macro_env.get(&macro_name).ok_or_else(
         throw!(Generic => format!("unable to find macro: {}", &macro_name); ctx.current_span()),
     )?;
-    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[1])?;
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[1])?;
 
     let list = expr.list().unwrap();
 
-    let (case, index) = macro_object.match_case_index(list)?;
+    // The cases before this one matched with a fender that said no
+    let start = usize::from_steelval(&args[2])?;
+    let (case, index) = macro_object.match_case_index(list, start)?;
 
     let (bindings, binding_kind) = case.gather_bindings(list.clone())?;
 
@@ -7236,9 +7197,9 @@ pub(crate) fn macro_case_bindings(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 
 #[steel_derive::context(
     name = "#%match-syntax-case",
-    arity = Exact(2),
+    arity = Exact(3),
     returns = List,
-    args(String | Symbol, Any)
+    args(String | Symbol, Any, Int)
 )]
 pub(crate) fn match_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(match_syntax_case_impl(ctx, args))

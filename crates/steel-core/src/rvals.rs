@@ -771,7 +771,23 @@ impl ast::TryFromSteelValVisitorForExprKind {
             )))),
             VectorV(lst) => {
                 let items: Result<ThinVec<ExprKind>> = lst.iter().map(|x| self.visit(x)).collect();
-                Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
+                Ok(ExprKind::Vector(crate::parser::ast::Vector {
+                    args: items?,
+                    bytes: false,
+                    span,
+                }))
+            }
+            MutableVector(v) => {
+                let items: Result<ThinVec<ExprKind>> = v
+                    .borrow(|x| x.clone())
+                    .iter()
+                    .map(|x| self.visit(x))
+                    .collect();
+                Ok(ExprKind::Vector(crate::parser::ast::Vector {
+                    args: items?,
+                    bytes: false,
+                    span,
+                }))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
                 TokenType::StringLiteral(x.as_str().into()),
@@ -840,12 +856,74 @@ impl ast::TryFromSteelValVisitorForExprKind {
                     .try_into()?)
             }
 
+            Pair(p) => {
+                let (items, improper) = improper_list_elements(p);
+                let items: Result<ThinVec<ExprKind>> =
+                    items.iter().map(|x| self.visit(x)).collect();
+                Ok(ExprKind::List(
+                    crate::parser::ast::List::new_maybe_improper(items?, improper),
+                ))
+            }
             CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
                 TokenType::CharacterLiteral(*x),
                 span,
             )))),
             _ => stop!(ConversionError => "unable to convert {:?} to expression", &value.syntax),
         }
+    }
+}
+
+// The elements of an improper list, with whether the last one is its tail
+pub(crate) fn improper_list_elements(pair: &crate::values::lists::Pair) -> (Vec<SteelVal>, bool) {
+    let mut items = vec![pair.car()];
+    let mut tail = pair.cdr();
+
+    loop {
+        match tail {
+            Pair(p) => {
+                items.push(p.car());
+                tail = p.cdr();
+            }
+            ListV(l) => {
+                items.extend(l.iter().cloned());
+                return (items, false);
+            }
+            other => {
+                items.push(other);
+                return (items, true);
+            }
+        }
+    }
+}
+
+fn map_syntax_marks(
+    value: &SteelVal,
+    f: &mut dyn FnMut(ExpansionMark) -> ExpansionMark,
+) -> SteelVal {
+    match value {
+        SyntaxObject(s) => SyntaxObject(Gc::new(s.map_marks(f))),
+        ListV(l) => ListV(l.iter().map(|x| map_syntax_marks(x, f)).collect()),
+        VectorV(v) => VectorV(SteelVector(Gc::new(
+            v.iter().map(|x| map_syntax_marks(x, f)).collect(),
+        ))),
+        // A dotted list, along its cdrs in a loop
+        Pair(_) => {
+            let mut elements = Vec::new();
+            let mut rest = value.clone();
+
+            while let Pair(pair) = &rest {
+                elements.push(map_syntax_marks(pair.car_ref(), f));
+                let cdr = pair.cdr();
+                rest = cdr;
+            }
+
+            let tail = map_syntax_marks(&rest, f);
+
+            elements.into_iter().rev().fold(tail, |cdr, car| {
+                crate::values::lists::Pair::cons(car, cdr).into()
+            })
+        }
+        _ => value.clone(),
     }
 }
 
@@ -918,6 +996,10 @@ impl Syntax {
         }
     }
 
+    pub(crate) fn mark(&self) -> ExpansionMark {
+        self.mark
+    }
+
     pub(crate) fn with_mark(mut self, mark: ExpansionMark) -> Syntax {
         self.mark = mark;
         self
@@ -948,6 +1030,16 @@ impl Syntax {
         without_local_macro_captures(self.raw.as_ref().unwrap())
     }
 
+    // The same syntax with each mark replaced
+    pub(crate) fn map_marks(&self, f: &mut dyn FnMut(ExpansionMark) -> ExpansionMark) -> Syntax {
+        Syntax {
+            raw: self.raw.clone(),
+            syntax: map_syntax_marks(&self.syntax, f),
+            span: self.span,
+            mark: f(self.mark),
+        }
+    }
+
     pub(crate) fn with_mark_of(mut self, other: &Syntax) -> Syntax {
         if other.mark.is_template() {
             self.mark = other.mark;
@@ -973,7 +1065,20 @@ impl Syntax {
             )))),
             VectorV(lst) => {
                 let items: Result<ThinVec<ExprKind>> = lst.iter().map(convert).collect();
-                Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
+                Ok(ExprKind::Vector(crate::parser::ast::Vector {
+                    args: items?,
+                    bytes: false,
+                    span: Span::default(),
+                }))
+            }
+            MutableVector(v) => {
+                let items: Result<ThinVec<ExprKind>> =
+                    v.borrow(|x| x.clone()).iter().map(convert).collect();
+                Ok(ExprKind::Vector(crate::parser::ast::Vector {
+                    args: items?,
+                    bytes: false,
+                    span: Span::default(),
+                }))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 TokenType::StringLiteral(x.as_str().into()),
@@ -989,6 +1094,13 @@ impl Syntax {
                 let items: Result<ThinVec<ExprKind>> = l.iter().map(convert).collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
+            }
+            Pair(p) => {
+                let (items, improper) = improper_list_elements(p);
+                let items: Result<ThinVec<ExprKind>> = items.iter().map(convert).collect();
+                Ok(ExprKind::List(
+                    crate::parser::ast::List::new_maybe_improper(items?, improper),
+                ))
             }
             CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 TokenType::CharacterLiteral(*x),
@@ -1027,7 +1139,23 @@ impl Syntax {
                     .iter()
                     .map(|x| Self::steelval_to_marked_exprkind(x, mark))
                     .collect();
-                Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
+                Ok(ExprKind::Vector(crate::parser::ast::Vector {
+                    args: items?,
+                    bytes: false,
+                    span,
+                }))
+            }
+            MutableVector(v) => {
+                let items: Result<ThinVec<ExprKind>> = v
+                    .borrow(|x| x.clone())
+                    .iter()
+                    .map(|x| Self::steelval_to_marked_exprkind(x, mark))
+                    .collect();
+                Ok(ExprKind::Vector(crate::parser::ast::Vector {
+                    args: items?,
+                    bytes: false,
+                    span,
+                }))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
                 TokenType::StringLiteral(x.as_str().into()),
@@ -1047,6 +1175,16 @@ impl Syntax {
                     .collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
+            }
+            Pair(p) => {
+                let (items, improper) = improper_list_elements(p);
+                let items: Result<ThinVec<ExprKind>> = items
+                    .iter()
+                    .map(|x| Self::steelval_to_marked_exprkind(x, mark))
+                    .collect();
+                Ok(ExprKind::List(
+                    crate::parser::ast::List::new_maybe_improper(items?, improper),
+                ))
             }
             CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
                 TokenType::CharacterLiteral(*x),
@@ -2631,14 +2769,34 @@ fn bignum_float_equality(bigint: &Gc<BigInt>, float: f64) -> bool {
     }
 }
 
-#[inline(always)]
-#[steel_derive::function(
+/// Whether all the numbers are equal, `(= z1 z2 ...)`
+#[steel_derive::native(
     name = "=",
     constant = true,
+    arity = AtLeast(1),
     returns = Bool,
-    args(Number, Number),
-    raises = BadArgs
+    args(Number, rest = Number)
 )]
+pub fn number_equality_many(args: &[SteelVal]) -> Result<SteelVal> {
+    match args {
+        [x] => number_equality(x, x),
+        [x, rest @ ..] => {
+            // Every argument has to be a number, also after one that differs
+            let mut equal = true;
+            let mut left = x;
+
+            for right in rest {
+                equal &= number_equality(left, right)? == BoolV(true);
+                left = right;
+            }
+
+            Ok(BoolV(equal))
+        }
+        _ => stop!(ArityMismatch => "=: expected at least one argument"),
+    }
+}
+
+#[inline(always)]
 pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     let result = match (left, right) {
         (IntV(l), IntV(r)) => l == r,

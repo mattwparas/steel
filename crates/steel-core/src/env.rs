@@ -1,4 +1,24 @@
-use crate::rvals::{Result, SteelVal};
+use crate::gc::shared::ShareableMut;
+use crate::rvals::{IntoSteelVal, Result, SteelVal};
+
+// What a global's slot holds until its define runs, when a later global was defined first
+#[derive(Clone)]
+struct UndefinedGlobal;
+
+impl crate::rvals::Custom for UndefinedGlobal {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
+        Some(Ok("#<undefined>".to_string()))
+    }
+}
+
+pub(crate) fn undefined_global() -> SteelVal {
+    UndefinedGlobal.into_steelval().unwrap()
+}
+
+// Read before its define ran
+pub(crate) fn is_undefined_global(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::Custom(custom) if custom.read().as_any_ref().is::<UndefinedGlobal>())
+}
 use once_cell::sync::Lazy;
 use shared_vector::AtomicSharedVector;
 
@@ -28,7 +48,7 @@ impl SharedVectorWrapper {
                 // assuming that the values then get actually updated
                 // to the correct values.
                 for _ in 0..(idx - guard.len()) {
-                    guard.push(SteelVal::Void);
+                    guard.push(undefined_global());
                 }
             }
 
@@ -70,7 +90,10 @@ impl Clone for Env {
 #[cfg(not(feature = "sync"))]
 impl Env {
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
-        self.bindings_vec.get(idx).cloned()
+        self.bindings_vec
+            .get(idx)
+            .filter(|value| !is_undefined_global(value))
+            .cloned()
     }
 
     pub fn len(&self) -> usize {
@@ -109,7 +132,10 @@ impl Env {
     #[inline(always)]
     pub fn repl_maybe_lookup_idx(&self, idx: usize) -> Option<SteelVal> {
         // Look up the bindings using the local copy
-        self.bindings_vec.get(idx).cloned()
+        self.bindings_vec
+            .get(idx)
+            .filter(|value| !is_undefined_global(value))
+            .cloned()
     }
 
     /// Get the value located at that index
@@ -130,7 +156,7 @@ impl Env {
                 // assuming that the values then get actually updated
                 // to the correct values.
                 for _ in 0..(idx - self.bindings_vec.len()) {
-                    self.bindings_vec.push(SteelVal::Void);
+                    self.bindings_vec.push(undefined_global());
                 }
             }
 
@@ -203,7 +229,11 @@ impl Env {
     #[inline(always)]
     pub fn repl_maybe_lookup_idx(&self, idx: usize) -> Option<SteelVal> {
         // Look up the bindings using the local copy
-        self.bindings.0.get(idx).cloned()
+        self.bindings
+            .0
+            .get(idx)
+            .filter(|value| !is_undefined_global(value))
+            .cloned()
     }
 
     #[inline]

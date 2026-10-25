@@ -15,6 +15,7 @@ use crate::{
 };
 
 use super::VisitorMutRefUnit;
+use crate::parser::expand_visitor::{local_macro_capture, local_macro_captured};
 
 fn written_by_template(name: &ExprKind) -> bool {
     name.atom_syntax_object()
@@ -138,6 +139,8 @@ pub(crate) fn is_prelude_builtin(name: &InternedString) -> bool {
 #[derive(Clone, Debug)]
 pub struct NameMangler {
     pub(crate) globals: FxHashSet<InternedString>,
+    // Macros of the module that aren't globals, which its templates name with its prefix
+    macros: FxHashSet<InternedString>,
     prefix: CompactString,
     mangle_cache: FxHashMap<InternedString, InternedString>,
 }
@@ -146,9 +149,24 @@ impl NameMangler {
     pub fn new(globals: FxHashSet<InternedString>, prefix: CompactString) -> Self {
         Self {
             globals,
+            macros: FxHashSet::default(),
             prefix,
             mangle_cache: FxHashMap::default(),
         }
+    }
+
+    fn mangle(&mut self, i: &mut InternedString) {
+        if let Some(new) = self.mangle_cache.get(i) {
+            *i = *new;
+        } else {
+            let original = *i;
+            *i = (self.prefix.clone() + i.resolve()).into();
+            self.mangle_cache.insert(original, *i);
+        }
+    }
+
+    pub(crate) fn add_macros(&mut self, macros: impl IntoIterator<Item = InternedString>) {
+        self.macros.extend(macros);
     }
 
     pub fn mangle_vars(&mut self, exprs: &mut [ExprKind]) {
@@ -184,7 +202,7 @@ impl NameMangler {
     }
 }
 
-fn is_unquote(head: &InternedString) -> bool {
+pub(crate) fn is_unquote(head: &InternedString) -> bool {
     *head == *UNQUOTE
         || *head == *UNQUOTE_COMMA
         || *head == *RAW_UNQUOTE
@@ -195,11 +213,7 @@ fn is_unquote(head: &InternedString) -> bool {
 pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
     let globals = collect_globals(exprs);
 
-    let mut name_mangler = NameMangler {
-        globals,
-        prefix,
-        mangle_cache: FxHashMap::default(),
-    };
+    let mut name_mangler = NameMangler::new(globals, prefix);
 
     for expr in exprs {
         name_mangler.visit(expr);
@@ -216,17 +230,22 @@ impl VisitorMutRefUnit for NameMangler {
                 return;
             }
 
-            if self.globals.contains(i) {
-                if let Some(new) = self.mangle_cache.get(i) {
-                    *i = *new;
-                } else {
-                    let original = *i;
-                    let new_str = i.resolve();
+            // A local macro expanded before mangling names the variable it captured inside
+            // its own name
+            if let Some((macro_name, variable)) = local_macro_captured(i.resolve()) {
+                let mut variable: InternedString = variable.into();
 
-                    *i = (self.prefix.clone() + new_str).into();
-
-                    self.mangle_cache.insert(original, *i);
+                if self.globals.contains(&variable) {
+                    let macro_name: InternedString = macro_name.into();
+                    self.mangle(&mut variable);
+                    *i = local_macro_capture(&macro_name, &variable);
                 }
+
+                return;
+            }
+
+            if self.globals.contains(i) || self.macros.contains(i) {
+                self.mangle(i);
             }
         }
     }

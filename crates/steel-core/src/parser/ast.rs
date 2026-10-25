@@ -100,6 +100,27 @@ impl TryFromSteelValVisitorForExprKind {
                     span: Span::default(),
                 }))
             }
+            MutableVector(v) => {
+                let items: core::result::Result<ThinVec<ExprKind>, _> = v
+                    .borrow(|x| x.clone())
+                    .iter()
+                    .map(|x| self.visit(x))
+                    .collect();
+                Ok(ExprKind::Vector(Vector {
+                    args: items?,
+                    bytes: false,
+                    span: Span::default(),
+                }))
+            }
+            FlatVector(v) => {
+                let items: core::result::Result<ThinVec<ExprKind>, _> =
+                    v.iter().map(|x| self.visit(x)).collect();
+                Ok(ExprKind::Vector(Vector {
+                    args: items?,
+                    bytes: false,
+                    span: Span::default(),
+                }))
+            }
             Void => stop!(Generic => "Can't convert from Void to expression!"),
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 StringLiteral(x.as_str().into()),
@@ -188,6 +209,12 @@ impl TryFromSteelValVisitorForExprKind {
             CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 CharacterLiteral(*x),
             )))),
+            Pair(p) => {
+                let (items, improper) = crate::rvals::improper_list_elements(p);
+                let items: core::result::Result<ThinVec<ExprKind>, _> =
+                    items.iter().map(|x| self.visit(x)).collect();
+                Ok(ExprKind::List(List::new_maybe_improper(items?, improper)))
+            }
             unknown => {
                 stop!(Generic => "Unable to convert from value to expression: {:?}", unknown)
             }
@@ -308,7 +335,12 @@ impl TryFrom<&SteelVal> for ExprKind {
                     CharacterLiteral(*x),
                 )))),
 
-                Pair(_) => Err("Can't convert from pair to expression!"),
+                Pair(p) => {
+                    let (items, improper) = crate::rvals::improper_list_elements(p);
+                    let items: core::result::Result<ThinVec<ExprKind>, &'static str> =
+                        items.iter().map(|x| inner_try_from(x, depth + 1)).collect();
+                    Ok(ExprKind::List(List::new_maybe_improper(items?, improper)))
+                }
 
                 PortV(_) => Err("Can't convert from port to expression!"),
                 Closure(_) => Err("Can't convert from bytecode closure to expression"),
@@ -322,7 +354,18 @@ impl TryFrom<&SteelVal> for ExprKind {
                 MutFunc(_) => Err("Can't convert from function to expression!"),
                 BuiltIn(_) => Err("Can't convert from function to expression!"),
                 ReducerV(_) => Err("Can't convert from reducer to expression!"),
-                MutableVector(_) => Err("Can't convert from vector to expression!"),
+                MutableVector(v) => {
+                    let items: core::result::Result<ThinVec<ExprKind>, &'static str> = v
+                        .borrow(|x| x.clone())
+                        .iter()
+                        .map(|x| inner_try_from(x, depth + 1))
+                        .collect();
+                    Ok(ExprKind::Vector(Vector {
+                        args: items?,
+                        bytes: false,
+                        span: Span::default(),
+                    }))
+                }
                 CustomStruct(_) => Err("Can't convert from struct to expression!"),
                 MutableStruct(_) => Err("Can't convert from struct to expression!"),
                 BoxedIterator(_) => Err("Can't convert from boxed iterator to expression!"),

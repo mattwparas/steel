@@ -73,12 +73,14 @@ impl Span {
             let mut span = *span;
             for s in spans {
                 if s.start() < span.start() {
-                    span = Span::new(s.start(), span.end(), s.source_id);
+                    span = Span::new(s.start(), span.end(), span.source_id);
                 }
                 if s.end() > span.end() {
-                    span = Span::new(span.start(), s.end(), s.source_id);
+                    span = Span::new(span.start(), s.end(), span.source_id);
                 }
             }
+            // Spans made by the reader have no source, the others in the list do
+            span.source_id = spans.iter().find_map(|s| s.source_id);
             span
         } else {
             Span::new(0, 0, None)

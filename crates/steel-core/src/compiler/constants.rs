@@ -237,14 +237,48 @@ impl ConstantMap {
                     })
                     .collect(),
             )),
+            // A dotted list's elements and its tail, so a symbol in it is the interned one.
+            // The pairs in between aren't constants of their own.
+            SteelVal::Pair(_) => {
+                let mut elements = Vec::new();
+                let mut rest = val.clone();
+
+                while let SteelVal::Pair(pair) = &rest {
+                    let idx = self.add_or_get(pair.car());
+                    elements.push(self.get(idx));
+                    let cdr = pair.cdr();
+                    rest = cdr;
+                }
+
+                let idx = self.add_or_get(rest);
+                let tail = self.get(idx);
+
+                Some(elements.into_iter().rev().fold(tail, |cdr, car| {
+                    crate::values::lists::Pair::cons(car, cdr).into()
+                }))
+            }
             _ => None,
         }
     }
 
     // This is certainly not what we want. This time complexity is
     // questionable
-    pub fn add_or_get(&mut self, mut val: SteelVal) -> usize {
-        if let SteelVal::ListV(_) | SteelVal::VectorV(_) = &val {
+    pub fn add_or_get(&mut self, val: SteelVal) -> usize {
+        // Deeply nested data recurses as deep as it nests, here and in hashing it,
+        // and sharing each part of it would take time quadratic in how deep it is
+        if nested_deeper_than(&val, 512) {
+            return crate::compiler::passes::with_large_stack(|| {
+                let val = self.intern_symbols(val);
+                let idx = self.map.write().get(&val).copied();
+                idx.unwrap_or_else(|| self.add(val))
+            });
+        }
+
+        self.add_or_get_value(val)
+    }
+
+    fn add_or_get_value(&mut self, mut val: SteelVal) -> usize {
+        if let SteelVal::ListV(_) | SteelVal::VectorV(_) | SteelVal::Pair(_) = &val {
             if let Some(new_list) = self.walk_constants(&val) {
                 val = new_list;
             };
@@ -256,6 +290,87 @@ impl ConstantMap {
             idx
         } else {
             self.add(val)
+        }
+    }
+
+    /// A datum from syntax, with each symbol the interned one under the name the code
+    /// gave it, without a module's prefix. `None` when nothing changes.
+    pub(crate) fn written_symbols(&mut self, value: &SteelVal) -> Option<SteelVal> {
+        use crate::compiler::modules::{MANGLER_PREFIX, MANGLER_SEPARATOR};
+        use crate::gc::Gc;
+
+        match value {
+            SteelVal::SymbolV(name) => {
+                let written = match name.as_str().find(MANGLER_SEPARATOR) {
+                    Some(i) if name.starts_with(MANGLER_PREFIX) => {
+                        &name.as_str()[i + MANGLER_SEPARATOR.len()..]
+                    }
+                    _ => name.as_str(),
+                };
+
+                let index = self.add_or_get(SteelVal::SymbolV(written.into()));
+                let interned = self.get(index);
+
+                (!interned.ptr_eq(value)).then_some(interned)
+            }
+            SteelVal::ListV(l) => {
+                let changed: Vec<Option<SteelVal>> =
+                    l.iter().map(|x| self.written_symbols(x)).collect();
+
+                changed.iter().any(Option::is_some).then(|| {
+                    SteelVal::ListV(
+                        l.iter()
+                            .zip(changed)
+                            .map(|(old, new)| new.unwrap_or_else(|| old.clone()))
+                            .collect(),
+                    )
+                })
+            }
+            // Along the cdrs in a loop, which is as long as the list
+            SteelVal::Pair(_) => {
+                let mut changed = false;
+                let mut elements = Vec::new();
+                let mut rest = value.clone();
+
+                while let SteelVal::Pair(pair) = &rest {
+                    let car = self.written_symbols(pair.car_ref());
+                    changed |= car.is_some();
+                    elements.push(car.unwrap_or_else(|| pair.car()));
+                    let cdr = pair.cdr();
+                    rest = cdr;
+                }
+
+                let tail = match self.written_symbols(&rest) {
+                    Some(tail) => {
+                        changed = true;
+                        tail
+                    }
+                    None => rest,
+                };
+
+                changed.then(|| {
+                    elements.into_iter().rev().fold(tail, |cdr, car| {
+                        crate::values::lists::Pair::cons(car, cdr).into()
+                    })
+                })
+            }
+            SteelVal::VectorV(v) => {
+                let changed: Vec<Option<SteelVal>> =
+                    v.iter().map(|x| self.written_symbols(x)).collect();
+
+                changed.iter().any(Option::is_some).then(|| {
+                    SteelVal::VectorV(
+                        Gc::new(
+                            v.iter()
+                                .zip(changed)
+                                .map(|(old, new)| new.unwrap_or_else(|| old.clone()))
+                                .collect::<crate::values::Vector<_>>(),
+                        )
+                        .into(),
+                    )
+                })
+            }
+            _ => None,
         }
     }
 
@@ -273,6 +388,22 @@ impl ConstantMap {
             }
             SteelVal::ListV(l) => {
                 SteelVal::ListV(l.iter().map(|v| self.intern_symbols(v.clone())).collect())
+            }
+            SteelVal::Pair(_) => {
+                let mut elements = Vec::new();
+                let mut rest = value;
+
+                while let SteelVal::Pair(pair) = &rest {
+                    elements.push(self.intern_symbols(pair.car()));
+                    let cdr = pair.cdr();
+                    rest = cdr;
+                }
+
+                let tail = self.intern_symbols(rest);
+
+                elements.into_iter().rev().fold(tail, |cdr, car| {
+                    crate::values::lists::Pair::cons(car, cdr).into()
+                })
             }
             SteelVal::VectorV(v) => SteelVal::VectorV(
                 Gc::new(
@@ -348,4 +479,26 @@ pub mod constant_table_tests {
         assert_eq!(instance.get(0), SteelVal::BoolV(true));
         assert_eq!(instance.get(1), SteelVal::BoolV(false));
     }
+}
+
+// Whether lists and vectors nest more than `limit` deep, found without recursing
+fn nested_deeper_than(value: &SteelVal, limit: usize) -> bool {
+    let mut pending = vec![(value, 0)];
+
+    while let Some((value, depth)) = pending.pop() {
+        if depth > limit {
+            return true;
+        }
+
+        match value {
+            SteelVal::ListV(l) => pending.extend(l.iter().map(|x| (x, depth + 1))),
+            SteelVal::VectorV(v) => pending.extend(v.iter().map(|x| (x, depth + 1))),
+            SteelVal::Pair(p) => {
+                pending.extend([(p.car_ref(), depth + 1), (p.cdr_ref(), depth + 1)])
+            }
+            _ => {}
+        }
+    }
+
+    false
 }

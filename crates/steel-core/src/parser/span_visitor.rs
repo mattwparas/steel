@@ -51,8 +51,8 @@ impl Visitor for CoalescingSpanVisitor {
         self.visit(&quote.expr)
     }
 
-    fn visit_macro(&self, _m: &super::ast::Macro) -> Self::Output {
-        panic!("Unexpected macro found in span visitor");
+    fn visit_macro(&self, m: &super::ast::Macro) -> Self::Output {
+        Span::merge(m.location.span, self.visit_syntax_rules(&m.syntax_rules))
     }
 
     fn visit_atom(&self, a: &Atom) -> Self::Output {
@@ -82,8 +82,8 @@ impl Visitor for CoalescingSpanVisitor {
         Span::coalesce_span(&span_vec)
     }
 
-    fn visit_syntax_rules(&self, _l: &super::ast::SyntaxRules) -> Self::Output {
-        panic!("Unexpected syntax rules found in span visitor");
+    fn visit_syntax_rules(&self, l: &super::ast::SyntaxRules) -> Self::Output {
+        l.location.span
     }
 
     fn visit_set(&self, s: &super::ast::Set) -> Self::Output {

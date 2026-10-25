@@ -100,8 +100,8 @@
   (define contents (file->string path))
 
   (let ([output (open-output-file dest)])
-    (define parser (parser contents))
-    (let loop ([mdparser parser] [sink output])
+    (define md-parser (parser contents))
+    (let loop ([mdparser md-parser] [sink output])
       (define next (parser-next mdparser))
       (when next
         (display (event->html-string next) sink)
@@ -113,8 +113,8 @@
   (define contents (file->string path))
 
   (let ([output (open-output-string)])
-    (define parser (parser contents))
-    (let loop ([mdparser parser] [sink output])
+    (define md-parser (parser contents))
+    (let loop ([mdparser md-parser] [sink output])
       (define next (parser-next mdparser))
       (when next
         (display (event->html-string next) sink)
@@ -150,8 +150,8 @@
   (define contents (file->string path))
 
   (let ([output (open-output-string)])
-    (define parser (parser contents))
-    (let loop ([mdparser parser] [sink output] [language #f])
+    (define md-parser (parser contents))
+    (let loop ([mdparser md-parser] [sink output] [language #f])
       (define next (parser-next mdparser))
       ; (displayln language)
       (when next

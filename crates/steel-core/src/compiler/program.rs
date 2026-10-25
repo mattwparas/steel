@@ -659,6 +659,7 @@ define_symbols! {
     ONLY_IN => "only-in",
     DATUM_SYNTAX => "datum->syntax",
     SYNTAX_SPAN => "#%syntax-span",
+    QUASISYNTAX_LOWERED => "#%quasisyntax",
     IF => "if",
     DEFINE => "define",
     LET => "let",

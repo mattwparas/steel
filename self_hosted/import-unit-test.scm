@@ -1,3 +1,3 @@
-(require "unit-test.rkt" (for-syntax "unit-test.rkt"))
+(require "unit-test.rkt")
 
 (check-equal? "test" 10 10)

@@ -3069,6 +3069,7 @@ impl JIT {
             deopt_return_block: None,
             frameless,
             frameless_bail: false,
+            reads_undefined_global: false,
             frameless_calls: 0,
             checked_native_block: None,
             pending_deopt_exits: Vec::new(),
@@ -3236,6 +3237,7 @@ impl JIT {
         };
         let direct_self_calls = trans.direct_self_calls;
         let frameless_bail = trans.frameless_bail;
+        let reads_undefined_global = trans.reads_undefined_global;
         let cursor_bailed = trans.cursor_bail
             || (trans.cursors_on && (trans.cursor_advances == 0 || trans.cursor_carries == 0));
         let strip_mine_bailed = trans.strip.as_ref().is_some_and(|strip| !strip.applied);
@@ -3279,6 +3281,10 @@ impl JIT {
 
         if frameless_bail {
             return Err("frameless: body needs a frame".to_string());
+        }
+
+        if reads_undefined_global {
+            return Err("reads a global that isn't defined yet".to_string());
         }
 
         Ok(TranslateInfo {
@@ -4158,6 +4164,10 @@ struct FunctionTranslator<'a> {
     /// A frameless copy met something it can't compile without a frame, so the
     /// whole translation is abandoned.
     frameless_bail: bool,
+    /// The function reads a global that isn't defined yet, which the interpreter
+    /// reports when it's read. A global defined now stays defined, so reads of
+    /// those need no check.
+    reads_undefined_global: bool,
     /// Self calls emitted as frameless calls, so a call arm can tell whether
     /// it took the frameless path.
     frameless_calls: usize,
@@ -12972,6 +12982,14 @@ impl FunctionTranslator<'_> {
     // 1. Probably need to check the length, slow path otherwise
     // 2. Should figure out a better way of doing things.
     fn inline_lookup_global(&mut self, payload: usize) -> Value {
+        if !self
+            ._globals
+            .get(payload)
+            .is_some_and(|value| !crate::env::is_undefined_global(value))
+        {
+            self.reads_undefined_global = true;
+        }
+
         let vm_ctx = self.get_ctx();
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
@@ -12995,11 +13013,11 @@ impl FunctionTranslator<'_> {
                 .ins()
                 .load(types::I32, MemFlagsData::trusted(), env_pointer, 4);
 
-        // if the index > the length, return void
+        // Past the end, which a global defined when the function was compiled never is
         let test = self
             .builder
             .ins()
-            .icmp(IntCC::SignedGreaterThan, index, vector_length);
+            .icmp(IntCC::UnsignedGreaterThanOrEqual, index, vector_length);
 
         self.converging_if(
             test,

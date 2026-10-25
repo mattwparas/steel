@@ -6,11 +6,11 @@ use crate::{
     parser::{
         ast::{Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::{
-            expand_kernel_in_env, expand_kernel_in_env_with_change, ExpanderMany, GlobalMap,
-            RequiredMacroMap,
+            expand_kernel_in_env, expand_kernel_in_envs, expand_kernel_in_module_env, ExpanderMany,
+            GlobalMap, RequiredKernelMacros, RequiredMacroMap,
         },
         interner::InternedString,
-        kernel::Kernel,
+        kernel::{Kernel, MacroModule, Phase1Import, RenameInstance},
         parser::{
             lower_entire_ast, lower_macro_and_require_definitions, ParseError, Parser, Sources,
             SyntaxObject,
@@ -49,6 +49,7 @@ use crate::time::SystemTime;
 
 use crate::parser::expand_visitor::{
     define_generated_macros, expand, extract_macro_defs, lift_macro_defs_from_begins,
+    MacroRedefinitions,
 };
 
 use super::{
@@ -58,7 +59,7 @@ use super::{
         begin::FlattenBegin,
         mangle::{collect_globals, NameMangler},
     },
-    program::{FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
+    program::{BEGIN, FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
 
 macro_rules! time {
@@ -148,8 +149,6 @@ create_prelude!(
     "#%private/steel/sort",
     "#%private/steel/streams",
     "#%private/steel/transducers",
-    for_syntax "#%private/steel/control",
-    for_syntax "#%private/steel/contract"
 );
 
 /// Takes a fully qualified path, and resolves it to a relative path,
@@ -406,6 +405,8 @@ pub struct ModuleManager {
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
     rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
+    // The phase 0 code modules kept when the last compile began
+    rollback_deferred: crate::HashMap<PathBuf, ExprKind>,
     // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 
@@ -430,6 +431,7 @@ impl ModuleManager {
             visited: FxHashSet::default(),
             custom_builtins: HashMap::new(),
             rollback_metadata: crate::HashMap::new(),
+            rollback_deferred: crate::HashMap::new(),
             module_resolvers: Vec::new(),
             prelude_string: Cow::Borrowed(PRELUDE_STRING),
             origins: ModuleOrigins::default(),
@@ -511,6 +513,7 @@ impl ModuleManager {
 
     pub(crate) fn rollback_metadata(&mut self) {
         self.file_metadata = self.rollback_metadata.clone();
+        self.compiled_modules.deferred = self.rollback_deferred.clone();
     }
 
     // #[allow(unused)]
@@ -523,6 +526,7 @@ impl ModuleManager {
         path: Option<PathBuf>,
         builtin_modules: ModuleContainer,
         lifted_kernel_environments: &mut HashMap<String, KernelDefMacroSpec>,
+        phase1_imports: &mut Vec<Phase1Import>,
         lifted_macro_environments: &mut HashMap<PathBuf, HashSet<InternedString>>,
         search_dirs: &[PathBuf],
         global_map: &FxHashMap<InternedString, usize>,
@@ -531,13 +535,25 @@ impl ModuleManager {
         self.visited.clear();
 
         self.rollback_metadata = self.file_metadata.clone();
+        self.rollback_deferred = self.compiled_modules.deferred.clone();
 
         // TODO
         // This is also explicitly wrong -> we should separate the global macro map from the macros found locally in this module
         // For instance, (cond) is global, but (define-syntax blagh) might be local to main
         // if a module then defines a function (blagh) that is used inside its scope, this would expand the macro in that scope
         // which we do not want
-        extract_macro_defs(&mut exprs, global_macro_map, global_map)?;
+        // What the program defines itself shadows what it requires
+        let mut redefinitions = MacroRedefinitions::default();
+        let mut defined: FxHashSet<InternedString> =
+            extract_macro_defs(&mut exprs, global_macro_map, &mut redefinitions)?
+                .into_iter()
+                .collect();
+
+        defined.extend(collect_globals(&exprs));
+        exprs.iter().for_each(|x| defined_names(x, &mut defined));
+        exprs
+            .iter()
+            .for_each(|x| crate::parser::expand_visitor::defined_macro_names(x, &mut defined));
 
         let mut module_builder = ModuleBuilder::main(
             path,
@@ -547,7 +563,7 @@ impl ModuleManager {
             &mut self.file_metadata,
             sources,
             kernel,
-            builtin_modules,
+            builtin_modules.clone(),
             global_macro_map,
             &self.custom_builtins,
             search_dirs,
@@ -566,7 +582,11 @@ impl ModuleManager {
 
         let mut explicit_requires = HashMap::new();
 
-        for require_object in &module_builder.require_objects {
+        for require_object in module_builder
+            .require_objects
+            .iter()
+            .filter(|x| !x.for_syntax)
+        {
             let path = require_object.path.get_path();
             explicit_requires.clear();
 
@@ -761,44 +781,156 @@ impl ModuleManager {
         let require_objects = core::mem::take(&mut module_builder.require_objects);
         drop(module_builder);
 
+        if let Some(kernel) = kernel.as_mut() {
+            let mut instantiated = FxHashMap::default();
+
+            for require_object in require_objects.iter().filter(|x| x.for_syntax) {
+                let path = require_object.path.get_path().into_owned();
+                let mut unused = Vec::new();
+                let (module, macros, _) = Self::find_in_scope_macros(
+                    &mut self.compiled_modules,
+                    Some(&mut *kernel),
+                    &path,
+                    require_object,
+                    &mut unused,
+                );
+
+                let procedural = procedural_for_syntax(kernel, module, require_object);
+
+                let instance = instantiate_for_syntax(
+                    kernel,
+                    &self.compiled_modules.compiled_modules,
+                    global_macro_map,
+                    &builtin_modules,
+                    require_object,
+                    true,
+                    &macros,
+                    &mut instantiated,
+                )?;
+
+                for import in instance.imports {
+                    phase1_imports.retain(|x| x.local != import.local);
+                    phase1_imports.push(import);
+                }
+
+                kernel.add_phase1_macros("top-level", macros, procedural, instance.renames);
+            }
+        }
+
         // TODO: Move this to the lower level as well
         // It seems we're only doing this expansion at the top level, but we _should_ do this at the lower level as well
-        for require_object in require_objects.iter()
-        // .filter(|x| x.for_syntax)
-        // .map(|x| x.path.get_path())
+        // With the macros its requires provide again, from the modules that define them
+        let reexported: Vec<RequireObject> = require_objects
+            .iter()
+            .filter(|x| !x.for_syntax)
+            .flat_map(|x| reexport_requires(&self.compiled_modules.compiled_modules, x))
+            .collect();
+
+        // The macros of each require, gathered first so the program is expanded a form at a
+        // time, and a macro one form's macros define hides the imported ones from there on
+        struct RequiredMacros {
+            path: PathBuf,
+            module_name: String,
+            in_scope_macros: FxHashMap<InternedString, SteelMacro>,
+            name_mangler: NameMangler,
+            exported: FxHashMap<InternedString, InternedString>,
+            private: HashSet<InternedString>,
+        }
+
+        let mut required = Vec::new();
+
+        for require_object in require_objects
+            .iter()
+            .filter(|x| !x.for_syntax)
+            .chain(reexported.iter())
         {
             let require_for_syntax = require_object.path.get_path();
 
-            let (module, in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
+            let (module, mut in_scope_macros, name_mangler) = Self::find_in_scope_macros(
                 &mut self.compiled_modules,
+                kernel.as_mut(),
                 require_for_syntax.as_ref(),
                 require_object,
                 &mut mangled_asts,
             );
 
-            // let kernel_macros_in_scope: HashSet<_> =
-            //     module.provides_for_syntax.iter().cloned().collect();
-
-            // let defmacros_exported: HashSet<_> = module.
-
-            // dbg!(&kernel_macros_in_scope);
+            in_scope_macros.retain(|name, _| !defined.contains(name));
 
             let module_name = module.name.to_str().unwrap().to_string();
 
-            if let Some(kernel) = kernel.as_mut() {
-                if kernel.exported_defmacros(&module_name).is_some() {
-                    lifted_kernel_environments.insert(
-                        module_name.clone(),
-                        KernelDefMacroSpec {
-                            _env: module_name.clone(),
-                            _exported: None,
-                            name_mangler: name_mangler.clone(),
-                        },
-                    );
+            for import in provided_phase1_bindings(kernel.as_ref(), module, require_object) {
+                if !phase1_imports.iter().any(|x| x.local == import.local) {
+                    phase1_imports.push(import);
                 }
             }
 
-            for expr in ast.iter_mut() {
+            let has_kernel_macros = kernel
+                .as_ref()
+                .is_some_and(|kernel| kernel.has_procedural_macros(&module_name));
+
+            let exported = provided_kernel_macros(kernel.as_ref(), module, require_object);
+
+            // A procedural macro required again replaces a macro of its name defined since
+            for name in exported.keys() {
+                if !defined.contains(name) {
+                    crate::parser::expand_visitor::remove_macro(global_macro_map, name);
+                }
+            }
+
+            // Even with none provided, the module's macros can expand to its private ones
+            if has_kernel_macros {
+                let exported = exported.clone();
+
+                lifted_kernel_environments
+                    .entry(module_name.clone())
+                    .or_insert_with(|| KernelDefMacroSpec {
+                        _env: module_name.clone(),
+                        exported: FxHashMap::default(),
+                        name_mangler: name_mangler.clone(),
+                    })
+                    .exported
+                    .extend(exported);
+            }
+
+            // Code here can't use the macros it keeps private, which its own macros name by
+            // its prefix
+            let prefix = module.prefix();
+            let provided = provided_names(module);
+            let private: HashSet<InternedString> = module
+                .macro_map
+                .keys()
+                .filter(|name| !provided.contains(*name))
+                .filter(|name| !name.resolve().starts_with(prefix.as_str()))
+                .copied()
+                .collect();
+
+            required.push(RequiredMacros {
+                path: module.name.clone(),
+                module_name,
+                in_scope_macros,
+                name_mangler,
+                exported,
+                private,
+            });
+        }
+
+        // Their procedural macros and the program's own get their arguments as written
+        let _procedural = crate::parser::expand_visitor::ProceduralHeads::set(
+            lifted_kernel_environments
+                .values()
+                .flat_map(|x| x.exported.keys().copied())
+                .chain(
+                    kernel
+                        .as_ref()
+                        .map(|kernel| kernel.procedural_names("top-level"))
+                        .unwrap_or_default(),
+                )
+                .collect(),
+            &ast,
+        );
+
+        for expr in ast.iter_mut() {
+            for index in 0..required.len() {
                 // @matt 12/8/2023
                 // The easiest thing to do here, is to go to the other module, and find
                 // what defmacros have been exposed on the require for syntax. Once those
@@ -813,53 +945,84 @@ impl ModuleManager {
                 // frontend before the defmacro style macros become too pervasive.
                 //
                 // TODO: Replicate this behavior over to builtin modules
+                let RequiredMacros {
+                    path,
+                    module_name,
+                    in_scope_macros,
+                    name_mangler,
+                    exported,
+                    ..
+                } = &mut required[index];
 
                 let exclusions = HashSet::new();
 
                 // First expand the in scope macros
                 // These are macros
                 let mut expander = Expander::new(
-                    &in_scope_macros,
+                    in_scope_macros,
                     &exclusions,
                     GlobalMap::Set(&name_mangler.globals),
                 );
                 expander.expand(expr)?;
-                let changed = false;
 
-                if expander.changed || changed {
-                    let _source_id = sources.get_source_id(&module.name).unwrap();
+                if !expander.changed {
+                    continue;
+                }
 
-                    // let mut fully_expanded = first_round_expanded;
+                let _source_id = sources.get_source_id(path).unwrap();
 
-                    expand(
-                        expr,
-                        &module.macro_map,
-                        GlobalMap::Set(&name_mangler.globals), // source_id,
-                    )?;
+                // What they expand to names the module's other macros by its prefix
+                expand(
+                    expr,
+                    in_scope_macros,
+                    GlobalMap::Set(&name_mangler.globals), // source_id,
+                )?;
 
-                    // Expanding the kernel with only these macros...
-                    let changed = expand_kernel_in_env_with_change(
-                        expr,
-                        kernel.as_mut(),
-                        // We don't need to expand those here
-                        ModuleContainer::default(),
-                        &module_name,
-                        GlobalMap::Set(&name_mangler.globals),
-                    )?;
+                // Expanding the kernel with only these macros...
+                expand_kernel_in_module_env(
+                    expr,
+                    kernel.as_mut(),
+                    // We don't need to expand those here
+                    ModuleContainer::default(),
+                    module_name,
+                    Some(exported),
+                    name_mangler,
+                )?;
 
-                    if changed {
-                        name_mangler.visit(expr);
+                let mut generated = FxHashSet::default();
+                crate::parser::expand_visitor::defined_macro_names(expr, &mut generated);
+
+                for name in generated {
+                    if defined.insert(name) {
+                        for other in required.iter_mut() {
+                            other.in_scope_macros.remove(&name);
+                            other.exported.remove(&name);
+                        }
                     }
                 }
             }
+        }
 
+        for RequiredMacros {
+            path,
+            in_scope_macros,
+            mut private,
+            ..
+        } in required
+        {
             // Global macro map - also need to expand with ALL macros
             // post expansion in the target environment, which means we can't _just_
             // extend the global macro map with the target in scope macros, we need to
             // do something like the two pass expansion
-            global_macro_map.extend(in_scope_macros);
+            // An imported macro named like a prelude one keeps the prelude's for its templates
+            for (name, m) in in_scope_macros {
+                crate::parser::expand_visitor::define_macro(global_macro_map, name, m);
+            }
 
-            lifted_macro_environments.insert(module.name.clone(), Default::default());
+            // Nor the macros the program shadows with definitions of its own
+            private.extend(defined.iter().copied());
+
+            lifted_macro_environments.insert(path, private);
         }
 
         // Include the defines from the modules now imported
@@ -872,10 +1035,18 @@ impl ModuleManager {
 
         time!("Top level macro evaluation time", {
             for expr in module_statements.iter_mut() {
+                if redefinitions.reached(global_macro_map, expr) {
+                    continue;
+                }
+
+                if let ExprKind::List(l) = expr {
+                    crate::parser::expand_visitor::forget_replaced_macro(global_macro_map, l);
+                }
+
                 let found_in_scope = expand(expr, global_macro_map, GlobalMap::Map(global_map))?;
 
                 for item in found_in_scope.iter() {
-                    global_macro_map.remove(item);
+                    crate::parser::expand_visitor::remove_macro(global_macro_map, item);
 
                     for (_, shadowed_vars) in lifted_macro_environments.iter_mut() {
                         // If this was recently shadowed, then we don't want it any more.
@@ -883,6 +1054,8 @@ impl ModuleManager {
                     }
                 }
             }
+
+            redefinitions.finish(global_macro_map);
         });
 
         Ok(module_statements)
@@ -890,6 +1063,7 @@ impl ModuleManager {
 
     fn find_in_scope_macros<'a>(
         compiled_modules: &'a mut CompiledModuleCache,
+        mut kernel: Option<&mut Kernel>,
         require_for_syntax: &'a PathBuf,
         require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
@@ -915,6 +1089,7 @@ impl ModuleManager {
             module
                 .require_objects
                 .iter()
+                .filter(|x| !x.for_syntax)
                 .flat_map(|x| x.as_identifiers()),
         );
 
@@ -922,7 +1097,7 @@ impl ModuleManager {
             .require_objects
             .iter()
             .filter_map(|x| {
-                if x.idents_to_import.is_empty() {
+                if x.idents_to_import.is_empty() && !x.for_syntax {
                     Some(x.path.get_path().into_owned())
                 } else {
                     None
@@ -930,7 +1105,44 @@ impl ModuleManager {
             })
             .collect::<Vec<_>>();
 
-        // drop(module);
+        let requires: Vec<RequireObject> = module
+            .require_objects
+            .iter()
+            .filter(|x| !x.for_syntax)
+            .cloned()
+            .collect();
+
+        let module_name = module.name.to_str().unwrap_or_default().to_owned();
+
+        // The macros it imports, which its code names by its prefix, unless it defines the
+        // same names itself
+        let mut rules = FxHashMap::default();
+        let mut procedural = FxHashMap::default();
+        let mut own = collect_globals(&module.ast);
+        own.extend(module.own_macros.iter().copied());
+
+        for required in &requires {
+            let Some(other) = compiled_modules
+                .compiled_modules
+                .get(required.path.get_path().as_ref())
+            else {
+                continue;
+            };
+
+            for (local, name) in as_required(&provided_names(other), required) {
+                if let Some(m) = other.macro_map.get(&name).filter(|_| !own.contains(&local)) {
+                    rules.insert(local, m.clone());
+                }
+            }
+
+            let environment = other.name.to_str().unwrap_or_default().to_owned();
+
+            for (local, name) in provided_kernel_macros(kernel.as_deref(), other, required) {
+                if !own.contains(&local) {
+                    procedural.insert(local, (environment.clone(), name));
+                }
+            }
+        }
 
         for importing_module in modules_to_check {
             let other_module = compiled_modules
@@ -957,7 +1169,7 @@ impl ModuleManager {
             .get_mut(require_for_syntax)
             .unwrap_or_else(|| panic!("Module missing!: {:?}", require_for_syntax));
 
-        let mut name_mangler = NameMangler::new(globals, prefix);
+        let mut name_mangler = NameMangler::new(globals, prefix.clone());
 
         // If the module hasn't been emitted already, then include it here
         if !module.emitted {
@@ -967,6 +1179,33 @@ impl ModuleManager {
 
             mangled_asts.append(&mut module_ast);
         }
+
+        // Its code names the macros it imports and the procedural ones it defines by its
+        // prefix, under the names it imports them as
+        let own_procedural = kernel
+            .as_deref()
+            .and_then(|kernel| kernel.exported_defmacros(&module_name))
+            .unwrap_or_default();
+
+        procedural.extend(
+            own_procedural
+                .iter()
+                .map(|name| (*name, (module_name.clone(), *name))),
+        );
+
+        name_mangler.add_macros(procedural.keys().chain(rules.keys()).copied());
+
+        // Its templates name its own syntax-rules macros by its prefix too, so a macro of the
+        // same name where they're used can't take their place. Its macros are also found
+        // under those names.
+        let own_rules: Vec<InternedString> = module
+            .macro_map
+            .iter()
+            .filter(|(name, m)| !m.special_mangled && module.own_macros.contains(*name))
+            .map(|(name, _)| *name)
+            .collect();
+
+        name_mangler.add_macros(own_rules.iter().copied());
 
         {
             let mut should_mangle = false;
@@ -987,6 +1226,16 @@ impl ModuleManager {
                         smacro.mark_definition_resolved();
                     }
                 }
+
+                let aliases: Vec<(InternedString, SteelMacro)> = own_rules
+                    .iter()
+                    .filter_map(|name| {
+                        let m = module.macro_map.get(name)?.clone();
+                        Some(((prefix.clone() + name.resolve()).into(), m))
+                    })
+                    .collect();
+
+                Arc::make_mut(&mut module.macro_map).extend(aliases);
             }
         }
 
@@ -1021,13 +1270,16 @@ impl ModuleManager {
         // If the require_object specifically imports things, we should reference it
 
         if !require_object.idents_to_import.is_empty() {
+            // Only the macros it names
+            let provided = core::mem::take(&mut in_scope_macros);
+
             for maybe in &require_object.idents_to_import {
                 match maybe {
                     MaybeRenamed::Normal(n) => {
                         if let Some(ident) = n.atom_identifier() {
                             // If the macro is not provided, we should
                             // not bring it in
-                            if !in_scope_macros.contains_key(ident) {
+                            if !provided.contains_key(ident) {
                                 continue;
                             }
 
@@ -1057,7 +1309,7 @@ impl ModuleManager {
                                 // in_scope_macros.insert(*to.atom_identifier().unwrap(), m);
 
                                 if let Some(ident) = from.atom_identifier() {
-                                    if in_scope_macros.remove(ident).is_none() {
+                                    if !provided.contains_key(ident) {
                                         continue;
                                     }
                                 }
@@ -1104,11 +1356,45 @@ impl ModuleManager {
             }
         }
 
-        // Check what macros are in scope here
-        // println!(
-        //     "In scope macros: {:#?}",
-        //     in_scope_macros.keys().collect::<Vec<_>>()
-        // );
+        // The syntax-rules macros it imports, which its templates name by its prefix as
+        // they do its globals
+        let imported: Vec<(InternedString, SteelMacro)> = rules
+            .iter()
+            .map(|(local, m)| ((prefix.clone() + local.resolve()).into(), m.clone()))
+            .filter(|(alias, _)| !module.macro_map.contains_key(alias))
+            .collect();
+
+        if !imported.is_empty() {
+            Arc::make_mut(&mut module.macro_map).extend(imported);
+        }
+
+        // The prefixed names its macros expand to, for the code that uses them
+        in_scope_macros.extend(
+            module
+                .macro_map
+                .iter()
+                .filter(|(name, _)| name.resolve().starts_with(prefix.as_str()))
+                .map(|(name, m)| (*name, m.clone())),
+        );
+
+        rules.extend(
+            own_rules
+                .iter()
+                .filter_map(|name| Some((*name, module.macro_map.get(name)?.clone()))),
+        );
+
+        if let Some(kernel) = kernel.as_deref_mut() {
+            kernel.add_macro_module(
+                prefix,
+                MacroModule {
+                    environment: module_name,
+                    mangler: name_mangler.clone(),
+                    rules,
+                    procedural,
+                },
+            );
+        }
+
         (module, in_scope_macros, name_mangler)
     }
 }
@@ -1131,6 +1417,54 @@ pub struct CompiledModule {
     downstream_builtins: Vec<PathBuf>,
 
     pub(crate) compiled_ast: Option<ExprKind>,
+    // The syntax-rules macros it defines, where the others in its macro map are the prelude's
+    #[serde(default)]
+    own_macros: FxHashSet<InternedString>,
+    // The macros it imports and provides again
+    #[serde(default)]
+    reexports: Vec<Reexport>,
+}
+
+// A macro a module provides that another module defines
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Reexport {
+    source: PathOrBuiltIn,
+    // Its name where it's defined
+    name: InternedString,
+    // The name the module provides it as
+    provided: InternedString,
+}
+
+// What a module requiring another needs to find the macros the other one provides again,
+// a require of each defining module for those macros only
+fn reexport_requires(
+    modules: &crate::HashMap<PathBuf, CompiledModule>,
+    require_object: &RequireObject,
+) -> Vec<RequireObject> {
+    let Some(module) = modules.get(require_object.path.get_path().as_ref()) else {
+        return Vec::new();
+    };
+
+    let provided: FxHashSet<InternedString> = module.reexports.iter().map(|x| x.provided).collect();
+
+    as_required(&provided, require_object)
+        .into_iter()
+        .filter_map(|(local, provided)| {
+            let reexport = module.reexports.iter().find(|x| x.provided == provided)?;
+
+            Some(RequireObject {
+                path: reexport.source.clone(),
+                for_syntax: false,
+                idents_to_import: vec![MaybeRenamed::Renamed(
+                    ExprKind::atom(reexport.name),
+                    ExprKind::atom(local),
+                )],
+                prefix: None,
+                span: require_object.span,
+                except: Vec::new(),
+            })
+        })
+        .collect()
 }
 
 pub static MANGLER_PREFIX: &str = "##mm";
@@ -1194,6 +1528,8 @@ impl CompiledModule {
             downstream,
             downstream_builtins,
             compiled_ast: None,
+            own_macros: FxHashSet::default(),
+            reexports: Vec::new(),
         }
     }
 
@@ -1262,7 +1598,7 @@ impl CompiledModule {
         let mut explicit_requires = HashMap::new();
 
         // TODO: This is the same as the top level, they should be merged
-        for require_object in &self.require_objects {
+        for require_object in self.require_objects.iter().filter(|x| !x.for_syntax) {
             let path = require_object.path.get_path();
 
             explicit_requires.clear();
@@ -1518,18 +1854,18 @@ impl CompiledModule {
                                 // name_unmangler.unmangle_expr(provide);
                             }
                             unknown => {
-                                stop!(TypeMismatch => "bar provide expects either an identifier, (for-syntax <ident>), or (contract/out ...), found: {}", unknown)
+                                stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...), found: {}", unknown; l.location)
                             }
                         }
                     } else {
-                        stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)")
+                        stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)"; l.location)
                     }
                 }
                 ExprKind::Atom(_) => {
                     continue;
                 }
-                _ => {
-                    stop!(TypeMismatch => "provide expression needs to either be a `contract/out` form or an identifier")
+                other => {
+                    stop!(TypeMismatch => "provide expression needs to either be a `contract/out` form or an identifier"; other.span())
                 }
             }
         }
@@ -1754,6 +2090,9 @@ pub struct RequireObject {
     pub idents_to_import: Vec<MaybeRenamed>,
     pub prefix: Option<String>,
     pub span: Span,
+    // Left out by except-in, until the module's provides are known
+    #[serde(default)]
+    except: Vec<Excluded>,
 }
 
 impl RequireObject {
@@ -1796,6 +2135,17 @@ struct RequireObjectBuilder {
     // Built up prefix
     prefix: Option<String>,
     span: Span,
+    except: Vec<Excluded>,
+}
+
+// A name an except-in leaves out
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Excluded {
+    name: InternedString,
+    // The prefix the name is written with there
+    prefix: String,
+    // Whether it leaves it out of an only-in inside it, rather than all the module provides
+    of_only_in: bool,
 }
 
 impl RequireObjectBuilder {
@@ -1810,6 +2160,7 @@ impl RequireObjectBuilder {
             idents_to_import: self.idents_to_import,
             prefix: self.prefix,
             span: self.span,
+            except: self.except,
         })
     }
 }
@@ -1876,6 +2227,8 @@ impl DependencyGraph {
 pub(crate) struct CompiledModuleCache {
     cache_dir: Option<Arc<PathBuf>>,
     compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
+    // The phase 0 code of modules only required for syntax so far, run once one is required
+    deferred: crate::HashMap<PathBuf, ExprKind>,
 }
 
 // impl Drop for ModuleManager {
@@ -2046,6 +2399,7 @@ impl CompiledModuleCache {
         Self {
             cache_dir: Some(cache_dir),
             compiled_modules,
+            deferred: crate::HashMap::default(),
         }
     }
 
@@ -2054,6 +2408,7 @@ impl CompiledModuleCache {
         Self {
             cache_dir: None,
             compiled_modules,
+            deferred: crate::HashMap::default(),
         }
     }
 
@@ -2092,9 +2447,36 @@ impl CompiledModuleCache {
 //     }
 // }
 
+// The phase 0 code a module kept while it was only required for syntax, after that of the
+// modules it requires
+fn emit_deferred(cache: &mut CompiledModuleCache, path: &PathBuf, new_exprs: &mut Vec<ExprKind>) {
+    if let Some(expr) = cache.deferred.remove(path) {
+        let requires = cache
+            .compiled_modules
+            .get(path)
+            .map(|module| {
+                module
+                    .downstream_builtins
+                    .iter()
+                    .chain(&module.downstream)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        for required in &requires {
+            emit_deferred(cache, required, new_exprs);
+        }
+
+        new_exprs.push(expr);
+    }
+}
+
 struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
+    // Only required for syntax, so its phase 0 code waits until something requires it
+    for_syntax_only: bool,
     source_ast: Vec<ExprKind>,
     local_macros: FxHashSet<InternedString>,
     macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
@@ -2117,6 +2499,564 @@ struct ModuleBuilder<'a> {
     origins: &'a mut ModuleOrigins,
 }
 
+// The names a program's top level defines, before its defines are parsed
+fn defined_names(expr: &ExprKind, names: &mut FxHashSet<InternedString>) {
+    match expr {
+        ExprKind::Define(d) => names.extend(d.name.atom_identifier()),
+        ExprKind::Begin(b) => b.exprs.iter().for_each(|x| defined_names(x, names)),
+        ExprKind::List(l) if crate::parser::expand_visitor::is_define(l) => {
+            let name = match l.get(1) {
+                Some(ExprKind::List(f)) => f.args.first(),
+                name => name,
+            };
+
+            names.extend(name.and_then(ExprKind::atom_identifier));
+        }
+        ExprKind::List(l) if l.first_ident() == Some(&*BEGIN) => {
+            l.args.iter().skip(1).for_each(|x| defined_names(x, names))
+        }
+        _ => {}
+    }
+}
+
+// Whether a form expands to a definition of a macro, found by expanding a copy of it with the
+// syntax-rules macros, which only rewrite it. Only uses of macros whose templates define macros
+// are tried.
+fn defines_macros_when_expanded(
+    expr: &ExprKind,
+    expander: &ExpanderMany,
+    defining: &mut FxHashMap<InternedString, bool>,
+    globals: GlobalMap,
+) -> bool {
+    // A written definition keeps its place among them
+    let mut names = FxHashSet::default();
+    crate::parser::expand_visitor::defined_macro_names(expr, &mut names);
+
+    if !names.is_empty() {
+        return true;
+    }
+
+    // A procedural one with definitions in its transformer too
+    let written = expr.list().and_then(|l| l.first()).is_some_and(|head| {
+        matches!(
+            head,
+            ExprKind::Atom(Atom {
+                syn: SyntaxObject {
+                    ty: TokenType::DefineSyntax,
+                    ..
+                },
+            })
+        ) || head.atom_identifier().is_some_and(|x| {
+            matches!(
+                x.resolve(),
+                "define-syntax" | "define-syntax-rule" | "defmacro"
+            )
+        })
+    });
+
+    if written {
+        return true;
+    }
+
+    let Some(head) = expr.list().and_then(|l| l.first_ident()).copied() else {
+        return false;
+    };
+
+    let found = expander.map.get(&head).or_else(|| {
+        expander
+            .overlays
+            .iter()
+            .find_map(|x| x.map.in_scope_macros.get(&head))
+    });
+
+    let Some(found) = found else {
+        return false;
+    };
+
+    let defines = *defining.entry(head).or_insert_with(|| {
+        found.exprs().any(|template| {
+            let written = template.to_string();
+            written.contains("define-syntax") || written.contains("syntax-rules")
+        })
+    });
+
+    if !defines {
+        return false;
+    }
+
+    let mut trial = expr.clone();
+
+    let expanded = (|| -> Result<()> {
+        for _ in 0..2 {
+            expand(&mut trial, expander.map, globals)?;
+
+            for overlay in expander.overlays.iter() {
+                let exclusions = HashSet::new();
+                Expander::new(&overlay.map.in_scope_macros, &exclusions, globals)
+                    .expand(&mut trial)?;
+            }
+        }
+
+        Ok(())
+    })();
+
+    let mut names = FxHashSet::default();
+    crate::parser::expand_visitor::defined_macro_names(&trial, &mut names);
+
+    expanded.is_ok() && !names.is_empty()
+}
+
+// The names a module provides
+fn provided_names(module: &CompiledModule) -> FxHashSet<InternedString> {
+    module
+        .provides
+        .iter()
+        .filter_map(ExprKind::list)
+        .flat_map(|x| x.args.iter().skip(1))
+        .filter_map(ExprKind::atom_identifier)
+        .chain(module.provides_for_syntax.iter())
+        .copied()
+        .collect()
+}
+
+// The procedural macros a module required for syntax gives transformer code, with the
+// environment and name they have there
+// The module's own macros can make begin-for-syntax forms, which have to be found before
+// its transformers are loaded. Only the uses that make one are expanded this early.
+fn expand_phase1_forms(
+    ast: &mut [ExprKind],
+    macro_map: &FxHashMap<InternedString, SteelMacro>,
+) -> Result<()> {
+    let makes_phase1 = macro_map.values().any(|m| {
+        m.cases
+            .iter()
+            .any(|case| case.body.to_string().contains("begin-for-syntax"))
+    });
+
+    if !makes_phase1 {
+        return Ok(());
+    }
+
+    let globals = collect_globals(ast);
+
+    for expr in ast.iter_mut() {
+        let uses_macro = expr
+            .list()
+            .and_then(|l| l.first_ident())
+            .is_some_and(|name| macro_map.contains_key(name));
+
+        if uses_macro {
+            let mut expanded = expr.clone();
+            expand(&mut expanded, macro_map, GlobalMap::Set(&globals))?;
+
+            if crate::parser::kernel::has_phase1(&expanded) {
+                *expr = expanded;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn procedural_for_syntax(
+    kernel: &Kernel,
+    module: &CompiledModule,
+    require_object: &RequireObject,
+) -> FxHashMap<InternedString, (String, InternedString)> {
+    let environment = module.name.to_str().unwrap_or_default().to_owned();
+
+    provided_kernel_macros(Some(kernel), module, require_object)
+        .into_iter()
+        .map(|(local, name)| (local, (environment.clone(), name)))
+        .collect()
+}
+
+// The procedural macros a module provides to a require, by the names they're required as
+fn provided_kernel_macros(
+    kernel: Option<&Kernel>,
+    module: &CompiledModule,
+    require_object: &RequireObject,
+) -> FxHashMap<InternedString, InternedString> {
+    let Some(defined) =
+        kernel.and_then(|kernel| kernel.exported_defmacros(module.name.to_str().unwrap()))
+    else {
+        return FxHashMap::default();
+    };
+
+    let provided: FxHashSet<InternedString> = module
+        .provides
+        .iter()
+        .filter_map(ExprKind::list)
+        .flat_map(|x| x.args.iter().skip(1))
+        .filter_map(ExprKind::atom_identifier)
+        .chain(module.provides_for_syntax.iter())
+        .filter(|name| defined.contains(*name))
+        .copied()
+        .collect();
+
+    as_required(&provided, require_object)
+}
+
+// The `begin-for-syntax` bindings a module provides to a require
+fn provided_phase1_bindings(
+    kernel: Option<&Kernel>,
+    module: &CompiledModule,
+    require_object: &RequireObject,
+) -> Vec<Phase1Import> {
+    let Some(kernel) = kernel else {
+        return Vec::new();
+    };
+
+    let environment = module.name.to_str().unwrap();
+
+    let provided: FxHashSet<InternedString> = module
+        .provides_for_syntax
+        .iter()
+        .filter(|name| kernel.defines_for_syntax(environment, name))
+        .copied()
+        .collect();
+
+    as_required(&provided, require_object)
+        .into_iter()
+        .map(|(local, name)| Phase1Import::for_syntax_binding(local, environment, name))
+        .collect()
+}
+
+static PHASE1_INSTANCES: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+// The prelude and the modules built into Steel have one phase 1 instance, shared by all
+// transformer code
+fn shared_at_phase1(module: &Path) -> bool {
+    let name = module.to_str().unwrap_or_default();
+    PRELUDE_MODULES.contains(&name) || BUILT_INS.iter().any(|x| x.0 == name)
+}
+
+struct CollectIdentifiers(FxHashSet<InternedString>);
+
+impl VisitorMutRefUnit for CollectIdentifiers {
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(name) = a.syn.ty.identifier() {
+            self.0.insert(*name);
+        }
+    }
+}
+
+struct CollectDefinitions(FxHashSet<InternedString>);
+
+impl VisitorMutRefUnit for CollectDefinitions {
+    fn visit_define(&mut self, define: &mut Define) {
+        if let Some(name) = define.name.atom_identifier() {
+            self.0.insert(*name);
+        }
+    }
+}
+
+// A module's instance for syntax
+struct ForSyntaxInstance {
+    imports: Vec<Phase1Import>,
+    // The code of the module and the modules it requires, under their own names
+    code: Vec<ExprKind>,
+    // The names the instance gave them, when it had to
+    renames: Vec<(String, String)>,
+    // The prefixes of the modules in `code`
+    prefixes: Vec<String>,
+}
+
+// Instantiates the module of a `for-syntax` require in the kernel, along with the modules it
+// requires, and returns the bindings it provides to transformer code. With `rename`, the
+// instance gets names of its own for those modules. Without it, it uses the modules' own
+// names, which is fine for a module's compile, since other modules get instances of their
+// own. `instantiated` are the modules this compile already has instances of.
+fn instantiate_for_syntax(
+    kernel: &mut Kernel,
+    modules: &crate::HashMap<PathBuf, CompiledModule>,
+    global_macro_map: &FxHashMap<InternedString, SteelMacro>,
+    host_modules: &ModuleContainer,
+    require_object: &RequireObject,
+    rename: bool,
+    macros: &FxHashMap<InternedString, SteelMacro>,
+    instantiated: &mut FxHashMap<PathBuf, String>,
+) -> Result<ForSyntaxInstance> {
+    if kernel.share_host_modules {
+        for module in host_modules.inner().values() {
+            kernel.share_module(module);
+        }
+    }
+
+    fn dependencies_first(
+        path: PathBuf,
+        modules: &crate::HashMap<PathBuf, CompiledModule>,
+        order: &mut Vec<PathBuf>,
+    ) {
+        if order.contains(&path) {
+            return;
+        }
+
+        // A builtin module's code uses the prelude without requiring it
+        let name = path.to_str().unwrap_or_default();
+
+        if BUILT_INS.iter().any(|x| x.0 == name) && !PRELUDE_MODULES.contains(&name) {
+            for prelude in PRELUDE_MODULES {
+                dependencies_first(PathBuf::from(*prelude), modules, order);
+            }
+        }
+
+        if let Some(module) = modules.get(&path) {
+            for required in module.require_objects.iter().filter(|x| !x.for_syntax) {
+                dependencies_first(required.path.get_path().into_owned(), modules, order);
+            }
+        }
+
+        order.push(path);
+    }
+
+    let path = require_object.path.get_path().into_owned();
+
+    let mut order = Vec::new();
+    dependencies_first(path.clone(), modules, &mut order);
+
+    let instance = PHASE1_INSTANCES.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+
+    // The module being compiled has one instance of each module, whichever of its
+    // requires reach it
+    let fresh: Vec<PathBuf> = order
+        .iter()
+        .filter(|x| !shared_at_phase1(x) && !instantiated.contains_key(*x))
+        .cloned()
+        .collect();
+
+    for path in &fresh {
+        if let Some(module) = modules.get(path) {
+            let prefix = module.prefix().to_string();
+            let renamed = if rename {
+                prefix.replacen(
+                    MANGLER_SEPARATOR,
+                    &format!("#phase1-{instance}{MANGLER_SEPARATOR}"),
+                    1,
+                )
+            } else {
+                prefix
+            };
+            instantiated.insert(path.clone(), renamed);
+        }
+    }
+
+    let prefixes: Vec<(String, String)> = order
+        .iter()
+        .filter(|x| rename && !shared_at_phase1(x))
+        .filter_map(|x| {
+            Some((
+                modules.get(x)?.prefix().to_string(),
+                instantiated.get(x)?.clone(),
+            ))
+        })
+        .collect();
+
+    let own_prefixes: Vec<String> = fresh
+        .iter()
+        .filter_map(|x| modules.get(x))
+        .map(|module| module.prefix().to_string())
+        .collect();
+
+    let mut code = Vec::new();
+    let mut own_code = Vec::new();
+    let mut shared = Vec::new();
+    let mut after_prelude = None;
+
+    for module_path in &order {
+        let Some(module) = modules.get(module_path) else {
+            continue;
+        };
+
+        let is_shared = shared_at_phase1(module_path);
+
+        if !is_shared && !fresh.contains(module_path) {
+            continue;
+        }
+
+        if is_shared
+            && (shared.contains(module_path)
+                || kernel.has_shared_instance(
+                    module_path,
+                    &format!("{MODULE_PREFIX}{}", module.prefix()),
+                ))
+        {
+            continue;
+        }
+
+        let mut expr = module
+            .clone()
+            .to_top_level_module(modules, global_macro_map)?;
+
+        if !PRELUDE_MODULES.contains(&module_path.to_str().unwrap_or_default()) {
+            after_prelude.get_or_insert(code.len());
+        }
+
+        if is_shared {
+            shared.push(module_path.clone());
+        } else {
+            own_code.push(expr.clone());
+
+            RenameInstance {
+                prefixes: &prefixes,
+            }
+            .visit(&mut expr);
+        }
+
+        code.push(expr);
+    }
+
+    // A builtin module's code names what the prelude provides as globals, which a program's
+    // prelude defines, so transformer code gets them too
+    let mut prelude = Vec::new();
+
+    for name in PRELUDE_MODULES {
+        let Some(module) = modules.get(&PathBuf::from(*name)) else {
+            continue;
+        };
+
+        let table = format!("{MODULE_PREFIX}{}", module.prefix());
+
+        if !shared.contains(&module.name) && !kernel.defines(&table) {
+            continue;
+        }
+
+        for provided in provided_names(module) {
+            if module.macro_map.contains_key(&provided) || kernel.defines(provided.resolve()) {
+                continue;
+            }
+
+            prelude.push(ExprKind::List(List::new(thin_vec![
+                ExprKind::ident("define"),
+                ExprKind::atom(provided),
+                ExprKind::List(List::new(thin_vec![
+                    ExprKind::ident("%proto-hash-get%"),
+                    ExprKind::ident(&table),
+                    ExprKind::Quote(Box::new(Quote::new(
+                        ExprKind::atom(provided),
+                        SyntaxObject::default(TokenType::Quote),
+                    ))),
+                ])),
+            ])));
+        }
+    }
+
+    let at = after_prelude.unwrap_or(code.len());
+    code.splice(at..at, prelude);
+
+    // The compiler drops a module's globals that nothing refers to, and only the macros'
+    // templates refer to some of them
+    let mut templates = CollectIdentifiers(FxHashSet::default());
+
+    for m in macros.values() {
+        for expr in m.clone().exprs_mut() {
+            templates.visit(expr);
+        }
+    }
+
+    let mut defined = CollectDefinitions(FxHashSet::default());
+
+    for expr in code.iter_mut() {
+        defined.visit(expr);
+    }
+
+    let mut kept = thin_vec![ExprKind::ident("list")];
+    let mut own_kept = thin_vec![ExprKind::ident("list")];
+
+    for name in templates.0 {
+        let renamed: InternedString = prefixes
+            .iter()
+            .find(|(from, _)| name.resolve().contains(from.as_str()))
+            .map(|(from, to)| name.resolve().replacen(from.as_str(), to, 1).into())
+            .unwrap_or(name);
+
+        if defined.0.contains(&renamed) {
+            kept.push(ExprKind::atom(renamed));
+            own_kept.push(ExprKind::atom(name));
+        }
+    }
+
+    code.push(ExprKind::List(List::new(kept)));
+    own_code.push(ExprKind::List(List::new(own_kept)));
+
+    kernel.instantiate(code, shared).map_err(|mut err| {
+        err.prepend_message(&format!(
+            "instantiating {} for syntax: ",
+            path.to_str().unwrap_or_default()
+        ));
+        err
+    })?;
+
+    let Some(module) = modules.get(&path) else {
+        return Ok(ForSyntaxInstance {
+            imports: Vec::new(),
+            code: own_code,
+            renames: prefixes,
+            prefixes: own_prefixes,
+        });
+    };
+
+    let table = prefixes
+        .iter()
+        .find(|(from, _)| *from == module.prefix().as_str())
+        .map(|(_, to)| format!("{MODULE_PREFIX}{to}"))
+        .unwrap_or_else(|| format!("{MODULE_PREFIX}{}", module.prefix()));
+
+    let provided: FxHashSet<InternedString> = module
+        .provides
+        .iter()
+        .filter_map(ExprKind::list)
+        .flat_map(|x| x.args.iter().skip(1))
+        .filter_map(|x| match x {
+            ExprKind::List(l) => l.second_ident(),
+            x => x.atom_identifier(),
+        })
+        .filter(|name| !module.macro_map.contains_key(*name))
+        .copied()
+        .collect();
+
+    Ok(ForSyntaxInstance {
+        imports: as_required(&provided, require_object)
+            .into_iter()
+            .map(|(local, name)| Phase1Import::provided(local, &table, name))
+            .collect(),
+        code: own_code,
+        renames: prefixes,
+        prefixes: own_prefixes,
+    })
+}
+
+// Names a module provides, by the names a require gives them
+fn as_required(
+    provided: &FxHashSet<InternedString>,
+    require_object: &RequireObject,
+) -> FxHashMap<InternedString, InternedString> {
+    let required: FxHashMap<InternedString, InternedString> =
+        if require_object.idents_to_import.is_empty() {
+            provided.iter().map(|name| (*name, *name)).collect()
+        } else {
+            require_object
+                .idents_to_import
+                .iter()
+                .filter_map(|maybe| match maybe {
+                    MaybeRenamed::Normal(n) => n.atom_identifier().map(|name| (*name, *name)),
+                    MaybeRenamed::Renamed(from, to) => {
+                        Some((*to.atom_identifier()?, *from.atom_identifier()?))
+                    }
+                })
+                .filter(|(_, name)| provided.contains(name))
+                .collect()
+        };
+
+    match &require_object.prefix {
+        Some(prefix) => required
+            .into_iter()
+            .map(|(local, name)| ((prefix.clone() + local.resolve()).into(), name))
+            .collect(),
+        None => required,
+    }
+}
+
 #[derive(Debug)]
 pub struct RequiredModuleMacros {
     pub module_key: PathBuf,
@@ -2124,6 +3064,8 @@ pub struct RequiredModuleMacros {
     pub module_macros: Arc<FxHashMap<InternedString, SteelMacro>>,
     pub in_scope_macros: FxHashMap<InternedString, SteelMacro>,
     pub name_mangler: NameMangler,
+    // The procedural macros the module provides, by the names they're required as
+    pub provided_kernel_macros: FxHashMap<InternedString, InternedString>,
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -2162,6 +3104,7 @@ impl<'a> ModuleBuilder<'a> {
         Ok(ModuleBuilder {
             name,
             main: true,
+            for_syntax_only: false,
             source_ast,
             local_macros: FxHashSet::default(),
             macro_map: default_prelude_macros(),
@@ -2252,8 +3195,16 @@ impl<'a> ModuleBuilder<'a> {
         // TODO include built ins here
         if self.require_objects.is_empty() && !self.main {
             // We're at a leaf, put into the cache
-            new_exprs.push(self.compile_module()?);
+            let expr = self.compile_module()?;
+            self.emit(&mut new_exprs, expr);
         } else {
+            let required_at_phase0: FxHashSet<PathBuf> = self
+                .require_objects
+                .iter()
+                .filter(|x| !x.for_syntax)
+                .map(|x| x.path.get_path().into_owned())
+                .collect();
+
             // TODO come back for parsing built ins
             for module in self
                 .require_objects
@@ -2265,11 +3216,17 @@ impl<'a> ModuleBuilder<'a> {
                 // Check to see if its in the cache first
                 // Otherwise go ahead and compile
                 // If we already have compiled this module, get it from the cache
-                if let Some(_m) = self.compiled_modules.compiled_modules.get(module.as_ref()) {
-                    // dbg!("Getting {:?} from the module cache", module);
-                    // println!("Already found in the cache: {:?}", module);
-                    // new_exprs.push(m.to_module_ast_node());
-                    // No need to do anything
+                let for_syntax_only =
+                    self.for_syntax_only || !required_at_phase0.contains(module.as_ref());
+
+                if self
+                    .compiled_modules
+                    .compiled_modules
+                    .contains_key(module.as_ref())
+                {
+                    if !for_syntax_only {
+                        emit_deferred(self.compiled_modules, module.as_ref(), &mut new_exprs);
+                    }
                     continue;
                 }
 
@@ -2314,6 +3271,8 @@ impl<'a> ModuleBuilder<'a> {
                     self.origins,
                 )?;
 
+                new_module.for_syntax_only = for_syntax_only;
+
                 // Walk the tree and compile any dependencies
                 // This will eventually put the module in the cache
                 let mut module_exprs = new_module.compile()?;
@@ -2322,13 +3281,15 @@ impl<'a> ModuleBuilder<'a> {
 
                 // Probably want to evaluate a module even if it has no provides?
                 if !new_module.provides.is_empty() {
-                    new_exprs.push(new_module.compile_module()?);
+                    let expr = new_module.compile_module()?;
+                    new_module.emit(&mut new_exprs, expr);
                 } else if !new_module
                     .compiled_modules
                     .compiled_modules
                     .contains_key(&new_module.name)
                 {
-                    new_exprs.push(new_module.compile_module()?);
+                    let expr = new_module.compile_module()?;
+                    new_module.emit(&mut new_exprs, expr);
                 }
             }
 
@@ -2365,6 +3326,9 @@ impl<'a> ModuleBuilder<'a> {
                     };
 
                 let mut downstream_validated = true;
+
+                let for_syntax_only =
+                    self.for_syntax_only || !required_at_phase0.contains(module.as_ref());
 
                 // We've established nothing has changed with this file
                 // Check to see if its in the cache first
@@ -2404,6 +3368,13 @@ impl<'a> ModuleBuilder<'a> {
                         }
 
                         if downstream_validated {
+                            if !for_syntax_only {
+                                emit_deferred(
+                                    self.compiled_modules,
+                                    module.as_ref(),
+                                    &mut new_exprs,
+                                );
+                            }
                             continue;
                         }
                     }
@@ -2429,6 +3400,8 @@ impl<'a> ModuleBuilder<'a> {
                     self.origins,
                 )?;
 
+                new_module.for_syntax_only = for_syntax_only;
+
                 // Walk the tree and compile any dependencies
                 // This will eventually put the module in the cache
                 let mut module_exprs = new_module.compile()?;
@@ -2437,7 +3410,8 @@ impl<'a> ModuleBuilder<'a> {
 
                 // If we need to, revisit because there are new provides
                 if !new_module.provides.is_empty() {
-                    new_exprs.push(new_module.compile_module()?);
+                    let expr = new_module.compile_module()?;
+                    new_module.emit(&mut new_exprs, expr);
                 // If the module hasn't yet been compiled, compile it anyway
                 } else if !new_module
                     .compiled_modules
@@ -2445,12 +3419,16 @@ impl<'a> ModuleBuilder<'a> {
                     .contains_key(&new_module.name)
                 {
                     // else if !new_module.compiled_modules.contains_key(&new_module.name) {
-                    new_exprs.push(new_module.compile_module()?);
+                    let expr = new_module.compile_module()?;
+                    new_module.emit(&mut new_exprs, expr);
                 } else if !downstream_validated {
-                    new_exprs.push(new_module.compile_module()?);
+                    let expr = new_module.compile_module()?;
+                    new_module.emit(&mut new_exprs, expr);
                 }
             }
         }
+
+        self.resolve_except_in()?;
 
         // log::info!("Compiling module: {:?} took {:?}", self.name, now.elapsed());
         // new_exprs.pretty_print();
@@ -2458,9 +3436,196 @@ impl<'a> ModuleBuilder<'a> {
         Ok(new_exprs)
     }
 
+    // Where a macro the module imports as `name` is defined
+    fn reexport(&self, name: &InternedString) -> Option<Reexport> {
+        let kernel = self.kernel.as_ref();
+
+        self.require_objects
+            .iter()
+            .filter(|x| !x.for_syntax)
+            .find_map(|require_object| {
+                let module = self
+                    .compiled_modules
+                    .compiled_modules
+                    .get(require_object.path.get_path().as_ref())?;
+
+                let defined = kernel
+                    .and_then(|kernel| kernel.exported_defmacros(module.name.to_str()?))
+                    .unwrap_or_default();
+
+                let imported = as_required(&provided_names(module), require_object);
+
+                if let Some(original) = imported.get(name) {
+                    if module.macro_map.contains_key(original) || defined.contains(original) {
+                        return Some(Reexport {
+                            source: require_object.path.clone(),
+                            name: *original,
+                            provided: *name,
+                        });
+                    }
+                }
+
+                // Provided again by the module it's required from
+                let provided: FxHashSet<InternedString> =
+                    module.reexports.iter().map(|x| x.provided).collect();
+                let original = as_required(&provided, require_object).remove(name)?;
+                let reexport = module.reexports.iter().find(|x| x.provided == original)?;
+
+                Some(Reexport {
+                    source: reexport.source.clone(),
+                    name: reexport.name,
+                    provided: *name,
+                })
+            })
+    }
+
+    // An except-in imports what the module provides, now that it's compiled, without the
+    // names it leaves out
+    fn resolve_except_in(&mut self) -> Result<()> {
+        for require_object in self.require_objects.iter_mut() {
+            if require_object.except.is_empty() {
+                continue;
+            }
+
+            let path = require_object.path.get_path().into_owned();
+
+            let Some(module) = self.compiled_modules.get(&path, self.sources) else {
+                continue;
+            };
+
+            let provided: Vec<MaybeRenamed> = module
+                .provides
+                .iter()
+                .filter_map(ExprKind::list)
+                .flat_map(|provide| provide.args.iter().skip(1))
+                .filter_map(|provide| {
+                    provide
+                        .atom_identifier()
+                        .or_else(|| provide.list().and_then(|x| x.second_ident()))
+                        .copied()
+                })
+                .chain(module.provides_for_syntax.iter().copied())
+                .chain(module.reexports.iter().map(|x| x.provided))
+                .map(|name| MaybeRenamed::Normal(ExprKind::atom(name)))
+                .collect();
+
+            let only_in = core::mem::take(&mut require_object.idents_to_import);
+
+            let local = |maybe: &MaybeRenamed| match maybe {
+                MaybeRenamed::Normal(name) => name.atom_identifier().copied(),
+                MaybeRenamed::Renamed(_, to) => to.atom_identifier().copied(),
+            };
+
+            // The name the module provides it under
+            let source = |maybe: &MaybeRenamed| match maybe {
+                MaybeRenamed::Normal(name) => name.atom_identifier().copied(),
+                MaybeRenamed::Renamed(from, _) => from.atom_identifier().copied(),
+            };
+
+            let written = |excluded: &Excluded, name: InternedString| {
+                excluded.name.resolve() == format!("{}{}", excluded.prefix, name.resolve())
+            };
+
+            // Each name has to be one the spec inside its except-in imports
+            for excluded in &require_object.except {
+                let inside = if excluded.of_only_in {
+                    &only_in
+                } else {
+                    &provided
+                };
+
+                if !inside
+                    .iter()
+                    .filter_map(local)
+                    .any(|name| written(excluded, name))
+                {
+                    stop!(BadSyntax => format!("except-in: {} isn't provided by {:?}", excluded.name, path); require_object.span);
+                }
+            }
+
+            // An only-in around an except-in can't name what the except-in left out
+            for excluded in require_object.except.iter().filter(|x| !x.of_only_in) {
+                if only_in
+                    .iter()
+                    .filter_map(source)
+                    .any(|name| written(excluded, name))
+                {
+                    stop!(BadSyntax => format!("only-in: {} is left out by the except-in inside it", excluded.name); require_object.span);
+                }
+            }
+
+            let candidates = if only_in.is_empty() {
+                provided
+            } else {
+                only_in
+            };
+
+            // What an except-in of an only-in inside it leaves out is by the name that only-in
+            // gives, otherwise by the name the module provides
+            let excluded = |x: &MaybeRenamed| {
+                require_object.except.iter().any(|excluded| {
+                    let name = if excluded.of_only_in {
+                        local(x)
+                    } else {
+                        source(x)
+                    };
+                    name.is_some_and(|name| written(excluded, name))
+                })
+            };
+
+            let mut imported: Vec<MaybeRenamed> =
+                candidates.into_iter().filter(|x| !excluded(x)).collect();
+
+            // An empty list means all of them, so nothing is a name no module provides
+            if imported.is_empty() {
+                imported.push(MaybeRenamed::Normal(ExprKind::atom("#%nothing")));
+            }
+
+            require_object.idents_to_import = imported;
+            require_object.except.clear();
+        }
+
+        Ok(())
+    }
+
+    // A module only required for syntax keeps its phase 0 code for when one requires it
+    fn emit(&mut self, new_exprs: &mut Vec<ExprKind>, expr: ExprKind) {
+        if self.for_syntax_only {
+            self.compiled_modules
+                .deferred
+                .insert(self.name.clone(), expr);
+        } else {
+            self.compiled_modules.deferred.remove(&self.name);
+            new_exprs.push(expr);
+        }
+    }
+
     // TODO: This should run again on itself, probably
     fn compile_module(&mut self) -> Result<ExprKind> {
+        if let Some(kernel) = self.kernel.as_mut() {
+            kernel.begin_compiling(self.name.to_str().unwrap().to_string());
+        }
+
+        let result = self.compile_this_module();
+
+        if let Some(kernel) = self.kernel.as_mut() {
+            kernel.end_compiling();
+        }
+
+        result
+    }
+
+    fn compile_this_module(&mut self) -> Result<ExprKind> {
         let mut ast = core::mem::take(&mut self.source_ast);
+
+        let mut own_names = collect_globals(&ast);
+        own_names.extend(self.local_macros.iter().copied());
+
+        // The procedural macros it defines too
+        let mut procedural = FxHashSet::default();
+        ast.iter()
+            .for_each(|x| crate::parser::expand_visitor::defined_macro_names(x, &mut procedural));
+        own_names.extend(procedural);
         let mut provides = core::mem::take(&mut self.provides);
         // Clone the requires... I suppose
         let requires = self.require_objects.clone();
@@ -2471,11 +3636,82 @@ impl<'a> ModuleBuilder<'a> {
         //     self.provides_for_syntax
         // );
 
+        expand_phase1_forms(&mut ast, &self.macro_map)?;
+
         let prev_length = ast.len();
 
         // Attempt extracting the syntax transformers from this module
         if let Some(kernel) = self.kernel.as_mut() {
-            kernel.load_syntax_transformers(&mut ast, self.name.to_str().unwrap().to_string())?
+            let mut imports: Vec<Phase1Import> = self
+                .require_objects
+                .iter()
+                .filter(|x| !x.for_syntax)
+                .filter_map(|require_object| {
+                    let module = self
+                        .compiled_modules
+                        .compiled_modules
+                        .get(require_object.path.get_path().as_ref())?;
+
+                    Some(provided_phase1_bindings(
+                        Some(&*kernel),
+                        module,
+                        require_object,
+                    ))
+                })
+                .flatten()
+                .collect();
+
+            let mut for_syntax = Vec::new();
+            let mut for_syntax_prefixes = Vec::new();
+            let mut phase1_macros = FxHashMap::default();
+            let mut phase1_procedural = FxHashMap::default();
+            let mut instantiated = FxHashMap::default();
+
+            for require_object in self.require_objects.iter().filter(|x| x.for_syntax) {
+                // Its macros, for the module's transformer code
+                let path = require_object.path.get_path().into_owned();
+                let mut unused = Vec::new();
+                let (module, macros, _) = ModuleManager::find_in_scope_macros(
+                    &mut self.compiled_modules,
+                    Some(&mut *kernel),
+                    &path,
+                    require_object,
+                    &mut unused,
+                );
+
+                phase1_procedural.extend(procedural_for_syntax(kernel, module, require_object));
+
+                let instance = instantiate_for_syntax(
+                    kernel,
+                    &self.compiled_modules.compiled_modules,
+                    self.global_macro_map,
+                    &self.builtin_modules,
+                    require_object,
+                    false,
+                    &macros,
+                    &mut instantiated,
+                )?;
+
+                imports.extend(instance.imports);
+                for_syntax.extend(instance.code);
+                for_syntax_prefixes.extend(instance.prefixes);
+                phase1_macros.extend(macros);
+            }
+
+            kernel.add_phase1_macros(
+                self.name.to_str().unwrap(),
+                phase1_macros,
+                phase1_procedural,
+                Vec::new(),
+            );
+
+            kernel.load_syntax_transformers(
+                &mut ast,
+                self.name.to_str().unwrap().to_string(),
+                &imports,
+                for_syntax,
+                for_syntax_prefixes,
+            )?
         };
 
         let loaded_syntax_transformers = prev_length != ast.len();
@@ -2513,8 +3749,6 @@ impl<'a> ModuleBuilder<'a> {
 
         if self.require_objects.is_empty() {
             for expr in ast.iter_mut() {
-                // println!("GETTING HERE: {}", expr);
-
                 // Remove from the local macros?
                 expand(expr, &self.macro_map, globals)?;
 
@@ -2529,7 +3763,6 @@ impl<'a> ModuleBuilder<'a> {
                     self.builtin_modules.clone(),
                     // Expanding macros in the environment?
                     self.name.to_str().unwrap(),
-                    globals,
                 )?;
 
                 expand(expr, &self.macro_map, globals)?;
@@ -2547,7 +3780,6 @@ impl<'a> ModuleBuilder<'a> {
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
                 self.name.to_str().unwrap(),
-                globals,
             )?;
             // })
         }
@@ -2571,20 +3803,35 @@ impl<'a> ModuleBuilder<'a> {
                 downstream_builtins.push(require_for_syntax.clone().into_owned());
             }
 
+            if require_object.for_syntax {
+                continue;
+            }
+
             // Stash this?
             let (module, in_scope_macros, name_mangler) = ModuleManager::find_in_scope_macros(
                 &mut self.compiled_modules,
+                self.kernel.as_mut(),
                 require_for_syntax.as_ref(),
                 require_object,
                 &mut mangled_asts,
             );
+
+            let module_name = module.name.to_str().unwrap().to_owned();
+            let mut provided_kernel_macros =
+                provided_kernel_macros(self.kernel.as_ref(), module, require_object);
+
+            // What the module defines itself shadows what it requires
+            let mut in_scope_macros = in_scope_macros;
+            in_scope_macros.retain(|name, _| !own_names.contains(name));
+            provided_kernel_macros.retain(|name, _| !own_names.contains(name));
 
             required_macros.push(RequiredModuleMacros {
                 module_key: require_for_syntax.clone().into_owned(),
                 module_macros: module.macro_map.clone(),
                 in_scope_macros,
                 name_mangler,
-                module_name: module.name.to_str().unwrap().to_owned(),
+                module_name,
+                provided_kernel_macros,
             });
 
             if require_object.idents_to_import.is_empty() {
@@ -2594,18 +3841,63 @@ impl<'a> ModuleBuilder<'a> {
                 {
                     for provide_expr in &m.provides {
                         // TODO: Handle provide spec stuff!
+                        // An import replaces a prelude macro of its name, not the module's own
                         for provide in &provide_expr.list().unwrap().args[1..] {
                             if let Some(ident) = provide.atom_identifier() {
-                                macro_map.remove(ident);
+                                if !own_names.contains(ident) {
+                                    crate::parser::expand_visitor::remove_macro(macro_map, ident);
+                                }
                             }
 
                             if let Some(list) = provide.list().and_then(|x| x.second_ident()) {
-                                macro_map.remove(list);
+                                if !own_names.contains(list) {
+                                    crate::parser::expand_visitor::remove_macro(macro_map, list);
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+
+        // The macros its requires provide again, from the modules that define them
+        let reexported: Vec<RequireObject> = self
+            .require_objects
+            .iter()
+            .filter(|x| !x.for_syntax)
+            .flat_map(|x| reexport_requires(&self.compiled_modules.compiled_modules, x))
+            .collect();
+
+        for require_object in &reexported {
+            let path = require_object.path.get_path();
+
+            let (module, mut in_scope_macros, name_mangler) = ModuleManager::find_in_scope_macros(
+                &mut self.compiled_modules,
+                self.kernel.as_mut(),
+                path.as_ref(),
+                require_object,
+                &mut mangled_asts,
+            );
+
+            let module_name = module.name.to_str().unwrap().to_owned();
+            let mut provided_kernel_macros =
+                provided_kernel_macros(self.kernel.as_ref(), module, require_object);
+
+            in_scope_macros.retain(|name, _| !own_names.contains(name));
+            provided_kernel_macros.retain(|name, _| !own_names.contains(name));
+
+            for name in in_scope_macros.keys().chain(provided_kernel_macros.keys()) {
+                crate::parser::expand_visitor::remove_macro(macro_map, name);
+            }
+
+            required_macros.push(RequiredModuleMacros {
+                module_key: path.clone().into_owned(),
+                module_macros: module.macro_map.clone(),
+                in_scope_macros,
+                name_mangler,
+                module_name,
+                provided_kernel_macros,
+            });
         }
 
         let overlays = required_macros
@@ -2616,49 +3908,136 @@ impl<'a> ModuleBuilder<'a> {
             })
             .collect::<Vec<_>>();
 
+        // The module's procedural macros and its requires' get their arguments as written
+        let _procedural = crate::parser::expand_visitor::ProceduralHeads::set(
+            overlays
+                .iter()
+                .flat_map(|x| x.map.provided_kernel_macros.keys().copied())
+                .chain(
+                    self.kernel
+                        .as_ref()
+                        .map(|kernel| kernel.procedural_names(self.name.to_str().unwrap()))
+                        .unwrap_or_default(),
+                )
+                .collect(),
+            &ast,
+        );
+
         let mut many_expander = ExpanderMany::new(macro_map, overlays, globals);
+        let mut generated = Vec::new();
 
-        for expr in ast.iter_mut() {
-            many_expander.expand(expr)?;
+        // As in a Racket module, the forms whose macros define macros are expanded first, so
+        // the macros they define are the module's everywhere in it. The forms stay in place.
+        let mut expanded = vec![false; ast.len()];
+        let mut defining = FxHashMap::default();
 
-            expand_kernel_in_env(
-                expr,
-                self.kernel.as_mut(),
-                self.builtin_modules.clone(),
-                // Expanding macros in the environment?
-                self.name.to_str().unwrap(),
-                globals,
-            )?;
+        for defining_macros in [true, false] {
+            for index in 0..ast.len() {
+                if expanded[index]
+                    || defining_macros
+                        && !defines_macros_when_expanded(
+                            &ast[index],
+                            &many_expander,
+                            &mut defining,
+                            globals,
+                        )
+                {
+                    continue;
+                }
 
-            expand(expr, &many_expander.map, globals)?;
-            define_generated_macros(expr, many_expander.map)?;
+                expanded[index] = true;
+                let expr = &mut ast[index];
 
-            for RequiredMacroMap {
-                changed,
-                map: req_macro,
-            } in many_expander.overlays.iter_mut()
-            {
-                if *changed {
-                    expand(expr, &req_macro.module_macros, globals)?;
+                many_expander.expand(expr)?;
 
-                    // Expanding the kernel with only these macros...
-                    let local_changed = expand_kernel_in_env_with_change(
-                        expr,
-                        self.kernel.as_mut(),
-                        // We don't need to expand those here
-                        ModuleContainer::default(),
-                        &req_macro.module_name,
-                        globals,
-                    )?;
+                // The module's procedural macros and those its requires provide, in the order the
+                // code uses them
+                let required = many_expander
+                    .overlays
+                    .iter_mut()
+                    .map(
+                        |RequiredMacroMap { map: req_macro, .. }| RequiredKernelMacros {
+                            environment: &req_macro.module_name,
+                            provided: &req_macro.provided_kernel_macros,
+                            mangler: &mut req_macro.name_mangler,
+                        },
+                    )
+                    .collect();
 
-                    if local_changed {
-                        req_macro.name_mangler.visit(expr);
+                expand_kernel_in_envs(
+                    expr,
+                    self.kernel.as_mut(),
+                    self.builtin_modules.clone(),
+                    self.name.to_str().unwrap(),
+                    required,
+                )?;
+
+                expand(expr, &many_expander.map, globals)?;
+
+                // What they made can use the imported syntax-rules macros too
+                for overlay in many_expander.overlays.iter_mut() {
+                    let exclusions = HashSet::new();
+                    let mut expander =
+                        Expander::new(&overlay.map.in_scope_macros, &exclusions, globals);
+                    expander.expand(expr)?;
+                    overlay.changed |= expander.changed;
+                }
+
+                _procedural.add(expr);
+                // A macro a macro of this module defines is the module's own, which its other
+                // macros can name wherever they're used
+                let mut defined = define_generated_macros(expr, many_expander.map, globals)?;
+
+                // And so does a procedural macro the module's macros define
+                let mut procedural = FxHashSet::default();
+                crate::parser::expand_visitor::defined_macro_names(expr, &mut procedural);
+                procedural.retain(|x| !defined.contains(x));
+                defined.extend(procedural);
+
+                // Like a written one, a macro the module's macros define is defined once
+                for name in &defined {
+                    if self.local_macros.contains(name) || generated.contains(name) {
+                        stop!(BadSyntax => format!("Macro re defined within the top level definition: {name}");
+                            crate::parser::span_visitor::get_span(expr));
                     }
+                }
 
-                    *changed = false;
+                // A macro the module defines hides an imported one of its name, as a written one does
+                for overlay in many_expander.overlays.iter_mut() {
+                    for name in &defined {
+                        overlay.map.in_scope_macros.remove(name);
+                        overlay.map.provided_kernel_macros.remove(name);
+                    }
+                }
+
+                generated.extend(defined);
+
+                for RequiredMacroMap {
+                    changed,
+                    map: req_macro,
+                } in many_expander.overlays.iter_mut()
+                {
+                    if *changed {
+                        expand(expr, &req_macro.in_scope_macros, globals)?;
+
+                        // Expanding the kernel with only these macros...
+                        expand_kernel_in_module_env(
+                            expr,
+                            self.kernel.as_mut(),
+                            // We don't need to expand those here
+                            ModuleContainer::default(),
+                            &req_macro.module_name,
+                            Some(&req_macro.provided_kernel_macros),
+                            &mut req_macro.name_mangler,
+                        )?;
+
+                        *changed = false;
+                    }
                 }
             }
         }
+
+        self.local_macros.extend(generated);
 
         for req_macro in &mut required_macros {
             for expr in provides.iter_mut() {
@@ -2671,7 +4050,7 @@ impl<'a> ModuleBuilder<'a> {
                 expander.expand(expr)?;
 
                 if expander.changed {
-                    expand(expr, &req_macro.module_macros, globals)?;
+                    expand(expr, &req_macro.in_scope_macros, globals)?;
                 }
             }
         }
@@ -2684,16 +4063,87 @@ impl<'a> ModuleBuilder<'a> {
             FlattenBegin::flatten(expr);
         }
 
-        // And then finally, expand the keyword arguments:
-        for expr in &mut ast {
-            expand_kernel_in_env(
-                expr,
-                self.kernel.as_mut(),
-                self.builtin_modules.clone(),
-                self.name.to_str().unwrap(),
-                globals,
-            )?;
+        // And then finally, expand the keyword arguments. The procedural macros the module's
+        // macros defined are defined first, so they're the module's everywhere in it.
+        for defining_macros in [true, false] {
+            for expr in &mut ast {
+                let mut names = FxHashSet::default();
+                crate::parser::expand_visitor::defined_procedural_macro_names(expr, &mut names);
+
+                if names.is_empty() == defining_macros {
+                    continue;
+                }
+
+                expand_kernel_in_env(
+                    expr,
+                    self.kernel.as_mut(),
+                    self.builtin_modules.clone(),
+                    self.name.to_str().unwrap(),
+                )?;
+            }
         }
+
+        // A procedural macro provided by name is provided for syntax
+        if let Some(defined) = self
+            .kernel
+            .as_ref()
+            .and_then(|kernel| kernel.exported_defmacros(self.name.to_str().unwrap()))
+        {
+            for provide in provides.iter_mut() {
+                if let ExprKind::List(l) = provide {
+                    let (macros, rest): (Vec<_>, Vec<_>) = l
+                        .args
+                        .drain(1..)
+                        .partition(|x| x.atom_identifier().is_some_and(|x| defined.contains(x)));
+
+                    l.args.extend(rest);
+                    self.provides_for_syntax.extend(macros);
+                }
+            }
+        }
+
+        // A macro it imports and provides by name is provided by the module that defines it
+        let mut reexports = Vec::new();
+
+        for provide in provides.iter_mut() {
+            let ExprKind::List(l) = provide else {
+                continue;
+            };
+
+            l.args.retain(|x| {
+                let name = match x {
+                    ExprKind::List(l) if l.first_ident() == Some(&*FOR_SYNTAX) => l.second_ident(),
+                    x => x.atom_identifier(),
+                };
+
+                let Some(name) = name.filter(|x| !own_names.contains(*x)) else {
+                    return true;
+                };
+
+                match self.reexport(name) {
+                    Some(reexport) => {
+                        reexports.push(reexport);
+                        false
+                    }
+                    None => true,
+                }
+            });
+        }
+
+        let mut for_syntax = Vec::new();
+
+        for provide in core::mem::take(&mut self.provides_for_syntax) {
+            let name = provide
+                .atom_identifier()
+                .filter(|x| !own_names.contains(*x));
+
+            match name.and_then(|name| self.reexport(name)) {
+                Some(reexport) => reexports.push(reexport),
+                None => for_syntax.push(provide),
+            }
+        }
+
+        self.provides_for_syntax = for_syntax;
 
         // TODO: @Matt - fix this hack
         {
@@ -2736,6 +4186,8 @@ impl<'a> ModuleBuilder<'a> {
         );
 
         module.set_emitted(true);
+        module.own_macros = self.local_macros.clone();
+        module.reexports = reexports;
 
         // Cache it
         if !loaded_syntax_transformers
@@ -2801,8 +4253,30 @@ impl<'a> ModuleBuilder<'a> {
         lift_macro_defs_from_begins(&mut self.source_ast)?;
 
         let mut error = None;
+        let mut procedural = FxHashSet::default();
 
         self.source_ast.retain_mut(|expr| {
+            // A procedural macro defined twice, or as a syntax-rules macro too
+            if let ExprKind::List(l) = expr {
+                if l.is_define_syntax() {
+                    if let Some(name) = crate::parser::expand_visitor::procedural_macro_name(l) {
+                        if (self.local_macros.contains(&name) || !procedural.insert(name))
+                            && error.is_none()
+                        {
+                            error = Some(
+                                crate::rerrs::SteelErr::new(
+                                    crate::rerrs::ErrorKind::BadSyntax,
+                                    format!(
+                                        "Macro re defined within the top level definition: {name}"
+                                    ),
+                                )
+                                .with_span(l.location),
+                            );
+                        }
+                    }
+                }
+            }
+
             if let ExprKind::Macro(_) = expr {
                 // Replace with dummy begin value so we don't have to copy
                 // everything other for every macro definition
@@ -2815,12 +4289,33 @@ impl<'a> ModuleBuilder<'a> {
 
                 if let ExprKind::Macro(m) = taken_expr {
                     match SteelMacro::parse_from_ast_macro(m) {
-                        Ok(generated_macro) => {
+                        Ok(mut generated_macro) => {
+                            // Its free names mean the module's globals
+                            generated_macro.mark_definition_resolved();
                             let name = generated_macro.name();
 
-                            self.local_macros.insert(*name);
+                            let name = *name;
 
-                            Arc::make_mut(&mut self.macro_map).insert(*name, generated_macro);
+                            // Like a variable, a module defines a macro once
+                            if !self.local_macros.insert(name) || procedural.contains(&name) {
+                                if error.is_none() {
+                                    error = Some(crate::rerrs::SteelErr::new(
+                                        crate::rerrs::ErrorKind::BadSyntax,
+                                        format!(
+                                            "Macro re defined within the top level definition: {name}"
+                                        ),
+                                    )
+                                    .with_span(generated_macro.span()));
+                                }
+
+                                return false;
+                            }
+
+                            crate::parser::expand_visitor::define_macro(
+                                Arc::make_mut(&mut self.macro_map),
+                                name,
+                                generated_macro,
+                            );
                         }
                         Err(e) => {
                             if error.is_none() {
@@ -2922,8 +4417,9 @@ impl<'a> ModuleBuilder<'a> {
                     ExprKind::List(l) => {
                         if let Some(provide) = l.first_ident() {
                             if *provide == *PROVIDE {
+                                // Provides nothing
                                 if l.len() == 1 {
-                                    stop!(Generic => "provide expects at least one identifier to provide"; l.location);
+                                    continue;
                                 }
 
                                 // Swap out the value inside the list
@@ -3120,7 +4616,7 @@ impl<'a> ModuleBuilder<'a> {
                                 }
                                 ExprKind::List(l) => {
                                     if l.len() != 2 {
-                                        stop!(BadSyntax => "Expected a pair when renaming required identifiers");
+                                        stop!(BadSyntax => "Expected a pair when renaming required identifiers"; l.location);
                                     }
 
                                     let from = &l.args[0];
@@ -3129,7 +4625,7 @@ impl<'a> ModuleBuilder<'a> {
                                     if from.atom_identifier().is_none()
                                         || to.atom_identifier().is_none()
                                     {
-                                        stop!(BadSyntax => "only-in expected identifiers to rename");
+                                        stop!(BadSyntax => "only-in expected identifiers to rename"; l.location);
                                     }
 
                                     // (<from> <to>)
@@ -3152,107 +4648,47 @@ impl<'a> ModuleBuilder<'a> {
                         let prefix = &l.args[1];
 
                         if let Some(prefix) = prefix.atom_identifier() {
-                            match &mut require_object.prefix {
-                                Some(existing_prefix) => {
-                                    // Append the new symbol to the existing prefix
-                                    existing_prefix.push_str(prefix.resolve());
-                                }
-                                None => {
-                                    require_object.prefix = Some(prefix.resolve().to_string());
-                                }
-                            }
-
+                            // The spec inside comes first, so an except-in in it sees only
+                            // the prefixes inside it
                             self.parse_require_object_inner(home, r, &l.args[2], require_object)?;
+
+                            let inner = require_object.prefix.take().unwrap_or_default();
+                            require_object.prefix = Some(prefix.resolve().to_string() + &inner);
                         } else {
                             stop!(TypeMismatch => "prefix-in expects an identifier to use for the prefix"; prefix.span());
                         }
                     }
 
-                    Some(x) if *x == *FOR_SYNTAX => {
-                        // We're expecting something like (for-syntax "foo")
-                        if l.args.len() != 2 {
-                            stop!(BadSyntax => "for-syntax expects one string literal referring to a file or module"; l.location);
+                    // Everything the module provides but these
+                    Some(x) if x.resolve() == "except-in" => {
+                        if l.args.len() < 2 {
+                            stop!(BadSyntax => "except-in expects a require-spec and the identifiers to leave out"; l.location);
                         }
 
-                        let mod_name = &l.args[1];
-                        if let Some(path) = mod_name.string_literal() {
-                            if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == path) {
-                                // self.built_ins.push(PathBuf::from(lib.0));
+                        self.parse_require_object_inner(home, r, &l.args[1], require_object)?;
 
-                                require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
-                                require_object.for_syntax = true;
-
-                                return Ok(());
-                                // continue;
-                            } else if self.custom_builtins.contains_key(path) {
-                                require_object.path =
-                                    Some(PathOrBuiltIn::BuiltIn(Cow::Owned(path.to_string())));
-                                require_object.for_syntax = true;
-
-                                return Ok(());
-                            } else if self
-                                .module_resolvers
-                                .iter()
-                                .find(|x| x.exists(path))
-                                .is_some()
-                            {
-                                require_object.path =
-                                    Some(PathOrBuiltIn::BuiltIn(Cow::Owned(path.to_string())));
-                                require_object.for_syntax = true;
-                            } else {
-                                let mut current = self.name.clone();
-                                if current.is_file() {
-                                    current.pop();
+                        for excluded in &l.args[2..] {
+                            match excluded.atom_identifier() {
+                                Some(name) => require_object.except.push(Excluded {
+                                    name: *name,
+                                    prefix: require_object.prefix.clone().unwrap_or_default(),
+                                    of_only_in: !require_object.idents_to_import.is_empty(),
+                                }),
+                                None => {
+                                    stop!(BadSyntax => "except-in expected identifiers to leave out"; excluded.span())
                                 }
-                                current.push(PathBuf::from(path));
-
-                                let mut found = Found::Beside;
-
-                                if !current.exists() {
-                                    if let Some(home_dir) = home.as_ref() {
-                                        let mut home = home_dir.clone();
-                                        home.push(PathBuf::from(path));
-                                        current = home;
-                                        found = Found::Home(home_dir);
-
-                                        if !current.exists() {
-                                            for search_dir in self.search_dirs {
-                                                let mut dir = search_dir.clone();
-                                                dir.push(path);
-
-                                                if dir.exists() {
-                                                    current = dir;
-                                                    found = Found::Search(search_dir);
-                                                    break;
-                                                }
-                                            }
-                                        }
-
-                                        log::info!("Searching STEEL_HOME for {:?}", current);
-                                    } else {
-                                        for dir in self.search_dirs {
-                                            let mut dir = dir.clone();
-                                            dir.push(path);
-
-                                            if dir.exists() {
-                                                current = dir;
-                                                break;
-                                            }
-                                        }
-
-                                        stop!(Generic => format!("Module not found: {:?}", current); mod_name.span())
-                                    }
-                                }
-
-                                require_object.for_syntax = true;
-                                let current = try_canonicalize(current);
-                                self.origins
-                                    .record(&self.name, self.main, found, path, &current);
-                                require_object.path = Some(PathOrBuiltIn::Path(current));
                             }
-                        } else {
-                            stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; mod_name.span());
                         }
+                    }
+
+                    // The module is for transformer code, which gets an instance of it at phase 1
+                    Some(x) if *x == *FOR_SYNTAX => {
+                        if l.args.len() != 2 {
+                            stop!(BadSyntax => "for-syntax expects one module to require"; l.location);
+                        }
+
+                        self.parse_require_object_inner(home, r, &l.args[1], require_object)?;
+                        require_object.for_syntax = true;
                     }
                     _ => {
                         stop!(BadSyntax => "require accepts either a string literal, a for-syntax expression or an only-in expression"; l.location)
@@ -3431,6 +4867,7 @@ impl<'a> ModuleBuilder<'a> {
         ModuleBuilder {
             name,
             main: false,
+            for_syntax_only: false,
             local_macros: FxHashSet::default(),
             source_ast: Vec::new(),
             // TODO: This used to be empty

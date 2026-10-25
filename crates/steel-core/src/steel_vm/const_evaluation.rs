@@ -51,6 +51,11 @@ struct ConstantEnv {
     constant_lists: HashMap<InternedString, SteelVal>,
 
     parent: Option<Weak<RefCell<ConstantEnv>>>,
+
+    // At the root, where each of the program's defines is among them, and how many the visit
+    // has passed. A global is only a constant after its define.
+    defined_at: HashMap<InternedString, usize, FxBuildHasher>,
+    position: usize,
 }
 
 impl ConstantEnv {
@@ -60,6 +65,8 @@ impl ConstantEnv {
             used_bindings: HashSet::default(),
             non_constant_bound: HashSet::default(),
             constant_lists: Default::default(),
+            defined_at: HashMap::default(),
+            position: 0,
             parent: None,
         }
     }
@@ -70,8 +77,14 @@ impl ConstantEnv {
             used_bindings: HashSet::default(),
             non_constant_bound: HashSet::default(),
             constant_lists: Default::default(),
+            defined_at: HashMap::default(),
+            position: 0,
             parent: Some(parent),
         }
+    }
+
+    fn is_root(&self) -> bool {
+        self.parent.is_none()
     }
 
     fn bind(&mut self, ident: &InternedString, value: SteelVal) {
@@ -86,8 +99,25 @@ impl ConstantEnv {
         self.constant_lists.insert(*ident, expr);
     }
 
+    // A define of the program at the root has been passed
+    fn passed_define(&mut self, ident: &InternedString) {
+        self.defined_at.entry(*ident).or_insert(self.position);
+        self.position += 1;
+    }
+
     fn get(&mut self, ident: &InternedString) -> Option<SteelVal> {
+        // Not yet defined where the program reads it
+        if self
+            .defined_at
+            .get(ident)
+            .is_some_and(|at| self.position <= *at)
+        {
+            return None;
+        }
+
+        // Still read, so its binding stays, e.g. a constant list
         if self.non_constant_bound.get(ident).is_some() {
+            self.used_bindings.insert(*ident);
             return None;
         }
 
@@ -179,6 +209,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
 
     pub fn run(&mut self, input: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
         self.changed = false;
+        self.global_env.borrow_mut().position = 0;
 
         let mut results = Vec::with_capacity(input.len());
 
@@ -202,6 +233,9 @@ impl<'a> ConstantEvaluatorManager<'a> {
 
             drop(collector);
 
+            // Each visit of the form passes the defines before it, and only those
+            let start = self.global_env.borrow().position;
+
             let mut eval = ConstantEvaluator::new(
                 Rc::clone(&self.global_env),
                 &self.set_idents,
@@ -216,6 +250,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
             eval.changed = false;
 
             for _ in 0..10 {
+                self.global_env.borrow_mut().position = start;
                 output = eval.visit(output)?;
                 if !eval.changed {
                     break;
@@ -586,10 +621,19 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         define.body = self.visit(define.body)?;
 
-        if let Some(c) = self.to_constant(&define.body) {
+        // A global the program can define again, like at the repl, isn't a constant for
+        // the code compiled with it
+        let redefinable =
+            self.bindings.borrow().is_root() && crate::compiler::map::redefinable(identifier);
+
+        if let Some(c) = self.to_constant(&define.body).filter(|_| !redefinable) {
             self.bindings.borrow_mut().bind(identifier, c);
         } else {
             self.bindings.borrow_mut().bind_non_constant(identifier);
+        }
+
+        if self.bindings.borrow().is_root() {
+            self.bindings.borrow_mut().passed_define(identifier);
         }
 
         Ok(ExprKind::Define(define))

@@ -12,25 +12,101 @@
 ; (define #%syntax-bindings (make-parameter (hash)))
 ; (define #%syntax-binding-kind (make-parameter (hash)))
 
-(define #%top-level-scope-map void)
-(define #%top-level-global-map void)
-
 (set! #%syntax-bindings (make-parameter (hash)))
 (set! #%syntax-binding-kind (make-parameter (hash)))
 
 ;; TODO: Figure out a way to have this bootstrap correctly
 ;; in the global environment within the stdlib, and not just
 ;; reserved for the kernel.
+; `old` with the entries of `new`, which replace the ones of the same key
+(define (#%shadowing old new)
+  (let loop ([keys (hash-keys->list new)]
+             [result old])
+    (if (null? keys)
+        result
+        (loop (cdr keys) (hash-insert result (car keys) (hash-ref new (car keys)))))))
+
+; A function made in a syntax-case clause, which sees that clause's pattern variables when it
+; runs, as it would lexically
+(define-syntax #%syntax-closure
+  (syntax-rules ()
+    [(_ f)
+     (let ([bindings (#%syntax-bindings)]
+           [kinds (#%syntax-binding-kind)]
+           [function f])
+       (lambda args
+         (parameterize ([#%syntax-bindings bindings]
+                        [#%syntax-binding-kind kinds])
+           (apply function args))))]))
+
+; A template outside of any syntax-case clause or with-syntax, which has no pattern variables
+(define-syntax #%syntax-without-patterns
+  (syntax-rules ()
+    [(_ template)
+     (parameterize ([#%syntax-bindings (hash)]
+                    [#%syntax-binding-kind (hash)])
+       template)]))
+
+; The right hand sides are all evaluated before any pattern binds
 (define-syntax with-syntax
   (syntax-rules ()
+    [(_ (clause ...) body ...) (#%with-syntax-values (clause ...) () body ...)]))
+
+(define-syntax #%with-syntax-values
+  (syntax-rules ()
+    [(_ () ((p value) ...) body ...) (#%with-syntax-each ([p value] ...) body ...)]
+    [(_ ([p expr] rest ...) (done ...) body ...)
+     (let ([value expr])
+       (#%with-syntax-values (rest ...) (done ... (p value)) body ...))]))
+
+(define-syntax #%with-syntax-each
+  (syntax-rules ()
+    ;; A pattern binds its pattern variables, as a syntax-case clause does
+    [(_ ([(p . ps) expr] others ...) body ...)
+     (let ([#%matched (#%with-syntax-match '(p . ps) expr)])
+       ;; The pattern's variables shadow the ones bound already
+       (parameterize ([#%syntax-bindings (#%shadowing (#%syntax-bindings) (car #%matched))]
+                      [#%syntax-binding-kind (#%shadowing (#%syntax-binding-kind) (cadr #%matched))])
+         (#%with-syntax-each (others ...)
+           body ...)))]
+
+    [(_ () body ...) (let () body ...)]
+
     [(_ ([var expr]) body ...)
      (parameterize ([#%syntax-bindings (hash-insert (#%syntax-bindings) 'var expr)])
        body ...)]
 
     [(_ ([var expr] others ...) body ...)
      (parameterize ([#%syntax-bindings (hash-insert (#%syntax-bindings) 'var expr)])
-       (with-syntax (others ...)
+       (#%with-syntax-each (others ...)
          body ...))]))
+
+; syntax-case as an expression, in a transformer's code. The one a define-syntax ends with is
+; taken apart by the define-syntax.
+(define-syntax #%syntax-case
+  (syntax-rules ()
+    [(_ e (literal ...) clause ...)
+     (let ([input e])
+       (#%syntax-case-clauses input (literal ...) clause ...))]))
+
+(define-syntax #%syntax-case-clauses
+  (syntax-rules ()
+    [(_ input literals) (error "syntax-case: bad syntax" input)]
+    [(_ input literals [pattern body] clause ...)
+     (#%syntax-case-clauses input literals [pattern #t body] clause ...)]
+    [(_ input literals [pattern fender body] clause ...)
+     (let ([matched (#%syntax-case-match 'pattern 'literals input)])
+       (define (next)
+         (#%syntax-case-clauses input literals clause ...))
+       (if matched
+           (let ([result
+                  (parameterize ([#%syntax-bindings (#%shadowing (#%syntax-bindings) (car matched))]
+                                 [#%syntax-binding-kind
+                                  (#%shadowing (#%syntax-binding-kind) (cadr matched))])
+                    (if fender body #%syntax-case-no-match))])
+             ;; The next clause doesn't see what this one bound
+             (if (eq? result #%syntax-case-no-match) (next) result))
+           (next)))]))
 
 ;; Compatibility layers for making defmacro not as painful
 (define displayln stdout-simple-displayln)
@@ -52,6 +128,9 @@
 (define-syntax #%syntax-transformer-module
   (syntax-rules (provide)
 
+    ;; An environment with phase 1 bindings but no macros
+    [(#%syntax-transformer-module provide) (%proto-hash%)]
+
     [(#%syntax-transformer-module name)
      (define (datum->syntax name)
        (%proto-hash%))]
@@ -72,6 +151,8 @@
 
 (define-syntax #%syntax-transformer-module-update
   (syntax-rules (provide)
+
+    [(#%syntax-transformer-module provide) (%proto-hash%)]
 
     [(#%syntax-transformer-module name) void]
 
@@ -196,37 +277,36 @@
 (define (identifier? x)
   (symbol? (syntax-e x)))
 
+;; The elements of syntax for a list, or #f
+(define (syntax->list x)
+  (let ([e (if (syntax? x) (syntax-e x) x)])
+    (if (list? e) e #f)))
+
+;; The same name, from the same expansion
+(define (bound-identifier=? a b)
+  (and (identifier? a)
+       (identifier? b)
+       (eq? (syntax-e a) (syntax-e b))
+       (#%syntax-same-mark? a b)))
+
+;; The same name where they're used, which here is the same written name
+(define (free-identifier=? a b)
+  (and (identifier? a) (identifier? b) (eq? (syntax-e a) (syntax-e b))))
+
 (define (all-but-last l)
   (reverse (cdr (reverse l))))
 
 (#%define-syntax (struct expr)
                  (define unwrapped (syntax-e expr))
-                 (define (written-name name)
-                   (if (and (symbol? name)
-                            (starts-with? (symbol->string name) "##")
-                            (not (starts-with? (symbol->string name) "##gensym")))
-                       (string->symbol (substring (symbol->string name) 2))
-                       name))
-                 (define prefixed-name (syntax->datum (second unwrapped)))
-                 (define struct-name (written-name prefixed-name))
-                 (define fields
-                   (let ([fields (syntax->datum (third unwrapped))])
-                     (if (list? fields)
-                         (map written-name fields)
-                         fields)))
+                 (define struct-name (#%syntax->datum/kernel (second unwrapped)))
+                 (define fields (#%syntax->datum/kernel (third unwrapped)))
                  (define options
                    (let ([raw (cdddr unwrapped)])
                      ; (displayln raw)
                      (if (empty? raw)
                          raw
-                         (map syntax->datum raw))))
-                 (define result
-                   (let ([result (struct-impl struct-name fields options)])
-                     (if (equal? prefixed-name struct-name)
-                         result
-                         `(begin
-                            ,result
-                            (define ,prefixed-name ,struct-name)))))
+                         (map #%syntax->datum/kernel raw))))
+                 (define result (struct-impl struct-name fields options))
                  (#%syntax/with-mark-of (syntax/loc result
                                           (syntax-span expr))
                                         (second unwrapped)))
@@ -270,15 +350,15 @@
   (define default-printer-function
     (if transparent?
         `(lambda (obj printer-function)
-           (display "(")
-           (display (symbol->string ,(list 'quote struct-name)))
+           (simple-display "(")
+           (simple-display (#%prim.symbol->string ,(list 'quote struct-name)))
            ,@(map (lambda (field)
                     `(begin
-                       (display " ")
+                       (simple-display " ")
                        (printer-function (,(concat-symbols struct-name '- field) obj))))
                   fields)
 
-           (display ")"))
+           (simple-display ")"))
 
         #f))
 
@@ -464,7 +544,35 @@
 ;; TODO: Snag define-syntax, convert it to the right format?
 ;; As of now, the define-syntax will get parsed and yoinked
 ;; into the wrong format. Add plumbing to ignore those.
-(define (parse-def-syntax stx)
+;; A syntax-case macro, from its pattern matcher and the body of each case
+(define #%syntax-case-no-match (gensym))
+
+(define (#%syntax-case-transformer matcher body)
+  (lambda (expr)
+    (define input (#%syntax/hygienic expr))
+    (let loop ([start 0])
+      (define result (#%match-syntax-case matcher input start))
+      (define index (#%prim.list-ref result 0))
+      (define case-bindings (#%prim.list-ref result 1))
+      (define binding-kind (#%prim.list-ref result 2))
+      (define output
+        (parameterize ([#%syntax-bindings case-bindings])
+          (parameterize ([#%syntax-binding-kind binding-kind])
+            ;; The body sees the input as the transformer's parameter
+            (body index input))))
+      ;; A clause whose fender is false doesn't match
+      (if (eq? output #%syntax-case-no-match)
+          (loop (+ index 1))
+          output))))
+
+; Whether each syntax-case clause has a list for its pattern
+(define (#%list-patterns? clauses)
+  (cond
+    [(null? clauses) #t]
+    [(and (list? (car clauses)) (pair? (car (car clauses)))) (#%list-patterns? (cdr clauses))]
+    [else #f]))
+
+(define (parse-def-syntax stx phase1-env)
 
   ;; Name of the function
   (define name-expr (list-ref stx 1))
@@ -480,8 +588,32 @@
      ; (stdout-simple-displayln stx)
      ; (stdout-simple-displayln "==============================")
 
-     ;; Syntax case expr
-     (define syntax-case-expr (last stx))
+     (define param-name (list-ref name-expr 1))
+
+     ;; A body that ends in a syntax-case of its parameter is taken apart into a matcher
+     ;; and the clauses. Anything else is code that runs on every use, with a syntax-case
+     ;; in it matching what it's given.
+     (define written-last (last stx))
+     ;; Its syntax-case is wrapped to bind only what its clauses bind
+     (define last-expr
+       (if (and (list? written-last)
+                (= (length written-last) 2)
+                (equal? (car written-last) '#%syntax-without-patterns)
+                (list? (cadr written-last))
+                (>= (length (cadr written-last)) 3)
+                (member (car (cadr written-last)) '(syntax-case #%syntax-case))
+                (equal? (list-ref (cadr written-last) 1) param-name))
+           (cadr written-last)
+           written-last))
+     ;; The matcher is a syntax-rules macro, whose patterns are lists
+     (define syntax-case-expr
+       (if (and (list? last-expr)
+                (>= (length last-expr) 3)
+                (member (car last-expr) '(syntax-case #%syntax-case))
+                (equal? (list-ref last-expr 1) param-name)
+                (#%list-patterns? (drop last-expr 3)))
+           last-expr
+           `(syntax-case ,param-name () [(_ . #%whole) ,last-expr])))
 
      ; (stdout-simple-displayln syntax-case-expr)
      ; (stdout-simple-displayln "--------------------------")
@@ -489,7 +621,6 @@
      (define body-exprs (all-but-last (drop stx 2)))
 
      (define name (list-ref name-expr 0))
-     (define param-name (list-ref name-expr 1))
      (define syntax-case-param (list-ref syntax-case-expr 1))
      (define syntax-case-syntax (list-ref syntax-case-expr 2))
 
@@ -498,16 +629,22 @@
      (define gensym-name (gensym-sym (concat-symbols '__generated- name)))
 
      ;; Expand to syntax-rules:
+     ;; A clause can have a fender between its pattern and its body
      (define fake-syntax-rules
        `(define-syntax ,gensym-name
           (syntax-rules ,syntax-case-syntax
-            ,@(drop syntax-case-expr 3))))
+            ,@(map (lambda (p) (list (car p) (last p))) cases))))
 
      ;; This needs to be eval'd right away so that we can actually
      ;; reference the values.
      (eval fake-syntax-rules)
 
-     (define conditions (map (lambda (p) (list-ref p 1)) cases))
+     (define conditions
+       (map (lambda (p)
+              (if (= (length p) 3)
+                  `(if ,(list-ref p 1) ,(list-ref p 2) #%syntax-case-no-match)
+                  (list-ref p 1)))
+            cases))
 
      ;; List of cases, in order, for the syntax rules
      (define matched-case-bindings (#%macro-case-bindings (symbol->string gensym-name)))
@@ -518,23 +655,24 @@
      (define expansion-func
        ;; TODO: gensym this!
        `(define ,generated-function-name
-          (lambda (#%#%index)
+          (lambda (#%#%index ,param-name)
             ,@body-exprs
             (case #%#%index
               ,@expressions))))
 
      (define generated-match-function
-       `(lambda (expr)
-          ;; Get the bindings first
-          (define result (#%match-syntax-case ,(symbol->string gensym-name) expr))
-          (define index (#%prim.list-ref result 0))
-          (define case-bindings (#%prim.list-ref result 1))
-          (define binding-kind (#%prim.list-ref result 2))
-          (parameterize ([#%syntax-bindings case-bindings])
-            (parameterize ([#%syntax-binding-kind binding-kind])
-              (,generated-function-name index)))))
+       `(#%syntax-case-transformer ,(symbol->string gensym-name) ,generated-function-name))
 
      (eval expansion-func)
+
+     ;; Another module that uses the macro builds its own transformer from this
+     (#%record-phase1-transformer! phase1-env
+                                   name
+                                   (symbol->string gensym-name)
+                                   `(lambda (#%#%index ,param-name)
+                                      ,@body-exprs
+                                      (case #%#%index
+                                        ,@expressions)))
 
      generated-match-function]
 
@@ -564,7 +702,7 @@
           (append (list 'define-syntax (cons name-expr (cadr lambda-expr))) list-of-expressions))
 
         ;; Body exprs
-        (parse-def-syntax lowered-expression)]
+        (parse-def-syntax lowered-expression phase1-env)]
 
        [(and (list? lambda-expr) (equal? (car lambda-expr) 'syntax-rules))
 
@@ -574,7 +712,7 @@
           (append (list 'define-syntax (cons name-expr '(stx)))
                   (list (append (list 'syntax-case 'stx rules) (drop lambda-expr 2)))))
 
-        (parse-def-syntax lowered-expression)]
+        (parse-def-syntax lowered-expression phase1-env)]
 
        [else (error "syntax-case expects a function")])]
 
@@ -582,11 +720,13 @@
 
 (#%define-syntax
  (define-syntax expression)
- (define unwrapped (syntax->datum expression))
+ (define unwrapped (#%syntax->datum/kernel expression))
  ;; Just register a syntax transformer?
  ; (stdout-simple-displayln "DEFINE SYNTAX START")
  ; (stdout-simple-displayln unwrapped)
- (define func (parse-def-syntax unwrapped))
+ (define originating-file (syntax-originating-file expression))
+ (define env (or originating-file "default"))
+ (define func (parse-def-syntax unwrapped (#%phase1-environment env)))
  ; (define func
  ;   (if (and (list? unwrapped) (not (empty? unwrapped)) (equal? (car unwrapped) 'begin))
  ;       (parse-def-syntax (cdr unwrapped))
@@ -596,9 +736,6 @@
    (if (list? name-expr)
        (list-ref name-expr 0)
        name-expr))
- (define originating-file (syntax-originating-file expression))
- ;; We'd like to
- (define env (or originating-file "default"))
  (if (equal? env "default")
      (begin
        (eval `(define ,name ,func))
@@ -632,14 +769,34 @@
                                         (syntax-case stx ()
                                           [(_ (name ...) expr)
                                            (let ([names (syntax-e #'(name ...))]
+                                                 [produced (gensym)]
                                                  [packed (gensym)])
-                                             #`(begin
-                                                 (define #,packed expr)
-                                                 #,@(map (lambda (id index)
-                                                           #`(define #,id
-                                                               (#%prim.list-ref #,packed #,index)))
-                                                         names
-                                                         (range 0 (length names)))))])))])
+                                             (if (= (length names) 1)
+                                                 ;; One value for one name. A list of one is
+                                                 ;; what `(values x)` gives, as `values` is `list`.
+                                                 #`(begin
+                                                     (define #,produced expr)
+                                                     (define #,(car names)
+                                                       (if (#%prim.list? #,produced)
+                                                           (if (#%prim.null? #,produced)
+                                                               #,produced
+                                                               (if (#%prim.null? (#%prim.cdr #,produced))
+                                                                   (#%prim.car #,produced)
+                                                                   #,produced))
+                                                           #,produced)))
+                                                 ;; One value can be given as it is
+                                                 #`(begin
+                                                     (define #,produced expr)
+                                                     (define #,packed
+                                                       (if (#%prim.list? #,produced)
+                                                           #,produced
+                                                           (#%prim.list #,produced)))
+                                                     #,@(map (lambda (id index)
+                                                               #`(define #,id
+                                                                   (#%prim.list-ref #,packed #,index)))
+                                                             names
+                                                             (range 0 (length names))))))]))
+                                     "default")])
   (eval `(define define-values ,transformer))
   (register-macro-transformer! 'define-values "default"))
 

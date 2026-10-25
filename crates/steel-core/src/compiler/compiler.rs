@@ -6,15 +6,17 @@ use crate::{
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
             hygiene::ResolveExpansionMarks, opt::SingleExprOptimizer,
-            shadow::RenameShadowedVariables, VisitorMutRefUnit, VisitorMutUnitRef,
+            shadow::RenameShadowedVariables, VisitorMutUnitRef,
         },
     },
     core::{instructions::u24, labels::Expr},
     gc::Shared,
     parser::{
-        expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change, GlobalMap},
+        expand_visitor::{
+            expand_kernel_in_env, expand_kernel_in_module_envs, GlobalMap, RequiredKernelMacros,
+        },
         interner::InternedString,
-        kernel::Kernel,
+        kernel::{Kernel, Phase1Import},
         parser::{
             lower_entire_ast, lower_expanded_ast, lower_macro_and_require_definitions,
             SourcesCollector,
@@ -30,6 +32,7 @@ use crate::{
 };
 
 use alloc::borrow::Cow;
+use compact_str::CompactString;
 use core::iter::Iterator;
 use std::{
     collections::{HashMap, HashSet},
@@ -82,6 +85,9 @@ struct FlatDefineLocation {
 pub struct DebruijnIndicesInterner {
     flat_defines: HashMap<InternedString, FlatDefineLocation>,
     second_pass_defines: HashSet<InternedString>,
+    // Defined before this compile too, like at the repl, so a reference before the new
+    // definition means the old one
+    redefined: HashSet<InternedString>,
 }
 
 impl DebruijnIndicesInterner {
@@ -118,7 +124,11 @@ impl DebruijnIndicesInterner {
                     // Exiting a definition, clear it
                     flat_defines_non_closure.clear();
 
-                    let idx = symbol_map.add(s);
+                    if symbol_map.contains(*s) {
+                        self.redefined.insert(*s);
+                    }
+
+                    let idx = symbol_map.define(s);
                     self.flat_defines.insert(
                         s.to_owned(),
                         FlatDefineLocation {
@@ -148,7 +158,11 @@ impl DebruijnIndicesInterner {
                     },
                     ..,
                 ) => {
-                    let idx = symbol_map.add(s);
+                    if symbol_map.contains(*s) {
+                        self.redefined.insert(*s);
+                    }
+
+                    let idx = symbol_map.define(s);
                     self.flat_defines.insert(
                         s.to_owned(),
                         FlatDefineLocation {
@@ -203,6 +217,8 @@ impl DebruijnIndicesInterner {
         // let mut second_pass_defines: HashSet<String> = HashSet::new();
 
         let mut depth = 0;
+        // Only a function body runs after the definitions after it. A let scope runs now.
+        let mut closure_depth = 0;
 
         // name mangle
         // Replace all identifiers with indices
@@ -213,12 +229,14 @@ impl DebruijnIndicesInterner {
                     ..
                 } => {
                     depth += 1;
+                    closure_depth += 1;
                 }
                 Instruction {
                     op_code: OpCode::ECLOSURE,
                     ..
                 } => {
                     depth -= 1;
+                    closure_depth -= 1;
                 }
                 Instruction {
                     op_code: OpCode::BEGINSCOPE,
@@ -270,8 +288,11 @@ impl DebruijnIndicesInterner {
                 } => {
                     let flat_define = self.flat_defines.get(s);
 
-                    if flat_define.is_some() && self.second_pass_defines.get(s).is_none() {
-                        if depth == 0 {
+                    if flat_define.is_some()
+                        && self.second_pass_defines.get(s).is_none()
+                        && !self.redefined.contains(s)
+                    {
+                        if closure_depth == 0 {
                             let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
                                 s.resolve()
                                     .split_once(MANGLER_SEPARATOR)
@@ -347,7 +368,8 @@ impl DebruijnIndicesInterner {
                 } => {
                     if self.flat_defines.get(s).is_some()
                         && self.second_pass_defines.get(s).is_none()
-                        && depth == 0
+                        && closure_depth == 0
+                        && !self.redefined.contains(s)
                     {
                         let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
                             s.resolve()
@@ -366,7 +388,7 @@ impl DebruijnIndicesInterner {
 
                     if self.flat_defines.get(s).is_some()
                         && self.second_pass_defines.get(s).is_some()
-                        && depth == 0
+                        && closure_depth == 0
                     {
                         let location = self.flat_defines.get(s).unwrap();
                         if let DefineKind::Flat = location.kind {
@@ -412,7 +434,8 @@ pub enum OptLevel {
 #[derive(Clone, Debug)]
 pub(crate) struct KernelDefMacroSpec {
     pub(crate) _env: String,
-    pub(crate) _exported: Option<HashSet<InternedString>>,
+    // The macros the program can use, by the names it uses them by
+    pub(crate) exported: FxHashMap<InternedString, InternedString>,
     pub(crate) name_mangler: NameMangler,
 }
 
@@ -428,6 +451,8 @@ pub struct Compiler {
     mangled_identifiers: FxHashMap<InternedString, InternedString>,
     // Try this out?
     lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
+    // The `begin-for-syntax` bindings the top level's transformers import
+    phase1_imports: Vec<Phase1Import>,
     // Macros that... we need to compile against directly at the top level
     // This is really just a hack, but it solves cases for interactively
     // running at the top level using private macros.
@@ -627,6 +652,7 @@ impl Compiler {
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashMap::default(),
             lifted_kernel_environments: HashMap::new(),
+            phase1_imports: Vec::new(),
             lifted_macro_environments: HashMap::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
@@ -658,6 +684,7 @@ impl Compiler {
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashMap::default(),
             lifted_kernel_environments: HashMap::new(),
+            phase1_imports: Vec::new(),
             lifted_macro_environments: HashMap::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
@@ -751,22 +778,24 @@ impl Compiler {
 
         let id = self.sources.add_source(expr_str.clone(), path.clone());
 
-        // Could fail here
-        let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
-            .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
-            .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
-            .without_lowering()
-            .map(|x| x.and_then(lower_macro_and_require_definitions))
-            .collect();
+        super::passes::with_compile_stack(|| {
+            // Could fail here
+            let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
+                .as_ref()
+                .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
+                .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
+                .without_lowering()
+                .map(|x| x.and_then(lower_macro_and_require_definitions))
+                .collect();
 
-        #[cfg(feature = "profiling")]
-        if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            log::debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
-        }
+            #[cfg(feature = "profiling")]
+            if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {
+                log::debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+            }
 
-        // TODO fix this hack
-        self.compile_raw_program(parsed?, path)
+            // TODO fix this hack
+            self.compile_raw_program(parsed?, path)
+        })
     }
 
     pub fn fully_expand_to_file<E: AsRef<str> + Into<Cow<'static, str>>>(
@@ -856,6 +885,19 @@ impl Compiler {
         self.module_manager.modules()
     }
 
+    // A macro the program defines, itself or with its macros, hides a required module's
+    // procedural one of its name
+    fn hide_required_kernel_macros(&mut self, expr: &ExprKind, generated: &[InternedString]) {
+        let mut names: rustc_hash::FxHashSet<InternedString> = generated.iter().copied().collect();
+        crate::parser::expand_visitor::defined_macro_names(expr, &mut names);
+
+        for lifted in self.lifted_kernel_environments.values_mut() {
+            for name in &names {
+                lifted.exported.remove(name);
+            }
+        }
+    }
+
     pub fn expand_expressions(
         &mut self,
         exprs: Vec<ExprKind>,
@@ -870,6 +912,7 @@ impl Compiler {
             path,
             self.builtin_modules.clone(),
             &mut self.lifted_kernel_environments,
+            &mut self.phase1_imports,
             &mut self.lifted_macro_environments,
             &self.search_dirs,
             &self.symbol_map.map(),
@@ -878,6 +921,26 @@ impl Compiler {
         // #[cfg(not(feature = "modules"))]
         // self.module_manager
         //     .expand_expressions(&mut self.macro_env, exprs)
+    }
+
+    // The prefixes of the modules with procedural macros, whose expansions can name any of
+    // their globals
+    fn procedural_macro_modules(&self) -> Vec<CompactString> {
+        let Some(kernel) = self.kernel.as_ref() else {
+            return Vec::new();
+        };
+
+        self.module_manager
+            .modules()
+            .values()
+            .filter(|module| {
+                module
+                    .name()
+                    .to_str()
+                    .is_some_and(|name| kernel.has_procedural_macros(name))
+            })
+            .map(|module| module.prefix())
+            .collect()
     }
 
     fn generate_instructions_for_executable(
@@ -938,7 +1001,13 @@ impl Compiler {
 
         if let Some(kernel) = self.kernel.as_mut() {
             // Label anything at the top as well - top level
-            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
+            kernel.load_syntax_transformers(
+                &mut expanded_statements,
+                "top-level".to_string(),
+                &self.phase1_imports,
+                Vec::new(),
+                Vec::new(),
+            )?;
         }
 
         // for expr in expanded_statements.iter_mut() {
@@ -953,19 +1022,36 @@ impl Compiler {
         // }
 
         for expr in expanded_statements.iter_mut() {
-            expand_kernel_in_env(
+            // The top level's procedural macros and those its requires provide, in the order
+            // the code uses them
+            let required = self
+                .lifted_kernel_environments
+                .iter_mut()
+                .map(|(module, lifted_env)| RequiredKernelMacros {
+                    environment: module,
+                    provided: &lifted_env.exported,
+                    mangler: &mut lifted_env.name_mangler,
+                })
+                .collect();
+
+            crate::parser::expand_visitor::expand_kernel_in_envs(
                 expr,
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
-                GlobalMap::Map(self.symbol_map.map()),
+                required,
             )?;
             crate::parser::expand_visitor::expand(
                 expr,
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
-            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
+            let generated = crate::parser::expand_visitor::define_generated_macros(
+                expr,
+                &mut self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
+            self.hide_required_kernel_macros(expr, &generated);
             lower_entire_ast(expr)?;
 
             for (module, shadowed_vars) in &self.lifted_macro_environments {
@@ -983,26 +1069,24 @@ impl Compiler {
             }
 
             // Lift all of the kernel macros as well?
-            for (module, lifted_env) in &mut self.lifted_kernel_environments {
-                let changed = expand_kernel_in_env_with_change(
-                    expr,
-                    self.kernel.as_mut(),
-                    self.builtin_modules.clone(),
-                    module,
-                    GlobalMap::Map(self.symbol_map.map()),
-                )?;
+            // The required modules' procedural macros, in the order the code uses them
+            let required = self
+                .lifted_kernel_environments
+                .iter_mut()
+                .map(|(module, lifted_env)| RequiredKernelMacros {
+                    environment: module,
+                    provided: &lifted_env.exported,
+                    mangler: &mut lifted_env.name_mangler,
+                })
+                .collect();
 
-                if changed {
-                    lifted_env.name_mangler.visit(expr);
-                }
-            }
+            expand_kernel_in_module_envs(expr, self.kernel.as_mut(), required)?;
 
             expand_kernel_in_env(
                 expr,
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
-                GlobalMap::Map(self.symbol_map.map()),
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again
@@ -1011,7 +1095,12 @@ impl Compiler {
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
-            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
+            let generated = crate::parser::expand_visitor::define_generated_macros(
+                expr,
+                &mut self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
+            self.hide_required_kernel_macros(expr, &generated);
 
             // for expr in expanded_statements.iter_mut() {
             lower_expanded_ast(expr)?;
@@ -1047,6 +1136,8 @@ impl Compiler {
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
+        let procedural_macro_modules = self.procedural_macro_modules();
+
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         // This is definitely broken still
@@ -1066,6 +1157,7 @@ impl Compiler {
                 MANGLER_PREFIX,
                 &self.macro_env,
                 &self.module_manager,
+                &procedural_macro_modules,
             );
         // Don't do lambda lifting here
         // .lift_pure_local_functions()
@@ -1150,23 +1242,46 @@ impl Compiler {
 
         if let Some(kernel) = self.kernel.as_mut() {
             // Label anything at the top as well - top level
-            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
+            kernel.load_syntax_transformers(
+                &mut expanded_statements,
+                "top-level".to_string(),
+                &self.phase1_imports,
+                Vec::new(),
+                Vec::new(),
+            )?;
         }
 
         for expr in expanded_statements.iter_mut() {
-            expand_kernel_in_env(
+            // The top level's procedural macros and those its requires provide, in the order
+            // the code uses them
+            let required = self
+                .lifted_kernel_environments
+                .iter_mut()
+                .map(|(module, lifted_env)| RequiredKernelMacros {
+                    environment: module,
+                    provided: &lifted_env.exported,
+                    mangler: &mut lifted_env.name_mangler,
+                })
+                .collect();
+
+            crate::parser::expand_visitor::expand_kernel_in_envs(
                 expr,
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
-                GlobalMap::Map(self.symbol_map.map()),
+                required,
             )?;
             crate::parser::expand_visitor::expand(
                 expr,
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
-            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
+            let generated = crate::parser::expand_visitor::define_generated_macros(
+                expr,
+                &mut self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
+            self.hide_required_kernel_macros(expr, &generated);
             lower_entire_ast(expr)?;
 
             for (module, shadowed_vars) in &self.lifted_macro_environments {
@@ -1186,26 +1301,24 @@ impl Compiler {
             }
 
             // Lift all of the kernel macros as well?
-            for (module, lifted_env) in &mut self.lifted_kernel_environments {
-                let changed = expand_kernel_in_env_with_change(
-                    expr,
-                    self.kernel.as_mut(),
-                    self.builtin_modules.clone(),
-                    module,
-                    GlobalMap::Map(self.symbol_map.map()),
-                )?;
+            // The required modules' procedural macros, in the order the code uses them
+            let required = self
+                .lifted_kernel_environments
+                .iter_mut()
+                .map(|(module, lifted_env)| RequiredKernelMacros {
+                    environment: module,
+                    provided: &lifted_env.exported,
+                    mangler: &mut lifted_env.name_mangler,
+                })
+                .collect();
 
-                if changed {
-                    lifted_env.name_mangler.visit(expr);
-                }
-            }
+            expand_kernel_in_module_envs(expr, self.kernel.as_mut(), required)?;
 
             expand_kernel_in_env(
                 expr,
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
-                GlobalMap::Map(self.symbol_map.map()),
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again
@@ -1214,7 +1327,12 @@ impl Compiler {
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
-            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
+            let generated = crate::parser::expand_visitor::define_generated_macros(
+                expr,
+                &mut self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
+            self.hide_required_kernel_macros(expr, &generated);
 
             // for expr in expanded_statements.iter_mut() {
             lower_expanded_ast(expr)?;
@@ -1253,6 +1371,8 @@ impl Compiler {
         // let mut analysis = Analysis::from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
+        let procedural_macro_modules = self.procedural_macro_modules();
+
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         // This is definitely broken still
@@ -1272,6 +1392,7 @@ impl Compiler {
                 MANGLER_PREFIX,
                 &self.macro_env,
                 &self.module_manager,
+                &procedural_macro_modules,
             )
             .lift_pure_local_functions()
             .lift_all_local_functions();
@@ -1321,7 +1442,7 @@ impl Compiler {
                         module
                             .name()
                             .to_str()
-                            .is_none_or(|name| kernel.exported_defmacros(name).is_none())
+                            .is_none_or(|name| !kernel.has_procedural_macros(name))
                     })
                 },
             ));
@@ -1658,10 +1779,12 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
     ) -> Result<RawProgramWithSymbols> {
+        let _scope = crate::parser::expand_visitor::CompileScope::enter();
+
         // Roll back any dependencies that got compiled, assuming they did.
         let snapshot_modules = self.module_manager.compiled_modules.clone();
 
-        let res = self.compile_raw_program_impl(exprs, path);
+        let res = super::passes::with_compile_stack(|| self.compile_raw_program_impl(exprs, path));
 
         if res.is_err() {
             self.module_manager.compiled_modules = snapshot_modules;

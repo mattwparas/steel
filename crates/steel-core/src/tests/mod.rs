@@ -9,13 +9,17 @@ mod compiled_shape;
 mod continuations_from_host;
 #[cfg(all(feature = "sync", feature = "jit2"))]
 mod counted_loops;
+mod cross_module_macros;
 #[cfg(feature = "sync")]
 mod engines_side_by_side;
 #[cfg(feature = "sync")]
 mod history;
 mod local_macros;
+mod macro_modules;
 mod malformed_bindings;
 mod module_contracts;
+mod module_template_names;
+mod phase1_bindings;
 mod runtime_functions;
 #[cfg(feature = "sync")]
 mod serialization;
@@ -41,6 +45,21 @@ pub(crate) fn assert_script<T: AsRef<str> + Into<Cow<'static, str>>>(script: T) 
 pub(crate) fn assert_script_error<T: AsRef<str> + Into<Cow<'static, str>>>(script: T) {
     let mut vm = generate_asserting_machine();
     assert!(vm.compile_and_run_raw_program(script).is_err());
+}
+
+// The error of code that names something it can't see, rather than of anything else
+// failing on the way
+pub(crate) fn assert_free_identifier<T: core::fmt::Debug>(
+    result: core::result::Result<T, crate::rerrs::SteelErr>,
+    name: &str,
+) {
+    let error = result.expect_err("expected an error");
+    assert_eq!(
+        error.kind(),
+        crate::rerrs::ErrorKind::FreeIdentifier,
+        "{error}"
+    );
+    assert!(error.to_string().contains(name), "{error}");
 }
 
 pub(crate) fn assert_script_module<T: AsRef<str> + Into<Cow<'static, str>>>(name: &str, script: T) {
@@ -123,6 +142,14 @@ test_harness_success_sync! {
 }
 
 test_harness_success! {
+    template_quotes_and_keyword_params,
+    quoted_false_and_variadic_equal,
+    template_binder_scope,
+    begin_in_body_and_expression_position,
+    define_values_one_name,
+    jit_errors_and_wide_arithmetic,
+    macros_defining_macros,
+    transformers_as_plain_code,
     abc_problem,
     arity_mismatch_calls,
     box_release,
@@ -193,6 +220,9 @@ test_harness_success! {
     let_values,
     local_macros,
     binding_macros_in_templates,
+    template_names_at_use_site,
+    syntax_case_template_names,
+    syntax_case_patterns,
     interrupt_runs_dynamic_wind_exits,
     will_execute_with_nothing_else_collecting,
     serialization_struct_types_of_one_name,
@@ -255,6 +285,7 @@ test_harness_success! {
     closure_value_capture,
     comma_quibbling,
     complex_lets,
+    cond_clauses,
     constant_eval_set,
     curried,
     contracts,
@@ -280,6 +311,7 @@ test_harness_success! {
     help,
     html_table,
     internal_define_ordering,
+    internal_define_forward_references,
     into_string,
     letrec_mutual_recursion,
     letrec_simple_recursion,
@@ -297,6 +329,7 @@ test_harness_success! {
     permutations,
     ports,
     quicksort,
+    quoted_pair_symbols,
     read,
     require_alias,
     require_only_in,
@@ -370,6 +403,9 @@ test_harness_success_module! {
     let_values,
     local_macros,
     binding_macros_in_templates,
+    template_names_at_use_site,
+    syntax_case_template_names,
+    syntax_case_patterns,
     interrupt_runs_dynamic_wind_exits,
     will_execute_with_nothing_else_collecting,
     serialization_struct_types_of_one_name,
@@ -440,6 +476,7 @@ test_harness_success_module! {
     closure_value_capture,
     comma_quibbling,
     complex_lets,
+    cond_clauses,
     constant_eval_set,
     curried,
     contracts,
@@ -465,6 +502,7 @@ test_harness_success_module! {
     help,
     html_table,
     internal_define_ordering,
+    internal_define_forward_references,
     into_string,
     letrec_mutual_recursion,
     letrec_simple_recursion,
@@ -481,6 +519,7 @@ test_harness_success_module! {
     permutations,
     ports,
     quicksort,
+    quoted_pair_symbols,
     read,
     require_alias,
     require_only_in,

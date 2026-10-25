@@ -151,7 +151,8 @@ impl GlobalSlotRecycler {
         for index in self.slots.drain() {
             if index < roots.len() {
                 symbol_map.free_list.free_list.push(index);
-                roots[index] = SteelVal::Void;
+                // Free, until something is defined there again
+                roots[index] = crate::env::undefined_global();
             }
         }
     }

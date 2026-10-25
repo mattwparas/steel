@@ -1,0 +1,11 @@
+;; A symbol inside a quoted dotted pair is the same object as the symbol written elsewhere
+(define p '(a . 1))
+(assert! (eq? (car (car (list p))) 'a))
+(assert! (eq? (car (list-ref (list p) 0)) (string->symbol "a")))
+(assert! (equal? (assq 'a '((a . 1) (b . 2))) '(a . 1)))
+(assert! (equal? (assv 'b '((a . 1) (b . 2))) '(b . 2)))
+(assert! (equal? (assq (string->symbol "b") '((a . 1) (b . 2))) '(b . 2)))
+(assert! (eq? (cdr (car (list '(1 . z)))) 'z))
+(define (look k) (assq k '((x . 10) (y . 20))))
+(assert! (equal? (map look '(x y w)) '((x . 10) (y . 20) #f)))
+(assert! (eq? (car (vector-ref (vector '(v . 1)) 0)) 'v))

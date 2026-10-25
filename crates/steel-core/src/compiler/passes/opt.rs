@@ -56,7 +56,7 @@ impl VisitorMutRefUnit for FlipNotCondition {
 
         self.visit(&mut f.test_expr);
         self.visit(&mut f.then_expr);
-        self.visit(&mut f.then_expr);
+        self.visit(&mut f.else_expr);
     }
 }
 
@@ -73,7 +73,16 @@ impl PruneConstantIfBranches {
 fn expr_is_truthy(expr: &ExprKind) -> bool {
     match expr {
         ExprKind::Atom(Atom { syn, .. }) => is_truthy(syn),
-        ExprKind::Quote(_) => true,
+        // Everything quoted is true, except `'#f`
+        ExprKind::Quote(q) => !matches!(
+            &q.expr,
+            ExprKind::Atom(Atom {
+                syn: SyntaxObject {
+                    ty: TokenType::BooleanLiteral(false),
+                    ..
+                },
+            })
+        ),
         _ => false,
     }
 }
@@ -98,7 +107,9 @@ impl VisitorMutRefUnit for PruneConstantIfBranches {
                 }
             }
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),

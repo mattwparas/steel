@@ -2,10 +2,9 @@
 (require "steel/result")
 
 (require "steel/tests/unit-test.scm"
-         (for-syntax "steel/tests/unit-test.scm")
          "threads.scm")
 
-(require (for-syntax "../time/time.scm"))
+(require "../time/time.scm")
 
 (require "steel/iterators")
 
