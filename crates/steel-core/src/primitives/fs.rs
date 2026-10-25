@@ -111,6 +111,7 @@ pub fn fs_module() -> BuiltInModule {
         .register_native_fn_definition(DELETE_DIRECTORY_DEFINITION)
         .register_native_fn_definition(CREATE_DIRECTORY_DEFINITION)
         .register_native_fn_definition(RENAME_FILE_OR_DIRECTORY_DEFINITION)
+        .register_native_fn_definition(COPY_FILE_DEFINITION)
         .register_native_fn_definition(COPY_DIRECTORY_RECURSIVELY_DEFINITION)
         .register_native_fn_definition(IS_DIR_DEFINITION)
         .register_native_fn_definition(IS_FILE_DEFINITION)
@@ -413,6 +414,25 @@ pub fn rename_file_or_directory(
     destination: &SteelString,
 ) -> Result<SteelVal> {
     std::fs::rename(source.as_str(), destination.as_str())?;
+
+    Ok(SteelVal::Void)
+}
+
+/// copies the the source file to the destination.
+///
+/// (copy-file! source destination) -> void?
+///
+/// * source : (string?) - The file to copy.
+/// * destination : (string?) - The destination to which to copy the file.
+///
+/// # Examples
+/// ```scheme
+/// > (copy-file! "logs/today.json" "logs/tomorrow.json") ;;
+/// ```
+///
+#[steel_derive::function(name = "copy-file!")]
+pub fn copy_file(source: &SteelString, destination: &SteelString) -> Result<SteelVal> {
+    std::fs::copy(source.as_str(), destination.as_str())?;
 
     Ok(SteelVal::Void)
 }
