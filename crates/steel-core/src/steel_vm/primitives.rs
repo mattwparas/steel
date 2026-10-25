@@ -1506,6 +1506,8 @@ fn ordering_primitive(
     for pair in args.windows(2) {
         match pair[0].partial_cmp(&pair[1]) {
             Some(ordering) => result &= holds(ordering),
+            // NaN is no order with anything, which is false
+            None if is_real_number(&pair[0]) && is_real_number(&pair[1]) => result = false,
             None => {
                 stop!(TypeMismatch => format!(
                     "{} expected comparable values, found: {} and {}",
@@ -1516,6 +1518,17 @@ fn ordering_primitive(
     }
 
     Ok(SteelVal::BoolV(result))
+}
+
+fn is_real_number(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::IntV(_)
+            | SteelVal::NumV(_)
+            | SteelVal::Rational(_)
+            | SteelVal::BigNum(_)
+            | SteelVal::BigRational(_)
+    )
 }
 
 pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {

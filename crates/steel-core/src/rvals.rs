@@ -2748,6 +2748,11 @@ impl SteelVal {
 impl Eq for SteelVal {}
 
 fn integer_float_equality(int: isize, float: f64) -> bool {
+    // Past the integers' range the conversion saturates, and would equal the largest one
+    if !(float >= isize::MIN as f64 && float < -(isize::MIN as f64)) {
+        return false;
+    }
+
     let converted = float as isize;
 
     if float == converted as f64 {
@@ -2779,6 +2784,11 @@ fn bignum_float_equality(bigint: &Gc<BigInt>, float: f64) -> bool {
 )]
 pub fn number_equality_many(args: &[SteelVal]) -> Result<SteelVal> {
     match args {
+        // Any one number, NaN too
+        [x @ (IntV(_) | NumV(_) | Rational(_) | BigNum(_) | BigRational(_) | Complex(_))] => {
+            let _ = x;
+            Ok(BoolV(true))
+        }
         [x] => number_equality(x, x),
         [x, rest @ ..] => {
             // Every argument has to be a number, also after one that differs

@@ -207,9 +207,11 @@ fn call_global_function_deopt(
     args: &mut [SteelVal],
 ) -> SteelVal {
     debug_assert!(ctx.is_native);
-    let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-
     ctx.ip = fallback_ip;
+    let func = match ctx.thread.defined_global(lookup_index) {
+        Ok(func) => func,
+        Err(e) => return stash_error(ctx, Err(e)),
+    };
     if leaves_native(ctx, &func) {
         ctx.is_native = false;
     }
@@ -240,9 +242,11 @@ fn call_global_function_deopt_no_arity<const N: usize>(
     mut args: [SteelVal; N],
 ) -> SteelVal {
     debug_assert!(ctx.is_native);
-    let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-
     ctx.ip = fallback_ip;
+    let func = match ctx.thread.defined_global(lookup_index) {
+        Ok(func) => func,
+        Err(e) => return stash_error(ctx, Err(e)),
+    };
     if leaves_native(ctx, &func) {
         ctx.is_native = false;
     }
@@ -271,9 +275,11 @@ fn call_global_function_deopt_spilled(
 ) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     debug_assert!(ctx.is_native);
-    let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-
     ctx.ip = fallback_ip;
+    let func = match ctx.thread.defined_global(lookup_index) {
+        Ok(func) => func,
+        Err(e) => return stash_error(ctx, Err(e)),
+    };
     if leaves_native(ctx, &func) {
         ctx.is_native = false;
     }

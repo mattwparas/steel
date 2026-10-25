@@ -1138,6 +1138,65 @@ impl SteelThread {
         self.global_env.repl_set_idx(idx, val)
     }
 
+    fn global_name(&self, index: usize) -> String {
+        self.compiler
+            .read()
+            .symbol_map
+            .values()
+            .get(index)
+            .map(|x| {
+                let name = x.resolve();
+                name.strip_prefix(crate::compiler::modules::MANGLER_PREFIX)
+                    .and_then(|x| x.split_once(crate::compiler::modules::MANGLER_SEPARATOR))
+                    .map(|x| x.1)
+                    .unwrap_or(name)
+                    .to_string()
+            })
+            .unwrap_or_default()
+    }
+
+    // A global read before its define ran
+    #[cold]
+    pub(crate) fn free_identifier(&self, index: usize) -> SteelErr {
+        SteelErr::new(
+            ErrorKind::Generic,
+            format!("free identifier: {}", self.global_name(index)),
+        )
+    }
+
+    // The global's value, or an error if its define hasn't run
+    #[inline(always)]
+    pub(crate) fn defined_global(&self, index: usize) -> Result<SteelVal> {
+        self.global_env
+            .repl_maybe_lookup_idx(index)
+            .ok_or_else(|| self.free_identifier(index))
+    }
+
+    // `set!` of a global, which has to be defined first
+    pub(crate) fn set_global(&mut self, index: usize, value: SteelVal) -> Result<SteelVal> {
+        let old = if self.safepoints_enabled {
+            #[cfg(feature = "sync")]
+            {
+                self.with_locked_env(|_, env| env.set_defined_idx(index, value))
+            }
+
+            #[cfg(not(feature = "sync"))]
+            self.with_locked_env(|this| this.global_env.repl_set_defined_idx(index, value))
+        } else {
+            self.global_env.repl_set_defined_idx(index, value)
+        };
+
+        old.ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                format!(
+                    "{}: assignment disallowed; cannot set variable before its definition",
+                    self.global_name(index)
+                ),
+            )
+        })
+    }
+
     #[cfg(feature = "sync")]
     pub(crate) fn with_locked_env<T, F: FnOnce(&mut Self, &mut SharedVectorWrapper) -> T>(
         &mut self,
@@ -4188,10 +4247,7 @@ impl<'a> VmCore<'a> {
                     //     next_inst.payload_size.to_usize(),
                     // )?;
 
-                    let stack_func = self
-                        .thread
-                        .global_env
-                        .repl_lookup_idx(payload_size.to_usize());
+                    let stack_func = self.thread.defined_global(payload_size.to_usize())?;
                     self.ip += 1;
                     let payload_size = next_inst.payload_size.to_usize();
                     // self.handle_tail_call(stack_func, next_inst.payload_size.to_usize());
@@ -4247,10 +4303,7 @@ impl<'a> VmCore<'a> {
                     //     next_inst.payload_size.to_usize(),
                     // )?;
 
-                    let stack_func = self
-                        .thread
-                        .global_env
-                        .repl_lookup_idx(payload_size.to_usize());
+                    let stack_func = self.thread.defined_global(payload_size.to_usize())?;
                     self.ip += 1;
                     let payload_size = next_inst.payload_size.to_usize();
                     // self.handle_tail_call(stack_func, next_inst.payload_size.to_usize());
@@ -4838,20 +4891,7 @@ impl<'a> VmCore<'a> {
     fn handle_set(&mut self, index: usize) -> Result<()> {
         let _ = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
         let value_to_assign = self.thread.stack.pop().unwrap();
-
-        let value = if self.thread.safepoints_enabled {
-            #[cfg(feature = "sync")]
-            {
-                self.thread
-                    .with_locked_env(|_, env| env.set_idx(index, value_to_assign))
-            }
-
-            #[cfg(not(feature = "sync"))]
-            self.thread
-                .with_locked_env(|this| this.global_env.repl_set_idx(index, value_to_assign))?
-        } else {
-            self.thread.local_set(index, value_to_assign).unwrap()
-        };
+        let value = self.thread.set_global(index, value_to_assign)?;
 
         self.thread.stack.push(value);
         self.ip += 1;
@@ -4862,7 +4902,7 @@ impl<'a> VmCore<'a> {
     fn handle_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
         // TODO: Lazily fetch the function. Avoid cloning where relevant.
         // Boxed functions probably _should_ be rooted in the modules?
-        let func = self.thread.global_env.repl_lookup_idx(index);
+        let func = self.thread.defined_global(index)?;
         self.handle_global_function_call(func, payload_size)
     }
 
@@ -4870,7 +4910,7 @@ impl<'a> VmCore<'a> {
     fn handle_call_global_no_arity(&mut self, index: usize, payload_size: usize) -> Result<()> {
         // TODO: Lazily fetch the function. Avoid cloning where relevant.
         // Boxed functions probably _should_ be rooted in the modules?
-        let func = self.thread.global_env.repl_lookup_idx(index);
+        let func = self.thread.defined_global(index)?;
         self.handle_global_function_call_no_arity(func, payload_size)
     }
 
@@ -4883,28 +4923,13 @@ impl<'a> VmCore<'a> {
     ) -> Result<Option<SteelVal>> {
         // TODO: Lazily fetch the function. Avoid cloning where relevant.
         // Boxed functions probably _should_ be rooted in the modules?
-        let func = self.thread.global_env.repl_lookup_idx(index);
+        let func = self.thread.defined_global(index)?;
         self.handle_global_function_call_no_stack(func, payload_size)
     }
 
     #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
-        let value = self
-            .thread
-            .global_env
-            .repl_maybe_lookup_idx(index)
-            .ok_or_else(|| {
-                let idx = self
-                    .thread
-                    .compiler
-                    .read()
-                    .symbol_map
-                    .values()
-                    .get(index)
-                    .copied();
-
-                throw!(Generic => "free identifier: {}", idx.unwrap())()
-            })?;
+        let value = self.thread.defined_global(index)?;
 
         self.thread.stack.push(value);
         self.ip += 1;

@@ -11,8 +11,24 @@ impl crate::rvals::Custom for UndefinedGlobal {
     }
 }
 
+#[cfg(feature = "sync")]
+static UNDEFINED_GLOBAL: Lazy<SteelVal> = Lazy::new(|| UndefinedGlobal.into_steelval().unwrap());
+
+// One value for every such slot, so compiled code can tell one by comparing with it
+#[cfg(feature = "sync")]
+pub(crate) fn undefined_global() -> SteelVal {
+    UNDEFINED_GLOBAL.clone()
+}
+
+#[cfg(not(feature = "sync"))]
 pub(crate) fn undefined_global() -> SteelVal {
     UndefinedGlobal.into_steelval().unwrap()
+}
+
+// The bits of that value as a slot holds it
+#[cfg(feature = "sync")]
+pub(crate) fn undefined_global_bits() -> u128 {
+    unsafe { core::mem::transmute_copy::<SteelVal, u128>(&UNDEFINED_GLOBAL) }
 }
 
 // Read before its define ran
@@ -32,6 +48,12 @@ impl SharedVectorWrapper {
         let output = guard.clone();
         *guard = val;
         output
+    }
+
+    // None, and no write, when the define hasn't run yet
+    pub fn set_defined_idx(&mut self, idx: usize, val: SteelVal) -> Option<SteelVal> {
+        let guard = self.0.get_mut(idx).filter(|x| !is_undefined_global(x))?;
+        Some(core::mem::replace(guard, val))
     }
 
     pub fn repl_define_idx(&mut self, idx: usize, val: SteelVal) {
@@ -171,6 +193,15 @@ impl Env {
         Ok(output)
     }
 
+    // None, and no write, when the define hasn't run yet
+    pub(crate) fn repl_set_defined_idx(&mut self, idx: usize, val: SteelVal) -> Option<SteelVal> {
+        let guard = self
+            .bindings_vec
+            .get_mut(idx)
+            .filter(|x| !is_undefined_global(x))?;
+        Some(core::mem::replace(guard, val))
+    }
+
     #[inline]
     pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
         // self.bindings_map.insert(idx, val);
@@ -261,6 +292,10 @@ impl Env {
         let output = guard.clone();
         *guard = val;
         Ok(output)
+    }
+
+    pub(crate) fn repl_set_defined_idx(&mut self, idx: usize, val: SteelVal) -> Option<SteelVal> {
+        self.bindings.set_defined_idx(idx, val)
     }
 
     #[cfg(feature = "sync")]

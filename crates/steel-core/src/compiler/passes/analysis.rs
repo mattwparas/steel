@@ -11,9 +11,10 @@ use crate::{
     compiler::{
         modules::{CompiledModule, MANGLER_PREFIX, MODULE_PREFIX},
         program::{
-            PRIM_APPLY, PRIM_CONST_LIST, PRIM_PLIST_GET_KWARG, PRIM_PLIST_GET_POSITIONAL_ARG,
-            PRIM_PLIST_GET_POSITIONAL_ARG_LIST, PRIM_PLIST_HAS_KWARG, PRIM_PLIST_HAS_POSITIONAL,
-            PRIM_PLIST_TRY_GET, PRIM_PLIST_TRY_GET_POSITIONAL, SETBOX, UNBOX,
+            PRIM_APPLY, PRIM_CONST_LIST, PRIM_PLIST_CHECK_KEYWORDS, PRIM_PLIST_GET_KWARG,
+            PRIM_PLIST_GET_POSITIONAL_ARG, PRIM_PLIST_GET_POSITIONAL_ARG_LIST,
+            PRIM_PLIST_HAS_KWARG, PRIM_PLIST_HAS_POSITIONAL, PRIM_PLIST_TRY_GET,
+            PRIM_PLIST_TRY_GET_POSITIONAL, SETBOX, UNBOX,
         },
     },
     parser::ast::List,
@@ -3517,6 +3518,13 @@ impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
                 self.prims = self.prims.saturating_add(1);
                 self.visit(&f.else_expr);
             }
+            // The keyword check is gone once the arguments are known
+            ExprKind::If(f)
+                if f.test_expr.list().and_then(|l| l.first_ident())
+                    == Some(&*PRIM_PLIST_CHECK_KEYWORDS) =>
+            {
+                self.visit(&f.then_expr);
+            }
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => {
@@ -4563,6 +4571,54 @@ impl<'a> LowerRestArguments<'a> {
 
     // The const list bound to `ident` if its arguments can be moved. Otherwise
     // marks it as needing names.
+    // `plist-check-keywords` of a known argument list: true, or the check of just the
+    // keywords that make it fail, which raises when it runs
+    fn check_keywords(&self, l: &List) -> Option<ExprKind> {
+        if l.first_ident() != Some(&*PRIM_PLIST_CHECK_KEYWORDS) {
+            return None;
+        }
+
+        let args = self.bindings.get(l.get(1)?.atom_identifier()?)?.list()?;
+        let ExprKind::Quote(declared) = l.get(2)? else {
+            return None;
+        };
+        let declared = declared.expr.list()?;
+
+        let mut seen = Vec::new();
+        // Bound without its `#%const-list` head
+        let mut iter = args.args.iter();
+
+        while let Some(next) = iter.next() {
+            let Some(keyword) = next.atom_keyword() else {
+                continue;
+            };
+
+            let undeclared = !declared
+                .args
+                .iter()
+                .any(|x| x.atom_keyword() == Some(keyword));
+
+            if undeclared || seen.contains(&keyword) {
+                let mut given = thin_vec![next.clone(), ExprKind::bool_lit(false)];
+                if !undeclared {
+                    given.extend([next.clone(), ExprKind::bool_lit(false)]);
+                }
+
+                let mut check = l.clone();
+                check.args[1] = ExprKind::Quote(Box::new(Quote::new(
+                    ExprKind::List(List::new(given)),
+                    SyntaxObject::default(TokenType::Quote),
+                )));
+                return Some(ExprKind::List(check));
+            }
+
+            seen.push(keyword);
+            iter.next();
+        }
+
+        Some(ExprKind::bool_lit(true))
+    }
+
     fn movable_const_list(&mut self, ident: &InternedString) -> Option<&List> {
         if !*self.movable.get(ident)? {
             self.needs_names.insert(*ident);
@@ -4954,7 +5010,14 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::List(l) => {
+                if let Some(checked) = self.check_keywords(l) {
+                    *expr = checked;
+                    self.changed = true;
+                } else {
+                    self.visit_list(l)
+                }
+            }
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),

@@ -41,22 +41,15 @@ pub struct ResolveExpansionMarks {
     local_macros: Vec<(InternedString, usize)>,
     has_local_macros: bool,
     template_globals: FxHashSet<(InternedString, ExpansionMark)>,
+    // The globals templates defined in this and earlier compiles, which a macro those
+    // templates defined can still name, from a later input or another module
+    earlier: TemplateGlobals,
     // How many functions and lets the visit is in
     bodies: usize,
 }
 
-// The globals templates defined in earlier compiles, which a macro those templates defined can
-// still name, from a later input or another module. Marks are never reused.
-static TEMPLATE_GLOBALS: std::sync::Mutex<Option<FxHashSet<(InternedString, ExpansionMark)>>> =
-    std::sync::Mutex::new(None);
-
-fn earlier_template_global(name: InternedString, mark: ExpansionMark) -> bool {
-    TEMPLATE_GLOBALS
-        .lock()
-        .unwrap()
-        .as_ref()
-        .is_some_and(|x| x.contains(&(name, mark)))
-}
+// Kept by the compiler. Marks are never reused.
+pub type TemplateGlobals = FxHashSet<(InternedString, ExpansionMark)>;
 
 struct RestoreCapturedNames;
 
@@ -71,19 +64,23 @@ impl VisitorMutRefUnit for RestoreCapturedNames {
 }
 
 impl ResolveExpansionMarks {
-    pub fn resolve(expr: &mut ExprKind) {
-        let mut pass = Self::default();
+    pub fn resolve(expr: &mut ExprKind, earlier: &mut TemplateGlobals) {
+        let mut pass = Self {
+            earlier: core::mem::take(earlier),
+            ..Self::default()
+        };
 
         pass.define_template_globals(expr);
         pass.visit(expr);
 
-        if pass.conflicts.is_empty() && !pass.has_local_macros && pass.template_globals.is_empty() {
-            return;
+        if !pass.conflicts.is_empty() || pass.has_local_macros || !pass.template_globals.is_empty()
+        {
+            pass.renaming = true;
+            pass.next_id = 0;
+            pass.visit(expr);
         }
 
-        pass.renaming = true;
-        pass.next_id = 0;
-        pass.visit(expr);
+        *earlier = pass.earlier;
     }
 
     fn template_global(name: InternedString, mark: ExpansionMark) -> InternedString {
@@ -110,11 +107,7 @@ impl ResolveExpansionMarks {
 
                 if let Some(name) = syn.ty.identifier_mut() {
                     self.template_globals.insert((*name, mark));
-                    TEMPLATE_GLOBALS
-                        .lock()
-                        .unwrap()
-                        .get_or_insert_with(FxHashSet::default)
-                        .insert((*name, mark));
+                    self.earlier.insert((*name, mark));
                     *name = Self::template_global(*name, mark);
                 }
             }
@@ -399,7 +392,7 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
 
         if by_mark.is_none()
             && (self.template_globals.contains(&(*name, mark))
-                || mark.is_template() && earlier_template_global(*name, mark))
+                || mark.is_template() && self.earlier.contains(&(*name, mark)))
         {
             *name = Self::template_global(*name, mark);
             a.syn.unresolved = false;

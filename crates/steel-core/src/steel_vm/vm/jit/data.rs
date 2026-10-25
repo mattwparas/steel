@@ -1,5 +1,15 @@
 use super::*;
 
+// A global read before its define ran, as the interpreter reports it
+#[cross_platform_fn]
+fn undefined_global_read(ctx: *mut VmCore, index: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    guard.result = Some(Err(guard.thread.free_identifier(index)));
+    guard.is_native = false;
+
+    SteelVal::Void
+}
+
 #[cross_platform_fn]
 fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     unsafe { &mut *ctx }.ip += 2;

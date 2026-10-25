@@ -162,6 +162,7 @@ jit_helpers! {
     CALL_MAKE_VECTOR_1 = "call-make-vector-1" => call_make_vector_1: ctx_raises fn(usize, SteelVal) -> SteelVal;
     CALL_MAKE_VECTOR_2 = "call-make-vector-2" => call_make_vector_2: ctx_raises fn(usize, SteelVal, SteelVal) -> SteelVal;
     CAR_HANDLER_VALUE = "car-handler-value" => car_handler_value: ctx_raises fn(SteelVal) -> SteelVal;
+    UNDEFINED_GLOBAL_READ = "undefined-global-read" => undefined_global_read: ctx_raises fn(usize) -> SteelVal;
     CDR_HANDLER_VALUE = "cdr-handler-value" => cdr_handler_value: ctx_raises fn(SteelVal) -> SteelVal;
     CDR_REG = "cdr-reg" => cdr_handler_reg: ctx_raises fn(usize) -> SteelVal;
     CDR_MUT_REG = "cdr-mut-reg" => cdr_handler_mut_reg: ctx_raises fn(usize) -> SteelVal;
@@ -257,7 +258,7 @@ jit_helpers! {
     MOVE_READ_LOCAL_2 = "move-read-local-2" => move_read_local_2_value_c: ctx fn() -> SteelVal;
     MOVE_READ_LOCAL_3 = "move-read-local-3" => move_read_local_3_value_c: ctx fn() -> SteelVal;
     TCO_JUMP = "tco-jump" => tcojmp_handler: ctx_raises fn(usize);
-    SET_HANDLER = "set-handler" => set_handler_c: ctx fn(usize, SteelVal) -> SteelVal;
+    SET_HANDLER = "set-handler" => set_handler_c: ctx_raises fn(usize, SteelVal) -> SteelVal;
 }
 
 /// Helpers that never push to or reallocate the vm's value stack, so a cached

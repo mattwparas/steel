@@ -93,6 +93,7 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(PLIST_HAS_KWARG_DEFINITION)
         .register_native_fn_definition(PLIST_GET_POSITIONAL_LIST_DEFINITION)
         .register_native_fn_definition(PLIST_VALIDATE_ARGS_DEFINITION)
+        .register_native_fn_definition(PLIST_CHECK_KEYWORDS_DEFINITION)
         .register_native_fn_definition(DROP_START_DEFINITION)
         .register_native_fn_definition(CHUNKS_DEFINITION)
         .register_native_fn_definition(MEMBER_DEFINITION)
@@ -1088,6 +1089,44 @@ pub fn plist_validate_args(
             || found_positional <= (required_positional_arg_count + optional_positional_arg_count))
         && found_keyword >= required_keyword_arg_count
         && (is_rest || found_keyword <= (required_keyword_arg_count + optional_keyword_arg_count))
+}
+
+// Every keyword given is one the function takes, given once. Not constant, so a call that's
+// wrong raises when it runs, not when it's compiled.
+#[steel_derive::function(name = "plist-check-keywords", args(List, List, Any))]
+pub fn plist_check_keywords(
+    list: &List<SteelVal>,
+    declared: &List<SteelVal>,
+    func: &SteelVal,
+) -> Result<SteelVal> {
+    let mut iter = list.iter();
+    let mut seen: smallvec::SmallVec<[&SteelVal; 4]> = smallvec::SmallVec::new();
+
+    while let Some(next) = iter.next() {
+        let SteelVal::SymbolV(v) = next else {
+            continue;
+        };
+
+        if !v.starts_with("#:") {
+            continue;
+        }
+
+        if !declared.iter().any(|x| x == next) {
+            stop!(Generic => format!(
+                "{}: procedure does not expect an argument with given keyword: {}",
+                func, next
+            ));
+        }
+
+        if seen.contains(&next) {
+            stop!(Generic => format!("{}: duplicate keyword in arguments: {}", func, next));
+        }
+
+        seen.push(next);
+        iter.next();
+    }
+
+    Ok(SteelVal::BoolV(true))
 }
 
 // Find the arg by index, skipping keyword pairs

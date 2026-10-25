@@ -142,6 +142,8 @@ test_harness_success_sync! {
 }
 
 test_harness_success! {
+    keyword_args_are_checked,
+    constant_fold_unused_function_args,
     template_quotes_and_keyword_params,
     quoted_false_and_variadic_equal,
     template_binder_scope,

@@ -20,7 +20,13 @@ pub(super) fn callglobal_tail_handler_deopt(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    let func = ctx.thread.global_env.repl_lookup_idx(index);
+    let func = match ctx.thread.defined_global(index) {
+        Ok(func) => func,
+        Err(e) => {
+            ctx.ip = fallback_ip;
+            return stash_error(ctx, Err(e));
+        }
+    };
     debug_assert!(ctx.is_native);
 
     if deopt_census_enabled() {
@@ -85,7 +91,13 @@ fn callglobal_native_tail_handler(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    let func = ctx.thread.global_env.repl_lookup_idx(index);
+    let func = match ctx.thread.defined_global(index) {
+        Ok(func) => func,
+        Err(e) => {
+            ctx.ip = fallback_ip;
+            return stash_error(ctx, Err(e));
+        }
+    };
     ctx.ip = fallback_ip;
 
     if let SteelVal::BuiltIn(f) = &func {
@@ -201,7 +213,13 @@ fn callglobal_tail_handler_deopt_spilled(
     arity: usize,
 ) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
-    let func = ctx.thread.global_env.repl_lookup_idx(index);
+    let func = match ctx.thread.defined_global(index) {
+        Ok(func) => func,
+        Err(e) => {
+            ctx.ip = fallback_ip;
+            return stash_error(ctx, Err(e));
+        }
+    };
 
     ctx.ip = fallback_ip;
     ctx.is_native = false;

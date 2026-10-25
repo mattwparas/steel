@@ -705,6 +705,7 @@ define_symbols! {
     PRIM_PLIST_GET_KWARG => "#%prim.plist-get-kwarg",
     PRIM_PLIST_HAS_POSITIONAL => "#%prim.plist-has-positional-arg?",
     PRIM_PLIST_HAS_KWARG => "#%prim.plist-has-kwarg?",
+    PRIM_PLIST_CHECK_KEYWORDS => "#%prim.plist-check-keywords",
     PRIM_APPLY => "#%prim.apply",
     PRIM_LIST_REF => "#%prim.list-ref",
     PRIM_VECTOR_REF => "#%prim.vector-ref",

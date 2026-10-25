@@ -1,3 +1,4 @@
+use crate::rvals::Result;
 use crate::{
     compiler::{
         passes::{analysis::SemanticAnalysis, VisitorMutRefUnit},
@@ -6,8 +7,9 @@ use crate::{
     parser::{
         ast::{Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::{
-            expand_kernel_in_env, expand_kernel_in_envs, expand_kernel_in_module_env, ExpanderMany,
-            GlobalMap, RequiredKernelMacros, RequiredMacroMap,
+            expand_changed, expand_foreign, expand_kernel_in_env, expand_kernel_in_envs,
+            expand_kernel_in_module_env, ExpanderMany, GlobalMap, RequiredKernelMacros,
+            RequiredMacroMap,
         },
         interner::InternedString,
         kernel::{Kernel, MacroModule, Phase1Import, RenameInstance},
@@ -22,7 +24,6 @@ use crate::{
         transducers::interleave,
     },
 };
-use crate::{parser::expand_visitor::Expander, rvals::Result};
 
 use compact_str::CompactString;
 use crossbeam_channel::Sender;
@@ -870,10 +871,15 @@ impl ModuleManager {
 
             let exported = provided_kernel_macros(kernel.as_ref(), module, require_object);
 
-            // A procedural macro required again replaces a macro of its name defined since
+            // A procedural macro required again replaces a macro of its name defined since,
+            // either kind
             for name in exported.keys() {
                 if !defined.contains(name) {
                     crate::parser::expand_visitor::remove_macro(global_macro_map, name);
+
+                    if let Some(kernel) = kernel.as_mut() {
+                        kernel.forget_macro("top-level", name);
+                    }
                 }
             }
 
@@ -954,18 +960,8 @@ impl ModuleManager {
                     ..
                 } = &mut required[index];
 
-                let exclusions = HashSet::new();
-
                 // First expand the in scope macros
-                // These are macros
-                let mut expander = Expander::new(
-                    in_scope_macros,
-                    &exclusions,
-                    GlobalMap::Set(&name_mangler.globals),
-                );
-                expander.expand(expr)?;
-
-                if !expander.changed {
+                if !expand_foreign(expr, in_scope_macros, GlobalMap::Set(&name_mangler.globals))? {
                     continue;
                 }
 
@@ -2499,6 +2495,9 @@ struct ModuleBuilder<'a> {
     origins: &'a mut ModuleOrigins,
 }
 
+// How many times the macros of a form can take turns expanding it
+const MAX_EXPANSION_ROUNDS: usize = 64;
+
 // The names a program's top level defines, before its defines are parsed
 fn defined_names(expr: &ExprKind, names: &mut FxHashSet<InternedString>) {
     match expr {
@@ -2519,9 +2518,53 @@ fn defined_names(expr: &ExprKind, names: &mut FxHashSet<InternedString>) {
     }
 }
 
+// Whether a syntax-rules macro's expansion can define a macro: one of its templates does, or
+// uses a macro that can
+fn macro_defines_macros(
+    head: InternedString,
+    expander: &ExpanderMany,
+    defining: &mut FxHashMap<InternedString, bool>,
+) -> bool {
+    if let Some(defines) = defining.get(&head) {
+        return *defines;
+    }
+
+    let found = expander.map.get(&head).or_else(|| {
+        expander.overlays.iter().find_map(|x| {
+            x.map
+                .in_scope_macros
+                .get(&head)
+                .or_else(|| x.map.module_macros.get(&head))
+        })
+    });
+
+    let Some(found) = found else {
+        return false;
+    };
+
+    let templates = found.exprs().map(|x| x.to_string()).collect::<Vec<_>>();
+
+    // A macro that uses itself is decided by what else it uses
+    defining.insert(head, false);
+
+    let defines = templates.iter().any(|written| {
+        written.contains("define-syntax")
+            || written.contains("syntax-rules")
+            || written
+                .split(|c: char| c.is_whitespace() || "()[]'`,".contains(c))
+                .filter_map(|name| {
+                    InternedString::try_get(crate::parser::expand_visitor::unmangled(name))
+                })
+                .any(|name| name != head && macro_defines_macros(name, expander, defining))
+    });
+
+    defining.insert(head, defines);
+    defines
+}
+
 // Whether a form expands to a definition of a macro, found by expanding a copy of it with the
 // syntax-rules macros, which only rewrite it. Only uses of macros whose templates define macros
-// are tried.
+// are tried. A use of a procedural macro is expanded with these forms, as it could define one.
 fn defines_macros_when_expanded(
     expr: &ExprKind,
     expander: &ExpanderMany,
@@ -2558,52 +2601,61 @@ fn defines_macros_when_expanded(
         return true;
     }
 
+    // A begin's forms are top level forms
+    match expr {
+        ExprKind::Begin(b) => {
+            return b
+                .exprs
+                .iter()
+                .any(|x| defines_macros_when_expanded(x, expander, defining, globals))
+        }
+        ExprKind::List(l) if crate::parser::expand_visitor::is_begin(l) => {
+            return l.args[1..]
+                .iter()
+                .any(|x| defines_macros_when_expanded(x, expander, defining, globals))
+        }
+        _ => {}
+    }
+
     let Some(head) = expr.list().and_then(|l| l.first_ident()).copied() else {
         return false;
     };
 
-    let found = expander.map.get(&head).or_else(|| {
-        expander
-            .overlays
-            .iter()
-            .find_map(|x| x.map.in_scope_macros.get(&head))
-    });
+    if crate::parser::expand_visitor::is_procedural_head(&head) {
+        return true;
+    }
 
-    let Some(found) = found else {
-        return false;
-    };
-
-    let defines = *defining.entry(head).or_insert_with(|| {
-        found.exprs().any(|template| {
-            let written = template.to_string();
-            written.contains("define-syntax") || written.contains("syntax-rules")
-        })
-    });
-
-    if !defines {
+    if !macro_defines_macros(head, expander, defining) {
         return false;
     }
 
     let mut trial = expr.clone();
 
-    let expanded = (|| -> Result<()> {
-        for _ in 0..2 {
-            expand(&mut trial, expander.map, globals)?;
+    // Until it defines a macro, or a few expansions deep
+    for _ in 0..8 {
+        let expanded = (|| -> Result<()> {
+            expand(&mut trial, expander.map.macros(), globals)?;
 
             for overlay in expander.overlays.iter() {
-                let exclusions = HashSet::new();
-                Expander::new(&overlay.map.in_scope_macros, &exclusions, globals)
-                    .expand(&mut trial)?;
+                expand_foreign(&mut trial, &overlay.map.in_scope_macros, globals)?;
             }
+
+            Ok(())
+        })();
+
+        if expanded.is_err() {
+            return false;
         }
 
-        Ok(())
-    })();
+        let mut names = FxHashSet::default();
+        crate::parser::expand_visitor::defined_macro_names(&trial, &mut names);
 
-    let mut names = FxHashSet::default();
-    crate::parser::expand_visitor::defined_macro_names(&trial, &mut names);
+        if !names.is_empty() {
+            return true;
+        }
+    }
 
-    expanded.is_ok() && !names.is_empty()
+    false
 }
 
 // The names a module provides
@@ -3923,115 +3975,155 @@ impl<'a> ModuleBuilder<'a> {
             &ast,
         );
 
-        let mut many_expander = ExpanderMany::new(macro_map, overlays, globals);
+        let mut many_expander = ExpanderMany::many(macro_map, overlays, globals);
         let mut generated = Vec::new();
 
         // As in a Racket module, the forms whose macros define macros are expanded first, so
         // the macros they define are the module's everywhere in it. The forms stay in place.
+        // Then the first ones are expanded again, for the macros the later ones defined.
         let mut expanded = vec![false; ast.len()];
+        let mut first = vec![false; ast.len()];
+        let mut last_defining = None;
         let mut defining = FxHashMap::default();
 
-        for defining_macros in [true, false] {
+        for pass in 0..3 {
             for index in 0..ast.len() {
-                if expanded[index]
-                    || defining_macros
-                        && !defines_macros_when_expanded(
-                            &ast[index],
-                            &many_expander,
-                            &mut defining,
-                            globals,
-                        )
-                {
+                let skip = match pass {
+                    0 => {
+                        expanded[index]
+                            || !defines_macros_when_expanded(
+                                &ast[index],
+                                &many_expander,
+                                &mut defining,
+                                globals,
+                            )
+                    }
+                    1 => expanded[index],
+                    _ => !first[index] || last_defining.map_or(true, |last| index >= last),
+                };
+
+                if skip {
                     continue;
                 }
 
                 expanded[index] = true;
+                first[index] |= pass == 0;
                 let expr = &mut ast[index];
+                let span = crate::parser::span_visitor::get_span(expr);
 
-                many_expander.expand(expr)?;
+                // The kinds of macros take turns until none is left, as at the top level
+                let mut form_defined = FxHashSet::default();
 
-                // The module's procedural macros and those its requires provide, in the order the
-                // code uses them
-                let required = many_expander
-                    .overlays
-                    .iter_mut()
-                    .map(
-                        |RequiredMacroMap { map: req_macro, .. }| RequiredKernelMacros {
-                            environment: &req_macro.module_name,
-                            provided: &req_macro.provided_kernel_macros,
-                            mangler: &mut req_macro.name_mangler,
-                        },
-                    )
-                    .collect();
-
-                expand_kernel_in_envs(
-                    expr,
-                    self.kernel.as_mut(),
-                    self.builtin_modules.clone(),
-                    self.name.to_str().unwrap(),
-                    required,
-                )?;
-
-                expand(expr, &many_expander.map, globals)?;
-
-                // What they made can use the imported syntax-rules macros too
-                for overlay in many_expander.overlays.iter_mut() {
-                    let exclusions = HashSet::new();
-                    let mut expander =
-                        Expander::new(&overlay.map.in_scope_macros, &exclusions, globals);
-                    expander.expand(expr)?;
-                    overlay.changed |= expander.changed;
-                }
-
-                _procedural.add(expr);
-                // A macro a macro of this module defines is the module's own, which its other
-                // macros can name wherever they're used
-                let mut defined = define_generated_macros(expr, many_expander.map, globals)?;
-
-                // And so does a procedural macro the module's macros define
-                let mut procedural = FxHashSet::default();
-                crate::parser::expand_visitor::defined_macro_names(expr, &mut procedural);
-                procedural.retain(|x| !defined.contains(x));
-                defined.extend(procedural);
-
-                // Like a written one, a macro the module's macros define is defined once
-                for name in &defined {
-                    if self.local_macros.contains(name) || generated.contains(name) {
-                        stop!(BadSyntax => format!("Macro re defined within the top level definition: {name}");
-                            crate::parser::span_visitor::get_span(expr));
+                for round in 0.. {
+                    if round == MAX_EXPANSION_ROUNDS {
+                        stop!(BadSyntax => "macro expansion doesn't finish"; span);
                     }
-                }
 
-                // A macro the module defines hides an imported one of its name, as a written one does
-                for overlay in many_expander.overlays.iter_mut() {
-                    for name in &defined {
-                        overlay.map.in_scope_macros.remove(name);
-                        overlay.map.provided_kernel_macros.remove(name);
+                    many_expander.changed = false;
+                    many_expander.expand(expr)?;
+                    let mut changed = many_expander.changed;
+
+                    // The module's procedural macros and those its requires provide, in the order the
+                    // code uses them
+                    let required = many_expander
+                        .overlays
+                        .iter_mut()
+                        .map(
+                            |RequiredMacroMap { map: req_macro, .. }| RequiredKernelMacros {
+                                environment: &req_macro.module_name,
+                                provided: &req_macro.provided_kernel_macros,
+                                mangler: &mut req_macro.name_mangler,
+                            },
+                        )
+                        .collect();
+
+                    changed |= expand_kernel_in_envs(
+                        expr,
+                        self.kernel.as_mut(),
+                        self.builtin_modules.clone(),
+                        self.name.to_str().unwrap(),
+                        required,
+                    )?;
+
+                    changed |= expand_changed(expr, many_expander.map.macros(), globals)?;
+
+                    // What they made can use the imported syntax-rules macros too
+                    for overlay in many_expander.overlays.iter_mut() {
+                        let expanded = expand_foreign(expr, &overlay.map.in_scope_macros, globals)?;
+                        overlay.changed |= expanded;
+                        changed |= expanded;
                     }
-                }
 
-                generated.extend(defined);
-
-                for RequiredMacroMap {
-                    changed,
-                    map: req_macro,
-                } in many_expander.overlays.iter_mut()
-                {
-                    if *changed {
-                        expand(expr, &req_macro.in_scope_macros, globals)?;
-
-                        // Expanding the kernel with only these macros...
-                        expand_kernel_in_module_env(
+                    _procedural.add(expr);
+                    // A macro a macro of this module defines is the module's own, which its other
+                    // macros can name wherever they're used. The last pass only expands.
+                    let mut defined = if pass < 2 {
+                        define_generated_macros(
                             expr,
-                            self.kernel.as_mut(),
-                            // We don't need to expand those here
-                            ModuleContainer::default(),
-                            &req_macro.module_name,
-                            Some(&req_macro.provided_kernel_macros),
-                            &mut req_macro.name_mangler,
-                        )?;
+                            many_expander.map.macros_mut().unwrap(),
+                            globals,
+                        )?
+                    } else {
+                        Default::default()
+                    };
 
-                        *changed = false;
+                    // And so does a procedural macro the module's macros define
+                    let mut procedural = FxHashSet::default();
+                    if pass < 2 {
+                        crate::parser::expand_visitor::defined_macro_names(expr, &mut procedural);
+                    }
+                    // It stays in the form until the kernel's last pass, so later rounds see it again
+                    procedural.retain(|x| !defined.contains(x) && !form_defined.contains(x));
+                    defined.extend(procedural);
+                    form_defined.extend(defined.iter().copied());
+                    changed |= !defined.is_empty();
+
+                    if !defined.is_empty() {
+                        last_defining = Some(index);
+                    }
+
+                    // Like a written one, a macro the module's macros define is defined once
+                    for name in &defined {
+                        if self.local_macros.contains(name) || generated.contains(name) {
+                            stop!(BadSyntax => format!("Macro re defined within the top level definition: {name}"); span);
+                        }
+                    }
+
+                    // A macro the module defines hides an imported one of its name, as a written one does
+                    for overlay in many_expander.overlays.iter_mut() {
+                        for name in &defined {
+                            overlay.map.in_scope_macros.remove(name);
+                            overlay.map.provided_kernel_macros.remove(name);
+                        }
+                    }
+
+                    generated.extend(defined);
+
+                    for RequiredMacroMap {
+                        changed: overlay_changed,
+                        map: req_macro,
+                    } in many_expander.overlays.iter_mut()
+                    {
+                        if *overlay_changed {
+                            expand(expr, &req_macro.in_scope_macros, globals)?;
+
+                            // Expanding the kernel with only these macros...
+                            changed |= expand_kernel_in_module_env(
+                                expr,
+                                self.kernel.as_mut(),
+                                // We don't need to expand those here
+                                ModuleContainer::default(),
+                                &req_macro.module_name,
+                                Some(&req_macro.provided_kernel_macros),
+                                &mut req_macro.name_mangler,
+                            )?;
+
+                            *overlay_changed = false;
+                        }
+                    }
+
+                    if !changed {
+                        break;
                     }
                 }
             }
@@ -4042,14 +4134,7 @@ impl<'a> ModuleBuilder<'a> {
         for req_macro in &mut required_macros {
             for expr in provides.iter_mut() {
                 // First expand the in scope macros
-                // These are macros
-
-                let exclusions = HashSet::new();
-
-                let mut expander = Expander::new(&req_macro.in_scope_macros, &exclusions, globals);
-                expander.expand(expr)?;
-
-                if expander.changed {
+                if expand_foreign(expr, &req_macro.in_scope_macros, globals)? {
                     expand(expr, &req_macro.in_scope_macros, globals)?;
                 }
             }

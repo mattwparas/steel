@@ -3069,7 +3069,6 @@ impl JIT {
             deopt_return_block: None,
             frameless,
             frameless_bail: false,
-            reads_undefined_global: false,
             frameless_calls: 0,
             checked_native_block: None,
             pending_deopt_exits: Vec::new(),
@@ -3237,7 +3236,6 @@ impl JIT {
         };
         let direct_self_calls = trans.direct_self_calls;
         let frameless_bail = trans.frameless_bail;
-        let reads_undefined_global = trans.reads_undefined_global;
         let cursor_bailed = trans.cursor_bail
             || (trans.cursors_on && (trans.cursor_advances == 0 || trans.cursor_carries == 0));
         let strip_mine_bailed = trans.strip.as_ref().is_some_and(|strip| !strip.applied);
@@ -3281,10 +3279,6 @@ impl JIT {
 
         if frameless_bail {
             return Err("frameless: body needs a frame".to_string());
-        }
-
-        if reads_undefined_global {
-            return Err("reads a global that isn't defined yet".to_string());
         }
 
         Ok(TranslateInfo {
@@ -4164,10 +4158,6 @@ struct FunctionTranslator<'a> {
     /// A frameless copy met something it can't compile without a frame, so the
     /// whole translation is abandoned.
     frameless_bail: bool,
-    /// The function reads a global that isn't defined yet, which the interpreter
-    /// reports when it's read. A global defined now stays defined, so reads of
-    /// those need no check.
-    reads_undefined_global: bool,
     /// Self calls emitted as frameless calls, so a call arm can tell whether
     /// it took the frameless path.
     frameless_calls: usize,
@@ -4663,6 +4653,8 @@ impl FunctionTranslator<'_> {
                     let result = self.call_set(payload, value.0);
                     self.push(result, InferredType::Any);
                     self.ip += 1;
+                    // Setting a global before its define raises
+                    self.check_deopt();
                 }
                 // TODO:
                 // Move read local does not require spilling since
@@ -12982,14 +12974,40 @@ impl FunctionTranslator<'_> {
     // 1. Probably need to check the length, slow path otherwise
     // 2. Should figure out a better way of doing things.
     fn inline_lookup_global(&mut self, payload: usize) -> Value {
-        if !self
+        let value = self.inline_lookup_global_unchecked(payload);
+
+        // A global defined when this is compiled stays defined, so only reads of one that
+        // isn't yet are checked, and raise as the interpreter's do while it still isn't
+        let defined = self
             ._globals
             .get(payload)
-            .is_some_and(|value| !crate::env::is_undefined_global(value))
-        {
-            self.reads_undefined_global = true;
+            .is_some_and(|value| !crate::env::is_undefined_global(value));
+
+        if defined {
+            return value;
         }
 
+        let bits = crate::env::undefined_global_bits();
+        let low = self.builder.ins().iconst(types::I64, bits as u64 as i64);
+        let high = self
+            .builder
+            .ins()
+            .iconst(types::I64, (bits >> 64) as u64 as i64);
+        let undefined = self.builder.ins().iconcat(low, high);
+        let present = self.builder.ins().icmp(IntCC::NotEqual, value, undefined);
+
+        self.converging_if_else_cold(
+            present,
+            |_| value,
+            |ctx| {
+                let index = ctx.builder.ins().iconst(types::I64, payload as i64);
+                ctx.call_helper_checked(UNDEFINED_GLOBAL_READ, [index])
+            },
+            types::I128,
+        )
+    }
+
+    fn inline_lookup_global_unchecked(&mut self, payload: usize) -> Value {
         let vm_ctx = self.get_ctx();
         let thread_pointer = self.get_thread_pointer(vm_ctx);
 
@@ -13021,7 +13039,16 @@ impl FunctionTranslator<'_> {
 
         self.converging_if(
             test,
-            |ctx| ctx.encode_void(),
+            |ctx| {
+                // Not defined yet either
+                let bits = crate::env::undefined_global_bits();
+                let low = ctx.builder.ins().iconst(types::I64, bits as u64 as i64);
+                let high = ctx
+                    .builder
+                    .ins()
+                    .iconst(types::I64, (bits >> 64) as u64 as i64);
+                ctx.builder.ins().iconcat(low, high)
+            },
             |ctx| {
                 let index = ctx.builder.ins().uextend(types::I64, index);
                 let shift_left = ctx.builder.ins().ishl_imm_u(index, 4);

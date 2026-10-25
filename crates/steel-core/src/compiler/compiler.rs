@@ -12,9 +12,7 @@ use crate::{
     core::{instructions::u24, labels::Expr},
     gc::Shared,
     parser::{
-        expand_visitor::{
-            expand_kernel_in_env, expand_kernel_in_module_envs, GlobalMap, RequiredKernelMacros,
-        },
+        expand_visitor::{GlobalMap, RequiredKernelMacros},
         interner::InternedString,
         kernel::{Kernel, Phase1Import},
         parser::{
@@ -453,6 +451,7 @@ pub struct Compiler {
     lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
     // The `begin-for-syntax` bindings the top level's transformers import
     phase1_imports: Vec<Phase1Import>,
+    template_globals: crate::compiler::passes::hygiene::TemplateGlobals,
     // Macros that... we need to compile against directly at the top level
     // This is really just a hack, but it solves cases for interactively
     // running at the top level using private macros.
@@ -653,6 +652,7 @@ impl Compiler {
             mangled_identifiers: FxHashMap::default(),
             lifted_kernel_environments: HashMap::new(),
             phase1_imports: Vec::new(),
+            template_globals: Default::default(),
             lifted_macro_environments: HashMap::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
@@ -685,6 +685,7 @@ impl Compiler {
             mangled_identifiers: FxHashMap::default(),
             lifted_kernel_environments: HashMap::new(),
             phase1_imports: Vec::new(),
+            template_globals: Default::default(),
             lifted_macro_environments: HashMap::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
@@ -994,15 +995,13 @@ impl Compiler {
     }
 
     // TODO: Compare this to the lower_expressions_impl and merge the behavior
-    fn expand_ast(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<Vec<ExprKind>> {
-        let mut expanded_statements = self.expand_expressions(exprs, path)?;
-
-        log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
-
+    // Expands the top level's forms with the macros it defines and those its requires
+    // provide, a form at a time
+    fn expand_top_level(&mut self, expanded_statements: &mut Vec<ExprKind>) -> Result<()> {
         if let Some(kernel) = self.kernel.as_mut() {
             // Label anything at the top as well - top level
             kernel.load_syntax_transformers(
-                &mut expanded_statements,
+                expanded_statements,
                 "top-level".to_string(),
                 &self.phase1_imports,
                 Vec::new(),
@@ -1010,103 +1009,75 @@ impl Compiler {
             )?;
         }
 
-        // for expr in expanded_statements.iter_mut() {
-        //     expand_kernel_in_env(
-        //         expr,
-        //         self.kernel.as_mut(),
-        //         self.builtin_modules.clone(),
-        //         "top-level",
-        //     )?;
-
-        //     crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
-        // }
-
         for expr in expanded_statements.iter_mut() {
-            // The top level's procedural macros and those its requires provide, in the order
-            // the code uses them
-            let required = self
-                .lifted_kernel_environments
-                .iter_mut()
-                .map(|(module, lifted_env)| RequiredKernelMacros {
-                    environment: module,
-                    provided: &lifted_env.exported,
-                    mangler: &mut lifted_env.name_mangler,
-                })
-                .collect();
+            // Each kind of macro can expand to uses of the others, so they take turns until
+            // none is left
+            for round in 0.. {
+                if round == MAX_EXPANSION_ROUNDS {
+                    stop!(BadSyntax => "macro expansion doesn't finish";
+                        crate::parser::span_visitor::get_span(expr));
+                }
 
-            crate::parser::expand_visitor::expand_kernel_in_envs(
-                expr,
-                self.kernel.as_mut(),
-                self.builtin_modules.clone(),
-                "top-level",
-                required,
-            )?;
-            crate::parser::expand_visitor::expand(
-                expr,
-                &self.macro_env,
-                GlobalMap::Map(self.symbol_map.map()),
-            )?;
-            let generated = crate::parser::expand_visitor::define_generated_macros(
-                expr,
-                &mut self.macro_env,
-                GlobalMap::Map(self.symbol_map.map()),
-            )?;
-            self.hide_required_kernel_macros(expr, &generated);
-            lower_entire_ast(expr)?;
+                // The top level's procedural macros and those its requires provide, in the
+                // order the code uses them
+                let required = required_kernel_macros(&mut self.lifted_kernel_environments);
 
-            for (module, shadowed_vars) in &self.lifted_macro_environments {
-                if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
-                    let source_id = self.sources.get_source_id(module).unwrap();
+                let mut changed = crate::parser::expand_visitor::expand_kernel_in_envs(
+                    expr,
+                    self.kernel.as_mut(),
+                    self.builtin_modules.clone(),
+                    "top-level",
+                    required,
+                )?;
+                changed |= crate::parser::expand_visitor::expand_changed(
+                    expr,
+                    &self.macro_env,
+                    GlobalMap::Map(self.symbol_map.map()),
+                )?;
+                let generated = crate::parser::expand_visitor::define_generated_macros(
+                    expr,
+                    &mut self.macro_env,
+                    GlobalMap::Map(self.symbol_map.map()),
+                )?;
+                self.hide_required_kernel_macros(expr, &generated);
+                changed |= !generated.is_empty();
+                lower_entire_ast(expr)?;
 
-                    crate::parser::expand_visitor::expand_with_source_id(
-                        expr,
-                        macro_env,
-                        &shadowed_vars,
-                        Some(source_id),
-                        GlobalMap::Map(self.symbol_map.map()),
-                    )?
+                for (module, shadowed_vars) in &self.lifted_macro_environments {
+                    if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                        let source_id = self.sources.get_source_id(module).unwrap();
+
+                        changed |= crate::parser::expand_visitor::expand_with_source_id(
+                            expr,
+                            macro_env,
+                            &shadowed_vars,
+                            Some(source_id),
+                            GlobalMap::Map(self.symbol_map.map()),
+                        )?;
+                    }
+                }
+
+                // The first round's kernel pass ran before lowering, where keyword arguments
+                // aren't expanded yet
+                if !changed && round > 0 {
+                    break;
                 }
             }
 
-            // Lift all of the kernel macros as well?
-            // The required modules' procedural macros, in the order the code uses them
-            let required = self
-                .lifted_kernel_environments
-                .iter_mut()
-                .map(|(module, lifted_env)| RequiredKernelMacros {
-                    environment: module,
-                    provided: &lifted_env.exported,
-                    mangler: &mut lifted_env.name_mangler,
-                })
-                .collect();
-
-            expand_kernel_in_module_envs(expr, self.kernel.as_mut(), required)?;
-
-            expand_kernel_in_env(
-                expr,
-                self.kernel.as_mut(),
-                self.builtin_modules.clone(),
-                "top-level",
-            )?;
-
-            // TODO: If we have this, then we have to lower all of the expressions again
-            crate::parser::expand_visitor::expand(
-                expr,
-                &self.macro_env,
-                GlobalMap::Map(self.symbol_map.map()),
-            )?;
-            let generated = crate::parser::expand_visitor::define_generated_macros(
-                expr,
-                &mut self.macro_env,
-                GlobalMap::Map(self.symbol_map.map()),
-            )?;
-            self.hide_required_kernel_macros(expr, &generated);
-
-            // for expr in expanded_statements.iter_mut() {
             lower_expanded_ast(expr)?;
 
-            ResolveExpansionMarks::resolve(expr);
+            ResolveExpansionMarks::resolve(expr, &mut self.template_globals);
         }
+
+        Ok(())
+    }
+
+    fn expand_ast(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<Vec<ExprKind>> {
+        let mut expanded_statements = self.expand_expressions(exprs, path)?;
+
+        log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
+
+        self.expand_top_level(&mut expanded_statements)?;
 
         // @Matt 11/15/2024
         // TODO: At this point, we'll want to remove
@@ -1240,105 +1211,7 @@ impl Compiler {
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
-        if let Some(kernel) = self.kernel.as_mut() {
-            // Label anything at the top as well - top level
-            kernel.load_syntax_transformers(
-                &mut expanded_statements,
-                "top-level".to_string(),
-                &self.phase1_imports,
-                Vec::new(),
-                Vec::new(),
-            )?;
-        }
-
-        for expr in expanded_statements.iter_mut() {
-            // The top level's procedural macros and those its requires provide, in the order
-            // the code uses them
-            let required = self
-                .lifted_kernel_environments
-                .iter_mut()
-                .map(|(module, lifted_env)| RequiredKernelMacros {
-                    environment: module,
-                    provided: &lifted_env.exported,
-                    mangler: &mut lifted_env.name_mangler,
-                })
-                .collect();
-
-            crate::parser::expand_visitor::expand_kernel_in_envs(
-                expr,
-                self.kernel.as_mut(),
-                self.builtin_modules.clone(),
-                "top-level",
-                required,
-            )?;
-            crate::parser::expand_visitor::expand(
-                expr,
-                &self.macro_env,
-                GlobalMap::Map(self.symbol_map.map()),
-            )?;
-            let generated = crate::parser::expand_visitor::define_generated_macros(
-                expr,
-                &mut self.macro_env,
-                GlobalMap::Map(self.symbol_map.map()),
-            )?;
-            self.hide_required_kernel_macros(expr, &generated);
-            lower_entire_ast(expr)?;
-
-            for (module, shadowed_vars) in &self.lifted_macro_environments {
-                if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
-                    // If this was recently shadowed, then we don't want it any more.
-
-                    let source_id = self.sources.get_source_id(module).unwrap();
-
-                    crate::parser::expand_visitor::expand_with_source_id(
-                        expr,
-                        macro_env,
-                        &shadowed_vars,
-                        Some(source_id),
-                        GlobalMap::Map(self.symbol_map.map()),
-                    )?;
-                }
-            }
-
-            // Lift all of the kernel macros as well?
-            // The required modules' procedural macros, in the order the code uses them
-            let required = self
-                .lifted_kernel_environments
-                .iter_mut()
-                .map(|(module, lifted_env)| RequiredKernelMacros {
-                    environment: module,
-                    provided: &lifted_env.exported,
-                    mangler: &mut lifted_env.name_mangler,
-                })
-                .collect();
-
-            expand_kernel_in_module_envs(expr, self.kernel.as_mut(), required)?;
-
-            expand_kernel_in_env(
-                expr,
-                self.kernel.as_mut(),
-                self.builtin_modules.clone(),
-                "top-level",
-            )?;
-
-            // TODO: If we have this, then we have to lower all of the expressions again
-            crate::parser::expand_visitor::expand(
-                expr,
-                &self.macro_env,
-                GlobalMap::Map(self.symbol_map.map()),
-            )?;
-            let generated = crate::parser::expand_visitor::define_generated_macros(
-                expr,
-                &mut self.macro_env,
-                GlobalMap::Map(self.symbol_map.map()),
-            )?;
-            self.hide_required_kernel_macros(expr, &generated);
-
-            // for expr in expanded_statements.iter_mut() {
-            lower_expanded_ast(expr)?;
-
-            ResolveExpansionMarks::resolve(expr);
-        }
+        self.expand_top_level(&mut expanded_statements)?;
 
         // TODO: Check that defines are in legal positions, post expansion.
 
@@ -1898,6 +1771,23 @@ fn filter_provides(expanded_statements: Vec<ExprKind>) -> Vec<ExprKind> {
                 Some(ExprKind::List(l))
             }
             other => Some(other),
+        })
+        .collect()
+}
+
+// How many times the macros of a form can take turns expanding it
+const MAX_EXPANSION_ROUNDS: usize = 64;
+
+// The procedural macros the top level's requires provide, each with the module it's expanded in
+fn required_kernel_macros(
+    lifted: &mut HashMap<String, KernelDefMacroSpec>,
+) -> Vec<RequiredKernelMacros<'_>> {
+    lifted
+        .iter_mut()
+        .map(|(module, lifted_env)| RequiredKernelMacros {
+            environment: module,
+            provided: &lifted_env.exported,
+            mangler: &mut lifted_env.name_mangler,
         })
         .collect()
 }

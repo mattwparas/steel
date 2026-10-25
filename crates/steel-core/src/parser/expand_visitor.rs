@@ -365,7 +365,8 @@ pub fn expand(
     let exclusions = HashSet::new();
     let mut expander = Expander {
         depth: 0,
-        map,
+        map: MacroMap::Shared(map),
+        overlays: Vec::new(),
         changed: false,
         in_scope_values: ScopeSet::default(),
         source_id: SourceId::none(),
@@ -374,10 +375,34 @@ pub fn expand(
         local_macros: LocalMacros::default(),
         top_level: true,
         body_form: false,
+        foreign: false,
     };
     expander.visit(expr)?;
 
     Ok(expander.in_scope_values)
+}
+
+// `expand`, saying whether any macro expanded
+pub(crate) fn expand_changed(
+    expr: &mut ExprKind,
+    map: &FxHashMap<InternedString, SteelMacro>,
+    globals: GlobalMap,
+) -> Result<bool> {
+    let mut expander = Expander::new(map, &NO_EXCLUSIONS, globals);
+    expander.visit(expr)?;
+    Ok(expander.changed)
+}
+
+// Expands a required module's syntax-rules macros, whose templates mean names where the
+// module is. Whether anything expanded.
+pub(crate) fn expand_foreign(
+    expr: &mut ExprKind,
+    map: &FxHashMap<InternedString, SteelMacro>,
+    globals: GlobalMap,
+) -> Result<bool> {
+    let mut expander = Expander::new(map, &NO_EXCLUSIONS, globals).foreign();
+    expander.expand(expr)?;
+    Ok(expander.changed)
 }
 
 pub fn expand_with_source_id(
@@ -386,10 +411,11 @@ pub fn expand_with_source_id(
     exclusions: &HashSet<InternedString>,
     source_id: Option<SourceId>,
     globals: GlobalMap,
-) -> Result<()> {
+) -> Result<bool> {
     let mut expander = Expander {
         depth: 0,
-        map,
+        map: MacroMap::Shared(map),
+        overlays: Vec::new(),
         changed: false,
         in_scope_values: ScopeSet::default(),
         source_id,
@@ -398,9 +424,12 @@ pub fn expand_with_source_id(
         local_macros: LocalMacros::default(),
         top_level: true,
         body_form: false,
+        foreign: false,
     };
 
-    expander.visit(expr)
+    expander.visit(expr)?;
+
+    Ok(expander.changed)
 }
 
 pub(crate) fn is_lambda_head(head: &ExprKind) -> bool {
@@ -685,6 +714,29 @@ thread_local! {
 }
 
 // The procedural macros of the code being expanded, until it's dropped
+// The name the kernel has a macro a function defines by
+fn fresh_local_macro_name(name: InternedString) -> InternedString {
+    static COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+    let n = COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    InternedString::from(format!("{name}%local{n}"))
+}
+
+// The name a function's procedural macro was written with
+pub(crate) fn written_local_macro_name(name: InternedString) -> InternedString {
+    let resolved = name.resolve();
+
+    match resolved.rfind("%local") {
+        Some(i)
+            if resolved[i + "%local".len()..]
+                .bytes()
+                .all(|b| b.is_ascii_digit()) =>
+        {
+            resolved[..i].into()
+        }
+        _ => name,
+    }
+}
+
 pub(crate) struct ProceduralHeads(FxHashSet<InternedString>);
 
 impl ProceduralHeads {
@@ -708,6 +760,11 @@ impl Drop for ProceduralHeads {
         let previous = core::mem::take(&mut self.0);
         PROCEDURAL_HEADS.with(|x| *x.borrow_mut() = previous);
     }
+}
+
+// Whether a name is one of the procedural macros the module can use
+pub(crate) fn is_procedural_head(name: &InternedString) -> bool {
+    PROCEDURAL_HEADS.with(|x| x.borrow().contains(name))
 }
 
 // A use of a procedural macro, which the syntax-rules expanders leave for the kernel
@@ -1061,6 +1118,16 @@ fn ends_with_definition(form: &ExprKind) -> bool {
     }
 }
 
+// A body form that defines a macro, written or as a begin of them
+fn defines_body_macro(form: &ExprKind) -> bool {
+    match form {
+        ExprKind::List(l) if defines_local_macro(l) || l.is_define_syntax() => true,
+        ExprKind::Begin(b) => b.exprs.iter().any(defines_body_macro),
+        ExprKind::List(l) if is_begin(l) => l.args[1..].iter().any(defines_body_macro),
+        _ => false,
+    }
+}
+
 #[derive(Default)]
 struct LocalMacros {
     macros: Vec<LocalMacro>,
@@ -1074,7 +1141,9 @@ impl LocalMacros {
     // What a macro defined outside any function introduces only means the local macros
     // that same expansion defines
     fn visible(defined: ExpansionMark, used: ExpansionMark) -> bool {
-        !used.is_definition_resolved() || defined == used
+        (!used.is_definition_resolved() || defined == used)
+            // One a template named is only for what templates wrote
+            && !(used == ExpansionMark::NONE && defined != ExpansionMark::NONE)
     }
 
     fn find_marked(&self, name: &InternedString, mark: ExpansionMark) -> Option<&LocalMacro> {
@@ -1373,6 +1442,26 @@ impl LocalMacros {
     fn leave(&mut self, visible: usize) {
         self.macros.truncate(visible);
     }
+
+    // A body form a macro expanded to a definition of a macro, which the rest of the body
+    // sees. `written` is whether the form defined one before it was expanded.
+    fn define_expanded(&mut self, form: &mut ExprKind, written: bool, depth: usize) -> Result<()> {
+        if written || !defines_body_macro(form) {
+            return Ok(());
+        }
+
+        let visible = self.macros.len();
+        let mut forms = vec![form.clone()];
+        self.define_from(&mut forms, 0, depth)?;
+        *form = forms.pop().unwrap();
+
+        let group = (visible, self.macros.len());
+        for local in &mut self.macros[visible..] {
+            local.group = group;
+        }
+
+        Ok(())
+    }
 }
 
 fn visit_let_form<V: VisitorMutRef<Output = Result<()>>>(
@@ -1435,8 +1524,13 @@ fn visit_let_form<V: VisitorMutRef<Output = Result<()>>>(
 
     if let Some(body_args) = l.args.get_mut(bindings_index + 1..) {
         for body_expr in body_args {
+            let written = defines_body_macro(body_expr);
             body_form(visitor);
             visitor.visit(body_expr)?;
+
+            if let Some((local_macros, scope)) = local_macros(visitor) {
+                local_macros.define_expanded(body_expr, written, scope.depth())?;
+            }
         }
     }
 
@@ -1454,9 +1548,11 @@ fn visit_let_form<V: VisitorMutRef<Output = Result<()>>>(
 }
 
 pub struct Expander<'a> {
-    map: &'a FxHashMap<InternedString, SteelMacro>,
+    pub(crate) map: MacroMap<'a>,
+    // The macros of the modules the code requires
+    pub(crate) overlays: Vec<RequiredMacroMap<'a>>,
     exclusions: &'a HashSet<InternedString>,
-    globals: GlobalMap<'a>,
+    pub(crate) globals: GlobalMap<'a>,
     pub(crate) changed: bool,
     // We're going to actually check if the macro is in scope
     in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
@@ -1466,6 +1562,8 @@ pub struct Expander<'a> {
     top_level: bool,
     // The form being visited is one of a body's, where a begin's definitions are the body's
     body_form: bool,
+    // The macros are a required module's, expanded for the code that required it
+    foreign: bool,
 }
 
 #[derive(Debug)]
@@ -1474,55 +1572,64 @@ pub struct RequiredMacroMap<'a> {
     pub(crate) changed: bool,
 }
 
-pub struct ExpanderMany<'a> {
-    // Base map, but then also we want to include _all_
-    pub(crate) map: &'a mut FxHashMap<InternedString, SteelMacro>,
+// One that also expands the macros of the modules the code requires, with macros of its own a
+// top level define-syntax can replace
+pub type ExpanderMany<'a> = Expander<'a>;
 
-    pub(crate) overlays: Vec<RequiredMacroMap<'a>>,
-
-    // We're going to actually check if the macro is in scope
-    pub(crate) in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
-
-    pub(crate) globals: GlobalMap<'a>,
-    source_id: Option<SourceId>,
-    depth: usize,
-    local_macros: LocalMacros,
-    top_level: bool,
-    // The form being visited is one of a body's, where a begin's definitions are the body's
-    body_form: bool,
+// The macros an expander has: ones only read, or its own
+pub(crate) enum MacroMap<'a> {
+    Shared(&'a FxHashMap<InternedString, SteelMacro>),
+    Own(&'a mut FxHashMap<InternedString, SteelMacro>),
 }
 
-impl<'a> ExpanderMany<'a> {
-    pub fn new(
+impl MacroMap<'_> {
+    pub(crate) fn get(&self, name: &InternedString) -> Option<&SteelMacro> {
+        self.macros().get(name)
+    }
+
+    fn contains_key(&self, name: &InternedString) -> bool {
+        self.macros().contains_key(name)
+    }
+
+    pub(crate) fn macros(&self) -> &FxHashMap<InternedString, SteelMacro> {
+        match self {
+            MacroMap::Shared(map) => map,
+            MacroMap::Own(map) => map,
+        }
+    }
+
+    // Only an expander with its own macros changes them
+    pub(crate) fn macros_mut(&mut self) -> Option<&mut FxHashMap<InternedString, SteelMacro>> {
+        match self {
+            MacroMap::Shared(_) => None,
+            MacroMap::Own(map) => Some(map),
+        }
+    }
+}
+
+static NO_EXCLUSIONS: once_cell::sync::Lazy<HashSet<InternedString>> =
+    once_cell::sync::Lazy::new(HashSet::new);
+
+impl<'a> Expander<'a> {
+    pub fn many(
         map: &'a mut FxHashMap<InternedString, SteelMacro>,
         overlays: Vec<RequiredMacroMap<'a>>,
         globals: GlobalMap<'a>,
     ) -> Self {
         Self {
-            map,
+            map: MacroMap::Own(map),
             overlays,
+            changed: false,
             in_scope_values: ScopeSet::default(),
             source_id: SourceId::none(),
-            globals,
             depth: 0,
+            exclusions: &NO_EXCLUSIONS,
+            globals,
             local_macros: LocalMacros::default(),
             top_level: true,
             body_form: false,
+            foreign: false,
         }
-    }
-
-    pub fn expand(&mut self, expr: &mut ExprKind) -> Result<()> {
-        self.top_level = true;
-        self.visit(expr)?;
-
-        // This isn't good! this is quadratic
-        for i in self.in_scope_values.iter() {
-            remove_macro(self.map, i);
-        }
-
-        self.in_scope_values.clear_all();
-
-        Ok(())
     }
 }
 
@@ -1533,7 +1640,8 @@ impl<'a> Expander<'a> {
         globals: GlobalMap<'a>,
     ) -> Self {
         Self {
-            map,
+            map: MacroMap::Shared(map),
+            overlays: Vec::new(),
             changed: false,
             in_scope_values: ScopeSet::default(),
             source_id: SourceId::none(),
@@ -1543,12 +1651,30 @@ impl<'a> Expander<'a> {
             local_macros: LocalMacros::default(),
             top_level: true,
             body_form: false,
+            foreign: false,
         }
+    }
+
+    // For a required module's macros
+    pub(crate) fn foreign(mut self) -> Self {
+        self.foreign = true;
+        self
     }
 
     pub fn expand(&mut self, expr: &mut ExprKind) -> Result<()> {
         self.top_level = true;
-        self.visit(expr)
+        self.visit(expr)?;
+
+        // What the code defines hides macros of those names
+        if let Some(map) = self.map.macros_mut() {
+            for i in self.in_scope_values.iter() {
+                remove_macro(map, i);
+            }
+
+            self.in_scope_values.clear_all();
+        }
+
+        Ok(())
     }
 }
 
@@ -1568,8 +1694,14 @@ impl<'a> Expander<'a> {
         };
 
         for expr in begin.exprs.iter_mut() {
+            let written = defines_body_macro(expr);
             self.body_form = body_form;
             self.visit(expr)?;
+
+            if body_form || visible.is_some() {
+                self.local_macros
+                    .define_expanded(expr, written, self.in_scope_values.depth())?;
+            }
         }
 
         if let Some(visible) = visible {
@@ -1733,8 +1865,15 @@ impl<'a> Expander<'a> {
                         };
 
                         for expr in l.args.iter_mut() {
+                            let written = defines_body_macro(expr);
                             self.body_form = body_form;
                             self.visit(expr)?;
+
+                            self.local_macros.define_expanded(
+                                expr,
+                                written,
+                                self.in_scope_values.depth(),
+                            )?;
                         }
 
                         if let Some(visible) = visible {
@@ -1766,9 +1905,17 @@ impl<'a> Expander<'a> {
                                 ..
                             },
                     })) if *i == *DEFINE_SYNTAX && !self.in_scope_values.contains(i) => {
+                        // The name isn't a macro use, even when it names a macro
                         if let Some(arg) = l.args.get_mut(2) {
                             self.visit(arg)?;
                         }
+
+                        // A procedural macro replaces a syntax-rules one of its name for the
+                        // forms after it
+                        if let Some(map) = self.map.macros_mut().filter(|_| top_level) {
+                            forget_replaced_macro(map, l);
+                        }
+
                         return Ok(());
                     }
 
@@ -1781,6 +1928,10 @@ impl<'a> Expander<'a> {
                     })) if !self.in_scope_values.contains(&DEFINE_SYNTAX) => {
                         if let Some(arg) = l.args.get_mut(2) {
                             self.visit(arg)?;
+                        }
+
+                        if let Some(map) = self.map.macros_mut().filter(|_| top_level) {
+                            forget_replaced_macro(map, l);
                         }
 
                         return Ok(());
@@ -1856,8 +2007,17 @@ impl<'a> Expander<'a> {
                         };
 
                         for expr in l.args[2..].iter_mut() {
+                            let written = defines_body_macro(expr);
                             self.body_form = is_function;
                             self.visit(expr)?;
+
+                            if is_function {
+                                self.local_macros.define_expanded(
+                                    expr,
+                                    written,
+                                    self.in_scope_values.depth(),
+                                )?;
+                            }
                         }
 
                         if let Some(visible) = visible {
@@ -1884,6 +2044,7 @@ impl<'a> Expander<'a> {
                         // A prelude template means the prelude's macro, which a macro of
                         // the same name defined here keeps under another name. So does what a
                         // required module's procedural macro wrote.
+                        let mut found_index = None;
                         let prelude_template = mark.is_prelude() || is_foreign_mark(*mark);
                         let alias = (prelude_template && PRELUDE_ALIASES.load(Ordering::Relaxed))
                             .then(|| prelude_macro_alias(s))
@@ -1929,7 +2090,21 @@ impl<'a> Expander<'a> {
 
                                 return Ok(());
                             }
-                        } else if let Some(m) = prelude_macro.or_else(|| self.map.get(s)) {
+                        } else if let Some(m) = prelude_macro.or_else(|| {
+                            // A required module's macro, then the code's own
+                            self.overlays
+                                .iter()
+                                .enumerate()
+                                .find_map(|(index, x)| {
+                                    let found = x.map.in_scope_macros.get(s);
+                                    if found.is_some() {
+                                        found_index = Some(index);
+                                    }
+
+                                    found
+                                })
+                                .or_else(|| self.map.get(s))
+                        }) {
                             // Interweave the macro expansion
                             if !self.exclusions.contains(s) {
                                 // If this macro has been overwritten by any local value, respect
@@ -1941,7 +2116,7 @@ impl<'a> Expander<'a> {
                                 if *unresolved || visible && !self.in_scope_values.contains(s) {
                                     let span = *sp;
 
-                                    let mut expanded = m.expand(
+                                    let (mut expanded, mark) = m.expand_marked(
                                         List::new_maybe_improper(
                                             core::mem::take(&mut l.args),
                                             l.improper,
@@ -1951,6 +2126,16 @@ impl<'a> Expander<'a> {
                                         self.globals,
                                     )?;
                                     self.changed = true;
+
+                                    // What a required module's macro wrote means names where the
+                                    // macro is defined
+                                    if let Some(index) = found_index {
+                                        self.overlays[index].changed = true;
+                                    }
+
+                                    if self.foreign || found_index.is_some() {
+                                        record_foreign_mark(mark);
+                                    }
 
                                     self.depth += 1;
                                     self.top_level = top_level;
@@ -2133,607 +2318,6 @@ impl<'a> VisitorMutRef for Expander<'a> {
     }
 }
 
-impl<'a> ExpanderMany<'a> {
-    // A begin in a body is part of it, so what it defines stays for the rest of the body.
-    // One in an expression is its own body.
-    fn visit_begin_forms(&mut self, begin: &mut super::ast::Begin, body_form: bool) -> Result<()> {
-        let visible = if body_form {
-            self.local_macros
-                .splice(&mut begin.exprs, 0, &self.in_scope_values)?;
-            None
-        } else {
-            Some(
-                self.local_macros
-                    .enter(&mut begin.exprs, 0, &self.in_scope_values)?,
-            )
-        };
-
-        for expr in begin.exprs.iter_mut() {
-            self.body_form = body_form;
-            self.visit(expr)?;
-        }
-
-        if let Some(visible) = visible {
-            self.local_macros.leave(visible);
-        }
-
-        Ok(())
-    }
-
-    fn visit_expr(&mut self, expr: &mut ExprKind) -> Result<()> {
-        // println!("expanding: {:?}", expr);
-
-        if self.depth > MAX_EXPANSION_DEPTH {
-            stop!(Generic => "macro expansion depth reached!");
-        }
-
-        let top_level = core::mem::replace(&mut self.top_level, false);
-        let body_form = core::mem::replace(&mut self.body_form, false);
-
-        if top_level {
-            match expr {
-                ExprKind::Begin(b) => {
-                    let visible = self.local_macros.macros.len();
-                    let depth = self.in_scope_values.depth();
-                    self.local_macros.define_from(&mut b.exprs, 0, depth)?;
-
-                    for expr in b.exprs.iter_mut() {
-                        self.top_level = true;
-                        self.body_form = true;
-                        self.visit(expr)?;
-                    }
-
-                    self.local_macros.leave(visible);
-                    return Ok(());
-                }
-                ExprKind::List(l) if is_begin(l) => {
-                    let visible = self.local_macros.macros.len();
-                    let depth = self.in_scope_values.depth();
-                    self.local_macros.define_from(&mut l.args, 1, depth)?;
-
-                    for expr in l.args.iter_mut().skip(1) {
-                        self.top_level = true;
-                        self.body_form = true;
-                        self.visit(expr)?;
-                    }
-
-                    self.local_macros.leave(visible);
-                    return Ok(());
-                }
-                _ => {}
-            }
-        }
-
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
-            ExprKind::Begin(b) => self.visit_begin_forms(b, body_form),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => {
-                if defines_local_macro(l) {
-                    return Ok(());
-                }
-
-                match l.first() {
-                    // TODO: Come back to this?
-                    Some(ExprKind::Atom(
-                        ident @ Atom {
-                            syn:
-                                SyntaxObject {
-                                    ty: TokenType::Identifier(s),
-                                    ..
-                                },
-                        },
-                    )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
-                        if let ExprKind::LambdaFunction(mut lambda) =
-                            parse_lambda(ident.clone(), l.args.clone())?
-                        {
-                            self.visit_lambda_function(&mut lambda)?;
-
-                            *expr = ExprKind::LambdaFunction(lambda);
-
-                            return Ok(());
-
-                            // return self.visit_lambda_function(&mut lambda);
-
-                            // return self.visit_lambda_function(lambda);
-                        } else {
-                            unreachable!()
-                        }
-                    }
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Identifier(i),
-                                ..
-                            },
-                    })) if *i == *SYNTAX_CASE && !self.in_scope_values.contains(i) => {
-                        if let Some(args) = l.args.get_mut(3..) {
-                            for arg in args {
-                                if let ExprKind::List(l) = arg {
-                                    if let Some(rest) = l.args.get_mut(1..) {
-                                        for arg in rest {
-                                            self.visit(arg)?;
-                                        }
-                                    }
-                                } else {
-                                    self.visit(arg)?;
-                                }
-                            }
-                        }
-                        return Ok(());
-                    }
-
-                    Some(head) if is_let_head(head) => {
-                        return visit_let_form(
-                            self,
-                            |v| Some(&mut v.in_scope_values),
-                            binder_name,
-                            |v| Some((&mut v.local_macros, &v.in_scope_values)),
-                            |v| v.body_form = true,
-                            l,
-                        );
-                    }
-
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Begin,
-                                ..
-                            },
-                    })) => {
-                        // A begin in a body splices into it, one in an expression is its own
-                        let visible = if body_form {
-                            self.local_macros
-                                .splice(&mut l.args, 1, &self.in_scope_values)?;
-                            None
-                        } else {
-                            Some(
-                                self.local_macros
-                                    .enter(&mut l.args, 1, &self.in_scope_values)?,
-                            )
-                        };
-
-                        for expr in l.args.iter_mut() {
-                            self.body_form = body_form;
-                            self.visit(expr)?;
-                        }
-
-                        if let Some(visible) = visible {
-                            self.local_macros.leave(visible);
-                        }
-
-                        return Ok(());
-                    }
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Quote,
-                                ..
-                            },
-                    })) => return Ok(()),
-
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Identifier(i),
-                                ..
-                            },
-                    })) if *i == *QUOTE => return Ok(()),
-                    // Same as the lambda arm in `Expander`.
-                    Some(ExprKind::Atom(
-                        ident @ Atom {
-                            syn:
-                                SyntaxObject {
-                                    ty: TokenType::Lambda,
-                                    ..
-                                },
-                        },
-                    )) if l.args.len() >= 3 => {
-                        if let ExprKind::LambdaFunction(mut lambda) =
-                            parse_lambda(ident.clone(), core::mem::take(&mut l.args))?
-                        {
-                            if l.improper {
-                                lambda.rest = true;
-                            }
-
-                            self.visit_lambda_function(&mut lambda)?;
-
-                            *expr = ExprKind::LambdaFunction(lambda);
-
-                            return Ok(());
-
-                            // return self.visit_lambda_function(&mut lambda);
-                        } else {
-                            unreachable!()
-                        }
-                    }
-
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Identifier(i),
-                                ..
-                            },
-                    })) if *i == *DEFINE_SYNTAX && !self.in_scope_values.contains(i) => {
-                        // The name isn't a macro use, even when it names a macro
-                        if let Some(arg) = l.args.get_mut(2) {
-                            self.visit(arg)?;
-                        }
-
-                        // A procedural macro replaces a syntax-rules one of its name for the
-                        // forms after it
-                        if top_level {
-                            forget_replaced_macro(self.map, l);
-                        }
-
-                        return Ok(());
-                    }
-
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::DefineSyntax,
-                                ..
-                            },
-                    })) if !self.in_scope_values.contains(&DEFINE_SYNTAX) => {
-                        if let Some(arg) = l.args.get_mut(2) {
-                            self.visit(arg)?;
-                        }
-
-                        if top_level {
-                            forget_replaced_macro(self.map, l);
-                        }
-
-                        return Ok(());
-                    }
-
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Define,
-                                ..
-                            },
-                    })) if l.args.len() > 1 => {
-                        // Same as the define arm in `Expander`.
-
-                        let is_function = match &l.args[1] {
-                            ExprKind::List(l) if l.first_ident().is_some() => {
-                                self.in_scope_values.define(*l.first_ident().unwrap());
-                                true
-                            }
-
-                            ExprKind::Atom(a) if a.ident().is_some() => {
-                                self.in_scope_values.define(*a.ident().unwrap());
-                                false
-                            }
-                            _ => false,
-                        };
-
-                        if is_function {
-                            self.in_scope_values.push_layer();
-
-                            if let ExprKind::List(signature) = &l.args[1] {
-                                for arg in signature.args.iter().skip(1) {
-                                    if let Some(ident) = parameter_name(arg) {
-                                        self.in_scope_values.define(*ident);
-                                    }
-                                }
-                            }
-                        }
-
-                        let visible = if is_function {
-                            Some(self.local_macros.enter_body(
-                                &mut l.args,
-                                2,
-                                &self.in_scope_values,
-                            )?)
-                        } else {
-                            None
-                        };
-
-                        for expr in l.args[2..].iter_mut() {
-                            self.body_form = is_function;
-                            self.visit(expr)?;
-                        }
-
-                        if let Some(visible) = visible {
-                            self.local_macros.leave(visible);
-                        }
-
-                        if is_function {
-                            self.in_scope_values.pop_layer();
-                        }
-
-                        return Ok(());
-                    }
-
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Identifier(s),
-                                span: sp,
-                                unresolved,
-                                mark,
-                                ..
-                            },
-                    })) => {
-                        // A prelude template means the prelude's macro, which a macro of
-                        // the same name defined here keeps under another name. So does what a
-                        // required module's procedural macro wrote.
-                        let prelude_template = mark.is_prelude() || is_foreign_mark(*mark);
-                        let alias = (prelude_template && PRELUDE_ALIASES.load(Ordering::Relaxed))
-                            .then(|| prelude_macro_alias(s))
-                            .filter(|alias| self.map.contains_key(alias));
-                        // Or the prelude's, where nothing here keeps it
-                        let prelude_macros = (prelude_template && alias.is_none())
-                            .then(crate::steel_vm::engine::default_prelude_macros);
-                        let prelude_macro = prelude_macros.as_ref().and_then(|x| x.get(s));
-                        let s = alias.as_ref().unwrap_or(s);
-
-                        let mut found_index = None;
-
-                        let local = self.local_macros.find_marked(s, *mark);
-
-                        if self.local_macros.procedural_hides(s, *mark) {
-                            // The kernel expands it
-                        } else if let Some(local) = local {
-                            // A template means the macro where it's defined, not a variable
-                            // of the same name where it's used
-                            if *unresolved || !local.shadowed(&self.in_scope_values) {
-                                let span = *sp;
-                                let defining =
-                                    (local.name, local.expander.as_ref().map(|x| x.span()));
-
-                                let (mut expanded, mark) = local.expand(
-                                    List::new_maybe_improper(
-                                        core::mem::take(&mut l.args),
-                                        l.improper,
-                                    ),
-                                    span,
-                                    &self.in_scope_values,
-                                    self.globals,
-                                )?;
-                                self.local_macros.expanded(defining, mark);
-
-                                self.depth += 1;
-
-                                self.body_form = body_form;
-                                self.visit(&mut expanded)?;
-
-                                self.depth -= 1;
-
-                                *expr = expanded;
-
-                                return Ok(());
-                            }
-                        } else if let Some(m) = prelude_macro.or_else(|| {
-                            self.overlays
-                                .iter()
-                                .enumerate()
-                                .find_map(|(index, x)| {
-                                    let res = x.map.in_scope_macros.get(s);
-                                    if res.is_some() {
-                                        found_index = Some(index);
-                                    }
-
-                                    res
-                                })
-                                .or_else(|| self.map.get(s))
-                        }) {
-                            // If this macro has been overwritten by any local value, respect
-                            // the local binding and do not expand the macro, unless the
-                            // identifier came from a macro template
-                            let visible = self.source_id.is_none()
-                                || self.source_id == m.location.source_id();
-
-                            if *unresolved || visible && !self.in_scope_values.contains(s) {
-                                // if s.resolve().ends_with("skip-compile") {
-                                //     println!("Expanding skip compile: {}", l);
-                                // }
-
-                                let span = *sp;
-
-                                // println!("Expanding many: {}", l);
-
-                                let mut expanded = m.expand(
-                                    List::new_maybe_improper(
-                                        core::mem::take(&mut l.args),
-                                        l.improper,
-                                    ),
-                                    span,
-                                    &self.in_scope_values,
-                                    self.globals,
-                                )?;
-
-                                if let Some(index) = found_index {
-                                    self.overlays[index].changed = true;
-                                }
-
-                                self.depth += 1;
-                                self.top_level = top_level;
-
-                                self.body_form = body_form;
-                                self.visit(&mut expanded)?;
-
-                                self.depth -= 1;
-
-                                *expr = expanded;
-
-                                return Ok(());
-                            }
-
-                            // let expanded = m.expand(l.clone(), *sp)?;
-                            // self.changed = true;
-                            // return self.visit(expanded);
-                        }
-                    }
-                    // Some(other) => {
-                    //     println!("967 - DIDN'T MATCH: {}", other)
-                    // }
-                    _ => {}
-                }
-
-                // A procedural macro gets its arguments as they're written
-                if procedural_use(l, &self.in_scope_values) {
-                    return Ok(());
-                }
-
-                for expr in l.args.iter_mut() {
-                    self.visit(expr)?;
-                }
-
-                Ok(())
-
-                // l.args = l
-                //     .args
-                //     .into_iter()
-                //     .map(|e| self.visit(e))
-                //     .collect::<Result<Vec<_>>>()?;
-            }
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
-    }
-}
-
-impl<'a> VisitorMutRef for ExpanderMany<'a> {
-    type Output = Result<()>;
-
-    // Expansions nest as deep as macros expand into each other
-    fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
-        crate::compiler::passes::with_stack(|| self.visit_expr(expr))
-    }
-
-    fn visit_if(&mut self, f: &mut super::ast::If) -> Self::Output {
-        self.visit(&mut f.test_expr)?;
-        self.visit(&mut f.then_expr)?;
-        self.visit(&mut f.else_expr)?;
-        Ok(())
-    }
-
-    fn visit_define(&mut self, define: &mut super::ast::Define) -> Self::Output {
-        if let Some(ident) = define.name.atom_identifier() {
-            self.in_scope_values.define(*ident);
-        }
-
-        self.visit(&mut define.body)?;
-        Ok(())
-    }
-
-    fn visit_lambda_function(
-        &mut self,
-        lambda_function: &mut super::ast::LambdaFunction,
-    ) -> Self::Output {
-        self.in_scope_values.push_layer();
-
-        for value in &lambda_function.args {
-            if let Some(ident) = parameter_name(value) {
-                self.in_scope_values.define(*ident);
-            }
-        }
-
-        for value in &mut lambda_function.args {
-            self.visit(value)?;
-        }
-
-        let visible = self
-            .local_macros
-            .enter_expr(&mut lambda_function.body, &self.in_scope_values)?;
-
-        self.body_form = true;
-        self.visit(&mut lambda_function.body)?;
-
-        self.local_macros.leave(visible);
-
-        self.in_scope_values.pop_layer();
-
-        Ok(())
-    }
-
-    fn visit_begin(&mut self, begin: &mut super::ast::Begin) -> Self::Output {
-        self.visit_begin_forms(begin, false)
-    }
-
-    fn visit_return(&mut self, r: &mut super::ast::Return) -> Self::Output {
-        self.visit(&mut r.expr)
-    }
-
-    fn visit_quote(&mut self, _quote: &mut super::ast::Quote) -> Self::Output {
-        // println!("Visiting quote with : {:?}", quote);
-        // quote.expr = self.visit(quote.expr)?;
-        // Ok(ExprKind::Quote(quote))
-        Ok(())
-    }
-
-    fn visit_macro(&mut self, m: &mut super::ast::Macro) -> Self::Output {
-        stop!(BadSyntax => format!("unexpected macro definition in expand visitor: {}", m); m.location.span)
-    }
-
-    fn visit_atom(&mut self, _a: &mut Atom) -> Self::Output {
-        // Ok(ExprKind::Atom(a))
-        Ok(())
-    }
-
-    fn visit_syntax_rules(&mut self, l: &mut super::ast::SyntaxRules) -> Self::Output {
-        stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
-    }
-
-    fn visit_set(&mut self, s: &mut super::ast::Set) -> Self::Output {
-        self.visit(&mut s.variable)?;
-        self.visit(&mut s.expr)?;
-        Ok(())
-    }
-
-    fn visit_require(&mut self, _s: &mut super::ast::Require) -> Self::Output {
-        // Ok(ExprKind::Require(s))
-        Ok(())
-    }
-
-    fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
-        self.in_scope_values.push_layer();
-
-        for (binding, _) in l.bindings.iter_mut() {
-            if let Some(ident) = binding.atom_identifier() {
-                self.in_scope_values.define(*ident);
-            }
-        }
-
-        for (binding, expr) in l.bindings.iter_mut() {
-            self.visit(binding)?;
-            self.visit(expr)?;
-        }
-
-        let visible = self
-            .local_macros
-            .enter_expr(&mut l.body_expr, &self.in_scope_values)?;
-
-        self.body_form = true;
-        self.visit(&mut l.body_expr)?;
-
-        self.local_macros.leave(visible);
-
-        self.in_scope_values.pop_layer();
-
-        Ok(())
-    }
-
-    fn visit_list(&mut self, _l: &mut List) -> Self::Output {
-        Ok(())
-    }
-
-    fn visit_vector(&mut self, _v: &mut super::ast::Vector) -> Self::Output {
-        Ok(())
-    }
-}
-
 pub fn expand_kernel_in_env(
     expr: &mut ExprKind,
     kernel: Option<&mut Kernel>,
@@ -2741,19 +2325,8 @@ pub fn expand_kernel_in_env(
     env: &str,
 ) -> Result<()> {
     let mut expander = KernelExpander {
-        map: kernel,
-        changed: false,
-        builtin_modules,
         environment: Some(env),
-        depth: 0,
-        allowed_macros: None,
-        define_context: None,
-        mangler: None,
-        locals: ScopeSet::default(),
-        local_macros: Vec::new(),
-        required: Vec::new(),
-        foreign: false,
-        local_hidden: Vec::new(),
+        ..KernelExpander::new(kernel, builtin_modules)
     };
 
     expander.visit(expr)
@@ -2770,19 +2343,10 @@ pub fn expand_kernel_in_module_env(
     mangler: &mut NameMangler,
 ) -> Result<bool> {
     let mut expander = KernelExpander {
-        map: kernel,
-        changed: false,
-        builtin_modules,
         environment: Some(env),
-        depth: 0,
         allowed_macros: allowed,
-        define_context: None,
         mangler: Some(mangler),
-        locals: ScopeSet::default(),
-        local_macros: Vec::new(),
-        required: Vec::new(),
-        foreign: false,
-        local_hidden: Vec::new(),
+        ..KernelExpander::new(kernel, builtin_modules)
     };
 
     expander.visit(expr)?;
@@ -2795,21 +2359,7 @@ pub fn expand_kernel(
     kernel: Option<&mut Kernel>,
     builtin_modules: ModuleContainer,
 ) -> Result<ExprKind> {
-    let mut expander = KernelExpander {
-        map: kernel,
-        changed: false,
-        builtin_modules,
-        environment: None,
-        depth: 0,
-        allowed_macros: None,
-        define_context: None,
-        mangler: None,
-        locals: ScopeSet::default(),
-        local_macros: Vec::new(),
-        required: Vec::new(),
-        foreign: false,
-        local_hidden: Vec::new(),
-    };
+    let mut expander = KernelExpander::new(kernel, builtin_modules);
     expander.visit(&mut expr)?;
 
     Ok(expr)
@@ -2831,19 +2381,9 @@ pub fn expand_kernel_in_module_envs(
     let none = FxHashMap::default();
 
     let mut expander = KernelExpander {
-        map: kernel,
-        changed: false,
-        builtin_modules: ModuleContainer::default(),
-        environment: None,
-        depth: 0,
         allowed_macros: Some(&none),
-        define_context: None,
-        mangler: None,
-        locals: ScopeSet::default(),
-        local_macros: Vec::new(),
         required,
-        foreign: false,
-        local_hidden: Vec::new(),
+        ..KernelExpander::new(kernel, ModuleContainer::default())
     };
 
     expander.visit(expr)?;
@@ -2861,19 +2401,9 @@ pub fn expand_kernel_in_envs(
     required: Vec<RequiredKernelMacros<'_>>,
 ) -> Result<bool> {
     let mut expander = KernelExpander {
-        map: kernel,
-        changed: false,
-        builtin_modules,
         environment: Some(env),
-        depth: 0,
-        allowed_macros: None,
-        define_context: None,
-        mangler: None,
-        locals: ScopeSet::default(),
-        local_macros: Vec::new(),
         required,
-        foreign: false,
-        local_hidden: Vec::new(),
+        ..KernelExpander::new(kernel, builtin_modules)
     };
 
     expander.visit(expr)?;
@@ -2895,7 +2425,8 @@ pub struct KernelExpander<'a> {
     locals: ScopeSet<InternedString, FxBuildHasher>,
     required: Vec<RequiredKernelMacros<'a>>,
     // The macros the functions around here define, with the scope depth they're defined in
-    local_macros: Vec<(InternedString, usize)>,
+    // and the name the kernel has them by
+    local_macros: Vec<(InternedString, usize, InternedString)>,
     // In what a required module's macro made, where the names it introduced aren't the
     // environment's macros
     foreign: bool,
@@ -3219,6 +2750,9 @@ fn expand_keyword_and_default_arguments(
             }
         });
 
+    // The keywords a call can give
+    let declared_keywords: ThinVec<ExprKind> = keyword_map.iter().map(|x| x.0.clone()).collect();
+
     let bindings = keyword_map
         .into_iter()
         .map(|x| {
@@ -3347,6 +2881,23 @@ fn expand_keyword_and_default_arguments(
         ExprKind::List(List::new(inner_application))
     };
 
+    // A keyword it doesn't take, or one given twice, is an error, as in Racket
+    let function_name = define_name
+        .clone()
+        .unwrap_or_else(|| ExprKind::ident("anonymous function"));
+    let keyword_check = expr_list![
+        ExprKind::ident("#%prim.plist-check-keywords"),
+        ExprKind::ident(REST_ARG),
+        ExprKind::Quote(Box::new(Quote::new(
+            ExprKind::List(List::new(declared_keywords)),
+            lambda_function.location.clone(),
+        ))),
+        ExprKind::Quote(Box::new(Quote::new(
+            function_name,
+            lambda_function.location.clone(),
+        ))),
+    ];
+
     // TODO: This check has to be a little bit better.
     // For this to behave, we have to check the arity of the positional arguments,
     // as well as the non positional args. To do so, we should
@@ -3376,6 +2927,14 @@ fn expand_keyword_and_default_arguments(
                     .unwrap_or_else(|| ExprKind::ident("anonymous function")),
             ))
         ],
+        SyntaxObject::default(TokenType::If),
+    )));
+
+    // Checked before the arity, so a keyword it doesn't take is what's reported
+    let arity_check_condition = ExprKind::If(Box::new(ast::If::new(
+        keyword_check,
+        arity_check_condition,
+        ExprKind::bool_lit(false),
         SyntaxObject::default(TokenType::If),
     )));
 
@@ -3520,8 +3079,14 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
             }
         }
 
+        let hidden = self.local_hidden.len();
+        let mut names = FxHashSet::default();
+        defined_procedural_macro_names(&l.body_expr, &mut names);
+        self.local_hidden.extend(names);
+
         self.visit(&mut l.body_expr)?;
 
+        self.local_hidden.truncate(hidden);
         self.locals.pop_layer();
         self.leave_local_macros();
 
@@ -3558,6 +3123,14 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
 
                     match l.first() {
                         Some(head) if is_let_head(head) => {
+                            // The procedural macros its body defines hide others in it
+                            let hidden = self.local_hidden.len();
+                            let mut names = FxHashSet::default();
+                            for form in l.args.iter().skip(2) {
+                                defined_procedural_macro_names(form, &mut names);
+                            }
+                            self.local_hidden.extend(names);
+
                             let result = visit_let_form(
                                 self,
                                 |v| Some(&mut v.locals),
@@ -3566,6 +3139,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                 |_| {},
                                 l,
                             );
+                            self.local_hidden.truncate(hidden);
                             self.leave_local_macros();
                             return result;
                         }
@@ -3709,9 +3283,14 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                         .is_some_and(|env| map.has_own_macro(env, &s))
                                 }));
 
+                        // A macro a function defines hides the module's of its name
+                        let local_macro = !foreign_name
+                            && (self.local_macros.iter().any(|x| x.0 == s)
+                                || self.local_hidden.contains(&s));
+
                         // A module's code names the macros it defines and imports by its
                         // prefix, private ones too
-                        if let Some(map) = self.map.as_mut().filter(|_| !shadowed) {
+                        if let Some(map) = self.map.as_mut().filter(|_| !shadowed && !local_macro) {
                             if let Some(mut expanded) = map.expand_prefixed_macro(&s, l)? {
                                 self.changed = true;
                                 self.depth += 1;
@@ -3756,8 +3335,20 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                             }
                         }
 
+                        // The innermost macro of the name a function here defines
+                        let local_name = self
+                            .local_macros
+                            .iter()
+                            .rev()
+                            .find(|x| x.0 == s)
+                            .map(|x| x.2)
+                            .filter(|_| !foreign_name);
+
                         let name = match self.allowed_macros {
                             _ if shadowed => None,
+                            _ if local_name.is_some() => local_name,
+                            // One a body here defines, before its definition is expanded
+                            _ if !foreign_name && self.local_hidden.contains(&s) => None,
                             // Only the environment's own macros, not the kernel's
                             _ if foreign_name
                                 && self.map.as_ref().is_some_and(|map| {
@@ -3774,7 +3365,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                         // A macro a function defines is only that function's
                         let local_macros = &self.local_macros;
                         let out_of_scope = |map: &Kernel, name: &InternedString| {
-                            map.is_local_macro(name) && !local_macros.iter().any(|x| x.0 == *name)
+                            map.is_local_macro(name) && !local_macros.iter().any(|x| x.2 == *name)
                         };
 
                         if let (Some(map), Some(name)) = (&mut self.map, name) {
@@ -3801,8 +3392,24 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                             })
                                             .copied()
                                             .collect();
-                                        map.define_local_macro(defined, locals);
-                                        self.local_macros.push((defined, self.locals.depth()));
+
+                                        // Under a name of its own, so it doesn't replace a macro
+                                        // of the module's of that name
+                                        let internal = fresh_local_macro_name(defined);
+                                        let written = match l.args.get_mut(1) {
+                                            Some(ExprKind::List(f)) => f.args.first_mut(),
+                                            other => other,
+                                        };
+                                        if let Some(ExprKind::Atom(a)) = written {
+                                            a.syn.ty = TokenType::Identifier(internal);
+                                        }
+
+                                        map.define_local_macro(internal, locals);
+                                        self.local_macros.push((
+                                            defined,
+                                            self.locals.depth(),
+                                            internal,
+                                        ));
                                         local_definition = Some((defined, l.location));
                                     }
                                 }

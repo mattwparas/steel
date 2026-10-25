@@ -5339,6 +5339,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "steel-fuzz"
+version = "0.8.3"
+dependencies = [
+ "arbitrary",
+ "clap",
+ "libc",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "steel-core",
+ "toml",
+]
+
+[[package]]
 name = "steel-gen"
 version = "0.8.3"
 dependencies = [

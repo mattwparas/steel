@@ -837,20 +837,32 @@ fn defines_are_sequential(exprs: &[ExprKind]) -> bool {
 
 // A name as the code wrote it, without the renames modules and macro hygiene give it
 fn written_name(name: &str) -> String {
-    let name = crate::parser::expand_visitor::unmangled(name).trim_start_matches("##");
+    use crate::compiler::modules::MANGLER_PREFIX;
 
-    // Hygiene renames end in `#<mark>` or `#<mark>#<id>`
-    match name.find('#') {
-        Some(i)
-            if i > 0
-                && name[i + 1..]
-                    .split('#')
-                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())) =>
-        {
-            name[..i].to_string()
+    // Hygiene renames are `##<name>#<mark>` or `##<name>#<mark>#<id>`, of a name that can be
+    // a module's
+    let renamed = name
+        .strip_prefix("##")
+        .filter(|_| !name.starts_with(MANGLER_PREFIX));
+
+    let Some(mut base) = renamed else {
+        return crate::parser::expand_visitor::unmangled(name).to_string();
+    };
+
+    for _ in 0..2 {
+        match base.rfind('#') {
+            Some(i)
+                if i > 0
+                    && base[i + 1..].bytes().all(|b| b.is_ascii_digit())
+                    && i + 1 < base.len() =>
+            {
+                base = &base[..i];
+            }
+            _ => break,
         }
-        _ => name.to_string(),
     }
+
+    crate::parser::expand_visitor::unmangled(base).to_string()
 }
 
 // What a name of the group is until its define runs
@@ -1426,5 +1438,19 @@ mod flatten_begin_test {
         FlattenBegin::flatten(&mut expr);
 
         assert_eq!(expr, expected);
+    }
+}
+
+#[cfg(test)]
+mod written_name_tests {
+    use super::written_name;
+
+    #[test]
+    fn renames_are_undone_and_written_names_kept() {
+        assert_eq!(written_name("##x#12"), "x");
+        assert_eq!(written_name("##x#12#3"), "x");
+        assert_eq!(written_name("##mm5__%#__x"), "x");
+        assert_eq!(written_name("####mm5__%#__x#12"), "x");
+        assert_eq!(written_name("x#1"), "x#1");
     }
 }

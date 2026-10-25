@@ -3,23 +3,11 @@ use super::*;
 #[cross_platform_fn]
 fn set_handler_c(ctx: *mut VmCore, index: usize, value_to_assign: SteelVal) -> SteelVal {
     let this = unsafe { &mut *ctx };
-    let value = if this.thread.safepoints_enabled {
-        #[cfg(feature = "sync")]
-        {
-            this.thread
-                .with_locked_env(|_, env| env.set_idx(index, value_to_assign))
-        }
-
-        #[cfg(not(feature = "sync"))]
-        this.thread
-            .with_locked_env(|this| this.global_env.repl_set_idx(index, value_to_assign))?
-    } else {
-        this.thread.local_set(index, value_to_assign).unwrap()
-    };
+    let value = this.thread.set_global(index, value_to_assign);
 
     this.ip += 1;
 
-    value
+    stash_error(this, value)
 }
 
 #[cross_platform_fn]

@@ -286,6 +286,7 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 OpCode::CALLGLOBAL
                 | OpCode::CALLPRIMITIVE
                 | OpCode::PUSH
+                | OpCode::SET
                 | OpCode::CALLGLOBALTAIL
                 | OpCode::CALLGLOBALNOARITY
                 | OpCode::CALLGLOBALTAILNOARITY => {

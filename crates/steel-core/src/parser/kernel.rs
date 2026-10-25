@@ -1256,6 +1256,27 @@ impl VisitorMutRefUnit for Introduced<'_> {
         self.visit_quoted(&mut quote.expr);
     }
 
+    // A syntax-rules macro it defines. What came from the input gets its marks back.
+    fn visit_macro(&mut self, m: &mut super::ast::Macro) {
+        struct RestoreInputMarks<'a>(&'a MacroInput);
+
+        impl VisitorMutRefUnit for RestoreInputMarks<'_> {
+            fn visit_atom(&mut self, a: &mut Atom) {
+                if let Some(mark) = self.0.marks.get(&a.syn.mark) {
+                    a.syn.mark = *mark;
+                }
+            }
+        }
+
+        let mut restore = RestoreInputMarks(self.input);
+        restore.visit(&mut m.name);
+
+        for pair in m.syntax_rules.patterns.iter_mut() {
+            restore.visit(&mut pair.pattern);
+            restore.visit(&mut pair.body);
+        }
+    }
+
     fn visit_list(&mut self, l: &mut super::ast::List) {
         let quoted = l
             .first()
@@ -2809,7 +2830,7 @@ impl Kernel {
                 mangler: mangler.filter(|_| in_environment),
                 quoted: 0,
                 local,
-                macro_name: *ident,
+                macro_name: crate::parser::expand_visitor::written_local_macro_name(*ident),
                 captures: captures.unwrap_or_default(),
             }
             .resolve(expr);

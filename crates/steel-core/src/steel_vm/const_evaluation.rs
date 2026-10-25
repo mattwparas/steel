@@ -1009,20 +1009,23 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
                 self.changed = true;
                 self.bindings = parent;
+
+                // The constant itself, since the body can still name a binding that's gone
+                let value = ExprKind::try_from(&value_output)
+                    .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
+                    .map(|x| {
+                        ExprKind::Quote(Box::new(Quote::new(
+                            x,
+                            SyntaxObject::default(TokenType::Quote),
+                        )))
+                    })?;
+
                 if non_constant_arguments.is_empty() {
-                    // println!("Returning here!");
-                    return ExprKind::try_from(&value_output)
-                        .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
-                        .map(|x| {
-                            ExprKind::Quote(Box::new(Quote::new(
-                                x,
-                                SyntaxObject::default(TokenType::Quote),
-                            )))
-                        });
+                    return Ok(value);
                 } else {
                     let mut non_constant_arguments: Vec<_> =
                         non_constant_arguments.into_iter().cloned().collect();
-                    non_constant_arguments.push(output);
+                    non_constant_arguments.push(value);
                     // TODO come up witih a better location
                     return Ok(ExprKind::Begin(Box::new(Begin::new(
                         non_constant_arguments,

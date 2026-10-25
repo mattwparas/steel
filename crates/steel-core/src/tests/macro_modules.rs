@@ -1427,6 +1427,84 @@ fn a_module_defines_a_generated_macro_once() {
     );
 }
 
+const GEN: &str =
+    "(define-syntax gen (syntax-rules () [(_ n v) (define-syntax n (syntax-rules () [(_) v]))]))";
+
+fn module_results(name: &str, body: &str) -> String {
+    let mut engine = engine();
+    engine.register_steel_module(name.to_owned(), format!("(provide results)\n{GEN}\n{body}"));
+    last(&mut engine, &format!("(require \"{name}\") results")).to_string()
+}
+
+#[test]
+fn generated_macros_are_found_through_other_macros_and_begins() {
+    // A macro that expands to a use of one that defines a macro
+    assert_eq!(
+        module_results(
+            "gen/indirect",
+            "(define-syntax m1 (syntax-rules () [(_ n) (gen n 7)]))
+             (define (f) (foo))
+             (m1 foo)
+             (define results (f))"
+        ),
+        "7"
+    );
+
+    assert_eq!(
+        module_results(
+            "gen/begin",
+            "(define (f) (foo))
+             (begin (gen foo 1) (define z 2))
+             (define results (list (f) z))"
+        ),
+        "(1 2)"
+    );
+
+    // A procedural one
+    assert_eq!(
+        module_results(
+            "gen/procedural",
+            "(define-syntax (pgen stx)
+               (syntax-case stx () [(_ n v) #'(define-syntax n (syntax-rules () [(_) v]))]))
+             (define (f) (foo))
+             (pgen foo 3)
+             (define results (list (f) (foo)))"
+        ),
+        "(3 3)"
+    );
+}
+
+#[test]
+fn macro_defining_forms_see_macros_defined_after_them() {
+    assert_eq!(
+        module_results(
+            "gen/later",
+            "(define-syntax gen2
+               (syntax-rules () [(_ n u get) (begin (define-syntax n (syntax-rules () [(_) 1]))
+                                                    (define (get) (u)))]))
+             (gen2 a b get)
+             (gen b 5)
+             (define results (list (a) (get)))"
+        ),
+        "(1 5)"
+    );
+}
+
+#[test]
+fn generated_macros_in_bodies_are_local() {
+    assert_eq!(
+        module_results(
+            "gen/bodies",
+            "(define a (let () (gen foo 1) (foo)))
+             (define (f) (gen foo 2) (foo))
+             (define (h) (define-syntax foo (syntax-rules () [(_) 3])) (foo))
+             (gen foo 4)
+             (define results (list a (f) (h) (foo)))"
+        ),
+        "(1 2 3 4)"
+    );
+}
+
 // A global, constant or not, can't be read before its define, in a file or module as at the
 // top level. One read in a function only when it's called, and it's an error then.
 #[test]
@@ -1471,7 +1549,7 @@ fn compiled_reads_of_undefined_globals_raise() {
 (define (run n acc) (if (= n 0) acc (run (- n 1) (with-handler (lambda (e) 'err) (f)))))
 (define (g n) (if (= n 0) x (g (- n 1))))
 (define early (list (run 20000 0) (with-handler (lambda (e) 'err) (g 20000))))
-(define x 10)
+(define x (string->number "10"))
 (define results (list early (run 20000 0) (g 20000)))
 "#
         .to_owned(),
@@ -1480,5 +1558,142 @@ fn compiled_reads_of_undefined_globals_raise() {
     assert_eq!(
         last(&mut engine, r#"(require "forward/hot") results"#).to_string(),
         "((err err) (10) 10)"
+    );
+}
+
+#[test]
+fn set_and_calls_of_undefined_globals_raise() {
+    let mut engine = Engine::new();
+    assert!(engine.run("(define c (car '()))".to_owned()).is_err());
+
+    let message = |engine: &mut Engine, program: &str| {
+        engine.run(program.to_owned()).unwrap_err().to_string()
+    };
+
+    assert!(message(&mut engine, "(define (setc) (set! c 10)) (setc)")
+        .contains("c: assignment disallowed"));
+    assert!(message(&mut engine, "(define (callc) (c 1)) (callc)").contains("free identifier: c"));
+    assert!(
+        message(&mut engine, "(define (tailc) (c 1)) (list (tailc))")
+            .contains("free identifier: c")
+    );
+
+    engine
+        .run("(define c (lambda (x) (+ x 1)))".to_owned())
+        .unwrap();
+    assert_eq!(last(&mut engine, "(setc) c").to_string(), "10");
+}
+
+#[test]
+fn a_required_template_means_its_modules_names() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "lib/when".to_owned(),
+        "(provide lib-when lib-cond)
+         (define-syntax lib-when (syntax-rules () [(_ c e) (when c e)]))
+         (define-syntax lib-cond (syntax-rules () [(_ e) (cond [e 'lib-cond-ok] [else 'no])]))"
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "user/when".to_owned(),
+        "(require \"lib/when\")
+         (provide results)
+         (define-syntax (when stx) (syntax-case stx () [(_ c e) #''user-when]))
+         (define-syntax (cond stx) (syntax-case stx () [(_ . r) #''user-cond]))
+         (define results (list (lib-when #t 'lib-when-ok) (lib-cond #t)))"
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(&mut engine, r#"(require "user/when") results"#).to_string(),
+        "(lib-when-ok lib-cond-ok)"
+    );
+}
+
+#[test]
+fn procedural_macros_bodies_define_are_theirs() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "local/pm".to_owned(),
+        "(provide results)
+         (define-syntax (pm stx) (syntax-case stx () [(_ e) #'(list 'pm e)]))
+         (define (k) (define-syntax (pm stx) (syntax-case stx () [(_ e) #''local-pm])) (pm 0))
+         (define (j)
+           (define inner
+             (lambda () (define-syntax (pm stx) (syntax-case stx () [(_ e) #''inner-pm])) (pm 0)))
+           (list (pm 4) (inner)))
+         (define (l) (let ([v 1]) (define-syntax (pm stx) (syntax-case stx () [(_ e) #''let-pm])) (pm 6)))
+         (define results (list (k) (j) (l) (pm 5)))"
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(&mut engine, r#"(require "local/pm") results"#).to_string(),
+        "(local-pm ((pm 4) inner-pm) let-pm (pm 5))"
+    );
+}
+
+#[test]
+fn a_local_macro_a_template_names_is_hidden_from_the_user() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "local/sq".to_owned(),
+        "(provide results)
+         (define-syntax (with-sq stx)
+           (syntax-case stx ()
+             [(_ body) #'(let-syntax ([sq (syntax-rules () [(_ x) (* x x)])]) body)]))
+         (define-syntax (with-sq2 stx)
+           (syntax-case stx ()
+             [(_ body) #'(let () (define-syntax sq (syntax-rules () [(_ x) (* x x)])) body)]))
+         (define (sq x) (list 'user-sq x))
+         (define results (list (with-sq (sq 4)) (with-sq2 (sq 5))))"
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(&mut engine, r#"(require "local/sq") results"#).to_string(),
+        "((user-sq 4) (user-sq 5))"
+    );
+}
+
+#[test]
+fn requiring_again_restores_an_imported_procedural_macro() {
+    let mut engine = Engine::new();
+    engine.register_steel_module(
+        "lib/pm".to_owned(),
+        "(provide pm) (define-syntax (pm stx) (syntax-case stx () [(_ e) #'(list 'lib-pm e)]))"
+            .to_owned(),
+    );
+
+    engine.run(r#"(require "lib/pm")"#.to_owned()).unwrap();
+    engine
+        .run("(define-syntax (pm stx) (syntax-case stx () [(_ e) #''written-pm]))".to_owned())
+        .unwrap();
+    assert_eq!(last(&mut engine, "(pm 2)").to_string(), "written-pm");
+    engine.run(r#"(require "lib/pm")"#.to_owned()).unwrap();
+    assert_eq!(last(&mut engine, "(pm 3)").to_string(), "(lib-pm 3)");
+}
+
+#[test]
+fn a_procedural_macro_defines_a_macro_in_a_body() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "local/mk".to_owned(),
+        "(provide results)
+         (define-syntax (mk stx)
+           (syntax-case stx () [(_ n) #'(define-syntax n (syntax-rules () [(_) 'made]))]))
+         (define (h) (mk m1) (m1))
+         (define (g)
+           (define-syntax (mk2 stx)
+             (syntax-case stx () [(_ n) #'(define-syntax n (syntax-rules () [(_) 'made2]))]))
+           (mk2 m2)
+           (m2))
+         (define results (list (h) (g)))"
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(&mut engine, r#"(require "local/mk") results"#).to_string(),
+        "(made made2)"
     );
 }
