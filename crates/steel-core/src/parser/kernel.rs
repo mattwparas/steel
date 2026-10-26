@@ -1710,11 +1710,17 @@ impl Kernel {
         // they're expanded here, which also shows the definitions they make
         for (defmacro, expr) in exprs_buffer.iter_mut() {
             if !*defmacro {
-                crate::parser::expand_visitor::expand_kernel_in_env(
+                let none = FxHashSet::default();
+                crate::parser::expand_visitor::expand_with_kernel_defining(
                     expr,
-                    Some(&mut *self),
-                    crate::steel_vm::engine::ModuleContainer::default(),
-                    "default",
+                    &FxHashMap::default(),
+                    crate::parser::expand_visitor::GlobalMap::Set(&none),
+                    crate::parser::expand_visitor::KernelExpander::in_environment(
+                        Some(&mut *self),
+                        crate::steel_vm::engine::ModuleContainer::default(),
+                        "default",
+                    ),
+                    false,
                 )?;
 
                 // What they define is defined by name, like the rest of phase 1

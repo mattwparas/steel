@@ -6,11 +6,7 @@ use crate::{
     },
     parser::{
         ast::{Atom, Begin, Define, ExprKind, List, Quote},
-        expand_visitor::{
-            expand_changed, expand_foreign, expand_kernel_in_env, expand_kernel_in_envs,
-            expand_kernel_in_module_env, ExpanderMany, GlobalMap, RequiredKernelMacros,
-            RequiredMacroMap,
-        },
+        expand_visitor::{expand_foreign, ExpanderMany, GlobalMap, RequiredMacroMap},
         interner::InternedString,
         kernel::{Kernel, MacroModule, Phase1Import, RenameInstance},
         parser::{
@@ -967,22 +963,20 @@ impl ModuleManager {
 
                 let _source_id = sources.get_source_id(path).unwrap();
 
-                // What they expand to names the module's other macros by its prefix
-                expand(
+                // What they expand to names the module's other macros by its prefix, both kinds,
+                // its procedural ones only those it provides
+                let globals = name_mangler.globals.clone();
+                crate::parser::expand_visitor::expand_with_kernel_defining(
                     expr,
                     in_scope_macros,
-                    GlobalMap::Set(&name_mangler.globals), // source_id,
-                )?;
-
-                // Expanding the kernel with only these macros...
-                expand_kernel_in_module_env(
-                    expr,
-                    kernel.as_mut(),
-                    // We don't need to expand those here
-                    ModuleContainer::default(),
-                    module_name,
-                    Some(exported),
-                    name_mangler,
+                    GlobalMap::Set(&globals),
+                    crate::parser::expand_visitor::KernelExpander::for_module(
+                        kernel.as_mut(),
+                        module_name,
+                        Some(exported),
+                        name_mangler,
+                    ),
+                    false,
                 )?;
 
                 let mut generated = FxHashSet::default();
@@ -2715,7 +2709,6 @@ fn macros_as_lists(expr: &mut ExprKind) {
 fn expand_head(
     expr: &mut ExprKind,
     expander: &mut ExpanderMany,
-    kernel: &mut Option<Kernel>,
     environment: &str,
     globals: GlobalMap,
 ) -> Result<()> {
@@ -2724,13 +2717,13 @@ fn expand_head(
             // A begin's forms are the module's forms
             ExprKind::Begin(b) => {
                 for form in b.exprs.iter_mut() {
-                    expand_head(form, expander, kernel, environment, globals)?;
+                    expand_head(form, expander, environment, globals)?;
                 }
                 return Ok(());
             }
             ExprKind::List(l) if crate::parser::expand_visitor::is_begin(l) => {
                 for form in l.args[1..].iter_mut() {
-                    expand_head(form, expander, kernel, environment, globals)?;
+                    expand_head(form, expander, environment, globals)?;
                 }
                 return Ok(());
             }
@@ -2781,7 +2774,9 @@ fn expand_head(
                     }
 
                     Some(expanded)
-                } else if let Some(kernel) = kernel.as_mut() {
+                } else if let Some(kernel) =
+                    expander.kernel.as_mut().and_then(|x| x.map.as_deref_mut())
+                {
                     // A procedural one, a required module's where it's defined, or the module's
                     let provided = expander
                         .overlays
@@ -3991,39 +3986,33 @@ impl<'a> ModuleBuilder<'a> {
 
         if self.require_objects.is_empty() {
             for expr in ast.iter_mut() {
-                // Remove from the local macros?
-                expand(expr, &self.macro_map, globals)?;
-
-                // for item in found.iter() {
-                //     // Remove from the list?
-                //     Arc::make_mut(&mut self.macro_map).remove(item);
-                // }
-
-                expand_kernel_in_env(
+                // Both kinds of macros, each where it's used
+                crate::parser::expand_visitor::expand_with_kernel(
                     expr,
-                    self.kernel.as_mut(),
-                    self.builtin_modules.clone(),
-                    // Expanding macros in the environment?
-                    self.name.to_str().unwrap(),
+                    &self.macro_map,
+                    globals,
+                    crate::parser::expand_visitor::KernelExpander::in_environment(
+                        self.kernel.as_mut(),
+                        self.builtin_modules.clone(),
+                        self.name.to_str().unwrap(),
+                    ),
                 )?;
-
-                expand(expr, &self.macro_map, globals)?;
             }
         }
 
         // TODO: Provides also need to have this kind of macro expansion as the above!
         for expr in provides.iter_mut() {
-            expand(expr, &self.macro_map, globals)?;
-            // .and_then(|x| {
-            // expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
-            expand_kernel_in_env(
+            crate::parser::expand_visitor::expand_with_kernel_defining(
                 expr,
-                self.kernel.as_mut(),
-                self.builtin_modules.clone(),
-                // Expanding macros in the environment?
-                self.name.to_str().unwrap(),
+                &self.macro_map,
+                globals,
+                crate::parser::expand_visitor::KernelExpander::in_environment(
+                    self.kernel.as_mut(),
+                    self.builtin_modules.clone(),
+                    self.name.to_str().unwrap(),
+                ),
+                false,
             )?;
-            // })
         }
 
         let mut mangled_asts = Vec::with_capacity(ast.len() + 16);
@@ -4165,7 +4154,16 @@ impl<'a> ModuleBuilder<'a> {
             &ast,
         );
 
-        let mut many_expander = ExpanderMany::many(macro_map, overlays, globals);
+        // Both kinds of macros, each expanded where it's used
+        let module_name = self.name.to_str().unwrap();
+        let mut many_expander = ExpanderMany::many(macro_map, overlays, globals).with_kernel(
+            crate::parser::expand_visitor::KernelExpander::in_environment(
+                self.kernel.as_mut(),
+                self.builtin_modules.clone(),
+                module_name,
+            ),
+        );
+        many_expander.define_top_level_procedural = true;
         let mut generated = Vec::new();
 
         // As in a Racket module, every form's head is expanded first, in order, and those that
@@ -4217,13 +4215,7 @@ impl<'a> ModuleBuilder<'a> {
                 let skip = match pass {
                     // Each form's head, in order. One that then defines a macro is done now.
                     0 => {
-                        expand_head(
-                            &mut ast[index],
-                            &mut many_expander,
-                            self.kernel,
-                            self.name.to_str().unwrap(),
-                            globals,
-                        )?;
+                        expand_head(&mut ast[index], &mut many_expander, module_name, globals)?;
 
                         // A begin it expanded to is spliced in, its forms done in turn
                         if let Some(forms) = begin_forms(&mut ast[index]) {
@@ -4264,39 +4256,8 @@ impl<'a> ModuleBuilder<'a> {
 
                     many_expander.changed = false;
                     many_expander.expand(expr)?;
-                    // Another round only for what the steps after the first leave
+                    // Another round only for what a definition the form made leaves
                     let mut changed = false;
-
-                    // The module's procedural macros and those its requires provide, in the order the
-                    // code uses them
-                    let required = many_expander
-                        .overlays
-                        .iter_mut()
-                        .map(
-                            |RequiredMacroMap { map: req_macro, .. }| RequiredKernelMacros {
-                                environment: &req_macro.module_name,
-                                provided: &req_macro.provided_kernel_macros,
-                                mangler: &mut req_macro.name_mangler,
-                            },
-                        )
-                        .collect();
-
-                    changed |= expand_kernel_in_envs(
-                        expr,
-                        self.kernel.as_mut(),
-                        self.builtin_modules.clone(),
-                        self.name.to_str().unwrap(),
-                        required,
-                    )?;
-
-                    changed |= expand_changed(expr, many_expander.map.macros(), globals)?;
-
-                    // What they made can use the imported syntax-rules macros too
-                    for overlay in many_expander.overlays.iter_mut() {
-                        let expanded = expand_foreign(expr, &overlay.map.in_scope_macros, globals)?;
-                        overlay.changed |= expanded;
-                        changed |= expanded;
-                    }
 
                     _procedural.add(expr);
                     // A macro a macro of this module defines is the module's own, which its other
@@ -4319,6 +4280,12 @@ impl<'a> ModuleBuilder<'a> {
                     let mut procedural = FxHashSet::default();
                     if pass < 2 {
                         crate::parser::expand_visitor::defined_macro_names(expr, &mut procedural);
+                    }
+                    // Those the expander defined where they were made
+                    let made = core::mem::take(&mut many_expander.defined_procedural);
+                    if pass < 2 {
+                        procedural.extend(made.iter().map(|x| x.0));
+                        name_spans.extend(made);
                     }
                     // It stays in the form until the kernel's last pass, so later rounds see it
                     // again. One the form wrote is the module's written macro.
@@ -4382,29 +4349,6 @@ impl<'a> ModuleBuilder<'a> {
 
                     generated.extend(defined);
 
-                    for RequiredMacroMap {
-                        changed: overlay_changed,
-                        map: req_macro,
-                    } in many_expander.overlays.iter_mut()
-                    {
-                        if *overlay_changed {
-                            expand(expr, &req_macro.in_scope_macros, globals)?;
-
-                            // Expanding the kernel with only these macros...
-                            changed |= expand_kernel_in_module_env(
-                                expr,
-                                self.kernel.as_mut(),
-                                // We don't need to expand those here
-                                ModuleContainer::default(),
-                                &req_macro.module_name,
-                                Some(&req_macro.provided_kernel_macros),
-                                &mut req_macro.name_mangler,
-                            )?;
-
-                            *overlay_changed = false;
-                        }
-                    }
-
                     if !changed {
                         break;
                     }
@@ -4446,72 +4390,10 @@ impl<'a> ModuleBuilder<'a> {
             FlattenBegin::flatten(expr);
         }
 
-        // And then finally, expand the keyword arguments. The procedural macros the module's
-        // macros defined are defined first, so they're the module's everywhere in it.
-        for defining_macros in [true, false] {
-            for expr in &mut ast {
-                let mut names = FxHashSet::default();
-                crate::parser::expand_visitor::defined_procedural_macro_names(expr, &mut names);
-
-                if names.is_empty() == defining_macros {
-                    continue;
-                }
-
-                // What they expand to can use the syntax-rules macros, which can expand to
-                // procedural ones again
-                let span = crate::parser::span_visitor::get_span(expr);
-
-                for round in 0.. {
-                    if round == MAX_EXPANSION_ROUNDS {
-                        stop!(BadSyntax => "macro expansion doesn't finish"; span);
-                    }
-
-                    let required = required_macros
-                        .iter_mut()
-                        .map(|req_macro| RequiredKernelMacros {
-                            environment: &req_macro.module_name,
-                            provided: &req_macro.provided_kernel_macros,
-                            mangler: &mut req_macro.name_mangler,
-                        })
-                        .collect();
-
-                    let mut changed = expand_kernel_in_envs(
-                        expr,
-                        self.kernel.as_mut(),
-                        self.builtin_modules.clone(),
-                        self.name.to_str().unwrap(),
-                        required,
-                    )?;
-
-                    if round > 0 && !changed {
-                        break;
-                    }
-
-                    changed = expand_changed(expr, macro_map, globals)?;
-
-                    for req_macro in required_macros.iter_mut() {
-                        if expand_foreign(expr, &req_macro.in_scope_macros, globals)? {
-                            changed = true;
-                            expand(expr, &req_macro.in_scope_macros, globals)?;
-                            expand_kernel_in_module_env(
-                                expr,
-                                self.kernel.as_mut(),
-                                ModuleContainer::default(),
-                                &req_macro.module_name,
-                                Some(&req_macro.provided_kernel_macros),
-                                &mut req_macro.name_mangler,
-                            )?;
-                        }
-                    }
-
-                    if !changed {
-                        break;
-                    }
-
-                    lower_entire_ast(expr)?;
-                    FlattenBegin::flatten(expr);
-                }
-            }
+        // And then finally, expand the keyword arguments
+        for expr in &mut ast {
+            crate::parser::expand_visitor::strip_loaded_procedural_definitions(expr);
+            crate::parser::expand_visitor::expand_keyword_arguments(expr)?;
         }
 
         // The provides expansion made, as the written ones, before they're sorted

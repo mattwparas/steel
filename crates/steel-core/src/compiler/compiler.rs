@@ -1010,30 +1010,30 @@ impl Compiler {
         }
 
         for expr in expanded_statements.iter_mut() {
-            // Each kind of macro can expand to uses of the others, so they take turns until
-            // none is left
+            // Both kinds of macros expand where they're used. Another round is for what a
+            // definition of one made, or a required module's macro.
             for round in 0.. {
                 if round == MAX_EXPANSION_ROUNDS {
                     stop!(BadSyntax => "macro expansion doesn't finish";
                         crate::parser::span_visitor::get_span(expr));
                 }
 
-                // The top level's procedural macros and those its requires provide, in the
-                // order the code uses them
+                // Both kinds of macros, each where it's used: the top level's and those its
+                // requires provide
                 let required = required_kernel_macros(&mut self.lifted_kernel_environments);
-
-                let kernel_changed = crate::parser::expand_visitor::expand_kernel_in_envs(
-                    expr,
-                    self.kernel.as_mut(),
-                    self.builtin_modules.clone(),
-                    "top-level",
-                    required,
-                )?;
-                let mut changed = crate::parser::expand_visitor::expand_changed(
+                crate::parser::expand_visitor::expand_with_kernel(
                     expr,
                     &self.macro_env,
                     GlobalMap::Map(self.symbol_map.map()),
+                    crate::parser::expand_visitor::KernelExpander::in_environment(
+                        self.kernel.as_mut(),
+                        self.builtin_modules.clone(),
+                        "top-level",
+                    )
+                    .with_required(required),
                 )?;
+
+                let mut changed = false;
                 let generated = crate::parser::expand_visitor::define_generated_macros(
                     expr,
                     &mut self.macro_env,
@@ -1057,17 +1057,13 @@ impl Compiler {
                     }
                 }
 
-                // The first round's kernel pass ran before lowering, where keyword arguments
-                // aren't expanded yet
-                // Nor are macros defined in bodies, or what the kernel made, so the first round
-                // of a form with any of those is followed by another
-                let first_round_left = round == 0
-                    && (kernel_changed || has_optional_arguments(expr) || defines_any_macro(expr));
-                if !changed && !first_round_left {
+                if !changed {
                     break;
                 }
             }
 
+            crate::parser::expand_visitor::strip_loaded_procedural_definitions(expr);
+            crate::parser::expand_visitor::expand_keyword_arguments(expr)?;
             lower_expanded_ast(expr)?;
 
             ResolveExpansionMarks::resolve(expr, &mut self.template_globals);
@@ -1300,6 +1296,13 @@ impl Compiler {
         }
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
+
+        // And those whose defines are lowered now
+        if crate::config::config().flatten_empty_lets {
+            crate::compiler::passes::analysis::flatten_definition_free_empty_lets(
+                &mut expanded_statements,
+            );
+        }
 
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, false);
@@ -1795,55 +1798,6 @@ fn filter_provides(expanded_statements: Vec<ExprKind>) -> Vec<ExprKind> {
             other => Some(other),
         })
         .collect()
-}
-
-// Whether a function in it has keyword or default arguments, which the kernel expands once
-// the function is lowered
-fn has_optional_arguments(expr: &ExprKind) -> bool {
-    struct Optional(bool);
-
-    impl<'a> crate::compiler::passes::VisitorMutUnitRef<'a> for Optional {
-        fn visit_lambda_function(&mut self, lambda: &'a crate::parser::ast::LambdaFunction) {
-            self.0 |= lambda.args.iter().any(|arg| {
-                matches!(arg, ExprKind::List(_))
-                    || arg.atom_syntax_object().is_some_and(|x| {
-                        matches!(x.ty, crate::parser::tokens::TokenType::Keyword(_))
-                    })
-            });
-
-            if !self.0 {
-                self.visit(&lambda.body);
-            }
-        }
-    }
-
-    let mut optional = Optional(false);
-    crate::compiler::passes::VisitorMutUnitRef::visit(&mut optional, expr);
-    optional.0
-}
-
-// Whether it has a macro definition anywhere in it
-fn defines_any_macro(expr: &ExprKind) -> bool {
-    struct Defines(bool);
-
-    impl<'a> crate::compiler::passes::VisitorMutUnitRef<'a> for Defines {
-        fn visit_list(&mut self, l: &'a crate::parser::ast::List) {
-            self.0 |= l.is_define_syntax();
-            if !self.0 {
-                for arg in &l.args {
-                    self.visit(arg);
-                }
-            }
-        }
-
-        fn visit_macro(&mut self, _m: &'a crate::parser::ast::Macro) {
-            self.0 = true;
-        }
-    }
-
-    let mut defines = Defines(false);
-    crate::compiler::passes::VisitorMutUnitRef::visit(&mut defines, expr);
-    defines.0
 }
 
 // How many times the macros of a form can take turns expanding it. Each level of a

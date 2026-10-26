@@ -651,7 +651,7 @@ fn runaway_macro_expansion_is_an_error() {
     assert!(result
         .unwrap_err()
         .to_string()
-        .contains("macro expansion depth reached"));
+        .contains("macro expansion doesn't finish"));
 }
 
 // Using a variable at more ellipses than its pattern has is reported as that, not as some

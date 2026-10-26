@@ -134,6 +134,17 @@ impl ExpansionMark {
     pub fn is_template(self) -> bool {
         self != Self::NONE && self != Self::UNKNOWN
     }
+
+    // Marks made from here on have an index at least this
+    pub fn next_index() -> u32 {
+        EXPANSION_MARK_COUNTER.load(Ordering::Relaxed)
+            & !(Self::DEFINITION_RESOLVED | Self::PRELUDE)
+    }
+
+    // The order it was made in
+    pub fn index(self) -> u32 {
+        self.0 & !(Self::DEFINITION_RESOLVED | Self::PRELUDE)
+    }
 }
 
 #[derive(
