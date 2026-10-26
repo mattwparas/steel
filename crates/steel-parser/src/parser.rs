@@ -1163,19 +1163,28 @@ impl<'a> Parser<'a> {
 
                                 // self.context.push(ParsingContext::Quote(stack.len()))
                             }
-                            TokenType::Identifier(ident) if *ident == *UNQUOTE => {
+                            // In quoted data it's a symbol like any other
+                            TokenType::Identifier(ident)
+                                if *ident == *UNQUOTE && !self.quote_context =>
+                            {
                                 // println!("Entering unquote");
 
                                 self.context.push(ParsingContext::Unquote(stack.len()));
                                 self.decrement_quasiquote_context_if_not_in_quote_context();
                             }
-                            TokenType::Identifier(ident) if *ident == *QUASIQUOTE => {
+                            // In quoted data it's a symbol like any other
+                            TokenType::Identifier(ident)
+                                if *ident == *QUASIQUOTE && !self.quote_context =>
+                            {
                                 // println!("Entering quasiquote");
 
                                 self.context.push(ParsingContext::Quasiquote(stack.len()));
                                 self.increment_quasiquote_context_if_not_in_quote_context();
                             }
-                            TokenType::Identifier(ident) if *ident == *UNQUOTE_SPLICING => {
+                            // In quoted data it's a symbol like any other
+                            TokenType::Identifier(ident)
+                                if *ident == *UNQUOTE_SPLICING && !self.quote_context =>
+                            {
                                 self.context
                                     .push(ParsingContext::UnquoteSplicing(stack.len()));
                                 self.decrement_quasiquote_context_if_not_in_quote_context();

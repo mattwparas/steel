@@ -1996,18 +1996,6 @@ impl<'a> Expander<'a> {
         }
     }
 
-    // The transformer of a procedural macro definition, whose syntax-rules macros, like
-    // quasisyntax, expand before the kernel loads it. Procedural ones there are phase 1's.
-    fn expand_transformer_body(&mut self, l: &mut List) -> Result<()> {
-        let kernel = self.kernel.take();
-        let result = match l.args.get_mut(2) {
-            Some(body) => self.visit(body),
-            None => Ok(()),
-        };
-        self.kernel = kernel;
-        result
-    }
-
     // A body's procedural macro definitions, before its other forms, so they're the whole
     // body's
     fn define_procedural_first(&mut self, forms: &mut [ExprKind]) -> Result<()> {
@@ -2330,7 +2318,6 @@ impl<'a> Expander<'a> {
                             && procedural_macro_name(l).is_some()
                         {
                             let defined = procedural_macro_name(l).zip(procedural_name_span(l));
-                            self.expand_transformer_body(l)?;
                             // It replaces a syntax-rules macro of its name for the forms after it
                             if let Some(map) = self.map.macros_mut().filter(|_| top_level) {
                                 forget_replaced_macro(map, l);
@@ -2386,7 +2373,6 @@ impl<'a> Expander<'a> {
                                 TokenType::Identifier(*DEFINE_SYNTAX),
                                 span,
                             )));
-                            self.expand_transformer_body(l)?;
                             if let Some(map) = self.map.macros_mut().filter(|_| top_level) {
                                 forget_replaced_macro(map, l);
                             }
@@ -2683,27 +2669,20 @@ impl<'a> Expander<'a> {
                     _ => {}
                 }
 
-                // A procedural macro gets its arguments as they're written. Where the kernel
-                // doesn't take the name as one, as a required module's template wrote it, it's
-                // a call whose arguments are expanded.
-                if procedural_use(l, &self.in_scope_values) {
-                    if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
-                        *expr = expanded;
-                        return Ok(());
-                    }
-                    if self.kernel.is_none() {
-                        return Ok(());
-                    }
+                // A procedural macro gets its arguments as they're written, as the macros
+                // expand from the outside in
+                if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
+                    *expr = expanded;
+                    return Ok(());
+                }
+
+                // Without the kernel here, it expands them later
+                if self.kernel.is_none() && procedural_use(l, &self.in_scope_values) {
+                    return Ok(());
                 }
 
                 for expr in l.args.iter_mut() {
                     self.visit(expr)?;
-                }
-
-                // Others, a required module's own and a function's, get them expanded, as
-                // they did when the kernel expanded after the syntax-rules macros
-                if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
-                    *expr = expanded;
                 }
 
                 Ok(())

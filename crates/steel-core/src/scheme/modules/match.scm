@@ -104,6 +104,37 @@
 
       [else pattern]))
 
+;; A quasiquote pattern is the list pattern it writes out: what's unquoted is a pattern,
+  ;; what's spliced in matches the rest of the elements, and anything else is a literal
+  (define unquote-names '(unquote #%unquote))
+  (define unquote-splicing-names '(unquote-splicing #%unquote-splicing))
+
+  (define (unquote-of? x names)
+    (and (list? x) (= (length x) 2) (member (car x) names)))
+
+  (define (compile-quasi template)
+    (cond
+      [(unquote-of? template unquote-names) (cadr template)]
+      [(null? template) (list 'quote '())]
+      [(list? template) (cons 'list (compile-quasi-items template))]
+      [else (list 'quote template)]))
+
+  (define (compile-quasi-items items)
+    (cond
+      [(null? items) '()]
+      [(unquote-of? (car items) unquote-splicing-names)
+       (cons (cadr (car items)) (cons '... (compile-quasi-items (cdr items))))]
+      [else (cons (compile-quasi (car items)) (compile-quasi-items (cdr items)))]))
+
+  ;; The quasiquote patterns in a pattern, as list patterns
+  (define (expand-quasi-patterns pattern)
+    (cond
+      [(and (list? pattern) (= (length pattern) 2) (equal? (car pattern) 'quasiquote))
+       (compile-quasi (cadr pattern))]
+      [(quoted? pattern) pattern]
+      [(list? pattern) (map expand-quasi-patterns pattern)]
+      [else pattern]))
+
   (define var? symbol?)
 
   (define (ignore? x)
@@ -377,7 +408,7 @@
 
   ;; Find a way to merge these?
   (define (go-match-syntax pattern input final-body-expr introduced-identifiers)
-    (define compile-pattern (compile-cons-to-list pattern 0))
+    (define compile-pattern (compile-cons-to-list (expand-quasi-patterns pattern) 0))
     (match-p-syntax-object compile-pattern
                            input
                            final-body-expr
@@ -388,7 +419,7 @@
                            introduced-identifiers))
 
   (define (go-match pattern input final-body-expr introduced-identifiers)
-    (define compile-pattern (compile-cons-to-list pattern 0))
+    (define compile-pattern (compile-cons-to-list (expand-quasi-patterns pattern) 0))
     (match-p-syntax compile-pattern input final-body-expr 0 (hashset) #f 0 introduced-identifiers))
 
   (define (pattern-identifiers pattern found)

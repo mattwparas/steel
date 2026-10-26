@@ -145,6 +145,7 @@ test_harness_success! {
     exact_and_float_comparisons,
     comparisons_of_nan_and_non_numbers,
     keyword_args_are_checked,
+    macros_expand_outside_in,
     constant_fold_unused_function_args,
     template_quotes_and_keyword_params,
     quoted_false_and_variadic_equal,

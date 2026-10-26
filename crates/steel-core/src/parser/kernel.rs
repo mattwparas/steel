@@ -931,6 +931,24 @@ fn remove_unused_imports(body: &mut ThinVec<ExprKind>) {
     *body = exprs.into_iter().collect();
 }
 
+// The code in quoted data: what an unquote or unsyntax in a template evaluates
+fn visit_holes<V: VisitorMutRefUnit>(visitor: &mut V, expr: &mut ExprKind) {
+    match expr {
+        ExprKind::List(l) => {
+            let hole = form_name(l)
+                .is_some_and(|x| UNQUOTE_FORMS.contains(&x) || UNSYNTAX_FORMS.contains(&x));
+            if hole {
+                l.args.iter_mut().skip(1).for_each(|x| visitor.visit(x));
+            } else {
+                l.args.iter_mut().for_each(|x| visit_holes(visitor, x));
+            }
+        }
+        ExprKind::Vector(v) => v.args.iter_mut().for_each(|x| visit_holes(visitor, x)),
+        ExprKind::Quote(q) => visit_holes(visitor, &mut q.expr),
+        _ => {}
+    }
+}
+
 // Gives identifiers other names
 struct RenameExactly<'a> {
     names: &'a FxHashMap<InternedString, InternedString>,
@@ -945,7 +963,9 @@ impl VisitorMutRefUnit for RenameExactly<'_> {
         }
     }
 
-    fn visit_quote(&mut self, _quote: &mut Quote) {}
+    fn visit_quote(&mut self, quote: &mut Quote) {
+        visit_holes(self, &mut quote.expr);
+    }
 }
 
 /// Gives the identifiers of a module instance's code its instance's names
@@ -968,7 +988,10 @@ impl VisitorMutRefUnit for RenameInstance<'_> {
         }
     }
 
-    fn visit_quote(&mut self, _quote: &mut Quote) {}
+    // The holes of a template are the instance's code too
+    fn visit_quote(&mut self, quote: &mut Quote) {
+        visit_holes(self, &mut quote.expr);
+    }
 }
 
 // The pattern variables of a `syntax-case` pattern
