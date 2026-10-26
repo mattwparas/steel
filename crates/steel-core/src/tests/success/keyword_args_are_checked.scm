@@ -28,3 +28,25 @@
 (assert! (equal? (with-rest #:k 1 2 3) '(1 (2 3))))
 (assert! (equal? (message (lambda () (with-rest #:q 1 2)))
                  "with-rest: procedure does not expect an argument with given keyword: #:q"))
+
+;; A quoted keyword is a plain symbol, so it's a positional argument
+(define (two a [b 'none] #:k [k 0])
+  (list a b k))
+(assert! (equal? (two 1 '#:k) '(1 #:k 0)))
+(assert! (equal? (two '#:k 2 #:k 3) '(#:k 2 3)))
+(assert! (not (equal? (car (list #:k)) '#:k)))
+(define (first-of . xs) (car xs))
+(assert! (symbol? (first-of '#:k)))
+
+;; Keyword arguments aren't part of the rest list, as in Racket
+(define (keys-and-rest #:k [k 0] . rest)
+  (list k rest))
+(assert! (equal? (keys-and-rest 1 #:k 2 3) '(2 (1 3))))
+(assert! (equal? (keys-and-rest 1 '#:k 3) '(0 (1 #:k 3))))
+
+;; Through apply, the keyword is still a keyword
+(define (call f . args)
+  (apply f args))
+(assert! (equal? (call two 1 #:k 5) '(1 none 5)))
+(assert! (equal? (message (lambda () (call two 1 #:kk 5)))
+                 "two: procedure does not expect an argument with given keyword: #:kk"))

@@ -133,7 +133,7 @@
 ;; A keyword argument with a rest list
 (define (keyword-and-rest #:y y . r)
   (list y r))
-(check (keyword-and-rest (note! 0) #:y (note! 'ky)) '(ky (0 #:y ky)) '(0 ky))
+(check (keyword-and-rest (note! 0) #:y (note! 'ky)) '(ky (0)) '(0 ky))
 
 ;; Rest parameters on immediately applied lambdas
 (assert! (equal? ((lambda (x . r) ((lambda (y) (list x y r)) 5)) 0 1 2) '(0 5 (1 2))))

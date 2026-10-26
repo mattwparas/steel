@@ -1697,3 +1697,377 @@ fn a_procedural_macro_defines_a_macro_in_a_body() {
         "(made made2)"
     );
 }
+
+#[test]
+fn procedural_macros_with_several_body_forms_are_definitions() {
+    // They get their arguments as written, and order like other macro definitions
+    assert_eq!(
+        module_results(
+            "multi/raw",
+            "(define-syntax two (syntax-rules () [(_ a b) (list a b)]))
+             (define-syntax (kind stx)
+               (define unused 1)
+               (syntax-case stx (list) [(_ (list a b)) #''pre-expanded] [(_ other) #''raw]))
+             (define-syntax (mk-rules stx)
+               (define unused 1)
+               (syntax-case stx () [(_ name v) #'(define-syntax name (syntax-rules () [(_) v]))]))
+             (define x (later))
+             (mk-rules later 'L)
+             (define results (list (kind (two 1 2)) x))"
+        ),
+        "(raw L)"
+    );
+}
+
+fn module_error(name: &str, body: &str) -> String {
+    let mut engine = engine();
+    engine.register_steel_module(name.to_owned(), format!("(provide results)\n{GEN}\n{body}"));
+    engine
+        .run(format!("(require \"{name}\") results"))
+        .unwrap_err()
+        .to_string()
+}
+
+#[test]
+fn generated_macros_are_defined_once() {
+    let procedural = "(define-syntax (mk-rules stx)
+                        (syntax-case stx () [(_ name v) #'(define-syntax name (syntax-rules () [(_) v]))]))";
+
+    // Twice by one form
+    let twice = module_error(
+        "once/same-form",
+        &format!("{procedural} (begin (mk-rules a 1) (mk-rules a 2)) (define results (a))"),
+    );
+    assert!(
+        twice.contains("Macro re defined within the top level definition: a")
+            || twice.contains("duplicate binding name: a"),
+        "{twice}"
+    );
+
+    // Over a written procedural macro
+    assert!(module_error(
+        "once/written",
+        "(define-syntax (foo stx) (syntax-case stx () [(_) #'1]))
+         (gen foo 42)
+         (define results (foo))"
+    )
+    .contains("Macro re defined within the top level definition: foo"));
+}
+
+#[test]
+fn errors_name_globals_as_written() {
+    let mut engine = engine();
+    let program = "(define-syntax mk
+                     (syntax-rules ()
+                       [(_ result) (begin (define (h) (tmp2 3))
+                                   (define result (with-handler (lambda (e) (error-object-message e)) (h)))
+                                   (define (tmp2 x) x))]))
+                   (mk first-error)
+                   first-error";
+
+    assert_eq!(
+        last(&mut engine, program).to_string(),
+        "\"free identifier: tmp2\""
+    );
+}
+
+#[test]
+fn a_call_missing_a_keyword_raises_only_when_it_runs() {
+    let mut engine = engine();
+    assert_eq!(
+        last(
+            &mut engine,
+            "(define (h2 #:k k #:o [o 1]) k)
+             (define (never) (h2 #:o 2))
+             'ok"
+        )
+        .to_string(),
+        "ok"
+    );
+}
+
+#[test]
+fn every_earlier_form_sees_a_macro_defined_later() {
+    // Defined through a pattern variable, which the forms that define macros first miss
+    assert_eq!(
+        module_results(
+            "later/patvar",
+            "(define-syntax call (syntax-rules () [(_ m x ...) (m x ...)]))
+             (define (f) (foo))
+             (call gen foo 42)
+             (define results (f))"
+        ),
+        "42"
+    );
+
+    // And after a form that defined one in the second pass
+    assert_eq!(
+        module_results(
+            "later/second-pass",
+            "(define-syntax call (syntax-rules () [(_ m x ...) (m x ...)]))
+             (call gen bar 1)
+             (define x (foo))
+             (gen foo 42)
+             (define results (list x (bar)))"
+        ),
+        "(42 1)"
+    );
+}
+
+#[test]
+fn deep_expansions_finish() {
+    assert_eq!(
+        module_results(
+            "deep/or",
+            "(define-syntax (pif stx) (syntax-case stx () [(_ c t e) #'(if c t e)]))
+             (define-syntax my-or
+               (syntax-rules () [(_) #f] [(_ a b ...) (pif (= a 99) 'found (my-or b ...))]))
+             (define-syntax (count-to stx)
+               (syntax-case stx () [(_ n) #`(my-or #,@(range 0 (+ 1 (syntax-e #'n))))]))
+             (define results (count-to 99))"
+        ),
+        "found"
+    );
+}
+
+#[test]
+fn local_procedural_macros_are_found_by_where_they_are_named() {
+    assert_eq!(
+        module_results(
+            "local/where",
+            "(define-syntax (thelper stx) (syntax-case stx () [(_) #''top-helper]))
+             (define-syntax tuse (syntax-rules () [(_) (thelper)]))
+             (define (h)
+               (define-syntax (thelper stx) (syntax-case stx () [(_) #''local-helper]))
+               (list (tuse) (thelper)))
+             (define-syntax with-hidden
+               (syntax-rules ()
+                 [(_ body) (let () (define-syntax (hid stx) (syntax-case stx () [(_) #''hidden]))
+                                   (list (hid) body))]))
+             (define-syntax (hid stx) (syntax-case stx () [(_) #''top-hid]))
+             (define (k) (with-hidden (hid)))
+             (define (f x)
+               (define-syntax (mm stx) (syntax-case stx () [(_) #'(list 'outer x)]))
+               (define (g x)
+                 (define-syntax (mm2 stx) (syntax-case stx () [(_) #'(list 'mid x (mm))]))
+                 (define (h x)
+                   (define-syntax (mm stx) (syntax-case stx () [(_) #'(list 'inner x (mm2))]))
+                   (mm))
+                 (h 3))
+               (g 2))
+             (define results (list (h) (k) (f 1)))"
+        ),
+        "((top-helper local-helper) (hidden top-hid) (inner 3 (mid 2 (outer 1))))"
+    );
+}
+
+#[test]
+fn a_macro_procedural_output_defines_in_a_body_is_its_own() {
+    assert_eq!(
+        module_results(
+            "local/it",
+            "(define-syntax (it stx) (syntax-case stx () [(_) #''top-it]))
+             (define-syntax (with-it stx)
+               (syntax-case stx ()
+                 [(_ v body) #'(let () (define-syntax it (syntax-rules () [(_) v])) (list (it) body))]))
+             (define (f) (with-it 42 (it)))
+             (define results (f))"
+        ),
+        "(42 top-it)"
+    );
+}
+
+#[test]
+fn a_librarys_own_syntax_rules_through_its_procedural_macro_mean_its_names() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "lib/sa".to_owned(),
+        "(provide pa)
+         (define-syntax sa (syntax-rules () [(_ x) (when #t x)]))
+         (define-syntax (pa stx) (syntax-case stx () [(_ x) #'(sa x)]))"
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "user/sa".to_owned(),
+        "(require \"lib/sa\")
+         (provide results)
+         (define-syntax (when stx) (syntax-case stx () [(_ c e) #''user-when]))
+         (define results (pa 1))"
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(&mut engine, r#"(require "user/sa") results"#).to_string(),
+        "1"
+    );
+}
+
+#[test]
+fn what_procedural_macros_make_late_is_expanded_too() {
+    assert_eq!(
+        module_results(
+            "late/defaults",
+            "(define-syntax my-or2 (syntax-rules () [(_ a b) (if a a b)]))
+             (define-syntax (pm stx) (syntax-case stx () [(_ e) #'(my-or2 #f e)]))
+             (define (kf #:k [k (pm 4)]) k)
+             (begin
+               (define-syntax (q stx) (syntax-case stx () [(_ e) #'(my-or2 #f e)]))
+               (define in-begin (q 7)))
+             (define (f x)
+               (define-syntax (q2 stx) (syntax-case stx () [(_ e) #'(my-or2 #f e)]))
+               (q2 x))
+             (define-syntax (id stx) (syntax-case stx () [(_ e) #'e]))
+             (define looped (id (let loop ([i 0]) (if (< i 3) (loop (+ i 1)) i))))
+             (define results (list (kf) in-begin (f 9) looped))"
+        ),
+        "(4 7 9 3)"
+    );
+}
+
+#[test]
+fn a_librarys_literals_mean_what_they_do_there() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "lib/cond".to_owned(),
+        "(provide lcond) (define-syntax lcond (syntax-rules () [(_ c e) (cond [c e] [else 'no])]))"
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "user/cond".to_owned(),
+        "(require \"lib/cond\")
+         (provide results)
+         (define else #f)
+         (define (f else) (lcond #f 3))
+         (define results (list (lcond #f 3) (f #f)))"
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(&mut engine, r#"(require "user/cond") results"#).to_string(),
+        "(no no)"
+    );
+}
+
+#[test]
+fn a_body_defines_its_macros_before_the_rest() {
+    assert_eq!(
+        module_results(
+            "body/first",
+            "(define-syntax (m stx) (syntax-case stx () [(_) #''top]))
+             (define (f)
+               (define (early) (m))
+               (define-syntax (m stx) (syntax-case stx () [(_) #''local]))
+               (list (early) (m)))
+             (define results (f))"
+        ),
+        "(local local)"
+    );
+
+    assert!(module_error(
+        "body/twice",
+        "(define (f) (gen x 1) (gen x 2) (x)) (define results (f))"
+    )
+    .contains("duplicate binding name: x"));
+}
+
+#[test]
+fn every_head_is_expanded_before_any_body() {
+    assert_eq!(
+        module_results(
+            "heads/first",
+            "(begin-for-syntax (define counter 0))
+             (define-syntax (tick stx)
+               (set! counter (+ counter 1))
+               (syntax-case stx () [(_ e) #'e]))
+             (define-syntax (count stx) (syntax-case stx () [(_) (datum->syntax stx counter)]))
+             (tick (define a (count)))
+             (tick (define b 5))
+             (define results a)"
+        ),
+        "2"
+    );
+}
+
+#[test]
+fn a_begins_procedural_macros_share_the_modules_phase1_variables() {
+    assert_eq!(
+        module_results(
+            "phase1/begin",
+            "(begin-for-syntax (define count 0))
+             (define-syntax (how-many stx) (with-syntax ([n count]) #'n))
+             (define-syntax (q2 stx) (set! count (+ count 100)) (syntax-case stx () [(_ e) #'e]))
+             (define a (q2 1))
+             (define b (how-many))
+             (begin
+               (define-syntax (q stx) (set! count (+ count 1000)) (syntax-case stx () [(_ e) #'e]))
+               (define c (q 7)))
+             (define results (list a b c (how-many)))"
+        ),
+        "(1 100 7 1100)"
+    );
+}
+
+#[test]
+fn a_local_macros_template_means_the_procedural_macro_where_it_is_defined() {
+    assert_eq!(
+        module_results(
+            "local/defined-where",
+            "(define (k)
+               (define-syntax (lhelper stx) (syntax-case stx () [(_) #''outer-l]))
+               (define-syntax use2 (syntax-rules () [(_) (lhelper)]))
+               (let ()
+                 (define-syntax (lhelper stx) (syntax-case stx () [(_) #''inner-l]))
+                 (list (use2) (lhelper))))
+             (define results (k))"
+        ),
+        "(outer-l inner-l)"
+    );
+}
+
+#[test]
+fn a_templates_macros_are_defined_once_when_spliced() {
+    let rules = "(define-syntax D (syntax-rules () [(_ n) (define-syntax (n stx) (syntax-case stx () [(_) #'5]))]))
+                 (define-syntax E (syntax-rules () [(_ n) (define-syntax n (syntax-rules () [(_) 6]))]))";
+
+    // A procedural one twice, then over a syntax-rules one in a begin
+    for (name, uses) in [
+        ("spliced/twice", "(D foo) (D foo)"),
+        ("spliced/kinds", "(begin (D foo) (E foo))"),
+        (
+            "spliced/written",
+            "(D foo) (define-syntax foo (syntax-rules () [(_) 6]))",
+        ),
+    ] {
+        let error = module_error(name, &format!("{rules} {uses} (define results (foo))"));
+        assert!(
+            error.contains("Macro re defined within the top level definition: foo"),
+            "{name}: {error}"
+        );
+    }
+
+    // Twice in the begin a template wrote
+    let error = module_error(
+        "spliced/in-begin",
+        "(define-syntax gen2 (syntax-rules () [(_ n) (begin (define-syntax n (syntax-rules () [(_) 1]))
+                                                          (define-syntax n (syntax-rules () [(_) 2])))]))
+         (gen2 b)
+         (define results (b))",
+    );
+    assert!(error.contains("duplicate binding name: b"), "{error}");
+}
+
+#[test]
+fn a_when_bodys_macro_stays_in_it() {
+    assert_eq!(
+        module_results(
+            "spliced/when",
+            "(define-syntax (m stx) (syntax-case stx () [(_) #''top]))
+             (define (g)
+               (define a (m))
+               (when #t (define-syntax (m stx) (syntax-case stx () [(_) #''when-body])) 1)
+               (list a (m)))
+             (define results (g))"
+        ),
+        "(top top)"
+    );
+}

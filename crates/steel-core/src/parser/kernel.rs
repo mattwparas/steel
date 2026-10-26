@@ -463,7 +463,7 @@ impl VisitorMutRef for Phase1Expander<'_> {
 
                 // What they expand to names their module's macros by its prefix
                 if let Some(kernel) = self.kernel.as_deref_mut() {
-                    if let Some(mut expanded) = kernel.expand_prefixed_macro(&name, l)? {
+                    if let Some(mut expanded) = kernel.expand_prefixed_macro(&name, l, None)? {
                         self.visit(&mut expanded)?;
                         *expr = expanded;
                         return Ok(());
@@ -1269,7 +1269,17 @@ impl VisitorMutRefUnit for Introduced<'_> {
         }
 
         let mut restore = RestoreInputMarks(self.input);
-        restore.visit(&mut m.name);
+
+        // The name is the input's, or one the template wrote, which has the expansion's mark
+        // like the uses it wrote
+        match m.name.as_mut() {
+            ExprKind::Atom(a) if !self.input.marks.contains_key(&a.syn.mark) => {
+                if self.input.hygienic {
+                    a.syn.mark = self.mark;
+                }
+            }
+            name => restore.visit(name),
+        }
 
         for pair in m.syntax_rules.patterns.iter_mut() {
             restore.visit(&mut pair.pattern);
@@ -2538,10 +2548,13 @@ impl Kernel {
 
     /// Expands a use of a macro that a module's code names by the module's prefix, if it
     /// is one
+    /// `environment` is where the code is, when known: what another module's macro writes
+    /// for it means the names where that macro is.
     pub(crate) fn expand_prefixed_macro(
         &mut self,
         name: &InternedString,
         l: &mut super::ast::List,
+        environment: Option<&str>,
     ) -> Result<Option<ExprKind>> {
         let resolved = name.resolve();
 
@@ -2575,14 +2588,18 @@ impl Kernel {
                 .map(|x| x.span);
             let list = core::mem::replace(l, super::ast::List::new(ThinVec::new()));
 
-            return m
-                .expand(
-                    list,
-                    span.unwrap_or_default(),
-                    &Default::default(),
-                    GlobalMap::Set(&module.mangler.globals),
-                )
-                .map(Some);
+            let (expanded, mark) = m.expand_marked(
+                list,
+                span.unwrap_or_default(),
+                &Default::default(),
+                GlobalMap::Set(&module.mangler.globals),
+            )?;
+
+            if environment.is_some_and(|environment| environment != module.environment) {
+                crate::parser::expand_visitor::record_foreign_mark(mark);
+            }
+
+            return Ok(Some(expanded));
         }
 
         let Some((environment, name)) = module.procedural.get(&local).cloned() else {
@@ -2830,7 +2847,7 @@ impl Kernel {
                 mangler: mangler.filter(|_| in_environment),
                 quoted: 0,
                 local,
-                macro_name: crate::parser::expand_visitor::written_local_macro_name(*ident),
+                macro_name: *ident,
                 captures: captures.unwrap_or_default(),
             }
             .resolve(expr);

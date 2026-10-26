@@ -1145,12 +1145,13 @@ impl SteelThread {
             .values()
             .get(index)
             .map(|x| {
+                // A transformer's global is `#%phase1-var:<env>:<name>`
                 let name = x.resolve();
-                name.strip_prefix(crate::compiler::modules::MANGLER_PREFIX)
-                    .and_then(|x| x.split_once(crate::compiler::modules::MANGLER_SEPARATOR))
-                    .map(|x| x.1)
-                    .unwrap_or(name)
-                    .to_string()
+                let name = name
+                    .strip_prefix("#%phase1-var:")
+                    .and_then(|x| x.rsplit_once(':'))
+                    .map_or(name, |x| x.1);
+                crate::compiler::passes::begin::written_name(name)
             })
             .unwrap_or_default()
     }

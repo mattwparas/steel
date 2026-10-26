@@ -136,7 +136,13 @@ fn concat_symbols(args: &[SteelVal]) -> Result<SteelVal> {
 )]
 fn symbol_to_string(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
-        SteelVal::SymbolV(quoted_value) => Ok(SteelVal::StringV(quoted_value.clone())),
+        // A keyword argument is named by its keyword
+        SteelVal::SymbolV(quoted_value) => {
+            match crate::rvals::keyword_argument_symbol(quoted_value) {
+                Some(keyword) => Ok(SteelVal::StringV(keyword.into())),
+                None => Ok(SteelVal::StringV(quoted_value.clone())),
+            }
+        }
         SteelVal::ListV(_) => Ok(SteelVal::StringV(
             format!("{:?}", &args[0]).trim_start_matches('\'').into(),
         )),

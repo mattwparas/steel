@@ -65,7 +65,7 @@
 (assert! (equal? (call positional 1 2) '(1 2)))
 (assert! (equal? (map (lambda (x) (positional x 9)) '(1 2)) '((1 9) (2 9))))
 (assert! (equal? (keyword 1 #:k 2) '(1 2)))
-(assert! (equal? (call keyword 1 '#:k 2) '(1 2)))
+(assert! (equal? (call keyword 1 #:k 2) '(1 2)))
 (assert! (equal? (dependent 1 2 3) '(1 2 3)))
 (assert! (equal? (call dependent 1 2 3) '(1 2 3)))
 (assert! (equal? (dependent 1 2) '(1 2 20)))

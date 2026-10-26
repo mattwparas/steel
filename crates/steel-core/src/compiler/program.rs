@@ -42,7 +42,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_string().into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
-        TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
+        TokenType::Keyword(k) => Ok(crate::rvals::keyword_argument(k.resolve())),
         what => {
             // println!("getting here in the eval_atom - code_generator");
             stop!(UnexpectedToken => what; t.span)

@@ -393,7 +393,8 @@ extern_binop!(extern_c_lte_two, lte_primitive);
 //
 // These must match `ordering_primitive` (the shared body of `<`, `<=`, `>` and
 // `>=`), or an expression answers differently depending on whether the jit
-// inlined the comparison. So they raise when `partial_cmp` returns `None`.
+// inlined the comparison. So they raise when `partial_cmp` returns `None`, unless both
+// are real numbers (NaN), which is false.
 //
 // The check is comparability, and does not require `realp` like
 // `extern_c_lte_register` does. Strings order against strings; an incomparable
@@ -405,6 +406,8 @@ extern_binop!(extern_c_lte_two, lte_primitive);
 fn extern_c_lt_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
     match a.partial_cmp(&b) {
         Some(ordering) => ordering == std::cmp::Ordering::Less,
+        // NaN orders against nothing, which is false
+        None if crate::steel_vm::primitives::real_pair(&a, &b) => false,
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
@@ -426,6 +429,8 @@ fn extern_c_lt_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> boo
 fn extern_c_lte_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
     match a.partial_cmp(&b) {
         Some(ordering) => ordering != std::cmp::Ordering::Greater,
+        // NaN orders against nothing, which is false
+        None if crate::steel_vm::primitives::real_pair(&a, &b) => false,
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
@@ -447,6 +452,8 @@ fn extern_c_lte_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bo
 fn extern_c_gt_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
     match a.partial_cmp(&b) {
         Some(ordering) => ordering == std::cmp::Ordering::Greater,
+        // NaN orders against nothing, which is false
+        None if crate::steel_vm::primitives::real_pair(&a, &b) => false,
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
@@ -468,6 +475,8 @@ fn extern_c_gt_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> boo
 fn extern_c_gte_two_value_bool(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> bool {
     match a.partial_cmp(&b) {
         Some(ordering) => ordering != std::cmp::Ordering::Less,
+        // NaN orders against nothing, which is false
+        None if crate::steel_vm::primitives::real_pair(&a, &b) => false,
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
@@ -564,6 +573,8 @@ fn extern_c_lte_register(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
 
     match a.partial_cmp(&b) {
         Some(ordering) => ordering != std::cmp::Ordering::Greater,
+        // NaN orders against nothing, which is false
+        None if crate::steel_vm::primitives::real_pair(&a, &b) => false,
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
@@ -590,6 +601,8 @@ fn extern_c_lte_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool 
 
     match a.partial_cmp(&*b) {
         Some(ordering) => ordering != std::cmp::Ordering::Greater,
+        // NaN orders against nothing, which is false
+        None if crate::steel_vm::primitives::real_pair(&a, &b) => false,
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
@@ -616,6 +629,8 @@ fn extern_c_gte_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool 
 
     match a.partial_cmp(&*b) {
         Some(ordering) => ordering != std::cmp::Ordering::Less,
+        // NaN orders against nothing, which is false
+        None if crate::steel_vm::primitives::real_pair(&a, &b) => false,
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
@@ -638,6 +653,8 @@ fn extern_c_gte_register_unknown(ctx: *mut VmCore, reg: usize, b: SteelVal) -> b
 
     match a.partial_cmp(&b) {
         Some(ordering) => ordering != std::cmp::Ordering::Less,
+        // NaN orders against nothing, which is false
+        None if crate::steel_vm::primitives::real_pair(&a, &b) => false,
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
@@ -664,6 +681,8 @@ fn extern_c_lt_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
 
     match a.partial_cmp(&*b) {
         Some(ordering) => ordering == std::cmp::Ordering::Less,
+        // NaN orders against nothing, which is false
+        None if crate::steel_vm::primitives::real_pair(&a, &b) => false,
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,
@@ -690,6 +709,8 @@ fn extern_c_gt_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
 
     match a.partial_cmp(&*b) {
         Some(ordering) => ordering == std::cmp::Ordering::Greater,
+        // NaN orders against nothing, which is false
+        None if crate::steel_vm::primitives::real_pair(&a, &b) => false,
         None => {
             let e = SteelErr::new(
                 ErrorKind::TypeMismatch,

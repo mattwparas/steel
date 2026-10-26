@@ -183,14 +183,14 @@ pub fn open_output_file(args: &[SteelVal]) -> Result<SteelVal> {
 pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
     #[cfg(feature = "sync")]
     static EXISTS_FLAG: once_cell::sync::Lazy<SteelVal> =
-        once_cell::sync::Lazy::new(|| SteelVal::SymbolV("#:exists".into()));
+        once_cell::sync::Lazy::new(|| crate::rvals::keyword_argument("#:exists"));
 
     #[cfg(feature = "sync")]
     let exists_flag = plist_get_impl(args.iter(), &EXISTS_FLAG).ok();
 
     #[cfg(not(feature = "sync"))]
     thread_local! {
-        static EXISTS_FLAG: SteelVal = SteelVal::SymbolV("#:exists".into());
+        static EXISTS_FLAG: SteelVal = crate::rvals::keyword_argument("#:exists");
     }
 
     #[cfg(not(feature = "sync"))]

@@ -226,7 +226,11 @@ impl CycleDetector {
                 }
             }
             Void => write!(f, "#<void>"),
-            SymbolV(s) => write!(f, "{s}"),
+            SymbolV(s) => match crate::rvals::keyword_argument_symbol(s) {
+                // A keyword argument prints as its keyword
+                Some(keyword) => write!(f, "{keyword}"),
+                None => write!(f, "{s}"),
+            },
             VectorV(lst) => {
                 let mut iter = lst.iter();
                 write!(f, "#(")?;

@@ -130,6 +130,11 @@ impl TryFromSteelValVisitorForExprKind {
             SymbolV(x) if x.starts_with("#:") => Ok(ExprKind::Atom(Atom::new(
                 SyntaxObject::default(Keyword(x.as_str().into())),
             ))),
+            SymbolV(x) if crate::rvals::keyword_argument_symbol(x).is_some() => {
+                Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(Keyword(
+                    crate::rvals::keyword_argument_symbol(x).unwrap().into(),
+                )))))
+            }
 
             SymbolV(x) => {
                 let mut syn = SyntaxObject::default(Identifier(x.as_str().into()));
@@ -312,6 +317,11 @@ impl TryFrom<&SteelVal> for ExprKind {
                 SymbolV(x) if x.starts_with("#:") => Ok(ExprKind::Atom(Atom::new(
                     SyntaxObject::default(Keyword(x.as_str().into())),
                 ))),
+                SymbolV(x) if crate::rvals::keyword_argument_symbol(x).is_some() => {
+                    Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(Keyword(
+                        crate::rvals::keyword_argument_symbol(x).unwrap().into(),
+                    )))))
+                }
                 SymbolV(x) => {
                     let mut syn = SyntaxObject::default(Identifier(x.as_str().into()));
                     syn.mark = ExpansionMark::UNKNOWN;

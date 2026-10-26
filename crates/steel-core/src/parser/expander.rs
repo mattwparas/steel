@@ -1115,6 +1115,26 @@ fn match_rest_pattern(
     }
 }
 
+// Whether a binding hides what a literal of a macro's pattern means. One a template wrote
+// means what it does where that template is: a local where it's used doesn't hide it, nor
+// does a global of the code that used another module's macro.
+fn literal_shadowed(
+    name: &InternedString,
+    mark: ExpansionMark,
+    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+    globals: GlobalMap,
+) -> bool {
+    if !mark.is_template() {
+        return in_scope.contains(name) || globals.contains(name);
+    }
+
+    let elsewhere = mark.is_definition_resolved()
+        || mark.is_prelude()
+        || crate::parser::expand_visitor::is_foreign_mark(mark);
+
+    !elsewhere && globals.contains(name)
+}
+
 fn match_single_pattern(
     pattern: &MacroPattern,
     expr: &ExprKind,
@@ -1130,9 +1150,10 @@ fn match_single_pattern(
                 syn:
                     SyntaxObject {
                         ty: TokenType::Identifier(s),
+                        mark,
                         ..
                     },
-            }) if s == v && !in_scope.contains(s) && !globals.contains(s) => true,
+            }) if s == v && !literal_shadowed(s, *mark, in_scope, globals) => true,
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {

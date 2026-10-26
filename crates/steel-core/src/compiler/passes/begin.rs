@@ -836,7 +836,7 @@ fn defines_are_sequential(exprs: &[ExprKind]) -> bool {
 }
 
 // A name as the code wrote it, without the renames modules and macro hygiene give it
-fn written_name(name: &str) -> String {
+pub(crate) fn written_name(name: &str) -> String {
     use crate::compiler::modules::MANGLER_PREFIX;
 
     // Hygiene renames are `##<name>#<mark>` or `##<name>#<mark>#<id>`, of a name that can be
@@ -862,7 +862,12 @@ fn written_name(name: &str) -> String {
         }
     }
 
-    crate::parser::expand_visitor::unmangled(base).to_string()
+    // A template binder is `##<name>` before its rename
+    let base = crate::parser::expand_visitor::unmangled(base);
+    match base.strip_prefix("##") {
+        Some(rest) if !base.starts_with(MANGLER_PREFIX) && !rest.is_empty() => written_name(base),
+        _ => base.to_string(),
+    }
 }
 
 // What a name of the group is until its define runs
@@ -1452,5 +1457,6 @@ mod written_name_tests {
         assert_eq!(written_name("##mm5__%#__x"), "x");
         assert_eq!(written_name("####mm5__%#__x#12"), "x");
         assert_eq!(written_name("x#1"), "x#1");
+        assert_eq!(written_name("####tmp2#2147485264"), "tmp2");
     }
 }

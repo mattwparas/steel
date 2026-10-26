@@ -1501,6 +1501,13 @@ fn ordering_primitive(
         stop!(ArityMismatch => format!("{} expected at least one argument", name));
     }
 
+    // One value is checked too
+    if let [value] = args {
+        if !is_real_number(value) && value.partial_cmp(value).is_none() {
+            stop!(TypeMismatch => format!("{} expected a comparable value, found: {}", name, value));
+        }
+    }
+
     let mut result = true;
 
     for pair in args.windows(2) {
@@ -1518,6 +1525,11 @@ fn ordering_primitive(
     }
 
     Ok(SteelVal::BoolV(result))
+}
+
+// Two real numbers without an order: one is NaN, so the comparison is false
+pub(crate) fn real_pair(a: &SteelVal, b: &SteelVal) -> bool {
+    is_real_number(a) && is_real_number(b)
 }
 
 fn is_real_number(value: &SteelVal) -> bool {

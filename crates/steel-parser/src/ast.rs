@@ -1290,7 +1290,7 @@ impl List {
                 },
         })) = self.args.first()
         {
-            self.args.len() == 3
+            self.has_define_syntax_shape()
         } else if let Some(ExprKind::Atom(Atom {
             syn:
                 SyntaxObject {
@@ -1299,10 +1299,17 @@ impl List {
                 },
         })) = self.args.first()
         {
-            *i == *DEFINE_SYNTAX && self.args.len() == 3
+            *i == *DEFINE_SYNTAX && self.has_define_syntax_shape()
         } else {
             false
         }
+    }
+
+    // `(define-syntax name transformer)`, or a procedural macro's
+    // `(define-syntax (name stx) body ...)` with any number of body forms
+    fn has_define_syntax_shape(&self) -> bool {
+        self.args.len() == 3
+            || self.args.len() > 3 && matches!(self.args.get(1), Some(ExprKind::List(_)))
     }
 
     pub fn is_syntax_rules(&self) -> bool {
@@ -2119,17 +2126,20 @@ where
         }
     }
 
-    // This is the body of the define
-    let function: ExprKind = LambdaFunction::new(arguments, body, syn.clone()).into();
+    // Each form it makes is its own keyword at the let, so it reads the same as syntax
+    let at = |ty| SyntaxObject::new(ty, syn.span);
 
-    let define: ExprKind = Define::new(name.clone(), function, syn.clone()).into();
+    // This is the body of the define
+    let function: ExprKind = LambdaFunction::new(arguments, body, at(TokenType::Lambda)).into();
+
+    let define: ExprKind = Define::new(name.clone(), function, at(TokenType::Define)).into();
 
     // Evaluate the application args first:
 
     let mut fake_application_args = application_args
         .iter()
         .enumerate()
-        .map(|(x, _)| ExprKind::ident(&format!("###{}", x)))
+        .map(|(x, _)| ExprKind::ident(&format!("%named-let-arg{}", x)))
         .collect();
 
     let application: ExprKind = {
@@ -2138,13 +2148,16 @@ where
         List::new(application).into()
     };
 
-    let begin = ExprKind::Begin(Box::new(Begin::new(vec![define, application], syn.clone())));
+    let begin = ExprKind::Begin(Box::new(Begin::new(
+        vec![define, application],
+        at(TokenType::Begin),
+    )));
 
     let eval_application_args = ExprKind::Let(Box::new(Let::new(
         application_args
             .into_iter()
             .enumerate()
-            .map(|x| (ExprKind::ident(&format!("###{}", x.0)), x.1))
+            .map(|x| (ExprKind::ident(&format!("%named-let-arg{}", x.0)), x.1))
             .collect(),
         begin,
         syn.clone(),
@@ -2155,7 +2168,7 @@ where
     Ok(List::new(thin_vec![LambdaFunction::new(
         thin_vec![],
         eval_application_args,
-        syn,
+        at(TokenType::Lambda),
     )
     .into()])
     .into())

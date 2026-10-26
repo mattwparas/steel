@@ -1022,19 +1022,24 @@ pub fn plist_get_positional_list(list: &List<SteelVal>, index: usize) -> Result<
     let mut positional_arg_offset = 0;
 
     while let Some(next) = iter.next() {
-        if let SteelVal::SymbolV(v) = next {
+        if crate::rvals::keyword_argument_name(next).is_some() {
             // If we found a keyword, skip the next one.
-            if v.starts_with("#:") {
-                iter.next();
-                continue;
-            }
+            iter.next();
+            continue;
         }
 
         if index == positional_arg_offset {
-            let mut list = iter.collect::<List<_>>();
-            list.cons_mut(next.clone());
+            // The rest list leaves out keyword arguments, as in Racket
+            let mut rest = vec![next.clone()];
+            while let Some(next) = iter.next() {
+                if crate::rvals::keyword_argument_name(next).is_some() {
+                    iter.next();
+                } else {
+                    rest.push(next.clone());
+                }
+            }
 
-            return Ok(SteelVal::ListV(list));
+            return Ok(SteelVal::ListV(rest.into()));
         }
 
         positional_arg_offset += 1;
@@ -1066,17 +1071,15 @@ pub fn plist_validate_args(
     let mut found_positional = 0;
 
     while let Some(next) = iter.next() {
-        if let SteelVal::SymbolV(v) = next {
+        if crate::rvals::keyword_argument_name(next).is_some() {
             // If we found a keyword, skip the next one.
-            if v.starts_with("#:") {
-                let value = iter.next();
-                if value.is_none() {
-                    return false;
-                }
-
-                found_keyword += 1;
-                continue;
+            let value = iter.next();
+            if value.is_none() {
+                return false;
             }
+
+            found_keyword += 1;
+            continue;
         }
 
         found_positional += 1;
@@ -1103,23 +1106,22 @@ pub fn plist_check_keywords(
     let mut seen: smallvec::SmallVec<[&SteelVal; 4]> = smallvec::SmallVec::new();
 
     while let Some(next) = iter.next() {
-        let SteelVal::SymbolV(v) = next else {
+        let Some(name) = crate::rvals::keyword_argument_name(next) else {
             continue;
         };
 
-        if !v.starts_with("#:") {
-            continue;
-        }
-
-        if !declared.iter().any(|x| x == next) {
+        if !declared
+            .iter()
+            .any(|x| matches!(x, SteelVal::SymbolV(s) if s.as_str() == name))
+        {
             stop!(Generic => format!(
                 "{}: procedure does not expect an argument with given keyword: {}",
-                func, next
+                func, name
             ));
         }
 
         if seen.contains(&next) {
-            stop!(Generic => format!("{}: duplicate keyword in arguments: {}", func, next));
+            stop!(Generic => format!("{}: duplicate keyword in arguments: {}", func, name));
         }
 
         seen.push(next);
@@ -1136,12 +1138,10 @@ pub fn plist_get_positional(list: &List<SteelVal>, index: usize) -> Result<Steel
     let mut positional_arg_offset = 0;
 
     while let Some(next) = iter.next() {
-        if let SteelVal::SymbolV(v) = next {
+        if crate::rvals::keyword_argument_name(next).is_some() {
             // If we found a keyword, skip the next one.
-            if v.starts_with("#:") {
-                iter.next();
-                continue;
-            }
+            iter.next();
+            continue;
         }
 
         if index == positional_arg_offset {
@@ -1169,11 +1169,9 @@ pub fn plist_try_get_positional(
     let mut positional_arg_offset = 0;
 
     while let Some(next) = iter.next() {
-        if let SteelVal::SymbolV(v) = next {
+        if crate::rvals::keyword_argument_name(next).is_some() {
             // If we found a keyword, skip the next one.
-            if v.starts_with("#:") {
-                iter.next();
-            }
+            iter.next();
         } else {
             if index == positional_arg_offset {
                 return Ok(next.clone());
@@ -1197,11 +1195,9 @@ pub fn plist_has_positional(list: &List<SteelVal>, index: usize) -> bool {
     let mut positional_arg_offset = 0;
 
     while let Some(next) = iter.next() {
-        if let SteelVal::SymbolV(v) = next {
+        if crate::rvals::keyword_argument_name(next).is_some() {
             // If we found a keyword, skip the next one.
-            if v.starts_with("#:") {
-                iter.next();
-            }
+            iter.next();
         } else {
             if index == positional_arg_offset {
                 return true;

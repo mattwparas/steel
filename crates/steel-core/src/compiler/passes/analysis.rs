@@ -4507,6 +4507,31 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
 
 // TODO: Lower the rest arguments such that any rest argument
 // expansion is completely elided
+// An error a call raises when it runs, like the arity check's
+fn call_error(message: ExprKind) -> ExprKind {
+    ExprKind::List(List::new(thin_vec![
+        ExprKind::ident("#%prim.error-with-span"),
+        ExprKind::List(List::new(thin_vec![ExprKind::ident(
+            "#%prim.current-function-span"
+        )])),
+        message
+    ]))
+}
+
+// A keyword argument of a call: written as one, not quoted, which is a value
+fn call_keyword(expr: &ExprKind) -> Option<&InternedString> {
+    match expr {
+        ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Keyword(s),
+                    ..
+                },
+        }) => Some(s),
+        _ => None,
+    }
+}
+
 struct LowerRestArguments<'a> {
     analysis: &'a Analysis,
     bindings: ScopeMap<InternedString, ExprKind, FxBuildHasher>,
@@ -4589,7 +4614,7 @@ impl<'a> LowerRestArguments<'a> {
         let mut iter = args.args.iter();
 
         while let Some(next) = iter.next() {
-            let Some(keyword) = next.atom_keyword() else {
+            let Some(keyword) = call_keyword(next) else {
                 continue;
             };
 
@@ -4599,16 +4624,18 @@ impl<'a> LowerRestArguments<'a> {
                 .any(|x| x.atom_keyword() == Some(keyword));
 
             if undeclared || seen.contains(&keyword) {
-                let mut given = thin_vec![next.clone(), ExprKind::bool_lit(false)];
+                // A list of the keyword arguments, which a quoted one wouldn't be
+                let mut given = thin_vec![
+                    ExprKind::atom("#%prim.list"),
+                    next.clone(),
+                    ExprKind::bool_lit(false)
+                ];
                 if !undeclared {
                     given.extend([next.clone(), ExprKind::bool_lit(false)]);
                 }
 
                 let mut check = l.clone();
-                check.args[1] = ExprKind::Quote(Box::new(Quote::new(
-                    ExprKind::List(List::new(given)),
-                    SyntaxObject::default(TokenType::Quote),
-                )));
+                check.args[1] = ExprKind::List(List::new(given));
                 return Some(ExprKind::List(check));
             }
 
@@ -4767,14 +4794,20 @@ impl<'a> LowerRestArguments<'a> {
         let mut positional_arg_offset = 0;
 
         while let Some(next) = iter.next() {
-            if next.atom_keyword().is_some() {
+            if call_keyword(next).is_some() {
                 iter.next();
                 continue;
             }
 
             if found_index == positional_arg_offset {
                 let mut remaining = thin_vec![ExprKind::ident("#%prim.list"), next.clone()];
-                remaining.extend(iter.cloned());
+                while let Some(next) = iter.next() {
+                    if call_keyword(next).is_some() {
+                        iter.next();
+                    } else {
+                        remaining.push(next.clone());
+                    }
+                }
                 let lst = ExprKind::List(List::new(remaining));
 
                 // println!("plist-get-positional-arg-list: {}", lst);
@@ -4809,7 +4842,7 @@ impl<'a> LowerRestArguments<'a> {
         let mut positional_arg_offset = 0;
 
         while let Some(next) = iter.next() {
-            if next.atom_keyword().is_some() {
+            if call_keyword(next).is_some() {
                 iter.next();
                 continue;
             }
@@ -4822,10 +4855,7 @@ impl<'a> LowerRestArguments<'a> {
             positional_arg_offset += 1;
         }
 
-        let error = ExprKind::List(List::new(thin_vec![
-            ExprKind::ident("#%prim.error!"),
-            ExprKind::string_lit("Missing positional arg".to_string())
-        ]));
+        let error = call_error(ExprKind::string_lit("Missing positional arg".to_string()));
         binding_expr_replace.push((index, error));
 
         Some(())
@@ -4841,21 +4871,25 @@ impl<'a> LowerRestArguments<'a> {
 
         let ident = lst.get(1)?.atom_identifier()?;
         let key = lst.get(2)?.atom_keyword()?;
-        let func_name = lst.get(3)?;
+        // The name is quoted, and the message is the one the primitive gives
+        let func_name = match lst.get(3)? {
+            ExprKind::Quote(q) => &q.expr,
+            other => other,
+        };
 
         let const_list = self.movable_const_list(ident)?.clone();
         self.used_bindings.define(*ident);
         let mut iter = const_list.iter();
 
-        let sym = iter.find(|x| x.atom_keyword() == Some(key));
+        let sym = iter.find(|x| call_keyword(x) == Some(key));
 
         let mut missing_symbol_error = None;
 
         if sym.is_none() {
-            missing_symbol_error = Some(ExprKind::List(List::new(thin_vec![
-                ExprKind::ident("#%prim.error!"),
-                ExprKind::string_lit(format!("{} : Key not found: {}", func_name, key))
-            ])));
+            missing_symbol_error = Some(call_error(ExprKind::string_lit(format!(
+                "{} : Key not found: {}",
+                func_name, key
+            ))));
         }
 
         let value = iter
@@ -4863,10 +4897,10 @@ impl<'a> LowerRestArguments<'a> {
             .cloned()
             .or(missing_symbol_error)
             .unwrap_or_else(|| {
-                ExprKind::List(List::new(thin_vec![
-                    ExprKind::ident("#%prim.error!"),
-                    ExprKind::string_lit(format!("{} : Missing value for key: {}", func_name, key))
-                ]))
+                call_error(ExprKind::string_lit(format!(
+                    "{} : Missing value for key: {}",
+                    func_name, key
+                )))
             });
 
         binding_expr_replace.push((index, value));
@@ -4893,7 +4927,7 @@ impl<'a> LowerRestArguments<'a> {
         let mut positional_arg_offset = 0;
 
         while let Some(next) = iter.next() {
-            if next.atom_keyword().is_some() {
+            if call_keyword(next).is_some() {
                 iter.next();
             } else {
                 if int_index == positional_arg_offset {
@@ -4935,7 +4969,7 @@ impl<'a> LowerRestArguments<'a> {
             let mut positional_arg_offset = 0;
 
             while let Some(next) = iter.next() {
-                if next.atom_keyword().is_some() {
+                if call_keyword(next).is_some() {
                     iter.next();
                 } else {
                     if int_index == positional_arg_offset {
@@ -4956,7 +4990,7 @@ impl<'a> LowerRestArguments<'a> {
             self.used_bindings.define(*ident);
             let mut iter = const_list.iter();
             let expr_to_replace = iter
-                .find(|x| x.atom_identifier() == Some(key) || x.atom_keyword() == Some(key))
+                .find(|x| x.atom_identifier() == Some(key) || call_keyword(x) == Some(key))
                 .and_then(|_| iter.next())
                 .unwrap_or(&f.else_expr);
 
@@ -4987,7 +5021,7 @@ impl<'a> LowerRestArguments<'a> {
         self.used_bindings.define(*ident);
         let mut iter = const_list.iter();
         let expr_to_replace = iter
-            .find(|x| x.atom_identifier() == Some(key) || x.atom_keyword() == Some(key))
+            .find(|x| x.atom_identifier() == Some(key) || call_keyword(x) == Some(key))
             .and_then(|_| iter.next())
             .unwrap_or(default_value);
 

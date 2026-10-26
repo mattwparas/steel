@@ -798,6 +798,12 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 TokenType::Keyword(x.as_str().into()),
                 span,
             )))),
+            SymbolV(x) if keyword_argument_symbol(x).is_some() => {
+                Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                    TokenType::Keyword(keyword_argument_symbol(x).unwrap().into()),
+                    span,
+                ))))
+            }
 
             SymbolV(x) => {
                 let mut syn = SyntaxObject::new(TokenType::Identifier(x.as_str().into()), span);
@@ -2747,6 +2753,38 @@ impl SteelVal {
 
 impl Eq for SteelVal {}
 
+// An exact number as a big rational
+fn exact_rational(value: &SteelVal) -> Option<BigRational> {
+    match value {
+        IntV(x) => Some(BigRational::from_integer((*x).into())),
+        BigNum(x) => Some(BigRational::from_integer(x.as_ref().clone())),
+        Rational(x) => Some(BigRational::new_raw(
+            (*x.numer()).into(),
+            (*x.denom()).into(),
+        )),
+        BigRational(x) => Some(x.as_ref().clone()),
+        _ => None,
+    }
+}
+
+// An exact number against a float. A float that's neither infinite nor NaN is an exact
+// rational, so this loses nothing.
+fn exact_float_cmp(exact: &SteelVal, float: f64) -> Option<Ordering> {
+    if float.is_nan() {
+        return None;
+    }
+
+    if float.is_infinite() {
+        return Some(if float > 0.0 {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        });
+    }
+
+    exact_rational(exact)?.partial_cmp(&BigRational::from_float(float)?)
+}
+
 fn integer_float_equality(int: isize, float: f64) -> bool {
     // Past the integers' range the conversion saturates, and would equal the largest one
     if !(float >= isize::MIN as f64 && float < -(isize::MIN as f64)) {
@@ -2757,18 +2795,6 @@ fn integer_float_equality(int: isize, float: f64) -> bool {
 
     if float == converted as f64 {
         int == converted
-    } else {
-        false
-    }
-}
-
-fn bignum_float_equality(bigint: &Gc<BigInt>, float: f64) -> bool {
-    if float.fract() == 0.0 {
-        if let Some(promoted) = bigint.to_f64() {
-            promoted == float
-        } else {
-            false
-        }
     } else {
         false
     }
@@ -2813,11 +2839,14 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
         (NumV(l), NumV(r)) => l == r,
         (IntV(l), NumV(r)) | (NumV(r), IntV(l)) => integer_float_equality(*l, *r),
         (Rational(l), Rational(r)) => l == r,
-        (Rational(l), NumV(r)) | (NumV(r), Rational(l)) => l.to_f64().unwrap() == *r,
+        (Rational(_), NumV(r)) => exact_float_cmp(left, *r) == Some(Ordering::Equal),
+        (NumV(r), Rational(_)) => exact_float_cmp(right, *r) == Some(Ordering::Equal),
         (BigNum(l), BigNum(r)) => l == r,
-        (BigNum(l), NumV(r)) | (NumV(r), BigNum(l)) => bignum_float_equality(l, *r),
+        (BigNum(_), NumV(r)) => exact_float_cmp(left, *r) == Some(Ordering::Equal),
+        (NumV(r), BigNum(_)) => exact_float_cmp(right, *r) == Some(Ordering::Equal),
         (BigRational(l), BigRational(r)) => l == r,
-        (BigRational(l), NumV(r)) | (NumV(r), BigRational(l)) => l.to_f64().unwrap() == *r,
+        (BigRational(_), NumV(r)) => exact_float_cmp(left, *r) == Some(Ordering::Equal),
+        (NumV(r), BigRational(_)) => exact_float_cmp(right, *r) == Some(Ordering::Equal),
         // The below should be impossible as integers/bignums freely convert into each
         // other. Similar for int/bignum/rational/bigrational.
         (Rational(_), IntV(_))
@@ -2845,6 +2874,29 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(BoolV(result))
 }
 
+/// How a keyword written as an argument, `#:k` in a call, is passed: a symbol of its own, so
+/// the symbol `'#:k` is a value like any other, as in Racket.
+pub(crate) const KEYWORD_ARGUMENT_PREFIX: &str = "#%";
+
+pub(crate) fn keyword_argument(keyword: &str) -> SteelVal {
+    SteelVal::SymbolV(format!("{KEYWORD_ARGUMENT_PREFIX}{keyword}").into())
+}
+
+/// The keyword, `#:k`, a keyword argument passes
+pub(crate) fn keyword_argument_name(value: &SteelVal) -> Option<&str> {
+    match value {
+        SteelVal::SymbolV(s) => keyword_argument_symbol(s),
+        _ => None,
+    }
+}
+
+/// The keyword a keyword argument's symbol passes
+pub(crate) fn keyword_argument_symbol(symbol: &str) -> Option<&str> {
+    symbol
+        .strip_prefix(KEYWORD_ARGUMENT_PREFIX)
+        .filter(|x| x.starts_with("#:"))
+}
+
 impl PartialOrd for SteelVal {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -2857,6 +2909,16 @@ impl PartialOrd for SteelVal {
             (Rational(x), Rational(y)) => x.partial_cmp(y),
             (BigRational(x), BigRational(y)) => x.partial_cmp(y),
             (NumV(x), NumV(y)) => x.partial_cmp(y),
+            // An exact number against a float compares exactly, as Racket does. An integer
+            // that converts without loss takes the fast way.
+            (IntV(x), NumV(y)) if x.unsigned_abs() <= 1 << 53 => (*x as f64).partial_cmp(y),
+            (NumV(x), IntV(y)) if y.unsigned_abs() <= 1 << 53 => x.partial_cmp(&(*y as f64)),
+            (IntV(_) | BigNum(_) | Rational(_) | BigRational(_), NumV(y)) => {
+                exact_float_cmp(self, *y)
+            }
+            (NumV(x), IntV(_) | BigNum(_) | Rational(_) | BigRational(_)) => {
+                exact_float_cmp(other, *x).map(Ordering::reverse)
+            }
             (StringV(s), StringV(o)) => s.partial_cmp(o),
             (CharV(l), CharV(r)) => l.partial_cmp(r),
 
@@ -2888,7 +2950,6 @@ impl PartialOrd for SteelVal {
                 );
                 x_rational.partial_cmp(y)
             }
-            (IntV(x), NumV(y)) => (*x as f64).partial_cmp(y),
 
             // BigNum comparisons means promoting to BigInt for integers, BigRational for ratios,
             // or Decimal otherwise
@@ -2910,11 +2971,6 @@ impl PartialOrd for SteelVal {
             (BigNum(x), BigRational(y)) => {
                 let x_big_rational = BigRational::from_integer(x.unwrap());
                 x_big_rational.partial_cmp(y)
-            }
-            (BigNum(x), NumV(y)) => {
-                let x_decimal = BigDecimal::new(x.unwrap(), 0);
-                let y_decimal_opt = BigDecimal::from_f64(*y);
-                y_decimal_opt.and_then(|y_decimal| x_decimal.partial_cmp(&y_decimal))
             }
 
             // Rationals require rationals, regular or bigger versions; for float it will be divided to float as well
@@ -2955,7 +3011,6 @@ impl PartialOrd for SteelVal {
                 );
                 x_big_rational.partial_cmp(y)
             }
-            (Rational(x), NumV(y)) => (*x.numer() as f64 / *x.denom() as f64).partial_cmp(y),
 
             // The most capacious set, but need to cover float case with BigDecimal anyways
             (BigRational(x), IntV(y)) => {
@@ -2979,28 +3034,8 @@ impl PartialOrd for SteelVal {
                 );
                 x.as_ref().partial_cmp(&y_big_rational)
             }
-            (BigRational(x), NumV(y)) => {
-                let x_decimal =
-                    BigDecimal::new(x.numer().clone(), 0) / BigDecimal::new(x.denom().clone(), 0);
-                let y_decimal_opt = BigDecimal::from_f64(*y);
-                y_decimal_opt.and_then(|y_decimal| x_decimal.partial_cmp(&y_decimal))
-            }
 
             // The opposite of all float cases above
-            (NumV(x), IntV(y)) => x.partial_cmp(&(*y as f64)),
-            (NumV(x), BigNum(y)) => {
-                let x_decimal_opt = BigDecimal::from_f64(*x);
-                let y_decimal = BigDecimal::new(y.unwrap(), 0);
-                x_decimal_opt.and_then(|x_decimal| x_decimal.partial_cmp(&y_decimal))
-            }
-            (NumV(x), Rational(y)) => x.partial_cmp(&(*y.numer() as f64 / *y.denom() as f64)),
-            (NumV(x), BigRational(y)) => {
-                let x_decimal_opt = BigDecimal::from_f64(*x);
-                let y_decimal =
-                    BigDecimal::new(y.numer().clone(), 0) / BigDecimal::new(y.denom().clone(), 0);
-                x_decimal_opt.and_then(|x_decimal| x_decimal.partial_cmp(&y_decimal))
-            }
-
             (l, r) => {
                 // All real numbers (not complex) should have order defined.
                 debug_assert!(

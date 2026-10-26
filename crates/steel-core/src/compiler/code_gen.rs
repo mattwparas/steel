@@ -59,7 +59,7 @@ fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
         TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.to_string().into())),
         TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
-        TokenType::Keyword(k) => Some(SteelVal::SymbolV(k.clone().into())),
+        TokenType::Keyword(k) => Some(crate::rvals::keyword_argument(k.resolve())),
         _what => None,
     }
 }
@@ -70,7 +70,7 @@ fn try_eval_atom_with_context(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::Number(n) => n.resolve().into_steelval().map_err(|e| e.with_span(t.span)),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
-        TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
+        TokenType::Keyword(k) => Ok(crate::rvals::keyword_argument(k.resolve())),
         _what => {
             stop!(UnexpectedToken => t.ty; t.span)
         }

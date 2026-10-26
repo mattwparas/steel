@@ -173,7 +173,13 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
-        SteelVal::try_from(a.syn)
+        // Outside a quote a keyword is an argument's
+        match &a.syn.ty {
+            steel_parser::tokens::TokenType::Keyword(k) if !self.inside_quote => {
+                Ok(crate::rvals::keyword_argument(k.resolve()))
+            }
+            _ => SteelVal::try_from(a.syn),
+        }
     }
 
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {
