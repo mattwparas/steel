@@ -674,9 +674,19 @@ impl<'a> ReplaceExpressions<'a> {
                 && vec_exprs
                     .iter()
                     .skip(1)
-                    .all(|x| x.atom_identifier().is_some()) =>
+                    .all(|x| x.atom_identifier().is_some())
+                && vec_exprs.iter().skip(1).any(|x| {
+                    x.atom_identifier().is_some_and(|x| {
+                        x.resolve().starts_with("##")
+                            || self.bindings.contains_key(x)
+                            || self
+                                .bindings
+                                .contains_key(&format!("##{}", x.resolve()).into())
+                    })
+                }) =>
             {
-                // Joining identifiers. With other arguments it's Racket's, called at run time.
+                // Joining identifiers, one of them the pattern's. Otherwise it's Racket's,
+                // called at run time.
                 let mut buffer = String::new();
                 if let Some((_, rest)) = vec_exprs.split_first() {
                     for syntax in rest {

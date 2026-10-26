@@ -1104,6 +1104,14 @@ impl Compiler {
 
         let mut expanded_statements = filter_provides(expanded_statements);
 
+        // A clause body's `(let () ...)` that defines nothing is its body, before the passes
+        // that rename and lift see its scope
+        if crate::config::config().flatten_empty_lets {
+            crate::compiler::passes::analysis::flatten_definition_free_empty_lets(
+                &mut expanded_statements,
+            );
+        }
+
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, true);
 
@@ -1156,6 +1164,7 @@ impl Compiler {
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         semantic.check_if_values_are_redefined()?;
+        semantic.check_keyword_arguments_accepted()?;
 
         semantic.refresh_variables();
         semantic.flatten_anonymous_functions();
@@ -1236,6 +1245,14 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
+        // A clause body's `(let () ...)` that defines nothing is its body, before the passes
+        // that rename and lift see its scope
+        if crate::config::config().flatten_empty_lets {
+            crate::compiler::passes::analysis::flatten_definition_free_empty_lets(
+                &mut expanded_statements,
+            );
+        }
+
         // TODO: Probably lift this above the const evaluation anyway
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, true);
@@ -1299,6 +1316,7 @@ impl Compiler {
 
         // Check if the values are redefined!
         semantic.check_if_values_are_redefined()?;
+        semantic.check_keyword_arguments_accepted()?;
 
         // semantic.refresh_variables();
         semantic.flatten_anonymous_functions();

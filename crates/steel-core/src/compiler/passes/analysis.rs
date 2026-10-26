@@ -4025,9 +4025,17 @@ pub(crate) fn is_a_builtin_module_get(def: &Define) -> bool {
     if let ExprKind::List(l) = &def.body {
         if let Some(func) = l.first_ident() {
             if *func == *UNREADABLE_MODULE_GET || *func == *STANDARD_MODULE_GET {
-                return l
-                    .second_ident()
-                    .is_some_and(|module| module.resolve().starts_with("%-builtin-module-"));
+                thread_local! {
+                    static BUILTIN: core::cell::RefCell<HashMap<InternedString, bool>> =
+                        core::cell::RefCell::new(HashMap::default());
+                }
+                return l.second_ident().is_some_and(|module| {
+                    BUILTIN.with(|x| {
+                        *x.borrow_mut()
+                            .entry(*module)
+                            .or_insert_with(|| module.resolve().starts_with("%-builtin-module-"))
+                    })
+                });
             }
         }
     }
@@ -7845,6 +7853,71 @@ impl VisitorMutRefUnit for HoistCarBeforeCdr {
     }
 }
 
+// Flattens the empty lets that define nothing, before internal defines are lowered, as a clause
+// body's `(let () ...)` is. Whether it flattened any.
+pub(crate) fn flatten_definition_free_empty_lets(exprs: &mut Vec<ExprKind>) -> bool {
+    fn defines(expr: &ExprKind) -> bool {
+        match expr {
+            ExprKind::Define(_) => true,
+            ExprKind::Begin(b) => b.exprs.iter().any(defines),
+            _ => false,
+        }
+    }
+
+    struct Flatten(bool);
+
+    impl VisitorMutRefUnit for Flatten {
+        fn visit(&mut self, expr: &mut ExprKind) {
+            // `((lambda () body))`, as `(let () body)` is before it's lowered
+            if let ExprKind::List(l) = expr {
+                if let [ExprKind::LambdaFunction(f)] = l.args.as_slice() {
+                    if f.args.is_empty() && !f.rest && !defines(&f.body) {
+                        let ExprKind::LambdaFunction(f) = l.args.pop().unwrap() else {
+                            unreachable!()
+                        };
+                        *expr = f.body;
+                        self.0 = true;
+                        return self.visit(expr);
+                    }
+                }
+            }
+
+            if let ExprKind::Let(l) = expr {
+                if l.bindings.is_empty() && !defines(&l.body_expr) {
+                    *expr = core::mem::replace(&mut l.body_expr, ExprKind::empty());
+                    self.0 = true;
+                    return self.visit(expr);
+                }
+
+                for (_, value) in l.bindings.iter_mut() {
+                    self.visit(value);
+                }
+                return self.visit(&mut l.body_expr);
+            }
+
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::List(l) => self.visit_list(l),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Vector(v) => self.visit_vector(v),
+                _ => {}
+            }
+        }
+    }
+
+    let mut flatten = Flatten(false);
+    for expr in exprs.iter_mut() {
+        flatten.visit(expr);
+    }
+    flatten.0
+}
+
 struct FlattenEmptyLets;
 
 impl FlattenEmptyLets {
@@ -10382,6 +10455,123 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         self
+    }
+
+    // A call giving a keyword to a function of the program that takes none is an error, as in
+    // Racket. Calls through other values aren't known until they run.
+    pub fn check_keyword_arguments_accepted(&mut self) -> Result<&mut Self, SteelErr> {
+        fn takes_keywords(l: &LambdaFunction) -> bool {
+            match &l.body {
+                ExprKind::If(f) => f
+                    .test_expr
+                    .list()
+                    .is_some_and(|x| x.first_ident() == Some(&*PRIM_PLIST_CHECK_KEYWORDS)),
+                _ => false,
+            }
+        }
+
+        let mut plain = HashSet::new();
+        let mut defines = Vec::new();
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Begin(b) => defines.extend(b.exprs.iter()),
+                expr => defines.push(expr),
+            }
+        }
+        // Of the builtins only open-output-file takes one, apply passes them on, and keyword
+        // arguments expand to the plist ones
+        fn takes_keyword(name: &str) -> bool {
+            let name = name.trim_start_matches("#%prim.");
+            name == "open-output-file" || name == "apply" || name.starts_with("plist-")
+        }
+
+        for expr in defines {
+            if let ExprKind::Define(d) = expr {
+                if is_a_builtin_definition(d) {
+                    if let Some(name) = d.name.atom_identifier() {
+                        if !takes_keyword(name.resolve()) {
+                            plain.insert(*name);
+                        }
+                    }
+                    continue;
+                }
+
+                if let (ExprKind::LambdaFunction(l), Some(so)) =
+                    (&d.body, d.name.atom_syntax_object())
+                {
+                    let set = self.analysis.get(so).is_some_and(|x| x.set_bang);
+                    // A rest list passes keywords on, as through apply
+                    if !set && !l.rest && !takes_keywords(l) {
+                        if let TokenType::Identifier(name) = so.ty {
+                            plain.insert(name);
+                        }
+                    }
+                }
+            }
+        }
+
+        struct Calls<'b> {
+            plain: &'b HashSet<InternedString>,
+            analysis: &'b Analysis,
+            error: Option<SteelErr>,
+        }
+
+        impl<'a> VisitorMutUnitRef<'a> for Calls<'_> {
+            fn visit_list(&mut self, l: &'a List) {
+                if self.error.is_none() {
+                    let head = l.first().and_then(ExprKind::atom_syntax_object);
+                    let global = head.filter(|x| match x.ty {
+                        TokenType::Identifier(name) if name.resolve().starts_with("#%prim.") => {
+                            !takes_keyword(name.resolve())
+                        }
+                        TokenType::Identifier(name) => {
+                            self.plain.contains(&name)
+                                && self
+                                    .analysis
+                                    .get(x)
+                                    .is_some_and(|x| x.kind == IdentifierStatus::Global)
+                        }
+                        _ => false,
+                    });
+                    if let Some(head) = global {
+                        if let Some(keyword) =
+                            l.args[1..].iter().find(|x| call_keyword(x).is_some())
+                        {
+                            self.error = Some(
+                                SteelErr::new(
+                                    crate::rerrs::ErrorKind::BadSyntax,
+                                    format!(
+                                        "{}: procedure does not accept keyword arguments",
+                                        crate::compiler::passes::begin::written_name(
+                                            head.ty.identifier().unwrap().resolve()
+                                        )
+                                    ),
+                                )
+                                .with_span(keyword.span()),
+                            );
+                        }
+                    }
+                }
+                for expr in &l.args {
+                    self.visit(expr);
+                }
+            }
+            fn visit_quote(&mut self, _: &'a Quote) {}
+        }
+
+        let mut calls = Calls {
+            plain: &plain,
+            analysis: &self.analysis,
+            error: None,
+        };
+        for expr in self.exprs.iter() {
+            calls.visit(expr);
+        }
+
+        match calls.error {
+            Some(error) => Err(error),
+            None => Ok(self),
+        }
     }
 
     pub fn check_if_values_are_redefined(&mut self) -> Result<&mut Self, SteelErr> {

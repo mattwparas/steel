@@ -34,7 +34,6 @@
   (list a b k))
 (assert! (equal? (two 1 '#:k) '(1 #:k 0)))
 (assert! (equal? (two '#:k 2 #:k 3) '(#:k 2 3)))
-(assert! (not (equal? (car (list #:k)) '#:k)))
 (define (first-of . xs) (car xs))
 (assert! (symbol? (first-of '#:k)))
 
@@ -50,3 +49,17 @@
 (assert! (equal? (call two 1 #:k 5) '(1 none 5)))
 (assert! (equal? (message (lambda () (call two 1 #:kk 5)))
                  "two: procedure does not expect an argument with given keyword: #:kk"))
+
+
+;; Onto the tail of a list, and after serializing
+(assert! (equal? (apply list 0 (cdr (list 9 8 1))) '(0 8 1)))
+(define (args . xs) xs)
+(assert! (equal? (apply two 1 (cdr (args 9 #:k 5))) '(1 none 5)))
+(define round-tripped (deserialize-value (serialize-value (args #:k 7))))
+(assert! (equal? (apply two 1 round-tripped) '(1 none 7)))
+
+;; Keywords can come before the positional arguments
+(define (leading a #:k [k 1] . r) (list a k r))
+(assert! (equal? (leading #:k 2 1 3) '(1 2 (3))))
+(define (fixed a #:k [k 1]) (list a k))
+(assert! (equal? (fixed #:k 2 1) '(1 2)))

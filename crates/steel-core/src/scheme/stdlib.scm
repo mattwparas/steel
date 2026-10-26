@@ -278,7 +278,7 @@
     [(when a
        b ...)
      (if a
-         (begin
+         (let ()
            b ...)
          void)]))
 
@@ -295,7 +295,7 @@
        b ...)
      (if a
          void
-         (begin
+         (let ()
            b ...))]))
 
 (define-syntax cond
@@ -309,7 +309,7 @@
     [(cond
        [else
         e1 ...])
-     (begin
+     (let ()
        e1 ...)]
     [(cond
        [e1
@@ -356,7 +356,7 @@
         e2 ...]
        c1 ...)
      (if e1
-         (begin
+         (let ()
            e2 ...)
          (cond
            c1 ...))]))
@@ -404,7 +404,7 @@
        [else
         result1
         result2 ...])
-     (begin
+     (let ()
        result1
        result2 ...)]
 
@@ -413,7 +413,7 @@
         result1
         result2 ...])
      (when (eqv? key (quote atoms))
-       (begin
+       (let ()
          result1
          result2 ...))]
 
@@ -422,7 +422,7 @@
         result1
         result2 ...])
      (when (#%case-member? key (quote (atoms ...)))
-       (begin
+       (let ()
          result1
          result2 ...))]
 
@@ -440,7 +440,7 @@
        clause
        clauses ...)
      (if (eqv? key (quote atoms))
-         (begin
+         (let ()
            result1
            result2 ...)
          (case key
@@ -454,7 +454,7 @@
        clause
        clauses ...)
      (if (#%case-member? key (quote (atoms ...)))
-         (begin
+         (let ()
            result1
            result2 ...)
          (case key

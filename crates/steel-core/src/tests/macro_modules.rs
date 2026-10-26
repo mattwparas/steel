@@ -2071,3 +2071,208 @@ fn a_when_bodys_macro_stays_in_it() {
         "(top top)"
     );
 }
+
+#[test]
+fn a_bodys_macros_see_the_whole_body() {
+    assert_eq!(
+        module_results(
+            "body/letrec",
+            "(define-syntax (pm stx) (syntax-case stx () [(_) #''top]))
+             (define (k)
+               (define-syntax (pm2 stx) (syntax-case stx () [(_) #'(pm1)]))
+               (define-syntax (pm1 stx) (syntax-case stx () [(_) #''pm1-local]))
+               (pm2))
+             (define (r)
+               (define-syntax use (syntax-rules () [(_) (pm)]))
+               (define-syntax (pm stx) (syntax-case stx () [(_) #''local]))
+               (use))
+             (define (h)
+               (define-syntax use (syntax-rules () [(_) (pm)]))
+               (let ()
+                 (define-syntax (pm stx) (syntax-case stx () [(_) #''inner]))
+                 (list (pm) (use))))
+             (define (w x)
+               (when x
+                 (define-syntax (pm stx) (syntax-case stx () [(_) #''when-pm]))
+                 (define-syntax use (syntax-rules () [(_) (pm)]))
+                 (let () (define-syntax (pm stx) (syntax-case stx () [(_) #''shadow])) (list (pm) (use)))))
+             (define results (list (k) (r) (h) (w #t)))"
+        ),
+        "(pm1-local local (inner top) (shadow when-pm))"
+    );
+}
+
+#[test]
+fn a_templates_procedural_helper_is_its_expansions_own() {
+    assert_eq!(
+        module_results(
+            "helper/per-expansion",
+            "(define-syntax mkfn
+               (syntax-rules ()
+                 [(_ n v) (begin (define-syntax (helper stx) (syntax-case stx () [(_) #'v]))
+                                 (define (n) (helper)))]))
+             (mkfn f1 1)
+             (mkfn f2 2)
+             (define results (list (f1) (f2)))"
+        ),
+        "(1 2)"
+    );
+
+    // Written twice, once in a begin
+    let error = module_error(
+        "helper/written-twice",
+        "(define-syntax (m s) (syntax-case s () [(_) #'1]))
+         (begin (define-syntax (m s) (syntax-case s () [(_) #'2])))
+         (define results (m))",
+    );
+    assert!(
+        error.contains("Macro re defined within the top level definition: m"),
+        "{error}"
+    );
+
+    // A require in a begin is an error, not a panic
+    let error = module_error(
+        "helper/require",
+        "(begin (require \"nowhere.scm\")) (define results 1)",
+    );
+    assert!(error.contains("require"), "{error}");
+}
+
+#[test]
+fn clause_bodies_are_definition_contexts() {
+    assert_eq!(
+        module_results(
+            "clauses/defines",
+            "(define-syntax (pm stx) (syntax-case stx () [(_) #''top]))
+             (define (f x)
+               (cond
+                 [(= x 1)
+                  (define-syntax (pm stx) (syntax-case stx () [(_) #''cond1]))
+                  (define y 2)
+                  (list (pm) y)]
+                 [else (pm)]))
+             (define (g x) (case x [(1) (define z 3) z] [else 0]))
+             (define results (list (f 1) (f 2) (g 1)))"
+        ),
+        "((cond1 2) top 3)"
+    );
+}
+
+#[test]
+fn local_macros_through_each_other() {
+    assert_eq!(
+        module_results(
+            "local/through",
+            "(define-syntax (pm stx) (syntax-case stx () [(_) #''top]))
+             (define-syntax sr (syntax-rules () [(_) 'top-sr]))
+             (define (f2)
+               (define-syntax (pm stx) (syntax-case stx () [(_) #''f2]))
+               (define-syntax use (syntax-rules () [(_) (pm)]))
+               (define-syntax (lcall stx) (syntax-case stx () [(_ u) #'(u)]))
+               (lcall use))
+             (define (f)
+               (define-syntax (pm stx) (syntax-case stx () [(_) #'(sr)]))
+               (define-syntax sr (syntax-rules () [(_) 'local-sr]))
+               (define (g)
+                 (define-syntax sr (syntax-rules () [(_) 'g-sr]))
+                 (list (sr) (pm)))
+               (list (pm) (g)))
+             (define (h)
+               (define (g) (pm))
+               (begin (define-syntax (pm stx) (syntax-case stx () [(_) #''begin-local])))
+               (g))
+             (define results (list (f2) (f) (h)))"
+        ),
+        "(f2 (local-sr (g-sr local-sr)) begin-local)"
+    );
+}
+
+#[test]
+fn local_procedural_macros_run_in_order_with_the_modules() {
+    assert_eq!(
+        module_results(
+            "local/order",
+            "(begin-for-syntax (define counter 0) (define (bump!) (set! counter (+ counter 1)) counter))
+             (define-syntax (top-bump stx) (syntax-case stx () [(_) (with-syntax ([n (bump!)]) #'n)]))
+             (define-syntax (top-pm stx) (syntax-case stx () [(_) (with-syntax ([n counter]) #'n)]))
+             (define a (top-bump))
+             (define (f)
+               (define-syntax (pm stx) (syntax-case stx () [(_) (with-syntax ([n (* 10 (bump!))]) #'n)]))
+               (pm))
+             (define b (top-bump))
+             (define c (top-pm))
+             (define results (list a (f) b c))"
+        ),
+        "(1 20 3 3)"
+    );
+}
+
+#[test]
+fn a_name_is_a_value_or_a_macro() {
+    for (name, body) in [
+        (
+            "once/value-first",
+            "(define m 5) (define-syntax m (syntax-rules () [(_) 2]))",
+        ),
+        (
+            "once/macro-first",
+            "(define-syntax m (syntax-rules () [(_) 2])) (define m 5)",
+        ),
+        (
+            "once/in-begin",
+            "(define m 5) (begin (define-syntax (m s) (syntax-case s () [(_) #'2])))",
+        ),
+    ] {
+        let error = module_error(name, &format!("{body} (define results 1)"));
+        assert!(
+            error.contains("identifier already defined as a macro: m"),
+            "{name}: {error}"
+        );
+    }
+
+    // A builtin's name can be defined again
+    assert_eq!(
+        module_results(
+            "once/builtin",
+            "(define-syntax vector (syntax-rules () [(_ x ...) 'mine])) (define results (vector 1))"
+        ),
+        "mine"
+    );
+}
+
+#[test]
+fn provided_procedural_macros_in_begins() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "provides/begin".to_owned(),
+        "(begin (provide pm))
+         (define-syntax (pm stx) (syntax-case stx () [(_) #'3]))
+         (define-syntax pmac+provide
+           (syntax-rules () [(_ n v) (begin (provide n) (define-syntax (n stx) (syntax-case stx () [(_) #'v])))]))
+         (pmac+provide pm2 4)"
+            .to_owned(),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            "(require \"provides/begin\") (list (pm) (pm2))"
+        )
+        .to_string(),
+        "(3 4)"
+    );
+}
+
+#[test]
+fn template_datum_syntax_without_pattern_variables_is_rackets() {
+    assert_eq!(
+        module_results(
+            "datum/racket",
+            "(begin-for-syntax (define n 7))
+             (define-syntax make-counter
+               (syntax-rules () [(_ name) (define-syntax (name s) (datum->syntax s n))]))
+             (make-counter c1)
+             (define results (c1))"
+        ),
+        "7"
+    );
+}

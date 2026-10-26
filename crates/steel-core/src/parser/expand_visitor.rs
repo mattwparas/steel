@@ -86,7 +86,17 @@ fn kernel_local_key(syn: &SyntaxObject) -> Option<InternedString> {
     if syn.mark == ExpansionMark::NONE {
         Some(name)
     } else {
-        Some(format!("{}#%mark{}", name.resolve(), syn.mark.0).into())
+        // Made once for each name and mark, as every binder a template wrote needs it
+        thread_local! {
+            static KEYS: core::cell::RefCell<FxHashMap<(InternedString, u32), InternedString>> =
+                core::cell::RefCell::new(FxHashMap::default());
+        }
+        Some(KEYS.with(|keys| {
+            *keys
+                .borrow_mut()
+                .entry((name, syn.mark.0))
+                .or_insert_with(|| format!("{}#%mark{}", name.resolve(), syn.mark.0).into())
+        }))
     }
 }
 
@@ -580,8 +590,16 @@ fn defines_local_macro(l: &List) -> bool {
 fn template_macro_names(forms: &[ExprKind], names: &mut Vec<(InternedString, ExpansionMark)>) {
     for form in forms {
         match form {
-            ExprKind::List(l) if defines_local_macro(l) => {
-                if let Some(syn) = l.get(1).and_then(ExprKind::atom_syntax_object) {
+            // A procedural one too, as `(define-syntax (name stx) ...)` or `(define-syntax name ...)`
+            ExprKind::List(l)
+                if defines_local_macro(l)
+                    || l.is_define_syntax() && procedural_macro_name(l).is_some() =>
+            {
+                let name = match l.get(1) {
+                    Some(ExprKind::List(header)) => header.first(),
+                    name => name,
+                };
+                if let Some(syn) = name.and_then(ExprKind::atom_syntax_object) {
                     if let TokenType::Identifier(name) = syn.ty {
                         // A name from the macro's input isn't the template's
                         if syn.mark.is_template()
@@ -740,6 +758,8 @@ struct LocalMacro {
     mark: ExpansionMark,
     // Where its name is written, which tells two definitions of a name apart
     name_span: Option<steel_parser::span::Span>,
+    // Where a procedural one is defined, which what the kernel expanded it to names
+    definition: Option<steel_parser::span::Span>,
     // The local macros defined with it, as a range of the stack, which its templates see
     // unless it's from let-syntax
     group: (usize, usize),
@@ -983,7 +1003,16 @@ impl MacroRedefinitions {
 
 // Where a definition of the same name keeps a prelude macro
 pub(crate) fn prelude_macro_alias(name: &InternedString) -> InternedString {
-    format!("#%prelude-macro.{}", name.resolve()).into()
+    thread_local! {
+        static ALIASES: core::cell::RefCell<FxHashMap<InternedString, InternedString>> =
+            core::cell::RefCell::new(FxHashMap::default());
+    }
+    ALIASES.with(|aliases| {
+        *aliases
+            .borrow_mut()
+            .entry(*name)
+            .or_insert_with(|| format!("#%prelude-macro.{}", name.resolve()).into())
+    })
 }
 
 // Removes a macro the code shadows, keeping a prelude macro for the prelude's templates
@@ -1028,14 +1057,48 @@ static KERNEL_LOCAL_MACRO: &str = "#%kernel-local-macro";
 
 // Left where a function defines a macro the kernel expands, so the hygiene pass knows
 // which of the function's locals the macro can see
-fn kernel_local_macro_marker(name: InternedString, span: steel_parser::span::Span) -> ExprKind {
+fn kernel_local_macro_marker(
+    name: InternedString,
+    span: steel_parser::span::Span,
+    mark: ExpansionMark,
+) -> ExprKind {
+    let mut name = SyntaxObject::new(TokenType::Identifier(name), span);
+    name.mark = mark;
     ExprKind::Quote(Box::new(Quote::new(
         ExprKind::List(List::new(thin_vec![
             ExprKind::ident_with_span(KERNEL_LOCAL_MACRO, span),
-            ExprKind::ident_with_span(name.resolve(), span),
+            ExprKind::Atom(Atom::new(name)),
         ])),
         SyntaxObject::new(TokenType::Quote, span),
     )))
+}
+
+// The name a function's macro is written with, from the kernel's name for it
+fn written_kernel_local_name(internal: InternedString) -> InternedString {
+    internal
+        .resolve()
+        .rsplit_once("%local")
+        .map_or(internal, |(written, _)| written.into())
+}
+
+// The macro a marker is left for, by its kernel name, its name's mark and where it's defined
+fn kernel_local_macro_entry(
+    expr: &ExprKind,
+) -> Option<(InternedString, ExpansionMark, steel_parser::span::Span)> {
+    let ExprKind::Quote(q) = expr else {
+        return None;
+    };
+
+    match q.expr.list()?.args.as_slice() {
+        [head, name] if head.atom_identifier()?.resolve() == KERNEL_LOCAL_MACRO => {
+            let syn = name.atom_syntax_object()?;
+            match syn.ty {
+                TokenType::Identifier(name) => Some((name, syn.mark, syn.span)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn kernel_local_macro(expr: &ExprKind) -> Option<InternedString> {
@@ -1227,7 +1290,7 @@ impl LocalMacros {
             .rev()
             .find(|x| {
                 unmangled(x.name.resolve()) == name
-                    && x.expander.as_ref().map(|x| x.span()) == Some(span)
+                    && x.expander.as_ref().map(|x| x.span()).or(x.definition) == Some(span)
             })
             .map_or(self.macros.len(), |x| {
                 if x.recursive {
@@ -1317,6 +1380,7 @@ impl LocalMacros {
                             depth,
                             mark,
                             name_span,
+                            definition: None,
                             group: (0, 0),
                             recursive: true,
                         });
@@ -1344,10 +1408,33 @@ impl LocalMacros {
                                 depth,
                                 mark,
                                 name_span: None,
+                                definition: Some(l.location),
                                 group: (0, 0),
                                 recursive: true,
                             });
                         }
+                    }
+                }
+                // Where the kernel defined one in an earlier pass
+                form if kernel_local_macro_entry(form).is_some() => {
+                    let (internal, mark, span) = kernel_local_macro_entry(form).unwrap();
+                    let name = written_kernel_local_name(internal);
+                    let defined = self
+                        .macros
+                        .iter()
+                        .any(|x| x.name == name && x.depth == depth && x.expander.is_none());
+
+                    if !defined {
+                        self.macros.push(LocalMacro {
+                            name,
+                            expander: None,
+                            depth,
+                            mark,
+                            name_span: None,
+                            definition: Some(span),
+                            group: (0, 0),
+                            recursive: true,
+                        });
                     }
                 }
                 // A begin in a body is part of that body
@@ -2483,17 +2570,20 @@ pub struct KernelExpander<'a> {
     // The macros the functions around here define, with the scope depth they're defined in
     // and the name the kernel has them by
     local_macros: Vec<(InternedString, usize, InternedString, ExpansionMark)>,
-    // The marks what a function's macro wrote has, with how many of `local_macros` it sees:
-    // those where it's defined
-    local_expansions: FxHashMap<ExpansionMark, usize>,
-    // How many of `local_macros` a function's syntax-rules macro sees, those defined before it,
-    // by its name and where it's defined
-    rules_sees: FxHashMap<(InternedString, steel_parser::span::Span), usize>,
+    // The marks what a function's macro wrote has, with which of `local_macros` it sees: those
+    // where it's defined, as how many were defined before it and the scope depth it's in, whose
+    // macros it sees wherever they're defined in the body
+    local_expansions: FxHashMap<ExpansionMark, (usize, usize)>,
+    // Which of `local_macros` a function's syntax-rules macro sees, the same way, by its name and
+    // where it's defined
+    rules_sees: FxHashMap<(InternedString, steel_parser::span::Span), (usize, usize)>,
     // In what a required module's macro made, where the names it introduced aren't the
     // environment's macros
     foreign: bool,
     // The procedural macros the bodies around here define, which hide imported ones in them
-    local_hidden: Vec<(InternedString, ExpansionMark)>,
+    local_hidden: Vec<(InternedString, ExpansionMark, usize)>,
+    // Where each of `local_macros` is defined, by its kernel name
+    local_definitions: FxHashMap<InternedString, steel_parser::span::Span>,
 }
 
 impl<'a> KernelExpander<'a> {
@@ -2514,6 +2604,7 @@ impl<'a> KernelExpander<'a> {
             required: Vec::new(),
             foreign: false,
             local_hidden: Vec::new(),
+            local_definitions: FxHashMap::default(),
         }
     }
 
@@ -2534,6 +2625,7 @@ impl<'a> KernelExpander<'a> {
         defined: ExpansionMark,
         used: ExpansionMark,
         index: Option<usize>,
+        depth: usize,
     ) -> bool {
         if defined != ExpansionMark::NONE {
             return defined == used;
@@ -2550,24 +2642,31 @@ impl<'a> KernelExpander<'a> {
                 self.rules_sees
                     .get(&(name, span))
                     .copied()
-                    .unwrap_or(usize::MAX),
+                    .unwrap_or((usize::MAX, usize::MAX)),
             )
         });
-
-        match sees {
-            Some(sees) => index.map_or(true, |index| index < sees),
-            None => false,
+        // Those defined before it, and any in a body it's in, as a body's macros are its whole
+        // body's. One not defined yet might be, as what's a body isn't known before it's expanded.
+        match (sees, index) {
+            (Some((count, sees_depth)), Some(index)) => index < count || depth <= sees_depth,
+            (Some(_), None) => true,
+            (None, _) => false,
         }
     }
 
     // The forms of a body. Its macro definitions come first, so every form sees them, as
     // in Racket.
     fn visit_body(&mut self, forms: &mut [ExprKind]) -> Result<()> {
-        let defines_macro = |expr: &ExprKind| match expr {
-            ExprKind::List(l) => l.is_define_syntax(),
-            ExprKind::Macro(_) => true,
-            _ => false,
-        };
+        // A begin in the body is part of it
+        fn defines_macro(expr: &ExprKind) -> bool {
+            match expr {
+                ExprKind::List(l) if is_begin(l) => l.args[1..].iter().any(defines_macro),
+                ExprKind::Begin(b) => b.exprs.iter().any(defines_macro),
+                ExprKind::List(l) => l.is_define_syntax(),
+                ExprKind::Macro(_) => true,
+                expr => kernel_local_macro_entry(expr).is_some(),
+            }
+        }
 
         for expr in forms.iter_mut().filter(|x| defines_macro(x)) {
             self.visit(expr)?;
@@ -2682,9 +2781,24 @@ fn expand_keyword_and_default_arguments(
     // #:foo [foo 10] or #:foo foo.
     let mut keyword_map: SmallVec<[(&ExprKind, &ExprKind); 6]> = SmallVec::new();
 
+    // A call can give keywords before positional arguments too, so with keywords every
+    // positional argument is found in the arguments given
+    let has_keywords = lambda_function.args.iter().any(|x| {
+        matches!(
+            x,
+            ExprKind::Atom(Atom {
+                syn: SyntaxObject {
+                    ty: TokenType::Keyword(_),
+                    ..
+                }
+            })
+        )
+    });
+
     let mut non_keyword_or_default_args: SmallVec<[ExprKind; 6]> = lambda_function
         .args
         .iter()
+        .take_while(|_| !has_keywords)
         .take_while(|x| {
             !matches!(
                 x,
@@ -2708,7 +2822,7 @@ fn expand_keyword_and_default_arguments(
     // Fetch positional args this way as well
     let mut positional_args: Vec<MaybeDefault> = Vec::new();
     let mut iter = lambda_function.args.iter().peekable();
-    let mut seen_default_or_kwarg = false;
+    let mut seen_default_or_kwarg = has_keywords;
     let mut seen_default = false;
 
     let mut required_positional_arg_count = 0;
@@ -3105,7 +3219,9 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         let hidden = self.local_hidden.len();
         let mut names = Vec::new();
         defined_procedural_macros(&lambda_function.body, &mut names);
-        self.local_hidden.extend(names);
+        let depth = self.locals.depth();
+        self.local_hidden
+            .extend(names.into_iter().map(|(name, mark)| (name, mark, depth)));
 
         self.visit(&mut lambda_function.body)?;
 
@@ -3188,7 +3304,9 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         let hidden = self.local_hidden.len();
         let mut names = Vec::new();
         defined_procedural_macros(&l.body_expr, &mut names);
-        self.local_hidden.extend(names);
+        let depth = self.locals.depth();
+        self.local_hidden
+            .extend(names.into_iter().map(|(name, mark)| (name, mark, depth)));
 
         self.visit(&mut l.body_expr)?;
 
@@ -3211,6 +3329,18 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
+            // Where an earlier pass defined a function's macro, which is the body's again, as
+            // what its macros wrote can still use it
+            ExprKind::Quote(_) if kernel_local_macro_entry(expr).is_some() => {
+                let (internal, mark, span) = kernel_local_macro_entry(expr).unwrap();
+                if !self.local_macros.iter().any(|x| x.2 == internal) {
+                    let written = written_kernel_local_name(internal);
+                    self.local_macros
+                        .push((written, self.locals.depth(), internal, mark));
+                    self.local_definitions.insert(internal, span);
+                }
+                Ok(())
+            }
             ExprKind::Quote(q) => self.visit_quote(q),
             // A procedural macro made a definition, which the expander lowers where it is
             ExprKind::Macro(_) => {
@@ -3218,8 +3348,10 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                     unreachable!()
                 };
                 if let Some(name) = m.name.atom_identifier() {
-                    self.rules_sees
-                        .insert((*name, m.location.span), self.local_macros.len());
+                    self.rules_sees.insert(
+                        (*name, m.location.span),
+                        (self.local_macros.len(), self.locals.depth()),
+                    );
                 }
                 *expr = ExprKind::List(crate::parser::tryfrom_visitor::macro_as_list(*m));
                 Ok(())
@@ -3236,8 +3368,10 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                         if let (Some(name), Some(span)) =
                             (l.get(1).and_then(ExprKind::atom_identifier), span)
                         {
-                            self.rules_sees
-                                .insert((*name, span), self.local_macros.len());
+                            self.rules_sees.insert(
+                                (*name, span),
+                                (self.local_macros.len(), self.locals.depth()),
+                            );
                         }
                         return Ok(());
                     }
@@ -3250,7 +3384,10 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                             for form in l.args.iter().skip(2) {
                                 defined_procedural_macros(form, &mut names);
                             }
-                            self.local_hidden.extend(names);
+                            // In the scope the let makes
+                            let depth = self.locals.depth() + 1;
+                            self.local_hidden
+                                .extend(names.into_iter().map(|(name, mark)| (name, mark, depth)));
 
                             let result = visit_let_form(
                                 self,
@@ -3310,7 +3447,19 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                         })
                         .unwrap_or_default()
                     {
-                        if let Some(arg) = l.args.get_mut(2) {
+                        // A function's procedural macro is defined here, so it expands in
+                        // order with the module's other forms. The module records its own.
+                        if self.locals.depth() > 1 && procedural_macro_name(l).is_some() {
+                            let span = l
+                                .first()
+                                .and_then(ExprKind::atom_syntax_object)
+                                .map(|x| x.span)
+                                .unwrap_or_default();
+                            l.args[0] = ExprKind::Atom(Atom::new(SyntaxObject::new(
+                                TokenType::Identifier(*DEFINE_SYNTAX),
+                                span,
+                            )));
+                        } else if let Some(arg) = l.args.get_mut(2) {
                             self.visit(arg)?;
                             return Ok(());
                         }
@@ -3403,7 +3552,9 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                             .iter()
                             .enumerate()
                             .rev()
-                            .find(|(i, x)| x.0 == s && self.sees_local(x.3, head_mark, Some(*i)))
+                            .find(|(i, x)| {
+                                x.0 == s && self.sees_local(x.3, head_mark, Some(*i), x.1)
+                            })
                             .map(|(i, _)| i)
                             .filter(|_| !foreign_name);
                         // One a body here defines, before its definition is expanded
@@ -3411,7 +3562,13 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                             && self
                                 .local_hidden
                                 .iter()
-                                .any(|x| x.0 == s && self.sees_local(x.1, head_mark, None));
+                                .filter(|x| {
+                                    !self
+                                        .local_macros
+                                        .iter()
+                                        .any(|m| m.0 == x.0 && m.1 == x.2 && m.3 == x.1)
+                                })
+                                .any(|x| x.0 == s && self.sees_local(x.1, head_mark, None, x.2));
 
                         // The environment's own macro of the name hides an imported one
                         let own_macro = !foreign_name
@@ -3552,7 +3709,9 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                         ));
                                         // The hygiene pass finds what it captures by this name,
                                         // which is the macro's own
-                                        local_definition = Some((internal, l.location));
+                                        local_definition =
+                                            Some((internal, l.location, defined_mark));
+                                        self.local_definitions.insert(internal, l.location);
                                     }
                                 }
 
@@ -3574,16 +3733,28 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                 self.changed = true;
 
                                 // What a function's macro wrote sees the macros where it's
-                                // defined: those before it, and itself
+                                // defined: those before it, itself, and its body's
                                 if let (Some(index), Some(input_marks)) = (local_index, input_marks)
                                 {
+                                    let own = (index + 1, self.local_macros[index].1);
                                     let sees = self
                                         .local_expansions
                                         .get(&head_mark)
-                                        .map_or(index + 1, |outer| (index + 1).min(*outer));
+                                        .map_or(own, |outer| {
+                                            (own.0.min(outer.0), own.1.min(outer.1))
+                                        });
+                                    // And the syntax-rules expanders, for local macros of theirs
+                                    let (written, _, internal, _) = self.local_macros[index];
+                                    let definition = self.local_definitions.get(&internal).copied();
                                     for mark in template_marks(&expanded) {
                                         if !input_marks.contains(&mark) {
                                             self.local_expansions.insert(mark, sees);
+                                            if let Some(definition) = definition {
+                                                LOCAL_EXPANSIONS.with(|x| {
+                                                    x.borrow_mut()
+                                                        .insert(mark, (written, definition))
+                                                });
+                                            }
                                         }
                                     }
                                 }
@@ -3596,9 +3767,9 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
 
                                 // The definition expands to void, in the body the macro is
                                 // defined in
-                                if let Some((name, span)) = local_definition {
+                                if let Some((name, span, mark)) = local_definition {
                                     if let ExprKind::Atom(_) = expanded {
-                                        expanded = kernel_local_macro_marker(name, span);
+                                        expanded = kernel_local_macro_marker(name, span, mark);
                                     }
                                 }
 
@@ -3756,7 +3927,10 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                     defined_procedural_macros(expr, &mut names);
                                 }
 
-                                self.local_hidden.extend(names);
+                                let depth = self.locals.depth();
+                                self.local_hidden.extend(
+                                    names.into_iter().map(|(name, mark)| (name, mark, depth)),
+                                );
 
                                 self.visit_body(&mut l.args[2..])?;
 

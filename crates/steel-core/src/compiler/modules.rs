@@ -2519,6 +2519,33 @@ fn defined_names(expr: &ExprKind, names: &mut FxHashSet<InternedString>) {
     }
 }
 
+// What a require-builtin expands to, which imports names a module can define again
+fn is_builtin_import(form: &ExprKind) -> bool {
+    fn imports(form: &ExprKind) -> bool {
+        let value = match form {
+            ExprKind::Define(d) => &d.body,
+            ExprKind::List(l)
+                if l.first_ident().is_some_and(|x| x.resolve() == "define") && l.len() == 3 =>
+            {
+                &l.args[2]
+            }
+            _ => return false,
+        };
+        value
+            .list()
+            .and_then(|x| x.first_ident())
+            .is_some_and(|x| x.resolve() == "%module-get%")
+    }
+
+    match form {
+        ExprKind::Begin(b) => b.exprs.iter().any(imports),
+        ExprKind::List(l) if crate::parser::expand_visitor::is_begin(l) => {
+            l.args[1..].iter().any(imports)
+        }
+        form => imports(form),
+    }
+}
+
 // The name of a define-syntax, where it's written
 fn define_syntax_name(form: &ExprKind) -> Option<&SyntaxObject> {
     match form {
@@ -4163,6 +4190,22 @@ impl<'a> ModuleBuilder<'a> {
             .iter()
             .map(crate::parser::span_visitor::get_span)
             .collect();
+
+        // A written procedural macro is defined once, a begin's too
+        let mut written_once = FxHashSet::default();
+        for (form, names) in ast.iter().zip(written_procedural.iter()) {
+            for name in names {
+                if !written_once.insert(*name) {
+                    let mut spans = FxHashMap::default();
+                    defined_name_spans(form, &mut spans);
+                    let at = spans
+                        .get(name)
+                        .copied()
+                        .unwrap_or_else(|| crate::parser::span_visitor::get_span(form));
+                    stop!(BadSyntax => format!("Macro re defined within the top level definition: {name}"); at);
+                }
+            }
+        }
         let mut last_defining = None;
 
         for pass in 0..3 {
@@ -4319,8 +4362,10 @@ impl<'a> ModuleBuilder<'a> {
                             || generated.contains(name)
                             || repeated == Some(*name)
                         {
+                            // Where the form is written, as what it expanded to has the
+                            // template's spans
                             let at = written
-                                .filter(|written| written.start() > span.start())
+                                .filter(|written| written.start() > written_spans[index].start())
                                 .or_else(|| name_spans.get(name).copied())
                                 .unwrap_or(span);
                             stop!(BadSyntax => format!("Macro re defined within the top level definition: {name}"); at);
@@ -4368,6 +4413,21 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         self.local_macros.extend(generated);
+
+        // A name is defined once, as a value or a macro, as in Racket
+        let mut macros: FxHashSet<InternedString> = self.local_macros.iter().copied().collect();
+        written_procedural
+            .iter()
+            .for_each(|x| macros.extend(x.iter().copied()));
+        for form in ast.iter().filter(|x| !is_builtin_import(x)) {
+            if let Some(name) = collect_globals(core::slice::from_ref(form))
+                .into_iter()
+                .find(|x| macros.contains(x))
+            {
+                stop!(BadSyntax => format!("define: identifier already defined as a macro: {name}");
+                    crate::parser::span_visitor::get_span(form));
+            }
+        }
 
         for req_macro in &mut required_macros {
             for expr in provides.iter_mut() {
@@ -4454,6 +4514,17 @@ impl<'a> ModuleBuilder<'a> {
             }
         }
 
+        // The provides expansion made, as the written ones, before they're sorted
+        {
+            self.source_ast = ast;
+            self.provides = provides;
+
+            self.collect_provides()?;
+
+            provides = core::mem::take(&mut self.provides);
+            ast = core::mem::take(&mut self.source_ast);
+        }
+
         // A procedural macro provided by name is provided for syntax
         if let Some(defined) = self
             .kernel
@@ -4515,17 +4586,6 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         self.provides_for_syntax = for_syntax;
-
-        // TODO: @Matt - fix this hack
-        {
-            self.source_ast = ast;
-            self.provides = provides;
-
-            self.collect_provides()?;
-
-            provides = core::mem::take(&mut self.provides);
-            ast = core::mem::take(&mut self.source_ast);
-        }
 
         // Put the mangled asts at the top
         // then include the ast there

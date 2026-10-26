@@ -1210,11 +1210,18 @@ pub fn plist_has_positional(list: &List<SteelVal>, index: usize) -> bool {
     false
 }
 
+// The same keyword argument, also when one wasn't interned, as after deserializing
+fn same_keyword(x: &SteelVal, key: &SteelVal) -> bool {
+    x.ptr_eq(key)
+        || crate::rvals::keyword_argument_name(x)
+            .is_some_and(|x| crate::rvals::keyword_argument_name(key) == Some(x))
+}
+
 // Whether the keyword is there with a value after it
 #[steel_derive::function(name = "plist-has-kwarg?", constant = true, args(List, Any))]
 pub fn plist_has_kwarg(list: &List<SteelVal>, key: &SteelVal) -> bool {
     let mut iter = list.iter();
-    iter.find(|x| x.ptr_eq(key)).is_some() && iter.next().is_some()
+    iter.find(|x| same_keyword(x, key)).is_some() && iter.next().is_some()
 }
 
 #[steel_derive::function(name = "plist-get-kwarg", constant = true, args(List, Any, Any))]
@@ -1224,7 +1231,7 @@ pub fn plist_get_context(
     func: &SteelVal,
 ) -> Result<SteelVal> {
     let mut iter = list.iter();
-    let symbol = iter.find(|x| x.ptr_eq(key));
+    let symbol = iter.find(|x| same_keyword(x, key));
     let value = iter.next();
     match (symbol, value) {
         (None, _) => stop!(Generic => format!("{} : Key not found: {}", func, key)),
@@ -1253,7 +1260,7 @@ pub(crate) fn plist_try_get_impl<'a>(
     default_value: SteelVal,
 ) -> Result<SteelVal> {
     Ok(iter
-        .find(|x| x.ptr_eq(key))
+        .find(|x| same_keyword(x, key))
         .and_then(|_| iter.next().cloned())
         .unwrap_or(default_value))
 }

@@ -90,8 +90,8 @@ impl Visitor for CoalescingSpanVisitor {
         Span::merge(s.location.span, self.visit(&s.expr))
     }
 
-    fn visit_require(&self, _s: &super::ast::Require) -> Self::Output {
-        panic!("Unexpected require found in span visitor")
+    fn visit_require(&self, s: &super::ast::Require) -> Self::Output {
+        s.location.span
     }
 
     fn visit_let(&self, l: &super::ast::Let) -> Self::Output {
