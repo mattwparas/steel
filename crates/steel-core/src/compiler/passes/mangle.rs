@@ -16,15 +16,10 @@ use crate::{
 
 use super::VisitorMutRefUnit;
 
-/*
-Steps for doing having scoped macros
-
-- A requires a macro (or macros) from B
-    - Expand A with macros from A
-    - Then expand A with macros from B / C / D
-        - A must be done first, but then the rest can be done in phases
-    - Copy the code for B, mangle it and then include it in A directly
-*/
+fn written_by_template(name: &ExprKind) -> bool {
+    name.atom_syntax_object()
+        .is_some_and(|syn| syn.mark.is_template())
+}
 
 pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
     let mut global_defs = FxHashSet::default();
@@ -32,6 +27,9 @@ pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
     for expr in exprs {
         match expr {
             ExprKind::Define(d) => {
+                if written_by_template(&d.name) {
+                    continue;
+                }
                 if let Some(name) = d.name.atom_identifier() {
                     if name.resolve().starts_with(MANGLER_PREFIX) {
                         continue;
@@ -47,6 +45,7 @@ pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
                         .unwrap_or_default() =>
             {
                 match l.get(1) {
+                    Some(name) if written_by_template(name) => {}
                     Some(ExprKind::Atom(_)) => {
                         if let Some(name) = l.second_ident() {
                             if name.resolve().starts_with(MANGLER_PREFIX) {
@@ -132,6 +131,10 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
     }
 }
 
+pub(crate) fn is_prelude_builtin(name: &InternedString) -> bool {
+    crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS.with(|names| names.contains(name))
+}
+
 #[derive(Clone, Debug)]
 pub struct NameMangler {
     pub(crate) globals: FxHashSet<InternedString>,
@@ -206,7 +209,13 @@ pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
 impl VisitorMutRefUnit for NameMangler {
     #[inline]
     fn visit_atom(&mut self, a: &mut Atom) {
+        let resolved_elsewhere = a.syn.mark.is_definition_resolved();
+
         if let TokenType::Identifier(i) = &mut a.syn.ty {
+            if resolved_elsewhere && is_prelude_builtin(i) {
+                return;
+            }
+
             if self.globals.contains(i) {
                 if let Some(new) = self.mangle_cache.get(i) {
                     *i = *new;
