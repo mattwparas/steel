@@ -122,7 +122,7 @@ pub trait IteratorExtensions: Iterator {
 
 impl<T> IteratorExtensions for T where T: Iterator {}
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ExprKind {
     Atom(Atom),
     If(Box<If>),
@@ -140,6 +140,51 @@ pub enum ExprKind {
     Vector(Vector),
 }
 
+// Cloning and comparing recurse as deep as the code nests, which macros can make deeper than
+// the stack
+impl Clone for ExprKind {
+    fn clone(&self) -> Self {
+        crate::visitors::with_stack(|| match self {
+            ExprKind::Atom(x) => ExprKind::Atom(x.clone()),
+            ExprKind::If(x) => ExprKind::If(x.clone()),
+            ExprKind::Let(x) => ExprKind::Let(x.clone()),
+            ExprKind::Define(x) => ExprKind::Define(x.clone()),
+            ExprKind::LambdaFunction(x) => ExprKind::LambdaFunction(x.clone()),
+            ExprKind::Begin(x) => ExprKind::Begin(x.clone()),
+            ExprKind::Return(x) => ExprKind::Return(x.clone()),
+            ExprKind::Quote(x) => ExprKind::Quote(x.clone()),
+            ExprKind::Macro(x) => ExprKind::Macro(x.clone()),
+            ExprKind::SyntaxRules(x) => ExprKind::SyntaxRules(x.clone()),
+            ExprKind::List(x) => ExprKind::List(x.clone()),
+            ExprKind::Set(x) => ExprKind::Set(x.clone()),
+            ExprKind::Require(x) => ExprKind::Require(x.clone()),
+            ExprKind::Vector(x) => ExprKind::Vector(x.clone()),
+        })
+    }
+}
+
+impl PartialEq for ExprKind {
+    fn eq(&self, other: &Self) -> bool {
+        crate::visitors::with_stack(|| match (self, other) {
+            (ExprKind::Atom(l), ExprKind::Atom(r)) => l == r,
+            (ExprKind::If(l), ExprKind::If(r)) => l == r,
+            (ExprKind::Let(l), ExprKind::Let(r)) => l == r,
+            (ExprKind::Define(l), ExprKind::Define(r)) => l == r,
+            (ExprKind::LambdaFunction(l), ExprKind::LambdaFunction(r)) => l == r,
+            (ExprKind::Begin(l), ExprKind::Begin(r)) => l == r,
+            (ExprKind::Return(l), ExprKind::Return(r)) => l == r,
+            (ExprKind::Quote(l), ExprKind::Quote(r)) => l == r,
+            (ExprKind::Macro(l), ExprKind::Macro(r)) => l == r,
+            (ExprKind::SyntaxRules(l), ExprKind::SyntaxRules(r)) => l == r,
+            (ExprKind::List(l), ExprKind::List(r)) => l == r,
+            (ExprKind::Set(l), ExprKind::Set(r)) => l == r,
+            (ExprKind::Require(l), ExprKind::Require(r)) => l == r,
+            (ExprKind::Vector(l), ExprKind::Vector(r)) => l == r,
+            _ => false,
+        })
+    }
+}
+
 impl Default for ExprKind {
     fn default() -> Self {
         ExprKind::List(List::new(ThinVec::new()))
@@ -149,17 +194,20 @@ impl Default for ExprKind {
 // Drops expressions however deep they nest. Dropping them as usual recurses as deep as they
 // nest, which code a macro made can nest deeper than the stack.
 pub fn drop_deep(exprs: impl IntoIterator<Item = ExprKind>) {
-    fn push(stack: &mut Vec<ExprKind>, expr: ExprKind) {
+    // Small trees, most of them, need nothing allocated
+    type Stack = smallvec::SmallVec<[ExprKind; 16]>;
+
+    fn push(stack: &mut Stack, expr: ExprKind) {
         if !matches!(expr, ExprKind::Atom(_)) {
             stack.push(expr);
         }
     }
 
-    fn push_all(stack: &mut Vec<ExprKind>, exprs: impl IntoIterator<Item = ExprKind>) {
+    fn push_all(stack: &mut Stack, exprs: impl IntoIterator<Item = ExprKind>) {
         exprs.into_iter().for_each(|x| push(stack, x));
     }
 
-    let mut stack = Vec::new();
+    let mut stack = Stack::new();
     push_all(&mut stack, exprs);
 
     // Each expression is dropped once its children are taken out of it
@@ -206,7 +254,7 @@ pub fn drop_deep(exprs: impl IntoIterator<Item = ExprKind>) {
         }
     }
 
-    fn push_syntax_rules(stack: &mut Vec<ExprKind>, s: &mut SyntaxRules) {
+    fn push_syntax_rules(stack: &mut Stack, s: &mut SyntaxRules) {
         push_all(stack, core::mem::take(&mut s.syntax));
         for pattern in core::mem::take(&mut s.patterns) {
             push(stack, pattern.pattern);

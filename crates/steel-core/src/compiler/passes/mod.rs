@@ -21,20 +21,6 @@ use crate::parser::ast::{
     SyntaxRules,
 };
 
-// A fresh stack for a walk that recurses without checking, like hashing nested data
-#[inline(always)]
-pub(crate) fn with_large_stack<R>(f: impl FnOnce() -> R) -> R {
-    #[cfg(feature = "stacker")]
-    {
-        stacker::grow(256 * 1024 * 1024, f)
-    }
-
-    #[cfg(not(feature = "stacker"))]
-    {
-        f()
-    }
-}
-
 // Compiling a program, whose passes recurse as deep as its code nests. A compile that runs
 // inside another keeps its stack.
 pub(crate) fn with_compile_stack<R>(f: impl FnOnce() -> R) -> R {

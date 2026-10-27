@@ -264,14 +264,12 @@ impl ConstantMap {
     // This is certainly not what we want. This time complexity is
     // questionable
     pub fn add_or_get(&mut self, val: SteelVal) -> usize {
-        // Deeply nested data recurses as deep as it nests, here and in hashing it,
-        // and sharing each part of it would take time quadratic in how deep it is
+        // Deeply nested data is kept whole, as sharing each part of it would take time
+        // quadratic in how deep it is
         if nested_deeper_than(&val, 512) {
-            return crate::compiler::passes::with_large_stack(|| {
-                let val = self.intern_symbols(val);
-                let idx = self.map.write().get(&val).copied();
-                idx.unwrap_or_else(|| self.add(val))
-            });
+            let val = self.intern_symbols(val);
+            let idx = self.map.write().get(&val).copied();
+            return idx.unwrap_or_else(|| self.add(val));
         }
 
         self.add_or_get_value(val)
@@ -381,53 +379,91 @@ impl ConstantMap {
     pub fn intern_symbols(&mut self, value: SteelVal) -> SteelVal {
         use crate::gc::Gc;
 
-        match value {
-            SteelVal::SymbolV(_) => {
-                let idx = self.add_or_get(value);
-                self.get(idx)
-            }
-            SteelVal::ListV(l) => {
-                SteelVal::ListV(l.iter().map(|v| self.intern_symbols(v.clone())).collect())
-            }
-            SteelVal::Pair(_) => {
-                let mut elements = Vec::new();
-                let mut rest = value;
-
-                while let SteelVal::Pair(pair) = &rest {
-                    elements.push(self.intern_symbols(pair.car()));
-                    let cdr = pair.cdr();
-                    rest = cdr;
-                }
-
-                let tail = self.intern_symbols(rest);
-
-                elements.into_iter().rev().fold(tail, |cdr, car| {
-                    crate::values::lists::Pair::cons(car, cdr).into()
-                })
-            }
-            SteelVal::VectorV(v) => SteelVal::VectorV(
-                Gc::new(
-                    v.iter()
-                        .map(|v| self.intern_symbols(v.clone()))
-                        .collect::<crate::values::Vector<_>>(),
-                )
-                .into(),
-            ),
-            SteelVal::HashMapV(m) => SteelVal::HashMapV(
-                Gc::new(
-                    m.iter()
-                        .map(|(k, v)| {
-                            (
-                                self.intern_symbols(k.clone()),
-                                self.intern_symbols(v.clone()),
-                            )
-                        })
-                        .collect::<crate::values::HashMap<_, _>>(),
-                )
-                .into(),
-            ),
-            other => other,
+        // What's left to do, last first, and what's done: the values interned so far, the
+        // last of them a container's when it's built
+        enum Task {
+            Visit(SteelVal),
+            List(usize),
+            // The cars, then the tail
+            Pairs(usize),
+            Vector(usize),
+            // The keys and values, each key before its value
+            HashMap(usize),
         }
+
+        let mut tasks = vec![Task::Visit(value)];
+        let mut done: Vec<SteelVal> = Vec::new();
+
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Visit(value) => match value {
+                    SteelVal::SymbolV(_) => {
+                        let idx = self.add_or_get(value);
+                        done.push(self.get(idx));
+                    }
+                    SteelVal::ListV(l) => {
+                        tasks.push(Task::List(l.len()));
+                        let items = l.iter().cloned().collect::<Vec<_>>();
+                        tasks.extend(items.into_iter().rev().map(Task::Visit));
+                    }
+                    SteelVal::Pair(_) => {
+                        let mut cars = Vec::new();
+                        let mut rest = value;
+
+                        while let SteelVal::Pair(pair) = &rest {
+                            cars.push(pair.car());
+                            let cdr = pair.cdr();
+                            rest = cdr;
+                        }
+
+                        tasks.push(Task::Pairs(cars.len()));
+                        tasks.push(Task::Visit(rest));
+                        tasks.extend(cars.into_iter().rev().map(Task::Visit));
+                    }
+                    SteelVal::VectorV(v) => {
+                        tasks.push(Task::Vector(v.len()));
+                        tasks.extend(v.iter().rev().cloned().map(Task::Visit));
+                    }
+                    SteelVal::HashMapV(m) => {
+                        tasks.push(Task::HashMap(m.len()));
+                        let entries = m.iter().collect::<Vec<_>>();
+                        for (k, v) in entries.into_iter().rev() {
+                            tasks.push(Task::Visit(v.clone()));
+                            tasks.push(Task::Visit(k.clone()));
+                        }
+                    }
+                    other => done.push(other),
+                },
+                Task::List(n) => {
+                    let items = done.split_off(done.len() - n);
+                    done.push(SteelVal::ListV(items.into_iter().collect()));
+                }
+                Task::Pairs(n) => {
+                    let tail = done.pop().unwrap();
+                    let cars = done.split_off(done.len() - n);
+                    done.push(cars.into_iter().rev().fold(tail, |cdr, car| {
+                        crate::values::lists::Pair::cons(car, cdr).into()
+                    }));
+                }
+                Task::Vector(n) => {
+                    let items = done.split_off(done.len() - n);
+                    done.push(SteelVal::VectorV(
+                        Gc::new(items.into_iter().collect::<crate::values::Vector<_>>()).into(),
+                    ));
+                }
+                Task::HashMap(n) => {
+                    let items = done.split_off(done.len() - 2 * n);
+                    let mut items = items.into_iter();
+                    let mut map = crate::values::HashMap::new();
+                    while let (Some(k), Some(v)) = (items.next(), items.next()) {
+                        map.insert(k, v);
+                    }
+                    done.push(SteelVal::HashMapV(Gc::new(map).into()));
+                }
+            }
+        }
+
+        done.pop().unwrap()
     }
 
     pub fn len(&self) -> usize {

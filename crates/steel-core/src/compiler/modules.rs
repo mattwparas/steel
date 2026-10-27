@@ -403,7 +403,7 @@ pub struct ModuleManager {
     custom_builtins: HashMap<String, String>,
     rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
     // The phase 0 code modules kept when the last compile began
-    rollback_deferred: crate::HashMap<PathBuf, ExprKind>,
+    rollback_deferred: crate::HashMap<PathBuf, DeferredCode>,
     // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 
@@ -2227,7 +2227,24 @@ pub(crate) struct CompiledModuleCache {
     cache_dir: Option<Arc<PathBuf>>,
     compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
     // The phase 0 code of modules only required for syntax so far, run once one is required
-    deferred: crate::HashMap<PathBuf, ExprKind>,
+    deferred: crate::HashMap<PathBuf, DeferredCode>,
+}
+
+// A module's code kept for later, which can nest deeper than dropping it recursively has
+// stack for
+#[derive(Clone)]
+pub(crate) struct DeferredCode(ExprKind);
+
+impl DeferredCode {
+    fn into_inner(mut self) -> ExprKind {
+        core::mem::take(&mut self.0)
+    }
+}
+
+impl Drop for DeferredCode {
+    fn drop(&mut self) {
+        steel_parser::ast::drop_deep([core::mem::take(&mut self.0)]);
+    }
 }
 
 // impl Drop for ModuleManager {
@@ -2467,7 +2484,7 @@ fn emit_deferred(cache: &mut CompiledModuleCache, path: &PathBuf, new_exprs: &mu
             emit_deferred(cache, required, new_exprs);
         }
 
-        new_exprs.push(expr);
+        new_exprs.push(expr.into_inner());
     }
 }
 
@@ -3829,7 +3846,7 @@ impl<'a> ModuleBuilder<'a> {
         if self.for_syntax_only {
             self.compiled_modules
                 .deferred
-                .insert(self.name.clone(), expr);
+                .insert(self.name.clone(), DeferredCode(expr));
         } else {
             self.compiled_modules.deferred.remove(&self.name);
             new_exprs.push(expr);

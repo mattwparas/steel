@@ -22,6 +22,16 @@ pub enum Expr {
     List(Box<ExprKind>),
 }
 
+// An instruction's expression can be a quoted datum nested deeper than dropping it
+// recursively has stack for
+impl Drop for Expr {
+    fn drop(&mut self) {
+        if let Expr::List(expr) = self {
+            steel_parser::ast::drop_deep([core::mem::take(&mut **expr)]);
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct LabeledInstruction {
     pub op_code: OpCode,

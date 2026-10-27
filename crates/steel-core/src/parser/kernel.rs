@@ -113,6 +113,19 @@ struct Phase1Program {
     imported: FxHashMap<InternedString, InternedString>,
 }
 
+// Its code can nest deeper than dropping it recursively has stack for
+impl Drop for Phase1Program {
+    fn drop(&mut self) {
+        steel_parser::ast::drop_deep(core::mem::take(&mut self.for_syntax));
+        steel_parser::ast::drop_deep(core::mem::take(&mut self.forms));
+        steel_parser::ast::drop_deep(
+            core::mem::take(&mut self.transformers)
+                .into_iter()
+                .map(|(_, _, body)| body),
+        );
+    }
+}
+
 /// A binding that a module's transformer code imports
 #[derive(Clone, Debug)]
 pub(crate) struct Phase1Import {
