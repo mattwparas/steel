@@ -176,6 +176,8 @@ struct Phase1Expander<'a> {
     locals: Vec<FxHashSet<InternedString>>,
     // How many syntax-case clauses and with-syntax bodies this is in
     patterns: usize,
+    // How many macro expansions this is in
+    depth: usize,
 }
 
 impl Phase1Expander<'_> {
@@ -437,6 +439,22 @@ pub(crate) fn form_name(l: &super::ast::List) -> Option<&str> {
 }
 
 impl Phase1Expander<'_> {
+    // What a macro made, which can make more forever
+    fn visit_expansion(
+        &mut self,
+        expanded: &mut ExprKind,
+        span: steel_parser::span::Span,
+    ) -> Result<()> {
+        if self.depth >= crate::parser::expand_visitor::MAX_EXPANSION_DEPTH {
+            stop!(BadSyntax => "macro expansion doesn't finish"; span);
+        }
+
+        self.depth += 1;
+        let result = self.visit(expanded);
+        self.depth -= 1;
+        result
+    }
+
     fn visit_unsyntax_holes(&mut self, expr: &mut ExprKind) -> Result<()> {
         match expr {
             // Quoted, `#,` reads as `unsyntax`
@@ -465,83 +483,85 @@ impl VisitorMutRef for Phase1Expander<'_> {
     type Output = Result<()>;
 
     fn visit(&mut self, expr: &mut ExprKind) -> Result<()> {
-        if let ExprKind::List(l) = expr {
-            let head = l.first().and_then(ExprKind::atom_syntax_object);
+        crate::compiler::passes::with_stack(|| {
+            if let ExprKind::List(l) = expr {
+                let head = l.first().and_then(ExprKind::atom_syntax_object);
 
-            let template = head.is_some_and(|x| x.unresolved);
+                let template = head.is_some_and(|x| x.unresolved);
 
-            if let Some((name, span)) =
-                head.and_then(|x| x.ty.identifier().map(|name| (*name, x.span)))
-            {
-                // A local of the same name hides the macro, unless a template wrote it
-                let hidden = self.is_local(&name) && !template;
-
-                if let Some((environment, real)) =
-                    self.procedural.get(&name).filter(|_| !hidden).cloned()
+                if let Some((name, span)) =
+                    head.and_then(|x| x.ty.identifier().map(|name| (*name, x.span)))
                 {
+                    // A local of the same name hides the macro, unless a template wrote it
+                    let hidden = self.is_local(&name) && !template;
+
+                    if let Some((environment, real)) =
+                        self.procedural.get(&name).filter(|_| !hidden).cloned()
+                    {
+                        if let Some(kernel) = self.kernel.as_deref_mut() {
+                            let list = core::mem::replace(l, super::ast::List::new(ThinVec::new()));
+                            let mut expanded = kernel.expand_in_environment(
+                                &real,
+                                ExprKind::List(list),
+                                &environment,
+                            )?;
+                            self.visit_expansion(&mut expanded, span)?;
+                            *expr = expanded;
+                            return Ok(());
+                        }
+                    }
+
+                    // What they expand to names their module's macros by its prefix
                     if let Some(kernel) = self.kernel.as_deref_mut() {
+                        if let Some(mut expanded) = kernel.expand_prefixed_macro(&name, l, None)? {
+                            self.visit_expansion(&mut expanded, span)?;
+                            *expr = expanded;
+                            return Ok(());
+                        }
+                    }
+
+                    if let Some(m) = self.macros.get(&name).filter(|_| !hidden) {
                         let list = core::mem::replace(l, super::ast::List::new(ThinVec::new()));
-                        let mut expanded = kernel.expand_in_environment(
-                            &real,
-                            ExprKind::List(list),
-                            &environment,
+                        let mut expanded = m.expand(
+                            list,
+                            span,
+                            &Default::default(),
+                            GlobalMap::Set(&Default::default()),
                         )?;
-                        self.visit(&mut expanded)?;
+                        self.visit_expansion(&mut expanded, span)?;
                         *expr = expanded;
                         return Ok(());
                     }
                 }
 
-                // What they expand to names their module's macros by its prefix
-                if let Some(kernel) = self.kernel.as_deref_mut() {
-                    if let Some(mut expanded) = kernel.expand_prefixed_macro(&name, l, None)? {
-                        self.visit(&mut expanded)?;
-                        *expr = expanded;
-                        return Ok(());
+                return self.visit_list(l);
+            }
+
+            match expr {
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    self.visit_lambda_function(l)?;
+
+                    if self.patterns > 0 && has_template(&l.body) {
+                        let lambda = core::mem::replace(expr, ExprKind::empty());
+                        *expr = ExprKind::List(super::ast::List::new(thin_vec![
+                            ExprKind::ident("#%syntax-closure"),
+                            lambda,
+                        ]));
                     }
-                }
 
-                if let Some(m) = self.macros.get(&name).filter(|_| !hidden) {
-                    let list = core::mem::replace(l, super::ast::List::new(ThinVec::new()));
-                    let mut expanded = m.expand(
-                        list,
-                        span,
-                        &Default::default(),
-                        GlobalMap::Set(&Default::default()),
-                    )?;
-                    self.visit(&mut expanded)?;
-                    *expr = expanded;
-                    return Ok(());
+                    Ok(())
                 }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Vector(v) => self.visit_vector(v),
+                _ => Ok(()),
             }
-
-            return self.visit_list(l);
-        }
-
-        match expr {
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                self.visit_lambda_function(l)?;
-
-                if self.patterns > 0 && has_template(&l.body) {
-                    let lambda = core::mem::replace(expr, ExprKind::empty());
-                    *expr = ExprKind::List(super::ast::List::new(thin_vec![
-                        ExprKind::ident("#%syntax-closure"),
-                        lambda,
-                    ]));
-                }
-
-                Ok(())
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Vector(v) => self.visit_vector(v),
-            _ => Ok(()),
-        }
+        })
     }
 
     fn visit_if(&mut self, f: &mut super::ast::If) -> Result<()> {
@@ -1850,6 +1870,7 @@ impl Kernel {
                 renames: &renames,
                 locals: vec![FxHashSet::default()],
                 patterns: 0,
+                depth: 0,
             }
             .visit(expr)?;
         }
@@ -2328,6 +2349,7 @@ impl Kernel {
                     .chain(locals)
                     .collect(),
                 patterns: 0,
+                depth: 0,
             };
 
             if body {

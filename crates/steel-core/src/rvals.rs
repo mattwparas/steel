@@ -839,6 +839,17 @@ impl ast::TryFromSteelValVisitorForExprKind {
                             self.quoted = false;
 
                             return Ok(return_value);
+                        }
+                        // A procedural macro's definition stays a list for the kernel
+                        Some(x)
+                            if x.as_str() == "define-syntax"
+                                && !self.quoted
+                                && !l.get(2).is_some_and(ast::is_syntax_rules) =>
+                        {
+                            let items: core::result::Result<ThinVec<ExprKind>, _> =
+                                l.iter().map(|x| self.visit(x)).collect();
+
+                            return Ok(ExprKind::List(ast::List::new(items?)));
                         } // "quasiquote" => {
                         //     self.qq_depth += 1;
                         // }

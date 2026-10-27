@@ -97,7 +97,7 @@ fn is_truthy(t: &SyntaxObject) -> bool {
 
 impl VisitorMutRefUnit for PruneConstantIfBranches {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
+        crate::compiler::passes::with_stack(|| match expr {
             ExprKind::If(f) => {
                 if expr_is_truthy(&f.test_expr) {
                     *expr = core::mem::replace(&mut f.then_expr, ExprKind::empty());
@@ -121,7 +121,7 @@ impl VisitorMutRefUnit for PruneConstantIfBranches {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 }
 

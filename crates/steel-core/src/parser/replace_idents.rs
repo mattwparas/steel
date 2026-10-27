@@ -178,34 +178,36 @@ impl LiftUnsyntax {
 
 impl VisitorMutRefUnit for LiftUnsyntax {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match self.hole(expr) {
-            Hole::No => {}
-            _ => return,
-        }
+        crate::compiler::passes::with_stack(|| {
+            match self.hole(expr) {
+                Hole::No => {}
+                _ => return,
+            }
 
-        match expr {
-            ExprKind::List(l) => {
-                self.unsyntax_tail(l);
-                self.visit_elements(&mut l.args)
+            match expr {
+                ExprKind::List(l) => {
+                    self.unsyntax_tail(l);
+                    self.visit_elements(&mut l.args)
+                }
+                ExprKind::Begin(b) => {
+                    let mut exprs: ThinVec<_> = core::mem::take(&mut b.exprs).into_iter().collect();
+                    self.visit_elements(&mut exprs);
+                    b.exprs = exprs.into_iter().collect();
+                }
+                ExprKind::LambdaFunction(f) => {
+                    self.visit_elements(&mut f.args);
+                    self.visit(&mut f.body);
+                }
+                ExprKind::Vector(v) => self.visit_elements(&mut v.args),
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Set(s) => self.visit_set(s),
+                _ => {}
             }
-            ExprKind::Begin(b) => {
-                let mut exprs: ThinVec<_> = core::mem::take(&mut b.exprs).into_iter().collect();
-                self.visit_elements(&mut exprs);
-                b.exprs = exprs.into_iter().collect();
-            }
-            ExprKind::LambdaFunction(f) => {
-                self.visit_elements(&mut f.args);
-                self.visit(&mut f.body);
-            }
-            ExprKind::Vector(v) => self.visit_elements(&mut v.args),
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Set(s) => self.visit_set(s),
-            _ => {}
-        }
+        })
     }
 }
 
@@ -782,89 +784,96 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
     type Output = Result<()>;
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
-        // println!("Visiting: {}", expr);
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => {
-                if let TokenType::Identifier(s) = &mut a.syn.ty {
-                    // A quasisyntax template holds the input's identifiers, which aren't
-                    // pattern variables even when they share a name
-                    if *s != self.wildcard && !crate::parser::kernel::is_macro_input(a.syn.mark) {
-                        if let Some(body) = self.bindings.get(s) {
-                            let introduced_via_macro = a.syn.introduced_via_macro;
+        crate::compiler::passes::with_stack(|| {
+            // println!("Visiting: {}", expr);
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => {
+                    if let TokenType::Identifier(s) = &mut a.syn.ty {
+                        // A quasisyntax template holds the input's identifiers, which aren't
+                        // pattern variables even when they share a name
+                        if *s != self.wildcard && !crate::parser::kernel::is_macro_input(a.syn.mark)
+                        {
+                            if let Some(body) = self.bindings.get(s) {
+                                let introduced_via_macro = a.syn.introduced_via_macro;
 
-                            *expr = body.clone();
+                                *expr = body.clone();
 
-                            if let ExprKind::Atom(a) = expr {
-                                a.syn.introduced_via_macro = introduced_via_macro;
-                                a.syn.unresolved = false;
+                                if let ExprKind::Atom(a) = expr {
+                                    a.syn.introduced_via_macro = introduced_via_macro;
+                                    a.syn.unresolved = false;
+                                }
                             }
                         }
                     }
-                }
 
-                Ok(())
+                    Ok(())
+                }
+                ExprKind::List(l) => {
+                    if !self.escaped
+                        && !l.improper
+                        && l.args.len() == 2
+                        && check_ellipses(&l.args[0])
+                    {
+                        let mut template = l.args[1].clone();
+                        self.escaped = true;
+                        let result = self.visit(&mut template);
+                        self.escaped = false;
+                        result?;
+                        *expr = template;
+                        return Ok(());
+                    }
+
+                    if let Some(expanded) = self.vec_expr_datum_to_syntax(&l.args)? {
+                        // return Ok(expanded);
+                        *expr = expanded;
+                        return Ok(());
+                    }
+
+                    if let Some(mut expanded) = self.vec_expr_syntax_const_if(&l.args)? {
+                        self.visit(&mut expanded)?;
+
+                        *expr = expanded;
+
+                        return Ok(());
+
+                        // return self.visit(expanded);
+                    }
+
+                    // An improper list spliced in at the end makes this one improper
+                    if self.visit_elements(&mut l.args)? {
+                        l.improper = true;
+                    }
+
+                    if l.improper {
+                        l.make_improper();
+                    }
+
+                    if let Some(expanded) = self.vec_syntax_span_object(&l.args)? {
+                        *expr = expanded;
+                        return Ok(());
+                    }
+
+                    if let Some(expanded) = lower_quasisyntax(l) {
+                        *expr = expanded;
+                        return Ok(());
+                    }
+
+                    Ok(())
+                }
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::List(l) => {
-                if !self.escaped && !l.improper && l.args.len() == 2 && check_ellipses(&l.args[0]) {
-                    let mut template = l.args[1].clone();
-                    self.escaped = true;
-                    let result = self.visit(&mut template);
-                    self.escaped = false;
-                    result?;
-                    *expr = template;
-                    return Ok(());
-                }
-
-                if let Some(expanded) = self.vec_expr_datum_to_syntax(&l.args)? {
-                    // return Ok(expanded);
-                    *expr = expanded;
-                    return Ok(());
-                }
-
-                if let Some(mut expanded) = self.vec_expr_syntax_const_if(&l.args)? {
-                    self.visit(&mut expanded)?;
-
-                    *expr = expanded;
-
-                    return Ok(());
-
-                    // return self.visit(expanded);
-                }
-
-                // An improper list spliced in at the end makes this one improper
-                if self.visit_elements(&mut l.args)? {
-                    l.improper = true;
-                }
-
-                if l.improper {
-                    l.make_improper();
-                }
-
-                if let Some(expanded) = self.vec_syntax_span_object(&l.args)? {
-                    *expr = expanded;
-                    return Ok(());
-                }
-
-                if let Some(expanded) = lower_quasisyntax(l) {
-                    *expr = expanded;
-                    return Ok(());
-                }
-
-                Ok(())
-            }
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_if(&mut self, f: &mut super::ast::If) -> Self::Output {

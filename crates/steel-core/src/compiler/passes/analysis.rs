@@ -2574,25 +2574,27 @@ impl CalledParams {
 
 impl<'a> VisitorMutUnitRef<'a> for CalledParams {
     fn visit(&mut self, expr: &'a ExprKind) {
-        self.size = self.size.saturating_add(1);
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+        crate::compiler::passes::with_stack(|| {
+            self.size = self.size.saturating_add(1);
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(_) => {}
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => self.visit_list(l),
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(_) => {}
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => self.visit_list(l),
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_list(&mut self, l: &'a List) {
@@ -3501,52 +3503,54 @@ impl FunctionSizeEstimator {
 
 impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
     fn visit(&mut self, expr: &ExprKind) {
-        self.count = self.count.saturating_add(1);
-        match expr {
-            // An optional argument's `(if (has? args i) (get args i) default)`
-            // is lowered to the argument or the default once the arguments
-            // are known. Count it as the one call it stands for.
-            ExprKind::If(f)
-                if f.test_expr
-                    .list()
-                    .and_then(|l| l.first_ident())
-                    .is_some_and(|ident| {
-                        *ident == *PRIM_PLIST_HAS_POSITIONAL || *ident == *PRIM_PLIST_HAS_KWARG
-                    }) =>
-            {
-                self.count = self.count.saturating_add(3);
-                self.prims = self.prims.saturating_add(1);
-                self.visit(&f.else_expr);
+        crate::compiler::passes::with_stack(|| {
+            self.count = self.count.saturating_add(1);
+            match expr {
+                // An optional argument's `(if (has? args i) (get args i) default)`
+                // is lowered to the argument or the default once the arguments
+                // are known. Count it as the one call it stands for.
+                ExprKind::If(f)
+                    if f.test_expr
+                        .list()
+                        .and_then(|l| l.first_ident())
+                        .is_some_and(|ident| {
+                            *ident == *PRIM_PLIST_HAS_POSITIONAL || *ident == *PRIM_PLIST_HAS_KWARG
+                        }) =>
+                {
+                    self.count = self.count.saturating_add(3);
+                    self.prims = self.prims.saturating_add(1);
+                    self.visit(&f.else_expr);
+                }
+                // The keyword check is gone once the arguments are known
+                ExprKind::If(f)
+                    if f.test_expr.list().and_then(|l| l.first_ident())
+                        == Some(&*PRIM_PLIST_CHECK_KEYWORDS) =>
+                {
+                    self.visit(&f.then_expr);
+                }
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => {
+                    // TODO: @matt there needs to be a better way
+                    // to pessimize this
+                    self.count = std::usize::MAX;
+                    self.visit_return(r)
+                }
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => self.visit_list(l),
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            // The keyword check is gone once the arguments are known
-            ExprKind::If(f)
-                if f.test_expr.list().and_then(|l| l.first_ident())
-                    == Some(&*PRIM_PLIST_CHECK_KEYWORDS) =>
-            {
-                self.visit(&f.then_expr);
-            }
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => {
-                // TODO: @matt there needs to be a better way
-                // to pessimize this
-                self.count = std::usize::MAX;
-                self.visit_return(r)
-            }
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => self.visit_list(l),
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     #[inline]
@@ -3760,51 +3764,53 @@ where
     F: FnMut(&Analysis, &mut ExprKind),
 {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            list @ ExprKind::List(_) => {
-                if let ExprKind::List(l) = &list {
-                    if let Some(name) = l.first_ident() {
-                        if let Some(semantic_info) =
-                            self.analysis.get(l.args[0].atom_syntax_object().unwrap())
-                        {
-                            if name.resolve() == self.name
-                                && semantic_info.kind == IdentifierStatus::Global
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                list @ ExprKind::List(_) => {
+                    if let ExprKind::List(l) = &list {
+                        if let Some(name) = l.first_ident() {
+                            if let Some(semantic_info) =
+                                self.analysis.get(l.args[0].atom_syntax_object().unwrap())
                             {
-                                // At this point, call out to the user given function - if we do in fact mutate
-                                // where the value points to, we should return a full node that needs to be visited
-                                (self.func)(self.analysis, list);
+                                if name.resolve() == self.name
+                                    && semantic_info.kind == IdentifierStatus::Global
+                                {
+                                    // At this point, call out to the user given function - if we do in fact mutate
+                                    // where the value points to, we should return a full node that needs to be visited
+                                    (self.func)(self.analysis, list);
 
-                                // TODO: Analysis should maybe be re run here - mutations might invalidate the analysis
-                                // This might make it worth rerunning the analysis
+                                    // TODO: Analysis should maybe be re run here - mutations might invalidate the analysis
+                                    // This might make it worth rerunning the analysis
 
-                                return self.visit(list);
+                                    return self.visit(list);
+                                }
                             }
                         }
                     }
-                }
 
-                if let ExprKind::List(l) = list {
-                    return self.visit_list(l);
-                }
+                    if let ExprKind::List(l) = list {
+                        return self.visit_list(l);
+                    }
 
-                unreachable!()
+                    unreachable!()
+                }
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 }
 
@@ -3829,45 +3835,47 @@ where
     F: FnMut(&Analysis, &mut ExprKind),
 {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            list @ ExprKind::List(_) => {
-                if let ExprKind::List(l) = list {
-                    self.visit_list(l);
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
                 }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                list @ ExprKind::List(_) => {
+                    if let ExprKind::List(l) = list {
+                        self.visit_list(l);
+                    }
 
-                if let ExprKind::List(l) = &list {
-                    if let Some(name) = l.first_ident() {
-                        if name.resolve() == self.name {
-                            // At this point, call out to the user given function - if we do in fact mutate
-                            // where the value points to, we should return a full node that needs to be visited
-                            (self.func)(self.analysis, list);
+                    if let ExprKind::List(l) = &list {
+                        if let Some(name) = l.first_ident() {
+                            if name.resolve() == self.name {
+                                // At this point, call out to the user given function - if we do in fact mutate
+                                // where the value points to, we should return a full node that needs to be visited
+                                (self.func)(self.analysis, list);
 
-                            // TODO: Analysis should maybe be re run here - mutations might invalidate the analysis
-                            // This might make it worth rerunning the analysis
+                                // TODO: Analysis should maybe be re run here - mutations might invalidate the analysis
+                                // This might make it worth rerunning the analysis
 
-                            return;
+                                return;
+                            }
                         }
                     }
-                }
 
-                // unreachable!()
+                    // unreachable!()
+                }
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 }
 
@@ -3887,34 +3895,36 @@ where
     F: FnMut(&Analysis, &mut ExprKind) -> bool,
 {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => self.visit_list(l),
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            let_expr @ ExprKind::Let(_) => {
-                if let ExprKind::Let(l) = let_expr {
-                    self.visit_let(l);
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
                 }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => self.visit_list(l),
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                let_expr @ ExprKind::Let(_) => {
+                    if let ExprKind::Let(l) = let_expr {
+                        self.visit_let(l);
+                    }
 
-                if let ExprKind::Let(_) = &let_expr {
-                    if (self.func)(self.analysis, let_expr) {
-                        // log::debug!("Modified let expression");
+                    if let ExprKind::Let(_) = &let_expr {
+                        if (self.func)(self.analysis, let_expr) {
+                            // log::debug!("Modified let expression");
+                        }
                     }
                 }
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 }
 
@@ -3940,41 +3950,43 @@ where
     F: FnMut(&Analysis, &mut ExprKind) -> bool,
 {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            list @ ExprKind::List(_) => {
-                // Bottom up approach - visit everything first, then, on the way back up,
-                // modify the value
-                if let ExprKind::List(l) = list {
-                    self.visit_list(l);
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
                 }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                list @ ExprKind::List(_) => {
+                    // Bottom up approach - visit everything first, then, on the way back up,
+                    // modify the value
+                    if let ExprKind::List(l) = list {
+                        self.visit_list(l);
+                    }
 
-                if let ExprKind::List(l) = &list {
-                    if l.is_anonymous_function_call() {
-                        // TODO: rerunning analysis might be worth it here - we want to be able to trigger a re run if a mutation would cause a change
-                        // In the state of the analysis
-                        if (self.func)(self.analysis, list) {
-                            // return self.visit(list);
-                            // log::debug!("Modified anonymous function call site!");
+                    if let ExprKind::List(l) = &list {
+                        if l.is_anonymous_function_call() {
+                            // TODO: rerunning analysis might be worth it here - we want to be able to trigger a re run if a mutation would cause a change
+                            // In the state of the analysis
+                            if (self.func)(self.analysis, list) {
+                                // return self.visit(list);
+                                // log::debug!("Modified anonymous function call site!");
+                            }
                         }
                     }
                 }
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_quote(&mut self, _quote: &mut Quote) {}
@@ -4108,7 +4120,7 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
     }
 
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
+        crate::compiler::passes::with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => {
                 if self.is_unused(d) {
@@ -4132,7 +4144,7 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_begin(&mut self, begin: &mut crate::parser::ast::Begin) {
@@ -5041,186 +5053,192 @@ impl<'a> LowerRestArguments<'a> {
 
 impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => {
-                if let Some(checked) = self.check_keywords(l) {
-                    *expr = checked;
-                    self.changed = true;
-                } else {
-                    self.visit_list(l)
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
                 }
-            }
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => {
-                // A binding value is its own expression and can hold the shape
-                // this pass is looking for. Visit those in the enclosing scope, before
-                // this let's own bindings come into view.
-                for (_, value) in l.bindings.iter_mut() {
-                    self.visit(value);
-                }
-
-                // Remove the bindings
-                let mut binding_indices_to_remove = Vec::new();
-
-                let mut binding_expr_replace = Vec::new();
-
-                // Getters in the binding values read lists bound further out, so
-                // handle them before this let's lists are in scope.
-                for (index, (_, value)) in l.bindings.iter().enumerate() {
-                    if matches!(value, ExprKind::If(_)) {
-                        self.handle_lazy_default(&mut binding_expr_replace, index, value);
-                        continue;
-                    }
-
-                    let Some(getter) = value.list().and_then(|x| x.first_ident()) else {
-                        continue;
-                    };
-
-                    // Constructing prim plist try get
-                    if *getter == *PRIM_PLIST_TRY_GET {
-                        self.handle_plist_try_get(&mut binding_expr_replace, index, value);
-                    } else if *getter == *PRIM_PLIST_TRY_GET_POSITIONAL {
-                        self.handle_plist_try_get_positional(
-                            &mut binding_expr_replace,
-                            index,
-                            value,
-                        );
-                    } else if *getter == *PRIM_PLIST_GET_POSITIONAL_ARG_LIST {
-                        self.handle_plist_get_positional_arg_list(
-                            &mut binding_expr_replace,
-                            index,
-                            value,
-                        );
-                    } else if *getter == *PRIM_PLIST_GET_POSITIONAL_ARG {
-                        self.handle_plist_get_positional_arg(
-                            &mut binding_expr_replace,
-                            index,
-                            value,
-                        );
-                    } else if *getter == *PRIM_PLIST_GET_KWARG {
-                        self.handle_plist_get_kwarg(&mut binding_expr_replace, index, value);
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => {
+                    if let Some(checked) = self.check_keywords(l) {
+                        *expr = checked;
+                        self.changed = true;
+                    } else {
+                        self.visit_list(l)
                     }
                 }
-
-                self.bindings.push_layer();
-                self.movable.push_layer();
-
-                for (key, value) in l.bindings.iter() {
-                    let Some(key) = key.atom_identifier() else {
-                        continue;
-                    };
-
-                    let Some(list) = value.list() else {
-                        continue;
-                    };
-
-                    if Self::is_const_list(value) {
-                        let movable = list.args.iter().skip(1).all(|arg| self.can_move(arg));
-                        self.movable.define(*key, movable);
-                        let expr: ThinVec<_> = list.args.get(1..).unwrap().into();
-                        self.bindings.define(*key, ExprKind::List(List::new(expr)));
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => {
+                    // A binding value is its own expression and can hold the shape
+                    // this pass is looking for. Visit those in the enclosing scope, before
+                    // this let's own bindings come into view.
+                    for (_, value) in l.bindings.iter_mut() {
+                        self.visit(value);
                     }
-                }
 
-                self.used_bindings.push_layer();
+                    // Remove the bindings
+                    let mut binding_indices_to_remove = Vec::new();
 
-                self.visit(&mut l.body_expr);
+                    let mut binding_expr_replace = Vec::new();
 
-                // The outer const list this apply was lowered from, if any.
-                let mut lowered_from_outer = None;
+                    // Getters in the binding values read lists bound further out, so
+                    // handle them before this let's lists are in scope.
+                    for (index, (_, value)) in l.bindings.iter().enumerate() {
+                        if matches!(value, ExprKind::If(_)) {
+                            self.handle_lazy_default(&mut binding_expr_replace, index, value);
+                            continue;
+                        }
 
-                if let ExprKind::List(apply_body) = &mut l.body_expr {
-                    if let Some((list_name, func)) = self.should_transform_let_apply(apply_body) {
-                        let arguments = self
-                            .bindings
-                            .get(&list_name)
-                            .and_then(|x| x.list())
-                            .map(|x| x.args.clone());
+                        let Some(getter) = value.list().and_then(|x| x.first_ident()) else {
+                            continue;
+                        };
 
-                        if let (Some(arguments), ExprKind::LambdaFunction(f)) = (arguments, func) {
-                            self.used_bindings.define(list_name);
+                        // Constructing prim plist try get
+                        if *getter == *PRIM_PLIST_TRY_GET {
+                            self.handle_plist_try_get(&mut binding_expr_replace, index, value);
+                        } else if *getter == *PRIM_PLIST_TRY_GET_POSITIONAL {
+                            self.handle_plist_try_get_positional(
+                                &mut binding_expr_replace,
+                                index,
+                                value,
+                            );
+                        } else if *getter == *PRIM_PLIST_GET_POSITIONAL_ARG_LIST {
+                            self.handle_plist_get_positional_arg_list(
+                                &mut binding_expr_replace,
+                                index,
+                                value,
+                            );
+                        } else if *getter == *PRIM_PLIST_GET_POSITIONAL_ARG {
+                            self.handle_plist_get_positional_arg(
+                                &mut binding_expr_replace,
+                                index,
+                                value,
+                            );
+                        } else if *getter == *PRIM_PLIST_GET_KWARG {
+                            self.handle_plist_get_kwarg(&mut binding_expr_replace, index, value);
+                        }
+                    }
 
-                            let bound_here = l
+                    self.bindings.push_layer();
+                    self.movable.push_layer();
+
+                    for (key, value) in l.bindings.iter() {
+                        let Some(key) = key.atom_identifier() else {
+                            continue;
+                        };
+
+                        let Some(list) = value.list() else {
+                            continue;
+                        };
+
+                        if Self::is_const_list(value) {
+                            let movable = list.args.iter().skip(1).all(|arg| self.can_move(arg));
+                            self.movable.define(*key, movable);
+                            let expr: ThinVec<_> = list.args.get(1..).unwrap().into();
+                            self.bindings.define(*key, ExprKind::List(List::new(expr)));
+                        }
+                    }
+
+                    self.used_bindings.push_layer();
+
+                    self.visit(&mut l.body_expr);
+
+                    // The outer const list this apply was lowered from, if any.
+                    let mut lowered_from_outer = None;
+
+                    if let ExprKind::List(apply_body) = &mut l.body_expr {
+                        if let Some((list_name, func)) = self.should_transform_let_apply(apply_body)
+                        {
+                            let arguments = self
                                 .bindings
-                                .iter()
-                                .any(|(key, _)| key.atom_identifier() == Some(&list_name));
-                            if !bound_here {
-                                lowered_from_outer = Some(list_name);
+                                .get(&list_name)
+                                .and_then(|x| x.list())
+                                .map(|x| x.args.clone());
+
+                            if let (Some(arguments), ExprKind::LambdaFunction(f)) =
+                                (arguments, func)
+                            {
+                                self.used_bindings.define(list_name);
+
+                                let bound_here = l
+                                    .bindings
+                                    .iter()
+                                    .any(|(key, _)| key.atom_identifier() == Some(&list_name));
+                                if !bound_here {
+                                    lowered_from_outer = Some(list_name);
+                                }
+
+                                // Bind the parameters in their own let, so this let's
+                                // bindings stay in scope for the body.
+                                let parameters =
+                                    f.args.into_iter().zip(arguments).collect::<Vec<_>>();
+                                l.body_expr = ExprKind::Let(Box::new(Let::new(
+                                    parameters,
+                                    f.body,
+                                    l.location.clone(),
+                                )));
+
+                                self.changed = true;
                             }
+                        }
+                    }
 
-                            // Bind the parameters in their own let, so this let's
-                            // bindings stay in scope for the body.
-                            let parameters = f.args.into_iter().zip(arguments).collect::<Vec<_>>();
-                            l.body_expr = ExprKind::Let(Box::new(Let::new(
-                                parameters,
-                                f.body,
-                                l.location.clone(),
-                            )));
+                    for (index, (key, _)) in l.bindings.iter().enumerate() {
+                        if let Some(key) = key.atom_identifier() {
+                            if self.used_bindings.contains(key) {
+                                binding_indices_to_remove.push(index);
+                            }
+                        }
+                    }
 
-                            self.changed = true;
+                    self.used_bindings.pop_layer();
+                    self.bindings.pop_layer();
+                    self.movable.pop_layer();
+
+                    // The arguments moved into this let, so the outer let can drop
+                    // the list.
+                    if let Some(outer) = lowered_from_outer {
+                        self.used_bindings.define(outer);
+                    }
+
+                    self.changed |=
+                        !binding_indices_to_remove.is_empty() || !binding_expr_replace.is_empty();
+
+                    for (index, value) in binding_expr_replace {
+                        l.bindings[index].1 = value;
+                    }
+
+                    for index in binding_indices_to_remove.into_iter().rev() {
+                        l.bindings.remove(index);
+                    }
+
+                    let wants_names = l.bindings.iter().any(|(key, value)| {
+                        Self::is_const_list(value)
+                            && key
+                                .atom_identifier()
+                                .is_some_and(|key| self.needs_names.contains(key))
+                    });
+
+                    // The binding values are already visited, so only visit the
+                    // new inner let.
+                    if wants_names {
+                        self.name_arguments(expr);
+                        if let ExprKind::Let(l) = expr {
+                            self.visit(&mut l.body_expr);
                         }
                     }
                 }
-
-                for (index, (key, _)) in l.bindings.iter().enumerate() {
-                    if let Some(key) = key.atom_identifier() {
-                        if self.used_bindings.contains(key) {
-                            binding_indices_to_remove.push(index);
-                        }
-                    }
-                }
-
-                self.used_bindings.pop_layer();
-                self.bindings.pop_layer();
-                self.movable.pop_layer();
-
-                // The arguments moved into this let, so the outer let can drop
-                // the list.
-                if let Some(outer) = lowered_from_outer {
-                    self.used_bindings.define(outer);
-                }
-
-                self.changed |=
-                    !binding_indices_to_remove.is_empty() || !binding_expr_replace.is_empty();
-
-                for (index, value) in binding_expr_replace {
-                    l.bindings[index].1 = value;
-                }
-
-                for index in binding_indices_to_remove.into_iter().rev() {
-                    l.bindings.remove(index);
-                }
-
-                let wants_names = l.bindings.iter().any(|(key, value)| {
-                    Self::is_const_list(value)
-                        && key
-                            .atom_identifier()
-                            .is_some_and(|key| self.needs_names.contains(key))
-                });
-
-                // The binding values are already visited, so only visit the
-                // new inner let.
-                if wants_names {
-                    self.name_arguments(expr);
-                    if let ExprKind::Let(l) = expr {
-                        self.visit(&mut l.body_expr);
-                    }
-                }
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 }
 
@@ -5709,7 +5727,7 @@ struct ReplaceUnboxExpressions {
 
 impl VisitorMutRefUnit for ReplaceUnboxExpressions {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
+        crate::compiler::passes::with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => {
@@ -5735,7 +5753,7 @@ impl VisitorMutRefUnit for ReplaceUnboxExpressions {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 }
 
@@ -5834,105 +5852,107 @@ impl CheckIdentifierOnlyOccursInUnboxCallPosition {
 
 impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition {
     fn visit(&mut self, expr: &'a ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => {
-                // A bare (unbox x) reached here is used as a value (returned,
-                // bound or stored), so the reference outlives what we can rewrite.
-                if l.first_ident().copied() == Some(*UNBOX)
-                    && l.second_ident().copied() == Some(self.unbox_var)
-                {
-                    if crate::config::config().lift_debug {
-                        eprintln!("ESCAPE(as-value): {}", self.unbox_var.resolve());
-                    }
-                    self.escapes = true;
-                    return;
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
                 }
-
-                // We've hit something like (unbox <foo>)
-                // but we need to make sure that this only happens in the call
-                // position, meaning if we hit the identifier in any other way,
-                // then we've escaped.
-                if let Some(ExprKind::List(il)) = l.first() {
-                    if il.first_ident().copied() == Some(*UNBOX) {
-                        if il.second_ident().copied() == Some(self.unbox_var) {
-                            // A sibling calling this one is fine, since the whole
-                            // group becomes globals together and the call becomes
-                            // a direct one. That only applies to a mutually
-                            // recursive group. For a lone function, a call from a
-                            // deeper lambda can still outlive the frame.
-                            let mutually_recursive = self.group_boxes.len() > 1
-                                && self.group_boxes.contains(&self.unbox_var);
-
-                            if self.inside_lambda && !mutually_recursive {
-                                if crate::config::config().lift_debug {
-                                    eprintln!(
-                                        "ESCAPE(call-in-lambda): {} group={}",
-                                        self.unbox_var.resolve(),
-                                        self.group.len()
-                                    );
-                                }
-                                self.escapes = true;
-                                return;
-                            }
-
-                            if let Some(rest) = l.args.get(1..) {
-                                for expr in rest {
-                                    self.visit(expr);
-                                }
-                            }
-
-                            return;
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => {
+                    // A bare (unbox x) reached here is used as a value (returned,
+                    // bound or stored), so the reference outlives what we can rewrite.
+                    if l.first_ident().copied() == Some(*UNBOX)
+                        && l.second_ident().copied() == Some(self.unbox_var)
+                    {
+                        if crate::config::config().lift_debug {
+                            eprintln!("ESCAPE(as-value): {}", self.unbox_var.resolve());
                         }
+                        self.escapes = true;
+                        return;
                     }
-                }
 
-                if let Some(rest) = l.args.get(1..) {
-                    for arg in rest {
-                        if let ExprKind::List(il) = arg {
-                            if il.first_ident().copied() == Some(*UNBOX) {
-                                if il.second_ident().copied() == Some(self.unbox_var) {
+                    // We've hit something like (unbox <foo>)
+                    // but we need to make sure that this only happens in the call
+                    // position, meaning if we hit the identifier in any other way,
+                    // then we've escaped.
+                    if let Some(ExprKind::List(il)) = l.first() {
+                        if il.first_ident().copied() == Some(*UNBOX) {
+                            if il.second_ident().copied() == Some(self.unbox_var) {
+                                // A sibling calling this one is fine, since the whole
+                                // group becomes globals together and the call becomes
+                                // a direct one. That only applies to a mutually
+                                // recursive group. For a lone function, a call from a
+                                // deeper lambda can still outlive the frame.
+                                let mutually_recursive = self.group_boxes.len() > 1
+                                    && self.group_boxes.contains(&self.unbox_var);
+
+                                if self.inside_lambda && !mutually_recursive {
                                     if crate::config::config().lift_debug {
                                         eprintln!(
-                                            "ESCAPE(as-argument): {}",
-                                            self.unbox_var.resolve()
+                                            "ESCAPE(call-in-lambda): {} group={}",
+                                            self.unbox_var.resolve(),
+                                            self.group.len()
                                         );
                                     }
                                     self.escapes = true;
                                     return;
                                 }
+
+                                if let Some(rest) = l.args.get(1..) {
+                                    for expr in rest {
+                                        self.visit(expr);
+                                    }
+                                }
+
+                                return;
                             }
                         }
                     }
-                }
 
-                // The assignment that fills in a group member's placeholder is
-                // its definition, so it doesn't count as a use
-                if l.first_ident().copied() == Some(*SETBOX)
-                    && l.second_ident().copied() == Some(self.unbox_var)
-                    && l.third_ident()
-                        .is_some_and(|name| self.group.contains(name))
-                {
-                    return;
-                }
+                    if let Some(rest) = l.args.get(1..) {
+                        for arg in rest {
+                            if let ExprKind::List(il) = arg {
+                                if il.first_ident().copied() == Some(*UNBOX) {
+                                    if il.second_ident().copied() == Some(self.unbox_var) {
+                                        if crate::config::config().lift_debug {
+                                            eprintln!(
+                                                "ESCAPE(as-argument): {}",
+                                                self.unbox_var.resolve()
+                                            );
+                                        }
+                                        self.escapes = true;
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
 
-                self.visit_list(l);
+                    // The assignment that fills in a group member's placeholder is
+                    // its definition, so it doesn't count as a use
+                    if l.first_ident().copied() == Some(*SETBOX)
+                        && l.second_ident().copied() == Some(self.unbox_var)
+                        && l.third_ident()
+                            .is_some_and(|name| self.group.contains(name))
+                    {
+                        return;
+                    }
+
+                    self.visit_list(l);
+                }
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     // TODO: @Matt: We need to resolve this, and add better tests around
@@ -6003,101 +6023,104 @@ fn atom(name: String) -> ExprKind {
 
 impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            lambda @ ExprKind::LambdaFunction(_) => {
-                // Do this bottom up - visit the children and on the way up we're going to
-                // apply the transformation
-                if let ExprKind::LambdaFunction(l) = lambda {
-                    for var in &mut l.args {
-                        self.visit(var);
-                    }
-                    self.visit(&mut l.body);
-                }
-
-                if let ExprKind::LambdaFunction(l) = lambda {
-                    if let Some(info) = self.analysis.get_function_info(l) {
-                        // println!("depth: {}", info.depth);
-
-                        // We don't need to lift top level functions to the top level already
-                        if info.depth == 1 {
-                            return;
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                lambda @ ExprKind::LambdaFunction(_) => {
+                    // Do this bottom up - visit the children and on the way up we're going to
+                    // apply the transformation
+                    if let ExprKind::LambdaFunction(l) = lambda {
+                        for var in &mut l.args {
+                            self.visit(var);
                         }
+                        self.visit(&mut l.body);
+                    }
 
-                        for arg in info.arguments() {
-                            if arg.1.mutated {
+                    if let ExprKind::LambdaFunction(l) = lambda {
+                        if let Some(info) = self.analysis.get_function_info(l) {
+                            // println!("depth: {}", info.depth);
+
+                            // We don't need to lift top level functions to the top level already
+                            if info.depth == 1 {
                                 return;
                             }
-                        }
 
-                        // If we have no captured variables, this is a pure function for our purposes
-                        if info.captured_vars.is_empty() {
-                            // TODO: If the function is of the shape:
-                            // (lambda (x) (function-call x))
-                            // Don't lift - just replace the lambda with the body, and replace the argument
-                            // with the right thing
+                            for arg in info.arguments() {
+                                if arg.1.mutated {
+                                    return;
+                                }
+                            }
 
-                            // Name the closure something mangled, but something we can refer to later
-                            let constructed_name = "##__lifted_pure_function".to_string()
-                                + l.syntax_object_id.to_string().as_ref();
+                            // If we have no captured variables, this is a pure function for our purposes
+                            if info.captured_vars.is_empty() {
+                                // TODO: If the function is of the shape:
+                                // (lambda (x) (function-call x))
+                                // Don't lift - just replace the lambda with the body, and replace the argument
+                                // with the right thing
 
-                            // Point the reference to a dummy list - this is just an ephemeral placeholder
-                            let mut dummy = ExprKind::List(List::new(ThinVec::new()));
+                                // Name the closure something mangled, but something we can refer to later
+                                let constructed_name = "##__lifted_pure_function".to_string()
+                                    + l.syntax_object_id.to_string().as_ref();
 
-                            // Have the lambda now actually point to this dummy list
-                            core::mem::swap(lambda, &mut dummy);
+                                // Point the reference to a dummy list - this is just an ephemeral placeholder
+                                let mut dummy = ExprKind::List(List::new(ThinVec::new()));
 
-                            // Construct the global definition, this is something like
-                            //
-                            // (define ##__lifted_pure_function42 (lambda (x) 10))
-                            //
-                            // This is going to go into our vec of lifted functions
-                            let constructed_definition = ExprKind::Define(Box::new(Define::new(
-                                atom(constructed_name.clone()),
-                                dummy,
-                                SyntaxObject::default(TokenType::Define),
-                            )));
+                                // Have the lambda now actually point to this dummy list
+                                core::mem::swap(lambda, &mut dummy);
 
-                            self.lifted_functions.push(constructed_definition);
+                                // Construct the global definition, this is something like
+                                //
+                                // (define ##__lifted_pure_function42 (lambda (x) 10))
+                                //
+                                // This is going to go into our vec of lifted functions
+                                let constructed_definition =
+                                    ExprKind::Define(Box::new(Define::new(
+                                        atom(constructed_name.clone()),
+                                        dummy,
+                                        SyntaxObject::default(TokenType::Define),
+                                    )));
 
-                            // Now update the reference to just point straight to a variable reference
-                            // This _should_ be globally unique
-                            *lambda = atom(constructed_name);
+                                self.lifted_functions.push(constructed_definition);
+
+                                // Now update the reference to just point straight to a variable reference
+                                // This _should_ be globally unique
+                                *lambda = atom(constructed_name);
+                            }
                         }
                     }
                 }
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => {
-                if l.is_anonymous_function_call() {
-                    if let Some((f, rest)) = l.args.split_first_mut() {
-                        if let ExprKind::LambdaFunction(f) = f {
-                            self.visit(&mut f.body);
-                        }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => {
+                    if l.is_anonymous_function_call() {
+                        if let Some((f, rest)) = l.args.split_first_mut() {
+                            if let ExprKind::LambdaFunction(f) = f {
+                                self.visit(&mut f.body);
+                            }
 
-                        for expr in rest {
+                            for expr in rest {
+                                self.visit(expr);
+                            }
+                        }
+                    } else {
+                        for expr in &mut l.args {
                             self.visit(expr);
                         }
                     }
-                } else {
-                    for expr in &mut l.args {
-                        self.visit(expr);
-                    }
-                }
 
-                // self.visit_list(l)
+                    // self.visit_list(l)
+                }
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 }
 
@@ -6108,7 +6131,7 @@ struct ElideSingleArgumentLambdaApplications<'a> {
 
 impl<'a> VisitorMutRefUnit for ElideSingleArgumentLambdaApplications<'a> {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
+        crate::compiler::passes::with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => {
@@ -6180,7 +6203,7 @@ impl<'a> VisitorMutRefUnit for ElideSingleArgumentLambdaApplications<'a> {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 }
 
@@ -6268,52 +6291,54 @@ impl VisitorMutRefUnit for AssignedLocals<'_> {
 
 impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(_) => {}
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => {
-                // Could also be captured?
-                if self.is_boxed(&a.syn) {
-                    let mut dummy = ExprKind::List(List::new(ThinVec::new()));
-                    core::mem::swap(&mut dummy, expr);
-
-                    *expr = unbox_argument(dummy);
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
                 }
-            }
-            ExprKind::List(l) => self.visit_list(l),
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => {
-                let variable = s.variable.atom_syntax_object().unwrap();
-                if self.analysis.get(variable).is_some() && !self.is_boxed(variable) {
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(_) => {}
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => {
+                    // Could also be captured?
+                    if self.is_boxed(&a.syn) {
+                        let mut dummy = ExprKind::List(List::new(ThinVec::new()));
+                        core::mem::swap(&mut dummy, expr);
+
+                        *expr = unbox_argument(dummy);
+                    }
+                }
+                ExprKind::List(l) => self.visit_list(l),
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => {
+                    let variable = s.variable.atom_syntax_object().unwrap();
+                    if self.analysis.get(variable).is_some() && !self.is_boxed(variable) {
+                        self.visit(&mut s.expr);
+
+                        return;
+                    }
+
+                    // Go ahead and drop down the expression
                     self.visit(&mut s.expr);
 
-                    return;
+                    let mut set_expr = ExprKind::List(List::empty());
+                    core::mem::swap(&mut s.expr, &mut set_expr);
+
+                    let mut dummy_ident = ExprKind::List(List::empty());
+                    core::mem::swap(&mut dummy_ident, &mut s.variable);
+
+                    let new_set_expr = setbox_argument(dummy_ident, set_expr);
+
+                    *expr = new_set_expr;
                 }
-
-                // Go ahead and drop down the expression
-                self.visit(&mut s.expr);
-
-                let mut set_expr = ExprKind::List(List::empty());
-                core::mem::swap(&mut s.expr, &mut set_expr);
-
-                let mut dummy_ident = ExprKind::List(List::empty());
-                core::mem::swap(&mut dummy_ident, &mut s.variable);
-
-                let new_set_expr = setbox_argument(dummy_ident, set_expr);
-
-                *expr = new_set_expr;
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_define(&mut self, define: &mut Define) {
@@ -6608,7 +6633,7 @@ impl BoxModuleGlobals<'_> {
 
 impl VisitorMutRefUnit for BoxModuleGlobals<'_> {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
+        crate::compiler::passes::with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => {
@@ -6638,7 +6663,7 @@ impl VisitorMutRefUnit for BoxModuleGlobals<'_> {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_define(&mut self, define: &mut Define) {
@@ -7207,36 +7232,40 @@ impl SimplifyOrBindings {
 
 impl VisitorMutRefUnit for SimplifyOrBindings {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
-            }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => self.visit_list(l),
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Vector(v) => self.visit_vector(v),
-            ExprKind::Let(l) => {
-                // Inside out, since rewriting a nested `or` first can expose the
-                // outer one.
-                for (_, value) in l.bindings.iter_mut() {
-                    self.visit(value);
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
                 }
-                self.visit(&mut l.body_expr);
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => self.visit_list(l),
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Vector(v) => self.visit_vector(v),
+                ExprKind::Let(l) => {
+                    // Inside out, since rewriting a nested `or` first can expose the
+                    // outer one.
+                    for (_, value) in l.bindings.iter_mut() {
+                        self.visit(value);
+                    }
+                    self.visit(&mut l.body_expr);
 
-                if let Some(replacement) = Self::rewrite(l, &self.bound, &self.struct_predicates) {
-                    *expr = replacement;
-                    self.rewritten += 1;
+                    if let Some(replacement) =
+                        Self::rewrite(l, &self.bound, &self.struct_predicates)
+                    {
+                        *expr = replacement;
+                        self.rewritten += 1;
+                    }
                 }
             }
-        }
+        })
     }
 }
 
@@ -7328,25 +7357,27 @@ impl VisitorMutRefUnit for SetBoxValueFirst {
     fn visit_quote(&mut self, _quote: &mut crate::parser::ast::Quote) {}
 
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => self.visit_list(l),
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => self.visit_list(l),
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
-        self.rewrite(expr);
+            self.rewrite(expr);
+        })
     }
 }
 
@@ -7505,30 +7536,32 @@ impl VisitorMutRefUnit for ReplaceCarOf<'_> {
     fn visit_quote(&mut self, _quote: &mut crate::parser::ast::Quote) {}
 
     fn visit(&mut self, expr: &mut ExprKind) {
-        if list_accessor_on_var(expr, "car", self.bound) == Some(self.var) {
-            *expr = self.replacement.clone();
-            self.replaced += 1;
-            return;
-        }
-
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+        crate::compiler::passes::with_stack(|| {
+            if list_accessor_on_var(expr, "car", self.bound) == Some(self.var) {
+                *expr = self.replacement.clone();
+                self.replaced += 1;
+                return;
             }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => self.visit_list(l),
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(t) => self.visit_set(t),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
+
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => self.visit_list(l),
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(t) => self.visit_set(t),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
+            }
+        })
     }
 }
 
@@ -7726,29 +7759,31 @@ fn count_car_of(expr: &ExprKind, var: &InternedString, bound: &FxHashSet<Interne
         fn visit_quote(&mut self, _quote: &crate::parser::ast::Quote) {}
 
         fn visit(&mut self, expr: &ExprKind) {
-            if list_accessor_on_var(expr, "car", self.bound) == Some(self.var) {
-                self.count += 1;
-                return;
-            }
-
-            match expr {
-                ExprKind::If(f) => self.visit_if(f),
-                ExprKind::Define(d) => self.visit_define(d),
-                ExprKind::LambdaFunction(l) => {
-                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            crate::compiler::passes::with_stack(|| {
+                if list_accessor_on_var(expr, "car", self.bound) == Some(self.var) {
+                    self.count += 1;
+                    return;
                 }
-                ExprKind::Begin(b) => self.visit_begin(b),
-                ExprKind::Return(r) => self.visit_return(r),
-                ExprKind::Quote(q) => self.visit_quote(q),
-                ExprKind::Macro(m) => self.visit_macro(m),
-                ExprKind::Atom(a) => self.visit_atom(a),
-                ExprKind::List(l) => self.visit_list(l),
-                ExprKind::SyntaxRules(sr) => self.visit_syntax_rules(sr),
-                ExprKind::Set(t) => self.visit_set(t),
-                ExprKind::Require(r) => self.visit_require(r),
-                ExprKind::Let(l) => self.visit_let(l),
-                ExprKind::Vector(v) => self.visit_vector(v),
-            }
+
+                match expr {
+                    ExprKind::If(f) => self.visit_if(f),
+                    ExprKind::Define(d) => self.visit_define(d),
+                    ExprKind::LambdaFunction(l) => {
+                        crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                    }
+                    ExprKind::Begin(b) => self.visit_begin(b),
+                    ExprKind::Return(r) => self.visit_return(r),
+                    ExprKind::Quote(q) => self.visit_quote(q),
+                    ExprKind::Macro(m) => self.visit_macro(m),
+                    ExprKind::Atom(a) => self.visit_atom(a),
+                    ExprKind::List(l) => self.visit_list(l),
+                    ExprKind::SyntaxRules(sr) => self.visit_syntax_rules(sr),
+                    ExprKind::Set(t) => self.visit_set(t),
+                    ExprKind::Require(r) => self.visit_require(r),
+                    ExprKind::Let(l) => self.visit_let(l),
+                    ExprKind::Vector(v) => self.visit_vector(v),
+                }
+            })
         }
     }
     let mut counter = Counter {
@@ -7828,28 +7863,30 @@ impl VisitorMutRefUnit for HoistCarBeforeCdr {
     }
 
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => {
-                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => self.visit_list(l),
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(t) => self.visit_set(t),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
             }
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => self.visit_list(l),
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(t) => self.visit_set(t),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Vector(v) => self.visit_vector(v),
-        }
 
-        if self.rewrite(expr) {
-            self.rewritten += 1;
-        }
+            if self.rewrite(expr) {
+                self.rewritten += 1;
+            }
+        })
     }
 }
 
@@ -7868,46 +7905,48 @@ pub(crate) fn flatten_definition_free_empty_lets(exprs: &mut Vec<ExprKind>) -> b
 
     impl VisitorMutRefUnit for Flatten {
         fn visit(&mut self, expr: &mut ExprKind) {
-            // `((lambda () body))`, as `(let () body)` is before it's lowered
-            if let ExprKind::List(l) = expr {
-                if let [ExprKind::LambdaFunction(f)] = l.args.as_slice() {
-                    if f.args.is_empty() && !f.rest && !defines(&f.body) {
-                        let ExprKind::LambdaFunction(f) = l.args.pop().unwrap() else {
-                            unreachable!()
-                        };
-                        *expr = f.body;
+            crate::compiler::passes::with_stack(|| {
+                // `((lambda () body))`, as `(let () body)` is before it's lowered
+                if let ExprKind::List(l) = expr {
+                    if let [ExprKind::LambdaFunction(f)] = l.args.as_slice() {
+                        if f.args.is_empty() && !f.rest && !defines(&f.body) {
+                            let ExprKind::LambdaFunction(f) = l.args.pop().unwrap() else {
+                                unreachable!()
+                            };
+                            *expr = f.body;
+                            self.0 = true;
+                            return self.visit(expr);
+                        }
+                    }
+                }
+
+                if let ExprKind::Let(l) = expr {
+                    if l.bindings.is_empty() && !defines(&l.body_expr) {
+                        *expr = core::mem::replace(&mut l.body_expr, ExprKind::empty());
                         self.0 = true;
                         return self.visit(expr);
                     }
-                }
-            }
 
-            if let ExprKind::Let(l) = expr {
-                if l.bindings.is_empty() && !defines(&l.body_expr) {
-                    *expr = core::mem::replace(&mut l.body_expr, ExprKind::empty());
-                    self.0 = true;
-                    return self.visit(expr);
+                    for (_, value) in l.bindings.iter_mut() {
+                        self.visit(value);
+                    }
+                    return self.visit(&mut l.body_expr);
                 }
 
-                for (_, value) in l.bindings.iter_mut() {
-                    self.visit(value);
+                match expr {
+                    ExprKind::If(f) => self.visit_if(f),
+                    ExprKind::Define(d) => self.visit_define(d),
+                    ExprKind::LambdaFunction(l) => {
+                        crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                    }
+                    ExprKind::Begin(b) => self.visit_begin(b),
+                    ExprKind::Return(r) => self.visit_return(r),
+                    ExprKind::List(l) => self.visit_list(l),
+                    ExprKind::Set(s) => self.visit_set(s),
+                    ExprKind::Vector(v) => self.visit_vector(v),
+                    _ => {}
                 }
-                return self.visit(&mut l.body_expr);
-            }
-
-            match expr {
-                ExprKind::If(f) => self.visit_if(f),
-                ExprKind::Define(d) => self.visit_define(d),
-                ExprKind::LambdaFunction(l) => {
-                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
-                }
-                ExprKind::Begin(b) => self.visit_begin(b),
-                ExprKind::Return(r) => self.visit_return(r),
-                ExprKind::List(l) => self.visit_list(l),
-                ExprKind::Set(s) => self.visit_set(s),
-                ExprKind::Vector(v) => self.visit_vector(v),
-                _ => {}
-            }
+            })
         }
     }
 
@@ -7935,7 +7974,7 @@ fn lift_in_place_enabled() -> bool {
 
 impl VisitorMutRefUnit for FlattenEmptyLets {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
+        crate::compiler::passes::with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => {
@@ -7962,7 +8001,7 @@ impl VisitorMutRefUnit for FlattenEmptyLets {
                 }
             }
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 }
 

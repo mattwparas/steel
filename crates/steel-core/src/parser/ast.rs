@@ -54,6 +54,22 @@ pub(crate) struct TryFromSteelValVisitorForExprKind {
     pub(crate) mark: ExpansionMark,
 }
 
+// A `(syntax-rules ...)` form, as data or syntax
+pub(crate) fn is_syntax_rules(value: &SteelVal) -> bool {
+    let value = value.as_syntax_object().map(|x| &x.syntax).unwrap_or(value);
+
+    let head = match value {
+        ListV(l) => l.first(),
+        _ => None,
+    };
+
+    head.and_then(|x| {
+        x.as_symbol()
+            .or_else(|| x.as_syntax_object().and_then(|x| x.syntax.as_symbol()))
+    })
+    .is_some_and(|x| x.as_str() == "syntax-rules")
+}
+
 impl TryFromSteelValVisitorForExprKind {
     pub fn root(value: &SteelVal) -> core::result::Result<ExprKind, SteelErr> {
         Self {
@@ -75,8 +91,12 @@ impl TryFromSteelValVisitorForExprKind {
         .visit(value)
     }
 
-    // type Error = &'static str;
+    // A macro's output nests as deep as it likes
     pub fn visit(&mut self, value: &SteelVal) -> core::result::Result<ExprKind, SteelErr> {
+        crate::compiler::passes::with_stack(|| self.visit_value(value))
+    }
+
+    fn visit_value(&mut self, value: &SteelVal) -> core::result::Result<ExprKind, SteelErr> {
         match value {
             BoolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 BooleanLiteral(*x),
@@ -181,6 +201,18 @@ impl TryFromSteelValVisitorForExprKind {
                             self.quoted = false;
 
                             return return_value;
+                        }
+                        // A procedural macro's definition stays a list, as one written in
+                        // the code does, for the kernel to define
+                        Some(x)
+                            if x.as_str() == "define-syntax"
+                                && !self.quoted
+                                && !l.get(2).is_some_and(is_syntax_rules) =>
+                        {
+                            let items: core::result::Result<ThinVec<ExprKind>, _> =
+                                l.iter().map(|x| self.visit(x)).collect();
+
+                            return Ok(ExprKind::List(List::new(items?)));
                         } // "quasiquote" => {
                         //     self.qq_depth += 1;
                         // }

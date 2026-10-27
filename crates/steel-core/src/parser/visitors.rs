@@ -16,7 +16,7 @@ pub trait VisitorMutResult {
     type Output;
 
     fn visit(&mut self, expr: &ExprKind) -> Result<Self::Output> {
-        match expr {
+        crate::compiler::passes::with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
@@ -31,7 +31,7 @@ pub trait VisitorMutResult {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_if(&mut self, f: &If) -> Result<Self::Output>;

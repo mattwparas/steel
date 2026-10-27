@@ -79,7 +79,7 @@ impl VisitorMutRef for CheckDefinesAreInLegalPositions {
     }
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
-        match expr {
+        crate::compiler::passes::with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => {
@@ -96,7 +96,7 @@ impl VisitorMutRef for CheckDefinesAreInLegalPositions {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     #[inline]
@@ -169,7 +169,7 @@ impl FlattenBegin {
 
 impl VisitorMutRefUnit for FlattenBegin {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
+        crate::compiler::passes::with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => {
@@ -220,7 +220,7 @@ impl VisitorMutRefUnit for FlattenBegin {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 }
 
@@ -299,7 +299,7 @@ impl VisitorMutRefUnit for ConvertDefinesToLetsMut {
     fn visit_quote(&mut self, _quote: &mut Quote) {}
 
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
+        crate::compiler::passes::with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => {
@@ -356,7 +356,7 @@ impl VisitorMutRefUnit for ConvertDefinesToLetsMut {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
@@ -932,99 +932,101 @@ struct CheckBeforeInitialization<'a> {
 
 impl CheckBeforeInitialization<'_> {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::Atom(a) => {
-                let Some(name) = a.ident().copied() else {
-                    return;
-                };
+        crate::compiler::passes::with_stack(|| {
+            match expr {
+                ExprKind::Atom(a) => {
+                    let Some(name) = a.ident().copied() else {
+                        return;
+                    };
 
-                if self.names.contains(&name) && !self.shadowed.contains(&name) {
-                    self.checked.push(name);
+                    if self.names.contains(&name) && !self.shadowed.contains(&name) {
+                        self.checked.push(name);
 
-                    // The error points at the read
-                    let span = a.syn.span;
-                    let read = core::mem::replace(expr, ExprKind::empty());
-                    let mut call = List::new(thin_vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::new(
-                            TokenType::Identifier("#%prim.#%check-initialized".into()),
-                            span,
-                        ))),
-                        read,
-                        ExprKind::Quote(Box::new(Quote::new(
-                            ExprKind::atom(written_name(name.resolve())),
-                            SyntaxObject::new(TokenType::Quote, span),
-                        ))),
-                    ]);
-                    call.location = span;
-                    *expr = ExprKind::List(call);
+                        // The error points at the read
+                        let span = a.syn.span;
+                        let read = core::mem::replace(expr, ExprKind::empty());
+                        let mut call = List::new(thin_vec![
+                            ExprKind::Atom(Atom::new(SyntaxObject::new(
+                                TokenType::Identifier("#%prim.#%check-initialized".into()),
+                                span,
+                            ))),
+                            read,
+                            ExprKind::Quote(Box::new(Quote::new(
+                                ExprKind::atom(written_name(name.resolve())),
+                                SyntaxObject::new(TokenType::Quote, span),
+                            ))),
+                        ]);
+                        call.location = span;
+                        *expr = ExprKind::List(call);
+                    }
                 }
-            }
-            ExprKind::LambdaFunction(l) => {
-                let depth = self.shadowed.len();
-                self.shadowed
-                    .extend(l.args.iter().filter_map(|x| x.atom_identifier().copied()));
-                self.visit(&mut l.body);
-                self.shadowed.truncate(depth);
-            }
-            ExprKind::Let(l) => {
-                for (_, value) in l.bindings.iter_mut() {
-                    self.visit(value);
+                ExprKind::LambdaFunction(l) => {
+                    let depth = self.shadowed.len();
+                    self.shadowed
+                        .extend(l.args.iter().filter_map(|x| x.atom_identifier().copied()));
+                    self.visit(&mut l.body);
+                    self.shadowed.truncate(depth);
                 }
+                ExprKind::Let(l) => {
+                    for (_, value) in l.bindings.iter_mut() {
+                        self.visit(value);
+                    }
 
-                let depth = self.shadowed.len();
-                self.shadowed.extend(
-                    l.bindings
-                        .iter()
-                        .filter_map(|x| x.0.atom_identifier().copied()),
-                );
-                self.visit(&mut l.body_expr);
-                self.shadowed.truncate(depth);
-            }
-            ExprKind::If(f) => {
-                self.visit(&mut f.test_expr);
-                self.visit(&mut f.then_expr);
-                self.visit(&mut f.else_expr);
-            }
-            ExprKind::Define(d) => self.visit(&mut d.body),
-            ExprKind::Begin(b) => b.exprs.iter_mut().for_each(|x| self.visit(x)),
-            ExprKind::Return(r) => self.visit(&mut r.expr),
-            // Assigning before the define runs is an error too, once the value is made
-            ExprKind::Set(s) => {
-                self.visit(&mut s.expr);
-
-                let Some(syn) = s.variable.atom_syntax_object() else {
-                    return;
-                };
-
-                let Some(name) = syn.ty.identifier().copied() else {
-                    return;
-                };
-
-                if self.names.contains(&name) && !self.shadowed.contains(&name) {
-                    self.checked.push(name);
-
-                    let span = syn.span;
-                    let value = core::mem::replace(&mut s.expr, ExprKind::empty());
-                    let mut call = List::new(thin_vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::new(
-                            TokenType::Identifier("#%prim.#%check-assignable".into()),
-                            span,
-                        ))),
-                        ExprKind::atom(name),
-                        ExprKind::Quote(Box::new(Quote::new(
-                            ExprKind::atom(written_name(name.resolve())),
-                            SyntaxObject::new(TokenType::Quote, span),
-                        ))),
-                        value,
-                    ]);
-                    call.location = span;
-                    s.expr = ExprKind::List(call);
+                    let depth = self.shadowed.len();
+                    self.shadowed.extend(
+                        l.bindings
+                            .iter()
+                            .filter_map(|x| x.0.atom_identifier().copied()),
+                    );
+                    self.visit(&mut l.body_expr);
+                    self.shadowed.truncate(depth);
                 }
+                ExprKind::If(f) => {
+                    self.visit(&mut f.test_expr);
+                    self.visit(&mut f.then_expr);
+                    self.visit(&mut f.else_expr);
+                }
+                ExprKind::Define(d) => self.visit(&mut d.body),
+                ExprKind::Begin(b) => b.exprs.iter_mut().for_each(|x| self.visit(x)),
+                ExprKind::Return(r) => self.visit(&mut r.expr),
+                // Assigning before the define runs is an error too, once the value is made
+                ExprKind::Set(s) => {
+                    self.visit(&mut s.expr);
+
+                    let Some(syn) = s.variable.atom_syntax_object() else {
+                        return;
+                    };
+
+                    let Some(name) = syn.ty.identifier().copied() else {
+                        return;
+                    };
+
+                    if self.names.contains(&name) && !self.shadowed.contains(&name) {
+                        self.checked.push(name);
+
+                        let span = syn.span;
+                        let value = core::mem::replace(&mut s.expr, ExprKind::empty());
+                        let mut call = List::new(thin_vec![
+                            ExprKind::Atom(Atom::new(SyntaxObject::new(
+                                TokenType::Identifier("#%prim.#%check-assignable".into()),
+                                span,
+                            ))),
+                            ExprKind::atom(name),
+                            ExprKind::Quote(Box::new(Quote::new(
+                                ExprKind::atom(written_name(name.resolve())),
+                                SyntaxObject::new(TokenType::Quote, span),
+                            ))),
+                            value,
+                        ]);
+                        call.location = span;
+                        s.expr = ExprKind::List(call);
+                    }
+                }
+                ExprKind::List(l) => l.args.iter_mut().for_each(|x| self.visit(x)),
+                // Quoted data, vectors of it and the rest don't read names
+                _ => {}
             }
-            ExprKind::List(l) => l.args.iter_mut().for_each(|x| self.visit(x)),
-            // Quoted data, vectors of it and the rest don't read names
-            _ => {}
-        }
+        })
     }
 }
 
