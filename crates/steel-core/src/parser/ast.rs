@@ -52,6 +52,8 @@ pub(crate) struct TryFromSteelValVisitorForExprKind {
     pub(crate) quoted: bool,
     pub(crate) force_hir: bool,
     pub(crate) mark: ExpansionMark,
+    // In a procedural macro's definition, whose own definitions stay lists, as written code's do
+    pub(crate) in_transformer: bool,
 }
 
 // A `(syntax-rules ...)` form, as data or syntax
@@ -77,6 +79,7 @@ impl TryFromSteelValVisitorForExprKind {
             quoted: false,
             force_hir: false,
             mark: ExpansionMark::UNKNOWN,
+            in_transformer: false,
         }
         .visit(value)
     }
@@ -87,6 +90,7 @@ impl TryFromSteelValVisitorForExprKind {
             quoted: false,
             force_hir: true,
             mark: ExpansionMark::UNKNOWN,
+            in_transformer: false,
         }
         .visit(value)
     }
@@ -207,10 +211,13 @@ impl TryFromSteelValVisitorForExprKind {
                         Some(x)
                             if x.as_str() == "define-syntax"
                                 && !self.quoted
-                                && !l.get(2).is_some_and(is_syntax_rules) =>
+                                && (self.in_transformer
+                                    || !l.get(2).is_some_and(is_syntax_rules)) =>
                         {
+                            let in_transformer = core::mem::replace(&mut self.in_transformer, true);
                             let items: core::result::Result<ThinVec<ExprKind>, _> =
                                 l.iter().map(|x| self.visit(x)).collect();
+                            self.in_transformer = in_transformer;
 
                             return Ok(ExprKind::List(List::new(items?)));
                         } // "quasiquote" => {

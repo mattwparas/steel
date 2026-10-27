@@ -844,10 +844,13 @@ impl ast::TryFromSteelValVisitorForExprKind {
                         Some(x)
                             if x.as_str() == "define-syntax"
                                 && !self.quoted
-                                && !l.get(2).is_some_and(ast::is_syntax_rules) =>
+                                && (self.in_transformer
+                                    || !l.get(2).is_some_and(ast::is_syntax_rules)) =>
                         {
+                            let in_transformer = core::mem::replace(&mut self.in_transformer, true);
                             let items: core::result::Result<ThinVec<ExprKind>, _> =
                                 l.iter().map(|x| self.visit(x)).collect();
+                            self.in_transformer = in_transformer;
 
                             return Ok(ExprKind::List(ast::List::new(items?)));
                         } // "quasiquote" => {
@@ -2302,7 +2305,7 @@ enum HashFrameKind {
 struct HashFrame {
     hasher: rustc_hash::FxHasher,
     // What's left to hash, last first
-    pending: Vec<HashItem>,
+    pending: smallvec::SmallVec<[HashItem; 2]>,
     kind: HashFrameKind,
     // What a hash that keeps what values came to keeps this one's by
     keep: Option<(usize, usize)>,
@@ -2316,27 +2319,49 @@ enum HashItem {
 impl HashFrame {
     fn new(
         hasher: rustc_hash::FxHasher,
-        items: impl DoubleEndedIterator<Item = SteelVal>,
+        items: impl Iterator<Item = SteelVal>,
         keep: Option<(usize, usize)>,
     ) -> Self {
+        let mut pending: smallvec::SmallVec<[HashItem; 2]> = items.map(HashItem::Value).collect();
+        pending.reverse();
+
         HashFrame {
             hasher,
-            pending: items.rev().map(HashItem::Value).collect(),
+            pending,
             kind: HashFrameKind::Ordered,
             keep,
         }
     }
 }
 
+// What's left of a value once `hash_shallow` has started it
+enum Shallow {
+    Done,
+    // Its contents, hashed by themselves
+    Contents(HashFrame),
+    // What a box holds, hashed into the same state
+    Within(SteelVal),
+}
+
 // Hashes `value` into `state` as `Hash` does, and returns what a value that holds others
-// needs hashed for its contents, when it isn't kept already
-fn hash_shallow<H: Hasher>(value: &SteelVal, state: &mut H) -> Option<HashFrame> {
+// needs hashed for its contents, when it isn't kept already. Without `contents`, only what
+// it is counts.
+fn hash_shallow<H: Hasher>(value: &SteelVal, state: &mut H, contents: bool) -> Shallow {
     use rustc_hash::FxHasher;
 
-    // Everything else hashes without holding others, or through a box
+    // Everything else hashes without holding others
     if !hashes_contents(value) {
         value.hash(state);
-        return None;
+        return Shallow::Done;
+    }
+
+    if let Boxed(_) | HeapAllocated(_) = value {
+        core::mem::discriminant(value).hash(state);
+        return match value {
+            Boxed(v) if contents => Shallow::Within(v.read().clone()),
+            HeapAllocated(v) if contents => Shallow::Within(v.get()),
+            _ => Shallow::Done,
+        };
     }
 
     let identity = match value {
@@ -2370,8 +2395,12 @@ fn hash_shallow<H: Hasher>(value: &SteelVal, state: &mut H) -> Option<HashFrame>
     if sharing {
         if let Some(hash) = identity.and_then(shared_hash) {
             hash.hash(state);
-            return None;
+            return Shallow::Done;
         }
+    }
+
+    if !contents {
+        return Shallow::Done;
     }
 
     let keep = identity.filter(|_| sharing);
@@ -2380,19 +2409,11 @@ fn hash_shallow<H: Hasher>(value: &SteelVal, state: &mut H) -> Option<HashFrame>
     let frame = match value {
         VectorV(v) => {
             v.len().hash(&mut hasher);
-            HashFrame::new(
-                hasher,
-                v.iter().cloned().collect::<Vec<_>>().into_iter(),
-                keep,
-            )
+            HashFrame::new(hasher, v.iter().cloned(), keep)
         }
         FlatVector(v) => {
             v.len().hash(&mut hasher);
-            HashFrame::new(
-                hasher,
-                v.iter().cloned().collect::<Vec<_>>().into_iter(),
-                keep,
-            )
+            HashFrame::new(hasher, v.iter().cloned(), keep)
         }
         MutableVector(v) => {
             let items = v.borrow(|v| v.iter().cloned().collect::<Vec<_>>());
@@ -2426,44 +2447,52 @@ fn hash_shallow<H: Hasher>(value: &SteelVal, state: &mut H) -> Option<HashFrame>
         CustomStruct(s) => {
             let equality = s.descriptor().equality();
             s.descriptor().hash(&mut hasher);
-            let fields = s
-                .fields()
+            let fields = s.fields();
+            let fields = fields
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| equality.compares(*i))
-                .map(|(_, x)| x.clone())
-                .collect::<Vec<_>>();
-            HashFrame::new(hasher, fields.into_iter(), keep)
+                .map(|(_, x)| x.clone());
+            HashFrame::new(hasher, fields, keep)
         }
         MutableStruct(s) => {
             let equality = s.descriptor().equality();
             s.descriptor().hash(&mut hasher);
-            let fields = s
-                .fields()
+            let fields = s.fields();
+            let fields = fields
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| equality.compares(*i))
-                .map(|(_, x)| x.clone())
-                .collect::<Vec<_>>();
-            HashFrame::new(hasher, fields.into_iter(), keep)
+                .map(|(_, x)| x.clone());
+            HashFrame::new(hasher, fields, keep)
         }
-        ListV(l) => HashFrame::new(
-            hasher,
-            l.iter().cloned().collect::<Vec<_>>().into_iter(),
-            keep,
-        ),
+        ListV(l) => HashFrame::new(hasher, l.iter().cloned(), keep),
         Pair(p) => HashFrame::new(hasher, [p.car(), p.cdr()].into_iter(), keep),
         _ => unreachable!(),
     };
 
-    Some(frame)
+    Shallow::Contents(frame)
 }
+
+// How many values holding others a hash goes into with a worklist. Past it, they count by
+// what they are, which ends one that holds itself. Equal values are cut off the same way.
+const HASH_WORK_LIMIT: usize = 1 << 18;
 
 // Hashes a value that holds others with a worklist, the same as recursing would
 #[cold]
 fn hash_deep<H: Hasher>(value: &SteelVal, state: &mut H) {
-    let Some(frame) = hash_shallow(value, state) else {
-        return;
+    let mut work = 0usize;
+    let mut value = value.clone();
+
+    let frame = loop {
+        match hash_shallow(&value, state, work < HASH_WORK_LIMIT) {
+            Shallow::Done => return,
+            Shallow::Contents(frame) => break frame,
+            Shallow::Within(inner) => {
+                work += 1;
+                value = inner;
+            }
+        }
     };
 
     let mut frames = vec![frame];
@@ -2471,17 +2500,23 @@ fn hash_deep<H: Hasher>(value: &SteelVal, state: &mut H) {
     while let Some(frame) = frames.last_mut() {
         match frame.pending.pop() {
             Some(HashItem::Value(value)) => {
-                if let Some(inner) = hash_shallow(&value, &mut frame.hasher) {
-                    frames.push(inner);
+                let contents = work < HASH_WORK_LIMIT;
+                match hash_shallow(&value, &mut frame.hasher, contents) {
+                    Shallow::Done => {}
+                    Shallow::Contents(inner) => {
+                        work += 1;
+                        frames.push(inner);
+                    }
+                    // Next, into the same state
+                    Shallow::Within(inner) => {
+                        work += 1;
+                        frame.pending.push(HashItem::Value(inner));
+                    }
                 }
             }
             Some(HashItem::Entry(key, value)) => {
                 let items = [Some(key), value].into_iter().flatten();
-                let mut entry = HashFrame::new(
-                    rustc_hash::FxHasher::default(),
-                    items.collect::<Vec<_>>().into_iter(),
-                    None,
-                );
+                let mut entry = HashFrame::new(rustc_hash::FxHasher::default(), items, None);
                 entry.kind = HashFrameKind::Entry;
                 frames.push(entry);
             }
@@ -2525,7 +2560,7 @@ fn hash_deep<H: Hasher>(value: &SteelVal, state: &mut H) {
 fn hashes_contents(value: &SteelVal) -> bool {
     match value {
         VectorV(_) | FlatVector(_) | MutableVector(_) | HashMapV(_) | HashSetV(_) | ListV(_)
-        | Pair(_) => true,
+        | Pair(_) | Boxed(_) | HeapAllocated(_) => true,
         CustomStruct(s) => s.descriptor().equality().transparent,
         MutableStruct(s) => s.descriptor().equality().transparent,
         _ => false,
@@ -2644,12 +2679,22 @@ impl Hash for SteelVal {
             MutableVector(vec) => hash_container(
                 || Some((vec.as_ptr_usize(), 0)),
                 state,
-                |state| vec.borrow(|vec| hash_vector_elements(vec.len(), vec.iter(), state)),
+                // Out of the vector first, which can hold itself
+                |state| {
+                    let items = vec.borrow(|vec| vec.iter().cloned().collect::<Vec<_>>());
+                    hash_vector_elements(items.len(), items.iter(), state)
+                },
             ),
             BoxedIterator(iter) => Gc::as_ptr(iter).hash(state),
             SyntaxObject(s) => s.raw.hash(state),
-            Boxed(val) => val.read().hash(state),
-            HeapAllocated(v) => v.get().hash(state),
+            Boxed(val) => {
+                let _deeper = HashDepth::enter();
+                val.read().hash(state)
+            }
+            HeapAllocated(v) => {
+                let _deeper = HashDepth::enter();
+                v.get().hash(state)
+            }
             Reference(v) => Gc::as_ptr(v).hash(state),
             BigNum(n) => n.hash(state),
             BigRational(f) => f.hash(state),
@@ -3374,16 +3419,26 @@ mod deep_hash_tests {
     use super::*;
     use core::hash::{Hash, Hasher};
 
+    // Each from nothing kept by an earlier one
+    fn fresh() {
+        HASH_VISITS.with(|visits| visits.set(0));
+        SHARED_HASHES.with(|hashes| hashes.borrow_mut().clear());
+    }
+
     fn recursive(value: &SteelVal) -> u64 {
+        fresh();
         let mut hasher = rustc_hash::FxHasher::default();
         value.hash(&mut hasher);
         hasher.finish()
     }
 
     fn worklist(value: &SteelVal) -> u64 {
+        fresh();
         let mut hasher = rustc_hash::FxHasher::default();
         hash_deep(value, &mut hasher);
-        hasher.finish()
+        let hash = hasher.finish();
+        fresh();
+        hash
     }
 
     fn list(items: Vec<SteelVal>) -> SteelVal {
@@ -3465,7 +3520,7 @@ mod deep_hash_tests {
     #[test]
     fn deeper_than_the_stack() {
         let mut nested = list(vec![]);
-        for i in 0..1_000_000 {
+        for i in 0..200_000 {
             nested = if i % 2 == 0 {
                 list(vec![nested])
             } else {

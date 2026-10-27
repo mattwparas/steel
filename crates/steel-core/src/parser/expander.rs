@@ -387,6 +387,27 @@ pub struct MacroCase {
     binders: Vec<InternedString>,
 }
 
+// A template or pattern can nest deeper than dropping it recursively has stack for
+impl Drop for MacroCase {
+    fn drop(&mut self) {
+        steel_parser::ast::drop_deep([core::mem::take(&mut self.body)]);
+
+        let mut patterns = core::mem::take(&mut self.args.args);
+        while let Some(pattern) = patterns.pop() {
+            match pattern {
+                MacroPattern::Rest(inner) | MacroPattern::Many(inner) => patterns.push(*inner),
+                MacroPattern::Nested(mut list, _) => {
+                    patterns.extend(core::mem::take(&mut list.args))
+                }
+                MacroPattern::QuotedExpr(quote) => {
+                    steel_parser::ast::drop_deep([quote.expr]);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 struct PatternContext<'a> {
     name: InternedString,
     special_forms: &'a [InternedString],
@@ -721,7 +742,16 @@ impl MacroPattern {
         }
     }
 
+    // A pattern nests as deep as it likes
     fn parse_from_list(
+        list: List,
+        ctx: &mut PatternContext,
+        top_level: bool,
+    ) -> Result<(Vec<MacroPattern>, Option<InternedString>)> {
+        crate::compiler::passes::with_stack(|| Self::parse_list(list, ctx, top_level))
+    }
+
+    fn parse_list(
         list: List,
         ctx: &mut PatternContext,
         top_level: bool,

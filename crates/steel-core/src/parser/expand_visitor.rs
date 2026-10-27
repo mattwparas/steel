@@ -2147,11 +2147,26 @@ impl<'a> Expander<'a> {
 
     // The prelude's macros in transformer code, as phase 1 has them too. The code's own
     // macros are phase 0's.
-    fn expand_prelude_macros(&mut self, body: &mut [ExprKind]) -> Result<()> {
+    // `definition` is the define-syntax, whose forms from the third on are the transformer's
+    // body when it's `(define-syntax (name stx) body ...)`
+    fn expand_prelude_macros(&mut self, definition: &mut ThinVec<ExprKind>) -> Result<()> {
         let kernel = self.kernel.take();
         let prelude_only = core::mem::replace(&mut self.prelude_only, true);
         let base = core::mem::replace(&mut self.prelude_base, self.local_macros.macros.len());
-        let result = body.iter_mut().try_for_each(|x| self.visit(x));
+
+        // The macros the body defines are the whole body's
+        let result = self
+            .local_macros
+            .enter(definition, 2, &self.in_scope_values)
+            .and_then(|visible| {
+                let result = definition
+                    .iter_mut()
+                    .skip(2)
+                    .try_for_each(|x| self.visit(x));
+                self.local_macros.leave(visible);
+                result
+            });
+
         self.prelude_base = base;
         self.prelude_only = prelude_only;
         self.kernel = kernel;
@@ -2673,7 +2688,7 @@ impl<'a> Expander<'a> {
                             if let Some(map) = self.map.macros_mut().filter(|_| top_level) {
                                 forget_replaced_macro(map, l);
                             }
-                            self.expand_prelude_macros(l.args.get_mut(2..).unwrap_or_default())?;
+                            self.expand_prelude_macros(&mut l.args)?;
                             if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
                                 if !local && made {
                                     self.defined_procedural.extend(defined);
@@ -2728,7 +2743,7 @@ impl<'a> Expander<'a> {
                             if let Some(map) = self.map.macros_mut().filter(|_| top_level) {
                                 forget_replaced_macro(map, l);
                             }
-                            self.expand_prelude_macros(l.args.get_mut(2..).unwrap_or_default())?;
+                            self.expand_prelude_macros(&mut l.args)?;
                             if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
                                 if !local {
                                     self.defined_procedural.extend(defined);

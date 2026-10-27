@@ -626,8 +626,9 @@ impl ExprKind {
 }
 
 impl fmt::Display for ExprKind {
+    // Printing recurses as deep as the code nests
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
+        crate::visitors::with_stack(|| match self {
             ExprKind::Atom(a) => write!(f, "{a}"),
             ExprKind::If(i) => write!(f, "{i}"),
             ExprKind::Define(d) => write!(f, "{d}"),
@@ -642,7 +643,7 @@ impl fmt::Display for ExprKind {
             ExprKind::Set(s) => write!(f, "{s}"),
             ExprKind::Require(r) => write!(f, "{r}"),
             ExprKind::Vector(v) => write!(f, "{v}"),
-        }
+        })
     }
 }
 

@@ -2871,10 +2871,23 @@ fn expand_phase1_forms(
     ast: &mut [ExprKind],
     macro_map: &FxHashMap<InternedString, SteelMacro>,
 ) -> Result<()> {
+    // A template that names `begin-for-syntax`
+    struct NamesBeginForSyntax(bool);
+
+    impl<'a> crate::compiler::passes::VisitorMutUnitRef<'a> for NamesBeginForSyntax {
+        fn visit_atom(&mut self, a: &'a Atom) {
+            self.0 |= a
+                .ident()
+                .is_some_and(|x| *x == *crate::compiler::program::BEGIN_FOR_SYNTAX);
+        }
+    }
+
     let makes_phase1 = macro_map.values().any(|m| {
-        m.cases
-            .iter()
-            .any(|case| case.body.to_string().contains("begin-for-syntax"))
+        m.cases.iter().any(|case| {
+            let mut names = NamesBeginForSyntax(false);
+            crate::compiler::passes::VisitorMutUnitRef::visit(&mut names, &case.body);
+            names.0
+        })
     });
 
     if !makes_phase1 {
