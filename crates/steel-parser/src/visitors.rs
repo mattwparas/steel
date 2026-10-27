@@ -129,11 +129,25 @@ mod eraser {
     }
 }
 
+// Visits recurse as deep as the code nests, which macros can make deeper than the stack
+#[inline(always)]
+pub fn with_stack<R>(f: impl FnOnce() -> R) -> R {
+    #[cfg(feature = "stacker")]
+    {
+        stacker::maybe_grow(256 * 1024, 8 * 1024 * 1024, f)
+    }
+
+    #[cfg(not(feature = "stacker"))]
+    {
+        f()
+    }
+}
+
 pub trait VisitorMut {
     type Output;
 
     fn visit(&mut self, expr: &ExprKind) -> Self::Output {
-        match expr {
+        with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
@@ -148,7 +162,7 @@ pub trait VisitorMut {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_if(&mut self, f: &If) -> Self::Output;
@@ -171,7 +185,7 @@ pub trait Visitor {
     type Output;
 
     fn visit(&self, expr: &ExprKind) -> Self::Output {
-        match expr {
+        with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
@@ -186,7 +200,7 @@ pub trait Visitor {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_if(&self, f: &If) -> Self::Output;
@@ -208,7 +222,7 @@ pub trait Visitor {
 pub trait ConsumingVisitor {
     type Output;
     fn visit(&mut self, expr: ExprKind) -> Self::Output {
-        match expr {
+        with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
@@ -223,7 +237,7 @@ pub trait ConsumingVisitor {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_if(&mut self, f: Box<If>) -> Self::Output;
@@ -245,7 +259,7 @@ pub trait ConsumingVisitor {
 pub trait ConsumingVisitorRef {
     type Output;
     fn visit(&self, expr: ExprKind) -> Self::Output {
-        match expr {
+        with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
@@ -260,7 +274,7 @@ pub trait ConsumingVisitorRef {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_if(&self, f: Box<If>) -> Self::Output;
@@ -283,7 +297,7 @@ pub trait VisitorMutRef {
     type Output;
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
-        match expr {
+        with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
@@ -298,7 +312,7 @@ pub trait VisitorMutRef {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     fn visit_if(&mut self, f: &mut If) -> Self::Output;

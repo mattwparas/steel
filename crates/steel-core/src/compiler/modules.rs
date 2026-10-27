@@ -1415,6 +1415,15 @@ pub struct CompiledModule {
     reexports: Vec<Reexport>,
 }
 
+// A module's code can nest deeper than dropping it recursively has stack for
+impl Drop for CompiledModule {
+    fn drop(&mut self) {
+        steel_parser::ast::drop_deep(core::mem::take(&mut self.ast));
+        steel_parser::ast::drop_deep(core::mem::take(&mut self.provides));
+        steel_parser::ast::drop_deep(self.compiled_ast.take());
+    }
+}
+
 // A macro a module provides that another module defines
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct Reexport {

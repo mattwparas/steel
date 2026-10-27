@@ -329,6 +329,12 @@ impl Phase1Expander<'_> {
                     }
                 }
                 ExprKind::List(inner) => self.visit_template(inner)?,
+                // The holes in quoted data and vectors are code too
+                ExprKind::Quote(q) => self.visit_unsyntax_holes(&mut q.expr)?,
+                ExprKind::Vector(v) => v
+                    .args
+                    .iter_mut()
+                    .try_for_each(|x| self.visit_unsyntax_holes(x))?,
                 _ => {}
             }
         }
@@ -427,6 +433,31 @@ pub(crate) fn form_name(l: &super::ast::List) -> Option<&str> {
         TokenType::UnquoteSyntax => Some("#%unsyntax"),
         TokenType::UnquoteSpliceSyntax => Some("#%unsyntax-splicing"),
         _ => None,
+    }
+}
+
+impl Phase1Expander<'_> {
+    fn visit_unsyntax_holes(&mut self, expr: &mut ExprKind) -> Result<()> {
+        match expr {
+            // Quoted, `#,` reads as `unsyntax`
+            ExprKind::List(l)
+                if form_name(l).is_some_and(|x| {
+                    UNSYNTAX_FORMS.contains(&x) || x == "unsyntax" || x == "unsyntax-splicing"
+                }) =>
+            {
+                l.args.iter_mut().skip(1).try_for_each(|x| self.visit(x))
+            }
+            ExprKind::List(l) => l
+                .args
+                .iter_mut()
+                .try_for_each(|x| self.visit_unsyntax_holes(x)),
+            ExprKind::Vector(v) => v
+                .args
+                .iter_mut()
+                .try_for_each(|x| self.visit_unsyntax_holes(x)),
+            ExprKind::Quote(q) => self.visit_unsyntax_holes(&mut q.expr),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -541,8 +572,9 @@ impl VisitorMutRef for Phase1Expander<'_> {
         self.visit(&mut r.expr)
     }
 
-    fn visit_quote(&mut self, _quote: &mut Quote) -> Result<()> {
-        Ok(())
+    // A quote in a quasisyntax template is data, apart from its `#,` holes
+    fn visit_quote(&mut self, quote: &mut Quote) -> Result<()> {
+        self.visit_unsyntax_holes(&mut quote.expr)
     }
 
     fn visit_macro(&mut self, _m: &mut super::ast::Macro) -> Result<()> {
@@ -583,7 +615,11 @@ impl VisitorMutRef for Phase1Expander<'_> {
                 result
             }
             Some("#%syntax-without-patterns") => Ok(()),
-            Some(head) if QUOTE_FORMS.contains(&head) => Ok(()),
+            Some(head) if QUOTE_FORMS.contains(&head) => l
+                .args
+                .iter_mut()
+                .skip(1)
+                .try_for_each(|x| self.visit_unsyntax_holes(x)),
             Some(head) if QUASI_FORMS.contains(&head) => self.visit_template(l),
             // The patterns of each clause aren't code. The expander leaves `syntax-case` alone,
             // so it's renamed to the kernel's macro for one in an expression. The define-syntax

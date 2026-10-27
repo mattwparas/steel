@@ -146,6 +146,75 @@ impl Default for ExprKind {
     }
 }
 
+// Drops expressions however deep they nest. Dropping them as usual recurses as deep as they
+// nest, which code a macro made can nest deeper than the stack.
+pub fn drop_deep(exprs: impl IntoIterator<Item = ExprKind>) {
+    fn push(stack: &mut Vec<ExprKind>, expr: ExprKind) {
+        if !matches!(expr, ExprKind::Atom(_)) {
+            stack.push(expr);
+        }
+    }
+
+    fn push_all(stack: &mut Vec<ExprKind>, exprs: impl IntoIterator<Item = ExprKind>) {
+        exprs.into_iter().for_each(|x| push(stack, x));
+    }
+
+    let mut stack = Vec::new();
+    push_all(&mut stack, exprs);
+
+    // Each expression is dropped once its children are taken out of it
+    while let Some(mut expr) = stack.pop() {
+        let take = core::mem::take::<ExprKind>;
+
+        match &mut expr {
+            ExprKind::Atom(_) => {}
+            ExprKind::If(f) => {
+                push(&mut stack, take(&mut f.test_expr));
+                push(&mut stack, take(&mut f.then_expr));
+                push(&mut stack, take(&mut f.else_expr));
+            }
+            ExprKind::Let(l) => {
+                for (binder, value) in core::mem::take(&mut l.bindings) {
+                    push(&mut stack, binder);
+                    push(&mut stack, value);
+                }
+                push(&mut stack, take(&mut l.body_expr));
+            }
+            ExprKind::Define(d) => {
+                push(&mut stack, take(&mut d.name));
+                push(&mut stack, take(&mut d.body));
+            }
+            ExprKind::LambdaFunction(l) => {
+                push_all(&mut stack, core::mem::take(&mut l.args));
+                push(&mut stack, take(&mut l.body));
+            }
+            ExprKind::Begin(b) => push_all(&mut stack, core::mem::take(&mut b.exprs)),
+            ExprKind::Return(r) => push(&mut stack, take(&mut r.expr)),
+            ExprKind::Quote(q) => push(&mut stack, take(&mut q.expr)),
+            ExprKind::Macro(m) => {
+                push(&mut stack, take(&mut m.name));
+                push_syntax_rules(&mut stack, &mut m.syntax_rules);
+            }
+            ExprKind::SyntaxRules(s) => push_syntax_rules(&mut stack, s),
+            ExprKind::List(l) => push_all(&mut stack, core::mem::take(&mut l.args)),
+            ExprKind::Set(s) => {
+                push(&mut stack, take(&mut s.variable));
+                push(&mut stack, take(&mut s.expr));
+            }
+            ExprKind::Require(r) => push_all(&mut stack, core::mem::take(&mut r.modules)),
+            ExprKind::Vector(v) => push_all(&mut stack, core::mem::take(&mut v.args)),
+        }
+    }
+
+    fn push_syntax_rules(stack: &mut Vec<ExprKind>, s: &mut SyntaxRules) {
+        push_all(stack, core::mem::take(&mut s.syntax));
+        for pattern in core::mem::take(&mut s.patterns) {
+            push(stack, pattern.pattern);
+            push(stack, pattern.body);
+        }
+    }
+}
+
 #[test]
 fn check_size() {
     println!("ExprKind: {}", core::mem::size_of::<ExprKind>());

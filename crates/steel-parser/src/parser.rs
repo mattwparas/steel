@@ -134,17 +134,6 @@ impl ExpansionMark {
     pub fn is_template(self) -> bool {
         self != Self::NONE && self != Self::UNKNOWN
     }
-
-    // Marks made from here on have an index at least this
-    pub fn next_index() -> u32 {
-        EXPANSION_MARK_COUNTER.load(Ordering::Relaxed)
-            & !(Self::DEFINITION_RESOLVED | Self::PRELUDE)
-    }
-
-    // The order it was made in
-    pub fn index(self) -> u32 {
-        self.0 & !(Self::DEFINITION_RESOLVED | Self::PRELUDE)
-    }
 }
 
 #[derive(
@@ -1804,7 +1793,20 @@ struct ASTLowerPass {
 }
 
 impl ASTLowerPass {
+    // Lowering recurses as deep as the code nests, which macros can make deeper than the stack
     fn lower(&mut self, expr: &mut ExprKind) -> Result<()> {
+        #[cfg(feature = "stacker")]
+        {
+            stacker::maybe_grow(256 * 1024, 8 * 1024 * 1024, || self.lower_expr(expr))
+        }
+
+        #[cfg(not(feature = "stacker"))]
+        {
+            self.lower_expr(expr)
+        }
+    }
+
+    fn lower_expr(&mut self, expr: &mut ExprKind) -> Result<()> {
         let top_level = core::mem::replace(&mut self.top_level, false);
         let in_body = core::mem::replace(&mut self.in_body, false);
 

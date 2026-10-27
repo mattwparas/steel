@@ -5442,6 +5442,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "smallvec",
+ "stacker",
  "thin-vec",
 ]
 

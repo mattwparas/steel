@@ -10,7 +10,7 @@ use steel_parser::ast::{
 use steel_parser::parser::{lower_macro_and_require_definitions, SourceId};
 use steel_parser::tokens::NumberLiteral;
 
-use crate::compiler::modules::RequiredModuleMacros;
+use crate::compiler::modules::{RequiredModuleMacros, PRELUDE_MODULES};
 use crate::compiler::passes::mangle::NameMangler;
 use crate::compiler::passes::VisitorMutRefUnit;
 use crate::compiler::program::{DEFINE, LAMBDA, LAMBDA_FN, LAMBDA_SYMBOL, LET};
@@ -442,6 +442,9 @@ pub fn expand(
         kernel: None,
         define_top_level_procedural: false,
         defined_procedural: Vec::new(),
+        head_only: false,
+        head_expanded: false,
+        prelude_only: false,
     };
     expander.visit(expr)?;
 
@@ -510,6 +513,9 @@ pub fn expand_with_source_id(
         kernel: None,
         define_top_level_procedural: false,
         defined_procedural: Vec::new(),
+        head_only: false,
+        head_expanded: false,
+        prelude_only: false,
     };
 
     expander.visit(expr)?;
@@ -1775,6 +1781,11 @@ pub struct Expander<'a> {
     foreign: bool,
     // The procedural macros, which it expands where they're used too
     pub(crate) kernel: Option<KernelExpander<'a>>,
+    // Expand only the form's own macro use, once, and whether it did
+    head_only: bool,
+    head_expanded: bool,
+    // Expanding transformer code, which only gets the prelude's macros at phase 0
+    prelude_only: bool,
     // A procedural macro a macro made at the top level is defined where it's made, and its name
     // kept for the code that checks definitions
     pub(crate) define_top_level_procedural: bool,
@@ -1847,6 +1858,9 @@ impl<'a> Expander<'a> {
             kernel: None,
             define_top_level_procedural: false,
             defined_procedural: Vec::new(),
+            head_only: false,
+            head_expanded: false,
+            prelude_only: false,
         }
     }
 }
@@ -1873,6 +1887,9 @@ impl<'a> Expander<'a> {
             kernel: None,
             define_top_level_procedural: false,
             defined_procedural: Vec::new(),
+            head_only: false,
+            head_expanded: false,
+            prelude_only: false,
         }
     }
 
@@ -1913,6 +1930,7 @@ impl<'a> Expander<'a> {
         top_level: bool,
         body_form: bool,
     ) -> Result<Option<ExprKind>> {
+        let head_only = core::mem::take(&mut self.head_only);
         let Some(kernel) = self.kernel.as_mut() else {
             return Ok(None);
         };
@@ -1958,30 +1976,19 @@ impl<'a> Expander<'a> {
 
         match used {
             KernelUse::Done(expr) => Ok(Some(expr)),
+            KernelUse::Expanded { expr, .. } if head_only => {
+                self.head_expanded = true;
+                Ok(Some(expr))
+            }
             KernelUse::Expanded {
                 mut expr,
-                foreign,
                 definition,
             } => {
-                let outer = self.kernel.as_mut().map(|kernel| {
-                    let since = kernel.foreign_since;
-                    // What the required module's macros make from here on
-                    if foreign && !kernel.foreign {
-                        kernel.foreign_since = ExpansionMark::next_index();
-                    }
-                    (core::mem::replace(&mut kernel.foreign, foreign), since)
-                });
-
                 self.depth += 1;
                 self.top_level = top_level;
                 self.body_form = body_form;
                 let result = self.visit(&mut expr);
                 self.depth -= 1;
-
-                if let (Some(kernel), Some((outer, since))) = (self.kernel.as_mut(), outer) {
-                    kernel.foreign = outer;
-                    kernel.foreign_since = since;
-                }
                 result?;
 
                 // The definition expands to void, in the body the macro is defined in
@@ -2017,7 +2024,163 @@ impl<'a> Expander<'a> {
             self.visit(form)?;
         }
 
+        // Then each form's macro uses, until it's a definition or an expression, so what a
+        // macro defines is the whole body's too. The body's variables hide macros in all of it.
+        let in_body = self.kernel.as_ref().is_some_and(|x| x.locals.depth() > 1);
+        if in_body {
+            self.define_body_variables(forms);
+        }
+
+        for i in 0..forms.len() {
+            if !self.expand_head(&mut forms[i])? {
+                continue;
+            }
+
+            if in_body {
+                self.define_body_variables(core::slice::from_mut(&mut forms[i]));
+            }
+
+            if procedural_definition(&forms[i]) {
+                self.body_form = true;
+                self.visit(&mut forms[i])?;
+            } else if defines_body_macro(&forms[i]) {
+                let mut defines = Vec::new();
+                body_defines(forms, &mut defines);
+                self.define_generated_macros(&mut forms[i], &defines)?;
+            }
+        }
+
         Ok(())
+    }
+
+    // The prelude's macros in transformer code, as phase 1 has them too. The code's own
+    // macros are phase 0's.
+    fn expand_prelude_macros(&mut self, body: Option<&mut ExprKind>) -> Result<()> {
+        let Some(body) = body else {
+            return Ok(());
+        };
+
+        let kernel = self.kernel.take();
+        let prelude_only = core::mem::replace(&mut self.prelude_only, true);
+        let result = self.visit(body);
+        self.prelude_only = prelude_only;
+        self.kernel = kernel;
+        result
+    }
+
+    // The syntax-rules macros a body form a macro made defines. A begin's are the body's, as
+    // when it's spliced.
+    fn define_generated_macros(
+        &mut self,
+        form: &mut ExprKind,
+        defines: &[InternedString],
+    ) -> Result<()> {
+        match form {
+            ExprKind::List(l) if is_begin(l) => {
+                self.local_macros
+                    .splice(&mut l.args, 1, &self.in_scope_values)
+            }
+            ExprKind::Begin(b) => self
+                .local_macros
+                .splice(&mut b.exprs, 0, &self.in_scope_values),
+            form => self
+                .local_macros
+                .define_expanded(form, false, &self.in_scope_values, defines),
+        }
+    }
+
+    fn define_body_variables(&mut self, forms: &[ExprKind]) {
+        for form in forms {
+            match form {
+                ExprKind::Define(d) => {
+                    if let Some(name) = d.name.atom_identifier() {
+                        self.in_scope_values.define(*name);
+                    }
+                    if let Some(kernel) = self.kernel.as_mut() {
+                        kernel.defined(&d.name);
+                    }
+                }
+                ExprKind::Begin(b) => self.define_body_variables(&b.exprs),
+                ExprKind::List(l) if is_begin(l) => self.define_body_variables(&l.args[1..]),
+                ExprKind::List(l)
+                    if l.args.len() > 1
+                        && matches!(
+                            l.first(),
+                            Some(ExprKind::Atom(Atom {
+                                syn: SyntaxObject {
+                                    ty: TokenType::Define,
+                                    ..
+                                },
+                            }))
+                        ) =>
+                {
+                    let name = match &l.args[1] {
+                        ExprKind::List(signature) => signature.first_ident(),
+                        name => name.atom_identifier(),
+                    };
+                    if let Some(name) = name {
+                        self.in_scope_values.define(*name);
+                    }
+                    if let Some(kernel) = self.kernel.as_mut() {
+                        kernel.defined(&l.args[1]);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Expand a body form's own macro use until it's something else
+    fn expand_head(&mut self, form: &mut ExprKind) -> Result<bool> {
+        let mut expanded = false;
+
+        // One that doesn't finish is reported where the body is expanded
+        for _ in 0..MAX_EXPANSION_DEPTH {
+            match form {
+                ExprKind::List(l) if is_begin(l) => {
+                    for form in l.args[1..].iter_mut() {
+                        expanded |= self.expand_head(form)?;
+                    }
+                    return Ok(expanded);
+                }
+                ExprKind::List(l) => {
+                    let Some(
+                        head @ ExprKind::Atom(Atom {
+                            syn:
+                                SyntaxObject {
+                                    ty: TokenType::Identifier(s),
+                                    ..
+                                },
+                        }),
+                    ) = l.first()
+                    else {
+                        return Ok(expanded);
+                    };
+
+                    if [*LAMBDA_SYMBOL, *LAMBDA, *QUOTE, *SYNTAX_CASE, *SYNTAX_RULES].contains(s)
+                        || *s == *DEFINE_SYNTAX
+                        || is_let_head(head)
+                        || defines_local_macro(l)
+                    {
+                        return Ok(expanded);
+                    }
+                }
+                _ => return Ok(expanded),
+            }
+
+            self.head_only = true;
+            self.head_expanded = false;
+            self.body_form = true;
+            self.visit(form)?;
+            self.head_only = false;
+
+            if !core::mem::take(&mut self.head_expanded) {
+                return Ok(expanded);
+            }
+            expanded = true;
+        }
+
+        Ok(expanded)
     }
 
     // A begin in a body is part of it, so what it defines stays for the rest of the body.
@@ -2065,6 +2228,8 @@ impl<'a> Expander<'a> {
             stop!(BadSyntax => "macro expansion doesn't finish";
                 crate::parser::span_visitor::get_span(expr));
         }
+
+        let head_only = core::mem::take(&mut self.head_only);
 
         let top_level = core::mem::replace(&mut self.top_level, false);
         let body_form = core::mem::replace(&mut self.body_form, false);
@@ -2132,6 +2297,22 @@ impl<'a> Expander<'a> {
                     if let Some(kernel) = self.kernel.as_mut() {
                         kernel.rules_defined(l);
                     }
+                    return Ok(());
+                }
+
+                // A template in transformer code is the code it makes
+                if self.prelude_only
+                    && matches!(
+                        super::kernel::form_name(l),
+                        Some(
+                            "syntax"
+                                | "quasisyntax"
+                                | "quote-syntax"
+                                | "#%expand-syntax-case"
+                                | "#%quasisyntax"
+                        )
+                    )
+                {
                     return Ok(());
                 }
 
@@ -2322,6 +2503,7 @@ impl<'a> Expander<'a> {
                             if let Some(map) = self.map.macros_mut().filter(|_| top_level) {
                                 forget_replaced_macro(map, l);
                             }
+                            self.expand_prelude_macros(l.args.get_mut(2))?;
                             if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
                                 if !local && made {
                                     self.defined_procedural.extend(defined);
@@ -2376,6 +2558,7 @@ impl<'a> Expander<'a> {
                             if let Some(map) = self.map.macros_mut().filter(|_| top_level) {
                                 forget_replaced_macro(map, l);
                             }
+                            self.expand_prelude_macros(l.args.get_mut(2))?;
                             if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
                                 if !local {
                                     self.defined_procedural.extend(defined);
@@ -2550,7 +2733,10 @@ impl<'a> Expander<'a> {
                         let prelude_macro = prelude_macros.as_ref().and_then(|x| x.get(s));
                         let s = alias.as_ref().unwrap_or(s);
 
-                        let local = self.local_macros.find_marked(s, *mark);
+                        let prelude_only = self.prelude_only;
+                        let local = (!prelude_only)
+                            .then(|| self.local_macros.find_marked(s, *mark))
+                            .flatten();
 
                         // At the top level a procedural macro defined before the use is the one
                         // it means, as a syntax-rules one of the name defined after it is
@@ -2585,6 +2771,12 @@ impl<'a> Expander<'a> {
                                 self.local_macros.expanded(defining, mark);
                                 self.changed = true;
 
+                                if head_only {
+                                    self.head_expanded = true;
+                                    *expr = expanded;
+                                    return Ok(());
+                                }
+
                                 self.depth += 1;
 
                                 self.body_form = body_form;
@@ -2601,6 +2793,10 @@ impl<'a> Expander<'a> {
                             self.overlays
                                 .iter()
                                 .enumerate()
+                                .filter(|(_, x)| {
+                                    !prelude_only
+                                        || PRELUDE_MODULES.contains(&x.map.module_name.as_str())
+                                })
                                 .find_map(|(index, x)| {
                                     let found = x.map.in_scope_macros.get(s);
                                     if found.is_some() {
@@ -2609,7 +2805,7 @@ impl<'a> Expander<'a> {
 
                                     found
                                 })
-                                .or_else(|| self.map.get(s))
+                                .or_else(|| (!prelude_only).then(|| self.map.get(s)).flatten())
                         }) {
                             // Interweave the macro expansion
                             if !self.exclusions.contains(s) {
@@ -2643,6 +2839,12 @@ impl<'a> Expander<'a> {
                                         record_foreign_mark(mark);
                                     }
 
+                                    if head_only {
+                                        self.head_expanded = true;
+                                        *expr = expanded;
+                                        return Ok(());
+                                    }
+
                                     self.depth += 1;
                                     self.top_level = top_level;
 
@@ -2671,8 +2873,13 @@ impl<'a> Expander<'a> {
 
                 // A procedural macro gets its arguments as they're written, as the macros
                 // expand from the outside in
+                self.head_only = head_only;
                 if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
                     *expr = expanded;
+                    return Ok(());
+                }
+
+                if head_only {
                     return Ok(());
                 }
 
@@ -2871,11 +3078,9 @@ pub struct RequiredKernelMacros<'a> {
 enum KernelUse {
     // Nothing more to expand in it
     Done(ExprKind),
-    // What a macro made, to expand in the required module's names (`foreign`), with the
-    // marker a function's macro definition leaves
+    // What a macro made, to expand, with the marker a function's macro definition leaves
     Expanded {
         expr: ExprKind,
-        foreign: bool,
         definition: Option<(InternedString, steel_parser::span::Span, ExpansionMark)>,
     },
 }
@@ -2901,11 +3106,6 @@ pub struct KernelExpander<'a> {
     // Which of `local_macros` a function's syntax-rules macro sees, the same way, by its name and
     // where it's defined
     rules_sees: FxHashMap<(InternedString, steel_parser::span::Span), (usize, usize)>,
-    // In what a required module's macro made, where the names it introduced aren't the
-    // environment's macros: those of the marks made since `foreign_since`, as one the input
-    // brought in is the code's
-    foreign: bool,
-    foreign_since: u32,
     // The procedural macros the bodies around here define, which hide imported ones in them
     local_hidden: Vec<(InternedString, ExpansionMark, usize)>,
     // Where each of `local_macros` is defined, by its kernel name
@@ -2926,8 +3126,6 @@ impl<'a> KernelExpander<'a> {
             local_expansions: FxHashMap::default(),
             rules_sees: FxHashMap::default(),
             required: Vec::new(),
-            foreign: false,
-            foreign_since: 0,
             local_hidden: Vec::new(),
             local_definitions: FxHashMap::default(),
         }
@@ -3040,15 +3238,11 @@ impl<'a> KernelExpander<'a> {
 
         // A name a required module's macro introduced is resolved where that
         // macro is defined
-        let introduced = head.is_some_and(|head| {
-            head.mark.is_definition_resolved() && head.mark.index() >= self.foreign_since
-        });
-        let foreign_mark = head.is_some_and(|head| {
+        let foreign_name = head.is_some_and(|head| {
             self.map
                 .as_ref()
                 .is_some_and(|map| map.is_foreign_mark(head.mark))
         });
-        let foreign_name = foreign_mark || self.foreign && introduced;
 
         // The innermost macro of the name a function here defines that this
         // use means
@@ -3093,7 +3287,6 @@ impl<'a> KernelExpander<'a> {
                 self.changed = true;
                 return Ok(Some(KernelUse::Expanded {
                     expr: expanded,
-                    foreign: self.foreign,
                     definition: None,
                 }));
             }
@@ -3120,7 +3313,6 @@ impl<'a> KernelExpander<'a> {
 
                 return Ok(Some(KernelUse::Expanded {
                     expr: expanded,
-                    foreign: true,
                     definition: None,
                 }));
             }
@@ -3243,7 +3435,6 @@ impl<'a> KernelExpander<'a> {
 
                 return Ok(Some(KernelUse::Expanded {
                     expr: expanded,
-                    foreign: false,
                     definition: local_definition,
                 }));
             }
@@ -3547,6 +3738,11 @@ pub(crate) fn expand_keyword_arguments(expr: &mut ExprKind) -> Result<()> {
         type Output = Result<()>;
 
         fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
+            // Only a lambda that's the define's value has its name
+            if !matches!(expr, ExprKind::LambdaFunction(_)) {
+                self.define_context = None;
+            }
+
             crate::compiler::passes::with_stack(|| match expr {
                 ExprKind::If(f) => self.visit_if(f),
                 ExprKind::Define(d) => self.visit_define(d),

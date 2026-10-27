@@ -75,10 +75,10 @@ pub trait Folder {
     }
 
     fn visit(&mut self, expr: ExprKind) -> ExprKind {
-        match expr {
+        with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => with_stack(|| self.visit_lambda_function(l)),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -90,7 +90,7 @@ pub trait Folder {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     #[inline]
@@ -186,10 +186,10 @@ pub trait Folder {
 
 pub trait VisitorMutUnit {
     fn visit(&mut self, expr: &ExprKind) {
-        match expr {
+        with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => with_stack(|| self.visit_lambda_function(l)),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -201,7 +201,7 @@ pub trait VisitorMutUnit {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     #[inline]
@@ -274,10 +274,10 @@ pub trait VisitorMutUnit {
 
 pub trait VisitorMutControlFlow {
     fn visit(&mut self, expr: &ExprKind) -> ControlFlow<()> {
-        match expr {
+        with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => with_stack(|| self.visit_lambda_function(l)),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -289,7 +289,7 @@ pub trait VisitorMutControlFlow {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     #[inline]
@@ -397,10 +397,10 @@ pub trait VisitorMutControlFlow {
 
 pub trait VisitorMutUnitRef<'a> {
     fn visit(&mut self, expr: &'a ExprKind) {
-        match expr {
+        with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => with_stack(|| self.visit_lambda_function(l)),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -412,7 +412,7 @@ pub trait VisitorMutUnitRef<'a> {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     #[inline]
@@ -497,10 +497,10 @@ pub trait VisitorMutUnitRef<'a> {
 
 pub trait VisitorMutRefUnit {
     fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
+        with_stack(|| match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => with_stack(|| self.visit_lambda_function(l)),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
@@ -512,7 +512,7 @@ pub trait VisitorMutRefUnit {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
-        }
+        })
     }
 
     #[inline]
