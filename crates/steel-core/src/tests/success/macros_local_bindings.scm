@@ -73,3 +73,51 @@
   (define (sibling a) (list 'fn a))
   (use))
 (assert! (equal? (sibling-hidden) '(fn 1)))
+
+;; A body's define hides a macro a body macro's template names, where that macro is defined
+(define-syntax (global-m stx) (syntax-case stx () [(_) #''macro]))
+(define (body-define-hides)
+  (define (global-m) 'body)
+  (define-syntax (call s) (syntax-case s () [(_) #'(global-m)]))
+  (call))
+(assert! (equal? (body-define-hides) 'body))
+
+;; A template's set! of a variable where its macro is defined, used where a macro has the name
+(define (template-set)
+  (define m 0)
+  (define-syntax (g s) (syntax-case s () [(_) #'(begin (set! m 1) m)]))
+  (define (k) (define-syntax (m s) (syntax-case s () [(_) #''mac])) (list (g) (m)))
+  (k))
+(assert! (equal? (template-set) '(1 mac)))
+
+;; Defines in an expression's begins aren't the body's
+(define (expression-begins c)
+  (if c (begin (define y 1) y) (begin (define y 2) y)))
+(assert! (equal? (list (expression-begins #t) (expression-begins #f)) '(1 2)))
+
+;; A function's macro's template names a syntax-rules macro, not a use site's local
+(define-syntax rules-gr (syntax-rules () [(_) 'macro]))
+(define (template-names-rules)
+  (define-syntax (inner s) (syntax-case s () [(_) #'(rules-gr)]))
+  (let ([rules-gr (lambda () 'let)]) (inner)))
+(assert! (equal? (template-names-rules) 'macro))
+(define (template-names-local-rules)
+  (define-syntax m (syntax-rules () [(_) 'rules]))
+  (define-syntax (call-m s) (syntax-case s () [(_) #'(m)]))
+  (list (let ([m (lambda () 'let)]) (call-m)) (let () (define (m) 'inner) (call-m))))
+(assert! (equal? (template-names-local-rules) '(rules rules)))
+
+;; And a body's define, which a use site's binder doesn't capture
+(define (template-names-body-define)
+  (define-syntax (gz s) (syntax-case s () [(_) #'z]))
+  (define z 'body)
+  (list (let ([z 'inner]) (gz)) (gz)))
+(assert! (equal? (template-names-body-define) '(body body)))
+
+;; Match's code doesn't use the locals where it's used
+(define (match-under-shadowed-primitives)
+  (let ([car 1] [cdr 2] [null? 3] [not 4] [equal? 5] [reverse 6] [list? 7])
+    (list (match (list 1 2) [(list x y) (+ x y)])
+          (match '(1 (2 3)) [(list a (list b c)) (+ a b c)])
+          (match (list 1 2 3) [(list x ... y) (list x y)]))))
+(assert! (equal? (match-under-shadowed-primitives) '(3 6 ((1 2) 3))))

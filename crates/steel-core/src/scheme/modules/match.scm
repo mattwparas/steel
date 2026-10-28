@@ -176,11 +176,11 @@
                                  introduced-identifiers)
 
     (cond
-      [(quoted? pattern) `(and (equal? ,pattern (syntax-e ,input)) ,final-body-expr)]
+      [(quoted? pattern) `(and (#%prim.equal? ,pattern (syntax-e ,input)) ,final-body-expr)]
       [(and (list? pattern) (not (null? pattern)) (= cdr-depth 0))
        (cond
          [(equal? (car pattern) 'list)
-          `(if (list? (syntax-e ,input))
+          `(if (#%prim.list? (syntax-e ,input))
                ;; Recur after dropping the list
                ,(match-p-syntax-object (cdr pattern)
                                        `(syntax-e ,input)
@@ -203,17 +203,18 @@
              `(let ([,(car pattern) ,input]) ,final-body-expr))
            (begin
 
-             (vector-push! introduced-identifiers (car (cdr pattern)))
+             (vector-push! introduced-identifiers (car (cddr pattern)))
              (vector-push! introduced-identifiers (car pattern))
 
-             `(let ([collected (collect-until-last ,input)])
+             (let ([collected (gensym)])
+             `(let ([,collected (collect-until-last ,input)])
                 ,(if (null? (cdddr pattern))
-                     `(let ([,(car (cdr pattern)) (car collected)]
-                            [,(car pattern) (reverse (car (cdr collected)))])
+                     `(let ([,(car (cddr pattern)) (#%prim.car ,collected)]
+                            [,(car pattern) (#%prim.reverse (#%prim.car (#%prim.cdr ,collected)))])
 
                         ,final-body-expr)
 
-                     #f))))]
+                     #f)))))]
 
       ;; If the pattern is to be ignored, just return the body - the automatically match
       [(ignore? pattern) final-body-expr]
@@ -224,7 +225,7 @@
       [(var? pattern)
 
        (if check-var?
-           `(if (equal? ,pattern ,(syntax-e input)) ,final-body-expr #f)
+           `(if (#%prim.equal? ,pattern ,(syntax-e input)) ,final-body-expr #f)
            (begin
              ;; Keep track of the introduced identifiers
              (vector-push! introduced-identifiers pattern)
@@ -232,10 +233,10 @@
              `(let ([,pattern ,input]) ,final-body-expr)))]
 
       ;; If the pattern is the same, just return whether they match
-      [(atom? pattern) `(and (equal? ,pattern (syntax-e ,input)) ,final-body-expr)]
+      [(atom? pattern) `(and (#%prim.equal? ,pattern (syntax-e ,input)) ,final-body-expr)]
 
       ;; If there is no pattern, just return whether the pattern and input match
-      [(null? pattern) `(and (null? ,input) ,final-body-expr)]
+      [(null? pattern) `(and (#%prim.null? ,input) ,final-body-expr)]
 
       ;; TODO: Not sure how we can even get here?
       ; (displayln "getting here!")
@@ -267,11 +268,11 @@
 
        (if remaining
 
-           `(if (not (null? ,input))
+           `(if (#%prim.not (#%prim.null? ,input))
                 ;; Save our spot in the recursion so we don't have to recompute a bunch
                 ;; of stuff
-                (let ([,cdr-input-depth (cdr ,input)]
-                      [,car-input-depth (car ,input)])
+                (let ([,cdr-input-depth (#%prim.cdr ,input)]
+                      [,car-input-depth (#%prim.car ,input)])
                   ,(match-p-syntax-object (car pattern)
                                           car-input-depth
                                           remaining
@@ -297,11 +298,11 @@
                           introduced-identifiers)
 
     (cond
-      [(quoted? pattern) `(and (equal? ,pattern ,input) ,final-body-expr)]
+      [(quoted? pattern) `(and (#%prim.equal? ,pattern ,input) ,final-body-expr)]
       [(and (list? pattern) (not (null? pattern)) (= cdr-depth 0))
        (cond
          [(equal? (car pattern) 'list)
-          `(if (list? ,input)
+          `(if (#%prim.list? ,input)
                ;; Recur after dropping the list
                ,(match-p-syntax (cdr pattern)
                                 input
@@ -323,17 +324,18 @@
              `(let ([,(car pattern) ,input]) ,final-body-expr))
            (begin
 
-             (vector-push! introduced-identifiers (car (cdr pattern)))
+             (vector-push! introduced-identifiers (car (cddr pattern)))
              (vector-push! introduced-identifiers (car pattern))
 
-             `(let ([collected (collect-until-last ,input)])
+             (let ([collected (gensym)])
+             `(let ([,collected (collect-until-last ,input)])
                 ,(if (null? (cdddr pattern))
-                     `(let ([,(car (cdr pattern)) (car collected)]
-                            [,(car pattern) (reverse (car (cdr collected)))])
+                     `(let ([,(car (cddr pattern)) (#%prim.car ,collected)]
+                            [,(car pattern) (#%prim.reverse (#%prim.car (#%prim.cdr ,collected)))])
 
                         ,final-body-expr)
 
-                     #f))))]
+                     #f)))))]
 
       ;; If the pattern is to be ignored, just return the body - the automatically match
       [(ignore? pattern) final-body-expr]
@@ -344,7 +346,7 @@
       [(var? pattern)
 
        (if check-var?
-           `(if (equal? ,pattern ,input) ,final-body-expr #f)
+           `(if (#%prim.equal? ,pattern ,input) ,final-body-expr #f)
            (begin
              ;; Keep track of the introduced identifiers
              (vector-push! introduced-identifiers pattern)
@@ -352,10 +354,10 @@
              `(let ([,pattern ,input]) ,final-body-expr)))]
 
       ;; If the pattern is the same, just return whether they match
-      [(atom? pattern) `(and (equal? ,pattern ,input) ,final-body-expr)]
+      [(atom? pattern) `(and (#%prim.equal? ,pattern ,input) ,final-body-expr)]
 
       ;; If there is no pattern, just return whether the pattern and input match
-      [(null? pattern) `(and (null? ,input) ,final-body-expr)]
+      [(null? pattern) `(and (#%prim.null? ,input) ,final-body-expr)]
 
       ;; TODO: Not sure how we can even get here?
       ; (displayln "getting here!")
@@ -387,11 +389,11 @@
 
        (if remaining
 
-           `(if (not (null? ,input))
+           `(if (#%prim.not (#%prim.null? ,input))
                 ;; Save our spot in the recursion so we don't have to recompute a bunch
                 ;; of stuff
-                (let ([,car-input-depth (car ,input)]
-                      [,cdr-input-depth (cdr ,input)])
+                (let ([,car-input-depth (#%prim.car ,input)]
+                      [,cdr-input-depth (#%prim.cdr ,input)])
                   ,(match-p-syntax (car pattern)
                                    car-input-depth
                                    remaining
@@ -461,7 +463,7 @@
    `(define-values (,@(map (lambda (name) (written-identifier name written)) list-identifiers))
       (let ([,variable ,value])
         (let ([,temp ,(go-match pattern variable `(list ,@list-identifiers) (mutable-vector))])
-          (if (not (equal? #f ,temp))
+          (if (#%prim.not (#%prim.equal? #f ,temp))
               ,temp
               (error-with-span (quote ,(syntax-span (third unwrapped)))
                                "Unable to match the given expression: "

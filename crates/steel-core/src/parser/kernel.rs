@@ -1142,8 +1142,9 @@ pub struct Kernel {
     sandboxed: bool,
     // The macros the kernel defines itself, in the default environment
     builtin_macros: FxHashSet<InternedString>,
-    // The macros defined in functions, with the locals where each is defined
-    local_macros: FxHashMap<InternedString, FxHashSet<InternedString>>,
+    // The macros defined in functions, with the locals where each is defined and those of
+    // them a macro there hides
+    local_macros: FxHashMap<InternedString, LocalCaptures>,
     // The phase 1 variables each environment imports, by the globals they are
     phase1_aliases: FxHashMap<String, FxHashMap<InternedString, InternedString>>,
     // The procedural macros each environment's transformer code can use, with the
@@ -1288,7 +1289,19 @@ struct Introduced<'a> {
     macro_name: InternedString,
     // The locals where a macro defined in a function is defined, which what it introduces
     // can refer to
-    captures: FxHashSet<InternedString>,
+    captures: LocalCaptures,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LocalCaptures {
+    locals: Arc<FxHashSet<InternedString>>,
+    hidden: FxHashSet<InternedString>,
+}
+
+impl LocalCaptures {
+    fn contains(&self, name: &InternedString) -> bool {
+        self.locals.contains(name) && !self.hidden.contains(name)
+    }
 }
 
 impl Introduced<'_> {
@@ -2637,9 +2650,11 @@ impl Kernel {
     pub(crate) fn define_local_macro(
         &mut self,
         name: InternedString,
-        locals: FxHashSet<InternedString>,
+        locals: Arc<FxHashSet<InternedString>>,
+        hidden: FxHashSet<InternedString>,
     ) {
-        self.local_macros.insert(name, locals);
+        self.local_macros
+            .insert(name, LocalCaptures { locals, hidden });
     }
 
     pub(crate) fn add_macro_module(&mut self, prefix: CompactString, module: MacroModule) {
