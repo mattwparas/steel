@@ -147,6 +147,7 @@ test_harness_success! {
     keyword_args_are_checked,
     macros_expand_outside_in,
     macros_in_transformer_code,
+    macros_local_bindings,
     constant_fold_unused_function_args,
     template_quotes_and_keyword_params,
     quoted_false_and_variadic_equal,
@@ -561,6 +562,8 @@ test_harness_success_module! {
 test_harness_failure! {
     capped_depth_defmacro,
     constant_fold_rest,
+    duplicate_local_macro_and_variable,
+    duplicate_local_procedural_macro,
     define_syntax_ends_a_body,
     define_syntax_outside_a_body,
     function_used_before_definition,

@@ -843,8 +843,9 @@ impl ast::TryFromSteelValVisitorForExprKind {
                         // A procedural macro's definition stays a list for the kernel
                         Some(x)
                             if x.as_str() == "define-syntax"
-                                && !self.quoted
-                                && (self.in_transformer
+                                // In quoted data it's data
+                                && (self.quoted
+                                    || self.in_transformer
                                     || !l.get(2).is_some_and(ast::is_syntax_rules)) =>
                         {
                             let in_transformer = core::mem::replace(&mut self.in_transformer, true);

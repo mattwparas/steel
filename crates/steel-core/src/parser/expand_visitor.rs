@@ -1195,6 +1195,53 @@ impl VisitorMutRefUnit for CaptureLocals<'_> {
     }
 }
 
+// What a define defines by: its name, or the signature that starts with it, through a curried
+// define's `((f a) b)`
+fn define_target(target: &ExprKind) -> &ExprKind {
+    let mut target = target;
+    while let ExprKind::List(signature) = target {
+        match signature.first() {
+            Some(inner @ ExprKind::List(_)) => target = inner,
+            _ => break,
+        }
+    }
+    target
+}
+
+// `(define ((f a) b) body ...)` as `(define (f a) (lambda (b) body ...))`
+fn uncurry_define(l: &mut List) {
+    while let Some(ExprKind::List(signature)) = l.args.get(1) {
+        if !matches!(signature.first(), Some(ExprKind::List(_))) {
+            break;
+        }
+
+        let ExprKind::List(mut signature) = core::mem::take(&mut l.args[1]) else {
+            unreachable!()
+        };
+        let inner = signature.args.remove(0);
+        let span = l
+            .first()
+            .and_then(ExprKind::atom_syntax_object)
+            .map(|x| x.span)
+            .unwrap_or_default();
+
+        let mut lambda = thin_vec![
+            ExprKind::Atom(Atom::new(SyntaxObject::new(
+                TokenType::Identifier(*LAMBDA),
+                span,
+            ))),
+            ExprKind::List(List::new_maybe_improper(
+                core::mem::take(&mut signature.args),
+                signature.improper,
+            )),
+        ];
+        lambda.extend(l.args.drain(2..));
+
+        l.args[1] = inner;
+        l.args.push(ExprKind::List(List::new(lambda)));
+    }
+}
+
 fn body_defines(forms: &[ExprKind], names: &mut Vec<InternedString>) {
     for form in forms {
         match form {
@@ -1212,7 +1259,7 @@ fn body_defines(forms: &[ExprKind], names: &mut Vec<InternedString>) {
                     }))
                 ) =>
             {
-                match l.get(1) {
+                match l.get(1).map(define_target) {
                     Some(ExprKind::List(signature)) => {
                         names.extend(signature.first_ident().copied())
                     }
@@ -2058,17 +2105,20 @@ impl<'a> Expander<'a> {
             return Ok(0);
         }
 
+        // The body's variables hide macros in all of it, and a macro of one's name is a
+        // duplicate
+        let in_body = self.in_body();
+        if in_body {
+            self.define_body_variables(forms);
+        }
+
         for form in forms.iter_mut().filter(|x| procedural_definition(x)) {
             self.body_form = true;
             self.visit(form)?;
         }
 
         // Then each form's macro uses, until it's a definition or an expression, so what a
-        // macro defines is the whole body's too. The body's variables hide macros in all of it.
-        let in_body = self.in_body();
-        if in_body {
-            self.define_body_variables(forms);
-        }
+        // macro defines is the whole body's too
 
         // The most expansions one form made, which its expansion counts as nesting
         let mut deepest = 0;
@@ -2251,7 +2301,8 @@ impl<'a> Expander<'a> {
                             }))
                         ) =>
                 {
-                    let name = match &l.args[1] {
+                    let target = define_target(&l.args[1]);
+                    let name = match target {
                         ExprKind::List(signature) => signature.first().and_then(written_name),
                         name => written_name(name),
                     };
@@ -2259,7 +2310,7 @@ impl<'a> Expander<'a> {
                         self.in_scope_values.define(name);
                     }
                     if let Some(kernel) = self.kernel.as_mut() {
-                        kernel.defined(&l.args[1]);
+                        kernel.defined(target);
                     }
                 }
                 _ => {}
@@ -2798,6 +2849,8 @@ impl<'a> Expander<'a> {
                                 ..
                             },
                     })) if l.args.len() > 1 => {
+                        uncurry_define(l);
+
                         if let Some(kernel) = self.kernel.as_mut() {
                             kernel.defined(&l.args[1]);
                         }
@@ -3303,6 +3356,8 @@ pub struct KernelExpander<'a> {
     local_hidden: Vec<(InternedString, ExpansionMark, usize)>,
     // Where each of `local_macros` is defined, by its kernel name
     local_definitions: FxHashMap<InternedString, steel_parser::span::Span>,
+    // The variables the bodies around here define, not their parameters, by key and depth
+    local_variables: Vec<(InternedString, usize)>,
 }
 
 impl<'a> KernelExpander<'a> {
@@ -3321,6 +3376,7 @@ impl<'a> KernelExpander<'a> {
             required: Vec::new(),
             local_hidden: Vec::new(),
             local_definitions: FxHashMap::default(),
+            local_variables: Vec::new(),
         }
     }
 
@@ -3401,12 +3457,15 @@ impl<'a> KernelExpander<'a> {
     fn leave_local_macros(&mut self) {
         let depth = self.locals.depth();
         self.local_macros.retain(|x| x.1 <= depth);
+        self.local_variables.retain(|x| x.1 <= depth);
     }
 
     fn define_local(&mut self, name: &ExprKind) {
         if let Some(name) = name.atom_syntax_object().and_then(kernel_local_key) {
-            if self.locals.depth() > 1 {
+            let depth = self.locals.depth();
+            if depth > 1 {
                 self.locals.define(name);
+                self.local_variables.push((name, depth));
             }
         }
     }
@@ -3448,6 +3507,24 @@ impl<'a> KernelExpander<'a> {
             .find(|(i, x)| x.0 == s && self.sees_local(x.3, head_mark, Some(*i), x.1))
             .map(|(i, _)| i)
             .filter(|_| !foreign_name);
+        // A macro a body defines hides a variable of its scope or one around it, its
+        // parameters too, but not one an inner scope binds
+        let macro_depth = local_index.map(|i| self.local_macros[i].1).or_else(|| {
+            self.local_hidden
+                .iter()
+                .rev()
+                .find(|x| x.0 == s && self.sees_local(x.1, head_mark, None, x.2))
+                .map(|x| x.2)
+        });
+        let shadowed = shadowed
+            && !head.zip(macro_depth).is_some_and(|(head, depth)| {
+                let height = self
+                    .locals
+                    .height_of(&s)
+                    .max(kernel_local_key(head).and_then(|key| self.locals.height_of(&key)));
+                height.is_some_and(|height| height < depth)
+            });
+
         // One a body here defines, before its definition is expanded
         let pending_local = !foreign_name
             && self
@@ -3558,6 +3635,19 @@ impl<'a> KernelExpander<'a> {
                     });
 
                     if let Some(defined) = defined {
+                        // A body defines a name once
+                        let depth = self.locals.depth();
+                        let key = written.and_then(kernel_local_key);
+                        let duplicate = self
+                            .local_macros
+                            .iter()
+                            .any(|x| x.0 == defined && x.1 == depth && x.3 == defined_mark)
+                            || key.is_some_and(|key| self.local_variables.contains(&(key, depth)));
+                        if duplicate {
+                            stop!(BadSyntax => format!("define-syntax: duplicate binding name: {}", defined);
+                                written.map(|x| x.span).unwrap_or(l.location));
+                        }
+
                         let locals = self
                             .locals
                             .iter()

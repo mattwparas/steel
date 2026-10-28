@@ -210,8 +210,9 @@ impl TryFromSteelValVisitorForExprKind {
                         // the code does, for the kernel to define
                         Some(x)
                             if x.as_str() == "define-syntax"
-                                && !self.quoted
-                                && (self.in_transformer
+                                // In quoted data it's data
+                                && (self.quoted
+                                    || self.in_transformer
                                     || !l.get(2).is_some_and(is_syntax_rules)) =>
                         {
                             let in_transformer = core::mem::replace(&mut self.in_transformer, true);
