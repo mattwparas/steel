@@ -518,6 +518,16 @@ impl MacroCase {
         )
     }
 
+    // Whether a pattern takes the macro's identifier alone: `(_ . rest)`, as a transformer
+    // whose clauses aren't all lists is matched by
+    pub(crate) fn matches_identifier(&self) -> bool {
+        matches!(
+            self.args.args.as_slice(),
+            [MacroPattern::Single(_), MacroPattern::Rest(rest)]
+                if matches!(**rest, MacroPattern::Single(_))
+        )
+    }
+
     pub(crate) fn gather_bindings(
         &self,
         expr: List,

@@ -7150,10 +7150,24 @@ pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     )?;
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[1])?;
 
-    let list = expr.list().unwrap();
-
     // The cases before this one matched with a fender that said no
     let start = usize::from_steelval(&args[2])?;
+
+    // An identifier alone, which only a clause that takes any form has a pattern for
+    let Some(list) = expr.list() else {
+        let index = macro_object
+            .cases
+            .iter()
+            .enumerate()
+            .skip(start)
+            .find(|(_, case)| case.matches_identifier())
+            .map(|(index, _)| index);
+        let Some(index) = index else {
+            stop!(BadSyntax => format!("{}: bad syntax", expr); ctx.current_span());
+        };
+        let empty = || SteelVal::HashMapV(Gc::new(crate::values::HashMap::new()).into());
+        return Ok(crate::list![index.into_steelval()?, empty(), empty()]);
+    };
     let (case, index) = macro_object.match_case_index(list, start)?;
 
     let (bindings, binding_kind) = case.gather_bindings(list.clone())?;

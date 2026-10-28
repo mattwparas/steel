@@ -143,6 +143,7 @@ test_harness_success_sync! {
 
 test_harness_success! {
     exact_and_float_comparisons,
+    identifier_macros,
     comparisons_of_nan_and_non_numbers,
     keyword_args_are_checked,
     macros_expand_outside_in,
@@ -575,6 +576,7 @@ test_harness_failure! {
     function_used_before_definition,
     global_env,
     identifier_used_before_definition,
+    bare_syntax_rules_macro,
     local_define_does_not_escape,
     local_define_does_not_escape_non_const,
     local_macro_does_not_escape,

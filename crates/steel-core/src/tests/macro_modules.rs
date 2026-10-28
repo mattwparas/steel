@@ -2276,3 +2276,59 @@ fn template_datum_syntax_without_pattern_variables_is_rackets() {
         "7"
     );
 }
+
+// A required module's procedural macro named alone is given the identifier
+#[test]
+fn an_imported_macro_used_as_an_identifier() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "identifier/lib".to_owned(),
+        r#"(provide pm rm)
+           (define (helper x) (+ x 100))
+           (define-syntax (pm s) (syntax-case s () [(_ a) #'(helper a)] [_ #'helper]))
+           (define-syntax rm (syntax-rules () [(_ a) (helper a)]))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "identifier/lib") (list (map pm '(1 2)) (pm 3) (rm 4))"#
+        )
+        .to_string(),
+        "((101 102) 103 104)"
+    );
+
+    let error = engine
+        .run(r#"(require "identifier/lib") (define (f) rm)"#.to_owned())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("rm: bad syntax"), "{error}");
+}
+
+// A required module's set! transformer takes a set! of its name
+#[test]
+fn an_imported_set_transformer() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "identifier/counter".to_owned(),
+        r#"(provide counter)
+           (define store (box 0))
+           (define-syntax counter
+             (make-set!-transformer
+              (lambda (stx)
+                (syntax-case stx (set!)
+                  [(set! _ v) #'(set-box! store v)]
+                  [id (identifier? #'id) #'(unbox store)]))))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "identifier/counter") (set! counter 3) (define (f) (set! counter (+ counter 5)) counter) (f)"#
+        )
+        .to_string(),
+        "8"
+    );
+}

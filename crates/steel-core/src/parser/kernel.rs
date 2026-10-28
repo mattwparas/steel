@@ -86,6 +86,12 @@ type TransformerMap = FxHashMap<String, FxHashSet<InternedString>>;
 #[derive(Clone, Debug)]
 struct Transformers {
     set: Arc<RwLock<TransformerMap>>,
+    // Every name a transformer has been registered by, in any environment, for checking a
+    // name is none cheaply
+    names: Arc<RwLock<FxHashSet<InternedString>>>,
+    // The transformers made with `make-set!-transformer`, which a `set!` of their name is
+    // given to
+    set_transformers: Arc<RwLock<FxHashSet<InternedString>>>,
     // The names each environment's transformer code can use from `begin-for-syntax`, its own
     // or imported. Their values are in the environment's phase 1 table.
     phase1: Arc<RwLock<FxHashMap<String, Vec<InternedString>>>>,
@@ -1467,6 +1473,8 @@ impl Kernel {
 
         let transformers = Transformers {
             set: Arc::new(RwLock::new(HashMap::default())),
+            names: Arc::new(RwLock::new(FxHashSet::default())),
+            set_transformers: Arc::new(RwLock::new(FxHashSet::default())),
             phase1: Arc::new(RwLock::new(FxHashMap::default())),
             programs: Arc::new(RwLock::new(FxHashMap::default())),
         };
@@ -1510,15 +1518,30 @@ impl Kernel {
         engine.register_fn(
             "register-macro-transformer!",
             move |name: String, env: String| {
+                let name: InternedString = name.as_str().into();
+                embedded_transformer_object
+                    .names
+                    .write()
+                    .unwrap()
+                    .insert(name);
                 embedded_transformer_object
                     .set
                     .write()
                     .unwrap()
                     .entry(env)
                     .or_default()
-                    .insert(name.as_str().into())
+                    .insert(name)
             },
         );
+
+        let embedded_transformer_object = transformers.clone();
+        engine.register_fn("#%register-set!-transformer!", move |name: String| {
+            embedded_transformer_object
+                .set_transformers
+                .write()
+                .unwrap()
+                .insert(name.as_str().into());
+        });
 
         let embedded_transformer_object = transformers.clone();
         engine.register_fn(
@@ -2797,6 +2820,20 @@ impl Kernel {
     // Whether a required module's macro introduced a name with this mark
     pub(crate) fn is_foreign_mark(&self, mark: ExpansionMark) -> bool {
         crate::parser::expand_visitor::is_foreign_mark(mark)
+    }
+
+    // Whether the macro of this name takes a `set!` of it
+    pub(crate) fn is_set_transformer(&self, ident: &InternedString) -> bool {
+        self.transformers
+            .set_transformers
+            .read()
+            .unwrap()
+            .contains(ident)
+    }
+
+    // Whether any environment has had a procedural macro of this name
+    pub(crate) fn may_have_macro(&self, ident: &InternedString) -> bool {
+        self.transformers.names.read().unwrap().contains(ident)
     }
 
     pub fn contains_syntax_object_macro(

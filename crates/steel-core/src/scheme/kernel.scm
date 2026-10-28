@@ -704,6 +704,13 @@
         ;; Body exprs
         (parse-def-syntax lowered-expression phase1-env)]
 
+       ;; A set! transformer, which a `set!` of the name is given to too
+       [(and (list? lambda-expr)
+             (member (car lambda-expr) '(make-set!-transformer make-variable-transformer))
+             (= (length lambda-expr) 2))
+        (#%register-set!-transformer! (symbol->string name-expr))
+        (parse-def-syntax (list 'define-syntax name-expr (cadr lambda-expr)) phase1-env)]
+
        [(and (list? lambda-expr) (equal? (car lambda-expr) 'syntax-rules))
 
         (define rules (list-ref lambda-expr 1))

@@ -625,6 +625,102 @@ pub(crate) fn procedural_macro_name(l: &List) -> Option<InternedString> {
     }
 }
 
+// R6RS's `(define-syntax name (identifier-syntax template))`: the name alone means the template,
+// and a form it heads applies what the template means. Made the transformer that does that.
+fn lower_identifier_syntax(l: &mut List) {
+    let Some(ExprKind::List(value)) = l.args.get_mut(2) else {
+        return;
+    };
+    if value
+        .first_ident()
+        .is_none_or(|x| IDENTIFIER_SYNTAX.with(|name| x != name))
+    {
+        return;
+    }
+    if value.args.len() == 3 {
+        lower_identifier_syntax_clauses(l);
+        return;
+    }
+    if value.args.len() != 2 {
+        return;
+    }
+
+    let template = value.args.pop().unwrap();
+    let span = value.location;
+    let id = |name: &str| ExprKind::ident_with_span(name, span);
+    let list = |args: Vec<ExprKind>| ExprKind::List(List::new(args.into()));
+    let (stx, args) = ("#%identifier-syntax-stx", "#%identifier-syntax-args");
+
+    l.args[2] = list(vec![
+        id("lambda"),
+        list(vec![id(stx)]),
+        list(vec![
+            id("syntax-case"),
+            id(stx),
+            list(vec![]),
+            list(vec![
+                list(vec![id("_"), id(args), id("...")]),
+                list(vec![
+                    id("syntax"),
+                    list(vec![template.clone(), id(args), id("...")]),
+                ]),
+            ]),
+            list(vec![id("_"), list(vec![id("syntax"), template])]),
+        ]),
+    ]);
+}
+
+// `(identifier-syntax [id template] [(set! id2 pattern) template2])`: a set! transformer
+fn lower_identifier_syntax_clauses(l: &mut List) {
+    let Some(ExprKind::List(value)) = l.args.get_mut(2) else {
+        return;
+    };
+    let (Some(ExprKind::List(plain)), Some(ExprKind::List(set))) =
+        (value.args.get(1), value.args.get(2))
+    else {
+        return;
+    };
+    let (Some(id), Some(template)) = (plain.args.first(), plain.args.get(1)) else {
+        return;
+    };
+    if plain.args.len() != 2 || !matches!(id, ExprKind::Atom(_)) || set.args.len() != 2 {
+        return;
+    }
+    let (set_pattern, set_template) = (set.args[0].clone(), set.args[1].clone());
+    let (id, template) = (id.clone(), template.clone());
+
+    let span = value.location;
+    let ident = |name: &str| ExprKind::ident_with_span(name, span);
+    let list = |args: Vec<ExprKind>| ExprKind::List(List::new(args.into()));
+    let (stx, args) = ("#%identifier-syntax-stx", "#%identifier-syntax-args");
+
+    l.args[2] = list(vec![
+        ident("make-set!-transformer"),
+        list(vec![
+            ident("lambda"),
+            list(vec![ident(stx)]),
+            list(vec![
+                ident("syntax-case"),
+                ident(stx),
+                list(vec![ident("set!")]),
+                list(vec![set_pattern, list(vec![ident("syntax"), set_template])]),
+                list(vec![
+                    list(vec![id.clone(), ident(args), ident("...")]),
+                    list(vec![
+                        ident("syntax"),
+                        list(vec![template.clone(), ident(args), ident("...")]),
+                    ]),
+                ]),
+                list(vec![
+                    id.clone(),
+                    list(vec![ident("identifier?"), list(vec![ident("syntax"), id])]),
+                    list(vec![ident("syntax"), template]),
+                ]),
+            ]),
+        ]),
+    ]);
+}
+
 fn defines_local_macro(l: &List) -> bool {
     l.is_define_syntax()
         && l.get(2)
@@ -883,8 +979,56 @@ pub(crate) fn is_procedural_head(name: &InternedString) -> bool {
 }
 
 // A use of a procedural macro, which the syntax-rules expanders leave for the kernel
+// How a procedural macro is used: as a form's head, as an identifier alone, or as what a
+// `set!` sets, which only a set! transformer takes
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UseKind {
+    Form,
+    Identifier,
+    Set,
+}
+
+// What a procedural macro is given: the use's form, or the identifier alone
+fn use_input(l: &mut List, identifier: bool) -> ExprKind {
+    let l = core::mem::replace(l, List::new(ThinVec::new()));
+    match l.args.len() {
+        1 if identifier => l.args.into_iter().next().unwrap(),
+        _ => ExprKind::List(l),
+    }
+}
+
+thread_local! {
+    static BINDING_FORMS: FxHashSet<InternedString> = [
+        "provide",
+        "require",
+        "for-syntax",
+        "only-in",
+        "except-in",
+        "prefix-in",
+        "rename-in",
+        "struct-out",
+        "all-from-out",
+        "#%require-dylib",
+    ]
+    .into_iter()
+    .map(InternedString::from)
+    .collect();
+    static IDENTIFIER_SYNTAX: InternedString = "identifier-syntax".into();
+}
+
+// Forms whose names are what they provide or require, not uses
+fn names_bindings(l: &List) -> bool {
+    l.first_ident()
+        .is_some_and(|head| BINDING_FORMS.with(|x| x.contains(head)))
+}
+
 fn procedural_use(l: &List, in_scope: &ScopeSet<InternedString, FxBuildHasher>) -> bool {
-    let Some(ExprKind::Atom(Atom { syn })) = l.first() else {
+    l.first()
+        .is_some_and(|head| names_procedural(head, in_scope))
+}
+
+fn names_procedural(expr: &ExprKind, in_scope: &ScopeSet<InternedString, FxBuildHasher>) -> bool {
+    let ExprKind::Atom(Atom { syn }) = expr else {
         return false;
     };
 
@@ -1825,7 +1969,11 @@ fn visit_let_form<V: VisitorMutRef<Output = Result<()>> + BodyFirst>(
                     scope.define(ident);
                 }
 
-                if let Some(expr) = binding.args.get_mut(0) {
+                if let Some(expr) = binding
+                    .args
+                    .get_mut(0)
+                    .filter(|x| !matches!(**x, ExprKind::Atom(_)))
+                {
                     visitor.visit(expr)?;
                 }
 
@@ -2048,6 +2196,94 @@ impl<'a> Expander<'a> {
 
 impl<'a> Expander<'a> {
     // A use of a procedural macro, expanded where it is, with what it made expanded too
+    // An identifier alone that names a macro: a procedural one is given the identifier, and a
+    // syntax-rules one has no pattern for it
+    fn visit_identifier(
+        &mut self,
+        expr: &mut ExprKind,
+        top_level: bool,
+        body_form: bool,
+    ) -> Result<()> {
+        // Transformer code's are phase 1's
+        if self.prelude_only {
+            return Ok(());
+        }
+
+        let Some(syn) = expr.atom_syntax_object() else {
+            return Ok(());
+        };
+        if syn.ty.identifier().is_none() {
+            return Ok(());
+        }
+
+        // Most identifiers name no procedural macro at all
+        let procedural = syn.ty.identifier().is_some_and(|s| {
+            self.kernel
+                .as_ref()
+                .is_some_and(|kernel| kernel.may_name_macro(s))
+                || self
+                    .overlays
+                    .iter()
+                    .any(|x| x.map.provided_kernel_macros.contains_key(s))
+        });
+        if procedural {
+            let mut l = List::new(thin_vec::thin_vec![core::mem::take(expr)]);
+            let used = self.kernel_use(&mut l, top_level, body_form, UseKind::Identifier);
+            match used {
+                Ok(Some(expanded)) => {
+                    *expr = expanded;
+                    return Ok(());
+                }
+                Ok(None) => *expr = l.args.pop().unwrap_or_default(),
+                Err(e) => return Err(e),
+            }
+        }
+
+        // Only where all the macros are expanded, as a form that's one of the others'
+        // uses doesn't look like one to a pass of just some of them
+        if let Some(syn) = expr.atom_syntax_object().filter(|_| self.kernel.is_some()) {
+            if self.names_rules_macro(syn) {
+                stop!(BadSyntax => format!("{}: bad syntax", syn.ty); syn.span);
+            }
+        }
+        Ok(())
+    }
+
+    // Whether an identifier alone names a syntax-rules macro, as the head of a form would
+    fn names_rules_macro(&self, syn: &SyntaxObject) -> bool {
+        let Some(s) = syn.ty.identifier() else {
+            return false;
+        };
+        // What the prelude's or a required module's macros wrote means names where they're
+        // defined
+        if syn.unresolved
+            || syn.mark.is_prelude()
+            || is_foreign_mark(syn.mark)
+            || self.exclusions.contains(s)
+        {
+            return false;
+        }
+
+        let template = self
+            .kernel
+            .as_ref()
+            .and_then(|kernel| kernel.template_shadowed(syn));
+        if let Some(local) = self.local_macros.find_marked(s, syn.mark) {
+            return local.expander.is_some()
+                && template.map_or_else(|| !local.shadowed(&self.in_scope_values), |x| !x);
+        }
+        if template.map_or_else(|| self.in_scope_values.contains(s), |x| x) {
+            return false;
+        }
+
+        self.overlays
+            .iter()
+            .any(|x| x.map.in_scope_macros.contains_key(s))
+            || self.map.get(s).is_some_and(|m| {
+                self.source_id.is_none() || syn.span.source_id() == m.location.source_id()
+            })
+    }
+
     // Whether a name means a macro here, a function's or a global one a use of it would expand
     fn names_macro(&self, syn: &SyntaxObject) -> bool {
         if self
@@ -2079,26 +2315,34 @@ impl<'a> Expander<'a> {
             .iter()
             .any(|x| x.map.provided_kernel_macros.contains_key(s))
             || self.kernel.as_ref().is_some_and(|kernel| {
-                kernel
-                    .environment
-                    .zip(kernel.map.as_ref())
-                    .is_some_and(|(environment, map)| map.has_own_macro(environment, s))
+                kernel.required.iter().any(|x| x.provided.contains_key(s))
+                    || kernel
+                        .environment
+                        .zip(kernel.map.as_ref())
+                        .is_some_and(|(environment, map)| map.has_own_macro(environment, s))
             });
 
         syntax_rules || procedural
     }
 
+    // For an identifier alone `l` is a list of just it, and for a `set!` the whole form
     fn kernel_use(
         &mut self,
         l: &mut List,
         top_level: bool,
         body_form: bool,
+        kind: UseKind,
     ) -> Result<Option<ExprKind>> {
         let head_only = core::mem::take(&mut self.head_only);
         let Some(kernel) = self.kernel.as_mut() else {
             return Ok(None);
         };
-        let Some(s) = l.first().and_then(|x| match x {
+        let named = if kind == UseKind::Set {
+            l.get(1)
+        } else {
+            l.first()
+        };
+        let Some(s) = named.and_then(|x| match x {
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
@@ -2125,11 +2369,11 @@ impl<'a> Expander<'a> {
 
         let used = if required.is_empty() {
             let mut own = core::mem::take(&mut kernel.required);
-            let used = kernel.expand_use(s, l, &mut own);
+            let used = kernel.expand_use(s, l, &mut own, kind);
             kernel.required = own;
             used
         } else {
-            kernel.expand_use(s, l, &mut required)
+            kernel.expand_use(s, l, &mut required, kind)
         };
         drop(required);
 
@@ -2580,7 +2824,7 @@ impl<'a> Expander<'a> {
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::Atom(_) => self.visit_identifier(expr, top_level, body_form),
             ExprKind::List(l) => {
                 if defines_local_macro(l) {
                     if let Some(kernel) = self.kernel.as_mut() {
@@ -2598,8 +2842,15 @@ impl<'a> Expander<'a> {
                             x.resolve() == "set!" && !self.in_scope_values.contains(x)
                         });
                     if set && self.names_macro(&target.syn) {
-                        stop!(BadSyntax => format!("set!: cannot mutate syntax identifier: {}", target.syn.ty);
-                            target.syn.span);
+                        let (ty, span) = (target.syn.ty.clone(), target.syn.span);
+                        // A set! transformer takes the whole form
+                        if let Some(expanded) =
+                            self.kernel_use(l, top_level, body_form, UseKind::Set)?
+                        {
+                            *expr = expanded;
+                            return Ok(());
+                        }
+                        stop!(BadSyntax => format!("set!: cannot mutate syntax identifier: {}", ty); span);
                     }
                 }
 
@@ -2828,6 +3079,9 @@ impl<'a> Expander<'a> {
                                 ..
                             },
                     })) if *i == *DEFINE_SYNTAX && !self.in_scope_values.contains(i) => {
+                        if !IDENTIFIER_SYNTAX.with(|x| self.in_scope_values.contains(x)) {
+                            lower_identifier_syntax(l);
+                        }
                         // A procedural macro, which the kernel defines where it is: a function's,
                         // and one at the top level, in order with the other forms. One a macro
                         // made there is kept for the checks of what the code defines.
@@ -2845,7 +3099,9 @@ impl<'a> Expander<'a> {
                                 forget_replaced_macro(map, l);
                             }
                             self.expand_prelude_macros(&mut l.args)?;
-                            if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
+                            if let Some(expanded) =
+                                self.kernel_use(l, top_level, body_form, UseKind::Form)?
+                            {
                                 if !local && made {
                                     self.defined_procedural.extend(defined);
                                 }
@@ -2875,6 +3131,9 @@ impl<'a> Expander<'a> {
                                 ..
                             },
                     })) if !self.in_scope_values.contains(&DEFINE_SYNTAX) => {
+                        if !IDENTIFIER_SYNTAX.with(|x| self.in_scope_values.contains(x)) {
+                            lower_identifier_syntax(l);
+                        }
                         // A function's procedural macro, which the kernel defines here, and one a
                         // macro made at the top level
                         let top_level_definition =
@@ -2900,7 +3159,9 @@ impl<'a> Expander<'a> {
                                 forget_replaced_macro(map, l);
                             }
                             self.expand_prelude_macros(&mut l.args)?;
-                            if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
+                            if let Some(expanded) =
+                                self.kernel_use(l, top_level, body_form, UseKind::Form)?
+                            {
                                 if !local {
                                     self.defined_procedural.extend(defined);
                                 }
@@ -3245,7 +3506,7 @@ impl<'a> Expander<'a> {
                 // A procedural macro gets its arguments as they're written, as the macros
                 // expand from the outside in
                 self.head_only = head_only;
-                if let Some(expanded) = self.kernel_use(l, top_level, body_form)? {
+                if let Some(expanded) = self.kernel_use(l, top_level, body_form, UseKind::Form)? {
                     *expr = expanded;
                     return Ok(());
                 }
@@ -3259,7 +3520,28 @@ impl<'a> Expander<'a> {
                     return Ok(());
                 }
 
-                for expr in l.args.iter_mut() {
+                // The head is no use of an identifier alone, nor are the names a provide or
+                // require lists
+                let names = names_bindings(l);
+                for (i, expr) in l.args.iter_mut().enumerate() {
+                    if let ExprKind::Atom(_) = expr {
+                        if i == 0 || names {
+                            continue;
+                        }
+                    }
+
+                    // A head that expands to a procedural macro's name alone is that macro's use
+                    // of the identifier, which a later pass with the kernel expands. Not a use
+                    // of the form it heads.
+                    if i == 0 && self.kernel.is_none() && matches!(expr, ExprKind::List(_)) {
+                        let written = expr.clone();
+                        self.visit(expr)?;
+                        if names_procedural(expr, &self.in_scope_values) {
+                            *expr = written;
+                        }
+                        continue;
+                    }
+
                     self.visit(expr)?;
                 }
 
@@ -3272,7 +3554,35 @@ impl<'a> Expander<'a> {
                 //     .collect::<Result<Vec<_>>>()?;
             }
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Set(s) => {
+                let macro_target = match &s.variable {
+                    ExprKind::Atom(target) if self.names_macro(&target.syn) => {
+                        Some((target.syn.ty.clone(), target.syn.span))
+                    }
+                    _ => None,
+                };
+                let Some((ty, span)) = macro_target else {
+                    return self.visit_set(s);
+                };
+
+                // A set! transformer takes the whole form
+                let ExprKind::Set(s) = core::mem::take(expr) else {
+                    unreachable!()
+                };
+                let s = *s;
+                let mut l = List::new(thin_vec::thin_vec![
+                    ExprKind::Atom(Atom::new(s.location)),
+                    s.variable,
+                    s.expr
+                ]);
+                if let Some(expanded) =
+                    self.kernel_use(&mut l, top_level, body_form, UseKind::Set)?
+                {
+                    *expr = expanded;
+                    return Ok(());
+                }
+                stop!(BadSyntax => format!("set!: cannot mutate syntax identifier: {}", ty); span)
+            }
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Vector(v) => self.visit_vector(v),
         }
@@ -3327,8 +3637,11 @@ impl<'a> VisitorMutRef for Expander<'a> {
             )
         });
 
+        // A parameter's default, not its name
         for value in &mut lambda_function.args {
-            self.visit(value)?;
+            if !matches!(value, ExprKind::Atom(_)) {
+                self.visit(value)?;
+            }
         }
 
         let visible = self
@@ -3384,7 +3697,9 @@ impl<'a> VisitorMutRef for Expander<'a> {
                     target.syn.span);
             }
         }
-        self.visit(&mut s.variable)?;
+        if !matches!(s.variable, ExprKind::Atom(_)) {
+            self.visit(&mut s.variable)?;
+        }
         self.visit(&mut s.expr)?;
         Ok(())
     }
@@ -3403,8 +3718,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
             }
         }
 
-        for (binding, expr) in l.bindings.iter_mut() {
-            self.visit(binding)?;
+        for (_, expr) in l.bindings.iter_mut() {
             self.visit(expr)?;
         }
 
@@ -3663,8 +3977,16 @@ impl<'a> KernelExpander<'a> {
         s: InternedString,
         l: &mut List,
         required: &mut [RequiredKernelMacros<'_>],
+        kind: UseKind,
     ) -> Result<Option<KernelUse>> {
-        let head = l.first().and_then(ExprKind::atom_syntax_object);
+        let identifier = kind == UseKind::Identifier;
+        let form = kind == UseKind::Form;
+        let named = if kind == UseKind::Set {
+            l.get(1)
+        } else {
+            l.first()
+        };
+        let head = named.and_then(ExprKind::atom_syntax_object);
 
         // A local of the same name hides the macro, unless a template wrote it. One a
         // function's macro wrote means what it does where that macro is defined, so only a
@@ -3739,7 +4061,11 @@ impl<'a> KernelExpander<'a> {
 
         // A module's code names the macros it defines and imports by its
         // prefix, private ones too
-        if let Some(map) = self.map.as_mut().filter(|_| !shadowed && !local_macro) {
+        if let Some(map) = self
+            .map
+            .as_mut()
+            .filter(|_| !shadowed && !local_macro && form)
+        {
             if let Some(expanded) = map.expand_prefixed_macro(&s, l, self.environment)? {
                 self.changed = true;
                 return Ok(Some(KernelUse::Expanded {
@@ -3759,10 +4085,13 @@ impl<'a> KernelExpander<'a> {
             let required = &mut required[index];
             let name = required.provided[&s];
 
-            if map.contains_syntax_object_macro(&name, Some(required.environment)) {
+            // A `set!` of it only if it's a set! transformer
+            if map.contains_syntax_object_macro(&name, Some(required.environment))
+                && (kind != UseKind::Set || map.is_set_transformer(&name))
+            {
                 let expanded = map.expand_syntax_object(
                     &name,
-                    ExprKind::List(core::mem::replace(l, List::new(ThinVec::new()))),
+                    use_input(l, identifier),
                     required.environment,
                     Some(&mut *required.mangler),
                 )?;
@@ -3805,11 +4134,12 @@ impl<'a> KernelExpander<'a> {
             if map
                 .contains_syntax_object_macro(&name, self.environment.as_ref().map(|x| x.as_ref()))
                 && !out_of_scope(map, &name)
+                && (kind != UseKind::Set || map.is_set_transformer(&name))
             {
                 let mut local_definition = None;
 
                 // A macro defined in a function can refer to its locals
-                if self.locals.depth() > 1 && name.resolve() == "define-syntax" {
+                if self.locals.depth() > 1 && name.resolve() == "define-syntax" && form {
                     let written = match l.args.get(1) {
                         Some(ExprKind::List(f)) => f.first(),
                         other => other,
@@ -3903,7 +4233,7 @@ impl<'a> KernelExpander<'a> {
                     }
                 }
 
-                let input = ExprKind::List(core::mem::replace(l, List::new(ThinVec::new())));
+                let input = use_input(l, identifier);
                 let input_marks = local_index.map(|_| template_marks(&input));
 
                 let expanded = map.expand_syntax_object(
@@ -3946,7 +4276,7 @@ impl<'a> KernelExpander<'a> {
             }
         }
 
-        if s == *REQUIRE_BUILTIN {
+        if s == *REQUIRE_BUILTIN && form {
             match &l.args[1..] {
                 [ExprKind::Atom(Atom {
                     syn:
@@ -4119,6 +4449,17 @@ impl<'a> KernelExpander<'a> {
             .max(kernel_local_key(syn).and_then(|key| self.locals.height_of(&key)));
 
         depth.is_some_and(|depth| height.is_none_or(|height| height < depth))
+    }
+
+    // Whether a name could mean a procedural macro here, before the rules for which one
+    fn may_name_macro(&self, s: &InternedString) -> bool {
+        self.local_macros.iter().any(|x| x.0 == *s)
+            || self.local_hidden.iter().any(|x| x.0 == *s)
+            || self.required.iter().any(|x| x.provided.contains_key(s))
+            || self.map.as_ref().is_some_and(|map| {
+                let name = self.allowed_macros.and_then(|x| x.get(s)).unwrap_or(s);
+                map.may_have_macro(name)
+            })
     }
 
     // For a name a function's procedural macro wrote, whether a local hides it: one around
