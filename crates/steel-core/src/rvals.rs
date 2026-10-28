@@ -812,6 +812,10 @@ impl ast::TryFromSteelValVisitorForExprKind {
             }
 
             ListV(l) => {
+                if let Some(data) = self.visit_data_list(l) {
+                    return data;
+                }
+
                 // Rooted - things operate as normal
                 if self.qq_depth == 0 {
                     let maybe_special_form = l.first().and_then(|x| {

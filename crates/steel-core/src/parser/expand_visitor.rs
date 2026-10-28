@@ -1171,6 +1171,9 @@ struct CaptureLocals<'a> {
     scope: &'a ScopeSet<InternedString, FxBuildHasher>,
     body_defines: &'a [InternedString],
     macro_name: InternedString,
+    // The procedural macros of the bodies around here, by name and depth, which hide the
+    // variables of their names in scope where they're defined
+    procedural: &'a [(InternedString, usize)],
 }
 
 impl VisitorMutRefUnit for CaptureLocals<'_> {
@@ -1185,8 +1188,14 @@ impl VisitorMutRefUnit for CaptureLocals<'_> {
         };
 
         // Height 0 is the top level
-        let local = self.scope.height_of(name).is_some_and(|height| height > 0)
-            || self.scope.depth() > 1 && self.body_defines.contains(name);
+        let height = self.scope.height_of(name);
+        let hidden = self
+            .procedural
+            .iter()
+            .any(|(macro_name, depth)| macro_name == name && height.is_some_and(|h| h < *depth));
+        let local = !hidden
+            && (height.is_some_and(|height| height > 0)
+                || self.scope.depth() > 1 && self.body_defines.contains(name));
 
         if local {
             *name = local_macro_capture(&self.macro_name, name);
@@ -1209,9 +1218,10 @@ fn define_target(target: &ExprKind) -> &ExprKind {
 }
 
 // `(define ((f a) b) body ...)` as `(define (f a) (lambda (b) body ...))`
-fn uncurry_define(l: &mut List) {
+pub(crate) fn uncurry_define(l: &mut List) {
     while let Some(ExprKind::List(signature)) = l.args.get(1) {
-        if !matches!(signature.first(), Some(ExprKind::List(_))) {
+        // One without a body is the parser's to report
+        if !matches!(signature.first(), Some(ExprKind::List(_))) || l.args.len() < 3 {
             break;
         }
 
@@ -1219,11 +1229,12 @@ fn uncurry_define(l: &mut List) {
             unreachable!()
         };
         let inner = signature.args.remove(0);
-        let span = l
-            .first()
-            .and_then(ExprKind::atom_syntax_object)
-            .map(|x| x.span)
-            .unwrap_or_default();
+        let span = match define_target(&inner) {
+            ExprKind::List(f) => f.first().and_then(ExprKind::atom_syntax_object),
+            name => name.atom_syntax_object(),
+        }
+        .map(|x| x.span)
+        .unwrap_or_default();
 
         let mut lambda = thin_vec![
             ExprKind::Atom(Atom::new(SyntaxObject::new(
@@ -1581,6 +1592,14 @@ impl LocalMacros {
         self.define_in(body, start, scope, false).map(|_| ())
     }
 
+    fn procedural_macros(&self) -> Vec<(InternedString, usize)> {
+        self.macros
+            .iter()
+            .filter(|x| x.expander.is_none())
+            .map(|x| (x.name, x.depth))
+            .collect()
+    }
+
     fn define_in<B: BodyForms>(
         &mut self,
         body: &mut B,
@@ -1643,6 +1662,7 @@ impl LocalMacros {
 
         let mut names = Vec::new();
         body_defines(body.forms().get(start..).unwrap_or_default(), &mut names);
+        let procedural = self.procedural_macros();
 
         for local in &mut self.macros[visible..] {
             let Some(expander) = local.expander.as_mut() else {
@@ -1653,6 +1673,7 @@ impl LocalMacros {
                 scope,
                 body_defines: &names,
                 macro_name: local.name,
+                procedural: &procedural,
             };
 
             for template in expander.exprs_mut() {
@@ -1719,6 +1740,7 @@ impl LocalMacros {
         *form = forms.pop().unwrap();
 
         let group = (visible, self.macros.len());
+        let procedural = self.procedural_macros();
         for local in &mut self.macros[visible..] {
             local.group = group;
 
@@ -1729,6 +1751,7 @@ impl LocalMacros {
                 scope,
                 body_defines: defines,
                 macro_name: local.name,
+                procedural: &procedural,
             };
             for template in expander.exprs_mut() {
                 VisitorMutRefUnit::visit(&mut capture, template);
@@ -2101,20 +2124,24 @@ impl<'a> Expander<'a> {
     // A body's procedural macro definitions, before its other forms, so they're the whole
     // body's
     fn define_procedural_first(&mut self, forms: &mut [ExprKind]) -> Result<usize> {
+        // Without the kernel, the body's variables still hide macros in all of it
         if self.kernel.is_none() {
+            if self.in_scope_values.depth() > 1 {
+                self.define_body_variables(forms)?;
+            }
             return Ok(0);
-        }
-
-        // The body's variables hide macros in all of it, and a macro of one's name is a
-        // duplicate
-        let in_body = self.in_body();
-        if in_body {
-            self.define_body_variables(forms);
         }
 
         for form in forms.iter_mut().filter(|x| procedural_definition(x)) {
             self.body_form = true;
             self.visit(form)?;
+        }
+
+        // The body's variables hide macros in all of it, and one named like the body's
+        // macro is a duplicate
+        let in_body = self.in_body();
+        if in_body {
+            self.define_body_variables(forms)?;
         }
 
         // Then each form's macro uses, until it's a definition or an expression, so what a
@@ -2156,7 +2183,7 @@ impl<'a> Expander<'a> {
             if is_begin(l) {
                 if generated {
                     if in_body {
-                        self.define_body_variables(&l.args[1..]);
+                        self.define_body_variables(&l.args[1..])?;
                     }
                     self.local_macros
                         .splice(&mut l.args, 1, &self.in_scope_values)?;
@@ -2177,7 +2204,7 @@ impl<'a> Expander<'a> {
         }
 
         if in_body {
-            self.define_body_variables(core::slice::from_mut(form));
+            self.define_body_variables(core::slice::from_mut(form))?;
         }
 
         if procedural_definition(form) {
@@ -2270,7 +2297,7 @@ impl<'a> Expander<'a> {
 
     // The variables a body defines, which hide macros of their names in all of it. One a
     // macro introduced only hides what that expansion wrote, which the kernel tells apart.
-    fn define_body_variables(&mut self, forms: &[ExprKind]) {
+    fn define_body_variables(&mut self, forms: &[ExprKind]) -> Result<()> {
         fn written_name(name: &ExprKind) -> Option<InternedString> {
             name.atom_syntax_object()
                 .filter(|x| x.mark == ExpansionMark::NONE)
@@ -2284,11 +2311,11 @@ impl<'a> Expander<'a> {
                         self.in_scope_values.define(name);
                     }
                     if let Some(kernel) = self.kernel.as_mut() {
-                        kernel.defined(&d.name);
+                        kernel.defined(&d.name, true)?;
                     }
                 }
-                ExprKind::Begin(b) => self.define_body_variables(&b.exprs),
-                ExprKind::List(l) if is_begin(l) => self.define_body_variables(&l.args[1..]),
+                ExprKind::Begin(b) => self.define_body_variables(&b.exprs)?,
+                ExprKind::List(l) if is_begin(l) => self.define_body_variables(&l.args[1..])?,
                 ExprKind::List(l)
                     if l.args.len() > 1
                         && matches!(
@@ -2310,12 +2337,14 @@ impl<'a> Expander<'a> {
                         self.in_scope_values.define(name);
                     }
                     if let Some(kernel) = self.kernel.as_mut() {
-                        kernel.defined(target);
+                        kernel.defined(target, true)?;
                     }
                 }
                 _ => {}
             }
         }
+
+        Ok(())
     }
 
     // Expand a body form's own macro use until it's something else, a begin too. One that
@@ -2496,9 +2525,21 @@ impl<'a> Expander<'a> {
             ExprKind::List(l) => {
                 if defines_local_macro(l) {
                     if let Some(kernel) = self.kernel.as_mut() {
-                        kernel.rules_defined(l);
+                        kernel.rules_defined(l)?;
                     }
                     return Ok(());
+                }
+
+                // A macro's name can't be set
+                if let (Some(kernel), Some(ExprKind::Atom(head)), Some(ExprKind::Atom(target))) =
+                    (self.kernel.as_ref(), l.first(), l.get(1))
+                {
+                    let set = head.syn.ty == TokenType::Set
+                        || head.ident().is_some_and(|x| x.resolve() == "set!");
+                    if set && kernel.names_local_macro(&target.syn) {
+                        stop!(BadSyntax => format!("set!: cannot mutate syntax identifier: {}", target.syn.ty);
+                            target.syn.span);
+                    }
                 }
 
                 // `define` written as a name, as code made from syntax objects has it, defines
@@ -2852,7 +2893,7 @@ impl<'a> Expander<'a> {
                         uncurry_define(l);
 
                         if let Some(kernel) = self.kernel.as_mut() {
-                            kernel.defined(&l.args[1]);
+                            kernel.defined(&l.args[1], body_form)?;
                         }
 
                         let is_function = match &l.args[1] {
@@ -3175,7 +3216,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
         }
 
         if let Some(kernel) = self.kernel.as_mut() {
-            kernel.defined(&define.name);
+            kernel.defined(&define.name, false)?;
         }
 
         self.visit(&mut define.body)?;
@@ -3253,6 +3294,12 @@ impl<'a> VisitorMutRef for Expander<'a> {
     }
 
     fn visit_set(&mut self, s: &mut super::ast::Set) -> Self::Output {
+        if let (Some(kernel), ExprKind::Atom(target)) = (self.kernel.as_ref(), &s.variable) {
+            if kernel.names_local_macro(&target.syn) {
+                stop!(BadSyntax => format!("set!: cannot mutate syntax identifier: {}", target.syn.ty);
+                    target.syn.span);
+            }
+        }
         self.visit(&mut s.variable)?;
         self.visit(&mut s.expr)?;
         Ok(())
@@ -3356,8 +3403,9 @@ pub struct KernelExpander<'a> {
     local_hidden: Vec<(InternedString, ExpansionMark, usize)>,
     // Where each of `local_macros` is defined, by its kernel name
     local_definitions: FxHashMap<InternedString, steel_parser::span::Span>,
-    // The variables the bodies around here define, not their parameters, by key and depth
-    local_variables: Vec<(InternedString, usize)>,
+    // The variables the bodies around here define, not their parameters, by key and depth,
+    // with where
+    local_variables: FxHashMap<(InternedString, usize), steel_parser::span::Span>,
 }
 
 impl<'a> KernelExpander<'a> {
@@ -3376,7 +3424,7 @@ impl<'a> KernelExpander<'a> {
             required: Vec::new(),
             local_hidden: Vec::new(),
             local_definitions: FxHashMap::default(),
-            local_variables: Vec::new(),
+            local_variables: FxHashMap::default(),
         }
     }
 
@@ -3457,17 +3505,56 @@ impl<'a> KernelExpander<'a> {
     fn leave_local_macros(&mut self) {
         let depth = self.locals.depth();
         self.local_macros.retain(|x| x.1 <= depth);
-        self.local_variables.retain(|x| x.1 <= depth);
+        self.local_variables.retain(|x, _| x.1 <= depth);
     }
 
-    fn define_local(&mut self, name: &ExprKind) {
-        if let Some(name) = name.atom_syntax_object().and_then(kernel_local_key) {
-            let depth = self.locals.depth();
-            if depth > 1 {
-                self.locals.define(name);
-                self.local_variables.push((name, depth));
+    // Only a body's own define, not one in the arguments of a form left unexpanded, is checked
+    // and kept as the body's
+    fn define_local(&mut self, name: &ExprKind, body: bool) -> Result<()> {
+        let Some(syn) = name.atom_syntax_object() else {
+            return Ok(());
+        };
+        let Some(key) = kernel_local_key(syn) else {
+            return Ok(());
+        };
+
+        let depth = self.locals.depth();
+        if depth > 1 && !body {
+            self.locals.define(key);
+        } else if depth > 1 {
+            // A body defines a name once, a macro of it too
+            let written = syn.ty.identifier().copied();
+            if let Some(defined) = self
+                .local_macros
+                .iter()
+                .find(|x| Some(x.0) == written && x.1 == depth && x.3 == syn.mark)
+                .and_then(|x| self.local_definitions.get(&x.2))
+            {
+                let span = if defined.start > syn.span.start {
+                    *defined
+                } else {
+                    syn.span
+                };
+                stop!(BadSyntax => format!("define: duplicate binding name: {}", syn.ty); span);
             }
+
+            // Or a variable, which the same define visited again isn't
+            if let Some(defined) = self.local_variables.get(&(key, depth)) {
+                if *defined != syn.span {
+                    let span = if defined.start > syn.span.start {
+                        *defined
+                    } else {
+                        syn.span
+                    };
+                    stop!(BadSyntax => format!("define: duplicate binding name: {}", syn.ty); span);
+                }
+            }
+
+            self.locals.define(key);
+            self.local_variables.entry((key, depth)).or_insert(syn.span);
         }
+
+        Ok(())
     }
 
     // A use of a macro the kernel expands: the macro it means, expanded, for the caller to
@@ -3483,7 +3570,7 @@ impl<'a> KernelExpander<'a> {
         // A local of the same name hides the macro, unless a template wrote it
         // A local a macro introduced only hides what the same expansion wrote
         let shadowed = head.is_some_and(|head| {
-            self.locals.contains(&s) && !head.unresolved
+            self.locals.contains(&s) && !head.unresolved && !head.mark.is_template()
                 || head.mark != ExpansionMark::NONE
                     && kernel_local_key(head).is_some_and(|key| self.locals.contains(&key))
         });
@@ -3638,20 +3725,36 @@ impl<'a> KernelExpander<'a> {
                         // A body defines a name once
                         let depth = self.locals.depth();
                         let key = written.and_then(kernel_local_key);
-                        let duplicate = self
+                        let here = written.map(|x| x.span).unwrap_or(l.location);
+                        let duplicate = if self
                             .local_macros
                             .iter()
                             .any(|x| x.0 == defined && x.1 == depth && x.3 == defined_mark)
-                            || key.is_some_and(|key| self.local_variables.contains(&(key, depth)));
-                        if duplicate {
-                            stop!(BadSyntax => format!("define-syntax: duplicate binding name: {}", defined);
-                                written.map(|x| x.span).unwrap_or(l.location));
+                        {
+                            Some(here)
+                        } else {
+                            // Reported at the later of the two, as Racket does
+                            key.and_then(|key| self.local_variables.get(&(key, depth)))
+                                .map(|x| if x.start > here.start { *x } else { here })
+                        };
+                        if let Some(span) = duplicate {
+                            stop!(BadSyntax => format!("define-syntax: duplicate binding name: {}", defined); span);
                         }
 
+                        // Not the body's own variables, which it doesn't need to know of
                         let locals = self
                             .locals
                             .iter()
                             .filter(|x| self.locals.height_of(*x).is_some_and(|h| h > 0))
+                            .filter(|x| !self.local_variables.contains_key(&(**x, depth)))
+                            // Nor one a macro the body defines hides
+                            .filter(|x| {
+                                let height = self.locals.height_of(*x);
+                                let hides =
+                                    |macro_depth: usize| height.is_some_and(|h| h < macro_depth);
+                                !self.local_macros.iter().any(|m| m.0 == **x && hides(m.1))
+                                    && !self.local_hidden.iter().any(|m| m.0 == **x && hides(m.2))
+                            })
                             .copied()
                             .collect();
 
@@ -3858,23 +3961,52 @@ impl<'a> KernelExpander<'a> {
         self.leave_local_macros();
     }
 
+    // Whether a name means a macro a function here defines, as a use of it would
+    fn names_local_macro(&self, syn: &SyntaxObject) -> bool {
+        let Some(s) = syn.ty.identifier().copied() else {
+            return false;
+        };
+        let depth = self
+            .local_macros
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(i, x)| x.0 == s && self.sees_local(x.3, syn.mark, Some(*i), x.1))
+            .map(|(_, x)| x.1)
+            .or_else(|| {
+                self.local_hidden
+                    .iter()
+                    .rev()
+                    .find(|x| x.0 == s && self.sees_local(x.1, syn.mark, None, x.2))
+                    .map(|x| x.2)
+            });
+        let height = self
+            .locals
+            .height_of(&s)
+            .max(kernel_local_key(syn).and_then(|key| self.locals.height_of(&key)));
+
+        depth.is_some_and(|depth| height.is_none_or(|height| height < depth))
+    }
+
     // A variable defined here, by the name of a define, `f` of `(define (f ...) ...)` too.
     // At the top level it replaces a procedural macro of its name.
-    fn defined(&mut self, name: &ExprKind) {
+    fn defined(&mut self, name: &ExprKind, body: bool) -> Result<()> {
         let name = match name {
             ExprKind::List(f) => match f.args.first() {
                 Some(name) => name,
-                None => return,
+                None => return Ok(()),
             },
             name => name,
         };
-        self.define_local(name);
+        self.define_local(name, body)?;
 
         if self.locals.depth() <= 1 && self.environment.as_deref() == Some("top-level") {
             if let (Some(map), Some(name)) = (self.map.as_mut(), name.atom_identifier()) {
                 map.forget_macro("top-level", name);
             }
         }
+
+        Ok(())
     }
 
     // Where an earlier pass defined a function's macro, which is the body's again
@@ -3890,7 +4022,23 @@ impl<'a> KernelExpander<'a> {
     }
 
     // What the kernel's locals are where a function's syntax-rules macro is defined
-    fn rules_defined(&mut self, l: &List) {
+    fn rules_defined(&mut self, l: &List) -> Result<()> {
+        // A body defines a name once, a macro of it too
+        if let Some(name) = l.get(1).and_then(ExprKind::atom_syntax_object) {
+            let depth = self.locals.depth();
+            if let Some(defined) = kernel_local_key(name)
+                .filter(|_| depth > 1)
+                .and_then(|key| self.local_variables.get(&(key, depth)))
+            {
+                let span = if defined.start > name.span.start {
+                    *defined
+                } else {
+                    name.span
+                };
+                stop!(BadSyntax => format!("define-syntax: duplicate binding name: {}", name.ty); span);
+            }
+        }
+
         let span = l
             .first()
             .and_then(ExprKind::atom_syntax_object)
@@ -3901,6 +4049,8 @@ impl<'a> KernelExpander<'a> {
                 (self.local_macros.len(), self.locals.depth()),
             );
         }
+
+        Ok(())
     }
 
     // A syntax-rules definition a procedural macro made, as the list it's written as

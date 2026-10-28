@@ -47,3 +47,29 @@
 (define-syntax (quoted-definition stx)
   (syntax-case stx () [(_) #'(list '(define-syntax (foo x) x) `(define-syntax bar ,(+ 1 2)))]))
 (assert! (equal? (quoted-definition) '((define-syntax (foo x) x) (define-syntax bar 3))))
+
+;; A body's macro used through another of its macros' templates still hides a parameter,
+;; and a template's name isn't captured by a use site's local
+(define (through-rules m)
+  (define-syntax (m s) (syntax-case s () [(_) #''macro]))
+  (define-syntax call-m (syntax-rules () [(_) (m)]))
+  (call-m))
+(assert! (equal? (through-rules 1) 'macro))
+(define (through-procedural m)
+  (define-syntax (m s) (syntax-case s () [(_) #''macro]))
+  (define-syntax (call-m s) (syntax-case s () [(_) #'(m)]))
+  (call-m))
+(assert! (equal? (through-procedural 1) 'macro))
+(define (template-name-is-hygienic)
+  (define-syntax (m s) (syntax-case s () [(_) #''macro]))
+  (define-syntax (call-m s) (syntax-case s () [(_) #'(m)]))
+  (let ([m (lambda () 'var)]) (call-m)))
+(assert! (equal? (template-name-is-hygienic) 'macro))
+
+;; A body's define hides a global macro from functions defined before it
+(define-syntax sibling (syntax-rules () [(_ x) 'macro]))
+(define (sibling-hidden)
+  (define (use) (sibling 1))
+  (define (sibling a) (list 'fn a))
+  (use))
+(assert! (equal? (sibling-hidden) '(fn 1)))

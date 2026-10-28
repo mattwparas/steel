@@ -95,6 +95,54 @@ impl TryFromSteelValVisitorForExprKind {
         .visit(value)
     }
 
+    // A list in quoted data, or in a quasiquote outside its holes, is data, as written code's
+    // is. What a hole holds is code again.
+    pub(crate) fn visit_data_list(
+        &mut self,
+        l: &crate::values::lists::List<SteelVal>,
+    ) -> Option<core::result::Result<ExprKind, SteelErr>> {
+        let head = l.first().and_then(|x| {
+            x.as_symbol()
+                .or_else(|| x.as_syntax_object().and_then(|x| x.syntax.as_symbol()))
+        });
+        let named = |names: &[&str]| head.is_some_and(|x| names.contains(&x.as_str()));
+
+        // A syntax template's code is data until it's used
+        if !self.quoted && self.qq_depth == 0 && named(&["syntax"]) {
+            self.quoted = true;
+            let items: core::result::Result<ThinVec<ExprKind>, _> =
+                l.iter().map(|x| self.visit(x)).collect();
+            self.quoted = false;
+            return Some(items.map(|items| ExprKind::List(List::new(items))));
+        }
+
+        let depth = if self.quoted {
+            self.qq_depth
+        } else if named(&["quasiquote"]) {
+            self.qq_depth + 1
+        } else if self.qq_depth > 0
+            && named(&[
+                "unquote",
+                "#%unquote",
+                "unquote-splicing",
+                "#%unquote-splicing",
+            ])
+        {
+            self.qq_depth - 1
+        } else if self.qq_depth > 0 {
+            self.qq_depth
+        } else {
+            return None;
+        };
+
+        let outer = core::mem::replace(&mut self.qq_depth, depth);
+        let items: core::result::Result<ThinVec<ExprKind>, _> =
+            l.iter().map(|x| self.visit(x)).collect();
+        self.qq_depth = outer;
+
+        Some(items.map(|items| ExprKind::List(List::new(items))))
+    }
+
     // A macro's output nests as deep as it likes
     pub fn visit(&mut self, value: &SteelVal) -> core::result::Result<ExprKind, SteelErr> {
         crate::compiler::passes::with_stack(|| self.visit_value(value))
@@ -174,6 +222,10 @@ impl TryFromSteelValVisitorForExprKind {
                 stop!(Generic => "Can't convert from Custom Type to expression!")
             }
             ListV(l) => {
+                if let Some(data) = self.visit_data_list(l) {
+                    return data;
+                }
+
                 // Rooted - things operate as normal
                 if self.qq_depth == 0 {
                     let maybe_special_form = l.first().and_then(|x| {

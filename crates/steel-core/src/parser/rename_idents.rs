@@ -399,6 +399,9 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
             Some(ExprKind::Atom(Atom {
                 syn: SyntaxObject { ty, .. },
             })) if *ty == TokenType::Define => {
+                // A curried define's name is a function's, as the expander has it
+                crate::parser::expand_visitor::uncurry_define(l);
+
                 // Where the parameters of a function define start
                 let mut body_scope = None;
 

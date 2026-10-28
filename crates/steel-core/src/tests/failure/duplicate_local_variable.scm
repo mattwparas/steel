@@ -1,0 +1,5 @@
+(define (t)
+  (define (f a) 1)
+  (define (f a) 2)
+  (f 1))
+(t)

@@ -1,0 +1,5 @@
+(define (f)
+  (define m 1)
+  (define-syntax m (syntax-rules () [(_) (quote rules)]))
+  (m))
+(f)

@@ -1,0 +1,5 @@
+(define (f x)
+  (define-syntax (x s) (syntax-case s () [(_) (quote (quote macro))] [_ (quote (quote id))]))
+  (set! x 5)
+  x)
+(f 1)

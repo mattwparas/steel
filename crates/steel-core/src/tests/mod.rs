@@ -562,9 +562,12 @@ test_harness_success_module! {
 test_harness_failure! {
     capped_depth_defmacro,
     constant_fold_rest,
+    duplicate_local_rules_macro_and_variable,
+    duplicate_local_variable,
     duplicate_local_macro_and_variable,
     duplicate_local_procedural_macro,
     define_syntax_ends_a_body,
+    set_local_macro,
     define_syntax_outside_a_body,
     function_used_before_definition,
     global_env,
