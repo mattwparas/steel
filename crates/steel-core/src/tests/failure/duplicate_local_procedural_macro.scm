@@ -1,0 +1,5 @@
+(define (f)
+  (define-syntax (e s) (syntax-case s () [(_) (quote (quote 8))]))
+  (define-syntax (e s) (syntax-case s () [(_) (quote (quote 9))]))
+  (e))
+(f)
