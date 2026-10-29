@@ -282,16 +282,19 @@
   (let ([e (if (syntax? x) (syntax-e x) x)])
     (if (list? e) e #f)))
 
-;; The same name, from the same expansion
+;; The same name with the same scopes
 (define (bound-identifier=? a b)
   (and (identifier? a)
        (identifier? b)
        (eq? (syntax-e a) (syntax-e b))
-       (#%syntax-same-mark? a b)))
+       (#%syntax-same-scopes? a b)))
 
-;; The same name where they're used, which here is the same written name
+;; The same name meaning the same where they're used: the same local, or no local
 (define (free-identifier=? a b)
-  (and (identifier? a) (identifier? b) (eq? (syntax-e a) (syntax-e b))))
+  (and (identifier? a)
+       (identifier? b)
+       (eq? (syntax-e a) (syntax-e b))
+       (#%syntax-same-binding? a b)))
 
 (define (all-but-last l)
   (reverse (cdr (reverse l))))
@@ -436,7 +439,7 @@
          ;; Include the relative module as a key for the struct. For serialization
          ;; purposes, we'll treat two structs that come from the same place with the
          ;; same name as more or less, identical
-         (make-struct-type (quote ,struct-name) ,field-count (current-module-relative)))
+         (#%prim.make-struct-type (quote ,struct-name) ,field-count (#%prim.current-module-relative)))
        (define ,struct-prop-name-gensym (#%prim.list-ref ,struct-proto-gensym 0))
        (define ,constructor-proto-gensym (#%prim.list-ref ,struct-proto-gensym 1))
        (define ,predicate-proto-gensym (#%prim.list-ref ,struct-proto-gensym 2))
@@ -449,7 +452,7 @@
        (#%vtable-update-entry! ,struct-prop-name-gensym ,maybe-procedure-field ,struct-options-name)
        (if ,(not (bool? maybe-finalizer))
            (#%start-will-executor)
-           void)
+           #%prim.void)
        ,(if mutable?
             ;; A mutable struct keeps its fields inline, and names its type
             ;; by key.
@@ -478,7 +481,7 @@
        ,@(if mutable?
              (packed-make-setters struct-name fields struct-key-gensym)
              (list))
-       void)))
+       #%prim.void)))
 
 (define (new-make-predicate struct-predicate-name predicate-proto-gensym)
   `(define ,struct-predicate-name ,predicate-proto-gensym))
@@ -501,7 +504,7 @@
 (define (new-make-getters struct-name fields getter-proto-list-gensym)
   (map (lambda (field)
          `(define ,(concat-symbols struct-name '- (car field))
-            (list-ref ,getter-proto-list-gensym ,(#%prim.list-ref field 1))))
+            (#%prim.list-ref ,getter-proto-list-gensym ,(#%prim.list-ref field 1))))
        (enumerate 0 '() fields)))
 
 (define (%make-memoize f)

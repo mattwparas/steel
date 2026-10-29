@@ -12,7 +12,7 @@ use crate::{
     },
     parser::{
         ast::{self, Atom, ExprKind},
-        parser::{ExpansionMark, SyntaxObject},
+        parser::SyntaxObject,
         span::Span,
         tokens::TokenType,
     },
@@ -736,15 +736,23 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
 
 impl ast::TryFromSteelValVisitorForExprKind {
     pub fn visit_syntax_object(&mut self, value: &Syntax) -> Result<ExprKind> {
-        let mark = if value.mark.is_template() {
-            value.mark
+        let scopes = if value.scopes.is_empty() {
+            self.scopes
         } else {
-            self.mark
+            value.scopes
         };
 
-        let outer = core::mem::replace(&mut self.mark, mark);
-        let expr = self.syntax_object_to_expr(value);
-        self.mark = outer;
+        let outer_scopes = core::mem::replace(&mut self.scopes, scopes);
+        let mut expr = self.syntax_object_to_expr(value);
+        self.scopes = outer_scopes;
+
+        // A literal keeps its scopes too, and a list its own, which `datum->syntax` can take
+        // its context from
+        match &mut expr {
+            Ok(ExprKind::Atom(a)) if a.syn.scopes.is_empty() => a.syn.scopes = scopes,
+            Ok(ExprKind::List(l)) if l.scopes.is_empty() => l.scopes = value.scopes,
+            _ => {}
+        }
 
         expr
     }
@@ -807,7 +815,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
 
             SymbolV(x) => {
                 let mut syn = SyntaxObject::new(TokenType::Identifier(x.as_str().into()), span);
-                syn.mark = value.mark;
+                syn.scopes = value.scopes;
                 Ok(ExprKind::Atom(Atom::new(syn)))
             }
 
@@ -921,75 +929,35 @@ pub(crate) fn improper_list_elements(pair: &crate::values::lists::Pair) -> (Vec<
     }
 }
 
-fn map_syntax_marks(
+// The same syntax with each list's scopes `scopes` where it has none, and `use_site` too, as
+// what a macro's use wrote
+pub(crate) fn with_list_scopes(
     value: &SteelVal,
-    f: &mut dyn FnMut(ExpansionMark) -> ExpansionMark,
+    scopes: steel_parser::scopes::ScopeSetId,
+    use_site: steel_parser::scopes::Scope,
 ) -> SteelVal {
+    let each = |items: &crate::values::lists::List<SteelVal>| -> SteelVal {
+        ListV(
+            items
+                .iter()
+                .map(|x| with_list_scopes(x, scopes, use_site))
+                .collect(),
+        )
+    };
     match value {
-        SyntaxObject(s) => SyntaxObject(Gc::new(s.map_marks(f))),
-        ListV(l) => ListV(l.iter().map(|x| map_syntax_marks(x, f)).collect()),
-        VectorV(v) => VectorV(SteelVector(Gc::new(
-            v.iter().map(|x| map_syntax_marks(x, f)).collect(),
-        ))),
-        // A dotted list, along its cdrs in a loop
-        Pair(_) => {
-            let mut elements = Vec::new();
-            let mut rest = value.clone();
-
-            while let Pair(pair) = &rest {
-                elements.push(map_syntax_marks(pair.car_ref(), f));
-                let cdr = pair.cdr();
-                rest = cdr;
+        SyntaxObject(s) => match &s.syntax {
+            ListV(items) => {
+                let mut syntax = Syntax::clone(s);
+                syntax.syntax = each(items);
+                if syntax.scopes.is_empty() {
+                    syntax.scopes = scopes;
+                }
+                syntax.scopes = syntax.scopes.add(use_site);
+                SyntaxObject(Gc::new(syntax))
             }
-
-            let tail = map_syntax_marks(&rest, f);
-
-            elements.into_iter().rev().fold(tail, |cdr, car| {
-                crate::values::lists::Pair::cons(car, cdr).into()
-            })
-        }
-        _ => value.clone(),
-    }
-}
-
-fn without_local_macro_captures(value: &SteelVal) -> SteelVal {
-    use crate::parser::expand_visitor::any_local_macro_captures;
-
-    if !any_local_macro_captures() || !has_local_macro_captures(value) {
-        return value.clone();
-    }
-
-    restore_local_macro_captures(value)
-}
-
-fn has_local_macro_captures(value: &SteelVal) -> bool {
-    use crate::parser::expand_visitor::local_macro_captured;
-
-    match value {
-        SymbolV(name) => local_macro_captured(name.as_str()).is_some(),
-        ListV(l) => l.iter().any(has_local_macro_captures),
-        VectorV(v) => v.iter().any(has_local_macro_captures),
-        Pair(p) => has_local_macro_captures(&p.car()) || has_local_macro_captures(&p.cdr()),
-        _ => false,
-    }
-}
-
-fn restore_local_macro_captures(value: &SteelVal) -> SteelVal {
-    use crate::parser::expand_visitor::local_macro_captured;
-
-    match value {
-        SymbolV(name) => match local_macro_captured(name.as_str()) {
-            Some((_, variable)) => SymbolV(variable.into()),
-            None => value.clone(),
+            _ => value.clone(),
         },
-        ListV(l) => ListV(l.iter().map(restore_local_macro_captures).collect()),
-        VectorV(v) => VectorV(SteelVector(Gc::new(
-            v.iter().map(restore_local_macro_captures).collect(),
-        ))),
-        Pair(p) => Pair(Gc::new(crate::values::lists::Pair::cons(
-            restore_local_macro_captures(&p.car()),
-            restore_local_macro_captures(&p.cdr()),
-        ))),
+        ListV(items) => each(items),
         _ => value.clone(),
     }
 }
@@ -999,7 +967,7 @@ pub struct Syntax {
     pub(crate) raw: Option<SteelVal>,
     pub(crate) syntax: SteelVal,
     span: Span,
-    mark: ExpansionMark,
+    scopes: steel_parser::scopes::ScopeSetId,
 }
 
 impl Syntax {
@@ -1008,7 +976,7 @@ impl Syntax {
             raw: None,
             syntax,
             span,
-            mark: ExpansionMark::UNKNOWN,
+            scopes: steel_parser::scopes::ScopeSetId::EMPTY,
         }
     }
 
@@ -1017,21 +985,21 @@ impl Syntax {
             raw: Some(raw),
             syntax,
             span,
-            mark: ExpansionMark::UNKNOWN,
+            scopes: steel_parser::scopes::ScopeSetId::EMPTY,
         }
     }
 
-    pub(crate) fn mark(&self) -> ExpansionMark {
-        self.mark
-    }
-
-    pub(crate) fn with_mark(mut self, mark: ExpansionMark) -> Syntax {
-        self.mark = mark;
+    pub(crate) fn with_scopes(mut self, scopes: steel_parser::scopes::ScopeSetId) -> Syntax {
+        self.scopes = scopes;
         self
     }
 
+    pub(crate) fn scopes(&self) -> steel_parser::scopes::ScopeSetId {
+        self.scopes
+    }
+
     pub fn syntax_e(&self) -> SteelVal {
-        without_local_macro_captures(&self.syntax)
+        self.syntax.clone()
     }
 
     pub fn new_with_source(syntax: SteelVal, span: Span) -> Syntax {
@@ -1039,7 +1007,7 @@ impl Syntax {
             raw: None,
             syntax,
             span,
-            mark: ExpansionMark::UNKNOWN,
+            scopes: steel_parser::scopes::ScopeSetId::EMPTY,
         }
     }
 
@@ -1052,29 +1020,18 @@ impl Syntax {
     }
 
     pub fn syntax_datum(&self) -> SteelVal {
-        without_local_macro_captures(self.raw.as_ref().unwrap())
+        self.raw.as_ref().unwrap().clone()
     }
 
-    // The same syntax with each mark replaced
-    pub(crate) fn map_marks(&self, f: &mut dyn FnMut(ExpansionMark) -> ExpansionMark) -> Syntax {
-        Syntax {
-            raw: self.raw.clone(),
-            syntax: map_syntax_marks(&self.syntax, f),
-            span: self.span,
-            mark: f(self.mark),
-        }
-    }
-
+    // With the scopes of `other` too, as what a template wrote
     pub(crate) fn with_mark_of(mut self, other: &Syntax) -> Syntax {
-        if other.mark.is_template() {
-            self.mark = other.mark;
-        }
+        self.scopes = self.scopes.union(other.scopes);
 
         self
     }
 
-    fn steelval_to_marked_exprkind(value: &SteelVal, mark: ExpansionMark) -> Result<ExprKind> {
-        let convert = |value: &SteelVal| Self::steelval_to_marked_exprkind(value, mark);
+    fn steelval_to_marked_exprkind(value: &SteelVal) -> Result<ExprKind> {
+        let convert = Self::steelval_to_marked_exprkind;
 
         match value {
             // Mutual recursion case
@@ -1111,8 +1068,7 @@ impl Syntax {
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => {
-                let mut syn = SyntaxObject::default(TokenType::Identifier(x.as_str().into()));
-                syn.mark = mark;
+                let syn = SyntaxObject::default(TokenType::Identifier(x.as_str().into()));
                 Ok(ExprKind::Atom(Atom::new(syn)))
             }
             ListV(l) => {
@@ -1138,11 +1094,6 @@ impl Syntax {
     // Otherwise, reconstruct the ExprKind and replace the span and source information into the representation
     pub fn to_exprkind(&self) -> Result<ExprKind> {
         let span = self.span;
-        let mark = if self.mark.is_template() {
-            self.mark
-        } else {
-            ExpansionMark::UNKNOWN
-        };
         // let source = self.source.clone();
         match &self.syntax {
             // Mutual recursion case
@@ -1160,10 +1111,8 @@ impl Syntax {
                 span,
             )))),
             VectorV(lst) => {
-                let items: Result<ThinVec<ExprKind>> = lst
-                    .iter()
-                    .map(|x| Self::steelval_to_marked_exprkind(x, mark))
-                    .collect();
+                let items: Result<ThinVec<ExprKind>> =
+                    lst.iter().map(Self::steelval_to_marked_exprkind).collect();
                 Ok(ExprKind::Vector(crate::parser::ast::Vector {
                     args: items?,
                     bytes: false,
@@ -1174,7 +1123,7 @@ impl Syntax {
                 let items: Result<ThinVec<ExprKind>> = v
                     .borrow(|x| x.clone())
                     .iter()
-                    .map(|x| Self::steelval_to_marked_exprkind(x, mark))
+                    .map(Self::steelval_to_marked_exprkind)
                     .collect();
                 Ok(ExprKind::Vector(crate::parser::ast::Vector {
                     args: items?,
@@ -1190,14 +1139,12 @@ impl Syntax {
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => {
                 let mut syn = SyntaxObject::new(TokenType::Identifier(x.as_str().into()), span);
-                syn.mark = self.mark;
+                syn.scopes = self.scopes;
                 Ok(ExprKind::Atom(Atom::new(syn)))
             }
             ListV(l) => {
-                let items: Result<ThinVec<ExprKind>> = l
-                    .iter()
-                    .map(|x| Self::steelval_to_marked_exprkind(x, mark))
-                    .collect();
+                let items: Result<ThinVec<ExprKind>> =
+                    l.iter().map(Self::steelval_to_marked_exprkind).collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
@@ -1205,7 +1152,7 @@ impl Syntax {
                 let (items, improper) = improper_list_elements(p);
                 let items: Result<ThinVec<ExprKind>> = items
                     .iter()
-                    .map(|x| Self::steelval_to_marked_exprkind(x, mark))
+                    .map(Self::steelval_to_marked_exprkind)
                     .collect();
                 Ok(ExprKind::List(
                     crate::parser::ast::List::new_maybe_improper(items?, improper),

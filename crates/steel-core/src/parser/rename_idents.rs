@@ -94,7 +94,7 @@ impl<'a> RenameIdentifiersVisitor<'a> {
                     self.add(s);
                 }
 
-                a.syn = renamed_binder(a.syn.mark, s);
+                a.syn = renamed_binder(s);
                 a.syn.introduced_via_macro = true;
             }
         }
@@ -245,16 +245,11 @@ impl RenameIdentifiersVisitor<'_> {
     }
 }
 
-// A binder the template introduces, keeping the mark of the template that wrote it
-fn renamed_binder(
-    mark: crate::parser::parser::ExpansionMark,
-    s: impl core::borrow::Borrow<InternedString>,
-) -> SyntaxObject {
-    let mut syn = SyntaxObject::default(TokenType::Identifier(
+// A binder the template introduces
+fn renamed_binder(s: impl core::borrow::Borrow<InternedString>) -> SyntaxObject {
+    SyntaxObject::default(TokenType::Identifier(
         ("##".to_string() + s.borrow().resolve()).into(),
-    ));
-    syn.mark = mark;
-    syn
+    ))
 }
 
 fn is_unquote(head: &InternedString) -> bool {
@@ -287,7 +282,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                     // a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
                 }
 
-                a.syn = renamed_binder(a.syn.mark, s);
+                a.syn = renamed_binder(s);
                 a.syn.introduced_via_macro = true;
             }
         }
@@ -312,7 +307,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                         self.add(*s);
                     }
 
-                    a.syn = renamed_binder(a.syn.mark, s);
+                    a.syn = renamed_binder(s);
                     a.syn.introduced_via_macro = true;
                 }
             }
@@ -418,7 +413,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                 self.add(s);
                             }
 
-                            a.syn = renamed_binder(a.syn.mark, s);
+                            a.syn = renamed_binder(s);
                             a.syn.introduced_via_macro = true;
 
                             // TODO: Move the logic about resolving
@@ -466,7 +461,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                             self.add(s);
                                         }
 
-                                        a.syn = renamed_binder(a.syn.mark, s);
+                                        a.syn = renamed_binder(s);
                                         a.syn.introduced_via_macro = true;
                                         // a.syn.previous_name = Some(s);
                                     }
@@ -522,7 +517,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                     self.add(s);
                                 }
 
-                                a.syn = renamed_binder(a.syn.mark, s);
+                                a.syn = renamed_binder(s);
                                 a.syn.introduced_via_macro = true;
                                 // a.syn.previous_name = Some(s);
                             }
@@ -540,7 +535,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                             self.add(s);
                         }
 
-                        a.syn = renamed_binder(a.syn.mark, s);
+                        a.syn = renamed_binder(s);
                         a.syn.introduced_via_macro = true;
                         // a.syn.previous_name = Some(s);
                     }
@@ -607,7 +602,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                 self.add(s);
                             }
 
-                            a.syn = renamed_binder(a.syn.mark, s);
+                            a.syn = renamed_binder(s);
                             a.syn.introduced_via_macro = true;
                         }
                     }
@@ -670,7 +665,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                         self.add(*s);
                     }
 
-                    a.syn = renamed_binder(a.syn.mark, s);
+                    a.syn = renamed_binder(s);
                     a.syn.introduced_via_macro = true;
                 }
             }

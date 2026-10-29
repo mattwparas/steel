@@ -5,8 +5,8 @@ use crate::{
         modules::{MANGLER_PREFIX, MANGLER_SEPARATOR},
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
-            hygiene::ResolveExpansionMarks, opt::SingleExprOptimizer,
-            shadow::RenameShadowedVariables, VisitorMutUnitRef,
+            hygiene::ResolveByScopes, opt::SingleExprOptimizer, shadow::RenameShadowedVariables,
+            VisitorMutUnitRef,
         },
     },
     core::{instructions::u24, labels::Expr},
@@ -1066,7 +1066,13 @@ impl Compiler {
             crate::parser::expand_visitor::expand_keyword_arguments(expr)?;
             lower_expanded_ast(expr)?;
 
-            ResolveExpansionMarks::resolve(expr, &mut self.template_globals);
+            // Checked against resolving by sets of scopes
+            let by_scopes = crate::compiler::passes::scopes_check::comparing()
+                .then(|| crate::compiler::passes::scopes_check::by_scopes(expr));
+            ResolveByScopes::resolve(expr, &mut self.template_globals);
+            if let Some(by_scopes) = by_scopes {
+                crate::compiler::passes::scopes_check::compare(expr, &by_scopes);
+            }
         }
 
         Ok(())

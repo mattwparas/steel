@@ -2332,3 +2332,147 @@ fn an_imported_set_transformer() {
         "8"
     );
 }
+
+// A module's macro whose template defines a procedural macro: its transformer is code of the
+// module's phase 1, and what its templates write names the module's globals
+#[test]
+fn a_module_template_defines_a_procedural_macro() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "phases/lib".to_owned(),
+        r#"(provide def-pm def-pm2 mk)
+           (begin-for-syntax (define (twice-stx d) (* 2 d)))
+           (define (rt x) (list 'lib-rt x))
+           (define-syntax def-pm
+             (syntax-rules ()
+               [(_ name) (define-syntax (name s)
+                           (syntax-case s ()
+                             [(_ n) (with-syntax ([v (+ 1 (syntax->datum #'n))]) #'(rt v))]))]))
+           (define-syntax def-pm2
+             (syntax-rules ()
+               [(_ name) (define-syntax (name s)
+                           (syntax-case s () [(_) (with-syntax ([v (twice-stx 21)]) #'(rt v))]))]))
+           (define-syntax mk
+             (syntax-rules ()
+               [(_ name v) (begin
+                             (define-syntax (hidden s) (syntax-case s () [(_) #'v]))
+                             (define (name) (hidden)))]))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "phases/lib")
+               (define (rt x) 'wrong)
+               (def-pm dbl) (def-pm2 dbl2) (mk a 1) (mk b 2)
+               (list (dbl 21) (dbl2) (a) (b))"#
+        )
+        .to_string(),
+        "((lib-rt 22) (lib-rt 42) 1 2)"
+    );
+}
+
+// A template in a module's phase 1 code names the module's globals where another module's
+// macro uses it. The module's phase 1 bindings are what a plain require brings to phase 1.
+#[test]
+fn a_module_phase1_template_names_its_globals() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "phases/helper".to_owned(),
+        r#"(provide (for-syntax make-call))
+           (define (rt-helper x) (list 'rt x))
+           (begin-for-syntax
+             (define (private-scale n) (* n 10))
+             (define (make-call n) (with-syntax ([v (private-scale n)]) #'(rt-helper v))))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "phases/helper")
+               (define-syntax (m s) (syntax-case s () [(_ n) (make-call (syntax->datum #'n))]))
+               (m 4)"#
+        )
+        .to_string(),
+        "(rt 40)"
+    );
+}
+
+// What a required module's macros write means the module's names: its identifier macros and
+// set! transformers, match patterns, the syntax-rules macros its procedural macros write, and
+// builtins it redefines
+#[test]
+fn a_module_template_names_its_own_definitions() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "templates/lib".to_owned(),
+        r#"(provide use-it fortytwo cell get-cell m-match def-rules)
+           (define store (box 0))
+           (define-syntax fortytwo (identifier-syntax (unbox store)))
+           (define-syntax cell
+             (make-set!-transformer
+              (lambda (stx)
+                (syntax-case stx (set!)
+                  [(set! _ v) #'(set-box! store v)]
+                  [id (identifier? #'id) #'(unbox store)]))))
+           (define-syntax use-it (syntax-rules () [(_ v) (begin (set! cell v) (list fortytwo cell))]))
+           (define (get-cell) cell)
+           (define (helper x) (+ x 1))
+           (define-syntax m-match
+             (syntax-rules () [(_ e) (match e [(list a b) (helper (+ a b))] [_ 'none])]))
+           (define (lib-helper x) (list 'lib x))
+           (define-syntax (def-rules s)
+             (syntax-case s ()
+               [(_ name) #'(define-syntax name (syntax-rules () [(_ e) (lib-helper e)]))]))
+"#
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "templates/own-list".to_owned(),
+        r#"(provide m-list)
+           (define (list . xs) 'lib-list)
+           (define-syntax m-list (syntax-rules () [(_) (list 1)]))
+           (define from-lib (m-list))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "templates/lib" "templates/own-list")
+               (define store (box 'wrong))
+               (define (helper x) 'wrong)
+               (define (lib-helper x) 'wrong)
+               (def-rules foo)
+               (list (use-it 7) fortytwo (m-match (list 1 2)) (m-match 5) (foo 1) (m-list))"#
+        )
+        .to_string(),
+        "((7 7) 7 4 none (lib 1) lib-list)"
+    );
+}
+
+// An unhygienic macro's output means what it does where its use is written: in a module's
+// template, the module's names
+#[test]
+fn datum_to_syntax_in_a_module_template() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "templates/it".to_owned(),
+        r#"(provide outer-d get-it-d)
+           (define it 'module-d)
+           (define-syntax (get-it-d stx) (datum->syntax stx 'it))
+           (define-syntax (outer-d stx) (syntax-case stx () [(_ e) #'(list (get-it-d) e)]))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "templates/it") (define it 'user) (outer-d (get-it-d))"#
+        )
+        .to_string(),
+        "(module-d user)"
+    );
+}

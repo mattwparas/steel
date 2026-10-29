@@ -1264,6 +1264,10 @@ pub struct List {
     // TODO: Attach the span from the parser - just the offset
     // of the open and close parens
     pub location: Span,
+    // The list's own scopes, as a syntax object's, which `datum->syntax` can take its context
+    // from
+    #[serde(skip)]
+    pub scopes: crate::scopes::ScopeSetId,
 }
 
 impl PartialEq for List {
@@ -1285,6 +1289,7 @@ impl List {
             syntax_object_id: SyntaxObjectId::fresh().0 as _,
             improper: false,
             location: Span::default(),
+            scopes: crate::scopes::ScopeSetId::EMPTY,
         }
     }
 
@@ -1294,6 +1299,7 @@ impl List {
             syntax_object_id: SyntaxObjectId::fresh().0 as _,
             improper,
             location: Span::default(),
+            scopes: crate::scopes::ScopeSetId::EMPTY,
         }
     }
 
@@ -1303,6 +1309,7 @@ impl List {
             improper: false,
             location: Span::merge(open, close),
             syntax_object_id: SyntaxObjectId::fresh().0 as _,
+            scopes: crate::scopes::ScopeSetId::EMPTY,
         }
     }
 

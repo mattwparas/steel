@@ -20,7 +20,13 @@
 (define (quoted? x)
   (and (list? x) (not (null? x)) (equal? (car x) 'quote)))
 
+;; A pattern's `list` or `cons`, as written or under the module prefix a template in another
+;; module wrote it with
 (begin-for-syntax
+  (define (pattern-keyword? x name)
+    (or (equal? x name)
+        (and (symbol? x)
+             (ends-with? (symbol->string x) (string-append "__%#__" (symbol->string name))))))
 
   (define *gensym-counter* 0)
   (define (gensym)
@@ -37,7 +43,7 @@
       [(and (list? pattern)
             (not (null? pattern))
             (= (length pattern) 3)
-            (equal? (car pattern) 'cons)
+            (pattern-keyword? (car pattern) 'cons)
             (list? (caddr pattern))
             (equal? (caaddr pattern) 'append))
 
@@ -60,7 +66,7 @@
       [(and (list? pattern)
             (not (null? pattern))
             (= (length pattern) 3)
-            (equal? (car pattern) 'cons)
+            (pattern-keyword? (car pattern) 'cons)
             (equal? (caddr pattern) '(quote ())))
 
        (define first (cadr pattern))
@@ -76,7 +82,7 @@
       [(and (list? pattern)
             (not (null? pattern))
             (= (length pattern) 3)
-            (equal? (car pattern) 'cons)
+            (pattern-keyword? (car pattern) 'cons)
             (list? (caddr pattern))
             (equal? (caaddr pattern) 'cons))
 
@@ -179,7 +185,7 @@
       [(quoted? pattern) `(and (#%prim.equal? ,pattern (syntax-e ,input)) ,final-body-expr)]
       [(and (list? pattern) (not (null? pattern)) (= cdr-depth 0))
        (cond
-         [(equal? (car pattern) 'list)
+         [(pattern-keyword? (car pattern) 'list)
           `(if (#%prim.list? (syntax-e ,input))
                ;; Recur after dropping the list
                ,(match-p-syntax-object (cdr pattern)
@@ -301,7 +307,7 @@
       [(quoted? pattern) `(and (#%prim.equal? ,pattern ,input) ,final-body-expr)]
       [(and (list? pattern) (not (null? pattern)) (= cdr-depth 0))
        (cond
-         [(equal? (car pattern) 'list)
+         [(pattern-keyword? (car pattern) 'list)
           `(if (#%prim.list? ,input)
                ;; Recur after dropping the list
                ,(match-p-syntax (cdr pattern)
@@ -443,7 +449,16 @@
     (cond
       [(null? identifiers) name]
       [(equal? (#%syntax->datum (car identifiers)) name) (car identifiers)]
-      [else (written-identifier name (cdr identifiers))])))
+      [else (written-identifier name (cdr identifiers))]))
+
+  ;; The code a match made, with each variable it binds as the identifier the pattern wrote,
+  ;; so that it's the variable the pattern's author means
+  (define (with-written-identifiers expr names written)
+    (cond
+      [(symbol? expr) (if (member expr names) (written-identifier expr written) expr)]
+      [(and (pair? expr) (equal? (car expr) 'quote)) expr]
+      [(list? expr) (map (lambda (x) (with-written-identifiers x names written)) expr)]
+      [else expr])))
 
 ;; Defines the pattern variables where the form is written
 (defmacro
@@ -460,6 +475,7 @@
  (define temp (gensym))
  (define written (pattern-identifiers (third unwrapped) '()))
  (define final-expr
+   (with-written-identifiers
    `(define-values (,@(map (lambda (name) (written-identifier name written)) list-identifiers))
       (let ([,variable ,value])
         (let ([,temp ,(go-match pattern variable `(list ,@list-identifiers) (mutable-vector))])
@@ -468,7 +484,9 @@
               (error-with-span (quote ,(syntax-span (third unwrapped)))
                                "Unable to match the given expression: "
                                ,variable
-                               "to any of the patterns"))))))
+                               "to any of the patterns")))))
+   list-identifiers
+   written))
  (syntax/loc final-expr
    (syntax-span expression)))
 
@@ -477,7 +495,8 @@
           (define unwrapped (syntax-e expression))
           ;; Unwrapping entirely, not what we want! We want to
           ;; wrap it back up with the span of the original definition!
-          (define variable (#%syntax->datum (second unwrapped)))
+          ;; The variable as written, which names the binder it was written by
+          (define variable (second unwrapped))
           (define pattern (#%syntax->datum (third unwrapped)))
           (define body (list-ref unwrapped 3))
           ;; Keep track of all of the identifiers that this
@@ -485,7 +504,11 @@
           ;; TODO: Keep one top level around and clear each time. Then
           ;; we won't keep around any garbage
           (define introduced-identifiers (mutable-vector))
-          (define res (go-match pattern variable body introduced-identifiers))
+          (define matcher (go-match pattern variable body introduced-identifiers))
+          (define res
+            (with-written-identifiers matcher
+                                      (mutable-vector->list introduced-identifiers)
+                                      (pattern-identifiers (third unwrapped) '())))
           (syntax/loc res
             (syntax-span expression)))
 
@@ -493,7 +516,8 @@
           (define unwrapped (syntax-e expression))
           ;; Unwrapping entirely, not what we want! We want to
           ;; wrap it back up with the span of the original definition!
-          (define variable (#%syntax->datum (second unwrapped)))
+          ;; The variable as written, which names the binder it was written by
+          (define variable (second unwrapped))
           (define pattern (#%syntax->datum (third unwrapped)))
           (define body (list-ref unwrapped 3))
           ;; Keep track of all of the identifiers that this
@@ -501,7 +525,11 @@
           ;; TODO: Keep one top level around and clear each time. Then
           ;; we won't keep around any garbage
           (define introduced-identifiers (mutable-vector))
-          (define res (go-match-syntax pattern variable body introduced-identifiers))
+          (define matcher (go-match-syntax pattern variable body introduced-identifiers))
+          (define res
+            (with-written-identifiers matcher
+                                      (mutable-vector->list introduced-identifiers)
+                                      (pattern-identifiers (third unwrapped) '())))
           (syntax/loc res
             (syntax-span expression)))
 

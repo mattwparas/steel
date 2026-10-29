@@ -1298,7 +1298,7 @@
 
 (define-syntax case-lambda
   (syntax-rules ()
-    [(case-lambda) (lambda args (error "CASE-LAMBDA without any clauses."))]
+    [(case-lambda) (lambda args (#%error "CASE-LAMBDA without any clauses."))]
     [(case-lambda
        [?a1
         ?e1 ...]
@@ -1322,7 +1322,7 @@
          (#%prim.apply (lambda (?a1 ...)
                          ?e1 ...)
                        ?args)
-         (error! "Arity mismatch in case lambda: attempted to call function with arg length: "
+         (#%error "Arity mismatch in case lambda: attempted to call function with arg length: "
                  ?l
                  "expecting length: "
                  (#%prim.length '(?a1 ...))))]

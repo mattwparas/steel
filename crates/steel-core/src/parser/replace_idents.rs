@@ -4,7 +4,7 @@ use thin_vec::ThinVec;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
 use crate::compiler::program::{ELLIPSES_SYMBOL, QUASISYNTAX_LOWERED, SYNTAX_SPAN};
-use crate::parser::parser::{ExpansionMark, SyntaxObject};
+use crate::parser::parser::SyntaxObject;
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 use crate::{
@@ -722,9 +722,7 @@ impl<'a> ReplaceExpressions<'a> {
                         }
                     }
 
-                    // This is a new identifier, so it doesn't have a known mark
-                    let mut syn = SyntaxObject::default(TokenType::Identifier(buffer.into()));
-                    syn.mark = ExpansionMark::UNKNOWN;
+                    let syn = SyntaxObject::default(TokenType::Identifier(buffer.into()));
 
                     Ok(Some(ExprKind::Atom(Atom::new(syn))))
                 } else {
@@ -796,11 +794,11 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                 ExprKind::Quote(q) => self.visit_quote(q),
                 ExprKind::Macro(m) => self.visit_macro(m),
                 ExprKind::Atom(a) => {
+                    let input = crate::parser::kernel::is_macro_input(&a.syn);
                     if let TokenType::Identifier(s) = &mut a.syn.ty {
                         // A quasisyntax template holds the input's identifiers, which aren't
                         // pattern variables even when they share a name
-                        if *s != self.wildcard && !crate::parser::kernel::is_macro_input(a.syn.mark)
-                        {
+                        if *s != self.wildcard && !input {
                             if let Some(body) = self.bindings.get(s) {
                                 let introduced_via_macro = a.syn.introduced_via_macro;
 

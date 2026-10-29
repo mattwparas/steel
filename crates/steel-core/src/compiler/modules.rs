@@ -1159,7 +1159,7 @@ impl ModuleManager {
             .get_mut(require_for_syntax)
             .unwrap_or_else(|| panic!("Module missing!: {:?}", require_for_syntax));
 
-        let mut name_mangler = NameMangler::new(globals, prefix.clone());
+        let mut name_mangler = NameMangler::new(globals, prefix.clone()).in_module(&module_name);
 
         // If the module hasn't been emitted already, then include it here
         if !module.emitted {
@@ -1213,7 +1213,7 @@ impl ModuleManager {
                             name_mangler.visit(expr);
                         }
                         smacro.mark_mangled();
-                        smacro.mark_definition_resolved();
+                        smacro.mark_definition_resolved(&module_name);
                     }
                 }
 
@@ -1793,7 +1793,8 @@ impl CompiledModule {
         // Mangle all of the variables that are either:
         // 1. Defined locally in this file
         // 2. Required by another file
-        let mut name_mangler = NameMangler::new(globals, prefix.clone());
+        let mut name_mangler =
+            NameMangler::new(globals, prefix.clone()).in_module(&self.name.to_string_lossy());
 
         // Afterwards, walk through and unmangle any quoted values, since these
         // were intended to be used with non mangled values.
@@ -2621,7 +2622,7 @@ fn begin_forms(expr: &mut ExprKind) -> Option<Vec<ExprKind>> {
         _ => return None,
     };
 
-    crate::parser::expand_visitor::rename_template_macros(&mut forms);
+    crate::parser::expand_visitor::rename_template_macros(&mut forms, true);
     Some(forms)
 }
 
@@ -2768,7 +2769,7 @@ fn expand_head(
                 // full expansion works out
                 if l.first()
                     .and_then(ExprKind::atom_syntax_object)
-                    .is_some_and(|x| x.mark != steel_parser::parser::ExpansionMark::NONE)
+                    .is_some_and(|x| x.scopes.introduced())
                 {
                     return Ok(());
                 }
@@ -2791,11 +2792,11 @@ fn expand_head(
 
                 if let Some(m) = rules {
                     let list = core::mem::replace(l, List::new(ThinVec::new()));
-                    let (expanded, mark) =
+                    let (expanded, introduction) =
                         m.expand_marked(list, span, &Default::default(), globals)?;
 
                     if let Some(index) = required {
-                        crate::parser::expand_visitor::record_foreign_mark(mark);
+                        crate::parser::expand_visitor::record_foreign(introduction);
                         expander.overlays[index].changed = true;
                     }
 
@@ -3981,6 +3982,24 @@ impl<'a> ModuleBuilder<'a> {
                 Vec::new(),
             );
 
+            // What the templates in its phase 1 code write names its own definitions
+            {
+                let mut mangler = NameMangler::new(
+                    collect_globals(&ast),
+                    path_to_prefix_name(self.name.to_path_buf()).into(),
+                )
+                .in_module(&self.name.to_string_lossy());
+                for expr in ast.iter_mut() {
+                    if let ExprKind::List(l) = expr {
+                        if l.first_ident() == Some(&*crate::compiler::program::BEGIN_FOR_SYNTAX) {
+                            for form in l.args.iter_mut().skip(1) {
+                                mangler.visit_phase1_code(form);
+                            }
+                        }
+                    }
+                }
+            }
+
             kernel.load_syntax_transformers(
                 &mut ast,
                 self.name.to_str().unwrap().to_string(),
@@ -4643,7 +4662,7 @@ impl<'a> ModuleBuilder<'a> {
                     match SteelMacro::parse_from_ast_macro(m) {
                         Ok(mut generated_macro) => {
                             // Its free names mean the module's globals
-                            generated_macro.mark_definition_resolved();
+                            generated_macro.mark_definition_resolved(&self.name.to_string_lossy());
                             let name = generated_macro.name();
 
                             let name = *name;

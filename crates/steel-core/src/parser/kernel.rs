@@ -23,7 +23,7 @@ use crate::{
     parser::{
         ast::{Atom, Define, LambdaFunction, Let, Quote, Set},
         expand_visitor::{is_define, is_lambda_head, is_let_head},
-        parser::{ExpansionMark, SyntaxObject, SyntaxObjectId},
+        parser::{SyntaxObject, SyntaxObjectId},
     },
     rvals::{Result, SteelString},
     steel_vm::builtin::BuiltInModule,
@@ -532,7 +532,12 @@ impl VisitorMutRef for Phase1Expander<'_> {
 
                     // What they expand to names their module's macros by its prefix
                     if let Some(kernel) = self.kernel.as_deref_mut() {
-                        if let Some(mut expanded) = kernel.expand_prefixed_macro(&name, l, None)? {
+                        if let Some(mut expanded) = kernel.expand_prefixed_macro(
+                            &name,
+                            l,
+                            None,
+                            crate::parser::expand_visitor::UseKind::Form,
+                        )? {
                             self.visit_expansion(&mut expanded, span)?;
                             *expr = expanded;
                             return Ok(());
@@ -652,6 +657,27 @@ impl VisitorMutRef for Phase1Expander<'_> {
                 ]);
 
                 result
+            }
+            // A with-syntax or syntax-case an earlier pass took apart still names the phase 1
+            // variables it uses by their globals
+            Some("#%syntax-without-patterns") if !self.renames.is_empty() => {
+                let Some(ExprKind::List(form)) = l.args.get_mut(1) else {
+                    return Ok(());
+                };
+                if !matches!(form_name(form), Some("with-syntax" | "#%syntax-case")) {
+                    return Ok(());
+                }
+                let mut form = ExprKind::List(core::mem::replace(
+                    form,
+                    super::ast::List::new(ThinVec::new()),
+                ));
+                let outside = self.patterns == 0;
+                self.visit(&mut form)?;
+                match form {
+                    ExprKind::List(form) if outside => *l = form,
+                    form => l.args[1] = form,
+                }
+                Ok(())
             }
             Some("#%syntax-without-patterns") => Ok(()),
             Some(head) if QUOTE_FORMS.contains(&head) => l
@@ -1070,7 +1096,7 @@ impl VisitorMutRefUnit for RenameInstance<'_> {
 }
 
 // The pattern variables of a `syntax-case` pattern
-fn pattern_variables(pattern: &ExprKind, variables: &mut Vec<ExprKind>) {
+pub(crate) fn pattern_variables(pattern: &ExprKind, variables: &mut Vec<ExprKind>) {
     match pattern {
         ExprKind::Atom(_) => variables.push(pattern.clone()),
         ExprKind::List(l) => l.args.iter().for_each(|x| pattern_variables(x, variables)),
@@ -1151,6 +1177,9 @@ pub struct Kernel {
     // The macros defined in functions, with the locals where each is defined and those of
     // them a macro there hides
     local_macros: FxHashMap<InternedString, LocalCaptures>,
+    // The scopes where a template wrote a procedural macro's definition outside a function,
+    // which what its templates write gets, by its name
+    macro_scopes: FxHashMap<InternedString, steel_parser::scopes::ScopeSetId>,
     // The phase 1 variables each environment imports, by the globals they are
     phase1_aliases: FxHashMap<String, FxHashMap<InternedString, InternedString>>,
     // The procedural macros each environment's transformer code can use, with the
@@ -1174,14 +1203,29 @@ pub(crate) struct MacroModule {
 
 // What a kernel macro was given, so what it introduces can be told apart
 struct MacroInput {
-    // The marks the input was given, with the marks they replaced
-    marks: FxHashMap<ExpansionMark, ExpansionMark>,
+    // The use's use-site scope, which the input has and what the macro introduces doesn't
+    use_site: steel_parser::scopes::Scope,
     // Set by syntax-case transformers, whose introduced identifiers are hygienic
     hygienic: bool,
+    // The scopes of the use's head, which what an unhygienic macro writes has, as Racket's
+    // `datum->syntax` with the use as the context gives
+    use_scopes: steel_parser::scopes::ScopeSetId,
+}
+
+impl MacroInput {
+    // Whether the use wrote it, rather than the macro
+    fn wrote(&self, syn: &SyntaxObject) -> bool {
+        syn.scopes.contains(self.use_site)
+    }
 }
 
 thread_local! {
     static MACRO_INPUTS: RefCell<Vec<MacroInput>> = RefCell::new(Vec::new());
+}
+
+// Whether the identifier came from the input of the kernel macro being called
+pub(crate) fn is_macro_input(syn: &SyntaxObject) -> bool {
+    MACRO_INPUTS.with(|inputs| inputs.borrow().last().is_some_and(|input| input.wrote(syn)))
 }
 
 // Called by a syntax-case transformer on its input
@@ -1195,16 +1239,6 @@ pub(crate) fn hygienic_macro_input(input: SteelVal) -> SteelVal {
     input
 }
 
-// Whether the identifier came from the input of the kernel macro being called
-pub(crate) fn is_macro_input(mark: ExpansionMark) -> bool {
-    MACRO_INPUTS.with(|inputs| {
-        inputs
-            .borrow()
-            .last()
-            .is_some_and(|input| input.marks.contains_key(&mark))
-    })
-}
-
 // Where a macro's output binds names itself, which aren't references to globals
 struct Binders<'a> {
     input: &'a MacroInput,
@@ -1215,7 +1249,7 @@ impl Binders<'_> {
     fn bind(&mut self, name: &ExprKind) {
         if let Some(syn) = name.atom_syntax_object() {
             if let TokenType::Identifier(_) = syn.ty {
-                if !self.input.marks.contains_key(&syn.mark) {
+                if !self.input.wrote(syn) {
                     self.binders.insert(syn.syntax_object_id);
                 }
             }
@@ -1279,35 +1313,31 @@ impl<'a> VisitorMutUnitRef<'a> for Binders<'_> {
     }
 }
 
-// Puts back the marks of what a kernel macro was given. A syntax-case transformer's
-// introduced identifiers get a mark of their own, like those of a syntax-rules template,
+// Gives what a kernel macro wrote its scopes. A syntax-case transformer's introduced
+// identifiers get an introduction scope of their own, like those of a syntax-rules template,
 // and a module's macro gives the ones it introduces the module's names.
 struct Introduced<'a> {
     input: &'a MacroInput,
-    mark: ExpansionMark,
-    // Where the macro binds names itself. Its other identifiers are references, which
-    // marks resolve to its binders or else the globals.
+    // Where the macro binds names itself. Its other identifiers are references, to its
+    // binders or else the globals.
     defined: FxHashSet<SyntaxObjectId>,
     mangler: Option<&'a mut NameMangler>,
     quoted: usize,
     // Defined in a function, so its other identifiers can refer to the function's locals
     local: bool,
-    macro_name: InternedString,
     // The locals where a macro defined in a function is defined, which what it introduces
     // can refer to
     captures: LocalCaptures,
+    // The expansion's introduction scope, which what the macro wrote gets
+    scope: steel_parser::scopes::Scope,
+    // The scope of the module that defines it, unless a function does
+    module: Option<steel_parser::scopes::Scope>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct LocalCaptures {
-    locals: Arc<FxHashSet<InternedString>>,
-    hidden: FxHashSet<InternedString>,
-}
-
-impl LocalCaptures {
-    fn contains(&self, name: &InternedString) -> bool {
-        self.locals.contains(name) && !self.hidden.contains(name)
-    }
+    // The scopes where the macro is defined, which what its templates write has
+    scopes: steel_parser::scopes::ScopeSetId,
 }
 
 impl Introduced<'_> {
@@ -1334,26 +1364,30 @@ impl VisitorMutRefUnit for Introduced<'_> {
             return;
         };
 
-        if let Some(mark) = self.input.marks.get(&a.syn.mark) {
-            a.syn.mark = *mark;
+        if self.input.wrote(&a.syn) {
+            // What the module's own code wrote, as `datum->syntax` with one of its templates'
+            // pieces as the context makes it, means the module's names
+            if let (Some(module), Some(mangler), 0) =
+                (self.module, self.mangler.as_deref_mut(), self.quoted)
+            {
+                if a.syn.scopes.modules().contains(&module) {
+                    mangler.visit_atom(a);
+                }
+            }
             return;
         }
 
-        if self.input.hygienic {
-            a.syn.mark = self.mark;
-            a.syn.unresolved = !self.local && !self.defined.contains(&a.syn.syntax_object_id);
+        a.syn.scopes = if self.input.hygienic {
+            a.syn.scopes.union(self.captures.scopes).add(self.scope)
+        } else {
+            a.syn.scopes.union(self.input.use_scopes)
+        };
 
-            // The hygiene pass resolves it where the macro was defined
-            if self.local && self.quoted == 0 && !self.defined.contains(&a.syn.syntax_object_id) {
-                if let TokenType::Identifier(name) = &mut a.syn.ty {
-                    if self.captures.contains(name) {
-                        *name = crate::parser::expand_visitor::local_macro_capture(
-                            &self.macro_name,
-                            name,
-                        );
-                    }
-                }
+        if self.input.hygienic {
+            if let Some(module) = self.module {
+                a.syn.scopes = a.syn.scopes.add(module);
             }
+            a.syn.unresolved = !self.local && !self.defined.contains(&a.syn.syntax_object_id);
         }
 
         if self.quoted == 0 {
@@ -1367,26 +1401,40 @@ impl VisitorMutRefUnit for Introduced<'_> {
         self.visit_quoted(&mut quote.expr);
     }
 
-    // A syntax-rules macro it defines. What came from the input gets its marks back.
+    // A syntax-rules macro it defines. What came from the input keeps its scopes.
     fn visit_macro(&mut self, m: &mut super::ast::Macro) {
-        struct RestoreInputMarks<'a>(&'a MacroInput);
+        // What the template wrote has the expansion's scopes, as what it writes outside a
+        // macro definition does
+        struct TemplateScopes<'a>(
+            &'a MacroInput,
+            Option<(
+                steel_parser::scopes::ScopeSetId,
+                steel_parser::scopes::Scope,
+            )>,
+        );
 
-        impl VisitorMutRefUnit for RestoreInputMarks<'_> {
+        impl VisitorMutRefUnit for TemplateScopes<'_> {
             fn visit_atom(&mut self, a: &mut Atom) {
-                if let Some(mark) = self.0.marks.get(&a.syn.mark) {
-                    a.syn.mark = *mark;
+                if let (false, Some((captured, scope))) = (self.0.wrote(&a.syn), self.1) {
+                    if a.syn.ty.identifier().is_some() {
+                        a.syn.scopes = a.syn.scopes.union(captured).add(scope);
+                    }
                 }
             }
         }
 
-        let mut restore = RestoreInputMarks(self.input);
+        let scopes = self
+            .input
+            .hygienic
+            .then_some((self.captures.scopes, self.scope));
+        let mut restore = TemplateScopes(self.input, scopes);
 
-        // The name is the input's, or one the template wrote, which has the expansion's mark
+        // The name is the input's, or one the template wrote, which has the expansion's scopes
         // like the uses it wrote
         match m.name.as_mut() {
-            ExprKind::Atom(a) if !self.input.marks.contains_key(&a.syn.mark) => {
-                if self.input.hygienic {
-                    a.syn.mark = self.mark;
+            ExprKind::Atom(a) if !self.input.wrote(&a.syn) => {
+                if let Some((captured, scope)) = scopes {
+                    a.syn.scopes = a.syn.scopes.union(captured).add(scope);
                 }
             }
             name => restore.visit(name),
@@ -1395,6 +1443,60 @@ impl VisitorMutRefUnit for Introduced<'_> {
         for pair in m.syntax_rules.patterns.iter_mut() {
             restore.visit(&mut pair.pattern);
             restore.visit(&mut pair.body);
+        }
+
+        // And names what it wrote by the module's names, as what it writes outside a macro
+        // definition, except the template's pattern variables and what it quotes
+        let Some(mangler) = self.mangler.as_deref_mut() else {
+            return;
+        };
+
+        struct PatternVariables(FxHashSet<InternedString>);
+        impl VisitorMutRefUnit for PatternVariables {
+            fn visit_atom(&mut self, a: &mut Atom) {
+                if let TokenType::Identifier(name) = a.syn.ty {
+                    self.0.insert(name);
+                }
+            }
+        }
+
+        struct TemplateNames<'a> {
+            input: &'a MacroInput,
+            variables: &'a FxHashSet<InternedString>,
+            mangler: &'a mut NameMangler,
+        }
+        impl VisitorMutRefUnit for TemplateNames<'_> {
+            fn visit_atom(&mut self, a: &mut Atom) {
+                if let TokenType::Identifier(name) = a.syn.ty {
+                    if !self.input.wrote(&a.syn) && !self.variables.contains(&name) {
+                        self.mangler.visit_atom(a);
+                    }
+                }
+            }
+
+            fn visit_quote(&mut self, _quote: &mut Quote) {}
+
+            fn visit_list(&mut self, l: &mut super::ast::List) {
+                let quoted = l
+                    .first_ident()
+                    .is_some_and(|head| [*QUOTE, *RAW_QUOTE, *QUASIQUOTE].contains(head));
+                if !quoted {
+                    for arg in l.args.iter_mut() {
+                        self.visit(arg);
+                    }
+                }
+            }
+        }
+
+        for pair in m.syntax_rules.patterns.iter_mut() {
+            let mut variables = PatternVariables(FxHashSet::default());
+            variables.visit(&mut pair.pattern);
+            TemplateNames {
+                input: self.input,
+                variables: &variables.0,
+                mangler,
+            }
+            .visit(&mut pair.body);
         }
     }
 
@@ -1519,6 +1621,7 @@ impl Kernel {
             "register-macro-transformer!",
             move |name: String, env: String| {
                 let name: InternedString = name.as_str().into();
+                crate::parser::expand_visitor::registered_procedural(name);
                 embedded_transformer_object
                     .names
                     .write()
@@ -1610,6 +1713,7 @@ impl Kernel {
             macro_modules: FxHashMap::default(),
             sandboxed: sandbox,
             local_macros: FxHashMap::default(),
+            macro_scopes: FxHashMap::default(),
             phase1_aliases: FxHashMap::default(),
             phase1_procedural: FxHashMap::default(),
         }
@@ -1850,17 +1954,6 @@ impl Kernel {
                     ),
                     false,
                 )?;
-
-                // What they define is defined by name, like the rest of phase 1
-                struct Unmarked;
-
-                impl VisitorMutRefUnit for Unmarked {
-                    fn visit_atom(&mut self, a: &mut Atom) {
-                        a.syn.mark = ExpansionMark::NONE;
-                    }
-                }
-
-                Unmarked.visit(expr);
             }
         }
 
@@ -2670,14 +2763,32 @@ impl Kernel {
         self.local_macros.contains_key(name)
     }
 
+    // Whether a template wrote the macro's definition that also wrote a use with these scopes
+    pub(crate) fn defined_by_template_of(
+        &self,
+        name: &InternedString,
+        scopes: steel_parser::scopes::ScopeSetId,
+    ) -> bool {
+        self.macro_scopes.get(name).is_some_and(|defined| {
+            let introductions = defined.introductions();
+            !introductions.is_empty() && introductions.is_subset(scopes)
+        })
+    }
+
+    pub(crate) fn define_macro_scopes(
+        &mut self,
+        name: InternedString,
+        scopes: steel_parser::scopes::ScopeSetId,
+    ) {
+        self.macro_scopes.insert(name, scopes);
+    }
+
     pub(crate) fn define_local_macro(
         &mut self,
         name: InternedString,
-        locals: Arc<FxHashSet<InternedString>>,
-        hidden: FxHashSet<InternedString>,
+        scopes: steel_parser::scopes::ScopeSetId,
     ) {
-        self.local_macros
-            .insert(name, LocalCaptures { locals, hidden });
+        self.local_macros.insert(name, LocalCaptures { scopes });
     }
 
     pub(crate) fn add_macro_module(&mut self, prefix: CompactString, module: MacroModule) {
@@ -2688,12 +2799,33 @@ impl Kernel {
     /// is one
     /// `environment` is where the code is, when known: what another module's macro writes
     /// for it means the names where that macro is.
+    // A module's macro by the name its prefix gives it, as its templates write it
+    fn prefixed_macro(&self, name: &InternedString) -> Option<(&MacroModule, InternedString)> {
+        let resolved = name.resolve();
+        let end = resolved
+            .starts_with(MANGLER_PREFIX)
+            .then(|| resolved.find(MANGLER_SEPARATOR))
+            .flatten()
+            .map(|i| i + MANGLER_SEPARATOR.len())?;
+        let local = InternedString::try_get(&resolved[end..])?;
+        let module = self.macro_modules.get(&resolved[..end])?;
+        Some((module, local))
+    }
+
+    // Whether it's a module's procedural macro by its prefixed name
+    pub(crate) fn names_prefixed_procedural(&self, name: &InternedString) -> bool {
+        self.prefixed_macro(name)
+            .is_some_and(|(module, local)| module.procedural.contains_key(&local))
+    }
+
     pub(crate) fn expand_prefixed_macro(
         &mut self,
         name: &InternedString,
         l: &mut super::ast::List,
         environment: Option<&str>,
+        kind: crate::parser::expand_visitor::UseKind,
     ) -> Result<Option<ExprKind>> {
+        use crate::parser::expand_visitor::UseKind;
         let resolved = name.resolve();
 
         let Some(end) = resolved
@@ -2719,6 +2851,20 @@ impl Kernel {
             return Ok(None);
         }
 
+        // Alone or a `set!`, only a procedural one, a `set!` only of a set! transformer
+        if kind != UseKind::Form {
+            let Some((environment, name)) = module.procedural.get(&local).cloned() else {
+                return Ok(None);
+            };
+            if kind == UseKind::Set && !self.is_set_transformer(&name) {
+                return Ok(None);
+            }
+            let input = crate::parser::expand_visitor::use_input(l, kind == UseKind::Identifier);
+            return self
+                .expand_in_environment(&name, input, &environment)
+                .map(Some);
+        }
+
         if let Some(m) = module.rules.get(&local) {
             let span = l
                 .first()
@@ -2726,7 +2872,7 @@ impl Kernel {
                 .map(|x| x.span);
             let list = core::mem::replace(l, super::ast::List::new(ThinVec::new()));
 
-            let (expanded, mark) = m.expand_marked(
+            let (expanded, introduction) = m.expand_marked(
                 list,
                 span.unwrap_or_default(),
                 &Default::default(),
@@ -2734,7 +2880,7 @@ impl Kernel {
             )?;
 
             if environment.is_some_and(|environment| environment != module.environment) {
-                crate::parser::expand_visitor::record_foreign_mark(mark);
+                crate::parser::expand_visitor::record_foreign(introduction);
             }
 
             return Ok(Some(expanded));
@@ -2817,9 +2963,9 @@ impl Kernel {
         names
     }
 
-    // Whether a required module's macro introduced a name with this mark
-    pub(crate) fn is_foreign_mark(&self, mark: ExpansionMark) -> bool {
-        crate::parser::expand_visitor::is_foreign_mark(mark)
+    // Whether a required module's macro introduced a name with these scopes
+    pub(crate) fn is_foreign(&self, scopes: steel_parser::scopes::ScopeSetId) -> bool {
+        crate::parser::expand_visitor::is_foreign(scopes)
     }
 
     // Whether the macro of this name takes a `set!` of it
@@ -2884,19 +3030,45 @@ impl Kernel {
     pub(crate) fn expand_syntax_object(
         &mut self,
         ident: &InternedString,
-        expr: ExprKind,
+        mut expr: ExprKind,
         environment: &str,
         mangler: Option<&mut NameMangler>,
     ) -> Result<ExprKind> {
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
 
+        // The input gets the use's use-site scope before the transformer sees it, so it
+        // tells what the use wrote from what its templates write
+        let use_site = steel_parser::scopes::Scope::fresh_use_site();
+        {
+            // Its literals too, which `datum->syntax` can take its context from
+            struct UseSite(steel_parser::scopes::Scope);
+            impl VisitorMutRefUnit for UseSite {
+                fn visit_atom(&mut self, a: &mut Atom) {
+                    a.syn.scopes = a.syn.scopes.add(self.0);
+                }
+            }
+            UseSite(use_site).visit(&mut expr);
+        }
+
         let span = get_span(&expr);
 
         let mut expr = expr;
 
         if ident.resolve() == "define-syntax" {
-            self.expand_transformer_code(environment, &mut expr)?;
+            // One another module's template wrote is code of that module's phase 1
+            let written_in = match &expr {
+                ExprKind::List(l) => crate::parser::expand_visitor::definition_scopes(l)
+                    .modules()
+                    .into_iter()
+                    .filter(|x| *x != steel_parser::scopes::Scope::prelude())
+                    .filter_map(|x| x.module_name())
+                    .find(|x| {
+                        x != environment && self.transformers.phase1.read().unwrap().contains_key(x)
+                    }),
+                _ => None,
+            };
+            self.expand_transformer_code(written_in.as_deref().unwrap_or(environment), &mut expr)?;
         }
 
         let syntax_objects =
@@ -2932,19 +3104,26 @@ impl Kernel {
             }
         };
 
-        let mut given = FxHashMap::default();
-
-        let syntax_objects = match &syntax_objects {
-            SteelVal::SyntaxObject(syntax) => syntax
-                .map_marks(&mut |mark| *given.entry(mark).or_insert_with(ExpansionMark::fresh))
-                .into(),
-            _ => syntax_objects,
+        let use_scopes = match &syntax_objects {
+            SteelVal::SyntaxObject(syntax) => match &syntax.syntax {
+                SteelVal::ListV(items) => match items.iter().next() {
+                    Some(SteelVal::SyntaxObject(head)) => head.scopes(),
+                    _ => syntax.scopes(),
+                },
+                _ => syntax.scopes(),
+            },
+            _ => steel_parser::scopes::ScopeSetId::EMPTY,
         };
+
+        // The input's lists have the use's scopes, as its atoms do, which `datum->syntax` can
+        // take its context from
+        let syntax_objects = crate::rvals::with_list_scopes(&syntax_objects, use_scopes, use_site);
 
         MACRO_INPUTS.with(|x| {
             x.borrow_mut().push(MacroInput {
-                marks: given.into_iter().map(|(old, new)| (new, old)).collect(),
+                use_site,
                 hygienic: false,
+                use_scopes,
             })
         });
 
@@ -2952,9 +3131,16 @@ impl Kernel {
             .engine
             .call_function_with_args_from_mut_slice(function, &mut [syntax_objects]);
 
-        let input = MACRO_INPUTS.with(|x| x.borrow_mut().pop()).unwrap();
+        let mut input = MACRO_INPUTS.with(|x| x.borrow_mut().pop()).unwrap();
 
         let result = result.map_err(|x| x.set_span(span))?;
+
+        // Syntax it made, by a template or `datum->syntax`, is hygienic, as in Racket, whether or
+        // not syntax-case took its input apart. What's made as plain data, as a defmacro makes
+        // it, means what it does where it's used.
+        if let SteelVal::SyntaxObject(_) = result {
+            input.hygienic = true;
+        }
 
         // This shouldn't be lowering all the way. It should just be back to list right?
         let mut res = TryFromSteelValVisitorForExprKind::root(&result);
@@ -2980,27 +3166,30 @@ impl Kernel {
             // The free names of a macro defined outside any function mean the globals
             let captures = self.local_macros.get(ident).cloned();
             let local = captures.is_some();
+            let captures = captures.or_else(|| {
+                self.macro_scopes
+                    .get(ident)
+                    .map(|scopes| LocalCaptures { scopes: *scopes })
+            });
 
-            let mark = if local {
-                ExpansionMark::fresh()
-            } else {
-                ExpansionMark::fresh_definition_resolved()
-            };
+            let introduction = steel_parser::scopes::Scope::fresh_introduction();
 
             // Expanded for another module's code
             if mangler.is_some() {
-                crate::parser::expand_visitor::record_foreign_mark(mark);
+                crate::parser::expand_visitor::record_foreign(introduction);
             }
+
+            crate::parser::expand_visitor::made_use_site(Some(use_site));
 
             Introduced {
                 input: &input,
-                mark,
                 defined: FxHashSet::default(),
                 mangler: mangler.filter(|_| in_environment),
                 quoted: 0,
                 local,
-                macro_name: *ident,
                 captures: captures.unwrap_or_default(),
+                scope: introduction,
+                module: (!local).then(|| steel_parser::scopes::Scope::module(environment)),
             }
             .resolve(expr);
         }

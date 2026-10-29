@@ -6,6 +6,7 @@ pub mod hygiene;
 pub mod manager;
 pub mod mangle;
 pub mod opt;
+pub mod scopes_check;
 pub mod shadow;
 pub mod types;
 

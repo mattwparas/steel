@@ -371,6 +371,7 @@ steel_config! {
     /// Box every local assigned with `set!`, captured or not, so a continuation
     /// entered again sees the assignment.
     box_assigned_locals: bool = true, "STEEL_BOX_ASSIGNED_LOCALS";
+
     /// Lower acyclic internal defines sequentially rather than as `letrec`.
     sequential_defines: bool = true, "STEEL_SEQUENTIAL_DEFINES";
     /// Keep module globals that are reassigned with `set!` in boxes.

@@ -2,17 +2,18 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::parser::{
     ast::{Atom, Begin, Define, ExprKind, LambdaFunction, Let, Quote},
-    expand_visitor::{is_local_macro_definition, kernel_local_macro, local_macro_captured},
+    expand_visitor::{is_local_macro_definition, kernel_local_macro},
     interner::InternedString,
-    parser::{ExpansionMark, SyntaxObject, SyntaxObjectId},
+    parser::{SyntaxObject, SyntaxObjectId},
 };
 
 use super::{mangle::is_prelude_builtin, VisitorMutRefUnit};
+use crate::parser::tokens::TokenType;
 use crate::steel_vm::primitives::builtin_to_reserved;
 
-// Identifiers from a syntax-rules template are marked with the expansion that introduced
-// them. Everything after expansion resolves variables by name, so this renames local binders
-// where resolving by name would pick a different binder than the marks.
+// Every identifier has the scopes of the expansions and binding forms it's in. Everything after
+// expansion resolves variables by name, so this renames local binders where resolving by name
+// would pick a different binder than the scopes.
 //
 // Has to run after expansion and lowering, and before constant evaluation.
 //
@@ -22,17 +23,16 @@ use crate::steel_vm::primitives::builtin_to_reserved;
 // attempt at fixing some bugs that have been reported.
 struct Binder {
     name: InternedString,
-    mark: ExpansionMark,
     id: usize,
-    local_macro: Option<InternedString>,
     syntax: SyntaxObjectId,
+    scopes: steel_parser::scopes::ScopeSetId,
 }
 
 #[derive(Default)]
-pub struct ResolveExpansionMarks {
+pub struct ResolveByScopes {
     scope: Vec<Binder>,
-    // How many of the binders in scope were introduced by a template
-    template_binders: usize,
+    // Where in `scope` each name's binders are
+    by_name: FxHashMap<InternedString, Vec<usize>>,
     next_id: usize,
     conflicts: FxHashSet<usize>,
     renamed: FxHashMap<usize, InternedString>,
@@ -40,7 +40,8 @@ pub struct ResolveExpansionMarks {
     // usize here is the binder count
     local_macros: Vec<(InternedString, usize)>,
     has_local_macros: bool,
-    template_globals: FxHashSet<(InternedString, ExpansionMark)>,
+    // Whether this input's templates define globals
+    template_globals: bool,
     // The globals templates defined in this and earlier compiles, which a macro those
     // templates defined can still name, from a later input or another module
     earlier: TemplateGlobals,
@@ -48,22 +49,11 @@ pub struct ResolveExpansionMarks {
     bodies: usize,
 }
 
-// Kept by the compiler. Marks are never reused.
-pub type TemplateGlobals = FxHashSet<(InternedString, ExpansionMark)>;
+// Kept by the compiler: each name's definitions, by the introduction scopes of what defined it.
+// Scopes are never reused.
+pub type TemplateGlobals = FxHashMap<InternedString, FxHashSet<steel_parser::scopes::ScopeSetId>>;
 
-struct RestoreCapturedNames;
-
-impl VisitorMutRefUnit for RestoreCapturedNames {
-    fn visit_atom(&mut self, a: &mut Atom) {
-        if let Some(name) = a.syn.ty.identifier_mut() {
-            if let Some((_, variable)) = local_macro_captured(name.resolve()) {
-                *name = variable.into();
-            }
-        }
-    }
-}
-
-impl ResolveExpansionMarks {
+impl ResolveByScopes {
     pub fn resolve(expr: &mut ExprKind, earlier: &mut TemplateGlobals) {
         let mut pass = Self {
             earlier: core::mem::take(earlier),
@@ -73,8 +63,7 @@ impl ResolveExpansionMarks {
         pass.define_template_globals(expr);
         pass.visit(expr);
 
-        if !pass.conflicts.is_empty() || pass.has_local_macros || !pass.template_globals.is_empty()
-        {
+        if !pass.conflicts.is_empty() || pass.has_local_macros || pass.template_globals {
             pass.renaming = true;
             pass.next_id = 0;
             pass.visit(expr);
@@ -83,8 +72,31 @@ impl ResolveExpansionMarks {
         *earlier = pass.earlier;
     }
 
-    fn template_global(name: InternedString, mark: ExpansionMark) -> InternedString {
-        format!("##{}#{}", name.resolve(), mark.0).into()
+    fn template_global(
+        name: InternedString,
+        introductions: steel_parser::scopes::ScopeSetId,
+    ) -> InternedString {
+        format!("##{}#{}", name.resolve(), introductions.0).into()
+    }
+
+    // A global a template defined that a reference with these scopes means: the one whose
+    // introduction scopes are the largest subset of the reference's
+    fn template_global_of(
+        &self,
+        name: InternedString,
+        scopes: steel_parser::scopes::ScopeSetId,
+    ) -> Option<InternedString> {
+        let defined = self.earlier.get(&name)?;
+        // Most often the one the same expansion wrote
+        let introductions = scopes.introductions();
+        if defined.contains(&introductions) {
+            return Some(Self::template_global(name, introductions));
+        }
+        let defined = defined
+            .iter()
+            .filter(|x| x.is_subset(scopes))
+            .max_by_key(|x| (x.len(), x.0))?;
+        Some(Self::template_global(name, *defined))
     }
 
     fn define_template_globals(&mut self, expr: &mut ExprKind) {
@@ -99,16 +111,25 @@ impl ResolveExpansionMarks {
                     return;
                 };
 
-                let mark = syn.mark;
+                let introductions = syn.scopes.introductions();
 
-                if !mark.is_template() {
+                // Not one the expander already named for its expansion, nor a transformer's,
+                // which other compiles name without scopes
+                if introductions.is_empty()
+                    || syn.ty.identifier().is_some_and(|x| {
+                        let name = x.resolve();
+                        name.starts_with("#%phase1-var:")
+                            || crate::parser::expand_visitor::template_macro_written_name(name)
+                                .is_some()
+                    })
+                {
                     return;
                 }
 
                 if let Some(name) = syn.ty.identifier_mut() {
-                    self.template_globals.insert((*name, mark));
-                    self.earlier.insert((*name, mark));
-                    *name = Self::template_global(*name, mark);
+                    self.template_globals = true;
+                    self.earlier.entry(*name).or_default().insert(introductions);
+                    *name = Self::template_global(*name, introductions);
                 }
             }
             _ => {}
@@ -116,40 +137,29 @@ impl ResolveExpansionMarks {
     }
 
     fn bind(&mut self, syn: &mut SyntaxObject) {
-        let mark = syn.mark;
-
         let Some(name) = syn.ty.identifier_mut() else {
             return;
         };
 
-        let mut local_macro = None;
-
-        if let Some((macro_name, variable)) = local_macro_captured(name.resolve()) {
-            local_macro = Some(macro_name.into());
-            *name = variable.into();
-        }
+        let scopes = syn.scopes;
 
         let id = self.next_id;
         self.next_id += 1;
 
-        if mark.is_template() {
-            self.template_binders += 1;
-        }
-
+        self.by_name
+            .entry(*name)
+            .or_default()
+            .push(self.scope.len());
         self.scope.push(Binder {
             name: *name,
-            mark,
             id,
-            local_macro,
             syntax: syn.syntax_object_id,
+            scopes,
         });
 
         if self.renaming && self.conflicts.contains(&id) {
-            let fresh: InternedString = if mark == ExpansionMark::NONE {
-                format!("##{}#{}#{}", name.resolve(), mark.0, id).into()
-            } else {
-                format!("##{}#{}", name.resolve(), mark.0).into()
-            };
+            // One name per binder
+            let fresh: InternedString = format!("##{}#{}#{}", name.resolve(), scopes.0, id).into();
             *name = fresh;
             self.renamed.insert(id, fresh);
         }
@@ -157,14 +167,77 @@ impl ResolveExpansionMarks {
 
     fn exit_scope(&mut self, depth: usize) {
         for binder in self.scope.drain(depth..) {
-            if binder.mark.is_template() {
-                self.template_binders -= 1;
+            if let Some(positions) = self.by_name.get_mut(&binder.name) {
+                positions.pop();
             }
         }
     }
 
+    // A reference's binder is the local of its name whose scopes are the largest subset of its
+    // own. Where the innermost local of the name isn't that one, both are renamed.
+    fn resolve_by_scopes(&mut self, a: &mut Atom) {
+        let scopes = a.syn.scopes;
+        let Some(name) = a.syn.ty.identifier().copied() else {
+            return;
+        };
+
+        // The last of the largest, as the expander's `meaning` picks
+        let by_scopes = self
+            .by_name
+            .get(&name)
+            .into_iter()
+            .flatten()
+            .map(|x| &self.scope[*x])
+            .filter(|b| b.scopes.is_subset(scopes))
+            .max_by_key(|b| b.scopes.len())
+            .map(|b| b.id);
+        let innermost = self.innermost(name).map(|b| b.id);
+
+        let Some(binder) = by_scopes else {
+            // No local: one a template defines at the top level, a prelude builtin, or a global,
+            // which a local of its name in the way is renamed for
+            if let Some(global) = self.template_global_of(name, scopes) {
+                a.syn.ty = TokenType::Identifier(global);
+                a.syn.unresolved = false;
+                return;
+            }
+            // From a module's macro, not the top level's own, a builtin means the builtin
+            if scopes.has_module_except(steel_parser::scopes::Scope::module("top-level"))
+                && is_prelude_builtin(&name)
+            {
+                a.syn.ty = TokenType::Identifier(builtin_to_reserved(name.resolve()));
+                a.syn.unresolved = false;
+                return;
+            }
+            // Every local of its name in the way, not only the innermost
+            if !self.renaming {
+                for position in self.by_name.get(&name).into_iter().flatten() {
+                    self.conflicts.insert(self.scope[*position].id);
+                }
+            }
+            return;
+        };
+
+        a.syn.unresolved = false;
+
+        if !self.renaming {
+            if innermost != Some(binder) {
+                self.conflicts.insert(binder);
+                if let Some(innermost) = innermost {
+                    self.conflicts.insert(innermost);
+                }
+            }
+            return;
+        }
+
+        if let Some(fresh) = self.renamed.get(&binder) {
+            a.syn.ty = TokenType::Identifier(*fresh);
+        }
+    }
+
     fn innermost(&self, name: InternedString) -> Option<&Binder> {
-        self.scope.iter().rev().find(|b| b.name == name)
+        let position = *self.by_name.get(&name)?.last()?;
+        self.scope.get(position)
     }
 
     // Internal defines are in scope for the entire body they appear in
@@ -193,46 +266,6 @@ impl ResolveExpansionMarks {
         }
     }
 
-    fn captured_variable(&self, macro_name: &str, variable: &str) -> (InternedString, usize) {
-        let depth = self
-            .local_macros
-            .iter()
-            .rev()
-            .find(|x| x.0.resolve() == macro_name)
-            .map_or(self.scope.len(), |x| x.1);
-
-        (variable.into(), depth)
-    }
-
-    fn resolve_captured(&mut self, a: &mut Atom, variable: InternedString, depth: usize) {
-        let depth = depth.min(self.scope.len());
-
-        if !self.renaming {
-            self.has_local_macros = true;
-
-            for binder in self.scope[depth..].iter().filter(|b| b.name == variable) {
-                self.conflicts.insert(binder.id);
-            }
-
-            return;
-        }
-
-        let binder = self.scope[..depth]
-            .iter()
-            .rev()
-            .find(|b| b.name == variable);
-        let name = binder
-            .and_then(|b| self.renamed.get(&b.id))
-            .copied()
-            .unwrap_or(variable);
-
-        if let Some(captured) = a.syn.ty.identifier_mut() {
-            *captured = name;
-        }
-
-        a.syn.unresolved = false;
-    }
-
     fn bind_internal_defines(&mut self, expr: &mut ExprKind) {
         match expr {
             ExprKind::Begin(b) => {
@@ -250,7 +283,7 @@ impl ResolveExpansionMarks {
     }
 }
 
-impl VisitorMutRefUnit for ResolveExpansionMarks {
+impl VisitorMutRefUnit for ResolveByScopes {
     fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
         let depth = self.scope.len();
 
@@ -299,7 +332,9 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
                     if let Some(syn) = d.name.atom_syntax_object_mut() {
                         let id = syn.syntax_object_id;
 
-                        if syn.mark.is_template() && !self.scope.iter().any(|b| b.syntax == id) {
+                        if !syn.scopes.introductions().is_empty()
+                            && !self.scope.iter().any(|b| b.syntax == id)
+                        {
                             self.bind(syn);
                         }
                     }
@@ -322,119 +357,9 @@ impl VisitorMutRefUnit for ResolveExpansionMarks {
         self.local_macros.truncate(visible);
     }
 
-    fn visit_quote(&mut self, quote: &mut Quote) {
-        if self.renaming && self.has_local_macros {
-            RestoreCapturedNames.visit(&mut quote.expr);
-        }
-    }
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
 
     fn visit_atom(&mut self, a: &mut Atom) {
-        let mark = a.syn.mark;
-
-        let Some(name) = a.syn.ty.identifier_mut() else {
-            return;
-        };
-
-        if let Some((macro_name, variable)) = local_macro_captured(name.resolve()) {
-            let (variable, depth) = self.captured_variable(macro_name, variable);
-
-            // We want to keep the mark, or the captured name if a macro built
-            // this from quoted values
-            let macro_name: InternedString = macro_name.into();
-            let bound_by_template = self.scope.iter().any(|b| {
-                b.name == variable
-                    && (mark.is_template() && b.mark == mark || b.local_macro == Some(macro_name))
-            });
-
-            if !bound_by_template {
-                self.resolve_captured(a, variable, depth);
-                return;
-            }
-
-            *name = variable;
-        }
-
-        if mark == ExpansionMark::NONE {
-            // The template binders between this reference and its binder have to be renamed
-            if !self.renaming && self.template_binders > 0 {
-                for binder in self.scope.iter().rev().filter(|b| b.name == *name) {
-                    if !binder.mark.is_template() {
-                        break;
-                    }
-
-                    self.conflicts.insert(binder.id);
-                }
-            }
-
-            if self.renaming && !self.renamed.is_empty() {
-                let binder = self
-                    .scope
-                    .iter()
-                    .rev()
-                    .find(|b| b.name == *name && !b.mark.is_template());
-
-                if let Some(fresh) = binder.and_then(|b| self.renamed.get(&b.id)) {
-                    *name = *fresh;
-                }
-            }
-
-            return;
-        }
-
-        let by_mark = if mark == ExpansionMark::UNKNOWN {
-            None
-        } else {
-            self.scope
-                .iter()
-                .rev()
-                .find(|b| b.name == *name && b.mark == mark)
-        };
-
-        if by_mark.is_none()
-            && (self.template_globals.contains(&(*name, mark))
-                || mark.is_template() && self.earlier.contains(&(*name, mark)))
-        {
-            *name = Self::template_global(*name, mark);
-            a.syn.unresolved = false;
-            return;
-        }
-
-        if by_mark.is_none() && mark.is_definition_resolved() && is_prelude_builtin(name) {
-            *name = builtin_to_reserved(name.resolve());
-            a.syn.unresolved = false;
-            return;
-        }
-
-        // A name a template leaves free means the global, so a variable of the use site with
-        // the same name is renamed out of its way. The names a macro defined in a function
-        // has of that function's locals are captured already.
-        let free = by_mark.is_none() && a.syn.unresolved && mark.is_template();
-
-        if !self.renaming {
-            if let Some(binder) = by_mark {
-                a.syn.unresolved = false;
-
-                if self.innermost(*name).map(|b| b.id) != Some(binder.id) {
-                    self.conflicts.insert(binder.id);
-                }
-            } else if free {
-                if let Some(binder) = self.innermost(*name) {
-                    self.conflicts.insert(binder.id);
-                }
-            }
-
-            return;
-        }
-
-        if free {
-            return;
-        }
-
-        let binder = by_mark.or_else(|| self.innermost(*name));
-
-        if let Some(fresh) = binder.and_then(|b| self.renamed.get(&b.id)) {
-            *name = *fresh;
-            a.syn.unresolved = false;
-        }
+        self.resolve_by_scopes(a)
     }
 }

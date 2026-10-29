@@ -153,6 +153,8 @@ test_harness_success! {
     template_quotes_and_keyword_params,
     quoted_false_and_variadic_equal,
     template_binder_scope,
+    scope_hygiene,
+    own_builtin_redefinition,
     begin_in_body_and_expression_position,
     define_values_one_name,
     jit_errors_and_wide_arithmetic,

@@ -329,7 +329,7 @@ fn convert_location(s: &SyntaxObject) -> Result<SteelVal> {
     let atom = SteelVal::try_from(s.clone())?;
 
     Ok(Syntax::proto(atom.clone(), atom, span)
-        .with_mark(s.mark)
+        .with_scopes(s.scopes)
         .into())
 }
 
@@ -464,11 +464,12 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         let atom = SteelVal::try_from(a.syn.ty.clone()).map_err(|e| e.with_span(span))?;
 
         Ok(Syntax::proto(atom.clone(), atom, span)
-            .with_mark(a.syn.mark)
+            .with_scopes(a.syn.scopes)
             .into())
     }
 
     fn visit_list(&mut self, l: &steel_parser::ast::List) -> Self::Output {
+        let list_scopes = l.scopes;
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
 
         let items: core::result::Result<List<_>, SteelErr> =
@@ -495,7 +496,9 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         //     "Erasing the source information during kernel level expansion for: {:?}",
         //     raw
         // );
-        Ok(Syntax::proto(raw, items.into(), span).into())
+        Ok(Syntax::proto(raw, items.into(), span)
+            .with_scopes(list_scopes)
+            .into())
     }
 
     fn visit_syntax_rules(&mut self, s: &steel_parser::ast::SyntaxRules) -> Self::Output {
@@ -734,16 +737,17 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
         let span = a.syn.span;
-        let mark = a.syn.mark;
+        let scopes = a.syn.scopes;
 
         let atom = SteelVal::try_from(a.syn)?;
 
         Ok(Syntax::proto(atom.clone(), atom, span)
-            .with_mark(mark)
+            .with_scopes(scopes)
             .into())
     }
 
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {
+        let list_scopes = l.scopes;
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
 
         let (items, span) = if !l.improper {
@@ -808,7 +812,9 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         //     "Erasing the source information during kernel level expansion for: {:?}",
         //     raw
         // );
-        Ok(Syntax::proto(raw, items.into(), span).into())
+        Ok(Syntax::proto(raw, items.into(), span)
+            .with_scopes(list_scopes)
+            .into())
     }
 
     fn visit_syntax_rules(&mut self, s: Box<super::ast::SyntaxRules>) -> Self::Output {

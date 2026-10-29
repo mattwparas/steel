@@ -76,66 +76,6 @@ impl core::fmt::Display for SyntaxObjectId {
     }
 }
 
-// Starts at 1, since 0 is NONE
-static EXPANSION_MARK_COUNTER: AtomicU32 = AtomicU32::new(1);
-
-#[derive(
-    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
-)]
-pub struct ExpansionMark(pub u32);
-
-impl ExpansionMark {
-    pub const NONE: Self = ExpansionMark(0);
-
-    pub const UNKNOWN: Self = ExpansionMark(u32::MAX);
-
-    const DEFINITION_RESOLVED: u32 = 1 << 31;
-
-    // From a template of a prelude macro
-    const PRELUDE: u32 = 1 << 30;
-
-    pub fn fresh() -> Self {
-        loop {
-            let count = EXPANSION_MARK_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let mark = ExpansionMark(count & !(Self::DEFINITION_RESOLVED | Self::PRELUDE));
-
-            if mark.is_template() {
-                return mark;
-            }
-        }
-    }
-
-    pub fn fresh_definition_resolved() -> Self {
-        loop {
-            let mark = ExpansionMark(Self::fresh().0 | Self::DEFINITION_RESOLVED);
-
-            if mark.is_template() {
-                return mark;
-            }
-        }
-    }
-
-    pub fn with_prelude(self) -> Self {
-        if self.is_template() {
-            ExpansionMark(self.0 | Self::PRELUDE)
-        } else {
-            self
-        }
-    }
-
-    pub fn is_prelude(self) -> bool {
-        self.is_template() && self.0 & Self::PRELUDE != 0
-    }
-
-    pub fn is_definition_resolved(self) -> bool {
-        self.is_template() && self.0 & Self::DEFINITION_RESOLVED != 0
-    }
-
-    pub fn is_template(self) -> bool {
-        self != Self::NONE && self != Self::UNKNOWN
-    }
-}
-
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
@@ -192,10 +132,9 @@ pub struct RawSyntaxObject<T> {
     // or nothing at all.
     pub unresolved: bool,
     pub introduced_via_macro: bool,
-    // The syntax-rules expansion that introduced this identifier from a template.
-    // Identifiers with the same name from different expansions are different variables.
+    // The identifier's scopes, as Racket's expander has them
     #[serde(skip)]
-    pub mark: ExpansionMark,
+    pub scopes: crate::scopes::ScopeSetId,
 }
 
 impl<T: Clone> Clone for RawSyntaxObject<T> {
@@ -206,7 +145,7 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
             syntax_object_id: SyntaxObjectId::fresh(),
             unresolved: self.unresolved,
             introduced_via_macro: self.introduced_via_macro,
-            mark: self.mark,
+            scopes: self.scopes,
         }
     }
 }
@@ -246,7 +185,7 @@ impl SyntaxObject {
             syntax_object_id: SyntaxObjectId::fresh(),
             unresolved: false,
             introduced_via_macro: false,
-            mark: ExpansionMark::NONE,
+            scopes: crate::scopes::ScopeSetId::EMPTY,
         }
     }
 
@@ -258,7 +197,7 @@ impl SyntaxObject {
             syntax_object_id: SyntaxObjectId::fresh(),
             unresolved: false,
             introduced_via_macro: false,
-            mark: ExpansionMark::NONE,
+            scopes: crate::scopes::ScopeSetId::EMPTY,
         }
     }
 
@@ -276,7 +215,7 @@ impl SyntaxObject {
             syntax_object_id: SyntaxObjectId::fresh(),
             unresolved: false,
             introduced_via_macro: false,
-            mark: ExpansionMark::NONE,
+            scopes: crate::scopes::ScopeSetId::EMPTY,
         }
     }
 }

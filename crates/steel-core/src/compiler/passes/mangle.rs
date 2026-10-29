@@ -15,11 +15,10 @@ use crate::{
 };
 
 use super::VisitorMutRefUnit;
-use crate::parser::expand_visitor::{local_macro_capture, local_macro_captured};
 
 fn written_by_template(name: &ExprKind) -> bool {
     name.atom_syntax_object()
-        .is_some_and(|syn| syn.mark.is_template())
+        .is_some_and(|syn| syn.scopes.introduced())
 }
 
 pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
@@ -143,6 +142,8 @@ pub struct NameMangler {
     macros: FxHashSet<InternedString>,
     prefix: CompactString,
     mangle_cache: FxHashMap<InternedString, InternedString>,
+    // The module's scope, which what its own macros write has
+    module: Option<steel_parser::scopes::Scope>,
 }
 
 impl NameMangler {
@@ -152,7 +153,13 @@ impl NameMangler {
             macros: FxHashSet::default(),
             prefix,
             mangle_cache: FxHashMap::default(),
+            module: None,
         }
+    }
+
+    pub(crate) fn in_module(mut self, name: &str) -> Self {
+        self.module = Some(steel_parser::scopes::Scope::module(name));
+        self
     }
 
     fn mangle(&mut self, i: &mut InternedString) {
@@ -220,27 +227,168 @@ pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
     }
 }
 
+// A procedural macro's definition, as a macro's template can write it
+fn is_procedural_definition(l: &List) -> bool {
+    l.first()
+        .and_then(ExprKind::atom_syntax_object)
+        .is_some_and(|x| match &x.ty {
+            TokenType::DefineSyntax => true,
+            TokenType::Identifier(x) => x.resolve() == "define-syntax",
+            _ => false,
+        })
+        && match l.get(1) {
+            Some(ExprKind::List(_)) => true,
+            _ => !l.get(2).and_then(ExprKind::list).is_some_and(|x| {
+                x.is_syntax_rules()
+                    || x.first_ident()
+                        .is_some_and(|x| x.resolve() == "syntax-rules")
+            }),
+        }
+}
+
+impl NameMangler {
+    // Phase 1 code of the module: only what its syntax templates write is the module's code
+    pub(crate) fn visit_phase1_code(&mut self, expr: &mut ExprKind) {
+        let mut variables = FxHashSet::default();
+        collect_pattern_variables(expr, &mut variables);
+        self.visit_phase1(expr, &variables);
+    }
+
+    // Its transformer is phase 1 code, which the module's names don't name, apart from what
+    // the syntax templates in it write, which is the module's code. Not their pattern
+    // variables.
+    fn visit_procedural_definition(&mut self, l: &mut List) {
+        let start = match l.args.get_mut(1) {
+            Some(ExprKind::List(signature)) => {
+                if let Some(name) = signature.args.first_mut() {
+                    self.visit(name);
+                }
+                2
+            }
+            Some(name) => {
+                self.visit(name);
+                2
+            }
+            None => return,
+        };
+
+        let mut variables = FxHashSet::default();
+        for expr in l.args.iter().skip(start) {
+            collect_pattern_variables(expr, &mut variables);
+        }
+
+        for expr in l.args.iter_mut().skip(start) {
+            self.visit_phase1(expr, &variables);
+        }
+    }
+
+    fn visit_phase1(&mut self, expr: &mut ExprKind, variables: &FxHashSet<InternedString>) {
+        let ExprKind::List(l) = expr else {
+            return;
+        };
+        match crate::parser::kernel::form_name(l) {
+            Some("syntax" | "quote-syntax") => {
+                for expr in l.args.iter_mut().skip(1) {
+                    self.visit_syntax_template(expr, variables, false);
+                }
+            }
+            Some("quasisyntax") => {
+                for expr in l.args.iter_mut().skip(1) {
+                    self.visit_syntax_template(expr, variables, true);
+                }
+            }
+            Some("quote" | "#%quote") => {}
+            _ => {
+                for expr in l.args.iter_mut() {
+                    self.visit_phase1(expr, variables);
+                }
+            }
+        }
+    }
+
+    fn visit_syntax_template(
+        &mut self,
+        expr: &mut ExprKind,
+        variables: &FxHashSet<InternedString>,
+        quasi: bool,
+    ) {
+        match expr {
+            ExprKind::Atom(a) => {
+                if a.syn
+                    .ty
+                    .identifier()
+                    .is_some_and(|x| !variables.contains(x))
+                {
+                    self.visit_atom(a);
+                }
+            }
+            ExprKind::List(l)
+                if quasi
+                    && crate::parser::kernel::form_name(l)
+                        .is_some_and(|x| x == "#%unsyntax" || x == "#%unsyntax-splicing") =>
+            {
+                for expr in l.args.iter_mut().skip(1) {
+                    self.visit_phase1(expr, variables);
+                }
+            }
+            ExprKind::List(l) => {
+                for expr in l.args.iter_mut() {
+                    self.visit_syntax_template(expr, variables, quasi);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// The pattern variables of the syntax-case clauses and with-syntax bindings in transformer code
+fn collect_pattern_variables(expr: &ExprKind, variables: &mut FxHashSet<InternedString>) {
+    let ExprKind::List(l) = expr else {
+        return;
+    };
+    let mut patterns = Vec::new();
+    match l.first_ident().map(|x| x.resolve()) {
+        Some("syntax-case" | "#%syntax-case") => {
+            for clause in l.args.iter().skip(3) {
+                if let Some(pattern) = clause.list().and_then(|x| x.args.first()) {
+                    crate::parser::kernel::pattern_variables(pattern, &mut patterns);
+                }
+            }
+        }
+        Some("with-syntax") => {
+            if let Some(ExprKind::List(bindings)) = l.args.get(1) {
+                for binding in &bindings.args {
+                    if let Some(pattern) = binding.list().and_then(|x| x.args.first()) {
+                        crate::parser::kernel::pattern_variables(pattern, &mut patterns);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    variables.extend(
+        patterns
+            .iter()
+            .filter_map(ExprKind::atom_identifier)
+            .copied(),
+    );
+    for expr in &l.args {
+        collect_pattern_variables(expr, variables);
+    }
+}
+
 impl VisitorMutRefUnit for NameMangler {
     #[inline]
     fn visit_atom(&mut self, a: &mut Atom) {
-        let resolved_elsewhere = a.syn.mark.is_definition_resolved();
+        // Written by another module's macro, where a builtin means the builtin. What this
+        // module's own macros write means its globals.
+        let resolved_elsewhere = match self.module {
+            Some(own) => a.syn.scopes.has_module_except(own),
+            None => a.syn.scopes.has_module(),
+        };
 
         if let TokenType::Identifier(i) = &mut a.syn.ty {
             if resolved_elsewhere && is_prelude_builtin(i) {
-                return;
-            }
-
-            // A local macro expanded before mangling names the variable it captured inside
-            // its own name
-            if let Some((macro_name, variable)) = local_macro_captured(i.resolve()) {
-                let mut variable: InternedString = variable.into();
-
-                if self.globals.contains(&variable) {
-                    let macro_name: InternedString = macro_name.into();
-                    self.mangle(&mut variable);
-                    *i = local_macro_capture(&macro_name, &variable);
-                }
-
                 return;
             }
 
@@ -258,6 +406,10 @@ impl VisitorMutRefUnit for NameMangler {
     // (Unfortunately) A macro template needs to keep `(quote x)` and `(quasiquote x)` as lists
     #[inline]
     fn visit_list(&mut self, l: &mut List) {
+        if is_procedural_definition(l) {
+            return self.visit_procedural_definition(l);
+        }
+
         let quote_keyword = l
             .first()
             .and_then(|head| head.atom_syntax_object())

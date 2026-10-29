@@ -1,8 +1,6 @@
 use crate::{
     parser::{
-        parser::{ExpansionMark, SyntaxObject},
-        tokens::TokenType::*,
-        tryfrom_visitor::TryFromExprKindForSteelVal,
+        parser::SyntaxObject, tokens::TokenType::*, tryfrom_visitor::TryFromExprKindForSteelVal,
     },
     rvals::SteelComplex,
 };
@@ -51,7 +49,8 @@ pub(crate) struct TryFromSteelValVisitorForExprKind {
     pub(crate) qq_depth: usize,
     pub(crate) quoted: bool,
     pub(crate) force_hir: bool,
-    pub(crate) mark: ExpansionMark,
+    // The scopes of the syntax object a symbol is inside, which the symbol gets
+    pub(crate) scopes: steel_parser::scopes::ScopeSetId,
     // In a procedural macro's definition, whose own definitions stay lists, as written code's do
     pub(crate) in_transformer: bool,
 }
@@ -78,7 +77,7 @@ impl TryFromSteelValVisitorForExprKind {
             qq_depth: 0,
             quoted: false,
             force_hir: false,
-            mark: ExpansionMark::UNKNOWN,
+            scopes: steel_parser::scopes::ScopeSetId::EMPTY,
             in_transformer: false,
         }
         .visit(value)
@@ -89,7 +88,7 @@ impl TryFromSteelValVisitorForExprKind {
             qq_depth: 0,
             quoted: false,
             force_hir: true,
-            mark: ExpansionMark::UNKNOWN,
+            scopes: steel_parser::scopes::ScopeSetId::EMPTY,
             in_transformer: false,
         }
         .visit(value)
@@ -210,7 +209,7 @@ impl TryFromSteelValVisitorForExprKind {
 
             SymbolV(x) => {
                 let mut syn = SyntaxObject::default(Identifier(x.as_str().into()));
-                syn.mark = self.mark;
+                syn.scopes = self.scopes;
                 Ok(ExprKind::Atom(Atom::new(syn)))
             }
 
@@ -415,8 +414,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                     )))))
                 }
                 SymbolV(x) => {
-                    let mut syn = SyntaxObject::default(Identifier(x.as_str().into()));
-                    syn.mark = ExpansionMark::UNKNOWN;
+                    let syn = SyntaxObject::default(Identifier(x.as_str().into()));
                     Ok(ExprKind::Atom(Atom::new(syn)))
                 }
                 SyntaxObject(s) => s

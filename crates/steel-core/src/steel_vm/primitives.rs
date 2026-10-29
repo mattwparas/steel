@@ -2329,23 +2329,17 @@ fn datum_to_syntax(context: SteelVal, datum: SteelVal) -> Result<SteelVal> {
         stop!(TypeMismatch => "datum->syntax expects syntax for its context, found: {}", context);
     };
 
-    // A template rebuilds the list around what a pattern variable holds, so a list's
-    // context is that of what's in it, as the input wrote it
-    fn context_mark(context: &crate::rvals::Syntax) -> crate::parser::parser::ExpansionMark {
-        match &context.syntax {
-            SteelVal::ListV(items) => match items.iter().next() {
-                Some(SteelVal::SyntaxObject(first)) => context_mark(first),
-                _ => context.mark(),
-            },
-            _ => context.mark(),
-        }
+    // A list has its own scopes: the input's lists the use's, one a template built none, as
+    // what the template writes
+    fn context_scopes(context: &crate::rvals::Syntax) -> steel_parser::scopes::ScopeSetId {
+        context.scopes()
     }
 
-    let mark = context_mark(context);
+    let scopes = context_scopes(context);
 
     fn convert(
         context: &crate::rvals::Syntax,
-        mark: crate::parser::parser::ExpansionMark,
+        scopes: steel_parser::scopes::ScopeSetId,
         datum: &SteelVal,
     ) -> SteelVal {
         let span = context.syntax_loc();
@@ -2354,18 +2348,18 @@ fn datum_to_syntax(context: SteelVal, datum: SteelVal) -> Result<SteelVal> {
             SteelVal::SyntaxObject(_) => datum.clone(),
             SteelVal::ListV(items) => crate::rvals::Syntax::proto(
                 datum.clone(),
-                SteelVal::ListV(items.iter().map(|x| convert(context, mark, x)).collect()),
+                SteelVal::ListV(items.iter().map(|x| convert(context, scopes, x)).collect()),
                 span,
             )
-            .with_mark(mark)
+            .with_scopes(scopes)
             .into(),
             _ => crate::rvals::Syntax::proto(datum.clone(), datum.clone(), span)
-                .with_mark(mark)
+                .with_scopes(scopes)
                 .into(),
         }
     }
 
-    Ok(convert(context, mark, &datum))
+    Ok(convert(context, scopes, &datum))
 }
 
 // A part of a syntax object, with its symbols the interned ones under the names the code
@@ -3281,10 +3275,31 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("#%datum->syntax", datum_to_syntax)
         .register_fn("#%with-syntax-match", with_syntax_match)
         .register_fn("#%syntax-case-match", syntax_case_match)
-        // Whether two syntax objects came from the same expansion, or both from the input
-        .register_fn("#%syntax-same-mark?", |a: SteelVal, b: SteelVal| {
+        // Whether two identifiers given to a procedural macro mean the same where it's used:
+        // the same local, or both no local
+        .register_fn(
+            "#%syntax-same-binding?",
+            |a: SteelVal, b: SteelVal| match (&a, &b) {
+                (SteelVal::SyntaxObject(a), SteelVal::SyntaxObject(b)) => {
+                    match (&a.syntax, &b.syntax) {
+                        (SteelVal::SymbolV(x), SteelVal::SymbolV(y)) => {
+                            let (x, y) = (
+                                InternedString::from(x.as_str()),
+                                InternedString::from(y.as_str()),
+                            );
+                            crate::parser::expand_visitor::local_binding(x, a.scopes())
+                                == crate::parser::expand_visitor::local_binding(y, b.scopes())
+                        }
+                        _ => false,
+                    }
+                }
+                _ => false,
+            },
+        )
+        // Whether two syntax objects have the same scopes, as `bound-identifier=?` asks
+        .register_fn("#%syntax-same-scopes?", |a: SteelVal, b: SteelVal| {
             match (&a, &b) {
-                (SteelVal::SyntaxObject(a), SteelVal::SyntaxObject(b)) => a.mark() == b.mark(),
+                (SteelVal::SyntaxObject(a), SteelVal::SyntaxObject(b)) => a.scopes() == b.scopes(),
                 _ => false,
             }
         })

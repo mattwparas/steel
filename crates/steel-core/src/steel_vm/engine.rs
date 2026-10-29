@@ -639,7 +639,7 @@ impl Engine {
         // this to begin seeding their environment.
 
         for prelude_macro in vm.in_scope_macros_mut().values_mut() {
-            prelude_macro.mark_definition_resolved();
+            prelude_macro.mark_definition_resolved("#%prelude");
             prelude_macro.mark_prelude();
         }
 

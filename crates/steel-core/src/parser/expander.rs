@@ -2,7 +2,7 @@ use crate::compiler::passes::VisitorMutRefUnit;
 use crate::compiler::program::{BEGIN, DEFINE, ELLIPSES_SYMBOL, IF, LAMBDA};
 use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair, Vector};
 use crate::parser::expand_visitor::GlobalMap;
-use crate::parser::parser::{ExpansionMark, SyntaxObject};
+use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
 use crate::parser::replace_idents::replace_identifiers;
 use crate::parser::tokens::TokenType;
@@ -60,9 +60,15 @@ impl LocalMacroManager {
         // println!("Raw path: {:?}", raw_path);
         // println!("Compiled path: {:?}", compiled_path);
 
+        // A cache an older build wrote may not read, so it's made again from the source
         if compiled_path.exists() && !force_update {
-            Self::from_file(compiled_path)
-        } else if raw_path.exists() {
+            match Self::from_file(compiled_path.clone()) {
+                Err(_) if raw_path.exists() => {}
+                cached => return cached,
+            }
+        }
+
+        if raw_path.exists() {
             let parsed = Self::from_expression_file(raw_path)?;
             parsed.write_to_file(compiled_path)?;
 
@@ -159,7 +165,10 @@ pub struct SteelMacro {
     mangled: bool,
     pub(crate) location: Span,
     pub(crate) special_mangled: bool,
-    definition_resolved: bool,
+    // The module it's defined in, whose scope its templates' identifiers get, so their free
+    // names mean the globals there
+    #[serde(default)]
+    module: Option<String>,
     // Defined in the prelude, so the macros its templates name are the prelude's
     #[serde(default)]
     prelude: bool,
@@ -180,7 +189,7 @@ impl SteelMacro {
             mangled: false,
             location,
             special_mangled: false,
-            definition_resolved: false,
+            module: None,
             prelude: false,
         }
     }
@@ -217,8 +226,10 @@ impl SteelMacro {
         self.prelude
     }
 
-    pub fn mark_definition_resolved(&mut self) {
-        self.definition_resolved = true;
+    pub fn mark_definition_resolved(&mut self, module: &str) {
+        if self.module.is_none() {
+            self.module = Some(module.to_string());
+        }
     }
 
     pub fn parse_from_ast_macro(mut ast_macro: Box<Macro>) -> Result<Self> {
@@ -260,7 +271,7 @@ impl SteelMacro {
             mangled: false,
             location: ast_macro.location.span,
             special_mangled: false,
-            definition_resolved: false,
+            module: None,
             prelude: false,
         })
     }
@@ -335,16 +346,22 @@ impl SteelMacro {
         Ok(self.expand_marked(expr, span, in_scope, globals)?.0)
     }
 
-    // The expansion, with the mark its template's identifiers have
+    // The expansion, with the introduction scope its template's identifiers have
     pub(crate) fn expand_marked(
         &self,
         expr: List,
         span: Span,
         in_scope: &ScopeSet<InternedString, FxBuildHasher>,
         globals: GlobalMap,
-    ) -> Result<(ExprKind, ExpansionMark)> {
+    ) -> Result<(ExprKind, steel_parser::scopes::Scope)> {
         let case_to_expand = self.match_case(&expr, in_scope, globals)?;
-        case_to_expand.expand(expr, span, self.definition_resolved, self.prelude)
+        // A module's macro's template identifiers have its scope, the prelude's the prelude's
+        let module = self
+            .module
+            .as_deref()
+            .map(steel_parser::scopes::Scope::module);
+        let prelude = self.prelude.then(steel_parser::scopes::Scope::prelude);
+        case_to_expand.expand(expr, span, (module, prelude))
     }
 }
 
@@ -563,9 +580,11 @@ impl MacroCase {
         &self,
         expr: List,
         span: Span,
-        definition_resolved: bool,
-        prelude: bool,
-    ) -> Result<(ExprKind, ExpansionMark)> {
+        module_scopes: (
+            Option<steel_parser::scopes::Scope>,
+            Option<steel_parser::scopes::Scope>,
+        ),
+    ) -> Result<(ExprKind, steel_parser::scopes::Scope)> {
         thread_local! {
             static BINDINGS: RefCell<FxHashMap<InternedString, ExprKind>> = RefCell::new(FxHashMap::default());
             static BINDINGS_KIND: RefCell<FxHashMap<InternedString, BindingKind>> = RefCell::new(FxHashMap::default());
@@ -594,70 +613,56 @@ impl MacroCase {
                     // Mark each identifier in the bindings
                     // as potentially being introduced by a macro:
 
+                    // And give what the use wrote the use's use-site scope, so a binder it
+                    // passes in doesn't capture what the template wrote
+                    let use_site = Some(steel_parser::scopes::Scope::fresh_use_site());
+                    crate::parser::expand_visitor::made_use_site(use_site);
                     for (_, v) in bindings.iter_mut() {
-                        struct IntroducedByMacro;
+                        struct IntroducedByMacro(Option<steel_parser::scopes::Scope>);
                         impl VisitorMutRefUnit for IntroducedByMacro {
                             fn visit_atom(&mut self, a: &mut Atom) {
                                 a.syn.introduced_via_macro = true;
+                                if let (Some(scope), TokenType::Identifier(_)) = (self.0, &a.syn.ty)
+                                {
+                                    a.syn.scopes = a.syn.scopes.add(scope);
+                                }
                             }
                         }
 
-                        IntroducedByMacro.visit(v);
+                        IntroducedByMacro(use_site).visit(v);
                     }
 
                     let mut body = self.body.clone();
 
-                    // Give the identifiers in the template a mark unique to this expansion.
+                    // Give the identifiers in the template a scope unique to this expansion.
                     // This happens before the pattern variables are substituted, so only
                     // identifiers from the template get it.
-                    // An identifier another macro's template wrote, when that macro defined this
-                    // one, keeps that template's mark, so it means what it does there.
-                    // An identifier another macro's template wrote, when that macro defined this
-                    // one, means what it does there, so it gets a mark of this expansion that
-                    // resolves as that template's does. Each expansion's binders stay its own.
-                    struct MarkTemplateIdentifiers<'a>(
-                        ExpansionMark,
-                        FxHashMap<ExpansionMark, ExpansionMark>,
-                        &'a [InternedString],
+                    struct MarkTemplateIdentifiers(
+                        // The expansion's introduction scope
+                        steel_parser::scopes::Scope,
+                        // And the module's and the prelude's, for what the template wrote
+                        (
+                            Option<steel_parser::scopes::Scope>,
+                            Option<steel_parser::scopes::Scope>,
+                        ),
                     );
-                    impl VisitorMutRefUnit for MarkTemplateIdentifiers<'_> {
+                    impl VisitorMutRefUnit for MarkTemplateIdentifiers {
                         fn visit_atom(&mut self, a: &mut Atom) {
-                            if let TokenType::Identifier(name) = a.syn.ty {
-                                if !a.syn.mark.is_template() {
-                                    a.syn.mark = self.0;
-                                } else if self.2.contains(&name) {
-                                    let outer = a.syn.mark;
-                                    a.syn.mark = *self.1.entry(outer).or_insert_with(|| {
-                                        let fresh = if outer.is_definition_resolved() {
-                                            ExpansionMark::fresh_definition_resolved()
-                                        } else {
-                                            ExpansionMark::fresh()
-                                        };
-                                        let fresh = if outer.is_prelude() {
-                                            fresh.with_prelude()
-                                        } else {
-                                            fresh
-                                        };
-                                        crate::parser::expand_visitor::inherit_local_expansion(
-                                            outer, fresh,
-                                        );
-                                        fresh
-                                    });
+                            if let TokenType::Identifier(_) = a.syn.ty {
+                                // The module's, unless another template wrote it
+                                if !a.syn.scopes.introduced() {
+                                    for scope in [self.1 .0, self.1 .1].into_iter().flatten() {
+                                        a.syn.scopes = a.syn.scopes.add(scope);
+                                    }
                                 }
+                                a.syn.scopes = a.syn.scopes.add(self.0);
                             }
                         }
                     }
 
-                    let mark = if definition_resolved {
-                        ExpansionMark::fresh_definition_resolved()
-                    } else {
-                        ExpansionMark::fresh()
-                    };
+                    let introduction = steel_parser::scopes::Scope::fresh_introduction();
 
-                    let mark = if prelude { mark.with_prelude() } else { mark };
-
-                    MarkTemplateIdentifiers(mark, FxHashMap::default(), &self.binders)
-                        .visit(&mut body);
+                    MarkTemplateIdentifiers(introduction, module_scopes).visit(&mut body);
 
                     // println!("Expanding: {}", body);
                     // println!("Bindings");
@@ -673,7 +678,7 @@ impl MacroCase {
                         span,
                     )?;
 
-                    Ok((body, mark))
+                    Ok((body, introduction))
                 })
             })
         })
@@ -1160,19 +1165,21 @@ fn match_rest_pattern(
 // does a global of the code that used another module's macro.
 fn literal_shadowed(
     name: &InternedString,
-    mark: ExpansionMark,
+    syn: &SyntaxObject,
     in_scope: &ScopeSet<InternedString, FxBuildHasher>,
     globals: GlobalMap,
 ) -> bool {
-    if !mark.is_template() {
-        return in_scope.contains(name) || globals.contains(name);
+    if !syn.scopes.introduced() {
+        return in_scope.contains(name)
+            || globals.contains(name)
+            || crate::parser::expand_visitor::local_binding(*name, syn.scopes).is_some();
     }
 
-    let elsewhere = mark.is_definition_resolved()
-        || mark.is_prelude()
-        || crate::parser::expand_visitor::is_foreign_mark(mark);
+    let elsewhere =
+        syn.scopes.has_module() || crate::parser::expand_visitor::is_foreign(syn.scopes);
 
     !elsewhere && globals.contains(name)
+        || crate::parser::expand_visitor::local_binding(*name, syn.scopes).is_some()
 }
 
 fn match_single_pattern(
@@ -1188,12 +1195,11 @@ fn match_single_pattern(
         MacroPattern::Syntax(v, _) => match expr {
             ExprKind::Atom(Atom {
                 syn:
-                    SyntaxObject {
+                    syn @ SyntaxObject {
                         ty: TokenType::Identifier(s),
-                        mark,
                         ..
                     },
-            }) if s == v && !literal_shadowed(s, *mark, in_scope, globals) => true,
+            }) if s == v && !literal_shadowed(s, syn, in_scope, globals) => true,
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
@@ -2148,7 +2154,7 @@ mod macro_case_expand_test {
         .into();
 
         let output = case
-            .expand(input, Span::new(0, 0, SourceId::none()), false, false)
+            .expand(input, Span::new(0, 0, SourceId::none()), (None, None))
             .unwrap()
             .0;
 
