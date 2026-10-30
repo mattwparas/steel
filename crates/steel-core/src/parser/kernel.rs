@@ -1378,9 +1378,9 @@ impl VisitorMutRefUnit for Introduced<'_> {
         }
 
         a.syn.scopes = if self.input.hygienic {
-            a.syn.scopes.union(self.captures.scopes).add(self.scope)
+            a.syn.scopes.union(&self.captures.scopes).add(self.scope)
         } else {
-            a.syn.scopes.union(self.input.use_scopes)
+            a.syn.scopes.union(&self.input.use_scopes)
         };
 
         if self.input.hygienic {
@@ -1415,9 +1415,9 @@ impl VisitorMutRefUnit for Introduced<'_> {
 
         impl VisitorMutRefUnit for TemplateScopes<'_> {
             fn visit_atom(&mut self, a: &mut Atom) {
-                if let (false, Some((captured, scope))) = (self.0.wrote(&a.syn), self.1) {
+                if let (false, Some((captured, scope))) = (self.0.wrote(&a.syn), self.1.clone()) {
                     if a.syn.ty.identifier().is_some() {
-                        a.syn.scopes = a.syn.scopes.union(captured).add(scope);
+                        a.syn.scopes = a.syn.scopes.union(&captured).add(scope);
                     }
                 }
             }
@@ -1426,15 +1426,15 @@ impl VisitorMutRefUnit for Introduced<'_> {
         let scopes = self
             .input
             .hygienic
-            .then_some((self.captures.scopes, self.scope));
-        let mut restore = TemplateScopes(self.input, scopes);
+            .then_some((self.captures.scopes.clone(), self.scope));
+        let mut restore = TemplateScopes(self.input, scopes.clone());
 
         // The name is the input's, or one the template wrote, which has the expansion's scopes
         // like the uses it wrote
         match m.name.as_mut() {
             ExprKind::Atom(a) if !self.input.wrote(&a.syn) => {
                 if let Some((captured, scope)) = scopes {
-                    a.syn.scopes = a.syn.scopes.union(captured).add(scope);
+                    a.syn.scopes = a.syn.scopes.union(&captured).add(scope);
                 }
             }
             name => restore.visit(name),
@@ -2771,7 +2771,7 @@ impl Kernel {
     ) -> bool {
         self.macro_scopes.get(name).is_some_and(|defined| {
             let introductions = defined.introductions();
-            !introductions.is_empty() && introductions.is_subset(scopes)
+            !introductions.is_empty() && introductions.is_subset(&scopes)
         })
     }
 
@@ -3117,7 +3117,8 @@ impl Kernel {
 
         // The input's lists have the use's scopes, as its atoms do, which `datum->syntax` can
         // take its context from
-        let syntax_objects = crate::rvals::with_list_scopes(&syntax_objects, use_scopes, use_site);
+        let syntax_objects =
+            crate::rvals::with_list_scopes(&syntax_objects, use_scopes.clone(), use_site);
 
         MACRO_INPUTS.with(|x| {
             x.borrow_mut().push(MacroInput {
@@ -3167,9 +3168,9 @@ impl Kernel {
             let captures = self.local_macros.get(ident).cloned();
             let local = captures.is_some();
             let captures = captures.or_else(|| {
-                self.macro_scopes
-                    .get(ident)
-                    .map(|scopes| LocalCaptures { scopes: *scopes })
+                self.macro_scopes.get(ident).map(|scopes| LocalCaptures {
+                    scopes: scopes.clone(),
+                })
             });
 
             let introduction = steel_parser::scopes::Scope::fresh_introduction();

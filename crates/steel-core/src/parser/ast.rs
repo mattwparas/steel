@@ -209,7 +209,7 @@ impl TryFromSteelValVisitorForExprKind {
 
             SymbolV(x) => {
                 let mut syn = SyntaxObject::default(Identifier(x.as_str().into()));
-                syn.scopes = self.scopes;
+                syn.scopes = self.scopes.clone();
                 Ok(ExprKind::Atom(Atom::new(syn)))
             }
 

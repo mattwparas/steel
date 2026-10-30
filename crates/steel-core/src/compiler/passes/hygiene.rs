@@ -76,7 +76,7 @@ impl ResolveByScopes {
         name: InternedString,
         introductions: steel_parser::scopes::ScopeSetId,
     ) -> InternedString {
-        format!("##{}#{}", name.resolve(), introductions.0).into()
+        format!("##{}#{}", name.resolve(), introductions.serial()).into()
     }
 
     // A global a template defined that a reference with these scopes means: the one whose
@@ -94,9 +94,9 @@ impl ResolveByScopes {
         }
         let defined = defined
             .iter()
-            .filter(|x| x.is_subset(scopes))
-            .max_by_key(|x| (x.len(), x.0))?;
-        Some(Self::template_global(name, *defined))
+            .filter(|x| x.is_subset(&scopes))
+            .max_by_key(|x| (x.len(), x.serial()))?;
+        Some(Self::template_global(name, defined.clone()))
     }
 
     fn define_template_globals(&mut self, expr: &mut ExprKind) {
@@ -128,7 +128,10 @@ impl ResolveByScopes {
 
                 if let Some(name) = syn.ty.identifier_mut() {
                     self.template_globals = true;
-                    self.earlier.entry(*name).or_default().insert(introductions);
+                    self.earlier
+                        .entry(*name)
+                        .or_default()
+                        .insert(introductions.clone());
                     *name = Self::template_global(*name, introductions);
                 }
             }
@@ -141,7 +144,7 @@ impl ResolveByScopes {
             return;
         };
 
-        let scopes = syn.scopes;
+        let scopes = &syn.scopes;
 
         let id = self.next_id;
         self.next_id += 1;
@@ -154,12 +157,13 @@ impl ResolveByScopes {
             name: *name,
             id,
             syntax: syn.syntax_object_id,
-            scopes,
+            scopes: scopes.clone(),
         });
 
         if self.renaming && self.conflicts.contains(&id) {
             // One name per binder
-            let fresh: InternedString = format!("##{}#{}#{}", name.resolve(), scopes.0, id).into();
+            let fresh: InternedString =
+                format!("##{}#{}#{}", name.resolve(), scopes.serial(), id).into();
             *name = fresh;
             self.renamed.insert(id, fresh);
         }
@@ -176,7 +180,7 @@ impl ResolveByScopes {
     // A reference's binder is the local of its name whose scopes are the largest subset of its
     // own. Where the innermost local of the name isn't that one, both are renamed.
     fn resolve_by_scopes(&mut self, a: &mut Atom) {
-        let scopes = a.syn.scopes;
+        let scopes = &a.syn.scopes;
         let Some(name) = a.syn.ty.identifier().copied() else {
             return;
         };
@@ -188,7 +192,7 @@ impl ResolveByScopes {
             .into_iter()
             .flatten()
             .map(|x| &self.scope[*x])
-            .filter(|b| b.scopes.is_subset(scopes))
+            .filter(|b| b.scopes.is_subset(&scopes))
             .max_by_key(|b| b.scopes.len())
             .map(|b| b.id);
         let innermost = self.innermost(name).map(|b| b.id);
@@ -196,7 +200,7 @@ impl ResolveByScopes {
         let Some(binder) = by_scopes else {
             // No local: one a template defines at the top level, a prelude builtin, or a global,
             // which a local of its name in the way is renamed for
-            if let Some(global) = self.template_global_of(name, scopes) {
+            if let Some(global) = self.template_global_of(name, scopes.clone()) {
                 a.syn.ty = TokenType::Identifier(global);
                 a.syn.unresolved = false;
                 return;

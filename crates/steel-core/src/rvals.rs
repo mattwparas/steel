@@ -737,20 +737,20 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
 impl ast::TryFromSteelValVisitorForExprKind {
     pub fn visit_syntax_object(&mut self, value: &Syntax) -> Result<ExprKind> {
         let scopes = if value.scopes.is_empty() {
-            self.scopes
+            self.scopes.clone()
         } else {
-            value.scopes
+            value.scopes.clone()
         };
 
-        let outer_scopes = core::mem::replace(&mut self.scopes, scopes);
+        let outer_scopes = core::mem::replace(&mut self.scopes, scopes.clone());
         let mut expr = self.syntax_object_to_expr(value);
         self.scopes = outer_scopes;
 
         // A literal keeps its scopes too, and a list its own, which `datum->syntax` can take
         // its context from
         match &mut expr {
-            Ok(ExprKind::Atom(a)) if a.syn.scopes.is_empty() => a.syn.scopes = scopes,
-            Ok(ExprKind::List(l)) if l.scopes.is_empty() => l.scopes = value.scopes,
+            Ok(ExprKind::Atom(a)) if a.syn.scopes.is_empty() => a.syn.scopes = scopes.clone(),
+            Ok(ExprKind::List(l)) if l.scopes.is_empty() => l.scopes = value.scopes.clone(),
             _ => {}
         }
 
@@ -815,7 +815,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
 
             SymbolV(x) => {
                 let mut syn = SyntaxObject::new(TokenType::Identifier(x.as_str().into()), span);
-                syn.scopes = value.scopes;
+                syn.scopes = value.scopes.clone();
                 Ok(ExprKind::Atom(Atom::new(syn)))
             }
 
@@ -940,7 +940,7 @@ pub(crate) fn with_list_scopes(
         ListV(
             items
                 .iter()
-                .map(|x| with_list_scopes(x, scopes, use_site))
+                .map(|x| with_list_scopes(x, scopes.clone(), use_site))
                 .collect(),
         )
     };
@@ -995,7 +995,7 @@ impl Syntax {
     }
 
     pub(crate) fn scopes(&self) -> steel_parser::scopes::ScopeSetId {
-        self.scopes
+        self.scopes.clone()
     }
 
     pub fn syntax_e(&self) -> SteelVal {
@@ -1025,7 +1025,7 @@ impl Syntax {
 
     // With the scopes of `other` too, as what a template wrote
     pub(crate) fn with_mark_of(mut self, other: &Syntax) -> Syntax {
-        self.scopes = self.scopes.union(other.scopes);
+        self.scopes = self.scopes.union(&other.scopes);
 
         self
     }
@@ -1139,7 +1139,7 @@ impl Syntax {
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => {
                 let mut syn = SyntaxObject::new(TokenType::Identifier(x.as_str().into()), span);
-                syn.scopes = self.scopes;
+                syn.scopes = self.scopes.clone();
                 Ok(ExprKind::Atom(Atom::new(syn)))
             }
             ListV(l) => {

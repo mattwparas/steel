@@ -329,7 +329,7 @@ fn convert_location(s: &SyntaxObject) -> Result<SteelVal> {
     let atom = SteelVal::try_from(s.clone())?;
 
     Ok(Syntax::proto(atom.clone(), atom, span)
-        .with_scopes(s.scopes)
+        .with_scopes(s.scopes.clone())
         .into())
 }
 
@@ -464,12 +464,12 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         let atom = SteelVal::try_from(a.syn.ty.clone()).map_err(|e| e.with_span(span))?;
 
         Ok(Syntax::proto(atom.clone(), atom, span)
-            .with_scopes(a.syn.scopes)
+            .with_scopes(a.syn.scopes.clone())
             .into())
     }
 
     fn visit_list(&mut self, l: &steel_parser::ast::List) -> Self::Output {
-        let list_scopes = l.scopes;
+        let list_scopes = &l.scopes;
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
 
         let items: core::result::Result<List<_>, SteelErr> =
@@ -497,7 +497,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         //     raw
         // );
         Ok(Syntax::proto(raw, items.into(), span)
-            .with_scopes(list_scopes)
+            .with_scopes(list_scopes.clone())
             .into())
     }
 
@@ -737,7 +737,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
         let span = a.syn.span;
-        let scopes = a.syn.scopes;
+        let scopes = a.syn.scopes.clone();
 
         let atom = SteelVal::try_from(a.syn)?;
 
@@ -747,7 +747,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {
-        let list_scopes = l.scopes;
+        let list_scopes = l.scopes.clone();
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
 
         let (items, span) = if !l.improper {

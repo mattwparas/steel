@@ -49,7 +49,7 @@ impl Resolver {
         if let Some(name) = syn.ty.identifier() {
             self.scope.push(Binder {
                 name: *name,
-                scopes: syn.scopes,
+                scopes: syn.scopes.clone(),
                 id: syn.syntax_object_id,
             });
             self.binders.insert(syn.syntax_object_id, (*name, syn.span));
@@ -70,7 +70,7 @@ impl Resolver {
         let candidates: Vec<&Binder> = self
             .scope
             .iter()
-            .filter(|b| b.name == name && b.scopes.is_subset(syn.scopes))
+            .filter(|b| b.name == name && b.scopes.is_subset(&syn.scopes))
             .collect();
         let Some(largest) = candidates.iter().max_by_key(|b| b.scopes.len()) else {
             if std::env::var_os("STEEL_SCOPES_CHECK").is_some_and(|x| x == "debug") {
@@ -94,7 +94,7 @@ impl Resolver {
         };
         if candidates
             .iter()
-            .all(|b| b.scopes.is_subset(largest.scopes))
+            .all(|b| b.scopes.is_subset(&largest.scopes))
         {
             Resolution::Local(largest.id)
         } else {

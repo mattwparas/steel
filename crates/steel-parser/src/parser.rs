@@ -145,7 +145,7 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
             syntax_object_id: SyntaxObjectId::fresh(),
             unresolved: self.unresolved,
             introduced_via_macro: self.introduced_via_macro,
-            scopes: self.scopes,
+            scopes: self.scopes.clone(),
         }
     }
 }

@@ -755,10 +755,14 @@ impl VisitorMutRefUnit for RenameTemplateMacros<'_> {
                 return;
             }
             let introductions = a.syn.scopes.introductions();
-            if self.names.contains(&(*name, introductions)) {
+            if self.names.contains(&(*name, introductions.clone())) {
                 let written = name.resolve();
-                *name =
-                    format!("##{}#{}", written.trim_start_matches("##"), introductions.0).into();
+                *name = format!(
+                    "##{}#{}",
+                    written.trim_start_matches("##"),
+                    introductions.serial()
+                )
+                .into();
             }
         }
     }
@@ -1011,9 +1015,9 @@ pub(crate) fn local_binding(
             .last()?
             .get(&name)?
             .iter()
-            .filter(|x| x.is_subset(scopes))
+            .filter(|x| x.is_subset(&scopes))
             .max_by_key(|x| x.len())
-            .copied()
+            .cloned()
     })
 }
 
@@ -1102,7 +1106,7 @@ impl ScopeChain {
     // The scopes an identifier has where the expander is
     fn stamped(&self, syn: &SyntaxObject) -> steel_parser::scopes::ScopeSetId {
         if syn.ty.identifier().is_none() {
-            return syn.scopes;
+            return syn.scopes.clone();
         }
         self.stamped_any(syn)
     }
@@ -1117,7 +1121,7 @@ impl ScopeChain {
             .copied()
             .filter(|_| from < self.scopes.len())
         else {
-            return syn.scopes;
+            return syn.scopes.clone();
         };
         let _ = top;
         // A slice of the chain, by the paths of its two ends
@@ -1127,11 +1131,12 @@ impl ScopeChain {
             *self.paths.last().unwrap(),
         );
         let suffix = SUFFIXES.with(|x| {
-            *x.borrow_mut()
+            x.borrow_mut()
                 .entry(key)
                 .or_insert_with(|| steel_parser::scopes::ScopeSetId::of_sorted(&scopes[from..]))
+                .clone()
         });
-        syn.scopes.union(suffix)
+        syn.scopes.union(&suffix)
     }
 
     // A variable's binder: stamped, and its scopes kept for what names it
@@ -1156,7 +1161,7 @@ impl ScopeChain {
             // Without the use-site scopes of the body's macro uses that made it, so what's
             // written elsewhere in the body names it
             self.stamp(syn);
-            syn.scopes = self.without_body_use_sites(syn.scopes);
+            syn.scopes = self.without_body_use_sites(syn.scopes.clone());
             self.record(syn);
         }
     }
@@ -1592,7 +1597,7 @@ fn kernel_local_macro_entry(
         [head, name] if head.atom_identifier()?.resolve() == KERNEL_LOCAL_MACRO => {
             let syn = name.atom_syntax_object()?;
             match syn.ty {
-                TokenType::Identifier(name) => Some((name, syn.span, syn.scopes)),
+                TokenType::Identifier(name) => Some((name, syn.span, syn.scopes.clone())),
                 _ => None,
             }
         }
@@ -1620,7 +1625,7 @@ pub(crate) fn definition_scopes(l: &List) -> steel_parser::scopes::ScopeSetId {
     impl crate::compiler::passes::VisitorMutUnitRef<'_> for First {
         fn visit_atom(&mut self, a: &'_ Atom) {
             if self.0.is_none() && a.syn.ty.identifier().is_some() {
-                self.0 = Some(a.syn.scopes);
+                self.0 = Some(a.syn.scopes.clone());
             }
         }
     }
@@ -2390,7 +2395,7 @@ impl<'a> Expander<'a> {
         // defined
         if syn.unresolved
             || syn.scopes.contains(steel_parser::scopes::Scope::prelude())
-            || is_foreign(syn.scopes)
+            || is_foreign(syn.scopes.clone())
             || self.exclusions.contains(s)
         {
             return false;
@@ -2434,7 +2439,7 @@ impl<'a> Expander<'a> {
                     // The top level's, which the kernel has defined by now
                     ScopedDecision::Unbound
                 } else {
-                    ScopedDecision::Placeholder(local.name, local.scopes)
+                    ScopedDecision::Placeholder(local.name, local.scopes.clone())
                 }
             }
             Meaning::Unbound => ScopedDecision::Unbound,
@@ -2467,14 +2472,14 @@ impl<'a> Expander<'a> {
             .get(name)
             .into_iter()
             .flatten()
-            .map(|x| (*x, Meaning::Variable));
+            .map(|x| (x.clone(), Meaning::Variable));
         let macros = self
             .local_macros
             .macros
             .iter()
             .enumerate()
             .filter(|(_, x)| x.name == *name)
-            .map(|(i, x)| (x.scopes, Meaning::LocalMacro(i)));
+            .map(|(i, x)| (x.scopes.clone(), Meaning::LocalMacro(i)));
         // And the kernel's, which a macro may have made
         let kernel_macros = self
             .kernel
@@ -2489,11 +2494,11 @@ impl<'a> Expander<'a> {
                     .iter()
                     .any(|m| m.name == x.0 && m.scopes == x.3)
             })
-            .map(|x| (x.3, Meaning::KernelMacro(x.2)));
+            .map(|x| (x.3.clone(), Meaning::KernelMacro(x.2)));
         let candidates: Vec<_> = variables
             .chain(macros)
             .chain(kernel_macros)
-            .filter(|(scopes, _)| scopes.is_subset(syn.scopes))
+            .filter(|(scopes, _)| scopes.is_subset(&syn.scopes))
             .collect();
         // The last of the largest, as a later definition replaces. Racket reports a reference
         // no candidate's scopes hold all the others' as ambiguous.
@@ -3637,7 +3642,7 @@ impl<'a> Expander<'a> {
                             .and_then(ExprKind::atom_syntax_object)
                             .is_some_and(|x| {
                                 x.scopes.contains(steel_parser::scopes::Scope::prelude())
-                                    || is_foreign(x.scopes)
+                                    || is_foreign(x.scopes.clone())
                             });
                         let alias = (prelude_template && PRELUDE_ALIASES.load(Ordering::Relaxed))
                             .then(|| prelude_macro_alias(s))
@@ -4094,7 +4099,7 @@ pub struct RequiredKernelMacros<'a> {
 
 // A macro use the kernel expanded
 // What a use's name means by its scopes, for the kernel
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum ScopedDecision {
     Variable,
     // A function's procedural macro the kernel defined, by its kernel name
@@ -4242,7 +4247,7 @@ impl<'a> KernelExpander<'a> {
 
             // Or a variable, which the same define visited again isn't: one of the same name
             // there and its own define form. Two a macro made can share a name's span.
-            if let Some((defined, defined_form)) = self.local_variables.get(&(key, depth)) {
+            if let Some((defined, defined_form)) = self.local_variables.get(&(key.clone(), depth)) {
                 if *defined != syn.span || *defined_form != form {
                     let span = if defined.start > syn.span.start {
                         *defined
@@ -4287,10 +4292,10 @@ impl<'a> KernelExpander<'a> {
             ScopedDecision::Kernel(internal) => {
                 self.local_macros.iter().position(|x| x.2 == internal)
             }
-            ScopedDecision::Placeholder(name, scopes) => self
+            ScopedDecision::Placeholder(name, ref scopes) => self
                 .local_macros
                 .iter()
-                .position(|x| x.0 == name && x.3 == scopes),
+                .position(|x| x.0 == name && x.3 == *scopes),
             _ => None,
         };
         // One a body defines before its definition is expanded
@@ -4302,12 +4307,12 @@ impl<'a> KernelExpander<'a> {
             ScopedDecision::Rules => true,
             _ => false,
         };
-        let head_scopes = head.map(|head| head.scopes);
+        let head_scopes = head.map(|head| head.scopes.clone());
         // Written by a required module's macro, which resolves where that macro is defined
         let foreign_name = head.is_some_and(|head| {
             self.map
                 .as_ref()
-                .is_some_and(|map| map.is_foreign(head.scopes))
+                .is_some_and(|map| map.is_foreign(head.scopes.clone()))
         });
         // The environment's own macro of the name hides an imported one
         let own_macro = !foreign_name
@@ -4446,13 +4451,16 @@ impl<'a> KernelExpander<'a> {
                         // written, which a template that made the definition wrote, not only
                         // where the name came from
                         let written_with = definition_scopes(l).without_use_sites();
-                        let scopes = written_scopes.unwrap_or_default().union(written_with);
+                        let scopes = written_scopes
+                            .clone()
+                            .unwrap_or_default()
+                            .union(&written_with);
                         map.define_local_macro(internal, scopes);
                         self.local_macros.push((
                             defined,
                             self.locals.depth(),
                             internal,
-                            written_scopes.unwrap_or_default(),
+                            written_scopes.clone().unwrap_or_default().clone(),
                         ));
                         // The hygiene pass finds what it captures by this name,
                         // which is the macro's own

@@ -2348,7 +2348,12 @@ fn datum_to_syntax(context: SteelVal, datum: SteelVal) -> Result<SteelVal> {
             SteelVal::SyntaxObject(_) => datum.clone(),
             SteelVal::ListV(items) => crate::rvals::Syntax::proto(
                 datum.clone(),
-                SteelVal::ListV(items.iter().map(|x| convert(context, scopes, x)).collect()),
+                SteelVal::ListV(
+                    items
+                        .iter()
+                        .map(|x| convert(context, scopes.clone(), x))
+                        .collect(),
+                ),
                 span,
             )
             .with_scopes(scopes)
