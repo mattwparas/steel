@@ -2927,6 +2927,18 @@ pub fn struct_to_list(value: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+// The fields of any struct, for match's struct patterns
+#[steel_derive::function(name = "#%struct-fields")]
+pub fn struct_fields(value: &SteelVal) -> Result<SteelVal> {
+    match value {
+        SteelVal::CustomStruct(value) => {
+            Ok(SteelVal::ListV(value.fields().iter().cloned().collect()))
+        }
+        SteelVal::MutableStruct(value) => Ok(SteelVal::ListV(value.fields().into_iter().collect())),
+        _ => stop!(TypeMismatch => "#%struct-fields expects a struct, found: {}", value),
+    }
+}
+
 #[cfg(feature = "sync")]
 #[steel_derive::context(name = "#%closure->boxed-function", arity = Exact(1), args(Procedure))]
 pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
@@ -3046,6 +3058,7 @@ fn meta_module() -> BuiltInModule {
             },
         )
         .register_native_fn_definition(STRUCT_TO_LIST_DEFINITION)
+        .register_native_fn_definition(STRUCT_FIELDS_DEFINITION)
         .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
         .register_value("read!", SteelVal::FuncV(super::meta::read))
         .register_value(
