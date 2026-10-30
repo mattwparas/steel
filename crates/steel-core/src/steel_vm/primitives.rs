@@ -2279,6 +2279,44 @@ fn with_syntax_match(pattern: SteelVal, value: SteelVal) -> Result<SteelVal> {
 }
 
 // The same for a syntax-case clause, or #f when the clause doesn't match
+// Whether two identifiers given to a procedural macro refer to the same binding where it's
+// used: the same local, or the same global in the modules their scopes are from
+fn same_binding(
+    a: (InternedString, &steel_parser::scopes::ScopeSetId),
+    b: (InternedString, &steel_parser::scopes::ScopeSetId),
+) -> bool {
+    use crate::parser::expand_visitor::{
+        current_module, literal_module, local_binding, same_global_binding,
+    };
+
+    let locals = (local_binding(a.0, a.1), local_binding(b.0, b.1));
+    if locals.0.is_some() || locals.1.is_some() {
+        return a.0 == b.0 && locals.0 == locals.1;
+    }
+
+    let module = |scopes: &steel_parser::scopes::ScopeSetId| {
+        scopes
+            .modules()
+            .into_iter()
+            .rev()
+            .filter(|x| *x != steel_parser::scopes::Scope::prelude())
+            .find_map(|x| x.module_name())
+            .map(|x| InternedString::from(x.as_str()))
+            .or_else(|| {
+                // What the transformer made itself is in the module that defines it
+                if crate::parser::kernel::is_macro_input_scopes(scopes) {
+                    current_module()
+                } else {
+                    literal_module().or_else(current_module)
+                }
+            })
+    };
+    match (module(a.1), module(b.1)) {
+        (Some(x), Some(y)) => same_global_binding((x, a.0), (y, b.0)).unwrap_or(a.0 == b.0),
+        _ => a.0 == b.0,
+    }
+}
+
 fn syntax_case_match(pattern: SteelVal, literals: SteelVal, value: SteelVal) -> Result<SteelVal> {
     use crate::parser::ast::TryFromSteelValVisitorForExprKind;
     use crate::parser::expander::BindingKind;
@@ -2329,8 +2367,8 @@ fn datum_to_syntax(context: SteelVal, datum: SteelVal) -> Result<SteelVal> {
         stop!(TypeMismatch => "datum->syntax expects syntax for its context, found: {}", context);
     };
 
-    // A list has its own scopes: the input's lists the use's, one a template built none, as
-    // what the template writes
+    // Lists have their own scopes. Lists from the input carry the use site's, and lists a
+    // template built carry none, so they get the template's
     fn context_scopes(context: &crate::rvals::Syntax) -> steel_parser::scopes::ScopeSetId {
         context.scopes()
     }
@@ -2390,7 +2428,7 @@ fn interned_syntax_part(
     }
 }
 
-#[steel_derive::context(name = "syntax-e", arity = Exact(1), args(Any), raises = BadArgs)]
+#[steel_derive::context(name = "syntax-e", arity = Exact(1), args(Any))]
 fn syntax_e(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(interned_syntax_part(
         ctx,
@@ -2400,7 +2438,7 @@ fn syntax_e(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     ))
 }
 
-#[steel_derive::context(name = "syntax->datum", arity = Exact(1), args(Any), raises = BadArgs)]
+#[steel_derive::context(name = "syntax->datum", arity = Exact(1), args(Any))]
 fn syntax_to_datum(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(interned_syntax_part(
         ctx,
@@ -2411,7 +2449,7 @@ fn syntax_to_datum(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVa
 }
 
 // The parts of syntax as the code names them, for macros that put them back in code
-#[steel_derive::context(name = "#%syntax-e", arity = Exact(1), args(Any), raises = BadArgs)]
+#[steel_derive::context(name = "#%syntax-e", arity = Exact(1), args(Any))]
 fn kernel_syntax_e(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(interned_syntax_part(
         ctx,
@@ -2422,7 +2460,7 @@ fn kernel_syntax_e(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVa
 }
 
 // The datum as the code names it, which the kernel reads its own forms with
-#[steel_derive::context(name = "#%syntax->datum/kernel", arity = Exact(1), args(Any), raises = BadArgs)]
+#[steel_derive::context(name = "#%syntax->datum/kernel", arity = Exact(1), args(Any))]
 fn kernel_syntax_to_datum(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(interned_syntax_part(
         ctx,
@@ -2432,7 +2470,7 @@ fn kernel_syntax_to_datum(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
     ))
 }
 
-#[steel_derive::context(name = "#%syntax->datum", arity = Exact(1), args(Any), raises = BadArgs)]
+#[steel_derive::context(name = "#%syntax->datum", arity = Exact(1), args(Any))]
 fn raw_syntax_to_datum(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(interned_syntax_part(
         ctx,
@@ -3275,8 +3313,8 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("#%datum->syntax", datum_to_syntax)
         .register_fn("#%with-syntax-match", with_syntax_match)
         .register_fn("#%syntax-case-match", syntax_case_match)
-        // Whether two identifiers given to a procedural macro mean the same where it's used:
-        // the same local, or both no local
+        // Whether two identifiers given to a procedural macro refer to the same binding at the
+        // use site: the same local, or neither is a local
         .register_fn(
             "#%syntax-same-binding?",
             |a: SteelVal, b: SteelVal| match (&a, &b) {
@@ -3287,8 +3325,7 @@ fn syntax_module() -> BuiltInModule {
                                 InternedString::from(x.as_str()),
                                 InternedString::from(y.as_str()),
                             );
-                            crate::parser::expand_visitor::local_binding(x, &a.scopes())
-                                == crate::parser::expand_visitor::local_binding(y, &b.scopes())
+                            same_binding((x, &a.scopes()), (y, &b.scopes()))
                         }
                         _ => false,
                     }
@@ -3296,7 +3333,7 @@ fn syntax_module() -> BuiltInModule {
                 _ => false,
             },
         )
-        // Whether two syntax objects have the same scopes, as `bound-identifier=?` asks
+        // Whether two syntax objects have the same scopes, like `bound-identifier=?`
         .register_fn("#%syntax-same-scopes?", |a: SteelVal, b: SteelVal| {
             match (&a, &b) {
                 (SteelVal::SyntaxObject(a), SteelVal::SyntaxObject(b)) => a.scopes() == b.scopes(),

@@ -86,40 +86,39 @@ type TransformerMap = FxHashMap<String, FxHashSet<InternedString>>;
 #[derive(Clone, Debug)]
 struct Transformers {
     set: Arc<RwLock<TransformerMap>>,
-    // Every name a transformer has been registered by, in any environment, for checking a
-    // name is none cheaply
+    // Every name registered as a transformer in any environment, so checking that a name
+    // isn't one is cheap
     names: Arc<RwLock<FxHashSet<InternedString>>>,
-    // The transformers made with `make-set!-transformer`, which a `set!` of their name is
-    // given to
+    // Transformers made with `make-set!-transformer`. A `set!` of their name is passed to them.
     set_transformers: Arc<RwLock<FxHashSet<InternedString>>>,
-    // The names each environment's transformer code can use from `begin-for-syntax`, its own
-    // or imported. Their values are in the environment's phase 1 table.
+    // The `begin-for-syntax` names, defined or imported, that each environment's transformer
+    // code can use. The values live in the environment's phase 1 table.
     phase1: Arc<RwLock<FxHashMap<String, Vec<InternedString>>>>,
-    // What builds each module's transformer environment, to build fresh ones from
+    // The code for each module's transformer environment, used to build fresh instances
     programs: Arc<RwLock<FxHashMap<String, Phase1Program>>>,
 }
 
-/// The code that builds a module's transformer environment. A module that uses its macros
-/// gets an instance of its own, made from this, as in Racket.
+// The code that builds a module's transformer environment. Each module that uses its macros
+// gets its own instance built from this, as in Racket.
 #[derive(Clone, Debug, Default)]
 struct Phase1Program {
-    // The code of the modules it requires for syntax, which each instance runs afresh
-    // under its own names for those modules' prefixes
+    // Code of the modules it requires for syntax. Each instance runs it again under its own
+    // names for those modules' prefixes.
     for_syntax: Vec<ExprKind>,
     for_syntax_prefixes: Vec<String>,
     imports: Vec<Phase1Import>,
     // `begin-for-syntax` and `defmacro` forms
     forms: Vec<ExprKind>,
     defmacros: Vec<InternedString>,
-    // The names its transformer code can see, its own and imported
+    // Names its transformer code can see, defined or imported
     names: Vec<InternedString>,
     // Each syntax-case macro, with its pattern matcher and body
     transformers: Vec<(InternedString, String, ExprKind)>,
-    // The variables of other environments it imports, by the globals its code names them
+    // Variables imported from other environments, keyed by the globals its code uses for them
     imported: FxHashMap<InternedString, InternedString>,
 }
 
-// Its code can nest deeper than dropping it recursively has stack for
+// The code can nest too deep to drop recursively without overflowing the stack
 impl Drop for Phase1Program {
     fn drop(&mut self) {
         steel_parser::ast::drop_deep(core::mem::take(&mut self.for_syntax));
@@ -132,19 +131,19 @@ impl Drop for Phase1Program {
     }
 }
 
-/// A binding that a module's transformer code imports
+// A binding that a module's transformer code imports
 #[derive(Clone, Debug)]
 pub(crate) struct Phase1Import {
-    /// The name the importing module uses
+    // The name in the importing module
     pub(crate) local: InternedString,
-    /// Where its value comes from in the kernel
+    // The expression that reads its value in the kernel
     pub(crate) value: ExprKind,
-    /// For a `begin-for-syntax` binding, its environment and name
+    // For a `begin-for-syntax` binding, its environment and name
     pub(crate) source: Option<(String, InternedString)>,
 }
 
 impl Phase1Import {
-    /// A `begin-for-syntax` binding of another environment
+    // A `begin-for-syntax` binding of another environment
     pub(crate) fn for_syntax_binding(
         local: InternedString,
         environment: &str,
@@ -156,7 +155,7 @@ impl Phase1Import {
         }
     }
 
-    /// A binding provided by a module instantiated in the kernel
+    // A binding provided by a module instantiated in the kernel
     pub(crate) fn provided(
         local: InternedString,
         module_table: &str,
@@ -181,21 +180,25 @@ impl Phase1Import {
     }
 }
 
-// Expands the macros of modules required for syntax in transformer code, leaving the code
-// in templates and quoted data, which is for the phase the macros expand into
+// Expands the macros of modules required for syntax in transformer code. Code in templates
+// and quoted data is left alone, since it's for the phase the macros expand into.
 struct Phase1Expander<'a> {
     macros: &'a FxHashMap<InternedString, SteelMacro>,
-    // Procedural macros from modules required for syntax, which the kernel expands
+    // Procedural macros from modules required for syntax, expanded by the kernel
     procedural: &'a FxHashMap<InternedString, (String, InternedString)>,
     kernel: Option<&'a mut Kernel>,
-    // The environment's phase 1 variables, with the kernel globals they are
+    // The environment's phase 1 variables, mapped to their kernel globals
     renames: &'a FxHashMap<InternedString, InternedString>,
-    // The variables in scope, which hide macros of the same name. The first scope has
-    // the phase 1 variables.
+    // Variables in scope, which hide macros with the same name. The first scope holds the
+    // phase 1 variables.
     locals: Vec<FxHashSet<InternedString>>,
-    // How many syntax-case clauses and with-syntax bodies this is in
+    // How many syntax-case clauses and with-syntax bodies this is inside
     patterns: usize,
-    // How many macro expansions this is in
+    // For each of those, the index in `locals` of its scope and its pattern variables
+    pattern_scopes: Vec<(usize, FxHashSet<InternedString>)>,
+    // Inside a template already wrapped for that
+    hiding: bool,
+    // Current macro expansion depth
     depth: usize,
 }
 
@@ -206,7 +209,7 @@ impl Phase1Expander<'_> {
         }
     }
 
-    // A definition of a phase 1 variable defines its global
+    // A top level definition of a phase 1 variable defines its kernel global
     fn define(&mut self, name: &mut ExprKind) {
         self.bind(name);
 
@@ -221,8 +224,8 @@ impl Phase1Expander<'_> {
         }
     }
 
-    // Visits a function's body with its parameters bound. An optional parameter's default
-    // sees the parameters before it.
+    // Visits a function body with its parameters bound. An optional parameter's default can
+    // see the parameters before it.
     fn function(&mut self, params: &mut [ExprKind], body: &mut [ExprKind]) -> Result<()> {
         self.locals.push(FxHashSet::default());
 
@@ -269,8 +272,8 @@ impl Phase1Expander<'_> {
         self.locals.iter().skip(1).any(|x| x.contains(name))
     }
 
-    // Visits `body` with `names` bound, and the names it defines, which are in scope in
-    // all of it
+    // Visits `body` with `names` bound, plus the names the body defines, which are in scope
+    // in all of it
     fn scoped(&mut self, names: &[ExprKind], body: &mut [ExprKind]) -> Result<()> {
         self.locals.push(FxHashSet::default());
 
@@ -333,6 +336,48 @@ impl Phase1Expander<'_> {
         self.scoped(&names, body)
     }
 
+    fn enter_patterns(&mut self, variables: &[ExprKind]) {
+        let names = variables
+            .iter()
+            .filter_map(ExprKind::atom_identifier)
+            .copied()
+            .collect();
+        self.pattern_scopes.push((self.locals.len(), names));
+    }
+
+    // Pattern variables a template names that a variable bound inside their clause hides
+    fn shadowed_patterns(&self, l: &super::ast::List) -> Vec<InternedString> {
+        struct Names<'a>(&'a Phase1Expander<'a>, Vec<InternedString>);
+        impl<'b> VisitorMutUnitRef<'b> for Names<'_> {
+            fn visit_atom(&mut self, a: &'b Atom) {
+                let Some(name) = a.syn.ty.identifier() else {
+                    return;
+                };
+                let hidden = self
+                    .0
+                    .pattern_scopes
+                    .iter()
+                    .rev()
+                    .find(|x| x.1.contains(name))
+                    .is_some_and(|(scope, _)| {
+                        self.0
+                            .locals
+                            .iter()
+                            .skip(scope + 1)
+                            .any(|x| x.contains(name))
+                    });
+                if hidden && !self.1.contains(name) {
+                    self.1.push(*name);
+                }
+            }
+        }
+        let mut names = Names(self, Vec::new());
+        for expr in l.args.iter().skip(1) {
+            VisitorMutUnitRef::visit(&mut names, expr);
+        }
+        names.1
+    }
+
     fn is_local(&self, name: &InternedString) -> bool {
         self.locals.iter().any(|x| x.contains(name))
     }
@@ -364,7 +409,7 @@ impl Phase1Expander<'_> {
     }
 }
 
-// Evaluates the form with no pattern variables bound, as it has none around it
+// The form isn't inside any clause, so it runs with no pattern variables bound
 fn without_patterns(l: &mut super::ast::List) {
     let form = core::mem::replace(l, super::ast::List::new(ThinVec::new()));
     *l = super::ast::List::new(thin_vec![
@@ -373,7 +418,7 @@ fn without_patterns(l: &mut super::ast::List) {
     ]);
 }
 
-// The module table a module's code defines, which is how it's found again
+// The name of the module table that a module's code defines, used to find the module again
 fn module_table_defined_by(expr: &ExprKind) -> Option<String> {
     use crate::compiler::modules::MODULE_PREFIX;
 
@@ -419,8 +464,8 @@ fn has_template(expr: &ExprKind) -> bool {
     }
 }
 
-// A function made in a clause reads the pattern variables of that clause when it runs,
-// wherever it's called from
+// A function made in a clause reads that clause's pattern variables when it runs, wherever
+// it's called from
 fn keeps_pattern_variables(l: &mut super::ast::List) {
     let lambda = core::mem::replace(l, super::ast::List::new(ThinVec::new()));
     *l = super::ast::List::new(thin_vec![
@@ -432,13 +477,13 @@ fn keeps_pattern_variables(l: &mut super::ast::List) {
 const QUOTE_FORMS: &[&str] = &["quote", "#%quote", "syntax", "quote-syntax"];
 const QUASI_FORMS: &[&str] = &["quasiquote", "quasisyntax"];
 
-// The forms the reader makes from `,` and `#,`. Written out as `unquote` and the like they
-// are data, as quasiquote and quasisyntax treat them.
+// The forms the reader makes from `,` and `#,`. Spelled out as `unquote` and so on, they are
+// data, the way quasiquote and quasisyntax treat them.
 const UNQUOTE_FORMS: &[&str] = &["#%unquote", "#%unquote-splicing"];
 const UNSYNTAX_FORMS: &[&str] = &["#%unsyntax", "#%unsyntax-splicing"];
 
-// The name of a list's head, including the forms the reader makes from `'`, `#'` and the
-// like, which aren't identifiers
+// The name of a list's head. This includes the forms the reader makes from `'`, `#'` and
+// the like, which aren't identifiers.
 pub(crate) fn form_name(l: &super::ast::List) -> Option<&str> {
     let head = l.first().and_then(ExprKind::atom_syntax_object)?;
 
@@ -458,7 +503,7 @@ pub(crate) fn form_name(l: &super::ast::List) -> Option<&str> {
 }
 
 impl Phase1Expander<'_> {
-    // What a macro made, which can make more forever
+    // Visits a macro's output, with a depth limit since expansion may never finish
     fn visit_expansion(
         &mut self,
         expanded: &mut ExprKind,
@@ -476,7 +521,7 @@ impl Phase1Expander<'_> {
 
     fn visit_unsyntax_holes(&mut self, expr: &mut ExprKind) -> Result<()> {
         match expr {
-            // Quoted, `#,` reads as `unsyntax`
+            // Inside a quote, `#,` reads as `unsyntax`
             ExprKind::List(l)
                 if form_name(l).is_some_and(|x| {
                     UNSYNTAX_FORMS.contains(&x) || x == "unsyntax" || x == "unsyntax-splicing"
@@ -530,7 +575,7 @@ impl VisitorMutRef for Phase1Expander<'_> {
                         }
                     }
 
-                    // What they expand to names their module's macros by its prefix
+                    // Their output refers to their module's macros by the module's prefix
                     if let Some(kernel) = self.kernel.as_deref_mut() {
                         if let Some(mut expanded) = kernel.expand_prefixed_macro(
                             &name,
@@ -546,12 +591,13 @@ impl VisitorMutRef for Phase1Expander<'_> {
 
                     if let Some(m) = self.macros.get(&name).filter(|_| !hidden) {
                         let list = core::mem::replace(l, super::ast::List::new(ThinVec::new()));
-                        let mut expanded = m.expand(
+                        let (mut expanded, introduction) = m.expand_marked(
                             list,
                             span,
                             &Default::default(),
                             GlobalMap::Set(&Default::default()),
                         )?;
+                        rename_template_binders(&mut expanded, introduction);
                         self.visit_expansion(&mut expanded, span)?;
                         *expr = expanded;
                         return Ok(());
@@ -639,8 +685,24 @@ impl VisitorMutRef for Phase1Expander<'_> {
 
     fn visit_list(&mut self, l: &mut super::ast::List) -> Result<()> {
         match form_name(l) {
-            // Pattern variables are only in scope in the clauses that bind them, not in
-            // what those call
+            // Pattern variables are only in scope in the clauses that bind them, not in the
+            // functions those clauses call
+            // In a clause, variables the code binds hide pattern variables of their names
+            Some("#%expand-syntax-case" | "#%quasisyntax" | "syntax" | "quasisyntax")
+                if self.patterns > 0 && !self.hiding && !self.shadowed_patterns(l).is_empty() =>
+            {
+                let hidden = self.shadowed_patterns(l);
+                let mut template =
+                    ExprKind::List(core::mem::replace(l, super::ast::List::new(ThinVec::new())));
+                self.hiding = true;
+                let result = self.visit(&mut template);
+                self.hiding = false;
+                let ExprKind::List(wrapped) = without_pattern_variables(template, &hidden) else {
+                    unreachable!()
+                };
+                *l = wrapped;
+                result
+            }
             Some("#%expand-syntax-case" | "#%quasisyntax" | "syntax" | "quasisyntax")
                 if self.patterns == 0 =>
             {
@@ -658,8 +720,8 @@ impl VisitorMutRef for Phase1Expander<'_> {
 
                 result
             }
-            // A with-syntax or syntax-case an earlier pass took apart still names the phase 1
-            // variables it uses by their globals
+            // A with-syntax or syntax-case that an earlier pass took apart still needs its
+            // phase 1 variables renamed to their globals
             Some("#%syntax-without-patterns") if !self.renames.is_empty() => {
                 let Some(ExprKind::List(form)) = l.args.get_mut(1) else {
                     return Ok(());
@@ -686,9 +748,9 @@ impl VisitorMutRef for Phase1Expander<'_> {
                 .skip(1)
                 .try_for_each(|x| self.visit_unsyntax_holes(x)),
             Some(head) if QUASI_FORMS.contains(&head) => self.visit_template(l),
-            // The patterns of each clause aren't code. The expander leaves `syntax-case` alone,
-            // so it's renamed to the kernel's macro for one in an expression. The define-syntax
-            // takes apart the one it ends with whatever its name.
+            // Clause patterns aren't code. The expander leaves `syntax-case` alone, so in an
+            // expression it's renamed to the kernel's own macro. The define-syntax takes apart
+            // the one its transformer ends with, whatever it's named.
             Some("syntax-case" | "#%syntax-case") => {
                 let outside = self.patterns == 0;
 
@@ -710,21 +772,23 @@ impl VisitorMutRef for Phase1Expander<'_> {
 
                         let body = clause.args.get_mut(1..).unwrap_or_default();
                         self.patterns += 1;
+                        self.enter_patterns(&variables);
                         let result = self.scoped(&variables, body);
+                        self.pattern_scopes.pop();
                         self.patterns -= 1;
                         result?;
                     }
                 }
 
-                // Outside any other clause, what it binds is all its clauses see, also when
-                // code in another clause calls it
+                // Outside any other clause, its clauses see only the pattern variables it
+                // binds, even when code in another clause calls them
                 if outside {
                     without_patterns(l);
                 }
 
                 Ok(())
             }
-            // A template is expanded where the macro is used
+            // Templates are expanded where the macro is used
             Some("syntax-rules") => Ok(()),
             // The datums of each clause aren't code
             Some("case") => {
@@ -745,7 +809,7 @@ impl VisitorMutRef for Phase1Expander<'_> {
 
                 Ok(())
             }
-            // Its patterns bind pattern variables in its body
+            // The patterns bind pattern variables in the body
             Some("with-syntax") => {
                 let outside = self.patterns == 0;
                 let mut variables = Vec::new();
@@ -766,7 +830,9 @@ impl VisitorMutRef for Phase1Expander<'_> {
 
                 let body = l.args.get_mut(2..).unwrap_or_default();
                 self.patterns += 1;
+                self.enter_patterns(&variables);
                 let result = self.scoped(&variables, body);
+                self.pattern_scopes.pop();
                 self.patterns -= 1;
 
                 if outside {
@@ -795,7 +861,7 @@ impl VisitorMutRef for Phase1Expander<'_> {
                 result
             }
             _ if is_define(l) => match l.args.get(1).cloned() {
-                // A function's name is in scope where it's defined, its parameters in its body
+                // The function's name is bound in the enclosing scope, its parameters in its body
                 Some(ExprKind::List(_)) => {
                     let split = 2.min(l.args.len());
                     let (head, body) = l.args.split_at_mut(split);
@@ -823,7 +889,7 @@ impl VisitorMutRef for Phase1Expander<'_> {
                 }
                 None => Ok(()),
             },
-            // Racket's `datum->syntax`, where a template joins identifiers with it
+            // Racket's `datum->syntax`, called at run time, not the template's identifier joining
             Some("datum->syntax")
                 if l.args.len() == 3 && !self.is_local(&"datum->syntax".into()) =>
             {
@@ -894,9 +960,9 @@ fn quoted(name: InternedString) -> ExprKind {
     )))
 }
 
-// The top level code of a fresh transformer environment for a module, which defines
-// `value` as its macros and the bindings its transformer code sees. Its phase 1 variables
-// are named for the environment, and renamed for the instance after.
+// Top level code for a fresh transformer environment of a module. It defines `value` as the
+// environment's macros and the bindings its transformer code sees. Phase 1 variables are
+// named for the environment here and renamed for the instance afterwards.
 fn instance_code(
     environment: &str,
     instance: &str,
@@ -954,7 +1020,7 @@ fn instance_code(
         names.push(ExprKind::atom(global));
     }
 
-    // Its defmacros are locals, since they're named as the module names them
+    // The defmacros are locals because they keep the names the module uses for them
     let mut body = thin_vec![
         ExprKind::ident("let"),
         ExprKind::List(super::ast::List::new(ThinVec::new()))
@@ -982,8 +1048,8 @@ fn instance_code(
 }
 
 // A module's code defines every name it imports, and the compiler drops the unused ones at
-// the top level. An instance would look them all up, some in modules the sandbox leaves
-// out, so the unused ones go here.
+// the top level. An instance would look all of them up, some in modules the sandbox leaves
+// out, so the unused ones are removed here.
 fn remove_unused_imports(body: &mut ThinVec<ExprKind>) {
     fn is_import(expr: &ExprKind) -> Option<InternedString> {
         let ExprKind::Define(d) = expr else {
@@ -1032,7 +1098,7 @@ fn remove_unused_imports(body: &mut ThinVec<ExprKind>) {
     *body = exprs.into_iter().collect();
 }
 
-// The code in quoted data: what an unquote or unsyntax in a template evaluates
+// Visits the code in quoted data, which is the unquote and unsyntax holes of a template
 fn visit_holes<V: VisitorMutRefUnit>(visitor: &mut V, expr: &mut ExprKind) {
     match expr {
         ExprKind::List(l) => {
@@ -1050,7 +1116,7 @@ fn visit_holes<V: VisitorMutRefUnit>(visitor: &mut V, expr: &mut ExprKind) {
     }
 }
 
-// Gives identifiers other names
+// Renames identifiers that match a name exactly
 struct RenameExactly<'a> {
     names: &'a FxHashMap<InternedString, InternedString>,
 }
@@ -1069,7 +1135,7 @@ impl VisitorMutRefUnit for RenameExactly<'_> {
     }
 }
 
-/// Gives the identifiers of a module instance's code its instance's names
+// Renames identifiers in a module instance's code to the instance's names
 pub(crate) struct RenameInstance<'a> {
     pub(crate) prefixes: &'a [(String, String)],
 }
@@ -1089,13 +1155,12 @@ impl VisitorMutRefUnit for RenameInstance<'_> {
         }
     }
 
-    // The holes of a template are the instance's code too
+    // Template holes are the instance's code too
     fn visit_quote(&mut self, quote: &mut Quote) {
         visit_holes(self, &mut quote.expr);
     }
 }
 
-// The pattern variables of a `syntax-case` pattern
 pub(crate) fn pattern_variables(pattern: &ExprKind, variables: &mut Vec<ExprKind>) {
     match pattern {
         ExprKind::Atom(_) => variables.push(pattern.clone()),
@@ -1105,7 +1170,116 @@ pub(crate) fn pattern_variables(pattern: &ExprKind, variables: &mut Vec<ExprKind
     }
 }
 
-// The kernel global a phase 1 variable of an environment is
+// Transformer code becomes data for the kernel, which drops the scopes, so the binders an
+// expansion's template wrote, and its references to them, get names of their own
+pub(crate) fn rename_template_binders(
+    expr: &mut ExprKind,
+    introduction: steel_parser::scopes::Scope,
+) {
+    struct Binders(FxHashSet<InternedString>, steel_parser::scopes::Scope);
+
+    impl Binders {
+        fn bind(&mut self, expr: &ExprKind) {
+            if let Some(syn) = expr.atom_syntax_object() {
+                if let (Some(name), true) = (syn.ty.identifier(), syn.scopes.contains(self.1)) {
+                    self.0.insert(*name);
+                }
+            }
+        }
+    }
+
+    impl<'a> VisitorMutUnitRef<'a> for Binders {
+        fn visit_lambda_function(&mut self, l: &'a LambdaFunction) {
+            l.args.iter().for_each(|x| self.bind(x));
+            self.visit(&l.body);
+        }
+
+        fn visit_let(&mut self, l: &'a Let) {
+            for (name, value) in l.bindings.iter() {
+                self.bind(name);
+                self.visit(value);
+            }
+            self.visit(&l.body_expr);
+        }
+
+        fn visit_define(&mut self, d: &'a Define) {
+            self.bind(&d.name);
+            self.visit(&d.body);
+        }
+
+        fn visit_quote(&mut self, _: &'a Quote) {}
+
+        // The same forms before they're parsed
+        fn visit_list(&mut self, l: &'a super::ast::List) {
+            let head = match l
+                .first()
+                .and_then(ExprKind::atom_syntax_object)
+                .map(|x| &x.ty)
+            {
+                Some(TokenType::Let) => Some("let"),
+                Some(TokenType::Lambda) => Some("lambda"),
+                Some(TokenType::Define) => Some("define"),
+                _ => form_name(l),
+            };
+            match head {
+                Some("let" | "let*" | "letrec" | "letrec*") => {
+                    if let Some(ExprKind::List(bindings)) = l.args.get(1) {
+                        for binding in bindings.args.iter() {
+                            if let Some(name) = binding.list().and_then(|x| x.args.first()) {
+                                self.bind(name);
+                            }
+                        }
+                    }
+                }
+                Some("lambda" | "λ" | "fn") => match l.args.get(1) {
+                    Some(ExprKind::List(args)) => args.args.iter().for_each(|x| self.bind(x)),
+                    Some(arg) => self.bind(arg),
+                    None => {}
+                },
+                Some("define") => match l.args.get(1) {
+                    Some(ExprKind::List(header)) => header.args.iter().for_each(|x| self.bind(x)),
+                    Some(name) => self.bind(name),
+                    None => {}
+                },
+                Some("quote" | "syntax" | "quasisyntax" | "quote-syntax") => return,
+                _ => {}
+            }
+            l.args.iter().for_each(|x| self.visit(x));
+        }
+    }
+
+    struct Rename<'a>(&'a FxHashSet<InternedString>, steel_parser::scopes::Scope);
+
+    impl VisitorMutRefUnit for Rename<'_> {
+        fn visit_atom(&mut self, a: &mut Atom) {
+            if let TokenType::Identifier(name) = &mut a.syn.ty {
+                if self.0.contains(name) && a.syn.scopes.contains(self.1) {
+                    *name = format!("##{}#{}", name.resolve(), self.1.time()).into();
+                }
+            }
+        }
+
+        fn visit_quote(&mut self, _: &mut Quote) {}
+
+        // Syntax templates are data the transformer returns
+        fn visit_list(&mut self, l: &mut super::ast::List) {
+            if !matches!(
+                form_name(l),
+                Some("syntax" | "quasisyntax" | "quote-syntax")
+            ) {
+                l.args.iter_mut().for_each(|x| self.visit(x));
+            }
+        }
+    }
+
+    let mut binders = Binders(FxHashSet::default(), introduction);
+    VisitorMutUnitRef::visit(&mut binders, expr);
+    if !binders.0.is_empty() {
+        Rename(&binders.0, introduction).visit(expr);
+    }
+}
+
+// The kernel global for an environment's phase 1 variable
 fn phase1_variable(environment: &str, name: InternedString) -> InternedString {
     format!("#%phase1-var:{environment}:{name}").into()
 }
@@ -1158,40 +1332,39 @@ pub struct Kernel {
     pub(crate) share_host_modules: bool,
     // The modules being compiled, innermost last. With none, it's the top level.
     compiling: Vec<String>,
-    // The transformer environment each module being compiled uses for another's macros
+    // The transformer environment each module being compiled uses for another module's macros
     instances: FxHashMap<(String, String), String>,
-    // How many instances have been made, which name their copies of modules
+    // Number of instances made so far, used to name their copies of modules
     instance_count: usize,
-    // The tag the modules required for syntax get while a module is compiled, so the
-    // instances made for it share them, as Racket's do
+    // Tag given to modules required for syntax while a module compiles, so the instances
+    // made for it share them, as in Racket
     compile_tags: FxHashMap<String, String>,
     // The macros each environment's transformer code can use, from modules required for syntax
     phase1_macros: FxHashMap<String, FxHashMap<InternedString, SteelMacro>>,
-    // The names the top level's instances of modules required for syntax have
+    // Names of the top level's instances of modules required for syntax
     phase1_renames: FxHashMap<String, Vec<(String, String)>>,
-    // The macros each module's templates name by its prefix
+    // The macros each module's templates refer to by the module's prefix
     macro_modules: FxHashMap<CompactString, MacroModule>,
     sandboxed: bool,
     // The macros the kernel defines itself, in the default environment
     builtin_macros: FxHashSet<InternedString>,
-    // The macros defined in functions, with the locals where each is defined and those of
-    // them a macro there hides
+    // Macros defined in functions, with the scopes where each is defined
     local_macros: FxHashMap<InternedString, LocalCaptures>,
-    // The scopes where a template wrote a procedural macro's definition outside a function,
-    // which what its templates write gets, by its name
+    // By name, the scopes where a template wrote a procedural macro's definition outside a
+    // function. What the macro's templates write gets these scopes.
     macro_scopes: FxHashMap<InternedString, steel_parser::scopes::ScopeSetId>,
-    // The phase 1 variables each environment imports, by the globals they are
+    // The phase 1 variables each environment imports, mapped to their globals
     phase1_aliases: FxHashMap<String, FxHashMap<InternedString, InternedString>>,
-    // The procedural macros each environment's transformer code can use, with the
-    // environment and name they have where they're defined
+    // Procedural macros each environment's transformer code can use, with the environment
+    // and name they have where they're defined
     phase1_procedural: FxHashMap<String, FxHashMap<InternedString, (String, InternedString)>>,
 }
 
 // The builtin modules a sandboxed kernel leaves out
 const SANDBOXED_MODULES: &[&str] = &["steel/tcp", "steel/http", "steel/polling"];
 
-/// The macros a module's templates and procedural macros name by the module's prefix,
-/// which the module defines or imports
+// Macros that a module's templates and procedural macros refer to by the module's prefix.
+// The module defines or imports them.
 #[derive(Clone, Debug)]
 pub(crate) struct MacroModule {
     pub(crate) environment: String,
@@ -1201,14 +1374,14 @@ pub(crate) struct MacroModule {
     pub(crate) procedural: FxHashMap<InternedString, (String, InternedString)>,
 }
 
-// What a kernel macro was given, so what it introduces can be told apart
+// The input to a kernel macro, used to tell what the use wrote from what the macro introduces
 struct MacroInput {
-    // The use's use-site scope, which the input has and what the macro introduces doesn't
+    // The use-site scope. The input has it, what the macro introduces doesn't.
     use_site: steel_parser::scopes::Scope,
     // Set by syntax-case transformers, whose introduced identifiers are hygienic
     hygienic: bool,
-    // The scopes of the use's head, which what an unhygienic macro writes has, as Racket's
-    // `datum->syntax` with the use as the context gives
+    // Scopes of the use's head. What an unhygienic macro writes gets them, like Racket's
+    // `datum->syntax` with the use as context.
     use_scopes: steel_parser::scopes::ScopeSetId,
 }
 
@@ -1228,6 +1401,16 @@ pub(crate) fn is_macro_input(syn: &SyntaxObject) -> bool {
     MACRO_INPUTS.with(|inputs| inputs.borrow().last().is_some_and(|input| input.wrote(syn)))
 }
 
+// Whether identifiers with these scopes came from the input of the kernel macro being called
+pub(crate) fn is_macro_input_scopes(scopes: &steel_parser::scopes::ScopeSetId) -> bool {
+    MACRO_INPUTS.with(|inputs| {
+        inputs
+            .borrow()
+            .last()
+            .is_some_and(|input| scopes.contains(input.use_site))
+    })
+}
+
 // Called by a syntax-case transformer on its input
 pub(crate) fn hygienic_macro_input(input: SteelVal) -> SteelVal {
     MACRO_INPUTS.with(|inputs| {
@@ -1239,7 +1422,7 @@ pub(crate) fn hygienic_macro_input(input: SteelVal) -> SteelVal {
     input
 }
 
-// Where a macro's output binds names itself, which aren't references to globals
+// Finds the names a macro's output binds itself, which aren't references to globals
 struct Binders<'a> {
     input: &'a MacroInput,
     binders: &'a mut FxHashSet<SyntaxObjectId>,
@@ -1313,30 +1496,29 @@ impl<'a> VisitorMutUnitRef<'a> for Binders<'_> {
     }
 }
 
-// Gives what a kernel macro wrote its scopes. A syntax-case transformer's introduced
-// identifiers get an introduction scope of their own, like those of a syntax-rules template,
-// and a module's macro gives the ones it introduces the module's names.
+// Gives scopes to what a kernel macro wrote. Identifiers a syntax-case transformer introduces
+// get their own introduction scope, like those from a syntax-rules template, and a module's
+// macro gives the ones it introduces the module's names.
 struct Introduced<'a> {
     input: &'a MacroInput,
-    // Where the macro binds names itself. Its other identifiers are references, to its
-    // binders or else the globals.
+    // Names the macro binds itself. Its other identifiers refer to these or else to globals.
     defined: FxHashSet<SyntaxObjectId>,
     mangler: Option<&'a mut NameMangler>,
     quoted: usize,
-    // Defined in a function, so its other identifiers can refer to the function's locals
+    // Set for a macro defined in a function, so its other identifiers can refer to the
+    // function's locals
     local: bool,
-    // The locals where a macro defined in a function is defined, which what it introduces
-    // can refer to
+    // For a macro defined in a function, the locals it can refer to where it's defined
     captures: LocalCaptures,
-    // The expansion's introduction scope, which what the macro wrote gets
+    // The expansion's introduction scope, given to what the macro wrote
     scope: steel_parser::scopes::Scope,
-    // The scope of the module that defines it, unless a function does
+    // The defining module's scope, unless the macro is defined in a function
     module: Option<steel_parser::scopes::Scope>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct LocalCaptures {
-    // The scopes where the macro is defined, which what its templates write has
+    // Scopes where the macro is defined. What its templates write gets them.
     scopes: steel_parser::scopes::ScopeSetId,
 }
 
@@ -1359,14 +1541,20 @@ impl Introduced<'_> {
 }
 
 impl VisitorMutRefUnit for Introduced<'_> {
+    fn visit_vector(&mut self, v: &mut crate::parser::ast::Vector) {
+        for expr in v.args.iter_mut() {
+            self.visit(expr);
+        }
+    }
+
     fn visit_atom(&mut self, a: &mut Atom) {
         let TokenType::Identifier(_) = a.syn.ty else {
             return;
         };
 
         if self.input.wrote(&a.syn) {
-            // What the module's own code wrote, as `datum->syntax` with one of its templates'
-            // pieces as the context makes it, means the module's names
+            // Code the module itself wrote refers to the module's names. `datum->syntax` makes
+            // such code when its context is a piece of one of the module's templates.
             if let (Some(module), Some(mangler), 0) =
                 (self.module, self.mangler.as_deref_mut(), self.quoted)
             {
@@ -1403,8 +1591,8 @@ impl VisitorMutRefUnit for Introduced<'_> {
 
     // A syntax-rules macro it defines. What came from the input keeps its scopes.
     fn visit_macro(&mut self, m: &mut super::ast::Macro) {
-        // What the template wrote has the expansion's scopes, as what it writes outside a
-        // macro definition does
+        // What the template wrote gets the expansion's scopes, the same as outside a macro
+        // definition
         struct TemplateScopes<'a>(
             &'a MacroInput,
             Option<(
@@ -1414,6 +1602,12 @@ impl VisitorMutRefUnit for Introduced<'_> {
         );
 
         impl VisitorMutRefUnit for TemplateScopes<'_> {
+            fn visit_vector(&mut self, v: &mut crate::parser::ast::Vector) {
+                for expr in v.args.iter_mut() {
+                    self.visit(expr);
+                }
+            }
+
             fn visit_atom(&mut self, a: &mut Atom) {
                 if let (false, Some((captured, scope))) = (self.0.wrote(&a.syn), self.1.as_ref()) {
                     if a.syn.ty.identifier().is_some() {
@@ -1429,8 +1623,8 @@ impl VisitorMutRefUnit for Introduced<'_> {
             .then_some((self.captures.scopes.clone(), self.scope));
         let mut restore = TemplateScopes(self.input, scopes.clone());
 
-        // The name is the input's, or one the template wrote, which has the expansion's scopes
-        // like the uses it wrote
+        // If the template wrote the name, it gets the expansion's scopes like the uses the
+        // template wrote
         match m.name.as_mut() {
             ExprKind::Atom(a) if !self.input.wrote(&a.syn) => {
                 if let Some((captured, scope)) = scopes {
@@ -1445,14 +1639,20 @@ impl VisitorMutRefUnit for Introduced<'_> {
             restore.visit(&mut pair.body);
         }
 
-        // And names what it wrote by the module's names, as what it writes outside a macro
-        // definition, except the template's pattern variables and what it quotes
+        // Then rename what the template wrote to the module's names, as outside a macro
+        // definition, except its pattern variables and quoted data
         let Some(mangler) = self.mangler.as_deref_mut() else {
             return;
         };
 
         struct PatternVariables(FxHashSet<InternedString>);
         impl VisitorMutRefUnit for PatternVariables {
+            fn visit_vector(&mut self, v: &mut crate::parser::ast::Vector) {
+                for expr in v.args.iter_mut() {
+                    self.visit(expr);
+                }
+            }
+
             fn visit_atom(&mut self, a: &mut Atom) {
                 if let TokenType::Identifier(name) = a.syn.ty {
                     self.0.insert(name);
@@ -1518,8 +1718,25 @@ impl VisitorMutRefUnit for Introduced<'_> {
             self.quoted -= 1;
         }
 
+        // A procedural macro it defines. Its transformer is phase 1 code, where only syntax
+        // templates get the module's names.
+        let transformer =
+            self.quoted == 0 && crate::compiler::passes::mangle::is_procedural_definition(l);
+        let mangler = if transformer {
+            self.mangler.take()
+        } else {
+            None
+        };
+
         for expr in &mut l.args {
             self.visit(expr);
+        }
+
+        if transformer {
+            self.mangler = mangler;
+            if let Some(mangler) = self.mangler.as_deref_mut() {
+                mangler.visit_procedural_definition(l);
+            }
         }
 
         self.quoted = outer;
@@ -1568,8 +1785,8 @@ impl Kernel {
         Self::with_sandbox(!cfg!(feature = "unsandboxed-kernel"))
     }
 
-    /// Without the sandbox, transformer code can use the file system, processes and the
-    /// network, as programs can.
+    // Without the sandbox, transformer code can use the file system, processes and the
+    // network, like programs can
     pub(crate) fn with_sandbox(sandbox: bool) -> Self {
         let mut engine = fresh_kernel_image(sandbox);
 
@@ -1581,7 +1798,7 @@ impl Kernel {
             programs: Arc::new(RwLock::new(FxHashMap::default())),
         };
 
-        // A syntax-case macro of a module, for the instances other modules get
+        // Records a module's syntax-case macro for the instances other modules get
         let embedded_transformer_object = transformers.clone();
         engine.register_fn(
             "#%record-phase1-transformer!",
@@ -1604,7 +1821,7 @@ impl Kernel {
             },
         );
 
-        // Code with no file, or a program's file, has its transformers in the top level
+        // Code with no file, or in a program's file, keeps its transformers in the top level
         let embedded_transformer_object = transformers.clone();
         engine.register_fn("#%phase1-environment", move |env: String| -> String {
             let phase1 = embedded_transformer_object.phase1.read().unwrap();
@@ -1688,7 +1905,7 @@ impl Kernel {
             panic!("Kernel failed to load: This shouldn't happen!");
         }
 
-        // The kernel's own macros, which a program's definitions leave alone
+        // The kernel's own macros, which a program's definitions don't replace
         let builtin_macros = transformers
             .set
             .read()
@@ -1938,8 +2155,8 @@ impl Kernel {
             )?;
         }
 
-        // The kernel's own macros, like struct, aren't macros where phase 1 code runs, so
-        // they're expanded here, which also shows the definitions they make
+        // The kernel's own macros, like struct, don't exist where phase 1 code runs, so they're
+        // expanded here. This also exposes the definitions they make.
         for (defmacro, expr) in exprs_buffer.iter_mut() {
             if !*defmacro {
                 let none = FxHashSet::default();
@@ -1985,9 +2202,8 @@ impl Kernel {
             }
         }
 
-        // The phase 1 variables are globals of the kernel, which the environment's macros
-        // refer to
-        // An imported variable is the one of the instance it comes from, not a copy
+        // Phase 1 variables are kernel globals that the environment's macros refer to. An
+        // imported variable is the source instance's variable, not a copy.
         let mut imported = FxHashMap::default();
 
         for import in imports {
@@ -2012,6 +2228,8 @@ impl Kernel {
                 renames: &renames,
                 locals: vec![FxHashSet::default()],
                 patterns: 0,
+                pattern_scopes: Vec::new(),
+                hiding: false,
                 depth: 0,
             }
             .visit(expr)?;
@@ -2150,7 +2368,7 @@ impl Kernel {
             &mut [SteelVal::StringV("default".into())],
         )?;
 
-        // Names whose code didn't run aren't defined
+        // If the code failed, its names were never defined
         if result.is_err() {
             if let Some(known) = self.transformers.phase1.write().unwrap().get_mut(&defining) {
                 known.retain(|name| !added.contains(name));
@@ -2295,8 +2513,8 @@ impl Kernel {
         // todo!("Run through every expression, and memoize them by calling (set! <ident> (make-memoize <ident>))")
     }
 
-    // The kernel loads the prelude as modules of its own, under the same names
-    /// Whether transformer code has a global of this name
+    // Whether transformer code has a global of this name. The kernel loads the prelude as
+    // modules of its own, under the same names.
     pub(crate) fn defines(&self, name: &str) -> bool {
         self.engine.extract_value(name).is_ok()
     }
@@ -2305,8 +2523,8 @@ impl Kernel {
         self.shared_instances.contains(module) || self.engine.extract_value(table).is_ok()
     }
 
-    /// Uses of macros from now on are part of compiling this module, which gets transformer
-    /// environments of its own for other modules' macros
+    // From now on, macro uses are part of compiling this module, which gets its own
+    // transformer environments for other modules' macros
     pub(crate) fn begin_compiling(&mut self, module: String) {
         self.phase1_macros.remove(&module);
         self.phase1_procedural.remove(&module);
@@ -2346,9 +2564,8 @@ impl Kernel {
             .unwrap_or_else(|| "top-level".to_string())
     }
 
-    /// The macros of modules required for syntax, for the environment's transformer code.
-    /// `renames` are the names the instances of those modules have, when they aren't the
-    /// modules' own.
+    // Adds the macros of modules required for syntax for the environment's transformer code.
+    // `renames` are the instance names of those modules, when they differ from the modules' own.
     pub(crate) fn add_phase1_macros(
         &mut self,
         environment: &str,
@@ -2364,7 +2581,7 @@ impl Kernel {
             .entry(environment.to_owned())
             .or_default()
             .extend(procedural);
-        // A module required for syntax again has a new instance
+        // Requiring a module for syntax again gives it a new instance
         let known = self
             .phase1_renames
             .entry(environment.to_owned())
@@ -2373,12 +2590,12 @@ impl Kernel {
         known.extend(renames);
     }
 
-    // Forgets the instances of an environment, and of those that import from it, so they
-    // are made again from its new code
+    // Forgets the instances of an environment and of environments that import from it, so
+    // they are rebuilt from its new code
     fn forget_instances(&mut self, environment: &str) {
         let mut stale = vec![environment.to_owned()];
 
-        // A module loaded again has new code, a new module leaves the top level's instances
+        // A reloaded module has new code. A new module leaves the top level's instances alone.
         let reloaded = self
             .transformers
             .programs
@@ -2410,14 +2627,14 @@ impl Kernel {
 
         self.instances.retain(|(env, _), _| !stale.contains(env));
 
-        // The top level's modules required for syntax are made again with the new code
+        // The top level's modules required for syntax are rebuilt with the new code
         if reloaded {
             self.compile_tags.remove("top-level");
         }
     }
 
-    // The environment whose phase 1 variables code of `environment` sees. Code with no
-    // file, or a program's file, has them in the top level.
+    // The environment whose phase 1 variables the code of `environment` sees. Code with no
+    // file, or in a program's file, sees the top level's.
     fn phase1_environment(&self, environment: &str) -> String {
         let phase1 = self.transformers.phase1.read().unwrap();
 
@@ -2428,7 +2645,7 @@ impl Kernel {
         }
     }
 
-    // The globals the phase 1 variables of an environment are
+    // The globals for an environment's phase 1 variables
     fn phase1_variables(&self, environment: &str) -> FxHashMap<InternedString, InternedString> {
         let environment = self.phase1_environment(environment);
 
@@ -2443,8 +2660,8 @@ impl Kernel {
             .collect()
     }
 
-    // The global a phase 1 variable of an environment is, which for an imported one is the
-    // variable of the instance it comes from
+    // The global for an environment's phase 1 variable. For an imported one it's the variable
+    // of the instance it comes from.
     fn phase1_global(&self, environment: &str, name: InternedString) -> InternedString {
         self.phase1_aliases
             .get(environment)
@@ -2454,8 +2671,8 @@ impl Kernel {
     }
 
     // Expands transformer code with the environment's macros from modules required for
-    // syntax, naming its phase 1 variables by their globals. `locals` are the variables
-    // in scope of a body.
+    // syntax, and renames its phase 1 variables to their globals. `locals` are the variables
+    // in scope in a body.
     fn expand_phase1(
         &mut self,
         environment: &str,
@@ -2491,6 +2708,8 @@ impl Kernel {
                     .chain(locals)
                     .collect(),
                 patterns: 0,
+                pattern_scopes: Vec::new(),
+                hiding: false,
                 depth: 0,
             };
 
@@ -2519,7 +2738,7 @@ impl Kernel {
     }
 
     // The transformer environment that expands the macros of `environment` for the module
-    // being compiled. A module other than the one that defines them gets its own instance.
+    // being compiled. A module other than the defining one gets its own instance.
     fn instance_of(&mut self, environment: &str) -> Result<String> {
         let user = self.user();
 
@@ -2554,7 +2773,7 @@ impl Kernel {
             return Ok(environment.to_owned());
         }
 
-        // The variables it imports are those of the instances the same module gets
+        // The variables it imports come from the instances the same module gets
         let mut imported = FxHashMap::default();
 
         for import in &program.imports {
@@ -2566,8 +2785,8 @@ impl Kernel {
             }
         }
 
-        // The copies of the modules its transformer code requires that the module being
-        // compiled has
+        // Tag for the module being compiled's copies of the modules this transformer code
+        // requires
         let tag = match self.compile_tags.get(&user) {
             Some(tag) => tag.clone(),
             None => {
@@ -2578,7 +2797,7 @@ impl Kernel {
             }
         };
 
-        // A module the module being compiled requires for syntax itself is the copy it has
+        // If the module being compiled requires a module for syntax itself, its own copy is used
         let own_prefixes: Vec<String> = self
             .transformers
             .programs
@@ -2610,7 +2829,7 @@ impl Kernel {
         let name = format!("{environment}@{user}");
         let value = instance_value(&name);
 
-        // Its phase 1 variables are its own globals
+        // The instance gets its own globals for its phase 1 variables
         let mut prefixes = prefixes;
         prefixes.push((
             phase1_variable(environment, "".into()).to_string(),
@@ -2628,7 +2847,7 @@ impl Kernel {
             .visit(expr);
         }
 
-        // A module another instance made for the same compile already ran
+        // Skip modules that another instance for the same compile already ran
         code.retain(|expr| {
             module_table_defined_by(expr).map_or(true, |table| !self.defines(&table))
         });
@@ -2661,7 +2880,8 @@ impl Kernel {
         Ok(name)
     }
 
-    // The transformer of a `define-syntax`, which is code for the phase its macro runs at
+    // Expands the transformer of a `define-syntax`, which is code for the phase its macro
+    // runs at
     fn expand_transformer_code(&mut self, environment: &str, expr: &mut ExprKind) -> Result<()> {
         let ExprKind::List(l) = expr else {
             return Ok(());
@@ -2695,7 +2915,7 @@ impl Kernel {
         self.expand_phase1(environment, body, &renames, Some(params))
     }
 
-    /// Makes a module of the host available to transformer code
+    // Makes a module of the host available to transformer code
     pub(crate) fn share_module(&mut self, module: &BuiltInModule) {
         let name = module.name();
 
@@ -2708,14 +2928,14 @@ impl Kernel {
         }
     }
 
-    /// Runs module code at phase 1. `shared` are the modules it instantiates for everyone.
+    // Runs module code at phase 1. `shared` are the modules it instantiates for everyone.
     pub(crate) fn instantiate(&mut self, code: Vec<ExprKind>, shared: Vec<PathBuf>) -> Result<()> {
         self.engine.run_raw_program_from_exprs(code)?;
         self.shared_instances.extend(shared);
         Ok(())
     }
 
-    /// Whether the environment's transformer code has a phase 1 binding of this name
+    // Whether the environment's transformer code has a phase 1 binding of this name
     pub(crate) fn defines_for_syntax(&self, environment: &str, name: &InternedString) -> bool {
         self.transformers
             .phase1
@@ -2725,7 +2945,7 @@ impl Kernel {
             .is_some_and(|names| names.contains(name))
     }
 
-    /// Whether the environment defines procedural macros
+    // Whether the environment defines procedural macros
     pub(crate) fn has_procedural_macros(&self, environment: &str) -> bool {
         self.transformers
             .set
@@ -2763,7 +2983,7 @@ impl Kernel {
         self.local_macros.contains_key(name)
     }
 
-    // Whether a template wrote the macro's definition that also wrote a use with these scopes
+    // Whether the template that wrote a use with these scopes also wrote the macro's definition
     pub(crate) fn defined_by_template_of(
         &self,
         name: &InternedString,
@@ -2795,11 +3015,7 @@ impl Kernel {
         self.macro_modules.insert(prefix, module);
     }
 
-    /// Expands a use of a macro that a module's code names by the module's prefix, if it
-    /// is one
-    /// `environment` is where the code is, when known: what another module's macro writes
-    /// for it means the names where that macro is.
-    // A module's macro by the name its prefix gives it, as its templates write it
+    // Looks up a module's macro by its prefixed name, as the module's templates write it
     fn prefixed_macro(&self, name: &InternedString) -> Option<(&MacroModule, InternedString)> {
         let resolved = name.resolve();
         let end = resolved
@@ -2812,7 +3028,7 @@ impl Kernel {
         Some((module, local))
     }
 
-    // Whether it's a module's procedural macro by its prefixed name
+    // Whether the name is a module's procedural macro under its prefixed name
     pub(crate) fn names_prefixed_procedural(&self, name: &InternedString) -> bool {
         self.prefixed_macro(name)
             .is_some_and(|(module, local)| module.procedural.contains_key(&local))
@@ -2845,13 +3061,14 @@ impl Kernel {
             return Ok(None);
         };
 
-        // A module's code names its own definitions by its prefix, never a macro one of its
-        // functions defines
+        // A module's code refers to its own definitions by its prefix, never to a macro that
+        // one of its functions defines
         if self.local_macros.contains_key(&local) && !module.rules.contains_key(&local) {
             return Ok(None);
         }
 
-        // Alone or a `set!`, only a procedural one, a `set!` only of a set! transformer
+        // As a bare identifier or in a `set!`, only a procedural macro expands, and a `set!`
+        // only for a set! transformer
         if kind != UseKind::Form {
             let Some((environment, name)) = module.procedural.get(&local).cloned() else {
                 return Ok(None);
@@ -2896,8 +3113,8 @@ impl Kernel {
             .map(Some)
     }
 
-    // Expands a use of a procedural macro where it's defined, which gives what it
-    // introduces its module's names
+    // Expands a use of a procedural macro in its defining environment, so what it introduces
+    // gets its module's names
     fn expand_in_environment(
         &mut self,
         name: &InternedString,
@@ -2932,8 +3149,8 @@ impl Kernel {
     pub(crate) fn has_own_macro(&self, environment: &str, ident: &InternedString) -> bool {
         let set = self.transformers.set.read().unwrap();
 
-        // The top level's macros defined after the first input are the default environment's,
-        // with the kernel's own
+        // Top level macros defined after the first input live in the default environment,
+        // along with the kernel's own
         set.get(environment).is_some_and(|x| x.contains(ident))
             || environment == "top-level"
                 && !self.builtin_macros.contains(ident)
@@ -2968,7 +3185,7 @@ impl Kernel {
         crate::parser::expand_visitor::is_foreign(scopes)
     }
 
-    // Whether the macro of this name takes a `set!` of it
+    // Whether the macro of this name handles a `set!` of it
     pub(crate) fn is_set_transformer(&self, ident: &InternedString) -> bool {
         self.transformers
             .set_transformers
@@ -3026,7 +3243,7 @@ impl Kernel {
         self.engine.call_function_with_args(function, args.to_vec())
     }
 
-    // A module's macros give the identifiers they introduce the module's names with `mangler`
+    // A module's macros use `mangler` to give the identifiers they introduce the module's names
     pub(crate) fn expand_syntax_object(
         &mut self,
         ident: &InternedString,
@@ -3037,13 +3254,19 @@ impl Kernel {
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
 
-        // The input gets the use's use-site scope before the transformer sees it, so it
-        // tells what the use wrote from what its templates write
+        // The input gets a use-site scope before the transformer sees it, to tell what the use
+        // wrote from what the templates write
         let use_site = steel_parser::scopes::Scope::fresh_use_site();
         {
-            // Its literals too, which `datum->syntax` can take its context from
+            // Literals too, since `datum->syntax` can use them as context
             struct UseSite(steel_parser::scopes::Scope);
             impl VisitorMutRefUnit for UseSite {
+                fn visit_vector(&mut self, v: &mut crate::parser::ast::Vector) {
+                    for expr in v.args.iter_mut() {
+                        self.visit(expr);
+                    }
+                }
+
                 fn visit_atom(&mut self, a: &mut Atom) {
                     a.syn.scopes = a.syn.scopes.add(self.0);
                 }
@@ -3056,7 +3279,7 @@ impl Kernel {
         let mut expr = expr;
 
         if ident.resolve() == "define-syntax" {
-            // One another module's template wrote is code of that module's phase 1
+            // A define-syntax that another module's template wrote is that module's phase 1 code
             let written_in = match &expr {
                 ExprKind::List(l) => crate::parser::expand_visitor::definition_scopes(l)
                     .modules()
@@ -3115,8 +3338,8 @@ impl Kernel {
             _ => steel_parser::scopes::ScopeSetId::EMPTY,
         };
 
-        // The input's lists have the use's scopes, as its atoms do, which `datum->syntax` can
-        // take its context from
+        // The input's lists get the use's scopes like its atoms, since `datum->syntax` can use
+        // them as context
         let syntax_objects = crate::rvals::with_list_scopes(&syntax_objects, &use_scopes, use_site);
 
         MACRO_INPUTS.with(|x| {
@@ -3127,17 +3350,20 @@ impl Kernel {
             })
         });
 
+        // Its syntax-case literals refer to names in the module that defines it
+        let literals = crate::parser::expand_visitor::LiteralModule::set(Some(environment.into()));
         let result = self
             .engine
             .call_function_with_args_from_mut_slice(function, &mut [syntax_objects]);
+        drop(literals);
 
         let mut input = MACRO_INPUTS.with(|x| x.borrow_mut().pop()).unwrap();
 
         let result = result.map_err(|x| x.set_span(span))?;
 
-        // Syntax it made, by a template or `datum->syntax`, is hygienic, as in Racket, whether or
-        // not syntax-case took its input apart. What's made as plain data, as a defmacro makes
-        // it, means what it does where it's used.
+        // Syntax the macro made, by a template or `datum->syntax`, is hygienic as in Racket,
+        // whether or not syntax-case took its input apart. Plain data, like a defmacro returns,
+        // means what it does at the use site.
         if let SteelVal::SyntaxObject(_) = result {
             input.hygienic = true;
         }
@@ -3150,10 +3376,16 @@ impl Kernel {
         }
 
         if let Ok(expr) = &mut res {
-            // What the macro made without a location is reported where it's used
+            // Output with no location is reported at the use site
             struct UseSite(steel_parser::span::Span);
 
             impl VisitorMutRefUnit for UseSite {
+                fn visit_vector(&mut self, v: &mut crate::parser::ast::Vector) {
+                    for expr in v.args.iter_mut() {
+                        self.visit(expr);
+                    }
+                }
+
                 fn visit_atom(&mut self, a: &mut Atom) {
                     if a.syn.span.source_id().is_none() {
                         a.syn.span = self.0;
@@ -3163,7 +3395,7 @@ impl Kernel {
 
             UseSite(span).visit(expr);
 
-            // The free names of a macro defined outside any function mean the globals
+            // Free names of a macro defined outside any function refer to globals
             let captures = self.local_macros.get(ident).cloned();
             let local = captures.is_some();
             let captures = captures.or_else(|| {
@@ -3199,4 +3431,28 @@ impl Kernel {
 
         res
     }
+}
+
+// Runs a template with these left out of the pattern's bindings, so they stay as written
+fn without_pattern_variables(template: ExprKind, names: &[InternedString]) -> ExprKind {
+    let call = |args: ThinVec<ExprKind>| ExprKind::List(super::ast::List::new(args));
+    let mut bindings = call(thin_vec![ExprKind::ident("#%syntax-bindings")]);
+    for name in names {
+        bindings = call(thin_vec![
+            ExprKind::ident("#%prim.hash-remove"),
+            bindings,
+            ExprKind::Quote(Box::new(Quote::new(
+                ExprKind::ident(name.resolve()),
+                SyntaxObject::default(TokenType::Quote),
+            ))),
+        ]);
+    }
+    call(thin_vec![
+        ExprKind::ident("parameterize"),
+        call(thin_vec![call(thin_vec![
+            ExprKind::ident("#%syntax-bindings"),
+            bindings
+        ])]),
+        template,
+    ])
 }

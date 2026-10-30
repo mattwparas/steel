@@ -11,9 +11,8 @@ use super::{mangle::is_prelude_builtin, VisitorMutRefUnit};
 use crate::parser::tokens::TokenType;
 use crate::steel_vm::primitives::builtin_to_reserved;
 
-// Every identifier has the scopes of the expansions and binding forms it's in. Everything after
-// expansion resolves variables by name, so this renames local binders where resolving by name
-// would pick a different binder than the scopes.
+// Everything after expansion resolves variables by name, so this renames local binders where
+// resolving by name would pick a different binder than resolving by scopes.
 //
 // Has to run after expansion and lowering, and before constant evaluation.
 //
@@ -31,7 +30,7 @@ struct Binder {
 #[derive(Default)]
 pub struct ResolveByScopes {
     scope: Vec<Binder>,
-    // Where in `scope` each name's binders are
+    // Positions of each name's binders in `scope`
     by_name: FxHashMap<InternedString, Vec<usize>>,
     next_id: usize,
     conflicts: FxHashSet<usize>,
@@ -40,16 +39,15 @@ pub struct ResolveByScopes {
     // usize here is the binder count
     local_macros: Vec<(InternedString, usize)>,
     has_local_macros: bool,
-    // Whether this input's templates define globals
     template_globals: bool,
-    // The globals templates defined in this and earlier compiles, which a macro those
-    // templates defined can still name, from a later input or another module
+    // Globals defined by templates in this and earlier compiles. A macro those templates
+    // defined can still refer to them from a later input or another module
     earlier: TemplateGlobals,
-    // How many functions and lets the visit is in
+    // Number of enclosing functions and lets
     bodies: usize,
 }
 
-// Kept by the compiler: each name's definitions, by the introduction scopes of what defined it.
+// Kept by the compiler: for each name, the introduction scopes of the templates that defined it.
 // Scopes are never reused.
 pub type TemplateGlobals = FxHashMap<InternedString, FxHashSet<steel_parser::scopes::ScopeSetId>>;
 
@@ -79,23 +77,40 @@ impl ResolveByScopes {
         format!("##{}#{}", name.resolve(), introductions.serial()).into()
     }
 
-    // A global a template defined that a reference with these scopes means: the one whose
+    // The template-defined global that a reference with these scopes refers to: the one whose
     // introduction scopes are the largest subset of the reference's
     fn template_global_of(
         &self,
         name: InternedString,
         scopes: &steel_parser::scopes::ScopeSetId,
     ) -> Option<InternedString> {
-        let defined = self.earlier.get(&name)?;
-        // Most often the one the same expansion wrote
+        // A module's mangler may have given it the module's name, which the template's
+        // definition may not have
+        let unmangled: InternedString =
+            crate::parser::expand_visitor::unmangled(name.resolve()).into();
+        let names = [name, unmangled];
         let introductions = scopes.introductions();
-        if defined.contains(&introductions) {
-            return Some(Self::template_global(name, introductions));
+        // Usually the same expansion defined it
+        for name in names {
+            if self
+                .earlier
+                .get(&name)
+                .is_some_and(|x| x.contains(&introductions))
+            {
+                return Some(Self::template_global(name, introductions));
+            }
         }
-        let defined = defined
-            .iter()
-            .filter(|x| x.is_subset(&scopes))
-            .max_by_key(|x| (x.len(), x.serial()))?;
+        let (name, defined) = names
+            .into_iter()
+            .flat_map(|name| {
+                self.earlier
+                    .get(&name)
+                    .into_iter()
+                    .flatten()
+                    .map(move |x| (name, x))
+            })
+            .filter(|(_, x)| x.is_subset(scopes))
+            .max_by_key(|(_, x)| (x.len(), x.serial()))?;
         Some(Self::template_global(name, defined.clone()))
     }
 
@@ -113,8 +128,8 @@ impl ResolveByScopes {
 
                 let introductions = syn.scopes.introductions();
 
-                // Not one the expander already named for its expansion, nor a transformer's,
-                // which other compiles name without scopes
+                // Skip names the expander already renamed for its expansion, and transformer
+                // names, which other compiles refer to without scopes
                 if introductions.is_empty()
                     || syn.ty.identifier().is_some_and(|x| {
                         let name = x.resolve();
@@ -161,7 +176,6 @@ impl ResolveByScopes {
         });
 
         if self.renaming && self.conflicts.contains(&id) {
-            // One name per binder
             let fresh: InternedString =
                 format!("##{}#{}#{}", name.resolve(), scopes.serial(), id).into();
             *name = fresh;
@@ -177,35 +191,33 @@ impl ResolveByScopes {
         }
     }
 
-    // A reference's binder is the local of its name whose scopes are the largest subset of its
-    // own. Where the innermost local of the name isn't that one, both are renamed.
+    // A reference's binder is the local of the same name whose scopes are the largest subset of
+    // the reference's. When the innermost local of that name is a different one, both are renamed.
     fn resolve_by_scopes(&mut self, a: &mut Atom) {
         let scopes = &a.syn.scopes;
         let Some(name) = a.syn.ty.identifier().copied() else {
             return;
         };
 
-        // The last of the largest, as the expander's `meaning` picks
-        let by_scopes = self
-            .by_name
-            .get(&name)
-            .into_iter()
-            .flatten()
-            .map(|x| &self.scope[*x])
-            .filter(|b| b.scopes.is_subset(&scopes))
-            .max_by_key(|b| b.scopes.len())
-            .map(|b| b.id);
+        let by_scopes = largest_subset(
+            self.by_name
+                .get(&name)
+                .into_iter()
+                .flatten()
+                .map(|x| (&self.scope[*x].scopes, self.scope[*x].id)),
+            scopes,
+        );
         let innermost = self.innermost(name).map(|b| b.id);
 
         let Some(binder) = by_scopes else {
-            // No local: one a template defines at the top level, a prelude builtin, or a global,
-            // which a local of its name in the way is renamed for
+            // No local binder: a global a template defined at the top level, a prelude builtin,
+            // or a global. Any local of the same name in the way gets renamed
             if let Some(global) = self.template_global_of(name, scopes) {
                 a.syn.ty = TokenType::Identifier(global);
                 a.syn.unresolved = false;
                 return;
             }
-            // From a module's macro, not the top level's own, a builtin means the builtin
+            // A builtin written by a module's macro (not the top level's) refers to the builtin
             if scopes.has_module_except(steel_parser::scopes::Scope::module("top-level"))
                 && is_prelude_builtin(&name)
             {
@@ -213,7 +225,7 @@ impl ResolveByScopes {
                 a.syn.unresolved = false;
                 return;
             }
-            // Every local of its name in the way, not only the innermost
+            // Rename every local of this name in the way, not only the innermost
             if !self.renaming {
                 for position in self.by_name.get(&name).into_iter().flatten() {
                     self.conflicts.insert(self.scope[*position].id);
@@ -329,7 +341,7 @@ impl VisitorMutRefUnit for ResolveByScopes {
     fn visit_begin(&mut self, begin: &mut Begin) {
         let visible = self.local_macros.len();
 
-        // A template's defines in a body that's nested in a branch are in scope after them
+        // In a nested body, defines written by a template are in scope after them
         if self.bodies > 0 {
             for expr in begin.exprs.iter_mut() {
                 if let ExprKind::Define(d) = expr {
@@ -366,4 +378,44 @@ impl VisitorMutRefUnit for ResolveByScopes {
     fn visit_atom(&mut self, a: &mut Atom) {
         self.resolve_by_scopes(a)
     }
+}
+
+// The binder whose scopes are the largest subset of `scopes`, ties going to the last one.
+// Between ones whose scopes don't contain each other, the one more expansions wrote wins:
+// a template's identifiers carry the scopes of the macro's definition as well, which can
+// make a binder there look like theirs. Scanned from the last one, so most binders are ruled
+// out by size alone.
+pub(crate) fn largest_subset<'a, T>(
+    binders: impl DoubleEndedIterator<Item = (&'a steel_parser::scopes::ScopeSetId, T)>,
+    scopes: &steel_parser::scopes::ScopeSetId,
+) -> Option<T> {
+    let mut best: Option<(&steel_parser::scopes::ScopeSetId, T)> = None;
+    let mut best_size = (0, 0);
+    for (binder, value) in binders.rev() {
+        let len = binder.len();
+        if len > scopes.len() {
+            continue;
+        }
+        // One no larger and from no more expansions can't be better
+        let introductions = binder.introductions().len();
+        if best.is_some() && len <= best_size.1 && introductions <= best_size.0 {
+            continue;
+        }
+        if !binder.is_subset(scopes) {
+            continue;
+        }
+        let better = match &best {
+            None => true,
+            Some((current, _)) if current.is_subset(binder) => len > current.len(),
+            Some((current, _)) if binder.is_subset(current) => false,
+            Some((current, _)) => {
+                (binder.introductions().len(), len) > (current.introductions().len(), current.len())
+            }
+        };
+        if better {
+            best = Some((binder, value));
+            best_size = (introductions, len);
+        }
+    }
+    best.map(|x| x.1)
 }

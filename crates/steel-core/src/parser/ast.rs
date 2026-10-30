@@ -49,13 +49,13 @@ pub(crate) struct TryFromSteelValVisitorForExprKind {
     pub(crate) qq_depth: usize,
     pub(crate) quoted: bool,
     pub(crate) force_hir: bool,
-    // The scopes of the syntax object a symbol is inside, which the symbol gets
+    // Scopes of the enclosing syntax object, given to the symbols inside it
     pub(crate) scopes: steel_parser::scopes::ScopeSetId,
-    // In a procedural macro's definition, whose own definitions stay lists, as written code's do
+    // Inside a procedural macro's definition. Definitions in it stay lists, like in written code
     pub(crate) in_transformer: bool,
 }
 
-// A `(syntax-rules ...)` form, as data or syntax
+// Whether this is a `(syntax-rules ...)` form, either as data or as syntax
 pub(crate) fn is_syntax_rules(value: &SteelVal) -> bool {
     let value = value.as_syntax_object().map(|x| &x.syntax).unwrap_or(value);
 
@@ -94,8 +94,8 @@ impl TryFromSteelValVisitorForExprKind {
         .visit(value)
     }
 
-    // A list in quoted data, or in a quasiquote outside its holes, is data, as written code's
-    // is. What a hole holds is code again.
+    // A list in quoted data, or in a quasiquote outside its unquotes, is data, the same as in
+    // written code. Inside an unquote it's code again.
     pub(crate) fn visit_data_list(
         &mut self,
         l: &crate::values::lists::List<SteelVal>,
@@ -106,7 +106,7 @@ impl TryFromSteelValVisitorForExprKind {
         });
         let named = |names: &[&str]| head.is_some_and(|x| names.contains(&x.as_str()));
 
-        // A syntax template's code is data until it's used
+        // Code in a syntax template is data until the template is used
         if !self.quoted && self.qq_depth == 0 && named(&["syntax"]) {
             self.quoted = true;
             let items: core::result::Result<ThinVec<ExprKind>, _> =
@@ -142,7 +142,7 @@ impl TryFromSteelValVisitorForExprKind {
         Some(items.map(|items| ExprKind::List(List::new(items))))
     }
 
-    // A macro's output nests as deep as it likes
+    // Macro output can nest arbitrarily deep
     pub fn visit(&mut self, value: &SteelVal) -> core::result::Result<ExprKind, SteelErr> {
         crate::compiler::passes::with_stack(|| self.visit_value(value))
     }
@@ -257,11 +257,11 @@ impl TryFromSteelValVisitorForExprKind {
 
                             return return_value;
                         }
-                        // A procedural macro's definition stays a list, as one written in
-                        // the code does, for the kernel to define
+                        // Keep a procedural macro's definition as a list, like written code,
+                        // so the kernel can define it
                         Some(x)
                             if x.as_str() == "define-syntax"
-                                // In quoted data it's data
+                                // In quoted data it's just data
                                 && (self.quoted
                                     || self.in_transformer
                                     || !l.get(2).is_some_and(is_syntax_rules)) =>

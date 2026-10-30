@@ -132,7 +132,7 @@ pub struct RawSyntaxObject<T> {
     // or nothing at all.
     pub unresolved: bool,
     pub introduced_via_macro: bool,
-    // The identifier's scopes, as Racket's expander has them
+    // Racket-style scope set for this identifier
     #[serde(skip)]
     pub scopes: crate::scopes::ScopeSetId,
 }
@@ -1091,7 +1091,7 @@ impl<'a> Parser<'a> {
 
                                 // self.context.push(ParsingContext::Quote(stack.len()))
                             }
-                            // In quoted data it's a symbol like any other
+                            // Inside quoted data this is a plain symbol
                             TokenType::Identifier(ident)
                                 if *ident == *UNQUOTE && !self.quote_context =>
                             {
@@ -1100,7 +1100,7 @@ impl<'a> Parser<'a> {
                                 self.context.push(ParsingContext::Unquote(stack.len()));
                                 self.decrement_quasiquote_context_if_not_in_quote_context();
                             }
-                            // In quoted data it's a symbol like any other
+                            // Inside quoted data this is a plain symbol
                             TokenType::Identifier(ident)
                                 if *ident == *QUASIQUOTE && !self.quote_context =>
                             {
@@ -1109,7 +1109,7 @@ impl<'a> Parser<'a> {
                                 self.context.push(ParsingContext::Quasiquote(stack.len()));
                                 self.increment_quasiquote_context_if_not_in_quote_context();
                             }
-                            // In quoted data it's a symbol like any other
+                            // Inside quoted data this is a plain symbol
                             TokenType::Identifier(ident)
                                 if *ident == *UNQUOTE_SPLICING && !self.quote_context =>
                             {
@@ -1599,7 +1599,6 @@ pub fn lower_syntax_rules(expr: ExprKind) -> Result<SyntaxRules> {
     Ok(SyntaxRules::new(syntax_vec, pairs, syn))
 }
 
-// Once again, a bit of a hack
 // Rewrites a syntax-rules with a custom ellipsis into the usual form. The custom ellipsis
 // becomes `...`, and a `...` in a template becomes `(... ...)`
 fn with_custom_ellipsis(
@@ -1627,8 +1626,7 @@ fn with_custom_ellipsis(
             _ => {}
         },
         ExprKind::List(l) => {
-            // Bit of a hack:
-            // `(ellipsis template)` is an escape, so `template` stays
+            // `(ellipsis template)` is an escape, so `template` is kept as is
             let escape = template
                 && !l.improper
                 && l.args.len() == 2
@@ -1732,7 +1730,7 @@ struct ASTLowerPass {
 }
 
 impl ASTLowerPass {
-    // Lowering recurses as deep as the code nests, which macros can make deeper than the stack
+    // Macros can generate code nested deeper than the stack allows, so grow it
     fn lower(&mut self, expr: &mut ExprKind) -> Result<()> {
         #[cfg(feature = "stacker")]
         {
@@ -2058,7 +2056,7 @@ pub fn lower_entire_ast(expr: &mut ExprKind) -> Result<()> {
     .lower(expr)
 }
 
-// The same, when no macro expansion comes after
+// Like `lower_entire_ast`, for code that has already been macro expanded
 pub fn lower_expanded_ast(expr: &mut ExprKind) -> Result<()> {
     ASTLowerPass {
         quote_depth: 0,

@@ -1,4 +1,9 @@
 (provide caar
+         datum->syntax
+         identifier?
+         syntax->list
+         bound-identifier=?
+         free-identifier=?
          cadr
          cdar
          cddr
@@ -124,6 +129,16 @@
     ;; Otherwise, if its not quoted, just quote it
     ;; Quasisyntax isn't quite right here. We actually just want the syntax raw behavior without really any unquote?
     [(syntax x) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]))
+
+;; A phase 1 definition, as `(begin-for-syntax (define ...))`
+(define-syntax define-for-syntax
+  (syntax-rules ()
+    [(define-for-syntax name-and-args body ...) (begin-for-syntax (define name-and-args body ...))]))
+
+;; Syntax as written, without filling in pattern variables
+(define-syntax quote-syntax
+  (syntax-rules ()
+    [(quote-syntax x) (#%expand-syntax-case (quote x) (#%prim.hash) (#%prim.hash))]))
 
 (define-syntax quasiquote
   (syntax-rules (unquote unquote-splicing #%unquote #%unquote-splicing #%quote)
@@ -783,7 +798,7 @@
     [(module name (provide ids ...)
        funcs ...)
      (begin
-       (define (datum->syntax name)
+       (define name
          ((lambda ()
             funcs ...
             (module provide ids
@@ -819,13 +834,13 @@
     ;; Module contract provides
     [(module gen-defines mod
        (contract/out name contract))
-     (define (datum->syntax name)
+     (define name
        (bind/c contract (%proto-hash-get% mod 'name)))]
     [(module gen-defines mod
        (contract/out name contract)
        rest ...)
      (begin
-       (define (datum->syntax name)
+       (define name
          (bind/c contract (%proto-hash-get% mod 'name)))
        (module gen-defines mod
          rest ...))]
@@ -833,13 +848,13 @@
     ;; Normal provides
     [(module gen-defines mod
        name)
-     (define (datum->syntax name)
+     (define name
        (%proto-hash-get% mod 'name))]
     [(module gen-defines mod
        name
        rest ...)
      (begin
-       (define (datum->syntax name)
+       (define name
          (%proto-hash-get% mod 'name))
        (module gen-defines mod
          rest ...))]))
@@ -1427,7 +1442,7 @@
   (syntax-rules ()
     [(help) (simple-displayln "help expects an identifier to lookup documentation for")]
     [(help ident) (#%private-help ident)]
-    [(help module ident) (%doc? (datum->syntax %-builtin-module- module) (quote ident))]))
+    [(help module ident) (%doc? (#%join-identifiers %-builtin-module- module) (quote ident))]))
 
 (define (#%private-help func)
   (unless (#%native-fn-ptr-doc func)
@@ -1471,7 +1486,7 @@
   (syntax-rules (#%macro struct define/contract)
 
     [(_ documentation #%macro name)
-     (define (datum->syntax name __doc__)
+     (define (#%join-identifiers name __doc__)
        documentation)]
 
     [(_ documentation
@@ -1479,11 +1494,11 @@
           body ...))
 
      (begin
-       (define (datum->syntax name __doc__)
+       (define (#%join-identifiers name __doc__)
          documentation)
        (define (name . args)
          body ...)
-       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+       (#%function-ptr-table-add #%function-ptr-table name (#%join-identifiers name __doc__)))]
 
     [(_ documentation
         (define (name args ...)
@@ -1491,54 +1506,54 @@
 
      (begin
        ; (stdout-simple-displayln "Expanding doc top case: " (quote (define name body)))
-       (define (datum->syntax name __doc__)
+       (define (#%join-identifiers name __doc__)
          documentation)
        (define (name args ...)
          body ...)
-       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+       (#%function-ptr-table-add #%function-ptr-table name (#%join-identifiers name __doc__)))]
 
     [(_ documentation
         (define (name args ... . rest)
           body ...))
 
      (begin
-       (define (datum->syntax name __doc__)
+       (define (#%join-identifiers name __doc__)
          documentation)
        (define (name args ... . rest)
          body ...)
-       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+       (#%function-ptr-table-add #%function-ptr-table name (#%join-identifiers name __doc__)))]
 
     [(_ documentation (define name body))
 
      (begin
-       (define (datum->syntax name __doc__)
+       (define (#%join-identifiers name __doc__)
          documentation)
        (define name body)
-       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+       (#%function-ptr-table-add #%function-ptr-table name (#%join-identifiers name __doc__)))]
 
     [(_ documentation (struct name (args ...) options ...))
 
      (begin
 
-       (define (datum->syntax name __doc__)
+       (define (#%join-identifiers name __doc__)
          documentation)
 
        (struct name (args ...) options ...)
 
-       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+       (#%function-ptr-table-add #%function-ptr-table name (#%join-identifiers name __doc__)))]
 
     [(_ documentation
         (define/contract (name args ...)
           body ...))
 
      (begin
-       (define (datum->syntax name __doc__)
+       (define (#%join-identifiers name __doc__)
          documentation)
 
        (define/contract (name args ...)
          body ...)
 
-       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+       (#%function-ptr-table-add #%function-ptr-table name (#%join-identifiers name __doc__)))]
 
     ; [(_ documentation
     ;     (begin
@@ -1551,10 +1566,10 @@
 
     ;  (begin
     ;    (begin
-    ;      (define (datum->syntax struct-name __doc__)
+    ;      (define (#%join-identifiers struct-name __doc__)
     ;        documentation)
     ;      exprs ...)
-    ;    (#%function-ptr-table-add #%function-ptr-table struct-name (datum->syntax name __doc__)))]
+    ;    (#%function-ptr-table-add #%function-ptr-table struct-name (#%join-identifiers name __doc__)))]
 
     [(_ documentation expr)
 
@@ -1565,9 +1580,27 @@
   (syntax-rules (prefix-in only-in)
     [(_ dylib-name (prefix-in prefix (only-in name ...)))
      (begin
-       (define (datum->syntax prefix name)
+       (define (#%join-identifiers prefix name)
          (%module-get% (#%get-dylib dylib-name) (quote name))) ...)]
 
     [(_ dylib-name (only-in name ...))
      (begin
        (define name (%module-get% (#%get-dylib dylib-name) (quote name))) ...)]))
+
+;; The syntax functions transformer code has, for code that makes syntax at run time
+(define datum->syntax
+  (lambda (context datum) (#%datum->syntax context datum)))
+
+(define (identifier? x)
+  (and (syntax? x) (symbol? (syntax-e x))))
+
+;; The elements of syntax for a list, or #f
+(define (syntax->list x)
+  (let ([e (if (syntax? x) (syntax-e x) x)])
+    (if (list? e) e #f)))
+
+(define (bound-identifier=? a b)
+  (and (identifier? a) (identifier? b) (eq? (syntax-e a) (syntax-e b)) (#%syntax-same-scopes? a b)))
+
+(define (free-identifier=? a b)
+  (and (identifier? a) (identifier? b) (#%syntax-same-binding? a b)))

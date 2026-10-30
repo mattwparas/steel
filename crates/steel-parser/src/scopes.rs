@@ -1,7 +1,3 @@
-// Sets of scopes, as Racket's expander has them. A scope is a fresh token; every identifier has
-// a set of them. Sets are interned, so a syntax object holds one `ScopeSetId`, and the set
-// operations are memoised.
-
 use core::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
@@ -16,12 +12,12 @@ pub struct Scope(pub u32);
 
 static SCOPE_COUNTER: AtomicU32 = AtomicU32::new(1);
 
-// Each module's scope, both ways
+// Maps module names to scopes and back
 #[allow(clippy::type_complexity)]
 static MODULES: once_cell::sync::Lazy<Mutex<(FxHashMap<String, Scope>, FxHashMap<Scope, String>)>> =
     once_cell::sync::Lazy::new(Default::default);
 
-// The next scope's number, below the flag bits
+// The next scope number, which has to stay below the flag bits
 fn next_scope() -> u32 {
     let n = SCOPE_COUNTER.fetch_add(1, Ordering::Relaxed);
     assert!(
@@ -32,14 +28,14 @@ fn next_scope() -> u32 {
 }
 
 impl Scope {
-    // A macro expansion's introduction scope, as against a binding form's
+    // Marks a macro expansion's introduction scope, as opposed to a binding form's scope
     const INTRODUCTION: u32 = 1 << 31;
-    // A macro use's use-site scope, which its input gets and a definition's name drops
+    // Marks a use-site scope. A macro use's input gets it, and a definition's name drops it
     const USE_SITE: u32 = 1 << 30;
-    // A module's, which what its macros' templates write gets: both bits
+    // Marks a module scope with both bits. Identifiers the module's macro templates write get it
     const MODULE: u32 = Self::INTRODUCTION | Self::USE_SITE;
 
-    // A binding form's
+    // A fresh scope for a binding form
     pub fn fresh() -> Self {
         Scope(next_scope())
     }
@@ -60,7 +56,7 @@ impl Scope {
         self.0 & Self::MODULE == Self::USE_SITE
     }
 
-    // The scope of a module, by its name: the same one each time
+    // A module's scope, looked up by name so it's the same each time
     pub fn module(name: &str) -> Self {
         let mut modules = MODULES.lock().unwrap();
         if let Some(scope) = modules.0.get(name) {
@@ -72,12 +68,12 @@ impl Scope {
         scope
     }
 
-    // The module a module scope is of
+    // The name of the module this scope belongs to
     pub fn module_name(self) -> Option<String> {
         MODULES.lock().unwrap().1.get(&self).cloned()
     }
 
-    // The prelude's, which its macros' templates have as well as their modules'
+    // The prelude's scope. Prelude macro templates get it in addition to their module's
     pub fn prelude() -> Self {
         Self::module("#%prelude")
     }
@@ -86,21 +82,22 @@ impl Scope {
         self.0 & Self::MODULE == Self::MODULE
     }
 
-    // When it was made: scopes made later have later times
+    // Scopes made later have later times
     pub fn time(self) -> u32 {
         self.0 & !Self::MODULE
     }
 }
 
-// A set's scopes, sorted, and a number of its own, which names made from it use, as its
-// address can be another set's once it's freed
+// A set's sorted scopes and a unique serial number. Names made from the set use the serial,
+// since another set can reuse its address once it's freed
 struct SetData {
     serial: u64,
     scopes: Box<[Scope]>,
+    introduced: bool,
 }
 
-// A set of scopes. Sets are hash-consed, so two of the same scopes are the same set, and
-// reference counted, so a set no syntax holds any more is freed. The empty set is `None`.
+// A set of scopes. Sets are hash-consed, so equal sets are the same set, and reference counted,
+// so a set no syntax holds anymore is freed. The empty set is `None`.
 #[derive(Clone, Default)]
 pub struct ScopeSetId(Option<Arc<SetData>>);
 
@@ -142,11 +139,12 @@ impl core::fmt::Debug for ScopeSetId {
 
 static SERIAL: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
 
-// The sets there are, by a hash of their scopes. Weak, so they don't keep a set alive.
+// All sets, keyed by a hash of their scopes. The references are weak so they don't keep sets
+// alive.
 #[derive(Default)]
 struct Interner {
     sets: FxHashMap<u64, Vec<Weak<SetData>>>,
-    // Interned since the dead entries were last dropped, and how many entries were left then
+    // Sets interned since dead entries were last pruned, and how many entries were left then
     since_prune: usize,
     after_prune: usize,
 }
@@ -159,7 +157,7 @@ fn hash_scopes(scopes: &[Scope]) -> u64 {
 }
 
 impl Interner {
-    // Looked up before anything is allocated
+    // Looks the set up before allocating anything
     fn intern(&mut self, scopes: &[Scope]) -> ScopeSetId {
         if scopes.is_empty() {
             return ScopeSetId::EMPTY;
@@ -182,11 +180,12 @@ impl Interner {
         let set = Arc::new(SetData {
             serial: SERIAL.fetch_add(1, Ordering::Relaxed),
             scopes: scopes.into(),
+            introduced: scopes.iter().any(|x| x.is_introduction()),
         });
         bucket.push(Arc::downgrade(&set));
 
-        // The dead entries go once as many sets have been made as there were entries left,
-        // so the table stays within twice the live sets
+        // Prune dead entries once as many sets have been made as there were entries left after
+        // the last prune, so the table stays within twice the live sets
         self.since_prune += 1;
         if self.since_prune > self.after_prune.max(1 << 12) {
             self.since_prune = 0;
@@ -213,8 +212,8 @@ fn intern(scopes: &[Scope]) -> ScopeSetId {
     INTERNER.lock().unwrap().intern(scopes)
 }
 
-// A memoised operation's result, which is only that while it's alive. Operands are known by
-// their serials, which no other set ever has.
+// The result of a memoised operation, only valid while it's alive. Operands are keyed by their
+// serials, which are never reused.
 #[derive(Clone)]
 struct Held(Option<Weak<SetData>>);
 
@@ -232,7 +231,7 @@ impl Held {
 }
 
 thread_local! {
-    // This thread's memoised operations, by their operands' serials
+    // This thread's memoised set operations, keyed by the operands' serials
     static MEMO: core::cell::RefCell<Memo> = core::cell::RefCell::new(Memo::default());
 }
 
@@ -240,11 +239,11 @@ thread_local! {
 struct Memo {
     added: FxHashMap<(u64, Scope), Held>,
     unions: FxHashMap<(u64, u64), Held>,
-    // `introductions` and `without_use_sites`, by which
+    // `introductions` and `without_use_sites`, keyed by which one it is
     filtered: FxHashMap<(u64, bool), Held>,
 }
 
-// The most memoised operations a thread keeps
+// Maximum number of memoised operations a thread keeps
 const MEMO_LIMIT: usize = 1 << 13;
 
 impl Memo {
@@ -282,7 +281,7 @@ impl ScopeSetId {
         intern(&scopes)
     }
 
-    // The set of scopes that are already sorted and distinct
+    // Like `of`, for scopes that are already sorted and distinct
     pub fn of_sorted(scopes: &[Scope]) -> Self {
         if !scopes.windows(2).all(|x| x[0] < x[1]) {
             return Self::of(scopes);
@@ -290,12 +289,12 @@ impl ScopeSetId {
         intern(scopes)
     }
 
-    // A number of the set's own, never another live or freed set's; 0 for the empty set
+    // A number unique to this set, never reused by another set. 0 for the empty set
     pub fn serial(&self) -> u64 {
         self.0.as_ref().map_or(0, |x| x.serial)
     }
 
-    // The set's scopes, sorted
+    // The scopes, in sorted order
     pub fn scopes(&self) -> &[Scope] {
         self.0.as_ref().map_or(&[], |x| &x.scopes)
     }
@@ -368,7 +367,7 @@ impl ScopeSetId {
             return set;
         }
 
-        // Merged, as both are sorted
+        // Both are sorted, so merge them
         let (x, y) = (a.scopes(), b.scopes());
         let mut scopes = Vec::with_capacity(x.len() + y.len());
         let (mut i, mut j) = (0, 0);
@@ -397,8 +396,8 @@ impl ScopeSetId {
     }
 
     // When an identifier with these scopes was made: the time of the expansion that wrote it,
-    // or 0 for code as written. Introduction scopes sort after binding ones, module scopes
-    // after the rest.
+    // or 0 for code as written. Introduction scopes sort after binding scopes, and module
+    // scopes sort last.
     pub fn birth(&self) -> u32 {
         self.scopes()
             .iter()
@@ -430,7 +429,6 @@ impl ScopeSetId {
         set
     }
 
-    // The set without these scopes
     pub fn without(&self, removed: &[Scope]) -> Self {
         if removed.is_empty() {
             return self.clone();
@@ -438,18 +436,17 @@ impl ScopeSetId {
         self.filtered(|x| !removed.contains(x))
     }
 
-    // Just its introduction scopes, which tell apart what different expansions wrote
+    // Only the introduction scopes, which tell apart what different expansions wrote
     pub fn introductions(&self) -> Self {
         self.filtered_memoised(true)
     }
 
-    // The set without its use-site scopes
     pub fn without_use_sites(&self) -> Self {
         self.filtered_memoised(false)
     }
 
-    // Whether the last expansion it went through wrote it, rather than took it as input: its
-    // newest expansion scope is an introduction scope, not a use-site one
+    // Whether the most recent expansion wrote this identifier instead of taking it as input,
+    // meaning its newest expansion scope is an introduction scope rather than a use-site one
     pub fn from_template(&self) -> bool {
         self.scopes()
             .iter()
@@ -458,12 +455,12 @@ impl ScopeSetId {
             .is_some_and(|x| x.is_introduction())
     }
 
-    // Whether a template wrote it, rather than the code as written
+    // Whether a template wrote this identifier, rather than the original code
     pub fn introduced(&self) -> bool {
-        self.scopes().iter().any(|x| x.is_introduction())
+        self.0.as_ref().is_some_and(|x| x.introduced)
     }
 
-    // Whether another module's macro wrote it, than the one with this scope
+    // Whether a macro from a module other than `own` wrote this identifier
     pub fn has_module_except(&self, own: Scope) -> bool {
         self.scopes()
             .iter()
@@ -472,7 +469,7 @@ impl ScopeSetId {
             .any(|x| *x != own)
     }
 
-    // The modules whose macros wrote it
+    // Scopes of the modules whose macros wrote this identifier
     pub fn modules(&self) -> Vec<Scope> {
         self.scopes()
             .iter()
@@ -481,7 +478,7 @@ impl ScopeSetId {
             .collect()
     }
 
-    // Whether a module's macro wrote it
+    // Whether a module's macro wrote this identifier
     pub fn has_module(&self) -> bool {
         self.scopes().last().is_some_and(|x| x.is_module())
     }
@@ -491,11 +488,16 @@ impl ScopeSetId {
             return true;
         }
         let (small, large) = (self.scopes(), other.scopes());
-        small.len() <= large.len() && small.iter().all(|x| large.binary_search(x).is_ok())
+        if small.len() > large.len() {
+            return false;
+        }
+        // Both are sorted
+        let mut rest = large.iter();
+        small.iter().all(|x| rest.any(|y| y == x))
     }
 }
 
-// Drops this thread's memoised operations once there are many
+// Clears this thread's memoised operations once there are too many
 pub fn trim_caches() {
     MEMO.with(|x| {
         let mut memo = x.borrow_mut();
@@ -534,7 +536,7 @@ mod tests {
         let serial = ab.serial();
         assert_eq!(ScopeSetId::of(&[b, a]).serial(), serial);
         drop(ab);
-        // Made again, it's another set
+        // Interning the same scopes again makes a new set
         assert_ne!(ScopeSetId::of(&[a, b]).serial(), serial);
     }
 }

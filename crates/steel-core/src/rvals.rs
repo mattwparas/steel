@@ -736,18 +736,16 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
 
 impl ast::TryFromSteelValVisitorForExprKind {
     pub fn visit_syntax_object(&mut self, value: &Syntax) -> Result<ExprKind> {
-        let scopes = if value.scopes.is_empty() {
-            self.scopes.clone()
-        } else {
-            value.scopes.clone()
-        };
+        // A template's syntax has no scopes until the kernel gives it the expansion's, so it
+        // doesn't take those of the list it's in
+        let scopes = value.scopes.clone();
 
         let outer_scopes = core::mem::replace(&mut self.scopes, scopes.clone());
         let mut expr = self.syntax_object_to_expr(value);
         self.scopes = outer_scopes;
 
-        // A literal keeps its scopes too, and a list its own, which `datum->syntax` can take
-        // its context from
+        // Literals and lists keep their own scopes too, so `datum->syntax` can use them as
+        // context
         match &mut expr {
             Ok(ExprKind::Atom(a)) if a.syn.scopes.is_empty() => a.syn.scopes = scopes.clone(),
             Ok(ExprKind::List(l)) if l.scopes.is_empty() => l.scopes = value.scopes.clone(),
@@ -929,8 +927,8 @@ pub(crate) fn improper_list_elements(pair: &crate::values::lists::Pair) -> (Vec<
     }
 }
 
-// The same syntax with each list's scopes `scopes` where it has none, and `use_site` too, as
-// what a macro's use wrote
+// Gives each list `scopes` if it has none, then adds `use_site`, marking it as written at the
+// macro use
 pub(crate) fn with_list_scopes(
     value: &SteelVal,
     scopes: &steel_parser::scopes::ScopeSetId,
@@ -989,6 +987,16 @@ impl Syntax {
         }
     }
 
+    // Its datum is made from the syntax when it's asked for, rather than kept
+    pub(crate) fn lazy(raw: Option<SteelVal>, syntax: SteelVal, span: Span) -> Syntax {
+        Self {
+            raw,
+            syntax,
+            span,
+            scopes: steel_parser::scopes::ScopeSetId::EMPTY,
+        }
+    }
+
     pub(crate) fn with_scopes(mut self, scopes: steel_parser::scopes::ScopeSetId) -> Syntax {
         self.scopes = scopes;
         self
@@ -1016,14 +1024,26 @@ impl Syntax {
     }
 
     pub fn syntax_datum_raw(&self) -> SteelVal {
-        self.raw.clone().unwrap()
+        self.syntax_datum()
     }
 
     pub fn syntax_datum(&self) -> SteelVal {
-        self.raw.as_ref().unwrap().clone()
+        fn datum(value: &SteelVal) -> SteelVal {
+            match value {
+                SyntaxObject(s) => s.syntax_datum(),
+                ListV(l) => ListV(l.iter().map(datum).collect()),
+                VectorV(v) => VectorV(Gc::new(v.iter().map(datum).collect::<Vector<_>>()).into()),
+                other => other.clone(),
+            }
+        }
+
+        match &self.raw {
+            Some(raw) => raw.clone(),
+            None => datum(&self.syntax),
+        }
     }
 
-    // With the scopes of `other` too, as what a template wrote
+    // Adds the scopes of `other`, marking this as written by a template
     pub(crate) fn with_mark_of(mut self, other: &Syntax) -> Syntax {
         self.scopes = self.scopes.union(&other.scopes);
 
@@ -2638,7 +2658,7 @@ impl Hash for SteelVal {
                 },
             ),
             BoxedIterator(iter) => Gc::as_ptr(iter).hash(state),
-            SyntaxObject(s) => s.raw.hash(state),
+            SyntaxObject(s) => s.syntax_datum().hash(state),
             Boxed(val) => {
                 let _deeper = HashDepth::enter();
                 val.read().hash(state)

@@ -14,7 +14,7 @@ use super::{ast::Atom, span::Span, visitors::ConsumingVisitor};
 use core::convert::TryFrom;
 use thin_vec::thin_vec;
 
-// A macro definition as the list it was written as
+// Turns a macro definition back into the list it was written as
 pub(crate) fn macro_as_list(m: super::ast::Macro) -> super::ast::List {
     super::ast::List::new(thin_vec![
         ExprKind::Atom(Atom::new(m.location)),
@@ -23,8 +23,8 @@ pub(crate) fn macro_as_list(m: super::ast::Macro) -> super::ast::List {
     ])
 }
 
-// What a procedural macro made, with the syntax-rules forms in it as the lists they're written
-// as, which is what the syntax-rules expansion after it takes them as
+// Turns the syntax-rules forms in a procedural macro's output back into lists, since the
+// syntax-rules expansion that runs next expects lists
 pub(crate) fn syntax_rules_as_lists(expr: &mut ExprKind) {
     struct AsLists;
 
@@ -173,7 +173,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
-        // Outside a quote a keyword is an argument's
+        // Outside a quote a keyword is a keyword argument
         match &a.syn.ty {
             steel_parser::tokens::TokenType::Keyword(k) if !self.inside_quote => {
                 Ok(crate::rvals::keyword_argument(k.resolve()))
@@ -470,7 +470,15 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
 
     fn visit_list(&mut self, l: &steel_parser::ast::List) -> Self::Output {
         let list_scopes = &l.scopes;
-        let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
+        // The datum is made from the items when it's asked for, except for an improper list,
+        // whose tail the items don't show. Copying it at every level is quadratic in the depth.
+        let raw = if l.improper {
+            Some(TryFromExprKindForSteelVal::try_from_expr_kind_quoted(
+                ExprKind::List(l.clone()),
+            )?)
+        } else {
+            None
+        };
 
         let items: core::result::Result<List<_>, SteelErr> =
             l.args.iter().map(|x| self.visit(x)).collect();
@@ -496,7 +504,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         //     "Erasing the source information during kernel level expansion for: {:?}",
         //     raw
         // );
-        Ok(Syntax::proto(raw, items.into(), span)
+        Ok(Syntax::lazy(raw, items.into(), span)
             .with_scopes(list_scopes.clone())
             .into())
     }

@@ -1066,7 +1066,6 @@ impl Compiler {
             crate::parser::expand_visitor::expand_keyword_arguments(expr)?;
             lower_expanded_ast(expr)?;
 
-            // Checked against resolving by sets of scopes
             let by_scopes = crate::compiler::passes::scopes_check::comparing()
                 .then(|| crate::compiler::passes::scopes_check::by_scopes(expr));
             ResolveByScopes::resolve(expr, &mut self.template_globals);

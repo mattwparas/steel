@@ -129,7 +129,8 @@ mod eraser {
     }
 }
 
-// Visits recurse as deep as the code nests, which macros can make deeper than the stack
+// Visits recurse on nesting depth, and macros can generate code nested deeper than the stack
+// allows
 #[inline(always)]
 pub fn with_stack<R>(f: impl FnOnce() -> R) -> R {
     #[cfg(feature = "stacker")]

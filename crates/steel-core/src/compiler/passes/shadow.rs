@@ -23,6 +23,8 @@ pub struct RenameShadowedVariables {
     // the same mangled name, and the passes that rewrite by name couldn't tell
     // them apart.
     issued: FxHashSet<InternedString>,
+    // The next suffix to try for each base name, so a rename doesn't walk all the earlier ones
+    next_suffix: FxHashMap<InternedString, u32>,
 }
 
 impl Default for RenameShadowedVariables {
@@ -41,6 +43,7 @@ impl RenameShadowedVariables {
             str_modifiers: FxHashMap::default(),
             rename_all: false,
             issued: FxHashSet::default(),
+            next_suffix: FxHashMap::default(),
         }
     }
 
@@ -96,15 +99,22 @@ impl RenameShadowedVariables {
             base.push_str(self.str_modifiers.get(&modifier).unwrap());
         }
 
-        let mut candidate: InternedString = base.clone().into();
-        let mut counter: u32 = 0;
-        while self.scope.contains(&candidate) || self.issued.contains(&candidate) {
-            let mut next = base.clone();
-            next.push('_');
-            next.push_str(&counter.to_string());
-            candidate = next.into();
-            counter += 1;
-        }
+        // Candidates are `base`, then `base_0`, `base_1`, ... Issued names stay taken, so the
+        // search starts where the last one for this base stopped
+        let base_name: InternedString = base.clone().into();
+        let mut index = self.next_suffix.get(&base_name).copied().unwrap_or(0);
+        let candidate = loop {
+            let candidate: InternedString = if index == 0 {
+                base_name
+            } else {
+                compact_str::format_compact!("{}_{}", base, index - 1).into()
+            };
+            index += 1;
+            if !self.scope.contains(&candidate) && !self.issued.contains(&candidate) {
+                break candidate;
+            }
+        };
+        self.next_suffix.insert(base_name, index);
         self.issued.insert(candidate);
         candidate
     }

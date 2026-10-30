@@ -30,7 +30,7 @@ define_symbols! {
     STANDARD_MODULE_GET => "%module-get%",
     PROTO_HASH_GET => "%proto-hash-get%",
     PROVIDE => "provide",
-    DATUM_SYNTAX => "datum->syntax",
+    DATUM_SYNTAX => "#%join-identifiers",
     SYNTAX_SPAN => "#%syntax-span",
     IF => "if",
     DEFINE => "define",
@@ -140,8 +140,8 @@ pub enum ExprKind {
     Vector(Vector),
 }
 
-// Cloning and comparing recurse as deep as the code nests, which macros can make deeper than
-// the stack
+// Cloning and comparing recurse on nesting depth, and macros can generate code nested deeper
+// than the stack allows
 impl Clone for ExprKind {
     fn clone(&self) -> Self {
         crate::visitors::with_stack(|| match self {
@@ -191,10 +191,10 @@ impl Default for ExprKind {
     }
 }
 
-// Drops expressions however deep they nest. Dropping them as usual recurses as deep as they
-// nest, which code a macro made can nest deeper than the stack.
+// Drops expressions without recursing. The default drop recurses on nesting depth, and macros
+// can generate code nested deeper than the stack allows.
 pub fn drop_deep(exprs: impl IntoIterator<Item = ExprKind>) {
-    // Small trees, most of them, need nothing allocated
+    // Most trees are small enough to not allocate
     type Stack = smallvec::SmallVec<[ExprKind; 16]>;
 
     fn push(stack: &mut Stack, expr: ExprKind) {
@@ -210,7 +210,7 @@ pub fn drop_deep(exprs: impl IntoIterator<Item = ExprKind>) {
     let mut stack = Stack::new();
     push_all(&mut stack, exprs);
 
-    // Each expression is dropped once its children are taken out of it
+    // Take the children out of each expression before dropping it
     while let Some(mut expr) = stack.pop() {
         let take = core::mem::take::<ExprKind>;
 
@@ -626,7 +626,7 @@ impl ExprKind {
 }
 
 impl fmt::Display for ExprKind {
-    // Printing recurses as deep as the code nests
+    // Printing recurses on nesting depth
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         crate::visitors::with_stack(|| match self {
             ExprKind::Atom(a) => write!(f, "{a}"),
@@ -1264,8 +1264,7 @@ pub struct List {
     // TODO: Attach the span from the parser - just the offset
     // of the open and close parens
     pub location: Span,
-    // The list's own scopes, as a syntax object's, which `datum->syntax` can take its context
-    // from
+    // Scopes of the list itself, which `datum->syntax` can use as context
     #[serde(skip)]
     pub scopes: crate::scopes::ScopeSetId,
 }
@@ -1430,7 +1429,7 @@ impl List {
         }
     }
 
-    // `(define-syntax name transformer)`, or a procedural macro's
+    // `(define-syntax name transformer)`, or a procedural macro
     // `(define-syntax (name stx) body ...)` with any number of body forms
     fn has_define_syntax_shape(&self) -> bool {
         self.args.len() == 3
@@ -2251,7 +2250,7 @@ where
         }
     }
 
-    // Each form it makes is its own keyword at the let, so it reads the same as syntax
+    // Give each generated form its own keyword with the let's span, like written syntax
     let at = |ty| SyntaxObject::new(ty, syn.span);
 
     // This is the body of the define

@@ -79,7 +79,7 @@ impl Span {
                     span = Span::new(span.start(), s.end(), span.source_id);
                 }
             }
-            // Spans made by the reader have no source, the others in the list do
+            // Spans the reader made have no source id, so take the first one that has one
             span.source_id = spans.iter().find_map(|s| s.source_id);
             span
         } else {

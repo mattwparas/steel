@@ -657,7 +657,7 @@ define_symbols! {
     FOR_SYNTAX => "for-syntax",
     PREFIX_IN => "prefix-in",
     ONLY_IN => "only-in",
-    DATUM_SYNTAX => "datum->syntax",
+    DATUM_SYNTAX => "#%join-identifiers",
     SYNTAX_SPAN => "#%syntax-span",
     QUASISYNTAX_LOWERED => "#%quasisyntax",
     IF => "if",

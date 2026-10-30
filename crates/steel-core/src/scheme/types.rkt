@@ -12,21 +12,21 @@
 (define-syntax define-type-body
   (syntax-rules ()
     [(define-type-body x (variant fields) rest ...)
-     (or ((datum->syntax variant ?) x)
+     (or ((#%join-identifiers variant ?) x)
          (define-type-body x rest ...))]
     [(define-type-body x (variant fields))
-     ((datum->syntax variant ?) x)]))
+     ((#%join-identifiers variant ?) x)]))
 
 
 (define-syntax define-type
   (syntax-rules ()
     [(define-type name (variant fields) rest ...)
      (begin
-       (define ((datum->syntax name ?) x)
+       (define ((#%join-identifiers name ?) x)
          (define-type-body x (variant fields) rest ...))
        (define-type-help name (variant fields) rest ...))]
     [(define-type-test name (variant fields))
      (begin
-       (define ((datum->syntax name ?) x)
+       (define ((#%join-identifiers name ?) x)
          (define-type-body x (variant fields)))
        (define-type-help name (variant fields)))]))

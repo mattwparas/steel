@@ -7,20 +7,20 @@
 (define-syntax destruct
   (syntax-rules ()
     [(destruct (var) ret-value)
-     (define (datum->syntax var)
+     (define var
        (car ret-value))]
     [(destruct (var1 var2 ...) ret-value)
      (begin
-       (define (datum->syntax var1)
+       (define var1
          (car ret-value))
        (destruct (var2 ...) (cdr ret-value)))]))
 
 (define-syntax def-method
   (syntax-rules ()
     [(def-method struct-name (define/method (a this b ...) body ...))
-     (define ((datum->syntax struct-name |.| a) this b ...)
-       (unless ((datum->syntax struct-name ?) this)
-         (error! (datum->syntax struct-name |.| a) "method takes a value of" struct-name "given" this))
+     (define ((#%join-identifiers struct-name |.| a) this b ...)
+       (unless ((#%join-identifiers struct-name ?) this)
+         (error! (#%join-identifiers struct-name |.| a) "method takes a value of" struct-name "given" this))
        body ...)]))
 
 ;; impl block asserts that each function contains the struct type given as the first argument

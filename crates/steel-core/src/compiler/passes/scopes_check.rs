@@ -1,7 +1,3 @@
-// Checks that resolving each local reference by scopes, as Racket does, finds the binder the
-// hygiene pass's renaming leads the compiler to. `STEEL_SCOPES_CHECK=1` reports each reference
-// where they differ.
-
 use rustc_hash::FxHashMap;
 use steel_parser::scopes::ScopeSetId;
 
@@ -13,8 +9,8 @@ use crate::parser::{
     span::Span,
 };
 
-// Whether to check the hygiene pass's renaming against resolving by scopes
-// (`STEEL_SCOPES_CHECK`)
+// Whether to check the hygiene pass's renaming against resolving by scopes like Racket.
+// `STEEL_SCOPES_CHECK=1` reports each reference where they differ
 pub fn comparing() -> bool {
     static COMPARING: once_cell::sync::Lazy<bool> =
         once_cell::sync::Lazy::new(|| std::env::var_os("STEEL_SCOPES_CHECK").is_some());
@@ -24,9 +20,9 @@ pub fn comparing() -> bool {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Resolution {
     Local(SyntaxObjectId),
-    // No local binder: a global, a builtin, or free
+    // No local binder: a global, a builtin, or a free name
     Global,
-    // Two binders, neither's scopes a subset of the other's
+    // Two binders where neither one's scopes are a subset of the other's
     Ambiguous,
 }
 
@@ -66,7 +62,7 @@ impl Resolver {
                 .map_or(Resolution::Global, |b| Resolution::Local(b.id));
         }
 
-        // The binder whose scopes are the largest subset of the reference's
+        // Pick the binder whose scopes are the largest subset of the reference's
         let candidates: Vec<&Binder> = self
             .scope
             .iter()
@@ -172,7 +168,7 @@ impl VisitorMutRefUnit for Resolver {
     }
 }
 
-// Each local reference's resolution by scopes, before the hygiene pass renames
+// How each local reference resolves by scopes, before the hygiene pass renames anything
 pub struct ByScopes {
     resolved: FxHashMap<SyntaxObjectId, (InternedString, Span, Resolution)>,
     binders: FxHashMap<SyntaxObjectId, (InternedString, Span)>,
@@ -190,7 +186,7 @@ pub fn by_scopes(expr: &mut ExprKind) -> ByScopes {
     }
 }
 
-// Reports where resolving by names after the hygiene pass differs
+// Reports references where resolving by name after the hygiene pass gives a different result
 pub fn compare(expr: &mut ExprKind, before: &ByScopes) {
     let mut resolver = Resolver::default();
     resolver.visit(expr);

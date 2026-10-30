@@ -56,6 +56,7 @@ pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
                         }
                     }
 
+                    Some(ExprKind::List(l)) if l.first().is_some_and(written_by_template) => {}
                     Some(ExprKind::List(l)) => {
                         if let Some(name) = l.first_ident() {
                             if name.resolve().starts_with(MANGLER_PREFIX) {
@@ -138,11 +139,11 @@ pub(crate) fn is_prelude_builtin(name: &InternedString) -> bool {
 #[derive(Clone, Debug)]
 pub struct NameMangler {
     pub(crate) globals: FxHashSet<InternedString>,
-    // Macros of the module that aren't globals, which its templates name with its prefix
+    // The module's macros that aren't globals. Its templates refer to them with its prefix
     macros: FxHashSet<InternedString>,
     prefix: CompactString,
     mangle_cache: FxHashMap<InternedString, InternedString>,
-    // The module's scope, which what its own macros write has
+    // The module's scope, which identifiers written by its own macros carry
     module: Option<steel_parser::scopes::Scope>,
 }
 
@@ -227,7 +228,7 @@ pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
     }
 }
 
-// A procedural macro's definition, as a macro's template can write it
+// Whether this is a procedural macro definition, possibly written by a macro template
 pub(crate) fn is_procedural_definition(l: &List) -> bool {
     l.first()
         .and_then(ExprKind::atom_syntax_object)
@@ -247,17 +248,16 @@ pub(crate) fn is_procedural_definition(l: &List) -> bool {
 }
 
 impl NameMangler {
-    // Phase 1 code of the module: only what its syntax templates write is the module's code
+    // Phase 1 code of the module. Only what its syntax templates write counts as module code
     pub(crate) fn visit_phase1_code(&mut self, expr: &mut ExprKind) {
         let mut variables = FxHashSet::default();
         collect_pattern_variables(expr, &mut variables);
         self.visit_phase1(expr, &variables);
     }
 
-    // Its transformer is phase 1 code, which the module's names don't name, apart from what
-    // the syntax templates in it write, which is the module's code. Not their pattern
-    // variables.
-    fn visit_procedural_definition(&mut self, l: &mut List) {
+    // The transformer is phase 1 code, so only its syntax templates (minus their pattern
+    // variables) get the module's names
+    pub(crate) fn visit_procedural_definition(&mut self, l: &mut List) {
         let start = match l.args.get_mut(1) {
             Some(ExprKind::List(signature)) => {
                 if let Some(name) = signature.args.first_mut() {
@@ -283,7 +283,23 @@ impl NameMangler {
     }
 
     fn visit_phase1(&mut self, expr: &mut ExprKind, variables: &FxHashSet<InternedString>) {
+        // Other forms hold lists too
+        struct Inner<'a>(&'a mut NameMangler, &'a FxHashSet<InternedString>);
+        impl VisitorMutRefUnit for Inner<'_> {
+            fn visit_list(&mut self, l: &mut List) {
+                let mut expr =
+                    ExprKind::List(core::mem::replace(l, List::new(thin_vec::ThinVec::new())));
+                self.0.visit_phase1(&mut expr, self.1);
+                if let ExprKind::List(visited) = expr {
+                    *l = visited;
+                }
+            }
+            fn visit_atom(&mut self, _: &mut Atom) {}
+            fn visit_quote(&mut self, _: &mut Quote) {}
+        }
+
         let ExprKind::List(l) = expr else {
+            Inner(self, variables).visit(expr);
             return;
         };
         match crate::parser::kernel::form_name(l) {
@@ -331,8 +347,38 @@ impl NameMangler {
                     self.visit_phase1(expr, variables);
                 }
             }
+            // A procedural macro the template writes has phase 1 code of its own
+            ExprKind::List(l) if is_procedural_definition(l) => {
+                let start = match l.args.get_mut(1) {
+                    Some(ExprKind::List(signature)) => {
+                        if let Some(name) = signature.args.first_mut() {
+                            self.visit_syntax_template(name, variables, quasi);
+                        }
+                        2
+                    }
+                    Some(name) => {
+                        self.visit_syntax_template(name, variables, quasi);
+                        2
+                    }
+                    None => return,
+                };
+
+                let mut inner = variables.clone();
+                for expr in l.args.iter().skip(start) {
+                    collect_pattern_variables(expr, &mut inner);
+                }
+
+                for expr in l.args.iter_mut().skip(start) {
+                    self.visit_phase1(expr, &inner);
+                }
+            }
             ExprKind::List(l) => {
                 for expr in l.args.iter_mut() {
+                    self.visit_syntax_template(expr, variables, quasi);
+                }
+            }
+            ExprKind::Vector(v) => {
+                for expr in v.args.iter_mut() {
                     self.visit_syntax_template(expr, variables, quasi);
                 }
             }
@@ -341,7 +387,7 @@ impl NameMangler {
     }
 }
 
-// The pattern variables of the syntax-case clauses and with-syntax bindings in transformer code
+// Collects pattern variables of syntax-case clauses and with-syntax bindings in transformer code
 fn collect_pattern_variables(expr: &ExprKind, variables: &mut FxHashSet<InternedString>) {
     let ExprKind::List(l) = expr else {
         return;
@@ -380,8 +426,8 @@ fn collect_pattern_variables(expr: &ExprKind, variables: &mut FxHashSet<Interned
 impl VisitorMutRefUnit for NameMangler {
     #[inline]
     fn visit_atom(&mut self, a: &mut Atom) {
-        // Written by another module's macro, where a builtin means the builtin. What this
-        // module's own macros write means its globals.
+        // A builtin written by another module's macro refers to the builtin. Identifiers written
+        // by this module's own macros refer to its globals.
         let resolved_elsewhere = match self.module {
             Some(own) => a.syn.scopes.has_module_except(own),
             None => a.syn.scopes.has_module(),

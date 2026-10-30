@@ -60,7 +60,7 @@ impl LocalMacroManager {
         // println!("Raw path: {:?}", raw_path);
         // println!("Compiled path: {:?}", compiled_path);
 
-        // A cache an older build wrote may not read, so it's made again from the source
+        // A cache written by an older build may fail to read, so rebuild it from the source
         if compiled_path.exists() && !force_update {
             match Self::from_file(compiled_path.clone()) {
                 Err(_) if raw_path.exists() => {}
@@ -165,11 +165,11 @@ pub struct SteelMacro {
     mangled: bool,
     pub(crate) location: Span,
     pub(crate) special_mangled: bool,
-    // The module it's defined in, whose scope its templates' identifiers get, so their free
-    // names mean the globals there
+    // The module the macro is defined in. Identifiers in its templates get the module's scope,
+    // so free names refer to that module's globals
     #[serde(default)]
     module: Option<String>,
-    // Defined in the prelude, so the macros its templates name are the prelude's
+    // Defined in the prelude, so macros named in its templates refer to the prelude's
     #[serde(default)]
     prelude: bool,
 }
@@ -284,6 +284,10 @@ impl SteelMacro {
         in_scope: &ScopeSet<InternedString, FxBuildHasher>,
         globals: GlobalMap,
     ) -> Result<&MacroCase> {
+        // Its literals refer to names in the module that defines it
+        let _literals = crate::parser::expand_visitor::LiteralModule::set(
+            self.module.as_deref().map(Into::into),
+        );
         for case in &self.cases {
             // println!("Matching: {:?}", case.args);
             if case.recursive_match(expr, in_scope, globals) {
@@ -346,7 +350,7 @@ impl SteelMacro {
         Ok(self.expand_marked(expr, span, in_scope, globals)?.0)
     }
 
-    // The expansion, with the introduction scope its template's identifiers have
+    // Returns the expansion and the introduction scope given to the template's identifiers
     pub(crate) fn expand_marked(
         &self,
         expr: List,
@@ -355,7 +359,7 @@ impl SteelMacro {
         globals: GlobalMap,
     ) -> Result<(ExprKind, steel_parser::scopes::Scope)> {
         let case_to_expand = self.match_case(&expr, in_scope, globals)?;
-        // A module's macro's template identifiers have its scope, the prelude's the prelude's
+        // Template identifiers get the scope of the macro's module, or the prelude's scope
         let module = self
             .module
             .as_deref()
@@ -399,12 +403,19 @@ pub struct MacroCase {
 
     pub(crate) body: ExprKind,
 
-    // The names the template binds, as its body has them
+    // Names the template binds, spelled as in its body
     #[serde(default)]
     binders: Vec<InternedString>,
+    // A syntax-case clause's body, which is transformer code: its own binders shadow pattern
+    // variables
+    #[serde(default)]
+    transformer_code: bool,
+    // How many ellipses each pattern variable is under, by its name in the body
+    #[serde(default)]
+    depths: Vec<(InternedString, u8)>,
 }
 
-// A template or pattern can nest deeper than dropping it recursively has stack for
+// Templates and patterns can nest too deep to drop recursively
 impl Drop for MacroCase {
     fn drop(&mut self) {
         steel_parser::ast::drop_deep([core::mem::take(&mut self.body)]);
@@ -439,6 +450,8 @@ impl MacroCase {
             args,
             body,
             binders: Vec::new(),
+            transformer_code: false,
+            depths: Vec::new(),
         }
     }
 
@@ -499,9 +512,15 @@ impl MacroCase {
         let args_str: SmallVec<[_; 8]> = ctx.bindings.keys().copied().collect();
 
         // TODO: @Matt - if the
-        // define-syntax makes this macro of a syntax-case transformer's clauses
-        let template_parser = MacroTemplate::new(ctx.bindings)
-            .of_transformer_code(name.resolve().starts_with("__generated-"));
+        // define-syntax generates a `__generated-` macro from a syntax-case transformer's clauses
+        let transformer_code = name.resolve().starts_with("__generated-");
+        let depths: Vec<(InternedString, u8)> = ctx
+            .bindings
+            .iter()
+            .map(|(name, depth)| (("##".to_string() + name.resolve()).into(), *depth))
+            .collect();
+        let template_parser =
+            MacroTemplate::new(ctx.bindings).of_transformer_code(transformer_code);
         template_parser.verify(&body)?;
 
         let mut renamer = RenameIdentifiersVisitor::new(&args_str, special_forms);
@@ -517,6 +536,8 @@ impl MacroCase {
             args: PatternList::new(args).with_improper(improper),
             body,
             binders,
+            transformer_code,
+            depths,
         })
     }
 
@@ -535,8 +556,8 @@ impl MacroCase {
         )
     }
 
-    // Whether a pattern takes the macro's identifier alone: `(_ . rest)`, as a transformer
-    // whose clauses aren't all lists is matched by
+    // Whether the pattern matches the macro's identifier on its own: `(_ . rest)`. Transformers
+    // whose clauses aren't all lists match this way
     pub(crate) fn matches_identifier(&self) -> bool {
         matches!(
             self.args.args.as_slice(),
@@ -613,13 +634,19 @@ impl MacroCase {
                     // Mark each identifier in the bindings
                     // as potentially being introduced by a macro:
 
-                    // And give what the use wrote the use's use-site scope, so a binder it
-                    // passes in doesn't capture what the template wrote
+                    // Also give them a fresh use-site scope, so a binder passed in by the use
+                    // doesn't capture identifiers the template wrote
                     let use_site = Some(steel_parser::scopes::Scope::fresh_use_site());
                     crate::parser::expand_visitor::made_use_site(use_site);
                     for (_, v) in bindings.iter_mut() {
                         struct IntroducedByMacro(Option<steel_parser::scopes::Scope>);
                         impl VisitorMutRefUnit for IntroducedByMacro {
+                            fn visit_vector(&mut self, v: &mut crate::parser::ast::Vector) {
+                                for expr in v.args.iter_mut() {
+                                    self.visit(expr);
+                                }
+                            }
+
                             fn visit_atom(&mut self, a: &mut Atom) {
                                 a.syn.introduced_via_macro = true;
                                 if let (Some(scope), TokenType::Identifier(_)) = (self.0, &a.syn.ty)
@@ -640,16 +667,22 @@ impl MacroCase {
                     struct MarkTemplateIdentifiers(
                         // The expansion's introduction scope
                         steel_parser::scopes::Scope,
-                        // And the module's and the prelude's, for what the template wrote
+                        // The module and prelude scopes for identifiers the template wrote
                         (
                             Option<steel_parser::scopes::Scope>,
                             Option<steel_parser::scopes::Scope>,
                         ),
                     );
                     impl VisitorMutRefUnit for MarkTemplateIdentifiers {
+                        fn visit_vector(&mut self, v: &mut crate::parser::ast::Vector) {
+                            for expr in v.args.iter_mut() {
+                                self.visit(expr);
+                            }
+                        }
+
                         fn visit_atom(&mut self, a: &mut Atom) {
                             if let TokenType::Identifier(_) = a.syn.ty {
-                                // The module's, unless another template wrote it
+                                // Skip the module scopes if another template wrote it
                                 if !a.syn.scopes.introduced() {
                                     for scope in [self.1 .0, self.1 .1].into_iter().flatten() {
                                         a.syn.scopes = a.syn.scopes.add(scope);
@@ -676,6 +709,8 @@ impl MacroCase {
                         &mut binding_kind,
                         &mut fallback_bindings,
                         span,
+                        self.transformer_code,
+                        &self.depths,
                     )?;
 
                     Ok((body, introduction))
@@ -757,7 +792,7 @@ impl MacroPattern {
         }
     }
 
-    // A pattern nests as deep as it likes
+    // Patterns can nest arbitrarily deep
     fn parse_from_list(
         list: List,
         ctx: &mut PatternContext,
@@ -806,7 +841,7 @@ impl MacroPattern {
                     .and_then(|(_, expr)| expr.atom_syntax_object())
                     .filter(|syn| match &syn.ty {
                         TokenType::Ellipses => true,
-                        // Patterns built from data spell it as an identifier
+                        // Patterns built from data have `...` as an identifier
                         TokenType::Identifier(ty) => *ty == *ELLIPSES_SYMBOL,
                         _ => false,
                     })
@@ -1160,9 +1195,9 @@ fn match_rest_pattern(
     }
 }
 
-// Whether a binding hides what a literal of a macro's pattern means. One a template wrote
-// means what it does where that template is: a local where it's used doesn't hide it, nor
-// does a global of the code that used another module's macro.
+// Whether a binding shadows a literal in a macro's pattern. A literal written by a template
+// keeps its meaning from where the template is, so a local at the use site doesn't shadow it,
+// and neither does a global in code that used another module's macro.
 fn literal_shadowed(
     name: &InternedString,
     syn: &SyntaxObject,
@@ -1170,7 +1205,8 @@ fn literal_shadowed(
     globals: GlobalMap,
 ) -> bool {
     if !syn.scopes.introduced() {
-        return in_scope.contains(name)
+        return crate::parser::expand_visitor::use_site_local(syn)
+            .unwrap_or_else(|| in_scope.contains(name))
             || globals.contains(name)
             || crate::parser::expand_visitor::local_binding(*name, &syn.scopes).is_some();
     }
@@ -1180,6 +1216,37 @@ fn literal_shadowed(
 
     !elsewhere && globals.contains(name)
         || crate::parser::expand_visitor::local_binding(*name, &syn.scopes).is_some()
+}
+
+// Whether an identifier is the use of a literal: the same binding, as `free-identifier=?`
+// asks. Code a template wrote, and code outside a module, compare names.
+fn literal_matches(
+    literal: &InternedString,
+    name: &InternedString,
+    syn: &SyntaxObject,
+    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+    globals: GlobalMap,
+) -> bool {
+    if !syn.scopes.introduced() {
+        let local = crate::parser::expand_visitor::use_site_local(syn)
+            .unwrap_or_else(|| in_scope.contains(name));
+        if local || crate::parser::expand_visitor::local_binding(*name, &syn.scopes).is_some() {
+            // A local macro's literal can name the same local
+            return crate::parser::expand_visitor::literal_local_matches(literal, syn);
+        }
+        let modules = (
+            crate::parser::expand_visitor::current_module(),
+            crate::parser::expand_visitor::literal_module(),
+        );
+        if let (Some(here), Some(there)) = modules {
+            if let Some(same) =
+                crate::parser::expand_visitor::same_global_binding((here, *name), (there, *literal))
+            {
+                return same;
+            }
+        }
+    }
+    name == literal && !literal_shadowed(name, syn, in_scope, globals)
 }
 
 fn match_single_pattern(
@@ -1199,7 +1266,7 @@ fn match_single_pattern(
                         ty: TokenType::Identifier(s),
                         ..
                     },
-            }) if s == v && !literal_shadowed(s, syn, in_scope, globals) => true,
+            }) if literal_matches(v, s, syn, in_scope, globals) => true,
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
@@ -1385,8 +1452,8 @@ fn match_single_pattern(
     }
 }
 
-// The pattern variables of a with-syntax or syntax-case pattern, matched against `value`,
-// or None when it doesn't match
+// Matches a with-syntax or syntax-case pattern against `value` and returns its pattern
+// variables, or None when it doesn't match
 pub(crate) fn match_with_syntax_pattern(
     pattern: ExprKind,
     literals: &[InternedString],
@@ -1397,7 +1464,7 @@ pub(crate) fn match_with_syntax_pattern(
         FxHashMap<InternedString, BindingKind>,
     )>,
 > {
-    // Named so a `_` in the pattern is the wildcard
+    // Use a name that isn't `_`, so a `_` in the pattern is the wildcard
     let mut ctx = PatternContext {
         name: InternedString::from_static("#%with-syntax"),
         special_forms: literals,
@@ -1472,24 +1539,12 @@ fn collect_bindings(
                     stop!(ArityMismatch => "macro invocation expected a value, found none");
                 }
             }
-            // actually check if the syntax matches
+            // A literal, which matching already checked. Imported under another name, it can be
+            // spelled differently.
             MacroPattern::Syntax(s, _) => {
                 let error_func = throw!(BadSyntax => format!("macro expand expected keyword {s} - within {:?}", list));
 
-                let (_, e) = expr_iter.next().ok_or_else(error_func)?;
-
-                if let ExprKind::Atom(Atom {
-                    syn:
-                        SyntaxObject {
-                            ty: TokenType::Identifier(syn),
-                            ..
-                        },
-                }) = e
-                {
-                    if s != syn {
-                        stop!(BadSyntax => "macro expansion expected keyword, found: {}", syn)
-                    }
-                }
+                expr_iter.next().ok_or_else(error_func)?;
             }
             MacroPattern::Many(pat) if expected_many_captures == 0 => {
                 for ident in pat.variables() {
@@ -2072,7 +2127,7 @@ mod collect_bindings_tests {
     }
 }
 
-// A quote matched against a list pattern is the list `(quote datum)`
+// A list pattern matches a quote as the list `(quote datum)`
 fn quote_as_list(q: &super::ast::Quote) -> thin_vec::ThinVec<ExprKind> {
     thin_vec![
         ExprKind::ident_with_span("quote", q.location.span),
@@ -2120,6 +2175,8 @@ mod macro_case_expand_test {
     #[test]
     fn test_basic_expansion() {
         let case = MacroCase {
+            transformer_code: false,
+            depths: Vec::new(),
             args: PatternList::new(vec![
                 MacroPattern::Syntax("test".into(), false),
                 MacroPattern::Single("a".into()),

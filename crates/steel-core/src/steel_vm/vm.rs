@@ -7153,7 +7153,7 @@ pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     // The cases before this one matched with a fender that said no
     let start = usize::from_steelval(&args[2])?;
 
-    // An identifier alone, which only a clause that takes any form has a pattern for
+    // A bare identifier only matches a clause whose pattern takes any form
     let Some(list) = expr.list() else {
         let index = macro_object
             .cases

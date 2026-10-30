@@ -22,9 +22,9 @@ use core::ops::ControlFlow;
 
 use thin_vec::thin_vec;
 
-// `(#%quasisyntax template)`, which the quasisyntax macro expands to, becomes a syntax
+// The quasisyntax macro expands to `(#%quasisyntax template)`. This turns it into a syntax
 // template with a pattern variable in place of each `#,e` and `#,@e`, so the rest of the
-// template, ellipses included, means what it means in `syntax`
+// template, ellipses included, behaves like it does in `syntax`
 fn lower_quasisyntax(l: &mut super::ast::List) -> Option<ExprKind> {
     if l.args.len() != 2 || l.first_ident() != Some(&*QUASISYNTAX_LOWERED) {
         return None;
@@ -49,7 +49,7 @@ fn lower_quasisyntax(l: &mut super::ast::List) -> Option<ExprKind> {
     };
     let call = |args: ThinVec<ExprKind>| ExprKind::List(super::ast::List::new(args));
 
-    // One hash of the holes, which nest no deeper as there are more of them
+    // Put all the holes in one hash, so the code doesn't nest deeper with more holes
     let mut holes = thin_vec![ident("#%prim.hash")];
     let mut kinds = thin_vec![ident("#%prim.hash")];
 
@@ -80,14 +80,14 @@ fn lower_quasisyntax(l: &mut super::ast::List) -> Option<ExprKind> {
 }
 
 struct LiftUnsyntax {
-    // How many quasisyntax forms inside the template this is in
+    // How many nested quasisyntax forms inside the template the visit is in
     depth: usize,
     holes: Vec<(InternedString, ExprKind, bool)>,
 }
 
 enum Hole {
     No,
-    // Its parts were visited already
+    // Not a hole, but its parts were already visited
     Visited,
     Lifted { splicing: bool },
 }
@@ -127,7 +127,7 @@ impl LiftUnsyntax {
         Hole::Lifted { splicing }
     }
 
-    // `(a . #,e)` reads as `(a #%unsyntax e)`, whose tail is the hole
+    // `(a . #,e)` reads as `(a #%unsyntax e)`, and the tail is the hole
     fn unsyntax_tail(&mut self, l: &mut super::ast::List) {
         if self.depth > 0 || l.improper || l.args.len() < 3 {
             return;
@@ -156,7 +156,7 @@ impl LiftUnsyntax {
         self.holes.push((name.into(), value, false));
     }
 
-    // `#,@e` splices into the sequence it is in
+    // `#,@e` splices into the enclosing sequence
     fn visit_elements(&mut self, exprs: &mut ThinVec<ExprKind>) {
         let mut i = 0;
 
@@ -217,13 +217,17 @@ pub fn replace_identifiers(
     binding_kind: &mut FxHashMap<InternedString, BindingKind>,
     fallback_bindings: &mut FxHashMap<InternedString, ExprKind>,
     span: Span,
+    transformer_code: bool,
+    depths: &[(InternedString, u8)],
 ) -> Result<()> {
     // let mut rewrite_spans = expr;
 
     RewriteSpan::new(span).visit(expr);
 
-    // TODO: Replace this here!
-    ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(expr)
+    let mut replace = ReplaceExpressions::new(bindings, binding_kind, fallback_bindings);
+    replace.transformer_code = transformer_code;
+    replace.depths = depths.iter().copied().collect();
+    replace.visit(expr)
 }
 
 pub fn expand_template_pair(
@@ -274,8 +278,13 @@ pub struct ReplaceExpressions<'a> {
     binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
     wildcard: InternedString,
     escaped: bool,
-    // In a transformer the template writes, where datum->syntax is the procedure
-    in_transformer: bool,
+    // A syntax-case clause's body, where the code's own binders shadow pattern variables
+    transformer_code: bool,
+    shadowed: Vec<InternedString>,
+    // How many syntax templates in the code the visit is in, less the `#,` holes in them
+    templates: usize,
+    // How many ellipses each pattern variable is under in the pattern
+    depths: FxHashMap<InternedString, u8>,
 }
 
 fn check_ellipses(expr: &ExprKind) -> bool {
@@ -301,12 +310,16 @@ struct EllipsesExpanderVisitor<'a> {
     found_length: Option<usize>,
     collected: SmallVec<[InternedString; 8]>,
     error: Option<String>,
+    depths: &'a FxHashMap<InternedString, u8>,
+    // How many ellipses inside the template being repeated the visit is under
+    inner: u8,
 }
 
 impl<'a> EllipsesExpanderVisitor<'a> {
     fn find_expansion_width_and_collect_ellipses_expanders(
         bindings: &'a mut FxHashMap<InternedString, ExprKind>,
         binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
+        depths: &'a FxHashMap<InternedString, u8>,
         expr: &ExprKind,
     ) -> Self {
         let mut visitor = Self {
@@ -315,6 +328,8 @@ impl<'a> EllipsesExpanderVisitor<'a> {
             found_length: None,
             collected: SmallVec::default(),
             error: None,
+            depths,
+            inner: 0,
         };
 
         let _ = VisitorMutControlFlow::visit(&mut visitor, expr);
@@ -324,8 +339,33 @@ impl<'a> EllipsesExpanderVisitor<'a> {
 }
 
 impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
+    // An element followed by ellipses is repeated by those first
+    fn visit_list(&mut self, l: &super::ast::List) -> ControlFlow<()> {
+        let mut i = 0;
+        while i < l.args.len() {
+            let ellipses = l.args[i + 1..]
+                .iter()
+                .take_while(|x| check_ellipses(x))
+                .count() as u8;
+            self.inner += ellipses;
+            let result = self.visit(&l.args[i]);
+            self.inner -= ellipses;
+            result?;
+            i += 1 + ellipses as usize;
+        }
+        ControlFlow::Continue(())
+    }
+
     fn visit_atom(&mut self, a: &Atom) -> ControlFlow<()> {
-        // A splice from a quasisyntax repeats with its own ellipsis only
+        // A variable the inner ellipses already repeat as deep as it goes stays the same
+        if a.ident()
+            .and_then(|x| self.depths.get(x))
+            .is_some_and(|depth| *depth <= self.inner)
+        {
+            return ControlFlow::Continue(());
+        }
+
+        // A quasisyntax splice only repeats with its own ellipsis
         if a.ident()
             .is_some_and(|x| x.resolve().starts_with("#%quasisyntax-hole"))
         {
@@ -368,7 +408,10 @@ impl<'a> ReplaceExpressions<'a> {
             fallback_bindings,
             wildcard: InternedString::from_static("_"),
             escaped: false,
-            in_transformer: false,
+            transformer_code: false,
+            shadowed: Vec::new(),
+            templates: 0,
+            depths: FxHashMap::default(),
         }
     }
 
@@ -385,8 +428,8 @@ impl<'a> ReplaceExpressions<'a> {
     //     ExprKind::Atom(expr)
     // }
 
-    // Expands each `x ...` in a list of template elements and visits the rest. What an
-    // ellipsis expands to isn't visited again, it holds the macro's input.
+    // Expands each `x ...` in a list of template elements and visits the rest. The result of
+    // an ellipsis expansion isn't visited again, since it holds the macro's input.
     fn visit_elements(&mut self, exprs: &mut ThinVec<ExprKind>) -> Result<bool> {
         if !exprs.iter().any(check_ellipses) {
             for expr in exprs.iter_mut() {
@@ -482,7 +525,7 @@ impl<'a> ReplaceExpressions<'a> {
                         return Ok(false);
                     };
 
-                    // A list of a quote and its datum comes back from a syntax object as a quote
+                    // A `(quote datum)` list from a syntax object comes back as a quote
                     let quoted;
 
                     let list_of_exprs = if let ExprKind::List(list_of_exprs) = rest {
@@ -542,10 +585,10 @@ impl<'a> ReplaceExpressions<'a> {
 
                 // A template before the ellipsis
                 ExprKind::List(_) | ExprKind::Quote(_) | ExprKind::Vector(_) => {
-                    // Each copy of an improper template is an improper element, not a tail
+                    // Each copy of an improper template is an improper element, not the tail
                     let improper = false;
 
-                    let visitor = EllipsesExpanderVisitor::find_expansion_width_and_collect_ellipses_expanders(self.bindings, self.binding_kind, variable_to_lookup);
+                    let visitor = EllipsesExpanderVisitor::find_expansion_width_and_collect_ellipses_expanders(self.bindings, self.binding_kind, &self.depths, variable_to_lookup);
 
                     if let Some(error) = visitor.error {
                         stop!(BadSyntax => error);
@@ -667,11 +710,108 @@ impl<'a> ReplaceExpressions<'a> {
         }
     }
 
-    fn vec_expr_datum_to_syntax(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
-        if self.in_transformer {
-            return Ok(None);
+    // In transformer code, a lambda or let written as a list: its binders shadow pattern
+    // variables, and a let's values are outside their scope. Visits the form when it's one.
+    fn binding_form(&mut self, l: &mut super::ast::List) -> Option<Result<bool>> {
+        if !self.transformer_code || self.escaped {
+            return None;
         }
+        let head = match l
+            .first()
+            .and_then(ExprKind::atom_syntax_object)
+            .map(|x| &x.ty)
+        {
+            Some(TokenType::Lambda) => "lambda",
+            Some(TokenType::Let) => "let",
+            _ => crate::parser::kernel::form_name(l)?,
+        };
+        // A syntax template is data, apart from its holes
+        match head {
+            "syntax" | "quasisyntax" | "quote-syntax" | "quote" => {
+                self.templates += 1;
+                let result = self.visit_elements(&mut l.args);
+                self.templates -= 1;
+                return Some(result);
+            }
+            "#%unsyntax" | "#%unsyntax-splicing" if self.templates > 0 => {
+                self.templates -= 1;
+                let result = self.visit_elements(&mut l.args);
+                self.templates += 1;
+                return Some(result);
+            }
+            _ if self.templates > 0 => return None,
+            _ => {}
+        }
+        match head {
+            "lambda" | "λ" | "fn" => {
+                let binders: Vec<ExprKind> = match l.args.get(1)? {
+                    ExprKind::List(params) if !params.args.iter().any(check_ellipses) => {
+                        params.args.to_vec()
+                    }
+                    ExprKind::Atom(_) => vec![l.args[1].clone()],
+                    _ => return None,
+                };
+                self.shadow(&binders);
+                Some(self.visit_elements(&mut l.args))
+            }
+            "let" | "let*" | "letrec" | "letrec*" => {
+                let simple = |binding: &ExprKind| {
+                    binding
+                        .list()
+                        .is_some_and(|x| x.args.len() == 2 && !x.args.iter().any(check_ellipses))
+                };
+                let ExprKind::List(bindings) = l.args.get(1)? else {
+                    return None;
+                };
+                if !bindings.args.iter().all(simple) {
+                    return None;
+                }
+                Some((|| {
+                    let ExprKind::List(bindings) = &mut l.args[1] else {
+                        unreachable!()
+                    };
+                    // The values first, where the binders aren't in scope yet
+                    for binding in bindings.args.iter_mut() {
+                        if let ExprKind::List(binding) = binding {
+                            self.visit(&mut binding.args[1])?;
+                        }
+                    }
+                    let binders: Vec<ExprKind> = bindings
+                        .args
+                        .iter()
+                        .filter_map(|x| x.list().map(|x| x.args[0].clone()))
+                        .collect();
+                    self.shadow(&binders);
+                    for binding in bindings.args.iter_mut() {
+                        if let ExprKind::List(binding) = binding {
+                            self.visit(&mut binding.args[0])?;
+                        }
+                    }
+                    let mut body: ThinVec<ExprKind> = l.args.drain(2..).collect();
+                    let spliced = self.visit_elements(&mut body);
+                    l.args.extend(body);
+                    spliced
+                })())
+            }
+            _ => None,
+        }
+    }
 
+    // In transformer code, binders named like pattern variables are variables in their scope
+    fn shadow(&mut self, binders: &[ExprKind]) {
+        if !self.transformer_code || self.escaped || self.templates > 0 {
+            return;
+        }
+        for binder in binders {
+            if let Some(name) = binder.atom_identifier() {
+                if self.bindings.contains_key(name) {
+                    self.shadowed.push(*name);
+                }
+            }
+        }
+    }
+
+    fn vec_expr_datum_to_syntax(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
         match vec_exprs.first() {
             Some(ExprKind::Atom(Atom {
                 syn:
@@ -686,16 +826,15 @@ impl<'a> ReplaceExpressions<'a> {
                     .all(|x| x.atom_identifier().is_some())
                 && vec_exprs.iter().skip(1).any(|x| {
                     x.atom_identifier().is_some_and(|x| {
-                        x.resolve().starts_with("##")
-                            || self.bindings.contains_key(x)
+                        self.bindings.contains_key(x)
                             || self
                                 .bindings
                                 .contains_key(&format!("##{}", x.resolve()).into())
                     })
                 }) =>
             {
-                // Joining identifiers, one of them the pattern's. Otherwise it's Racket's,
-                // called at run time.
+                // Joins identifiers when one of them is a pattern variable. Otherwise this is
+                // Racket's `datum->syntax`, called at run time.
                 let mut buffer = String::new();
                 if let Some((_, rest)) = vec_exprs.split_first() {
                     for syntax in rest {
@@ -803,8 +942,13 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                 ExprKind::Atom(a) => {
                     let input = crate::parser::kernel::is_macro_input(&a.syn);
                     if let TokenType::Identifier(s) = &mut a.syn.ty {
-                        // A quasisyntax template holds the input's identifiers, which aren't
-                        // pattern variables even when they share a name
+                        // A variable of the transformer code, not the pattern variable
+                        if self.shadowed.contains(s) {
+                            *s = s.resolve().trim_start_matches("##").into();
+                            return Ok(());
+                        }
+                        // Identifiers from the macro input in a quasisyntax template aren't
+                        // pattern variables, even when they share a name with one
                         if *s != self.wildcard && !input {
                             if let Some(body) = self.bindings.get(s) {
                                 let introduced_via_macro = a.syn.introduced_via_macro;
@@ -852,12 +996,13 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                         // return self.visit(expanded);
                     }
 
-                    let entering = crate::compiler::passes::mangle::is_procedural_definition(l);
-                    let in_transformer = self.in_transformer;
-                    self.in_transformer = in_transformer || entering;
-                    let spliced = self.visit_elements(&mut l.args);
-                    self.in_transformer = in_transformer;
-                    // An improper list spliced in at the end makes this one improper
+                    let depth = self.shadowed.len();
+                    let spliced = match self.binding_form(l) {
+                        Some(result) => result,
+                        None => self.visit_elements(&mut l.args),
+                    };
+                    self.shadowed.truncate(depth);
+                    // Splicing an improper list in at the end makes this list improper
                     if spliced? {
                         l.improper = true;
                     }
@@ -909,9 +1054,15 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
         &mut self,
         lambda_function: &mut super::ast::LambdaFunction,
     ) -> Self::Output {
-        let improper = self.visit_elements(&mut lambda_function.args)?;
-
-        self.visit(&mut lambda_function.body)?;
+        let depth = self.shadowed.len();
+        self.shadow(&lambda_function.args);
+        let improper = self.visit_elements(&mut lambda_function.args);
+        let body = improper
+            .is_ok()
+            .then(|| self.visit(&mut lambda_function.body));
+        self.shadowed.truncate(depth);
+        let improper = improper?;
+        body.unwrap_or(Ok(()))?;
 
         if improper {
             lambda_function.rest = true;
@@ -949,7 +1100,10 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
     }
 
     fn visit_quote(&mut self, quote: &mut super::ast::Quote) -> Self::Output {
-        self.visit(&mut quote.expr)
+        self.templates += 1;
+        let result = self.visit(&mut quote.expr);
+        self.templates -= 1;
+        result
     }
 
     fn visit_macro(&mut self, m: &mut super::ast::Macro) -> Self::Output {
@@ -1015,29 +1169,25 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
     }
 
     fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
-        // let mut visited_bindings = Vec::new();
-
-        // let (bindings, exprs): (Vec<_>, Vec<_>) = l.bindings.iter().cloned().unzip();
-
-        for (binding, expr) in l.bindings.iter_mut() {
-            // self.expand_ellipses(binding);
-
-            self.visit(binding)?;
+        for (_, expr) in l.bindings.iter_mut() {
             self.visit(expr)?;
         }
 
-        // let bindings = self.expand_ellipses(bindings)?;
+        let depth = self.shadowed.len();
+        let names: Vec<ExprKind> = l.bindings.iter().map(|x| x.0.clone()).collect();
+        self.shadow(&names);
+        let result = l
+            .bindings
+            .iter_mut()
+            .try_for_each(|(binding, _)| self.visit(binding));
+        if result.is_err() {
+            self.shadowed.truncate(depth);
+        }
+        result?;
 
-        // for (binding, expr) in bindings.into_iter().zip(exprs) {
-        //     visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
-        // }
-
-        // l.bindings = visited_bindings;
-        // l.body_expr = self.visit(l.body_expr)?;
-
-        self.visit(&mut l.body_expr)?;
-
-        Ok(())
+        let result = self.visit(&mut l.body_expr);
+        self.shadowed.truncate(depth);
+        result
     }
 
     fn visit_vector(&mut self, v: &mut super::ast::Vector) -> Self::Output {
@@ -1215,7 +1365,7 @@ mod replace_expressions_tests {
         };
 
         let mut expr = ExprKind::List(List::new(thin_vec![
-            atom_identifier("datum->syntax"),
+            atom_identifier("#%join-identifiers"),
             atom_identifier("struct-name"),
             atom_identifier("?"),
         ]));

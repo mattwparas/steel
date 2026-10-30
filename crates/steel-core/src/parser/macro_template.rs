@@ -17,9 +17,11 @@ pub struct MacroTemplate {
     depth: u8,
     result: Result<(), SteelErr>,
     escaped: bool,
-    // The clauses of a syntax-case transformer, which are code. In a template that's
-    // output, a syntax-case is data the template fills in.
+    // Set for the clauses of a syntax-case transformer, which are code. In an output template,
+    // a syntax-case is just data that the template fills in.
     transformer_code: bool,
+    // How many syntax templates in the code the visit is in, less the `#,` holes in them
+    templates: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -38,6 +40,7 @@ impl MacroTemplate {
             result: Ok(()),
             escaped: false,
             transformer_code: false,
+            templates: 0,
         }
     }
 
@@ -121,7 +124,8 @@ impl MacroTemplate {
 }
 
 impl MacroTemplate {
-    // The deepest pattern variable in `expr`, if every identifier in it is one
+    // Depth of the deepest pattern variable in `expr`, if every identifier in it is a pattern
+    // variable
     fn deepest(&self, expr: &ExprKind) -> Option<u8> {
         struct Deepest<'a> {
             bindings: &'a FxHashMap<InternedString, u8>,
@@ -144,8 +148,8 @@ impl MacroTemplate {
                         self.deepest = Some(self.deepest.unwrap_or(0).max(*depth));
                         ControlFlow::Continue(())
                     }
-                    // In a syntax-rules template every pattern variable is known, so another
-                    // identifier is a literal. Transformer code can bind ones with with-syntax.
+                    // In a syntax-rules template every pattern variable is known, so any other
+                    // identifier is a literal. Transformer code can bind more with with-syntax.
                     None if !self.transformer_code => ControlFlow::Continue(()),
                     None => {
                         self.deepest = None;
@@ -168,7 +172,7 @@ impl MacroTemplate {
     }
 }
 
-// The pattern variables of a pattern, with how many ellipses each is under
+// A pattern's variables, with the number of ellipses each one is under
 fn pattern_variables(
     pattern: &ExprKind,
     literals: &[InternedString],
@@ -215,7 +219,7 @@ fn pattern_variables(
 }
 
 impl MacroTemplate {
-    // Visits `body` with `variables` bound as pattern variables, over the ones they shadow
+    // Visits `body` with `variables` bound as pattern variables, shadowing outer ones
     fn shadowed(
         &mut self,
         variables: Vec<(InternedString, u8)>,
@@ -242,14 +246,73 @@ impl MacroTemplate {
         result
     }
 
-    // A syntax-case or with-syntax in the template's code, whose patterns aren't templates
-    // and bind pattern variables in their bodies
+    // A syntax-case or with-syntax in transformer code. Its patterns aren't templates, and they
+    // bind pattern variables in their bodies
     fn binding_form(&mut self, l: &List) -> Option<ControlFlow<()>> {
         if !self.transformer_code || self.escaped || l.improper {
             return None;
         }
 
-        match l.first_ident().map(|x| x.resolve()) {
+        let head = match l
+            .first()
+            .and_then(ExprKind::atom_syntax_object)
+            .map(|x| &x.ty)
+        {
+            Some(TokenType::Lambda) => Some("lambda"),
+            Some(TokenType::Let) => Some("let"),
+            _ => crate::parser::kernel::form_name(l),
+        };
+
+        // A syntax template is data, apart from its holes
+        match head {
+            Some("syntax" | "quasisyntax" | "quote-syntax" | "quote") => {
+                self.templates += 1;
+                let result = self.visit_list_elements(&l.args, ListType::Normal);
+                self.templates -= 1;
+                return Some(result);
+            }
+            Some("#%unsyntax" | "#%unsyntax-splicing") if self.templates > 0 => {
+                self.templates -= 1;
+                let result = self.visit_list_elements(&l.args, ListType::Normal);
+                self.templates += 1;
+                return Some(result);
+            }
+            _ => {}
+        }
+
+        match head {
+            // A variable binder shadows a pattern variable of its name
+            Some("lambda" | "λ" | "fn") if l.args.len() >= 2 && self.templates == 0 => {
+                let binders: Vec<&ExprKind> = match &l.args[1] {
+                    ExprKind::List(params) => params.args.iter().collect(),
+                    binder => vec![binder],
+                };
+                let body: Vec<&ExprKind> = l.args[2..].iter().collect();
+                Some(self.unbound(&binders, &body))
+            }
+            Some("let" | "let*" | "letrec" | "letrec*")
+                if l.args.len() >= 2 && self.templates == 0 =>
+            {
+                let bindings = l.args[1].list()?;
+                Some((|| {
+                    let mut binders = Vec::new();
+                    for binding in &bindings.args {
+                        match binding.list() {
+                            Some(binding) => {
+                                binders.extend(binding.args.first());
+                                binding
+                                    .args
+                                    .iter()
+                                    .skip(1)
+                                    .try_for_each(|x| self.visit(x))?;
+                            }
+                            None => self.visit(binding)?,
+                        }
+                    }
+                    let body: Vec<&ExprKind> = l.args[2..].iter().collect();
+                    self.unbound(&binders, &body)
+                })())
+            }
             Some("syntax-case" | "#%syntax-case") if l.args.len() >= 3 => {
                 let literals: Vec<InternedString> = l.args[2]
                     .list()
@@ -311,7 +374,50 @@ impl MacroTemplate {
     }
 }
 
+impl MacroTemplate {
+    // In transformer code, a binder named like a pattern variable is a variable in its scope
+    fn unbound(&mut self, binders: &[&ExprKind], body: &[&ExprKind]) -> ControlFlow<()> {
+        let saved: Vec<_> = binders
+            .iter()
+            .filter_map(|x| x.atom_identifier())
+            .filter_map(|name| Some((*name, self.bindings.remove(name)?)))
+            .collect();
+
+        let result = body.iter().try_for_each(|x| self.visit(x));
+
+        self.bindings.extend(saved);
+        result
+    }
+}
+
 impl VisitorMutControlFlow for MacroTemplate {
+    // Quoted data, which in transformer code is a template the kernel fills in later
+    fn visit_quote(&mut self, quote: &steel_parser::ast::Quote) -> ControlFlow<()> {
+        self.templates += 1;
+        let result = self.visit(&quote.expr);
+        self.templates -= 1;
+        result
+    }
+
+    fn visit_lambda_function(&mut self, l: &steel_parser::ast::LambdaFunction) -> ControlFlow<()> {
+        if !self.transformer_code || self.escaped || self.templates > 0 {
+            l.args.iter().try_for_each(|x| self.visit(x))?;
+            return self.visit(&l.body);
+        }
+        let binders: Vec<&ExprKind> = l.args.iter().collect();
+        self.unbound(&binders, &[&l.body])
+    }
+
+    fn visit_let(&mut self, l: &steel_parser::ast::Let) -> ControlFlow<()> {
+        l.bindings.iter().try_for_each(|x| self.visit(&x.1))?;
+        if !self.transformer_code || self.escaped || self.templates > 0 {
+            l.bindings.iter().try_for_each(|x| self.visit(&x.0))?;
+            return self.visit(&l.body_expr);
+        }
+        let binders: Vec<&ExprKind> = l.bindings.iter().map(|x| &x.0).collect();
+        self.unbound(&binders, &[&l.body_expr])
+    }
+
     #[inline]
     fn visit_list(&mut self, l: &List) -> ControlFlow<()> {
         if let Some(result) = self.binding_form(l) {

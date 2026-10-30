@@ -322,6 +322,43 @@
 
          [else (error "list pattern must start with `list - found " (car pattern))])]
 
+      ;; A pattern repeated over the rest of the list. Each of its variables is bound to the list of
+      ;; what it matched in each element.
+      [(and (list? pattern)
+            (not (null? pattern))
+            (starts-with-many? pattern)
+            (not (var? (car pattern)))
+            (null? (cddr pattern)))
+       (define inner (mutable-vector))
+       (define element (gensym))
+       (define results (gensym))
+       (match-p-syntax (car pattern) element #t depth bound-vars #f 0 inner)
+       (define vars (reverse (mutable-vector->list inner)))
+       (for-each (lambda (v) (vector-push! introduced-identifiers v)) vars)
+       (define matched
+         (match-p-syntax (car pattern)
+                         element
+                         `(list ,@vars)
+                         depth
+                         bound-vars
+                         #f
+                         0
+                         (mutable-vector)))
+       (define bindings
+         (let loop ([remaining vars]
+                    [position 0])
+           (if (null? remaining)
+               '()
+               (cons (list (car remaining)
+                           (list 'map (list 'lambda '(r) (list 'list-ref 'r position)) results))
+                     (loop (cdr remaining) (+ position 1))))))
+       `(if (list? ,input)
+            (let ([,results (map ,(list 'lambda (list element) matched) ,input)])
+              (if (member #f ,results)
+                  #f
+                  ,(list 'let bindings final-body-expr)))
+            #f)]
+
       [(and (list? pattern) (not (null? pattern)) (starts-with-many? pattern))
        (if (null? (cddr pattern))
            (begin

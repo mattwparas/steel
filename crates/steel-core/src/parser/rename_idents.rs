@@ -15,9 +15,9 @@ use super::interner::InternedString;
 
 pub struct RenameIdentifiersVisitor<'a> {
     introduced_identifiers: HashSet<InternedString>,
-    // The binders in scope where the visit is, which references there are renamed to
+    // Binders in scope at the current point of the visit. References to them get renamed
     scope: Vec<InternedString>,
-    // In a nested syntax-rules template, where code in quoted data is visited as one
+    // Inside a nested syntax-rules template, where code in quoted data is visited as a template
     in_nested: bool,
     pattern_variables: &'a [InternedString],
     syntax: &'a [InternedString],
@@ -43,7 +43,7 @@ impl<'a> RenameIdentifiersVisitor<'a> {
         self.scope.contains(ident) || self.pattern_variables.contains(ident)
     }
 
-    // The defines of a body are in scope in all of it, before them too
+    // A body's defines are in scope in the whole body, including before them
     fn bind_defines(&mut self, forms: &[ExprKind]) {
         for form in forms {
             match form {
@@ -82,7 +82,7 @@ impl<'a> RenameIdentifiersVisitor<'a> {
         }
     }
 
-    // A parameter with a default, `[name default]`. The default is outside the parameter.
+    // A parameter with a default, `[name default]`. The parameter isn't in scope in the default.
     fn bind_default_parameter(&mut self, parameter: &mut super::ast::List) {
         for expr in parameter.args.iter_mut().skip(1) {
             self.visit(expr);
@@ -94,7 +94,7 @@ impl<'a> RenameIdentifiersVisitor<'a> {
                     self.add(s);
                 }
 
-                a.syn = renamed_binder(s);
+                self.rename_binder(&mut a.syn);
                 a.syn.introduced_via_macro = true;
             }
         }
@@ -108,7 +108,7 @@ impl<'a> RenameIdentifiersVisitor<'a> {
         }
     }
 
-    // The names the template binds, as they are after renaming
+    // Names the template binds, after renaming
     pub fn introduced_binders(&self) -> Vec<InternedString> {
         self.introduced_identifiers
             .iter()
@@ -167,7 +167,7 @@ impl<'a> RenameIdentifiersVisitor<'a> {
 }
 
 impl RenameIdentifiersVisitor<'_> {
-    // A nested syntax-rules, whose binders are its own
+    // A nested syntax-rules has its own binders
     fn visit_nested_template(&mut self, expr: &mut ExprKind) {
         match expr {
             ExprKind::Atom(a) => {
@@ -177,13 +177,16 @@ impl RenameIdentifiersVisitor<'_> {
                     }
 
                     if self.is_gensym(&s) {
-                        a.syn.ty = TokenType::Identifier(("##".to_string() + s.resolve()).into());
+                        if self.pattern_variables.contains(&s) {
+                            a.syn.ty =
+                                TokenType::Identifier(("##".to_string() + s.resolve()).into());
+                        }
                     } else {
                         a.syn.unresolved = true;
                     }
                 }
             }
-            // Quoted data keeps its names, only pattern variables are replaced in it
+            // Quoted data keeps its names, and only pattern variables in it are replaced
             ExprKind::List(l) => match l.first() {
                 Some(ExprKind::Atom(Atom {
                     syn: SyntaxObject { ty, .. },
@@ -245,7 +248,19 @@ impl RenameIdentifiersVisitor<'_> {
     }
 }
 
-// A binder the template introduces
+impl RenameIdentifiersVisitor<'_> {
+    // A pattern variable gets the `##` its pattern has. The template's own binders keep their
+    // names and scopes, which tell them apart.
+    fn rename_binder(&self, syn: &mut SyntaxObject) {
+        if let TokenType::Identifier(s) = syn.ty {
+            if self.pattern_variables.contains(&s) {
+                *syn = renamed_binder(s);
+            }
+        }
+    }
+}
+
+// Renamed form of a binder the template introduces
 fn renamed_binder(s: impl core::borrow::Borrow<InternedString>) -> SyntaxObject {
     SyntaxObject::default(TokenType::Identifier(
         ("##".to_string() + s.borrow().resolve()).into(),
@@ -282,7 +297,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                     // a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
                 }
 
-                a.syn = renamed_binder(s);
+                self.rename_binder(&mut a.syn);
                 a.syn.introduced_via_macro = true;
             }
         }
@@ -307,7 +322,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                         self.add(*s);
                     }
 
-                    a.syn = renamed_binder(s);
+                    self.rename_binder(&mut a.syn);
                     a.syn.introduced_via_macro = true;
                 }
             }
@@ -344,7 +359,9 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
             }
 
             if self.is_gensym(&s) {
-                a.syn.ty = TokenType::Identifier(("##".to_string() + s.resolve()).into());
+                if self.pattern_variables.contains(&s) {
+                    a.syn.ty = TokenType::Identifier(("##".to_string() + s.resolve()).into());
+                }
             } else {
                 a.syn.unresolved = true;
             }
@@ -352,8 +369,8 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
     }
 
     fn visit_list(&mut self, l: &mut super::ast::List) -> Self::Output {
-        // A macro the template defines renames its own template when it's defined. Here only
-        // the names this template has are renamed in it, once.
+        // A macro defined by the template renames its own template when it's defined. Here we
+        // only rename this template's names in it, once.
         if l.is_syntax_rules() {
             let in_nested = core::mem::replace(&mut self.in_nested, true);
 
@@ -394,10 +411,10 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
             Some(ExprKind::Atom(Atom {
                 syn: SyntaxObject { ty, .. },
             })) if *ty == TokenType::Define => {
-                // A curried define's name is a function's, as the expander has it
+                // Uncurry a curried define, like the expander does
                 crate::parser::expand_visitor::uncurry_define(l);
 
-                // Where the parameters of a function define start
+                // Index in `scope` where a function define's parameters start
                 let mut body_scope = None;
 
                 // TODO: Top level defines should be allowed to escape here
@@ -413,7 +430,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                 self.add(s);
                             }
 
-                            a.syn = renamed_binder(s);
+                            self.rename_binder(&mut a.syn);
                             a.syn.introduced_via_macro = true;
 
                             // TODO: Move the logic about resolving
@@ -437,7 +454,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                     // (define (name args ...) exprs ...)
                     Some(ExprKind::List(shorthand_define_function)) => {
                         for (index, arg) in shorthand_define_function.args.iter_mut().enumerate() {
-                            // The parameters are only the body's
+                            // The parameters are only in scope in the body
                             if index == 1 {
                                 body_scope = Some(self.scope.len());
                             }
@@ -461,7 +478,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                             self.add(s);
                                         }
 
-                                        a.syn = renamed_binder(s);
+                                        self.rename_binder(&mut a.syn);
                                         a.syn.introduced_via_macro = true;
                                         // a.syn.previous_name = Some(s);
                                     }
@@ -517,7 +534,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                     self.add(s);
                                 }
 
-                                a.syn = renamed_binder(s);
+                                self.rename_binder(&mut a.syn);
                                 a.syn.introduced_via_macro = true;
                                 // a.syn.previous_name = Some(s);
                             }
@@ -535,7 +552,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                             self.add(s);
                         }
 
-                        a.syn = renamed_binder(s);
+                        self.rename_binder(&mut a.syn);
                         a.syn.introduced_via_macro = true;
                         // a.syn.previous_name = Some(s);
                     }
@@ -557,7 +574,8 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
             })) if *ty == TokenType::Let || *ty == TokenType::Identifier(*PLAIN_LET) => {
                 let depth = self.scope.len();
 
-                // The values are outside the bindings, and a named let's name is only its body's
+                // The bindings aren't in scope in the values, and a named let's name is only in
+                // scope in its body
                 let (name, bindings, body) = match l.args.get(1) {
                     Some(ExprKind::Atom(_)) => (Some(1), 2, 3),
                     _ => (None, 1, 2),
@@ -602,7 +620,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                 self.add(s);
                             }
 
-                            a.syn = renamed_binder(s);
+                            self.rename_binder(&mut a.syn);
                             a.syn.introduced_via_macro = true;
                         }
                     }
@@ -665,7 +683,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                         self.add(*s);
                     }
 
-                    a.syn = renamed_binder(s);
+                    self.rename_binder(&mut a.syn);
                     a.syn.introduced_via_macro = true;
                 }
             }
@@ -726,11 +744,11 @@ mod rename_visitor_tests {
 
         let post_condition = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
             thin_vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
-                Identifier("##x".into()),
+                Identifier("x".into()),
             )))],
             ExprKind::List(List::new(thin_vec![
                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("+".into())))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("##x".into())))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("x".into())))),
                 atom_int(10),
             ])),
             SyntaxObject::default(TokenType::Lambda),
@@ -774,7 +792,7 @@ mod rename_visitor_tests {
         .into();
 
         let post_condition: ExprKind = Define::new(
-            atom_identifier("##applesauce"),
+            atom_identifier("applesauce"),
             atom_int(10),
             SyntaxObject::default(TokenType::Define),
         )
@@ -789,7 +807,7 @@ mod rename_visitor_tests {
     fn test_rename_define_datum_syntax() {
         let mut pre_condition: ExprKind = Define::new(
             List::new(thin_vec![
-                atom_identifier("datum->syntax"),
+                atom_identifier("#%join-identifiers"),
                 atom_identifier("escaping-definition"),
             ])
             .into(),
@@ -800,7 +818,7 @@ mod rename_visitor_tests {
 
         let post_condition: ExprKind = Define::new(
             List::new(thin_vec![
-                atom_identifier("datum->syntax"),
+                atom_identifier("#%join-identifiers"),
                 atom_identifier("escaping-definition"),
             ])
             .into(),

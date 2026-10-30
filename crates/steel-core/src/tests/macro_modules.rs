@@ -2476,3 +2476,169 @@ fn datum_to_syntax_in_a_module_template() {
         "(module-d user)"
     );
 }
+
+#[test]
+fn a_module_procedural_template_defines_a_procedural_macro() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "phases/outer".to_owned(),
+        r#"(provide outer)
+           (define-syntax (outer stx)
+             (syntax-case stx ()
+               [(_ n) #'(define-syntax (n s)
+                          (datum->syntax s (list 'quote (reverse (list 1 2)))))]))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "phases/outer")
+               (outer g)
+               (g)"#
+        )
+        .to_string(),
+        "(2 1)"
+    );
+}
+
+// Literals and free-identifier=? compare bindings: a module's own global of the literal's name
+// is the literal, a renamed import of it is too, and the user's own definition isn't
+#[test]
+fn literals_compare_bindings_across_modules() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "literals/lib".to_owned(),
+        r#"(provide mac pmac same? item)
+           (define item 'item-value)
+           (define-syntax mac (syntax-rules (item) [(_ item) 'literal] [(_ x) 'other]))
+           (define-syntax (pmac stx)
+             (syntax-case stx (item) [(_ item) #''literal] [(_ x) #''other]))
+           (define-syntax (same? stx)
+             (syntax-case stx ()
+               [(_ a) (if (free-identifier=? #'a #'item) #''same #''different)]))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require (prefix-in p: "literals/lib"))
+               (list (p:mac p:item) (p:mac item) (p:pmac p:item) (p:same? p:item) (p:same? item))"#
+        )
+        .to_string(),
+        "(literal other literal same different)"
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "literals/lib")
+               (define-syntax for
+                 (syntax-rules (in) [(_ x in lst) (map (lambda (x) x) lst)]))
+               (define in 'mine)
+               (list (for y in '(1 2)) (mac item) (same? item))"#
+        )
+        .to_string(),
+        "((1 2) literal same)"
+    );
+}
+
+// A macro that a module's template wrote, used from another module, refers to the global the
+// template defined, not to the user's of the same name
+#[test]
+fn a_template_global_through_two_modules() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "tglobal/a".to_owned(),
+        r#"(provide outer-mk)
+           (define-syntax outer-mk
+             (syntax-rules ()
+               [(_ name) (begin (define tmp 'a-tmp) (define-syntax name (syntax-rules () [(_) tmp])))]))"#
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "tglobal/b".to_owned(),
+        r#"(require "tglobal/a")
+           (provide mk)
+           (outer-mk mk)"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "tglobal/b")
+               (define tmp 'main-tmp)
+               (list (mk) tmp)"#
+        )
+        .to_string(),
+        "(a-tmp main-tmp)"
+    );
+}
+
+#[test]
+fn provide_all_from_out_and_prefix_out() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "provides/a".to_owned(),
+        r#"(provide x f m)
+           (define x 1)
+           (define (f y) (+ y 1))
+           (define-syntax m (syntax-rules () [(_ v) (list 'm v)]))"#
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "provides/b".to_owned(),
+        r#"(require "provides/a")
+           (provide (all-from-out "provides/a") z (prefix-out a: x m))
+           (define z 3)"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "provides/b")
+               (list x (f 1) z (m 2) a:x (a:m 3))"#
+        )
+        .to_string(),
+        "(1 2 3 (m 2) 1 (m 3))"
+    );
+}
+
+#[test]
+fn duplicate_binders_are_errors() {
+    let mut engine = engine();
+    let error = engine.run("(let ((x 1) (x 2)) x)").unwrap_err().to_string();
+    assert!(error.contains("duplicate"), "{error}");
+    let error = engine
+        .run("(define-syntax m (syntax-rules () [(_ a b) (lambda (a b) a)])) ((m x x) 1 2)")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("duplicate"), "{error}");
+}
+
+#[test]
+fn rename_in_and_rename_out() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "renames/lib".to_owned(),
+        r#"(provide kw kwv f m (rename-out [f plus-ten] [m mac]))
+           (define-syntax kw (syntax-rules () [(_) 'kw-used]))
+           (define kwv 1)
+           (define (f x) (+ x 10))
+           (define-syntax m (syntax-rules (kw kwv) [(_ kw) 'kw-literal] [(_ kwv) 'kwv-literal] [(_ x) 'other]))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require (rename-in "renames/lib" [kw K] [kwv KV] [f g]))
+               (list (m K) (m kw) (m KV) (g 1) (K) (plus-ten 2) (mac K))"#
+        )
+        .to_string(),
+        "(kw-literal other kwv-literal 11 kw-used 12 kw-literal)"
+    );
+}

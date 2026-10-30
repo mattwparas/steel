@@ -3,9 +3,9 @@
 (define-syntax def-method
   (syntax-rules ()
     [(def-method struct-name (define/method (a this b ...) body ...))
-     (define ((datum->syntax struct-name . a) this b ...)
-       (unless ((datum->syntax struct-name ?) this)
-         (error! (datum->syntax struct-name . a) "method takes a value of" struct-name "given" this))
+     (define ((#%join-identifiers struct-name . a) this b ...)
+       (unless ((#%join-identifiers struct-name ?) this)
+         (error! (#%join-identifiers struct-name . a) "method takes a value of" struct-name "given" this))
        body ...)]))
 
 

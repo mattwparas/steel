@@ -88,10 +88,14 @@ impl ConstantEnv {
     }
 
     fn bind(&mut self, ident: &InternedString, value: SteelVal) {
+        // A body's define of the name, which was bound beforehand without a value
+        self.non_constant_bound.remove(ident);
         self.bindings.insert(*ident, value);
     }
 
     fn bind_non_constant(&mut self, ident: &InternedString) {
+        // A constant of the same name here is shadowed
+        self.bindings.remove(ident);
         self.non_constant_bound.insert(*ident);
     }
 
@@ -656,6 +660,11 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             new_env.bind_non_constant(identifier);
         }
 
+        // The body's own defines hide the bindings of their names, in all of the body
+        for name in internal_defines(&lambda_function.body) {
+            new_env.bind_non_constant(&name);
+        }
+
         self.bindings = Rc::new(RefCell::new(new_env));
 
         lambda_function.body = self.visit(lambda_function.body)?;
@@ -922,10 +931,13 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 }
             }
 
+            // The body's own defines hide the arguments of their names, in all of the body
+            for name in internal_defines(&l.body) {
+                new_env.bind_non_constant(&name);
+            }
+
             let parent = Rc::clone(&self.bindings);
             self.bindings = Rc::new(RefCell::new(new_env));
-
-            // println!("Visiting body: {}", l.body);
 
             let output = self.visit(l.body)?;
 
@@ -1084,7 +1096,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
     // TODO come back to this
     fn visit_let(&mut self, mut l: Box<crate::parser::ast::Let>) -> Self::Output {
-        let bindings = core::mem::take(&mut l.bindings);
+        let mut bindings = core::mem::take(&mut l.bindings);
 
         let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&self.bindings));
 
@@ -1097,9 +1109,10 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         //         .collect::<Vec<_>>()
         // );
 
+        // Only the visited values are kept, so they're moved rather than copied
         let args: Vec<_> = bindings
-            .iter()
-            .map(|x| self.visit(x.1.clone()))
+            .iter_mut()
+            .map(|x| self.visit(core::mem::take(&mut x.1)))
             .collect::<Result<_>>()?;
 
         for (var, arg) in bindings.iter().map(|x| &x.0).zip(args.iter()) {
@@ -1124,6 +1137,11 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
                 new_env.bind_non_constant(identifier);
             }
+        }
+
+        // The body's own defines hide the bindings of their names, in all of the body
+        for name in internal_defines(&l.body_expr) {
+            new_env.bind_non_constant(&name);
         }
 
         let parent = Rc::clone(&self.bindings);
@@ -1345,4 +1363,19 @@ impl<'a> VisitorMut for CollectSet<'a> {
     }
 
     fn visit_vector(&mut self, _v: &crate::parser::ast::Vector) -> Self::Output {}
+}
+
+// The names a body's internal defines bind
+fn internal_defines(body: &ExprKind) -> Vec<InternedString> {
+    fn collect(expr: &ExprKind, names: &mut Vec<InternedString>) {
+        match expr {
+            ExprKind::Define(d) => names.extend(d.name.atom_identifier().copied()),
+            ExprKind::Begin(b) => b.exprs.iter().for_each(|x| collect(x, names)),
+            _ => {}
+        }
+    }
+
+    let mut names = Vec::new();
+    collect(body, &mut names);
+    names
 }

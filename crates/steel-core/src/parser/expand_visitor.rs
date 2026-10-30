@@ -68,9 +68,9 @@ fn binder_name(syn: &SyntaxObject) -> Option<InternedString> {
     }
 }
 
-// A body's variable or macro, for telling two definitions of a name apart: its name, and the
-// expansions that wrote it. Use-site scopes don't count, so two uses that pass the same name in
-// define it twice, as in Racket.
+// Tells two definitions of a name in a body apart: the name plus the scopes of the expansions
+// that introduced it. Use-site scopes don't count, so two macro uses given the same name define
+// it twice, as in Racket.
 type LocalKey = (InternedString, steel_parser::scopes::ScopeSetId);
 
 fn local_key(syn: &SyntaxObject) -> Option<LocalKey> {
@@ -109,8 +109,8 @@ pub(crate) fn lift_macro_defs_from_begins(exprs: &mut Vec<ExprKind>) -> Result<(
     let mut index = 0;
 
     while index < exprs.len() {
-        // A begin at the top level that defines macros splices into the top level, so its
-        // forms see the macros defined before them
+        // Splice a top-level begin that defines macros into the top level, so its forms see
+        // the macros defined before them
         let spliced = match &mut exprs[index] {
             ExprKind::Begin(b) if b.exprs.iter().any(defines_macro) => {
                 Some(core::mem::take(&mut b.exprs))
@@ -152,7 +152,7 @@ pub(crate) fn lift_macro_defs_from_begins(exprs: &mut Vec<ExprKind>) -> Result<(
     Ok(())
 }
 
-// The names of the macros it defined
+// Returns the names of the macros it defined
 pub(crate) fn define_generated_macros(
     expr: &mut ExprKind,
     macro_map: &mut FxHashMap<InternedString, SteelMacro>,
@@ -162,7 +162,7 @@ pub(crate) fn define_generated_macros(
 
     let mut names = Vec::new();
 
-    // The code after a definition uses the macro
+    // Expand again so the code after a definition can use the new macro
     while define_generated_macro_forms(expr, macro_map, &mut names)? {
         expand(expr, macro_map, globals)?;
         rename_template_macros(core::slice::from_mut(expr), true);
@@ -171,7 +171,7 @@ pub(crate) fn define_generated_macros(
     Ok(names)
 }
 
-// Whether it defined any
+// Returns whether it defined any macros
 fn define_generated_macro_forms(
     expr: &mut ExprKind,
     macro_map: &mut FxHashMap<InternedString, SteelMacro>,
@@ -212,7 +212,7 @@ fn define_generated_macro_forms(
     Ok(defined)
 }
 
-// The names of the macros a form defines at its top, in begins too
+// Collects the names of the macros a form defines at its top level, including inside begins
 pub(crate) fn defined_macro_names(expr: &ExprKind, names: &mut FxHashSet<InternedString>) {
     match expr {
         ExprKind::Begin(b) => b.exprs.iter().for_each(|x| defined_macro_names(x, names)),
@@ -229,8 +229,8 @@ pub(crate) fn defined_macro_names(expr: &ExprKind, names: &mut FxHashSet<Interne
     }
 }
 
-// The macros a body defines at its top, of either kind, in begins too. The kernel leaves a
-// use of a syntax-rules one to the syntax-rules expander.
+// Collects the macros of either kind a body defines at its top level, including inside begins.
+// The kernel leaves uses of the syntax-rules ones to the syntax-rules expander.
 fn defined_procedural_macros(expr: &ExprKind, names: &mut Vec<InternedString>) {
     match expr {
         ExprKind::Begin(b) => b
@@ -304,8 +304,8 @@ pub fn extract_macro_defs(
 
     let mut error = None;
     let mut defined = Vec::new();
-    // Procedural macros so far, which a syntax-rules macro of the same name replaces from
-    // where it is
+    // Procedural macros seen so far. A later syntax-rules macro with the same name replaces
+    // one from that point on
     let mut procedural = FxHashSet::default();
 
     exprs.retain_mut(|expr| {
@@ -328,7 +328,7 @@ pub fn extract_macro_defs(
             if let ExprKind::Macro(m) = taken_expr {
                 match SteelMacro::parse_from_ast_macro(m) {
                     Ok(mut generated_macro) => {
-                        // Its free names mean the globals, where it's defined
+                        // Free names in its templates refer to the top-level globals
                         generated_macro.mark_definition_resolved("top-level");
                         let name = *generated_macro.name();
                         defined.push(name);
@@ -365,14 +365,14 @@ pub fn extract_macro_defs(
     Ok(defined)
 }
 
-// How deep macros can expand into each other, which a long `and` or `cond` needs. Compiling
-// grows its stack where it can.
+// How deeply macros can expand into each other. A long `and` or `cond` needs a lot of depth,
+// so with stacker the stack grows as needed.
 #[cfg(feature = "stacker")]
 pub(crate) const MAX_EXPANSION_DEPTH: usize = 32768;
 #[cfg(not(feature = "stacker"))]
 pub(crate) const MAX_EXPANSION_DEPTH: usize = 512;
 
-// How many expansions the first pass over a body form makes before it leaves the rest to the
+// How many expansions the first pass over a body form does before leaving the rest to the
 // body's expansion
 const MAX_HEAD_EXPANSIONS: usize = 256;
 
@@ -435,9 +435,8 @@ pub fn expand(
     Ok(expander.in_scope_values)
 }
 
-// `expand`, saying whether any macro expanded
-// Expands both kinds of macros, each where it's used: the syntax-rules ones of `map`, and the
-// kernel's
+// Expands both the syntax-rules macros in `map` and the kernel's procedural macros, each where
+// it's used. Returns whether any macro expanded.
 pub(crate) fn expand_with_kernel(
     expr: &mut ExprKind,
     map: &FxHashMap<InternedString, SteelMacro>,
@@ -447,8 +446,8 @@ pub(crate) fn expand_with_kernel(
     expand_with_kernel_defining(expr, map, globals, kernel, true)
 }
 
-// The same, with the procedural macros the top level defines left for later when not
-// `define_top_level`
+// Like `expand_with_kernel`, but if `define_top_level` is false, procedural macros defined at
+// the top level are left for later
 pub(crate) fn expand_with_kernel_defining(
     expr: &mut ExprKind,
     map: &FxHashMap<InternedString, SteelMacro>,
@@ -462,8 +461,8 @@ pub(crate) fn expand_with_kernel_defining(
     Ok(expander.changed)
 }
 
-// Expands a required module's syntax-rules macros, whose templates mean names where the
-// module is. Whether anything expanded.
+// Expands a required module's syntax-rules macros, whose templates refer to names in that
+// module. Returns whether anything expanded.
 pub(crate) fn expand_foreign(
     expr: &mut ExprKind,
     map: &FxHashMap<InternedString, SteelMacro>,
@@ -579,8 +578,6 @@ pub(crate) fn forget_replaced_macro(map: &mut FxHashMap<InternedString, SteelMac
     }
 }
 
-// The name a define-syntax form gives a macro the kernel expands
-// Where the name of a procedural macro definition is written
 fn procedural_name_span(l: &List) -> Option<steel_parser::span::Span> {
     match l.get(1)? {
         ExprKind::List(header) => header.first()?.atom_syntax_object().map(|x| x.span),
@@ -603,8 +600,8 @@ pub(crate) fn procedural_macro_name(l: &List) -> Option<InternedString> {
     }
 }
 
-// R6RS's `(define-syntax name (identifier-syntax template))`: the name alone means the template,
-// and a form it heads applies what the template means. Made the transformer that does that.
+// R6RS `(define-syntax name (identifier-syntax template))`: a bare `name` expands to the
+// template, and `(name args ...)` to `(template args ...)`. Lowers it to a transformer.
 fn lower_identifier_syntax(l: &mut List) {
     let Some(ExprKind::List(value)) = l.args.get_mut(2) else {
         return;
@@ -648,7 +645,7 @@ fn lower_identifier_syntax(l: &mut List) {
     ]);
 }
 
-// `(identifier-syntax [id template] [(set! id2 pattern) template2])`: a set! transformer
+// `(identifier-syntax [id template] [(set! id2 pattern) template2])` lowers to a set! transformer
 fn lower_identifier_syntax_clauses(l: &mut List) {
     let Some(ExprKind::List(value)) = l.args.get_mut(2) else {
         return;
@@ -706,15 +703,15 @@ fn defines_local_macro(l: &List) -> bool {
             .is_some_and(List::is_syntax_rules)
 }
 
-// Names with the introduction scopes of the expansion that wrote them
+// Names paired with the introduction scopes of the expansion that wrote them
 type TemplateNames = Vec<(InternedString, steel_parser::scopes::ScopeSetId)>;
 
-// Outside a function, where a macro's name is global, a kernel macro's template's too. A body's
-// local macros mean what their scopes say.
+// At the top level a macro's name is global, so any name a template wrote counts, kernel macro
+// templates included. In a body, local macro names are resolved by their scopes.
 fn template_macro_names(forms: &[ExprKind], names: &mut TemplateNames, global: bool) {
     for form in forms {
         match form {
-            // A procedural one too, as `(define-syntax (name stx) ...)` or `(define-syntax name ...)`
+            // Procedural ones too, `(define-syntax (name stx) ...)` or `(define-syntax name ...)`
             ExprKind::List(l)
                 if defines_local_macro(l)
                     || l.is_define_syntax() && procedural_macro_name(l).is_some() =>
@@ -725,7 +722,7 @@ fn template_macro_names(forms: &[ExprKind], names: &mut TemplateNames, global: b
                 };
                 if let Some(syn) = name.and_then(ExprKind::atom_syntax_object) {
                     if let TokenType::Identifier(name) = syn.ty {
-                        // A name from the macro's input isn't the template's
+                        // Skip names that came from the macro's input, not its template
                         let written = if global {
                             syn.scopes.from_template()
                         } else {
@@ -770,8 +767,8 @@ impl VisitorMutRefUnit for RenameTemplateMacros<'_> {
     fn visit_quote(&mut self, _quote: &mut Quote) {}
 }
 
-// The variables a template defines in begin-for-syntax forms it made, which are its own
-// for each expansion
+// Renames the variables a template defines in the begin-for-syntax forms it writes, so each
+// expansion gets its own
 pub(crate) fn rename_template_definitions(forms: &mut [ExprKind]) {
     fn collect(form: &ExprKind, names: &mut TemplateNames) {
         let ExprKind::List(l) = form else {
@@ -813,8 +810,8 @@ pub(crate) fn rename_template_definitions(forms: &mut [ExprKind]) {
     fn collect_name(name: &ExprKind, names: &mut TemplateNames) {
         if let Some(syn) = name.atom_syntax_object() {
             if let TokenType::Identifier(name) = syn.ty {
-                // syntax-rules writes the names its template binds with a `##`
-                if name.resolve().starts_with("##") && syn.scopes.introduced() {
+                // A name the template wrote, not one the use passed in
+                if syn.scopes.from_template() {
                     names.push((name, syn.scopes.introductions()));
                 }
             }
@@ -885,26 +882,26 @@ struct LocalMacro {
     name: InternedString,
     // None for a procedural macro, which the kernel expands
     expander: Option<SteelMacro>,
-    // Scopes open where the macro was defined
+    // How many scopes were open where the macro was defined
     depth: usize,
-    // Where its name is written, which tells two definitions of a name apart
+    // Span of its name, which tells two definitions of the same name apart
     name_span: Option<steel_parser::span::Span>,
-    // Its name's scopes where it's defined
+    // The scopes of its name at the definition
     scopes: steel_parser::scopes::ScopeSetId,
 }
 
 thread_local! {
-    // How many compiles are running on this thread, one inside another when transformer code
-    // evaluates code. What the outermost one recorded isn't needed once it's done.
+    // How many compiles are running on this thread. They nest when transformer code evaluates
+    // code. What the outermost compile recorded can be dropped once it finishes.
     static COMPILES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 
-    // The introduction scopes of required modules' macros' expansions where they're used.
-    // What they wrote means what it does where the macros are defined.
+    // Introduction scopes of expansions of required modules' macros. Names those expansions
+    // wrote resolve where the macros are defined.
     static FOREIGN_EXPANSIONS: core::cell::RefCell<FxHashSet<steel_parser::scopes::Scope>> =
         core::cell::RefCell::new(FxHashSet::default());
 
-    // The procedural macros the code being expanded can use, which get their arguments as
-    // they're written
+    // Procedural macros the code being expanded can use. Their uses get their arguments as
+    // written
     static PROCEDURAL_HEADS: core::cell::RefCell<FxHashSet<InternedString>> =
         core::cell::RefCell::new(FxHashSet::default());
 }
@@ -919,8 +916,7 @@ fn procedural_definition(expr: &ExprKind) -> bool {
     }
 }
 
-// The procedural macros of the code being expanded, until it's dropped
-// The name the kernel has a macro a function defines by
+// The kernel's name for a macro defined inside a function
 fn fresh_local_macro_name(name: InternedString) -> InternedString {
     static COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     let n = COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -930,7 +926,7 @@ fn fresh_local_macro_name(name: InternedString) -> InternedString {
 pub(crate) struct ProceduralHeads(FxHashSet<InternedString>);
 
 impl ProceduralHeads {
-    // With those the forms define themselves
+    // Uses `names` plus the procedural macros `forms` define, restoring the old set on drop
     pub(crate) fn set(mut names: FxHashSet<InternedString>, forms: &[ExprKind]) -> Self {
         for form in forms {
             defined_procedural_macro_names(form, &mut names);
@@ -939,7 +935,7 @@ impl ProceduralHeads {
         ProceduralHeads(PROCEDURAL_HEADS.with(|x| x.replace(names)))
     }
 
-    // The macros a form defined, once it's expanded
+    // Adds the macros a form defined, once it's expanded
     pub(crate) fn add(&self, form: &ExprKind) {
         PROCEDURAL_HEADS.with(|x| defined_procedural_macro_names(form, &mut x.borrow_mut()));
     }
@@ -957,55 +953,57 @@ pub(crate) fn is_procedural_head(name: &InternedString) -> bool {
     PROCEDURAL_HEADS.with(|x| x.borrow().contains(name))
 }
 
-// A use of a procedural macro, which the syntax-rules expanders leave for the kernel
-// The binding forms around where the expander is, as their scopes, innermost last. An
-// identifier gets the scopes of those entered after it was made, when the expander reaches it:
-// written code all of them, what a macro wrote those its expansion's output introduced.
+// Scopes of the binding forms around the expander's position, innermost last. When the
+// expander reaches an identifier it adds the scopes of the forms entered after the identifier
+// was made: all of them for written code, and for macro output only the binding forms that
+// expansion introduced.
 #[derive(Default)]
 pub(crate) struct ScopeChain {
     scopes: Vec<steel_parser::scopes::Scope>,
-    // Each prefix of the chain as a path id, so that a slice is known by its ends' paths
+    // A path id for each prefix of the chain, so a slice can be keyed by the paths at its ends
     paths: Vec<u32>,
-    // The variables bound by the forms around here, with their binders' scopes, and which
-    // names each level of the chain bound, to take them out when it's left
+    // Variables bound by the surrounding forms, with their binders' scopes, and the names each
+    // level of the chain bound so they can be removed when it's left
     binders: FxHashMap<InternedString, Vec<steel_parser::scopes::ScopeSetId>>,
     bound: Vec<Vec<InternedString>>,
 
-    // The top level's, which are resolved by name as globals are
+    // Top-level variables, resolved by name like globals
     top_level: FxHashSet<InternedString>,
+    // Those templates defined, by the introduction scopes of the expansions that wrote them
+    template_top_level: FxHashMap<InternedString, Vec<steel_parser::scopes::ScopeSetId>>,
 }
 
 thread_local! {
-    // Each binding form's scopes, by its keyword's syntax object
+    // Each binding form's scope, keyed by its keyword's syntax object
     static FORM_SCOPES: core::cell::RefCell<
         FxHashMap<(usize, u8), steel_parser::scopes::Scope>,
     > = core::cell::RefCell::new(FxHashMap::default());
 }
 
 thread_local! {
-    // The use-site scope of the expansion just done, for the body it was a form of
+    // Use-site scope of the last expansion, for the body that form is in
     static LAST_USE_SITE: core::cell::Cell<Option<steel_parser::scopes::Scope>> =
         const { core::cell::Cell::new(None) };
 }
 
 thread_local! {
-    // The use-site scopes of the macro uses that were each body's forms, by the body's scope,
-    // which the body's definitions' names drop. Kept by the scope, which a body has in each
-    // pass that expands it.
+    // For each body, the use-site scopes of the macro uses among its forms. The body's
+    // definitions drop these from their names. Keyed by the body's scope, since a body keeps
+    // the same scope in every pass that expands it.
     static BODY_USE_SITES: core::cell::RefCell<
         FxHashMap<steel_parser::scopes::Scope, Vec<steel_parser::scopes::Scope>>,
     > = core::cell::RefCell::new(FxHashMap::default());
 }
 
 thread_local! {
-    // The variable binders where each procedural macro being called is used, innermost last
+    // Variable binders visible at each procedural macro call in progress, innermost last
     static BINDER_TABLES: core::cell::RefCell<
         Vec<FxHashMap<InternedString, Vec<steel_parser::scopes::ScopeSetId>>>,
     > = const { core::cell::RefCell::new(Vec::new()) };
 }
 
-// The local variable an identifier given to the procedural macro being called means, by its
-// binder's scopes, as `meaning` finds it. None for a global or a free name.
+// The local variable (as its binder's scopes) that an identifier passed to the current
+// procedural macro refers to, found the same way `meaning` does. None for a global or free name.
 pub(crate) fn local_binding(
     name: InternedString,
     scopes: &steel_parser::scopes::ScopeSetId,
@@ -1021,8 +1019,205 @@ pub(crate) fn local_binding(
     })
 }
 
-// Every name a procedural macro has been registered by, in any environment, for a pass
-// without the kernel to leave the forms it heads to the kernel's pass
+// What each module's top-level names refer to: its own definitions, and for each import the
+// module it comes from and its name there. Kept by module name.
+#[derive(Default)]
+pub(crate) struct ModuleBindings {
+    pub(crate) own: FxHashSet<InternedString>,
+    pub(crate) imports: FxHashMap<InternedString, (InternedString, InternedString)>,
+}
+
+thread_local! {
+    static MODULE_BINDINGS: core::cell::RefCell<FxHashMap<InternedString, ModuleBindings>> =
+        core::cell::RefCell::new(FxHashMap::default());
+    // The module being compiled, and the module of the macro whose patterns are being matched
+    static CURRENT_MODULE: core::cell::Cell<Option<InternedString>> =
+        const { core::cell::Cell::new(None) };
+    static LITERAL_MODULE: core::cell::Cell<Option<InternedString>> =
+        const { core::cell::Cell::new(None) };
+}
+
+// Added to what's known, since the top level is compiled a piece at a time
+pub(crate) fn record_module_bindings(module: InternedString, bindings: ModuleBindings) {
+    MODULE_BINDINGS.with(|x| {
+        let mut modules = x.borrow_mut();
+        let entry = modules.entry(module).or_default();
+        entry.own.extend(bindings.own);
+        entry.imports.extend(bindings.imports);
+    })
+}
+
+thread_local! {
+    // The scope chain where the syntax-rules macro being expanded is used
+    static USE_CHAIN: core::cell::Cell<*const ScopeChain> =
+        const { core::cell::Cell::new(core::ptr::null()) };
+}
+
+// Makes the scope chain at a macro use visible to its matching until it's dropped
+pub(crate) struct UseBinders(*const ScopeChain);
+
+impl UseBinders {
+    fn set(chain: &ScopeChain) -> Self {
+        UseBinders(USE_CHAIN.with(|x| x.replace(chain)))
+    }
+}
+
+impl Drop for UseBinders {
+    fn drop(&mut self) {
+        USE_CHAIN.with(|x| x.set(self.0));
+    }
+}
+
+thread_local! {
+    // The scopes of a local macro's definition, which its literals have
+    static LITERAL_SCOPES: core::cell::RefCell<Option<steel_parser::scopes::ScopeSetId>> =
+        const { core::cell::RefCell::new(None) };
+}
+
+// The local an identifier with these scopes refers to where the macro is used
+fn use_site_binder(
+    name: &InternedString,
+    scopes: &steel_parser::scopes::ScopeSetId,
+) -> Option<steel_parser::scopes::ScopeSetId> {
+    let chain = USE_CHAIN.with(|x| x.get());
+    if chain.is_null() {
+        return None;
+    }
+    // Set from a chain that lives, unchanged, for the whole expansion
+    let chain = unsafe { &*chain };
+    crate::compiler::passes::hygiene::largest_subset(
+        chain
+            .binders
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|x| (x, x.clone())),
+        scopes,
+    )
+}
+
+// Whether a local macro's literal and an identifier of its use refer to the same local
+pub(crate) fn literal_local_matches(literal: &InternedString, syn: &SyntaxObject) -> bool {
+    let Some(literal_scopes) = LITERAL_SCOPES.with(|x| x.borrow().clone()) else {
+        return false;
+    };
+    let chain = USE_CHAIN.with(|x| x.get());
+    if chain.is_null() {
+        return false;
+    }
+    let Some(name) = syn.ty.identifier() else {
+        return false;
+    };
+    // Set from a chain that lives, unchanged, for the whole expansion
+    let scopes = unsafe { &*chain }.stamped(syn);
+    match (
+        use_site_binder(name, &scopes),
+        use_site_binder(literal, &literal_scopes),
+    ) {
+        (Some(x), Some(y)) => name == literal && x == y,
+        _ => false,
+    }
+}
+
+// Whether a local binds the identifier where the macro is used, or None outside an expansion
+pub(crate) fn use_site_local(syn: &SyntaxObject) -> Option<bool> {
+    let chain = USE_CHAIN.with(|x| x.get());
+    if chain.is_null() {
+        return None;
+    }
+    // Set from a chain that lives, unchanged, for the whole expansion
+    let chain = unsafe { &*chain };
+    let name = syn.ty.identifier()?;
+    // The input isn't stamped yet
+    let scopes = chain.stamped(syn);
+    Some(
+        chain
+            .binders
+            .get(name)
+            .is_some_and(|x| x.iter().any(|x| x.is_subset(&scopes))),
+    )
+}
+
+pub(crate) fn current_module() -> Option<InternedString> {
+    CURRENT_MODULE.with(|x| x.get())
+}
+
+// Sets the module being compiled until it's dropped
+pub(crate) struct CurrentModule(Option<InternedString>);
+
+impl CurrentModule {
+    pub(crate) fn set(module: InternedString) -> Self {
+        CurrentModule(CURRENT_MODULE.with(|x| x.replace(Some(module))))
+    }
+}
+
+impl Drop for CurrentModule {
+    fn drop(&mut self) {
+        CURRENT_MODULE.with(|x| x.set(self.0));
+    }
+}
+
+pub(crate) fn literal_module() -> Option<InternedString> {
+    LITERAL_MODULE.with(|x| x.get())
+}
+
+// Sets the module a macro's literals refer to names in until it's dropped
+pub(crate) struct LiteralModule(Option<InternedString>);
+
+impl LiteralModule {
+    pub(crate) fn set(module: Option<InternedString>) -> Self {
+        LiteralModule(LITERAL_MODULE.with(|x| x.replace(module)))
+    }
+}
+
+impl Drop for LiteralModule {
+    fn drop(&mut self) {
+        LITERAL_MODULE.with(|x| x.set(self.0));
+    }
+}
+
+// The global binding a name has in a module, following imports to where it's defined: the
+// defining module and the name there, or no module when nothing defines it. Unknown modules
+// give `None`.
+pub(crate) fn global_binding(
+    module: InternedString,
+    name: InternedString,
+) -> Option<(Option<InternedString>, InternedString)> {
+    MODULE_BINDINGS.with(|x| {
+        let bindings = x.borrow();
+        let (mut module, mut name) = (module, name);
+        bindings.get(&module)?;
+        // Imports can chain through re-exports
+        for _ in 0..32 {
+            let Some(entry) = bindings.get(&module) else {
+                return Some((Some(module), name));
+            };
+            if entry.own.contains(&name) {
+                return Some((Some(module), name));
+            }
+            match entry.imports.get(&name) {
+                Some((from, original)) => {
+                    module = *from;
+                    name = *original;
+                }
+                None => return Some((None, name)),
+            }
+        }
+        Some((None, name))
+    })
+}
+
+// Whether two names, each in its module, have the same global binding. None when either
+// module isn't known.
+pub(crate) fn same_global_binding(
+    a: (InternedString, InternedString),
+    b: (InternedString, InternedString),
+) -> Option<bool> {
+    Some(global_binding(a.0, a.1)? == global_binding(b.0, b.1)?)
+}
+
+// Every name a procedural macro was registered under, in any environment. A pass without the
+// kernel leaves forms headed by these to the kernel's pass.
 static REGISTERED_PROCEDURAL: once_cell::sync::Lazy<std::sync::RwLock<FxHashSet<InternedString>>> =
     once_cell::sync::Lazy::new(Default::default);
 
@@ -1034,26 +1229,25 @@ pub(crate) fn made_use_site(scope: Option<steel_parser::scopes::Scope>) {
     LAST_USE_SITE.with(|x| x.set(scope));
 }
 
-// What an identifier means, by its scopes, as Racket resolves it
+// What an identifier refers to, resolved by its scopes as in Racket
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Meaning {
     Variable,
-    // One of `LocalMacros`, by its index there
+    // Index into `LocalMacros`
     LocalMacro(usize),
-    // One the kernel defined, as a macro made it, by its kernel name
+    // A function's procedural macro the kernel defined, by its kernel name
     KernelMacro(InternedString),
     // Nothing local: a global, a global macro, or free
     Unbound,
 }
 
 impl ScopeChain {
-    // A binding form's scope, made each time the expander enters it
-    // The same scopes each time the expander enters the form, which it can in several
-    // rounds. The form is known by its keyword's syntax object, which a copy of the form
-    // doesn't share. `which` is 0 for the form's scope, 1 for its body's.
+    // A form gets the same scope each time the expander enters it, which can happen over
+    // several rounds. The form is keyed by its keyword's syntax object, which a copy of the
+    // form doesn't share. `which` is 0 for the form's scope, 1 for its body's.
     fn enter(&mut self, form: usize, which: u8) {
-        // Not one older than the scope it's inside, as when a macro moved the form into a
-        // newer one: the chain stays in the order the scopes were made
+        // Don't reuse a scope older than the enclosing one (a macro may have moved the form
+        // into a newer scope), so the chain stays in creation order
         let inner = self.scopes.last().copied();
         let scope = FORM_SCOPES.with(|x| {
             let mut forms = x.borrow_mut();
@@ -1090,7 +1284,7 @@ impl ScopeChain {
         }
     }
 
-    // The scope a form will get when it's entered, as `enter` gives it
+    // The scope `enter` will give a form
     fn scope_for(&self, form: usize, which: u8) -> steel_parser::scopes::Scope {
         FORM_SCOPES.with(|x| {
             *x.borrow_mut()
@@ -1103,7 +1297,7 @@ impl ScopeChain {
         syn.scopes = self.stamped(syn);
     }
 
-    // The scopes an identifier has where the expander is
+    // The scopes an identifier has at the expander's current position
     fn stamped(&self, syn: &SyntaxObject) -> steel_parser::scopes::ScopeSetId {
         if syn.ty.identifier().is_none() {
             return syn.scopes.clone();
@@ -1111,7 +1305,7 @@ impl ScopeChain {
         self.stamped_any(syn)
     }
 
-    // A literal's too, which `datum->syntax` can take its context from
+    // Like `stamped`, but for literals too, which `datum->syntax` can use as context
     fn stamped_any(&self, syn: &SyntaxObject) -> steel_parser::scopes::ScopeSetId {
         let birth = syn.scopes.birth();
         let from = self.scopes.partition_point(|x| x.time() <= birth);
@@ -1124,7 +1318,7 @@ impl ScopeChain {
             return syn.scopes.clone();
         };
         let _ = top;
-        // A slice of the chain, by the paths of its two ends
+        // Cache the slice of the chain, keyed by the paths at its two ends
         let scopes = &self.scopes;
         let key = (
             if from == 0 { 0 } else { self.paths[from - 1] },
@@ -1139,7 +1333,7 @@ impl ScopeChain {
         syn.scopes.union(&suffix)
     }
 
-    // A variable's binder: stamped, and its scopes kept for what names it
+    // Stamps a variable's binder and records its scopes so references can find it
     fn bind(&mut self, syn: &mut SyntaxObject) {
         self.stamp(syn);
         self.record(syn);
@@ -1151,19 +1345,40 @@ impl ScopeChain {
         }
     }
 
-    // A define's name: a body's variable, or the top level's
+    // Records a define's name, as a body variable or a top-level one
     fn define(&mut self, syn: &mut SyntaxObject) {
         if self.scopes.is_empty() {
+            // A global a template defines is the template's, which the hygiene pass names
             if let Some(name) = syn.ty.identifier() {
-                self.top_level.insert(*name);
+                if syn.scopes.introduced() {
+                    self.template_top_level
+                        .entry(*name)
+                        .or_default()
+                        .push(syn.scopes.introductions());
+                } else {
+                    self.top_level.insert(*name);
+                }
             }
         } else {
-            // Without the use-site scopes of the body's macro uses that made it, so what's
-            // written elsewhere in the body names it
+            // Drop the use-site scopes of the body's macro uses that produced it, so code
+            // written elsewhere in the body can refer to it
             self.stamp(syn);
             syn.scopes = self.without_body_use_sites(core::mem::take(&mut syn.scopes));
             self.record(syn);
         }
+    }
+
+    // Whether an identifier with these scopes refers to a top-level variable
+    fn is_top_level(
+        &self,
+        name: &InternedString,
+        scopes: &steel_parser::scopes::ScopeSetId,
+    ) -> bool {
+        (self.top_level.contains(name) && !scopes.introduced())
+            || self
+                .template_top_level
+                .get(name)
+                .is_some_and(|x| x.iter().any(|x| x.is_subset(scopes)))
     }
 
     fn define_expr(&mut self, expr: &mut ExprKind) {
@@ -1185,28 +1400,28 @@ impl ScopeChain {
         }
     }
 
-    // The expansion just done was a form of the body here
+    // Records that the last expansion was one of this body's forms
     fn body_use(&mut self) {
         if let (Some(scope), Some(body)) = (LAST_USE_SITE.with(|x| x.take()), self.scopes.last()) {
             BODY_USE_SITES.with(|x| x.borrow_mut().entry(*body).or_default().push(scope));
         }
     }
 
-    // A body's definition, before the body's forms are expanded
+    // Records a body's definition before the body's forms are expanded
     fn record_definition(&mut self, syn: &SyntaxObject) {
         let mut syn = syn.clone();
         syn.scopes = self.without_body_use_sites(self.stamped(&syn));
         self.record(&syn);
     }
 
-    // A body's variable, before the body's forms are expanded
+    // Records a body's variable before the body's forms are expanded
     fn record(&mut self, syn: &SyntaxObject) {
         if let Some(name) = syn.ty.identifier() {
             let scopes = self.stamped(syn);
             let Some(bound) = self.bound.last_mut() else {
                 return;
             };
-            // Once for each level, a form entered again in another round binding it again
+            // Only once per level, since a form entered again in a later round binds it again
             let binders = self.binders.entry(*name).or_default();
             if binders.last() == Some(&scopes) && bound.contains(name) {
                 return;
@@ -1222,11 +1437,17 @@ impl ScopeChain {
         }
     }
 
-    // Every identifier of a form, as a local macro's definition, whose templates keep what
-    // they mean where it's defined
+    // Stamps every identifier in a form, for a local macro definition whose templates keep
+    // their meaning from where it's defined
     fn stamp_all(&mut self, expr: &mut ExprKind) {
         struct StampAll<'a>(&'a mut ScopeChain);
         impl VisitorMutRefUnit for StampAll<'_> {
+            fn visit_vector(&mut self, v: &mut crate::parser::ast::Vector) {
+                for expr in v.args.iter_mut() {
+                    self.visit(expr);
+                }
+            }
+
             fn visit_atom(&mut self, a: &mut Atom) {
                 self.0.stamp(&mut a.syn);
             }
@@ -1234,14 +1455,14 @@ impl ScopeChain {
         StampAll(self).visit(expr);
     }
 
-    // The local macros a body defines, before they're read
+    // Stamps the local macros a body defines, before they're parsed
     fn stamp_local_macro_definitions<'b>(
         &mut self,
         forms: impl IntoIterator<Item = &'b mut ExprKind>,
     ) {
         let forms: Vec<&mut ExprKind> = forms.into_iter().collect();
-        // let-syntax's macros are the body's only, `(let () body ...)` after them, so their
-        // names get its scopes and their own transformers don't see them
+        // let-syntax's macros are only visible in its body, the `(let () body ...)` after them,
+        // so their names get that let's scopes and their own transformers don't see them
         let inner = forms
             .first()
             .is_some_and(|x| is_let_syntax_marker(x))
@@ -1270,7 +1491,7 @@ impl ScopeChain {
             }
             match form {
                 ExprKind::List(l) if defines_local_macro(l) => self.stamp_all(form),
-                // A procedural one's name
+                // Just the name of a procedural one
                 ExprKind::List(l) if l.is_define_syntax() => match l.args.get_mut(1) {
                     Some(ExprKind::List(signature)) => {
                         if let Some(name) = signature.args.first_mut() {
@@ -1290,7 +1511,7 @@ impl ScopeChain {
     }
 }
 
-// A list form, by its keyword's syntax object, for the scopes the expander gives it
+// Key for the scopes the expander gives a list form: its keyword's syntax object id
 fn form_key(l: &List) -> usize {
     l.first()
         .and_then(ExprKind::atom_syntax_object)
@@ -1299,8 +1520,8 @@ fn form_key(l: &List) -> usize {
         })
 }
 
-// How a procedural macro is used: as a form's head, as an identifier alone, or as what a
-// `set!` sets, which only a set! transformer takes
+// How a procedural macro is used: as a form's head, as a bare identifier, or as the target of
+// a `set!`, which only a set! transformer accepts
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UseKind {
     Form,
@@ -1308,7 +1529,7 @@ pub(crate) enum UseKind {
     Set,
 }
 
-// What a procedural macro is given: the use's form, or the identifier alone
+// The input a procedural macro gets: the whole form, or the bare identifier
 pub(crate) fn use_input(l: &mut List, identifier: bool) -> ExprKind {
     let l = core::mem::replace(l, List::new(ThinVec::new()));
     match l.args.len() {
@@ -1336,7 +1557,7 @@ thread_local! {
     static IDENTIFIER_SYNTAX: InternedString = "identifier-syntax".into();
 }
 
-// Forms whose names are what they provide or require, not uses
+// Forms whose identifiers name what they provide or require, rather than being uses
 fn names_bindings(l: &List) -> bool {
     l.first_ident()
         .is_some_and(|head| BINDING_FORMS.with(|x| x.contains(head)))
@@ -1358,7 +1579,7 @@ fn names_procedural(expr: &ExprKind, in_scope: &ScopeSet<InternedString, FxBuild
 
     (syn.unresolved || !in_scope.contains(s))
         && (PROCEDURAL_HEADS.with(|x| x.borrow().contains(s)) || {
-            // By its name in the module that defines it too
+            // Also check its name in the module that defines it
             let registered = REGISTERED_PROCEDURAL.read().unwrap();
             registered.contains(s)
                 || s.resolve()
@@ -1367,18 +1588,21 @@ fn names_procedural(expr: &ExprKind, in_scope: &ScopeSet<InternedString, FxBuild
         })
 }
 
-// An expansion of a required module's macro, by its introduction scope
+// Records an expansion of a required module's macro by its introduction scope
 pub(crate) fn record_foreign(introduction: steel_parser::scopes::Scope) {
     FOREIGN_EXPANSIONS.with(|x| x.borrow_mut().insert(introduction));
 }
 
-// Whether a required module's macro wrote it
+// Whether a required module's macro wrote an identifier with these scopes
 pub(crate) fn is_foreign(scopes: &steel_parser::scopes::ScopeSetId) -> bool {
     FOREIGN_EXPANSIONS.with(|x| {
         let foreign = x.borrow();
         !foreign.is_empty()
-            && !scopes.is_empty()
-            && scopes.scopes().iter().any(|x| foreign.contains(x))
+            && scopes.introduced()
+            && scopes
+                .scopes()
+                .iter()
+                .any(|x| x.is_introduction() && foreign.contains(x))
     })
 }
 
@@ -1408,8 +1632,8 @@ impl Drop for CompileScope {
             x.get() == 0
         });
 
-        // What's kept for the forms and bodies of a compile, which its passes share
-        // The foreign expansions stay, as what they wrote can be expanded in a later compile
+        // Clear the per-compile state its passes share. Foreign expansions stay, since what
+        // they wrote can be expanded in a later compile
         if outermost {
             FORM_SCOPES.with(|x| x.borrow_mut().clear());
             PATHS.with(|x| x.borrow_mut().clear());
@@ -1422,8 +1646,8 @@ impl Drop for CompileScope {
 
 static MACRO_REDEFINITION: &str = "#%macro-redefinition:";
 
-// Where code defines a macro again. The forms after it use the new definition, the ones
-// before it the earlier one.
+// Marks where code redefines a macro. Forms after it use the new definition, forms before it
+// the earlier one.
 fn macro_redefinition_marker(index: usize) -> ExprKind {
     ExprKind::Quote(Box::new(Quote::new(
         ExprKind::ident(&format!("{MACRO_REDEFINITION}{index}")),
@@ -1444,7 +1668,7 @@ fn macro_redefinition(expr: &ExprKind) -> Option<usize> {
         .ok()
 }
 
-// The macros code defines a second time or more, with markers where they're defined
+// Macros the code defines more than once, held until their markers are reached
 #[derive(Default)]
 pub(crate) struct MacroRedefinitions {
     defined: FxHashSet<InternedString>,
@@ -1452,7 +1676,7 @@ pub(crate) struct MacroRedefinitions {
 }
 
 impl MacroRedefinitions {
-    // Defines a macro, or keeps it for its marker when the code defined it already
+    // Defines a macro, or if it was already defined, holds it and returns a marker
     pub(crate) fn define(
         &mut self,
         map: &mut FxHashMap<InternedString, SteelMacro>,
@@ -1469,7 +1693,7 @@ impl MacroRedefinitions {
         Some(macro_redefinition_marker(self.macros.len() - 1))
     }
 
-    // Defines the macro of a marker, which is then no code at all
+    // Defines a marker's macro and replaces the marker with an empty begin
     pub(crate) fn reached(
         &mut self,
         map: &mut FxHashMap<InternedString, SteelMacro>,
@@ -1492,7 +1716,7 @@ impl MacroRedefinitions {
         true
     }
 
-    // What isn't defined yet, once the code is done
+    // Defines whatever is still held once the code is done
     pub(crate) fn finish(&mut self, map: &mut FxHashMap<InternedString, SteelMacro>) {
         for m in self.macros.iter_mut().filter_map(Option::take) {
             let name = *m.name();
@@ -1501,7 +1725,7 @@ impl MacroRedefinitions {
     }
 }
 
-// Where a definition of the same name keeps a prelude macro
+// The name a prelude macro is kept under when a definition replaces it
 pub(crate) fn prelude_macro_alias(name: &InternedString) -> InternedString {
     thread_local! {
         static ALIASES: core::cell::RefCell<FxHashMap<InternedString, InternedString>> =
@@ -1555,8 +1779,8 @@ pub(crate) fn is_local_macro_definition(expr: &ExprKind) -> bool {
 
 static KERNEL_LOCAL_MACRO: &str = "#%kernel-local-macro";
 
-// Left where a function defines a macro the kernel expands, so the hygiene pass knows
-// which of the function's locals the macro can see
+// Left where a function defines a procedural macro, so the hygiene pass knows which of the
+// function's locals the macro can see
 fn kernel_local_macro_marker(
     name: InternedString,
     span: steel_parser::span::Span,
@@ -1573,7 +1797,7 @@ fn kernel_local_macro_marker(
     )))
 }
 
-// The name a function's macro is written with, from the kernel's name for it
+// Recovers a local macro's written name from the kernel's name for it
 fn written_kernel_local_name(internal: InternedString) -> InternedString {
     internal
         .resolve()
@@ -1581,7 +1805,7 @@ fn written_kernel_local_name(internal: InternedString) -> InternedString {
         .map_or(internal, |(written, _)| written.into())
 }
 
-// The macro a marker is left for, by its kernel name, where it's defined and its name's scopes
+// A marker's macro: its kernel name, the span of its definition, and its name's scopes
 fn kernel_local_macro_entry(
     expr: &ExprKind,
 ) -> Option<(
@@ -1618,8 +1842,8 @@ pub(crate) fn kernel_local_macro(expr: &ExprKind) -> Option<InternedString> {
     }
 }
 
-// The scopes of a procedural macro's definition where it's written: those of the first
-// identifier after its name, as `define-syntax` itself is a keyword without scopes
+// The scopes of a procedural macro's definition: those of the first identifier after its name,
+// since `define-syntax` itself is a keyword without scopes
 pub(crate) fn definition_scopes(l: &List) -> steel_parser::scopes::ScopeSetId {
     struct First(Option<steel_parser::scopes::ScopeSetId>);
     impl crate::compiler::passes::VisitorMutUnitRef<'_> for First {
@@ -1645,13 +1869,13 @@ pub(crate) fn definition_scopes(l: &List) -> steel_parser::scopes::ScopeSetId {
     first.0.unwrap_or_default()
 }
 
-// A name as the code wrote it, without the `##` a template's binder is renamed with
+// A name as the code wrote it, without the `##` prefix added to a template's binders
 fn written_name(name: &str) -> &str {
     name.strip_prefix("##").unwrap_or(name)
 }
 
-// What a define defines by: its name, or the signature that starts with it, through a curried
-// define's `((f a) b)`
+// The innermost target of a define: its name, or the signature that starts with it, looking
+// through a curried define's `((f a) b)`
 fn define_target(target: &ExprKind) -> &ExprKind {
     let mut target = target;
     while let ExprKind::List(signature) = target {
@@ -1663,10 +1887,10 @@ fn define_target(target: &ExprKind) -> &ExprKind {
     target
 }
 
-// `(define ((f a) b) body ...)` as `(define (f a) (lambda (b) body ...))`
+// Rewrites `(define ((f a) b) body ...)` to `(define (f a) (lambda (b) body ...))`
 pub(crate) fn uncurry_define(l: &mut List) {
     while let Some(ExprKind::List(signature)) = l.args.get(1) {
-        // One without a body is the parser's to report
+        // Leave one without a body for the parser to report
         if !matches!(signature.first(), Some(ExprKind::List(_))) || l.args.len() < 3 {
             break;
         }
@@ -1734,7 +1958,7 @@ pub(crate) fn unmangled(name: &str) -> &str {
     }
 }
 
-// let-syntax starts the body that defines its macros with `'#%let-syntax`
+// let-syntax marks the start of the body that defines its macros with `'#%let-syntax`
 fn is_let_syntax_marker(form: &ExprKind) -> bool {
     matches!(form, ExprKind::Quote(q) if q.expr.atom_identifier().is_some_and(|x| x.resolve() == "#%let-syntax"))
 }
@@ -1748,7 +1972,7 @@ fn ends_with_definition(form: &ExprKind) -> bool {
     }
 }
 
-// A body form that defines a macro, written or as a begin of them
+// Whether a body form defines a macro, directly or inside a begin
 fn defines_body_macro(form: &ExprKind) -> bool {
     match form {
         ExprKind::List(l) if defines_local_macro(l) || l.is_define_syntax() => true,
@@ -1791,8 +2015,8 @@ impl LocalMacros {
                     let written = l.get(1).and_then(ExprKind::atom_syntax_object);
                     let name_span = written.map(|x| x.span);
 
-                    // Already defined by the body this begin is part of. One another expansion
-                    // wrote is another macro, though the same template wrote both.
+                    // Already defined by the body this begin is part of. One written by a
+                    // different expansion is a different macro, even from the same template.
                     let introductions = written.map(|x| x.scopes.introductions());
                     let defined = l.get(1).and_then(ExprKind::atom_identifier).and_then(|x| {
                         self.macros.iter().rev().find(|m| {
@@ -1860,7 +2084,7 @@ impl LocalMacros {
                         }
                     }
                 }
-                // Where the kernel defined one in an earlier pass
+                // A marker where the kernel defined one in an earlier pass
                 form if kernel_local_macro_entry(form).is_some() => {
                     let (internal, _, scopes) = kernel_local_macro_entry(form).unwrap();
                     let name = written_kernel_local_name(internal);
@@ -1900,8 +2124,8 @@ impl LocalMacros {
         self.define_in(body, start, scope, true)
     }
 
-    // A begin's forms are part of the body around it, so the macros it defines stay
-    // until that body ends, and the body is what needs an expression after them
+    // A begin's forms are part of the surrounding body, so the macros it defines stay until
+    // that body ends, and it's the body that needs an expression after them
     fn splice<B: BodyForms>(
         &mut self,
         body: &mut B,
@@ -1945,7 +2169,7 @@ impl LocalMacros {
         Ok(visible)
     }
 
-    // A function or let body, which can't end with a definition of a macro, whichever kind
+    // A function or let body, which can't end with a macro definition of either kind
     fn enter_body<B: BodyForms>(
         &mut self,
         body: &mut B,
@@ -1980,10 +2204,8 @@ impl LocalMacros {
         self.macros.truncate(visible);
     }
 
-    // A body form a macro expanded to a definition of a macro, which the rest of the body
-    // sees. `written` is whether the form defined one before it was expanded.
-    // A macro an expansion defined in a body, which captures the body's locals as a written one
-    // does: those in `scope`, and the body's `defines`
+    // Defines the macro a body form expanded into, so the rest of the body sees it. `written`
+    // is whether the form already defined one before it was expanded.
     fn define_expanded(
         &mut self,
         form: &mut ExprKind,
@@ -2002,7 +2224,8 @@ impl LocalMacros {
     }
 }
 
-// What a let's body visits first, which counts toward how deep the body's expansion is
+// Hooks for visiting a let's body. What it expands first counts toward the body's expansion
+// depth.
 trait BodyFirst {
     fn procedural_first(&mut self, _forms: &mut [ExprKind]) -> Result<usize> {
         Ok(0)
@@ -2010,7 +2233,7 @@ trait BodyFirst {
 
     fn end_body(&mut self, _depth: usize) {}
 
-    // A let's binders and body, after its values
+    // Called for a let's binders and body, after its values are visited
     fn enter_let_body(&mut self, _l: &mut List, _bindings_index: usize) {}
 
     fn leave_let_body(&mut self) {}
@@ -2059,12 +2282,12 @@ impl BodyFirst for Expander<'_> {
 fn visit_let_form<V: VisitorMutRef<Output = Result<()>> + BodyFirst>(
     visitor: &mut V,
     scope: fn(&mut V) -> Option<&mut ScopeSet<InternedString, FxBuildHasher>>,
-    // The name a binder is in the scope by
+    // The name a binder is recorded under in the scope
     key: fn(&SyntaxObject) -> Option<InternedString>,
     local_macros: fn(
         &mut V,
     ) -> Option<(&mut LocalMacros, &ScopeSet<InternedString, FxBuildHasher>)>,
-    // Before each form of the body
+    // Called before each form of the body
     body_form: fn(&mut V),
     l: &mut List,
 ) -> Result<()> {
@@ -2164,25 +2387,25 @@ pub struct Expander<'a> {
     depth: usize,
     local_macros: LocalMacros,
     top_level: bool,
-    // The form being visited is one of a body's, where a begin's definitions are the body's
+    // The form being visited is a body form, so a begin's definitions belong to the body
     body_form: bool,
-    // The macros are a required module's, expanded for the code that required it
+    // Expanding a required module's macros for the code that required it
     foreign: bool,
-    // The procedural macros, which it expands where they're used too
+    // Expands procedural macros too, where they're used
     pub(crate) kernel: Option<KernelExpander<'a>>,
-    // Expand only the form's own macro use, once, and whether it did
+    // Expand only the form's own macro use, once, and record whether it did
     head_only: bool,
     head_expanded: bool,
-    // The form is one of a body whose first pass went through it
+    // The form is in a body whose first pass already went through it
     head_covered: bool,
     // The first pass is over a body's forms, not those of a begin in an expression
     head_body: bool,
-    // Expanding transformer code, which only gets the prelude's macros at phase 0, and the
-    // macros it defines itself: those of `local_macros` from `prelude_base` on
+    // Expanding transformer code, which only sees the prelude's phase 0 macros plus the ones it
+    // defines itself (`local_macros` from `prelude_base` on)
     prelude_only: bool,
     prelude_base: usize,
-    // A procedural macro a macro made at the top level is defined where it's made, and its name
-    // kept for the code that checks definitions
+    // Define procedural macros that an expansion produces at the top level right where they're
+    // made, and record their names for the code that checks definitions
     pub(crate) define_top_level_procedural: bool,
     pub(crate) defined_procedural: Vec<(InternedString, steel_parser::span::Span)>,
     pub(crate) scope_chain: ScopeChain,
@@ -2194,11 +2417,11 @@ pub struct RequiredMacroMap<'a> {
     pub(crate) changed: bool,
 }
 
-// One that also expands the macros of the modules the code requires, with macros of its own a
-// top level define-syntax can replace
+// An expander that also expands required modules' macros, and owns its macro map so a
+// top-level define-syntax can replace entries
 pub type ExpanderMany<'a> = Expander<'a>;
 
-// The macros an expander has: ones only read, or its own
+// An expander's macros: a shared read-only map, or its own
 pub(crate) enum MacroMap<'a> {
     Shared(&'a FxHashMap<InternedString, SteelMacro>),
     Own(&'a mut FxHashMap<InternedString, SteelMacro>),
@@ -2297,7 +2520,7 @@ impl<'a> Expander<'a> {
         }
     }
 
-    // With the procedural macros too
+    // Also expand procedural macros
     pub(crate) fn with_kernel(mut self, kernel: KernelExpander<'a>) -> Self {
         self.kernel = Some(kernel);
         self
@@ -2313,7 +2536,7 @@ impl<'a> Expander<'a> {
         self.top_level = true;
         self.visit(expr)?;
 
-        // What the code defines hides macros of those names
+        // Definitions in the code hide macros with the same names
         if let Some(map) = self.map.macros_mut() {
             for i in self.in_scope_values.iter() {
                 remove_macro(map, i);
@@ -2327,16 +2550,15 @@ impl<'a> Expander<'a> {
 }
 
 impl<'a> Expander<'a> {
-    // A use of a procedural macro, expanded where it is, with what it made expanded too
-    // An identifier alone that names a macro: a procedural one is given the identifier, and a
-    // syntax-rules one has no pattern for it
+    // A bare identifier that names a macro. A procedural macro is given the identifier, while
+    // a syntax-rules macro has no pattern for it, so that's an error.
     fn visit_identifier(
         &mut self,
         expr: &mut ExprKind,
         top_level: bool,
         body_form: bool,
     ) -> Result<()> {
-        // Transformer code's are phase 1's
+        // Identifiers in transformer code are phase 1
         if self.prelude_only {
             return Ok(());
         }
@@ -2376,8 +2598,8 @@ impl<'a> Expander<'a> {
             }
         }
 
-        // Only where all the macros are expanded, as a form that's one of the others'
-        // uses doesn't look like one to a pass of just some of them
+        // Only check when all macros are being expanded, since a pass that expands just some
+        // of them can't recognize uses of the others
         if let Some(syn) = expr.atom_syntax_object().filter(|_| self.kernel.is_some()) {
             if self.names_rules_macro(syn) {
                 stop!(BadSyntax => format!("{}: bad syntax", syn.ty); syn.span);
@@ -2386,13 +2608,13 @@ impl<'a> Expander<'a> {
         Ok(())
     }
 
-    // Whether an identifier alone names a syntax-rules macro, as the head of a form would
+    // Whether a bare identifier names a syntax-rules macro, resolved as a form head would be
     fn names_rules_macro(&self, syn: &SyntaxObject) -> bool {
         let Some(s) = syn.ty.identifier() else {
             return false;
         };
-        // What the prelude's or a required module's macros wrote means names where they're
-        // defined
+        // Names written by the prelude's or a required module's macros refer to where those
+        // macros are defined
         if syn.unresolved
             || syn.scopes.contains(steel_parser::scopes::Scope::prelude())
             || is_foreign(&syn.scopes)
@@ -2436,7 +2658,7 @@ impl<'a> Expander<'a> {
                         )
                     })
                 {
-                    // The top level's, which the kernel has defined by now
+                    // A top-level macro, which the kernel has defined by now
                     ScopedDecision::Unbound
                 } else {
                     ScopedDecision::Placeholder(local.name, local.scopes.clone())
@@ -2452,7 +2674,7 @@ impl<'a> Expander<'a> {
         let Some(name) = syn.ty.identifier() else {
             return Meaning::Unbound;
         };
-        // Most names have nothing local
+        // Fast path: most names have no local binding
         let local = self.scope_chain.binders.contains_key(name)
             || self.local_macros.macros.iter().any(|x| x.name == *name)
             || self
@@ -2460,7 +2682,7 @@ impl<'a> Expander<'a> {
                 .as_ref()
                 .is_some_and(|kernel| kernel.local_macros.iter().any(|x| x.0 == *name));
         if !local {
-            return if self.scope_chain.top_level.contains(name) && !syn.scopes.introduced() {
+            return if self.scope_chain.is_top_level(name, &syn.scopes) {
                 Meaning::Variable
             } else {
                 Meaning::Unbound
@@ -2480,7 +2702,7 @@ impl<'a> Expander<'a> {
             .enumerate()
             .filter(|(_, x)| x.name == *name)
             .map(|(i, x)| (x.scopes.clone(), Meaning::LocalMacro(i)));
-        // And the kernel's, which a macro may have made
+        // Also the kernel's local macros, which a macro expansion may have defined
         let kernel_macros = self
             .kernel
             .as_ref()
@@ -2495,31 +2717,32 @@ impl<'a> Expander<'a> {
                     .any(|m| m.name == x.0 && m.scopes == x.3)
             })
             .map(|x| (x.3.clone(), Meaning::KernelMacro(x.2)));
-        let candidates: Vec<_> = variables
-            .chain(macros)
-            .chain(kernel_macros)
-            .filter(|(scopes, _)| scopes.is_subset(&syn.scopes))
-            .collect();
-        // The last of the largest, as a later definition replaces. Racket reports a reference
-        // no candidate's scopes hold all the others' as ambiguous.
-        let Some(largest) = candidates.iter().max_by_key(|(scopes, _)| scopes.len()) else {
-            // The top level's variables are known by name, as globals are resolved, and hide
-            // only what's written here
-            if self.scope_chain.top_level.contains(name) && !syn.scopes.introduced() {
+        let candidates: Vec<_> = variables.chain(macros).chain(kernel_macros).collect();
+        // Ties go to the last one, since a later definition replaces an earlier one. Racket
+        // reports a reference as ambiguous when no candidate's scopes contain all the others'.
+        let Some(largest) = crate::compiler::passes::hygiene::largest_subset(
+            candidates
+                .iter()
+                .map(|(scopes, meaning)| (scopes, *meaning)),
+            &syn.scopes,
+        ) else {
+            // Top-level variables are resolved by name like globals, and only hide names
+            // written here, not ones a macro introduced
+            if self.scope_chain.is_top_level(name, &syn.scopes) {
                 return Meaning::Variable;
             }
             return Meaning::Unbound;
         };
-        largest.1
+        largest
     }
 
-    // Whether a name means a macro here, a function's or a global one a use of it would expand
+    // Whether a name refers to a macro here, local or global, that a use of it would expand
     fn names_macro(&self, syn: &SyntaxObject) -> bool {
         let Some(s) = syn.ty.identifier() else {
             return false;
         };
         match self.meaning(syn) {
-            // A procedural one only where the kernel is, which a later pass has
+            // A procedural one only counts when the kernel is present, which a later pass has
             Meaning::LocalMacro(i) if self.local_macros.macros[i].expander.is_some() => {
                 return true
             }
@@ -2555,7 +2778,7 @@ impl<'a> Expander<'a> {
         syntax_rules || procedural
     }
 
-    // For an identifier alone `l` is a list of just it, and for a `set!` the whole form
+    // For a bare identifier `l` is a list of just it, and for a `set!` it's the whole form
     fn kernel_use(
         &mut self,
         l: &mut List,
@@ -2564,7 +2787,7 @@ impl<'a> Expander<'a> {
         kind: UseKind,
     ) -> Result<Option<ExprKind>> {
         let head_only = core::mem::take(&mut self.head_only);
-        // What the use's name means by its scopes, for the kernel to go by
+        // Resolve the use's name by its scopes, for the kernel to act on
         let Some(scoped) = self.scoped_decision(l, kind) else {
             return Ok(None);
         };
@@ -2616,7 +2839,7 @@ impl<'a> Expander<'a> {
             })
             .collect();
 
-        // The transformer can ask what its input's names mean here
+        // Let the transformer look up what its input's names refer to here
         BINDER_TABLES.with(|x| {
             x.borrow_mut()
                 .push(core::mem::take(&mut self.scope_chain.binders))
@@ -2659,7 +2882,7 @@ impl<'a> Expander<'a> {
                 self.depth -= 1;
                 result?;
 
-                // The definition expands to void, in the body the macro is defined in
+                // A local macro definition expands to void, so leave a marker in its body
                 if let Some((name, span, scopes)) = definition {
                     if let ExprKind::Atom(_) = expr {
                         expr = kernel_local_macro_marker(name, span, scopes);
@@ -2671,8 +2894,8 @@ impl<'a> Expander<'a> {
         }
     }
 
-    // A body's procedural macro definitions, before its other forms, so they're the whole
-    // body's
+    // Defines a body's procedural macros before its other forms, so they're visible in the
+    // whole body
     fn define_procedural_first(&mut self, forms: &mut [ExprKind]) -> Result<usize> {
         // Without the kernel, the body's variables still hide macros in all of it
         if self.kernel.is_none() {
@@ -2682,8 +2905,8 @@ impl<'a> Expander<'a> {
             return Ok(0);
         }
 
-        // The body's variables hide macros in all of it, and one named like the body's
-        // macro is a duplicate. Its macros see them.
+        // The body's variables hide macros throughout it, and one named like a macro of the
+        // body is a duplicate. The body's macros can see them.
         let in_body = self.in_body();
         if in_body {
             self.define_body_variables(forms)?;
@@ -2694,10 +2917,10 @@ impl<'a> Expander<'a> {
             self.visit(form)?;
         }
 
-        // Then each form's macro uses, until it's a definition or an expression, so what a
-        // macro defines is the whole body's too
+        // Then expand each form's head until it's a definition or an expression, so what a
+        // macro defines is visible in the whole body too
 
-        // The most expansions one form made, which its expansion counts as nesting
+        // The most expansions any one form needed, which counts as nesting depth
         let mut deepest = 0;
 
         for form in forms.iter_mut() {
@@ -2709,8 +2932,8 @@ impl<'a> Expander<'a> {
         Ok(deepest)
     }
 
-    // A body form's first pass. What a macro made defines what it defines for the whole
-    // body, a begin's forms in order after its own macros.
+    // A body form's first pass. Definitions a macro produced apply to the whole body, and a
+    // begin's forms are handled in order after its own macros.
     fn head_pass(
         &mut self,
         form: &mut ExprKind,
@@ -2721,7 +2944,7 @@ impl<'a> Expander<'a> {
         let expanded = self.expand_head_from(form, budget)?;
         let generated = generated || expanded;
 
-        // What a macro made defines with the names its definitions have here
+        // Give the definitions a macro produced the scopes their names have here
         if expanded {
             self.scope_chain
                 .stamp_local_macro_definitions(core::iter::once(&mut *form));
@@ -2770,18 +2993,21 @@ impl<'a> Expander<'a> {
         self.kernel.as_ref().is_some_and(|x| x.locals.depth() > 1)
     }
 
-    // The prelude's macros in transformer code, as phase 1 has them too. The code's own
-    // macros are phase 0's.
-    // `definition` is the define-syntax, whose forms from the third on are the transformer's
-    // body when it's `(define-syntax (name stx) body ...)`
+    // Expands the prelude's macros in transformer code, since phase 1 has them too. The code's
+    // own macros are phase 0. `definition` is the define-syntax form; for
+    // `(define-syntax (name stx) body ...)` its forms from the third on are the body.
     fn expand_prelude_macros(&mut self, definition: &mut ThinVec<ExprKind>) -> Result<()> {
         let kernel = self.kernel.take();
         let prelude_only = core::mem::replace(&mut self.prelude_only, true);
         let base = core::mem::replace(&mut self.prelude_base, self.local_macros.macros.len());
-        // Transformer code's top level is its own, phase 1's
+        // Transformer code has its own phase 1 top level
         let top_level = core::mem::take(&mut self.scope_chain.top_level);
+        let template_top_level = core::mem::take(&mut self.scope_chain.template_top_level);
 
-        // The macros the body defines are the whole body's
+        // Its definitions are the transformer's, which don't hide the code's macros
+        self.in_scope_values.push_layer();
+
+        // Macros the body defines are visible in all of it
         let result = self
             .local_macros
             .enter(definition, 2, &self.in_scope_values)
@@ -2794,14 +3020,17 @@ impl<'a> Expander<'a> {
                 result
             });
 
+        self.in_scope_values.pop_layer();
+
         self.scope_chain.top_level = top_level;
+        self.scope_chain.template_top_level = template_top_level;
         self.prelude_base = base;
         self.prelude_only = prelude_only;
         self.kernel = kernel;
         result
     }
 
-    // The `#,` holes of a quasisyntax template, which are code
+    // Visits the `#,` holes of a quasisyntax template, which are code
     fn visit_unsyntax_holes(&mut self, expr: &mut ExprKind) -> Result<()> {
         match expr {
             ExprKind::List(l)
@@ -2825,8 +3054,8 @@ impl<'a> Expander<'a> {
         }
     }
 
-    // The syntax-rules macros a body form a macro made defines. A begin's are the body's, as
-    // when it's spliced.
+    // Defines the syntax-rules macros in a body form that a macro produced. A begin's belong to
+    // the body, as if it were spliced.
     fn define_generated_macros(&mut self, form: &mut ExprKind) -> Result<()> {
         match form {
             ExprKind::List(l) if is_begin(l) => {
@@ -2842,8 +3071,8 @@ impl<'a> Expander<'a> {
         }
     }
 
-    // The variables a body defines, which hide macros of their names in all of it. One a
-    // macro introduced only hides what that expansion wrote, which the kernel tells apart.
+    // Records the variables a body defines, which hide macros with their names throughout the
+    // body. One a macro introduced only hides what that expansion wrote, which the kernel tracks.
     fn define_body_variables(&mut self, forms: &[ExprKind]) -> Result<()> {
         fn written_name(name: &ExprKind) -> Option<InternedString> {
             name.atom_syntax_object()
@@ -2914,8 +3143,8 @@ impl<'a> Expander<'a> {
         Ok(())
     }
 
-    // Expand a body form's own macro use until it's something else, a begin too. One that
-    // keeps making more is left for the body's expansion, which reports it.
+    // Expands a body form's own macro use until it's something else, such as a begin. A form
+    // that keeps expanding past the budget is left for the body's expansion, which reports it.
     fn expand_head_from(&mut self, form: &mut ExprKind, budget: &mut usize) -> Result<bool> {
         let mut expanded = false;
 
@@ -2984,7 +3213,7 @@ impl<'a> Expander<'a> {
             )
         };
 
-        // The body's first pass went through one spliced into it
+        // The body's first pass already went through a begin spliced into it
         let depth = if body_form && covered {
             0
         } else {
@@ -3065,7 +3294,7 @@ impl<'a> Expander<'a> {
         if let Some(kernel) = self.kernel.as_mut() {
             match expr {
                 ExprKind::Quote(_) => kernel.revive(expr),
-                // A syntax-rules definition a procedural macro made
+                // A syntax-rules definition that a procedural macro produced
                 ExprKind::Macro(_) => {
                     kernel.macro_definition(expr);
                     self.top_level = top_level;
@@ -3087,7 +3316,7 @@ impl<'a> Expander<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(_) => self.visit_identifier(expr, top_level, body_form),
             ExprKind::List(l) => {
-                // The head's scopes before what it means is decided
+                // Stamp the head's scopes before deciding what it refers to
                 if let Some(ExprKind::Atom(a)) = l.args.first_mut() {
                     self.scope_chain.stamp(&mut a.syn);
                 }
@@ -3124,7 +3353,7 @@ impl<'a> Expander<'a> {
                     }
                 }
 
-                // `define` written as a name, as code made from syntax objects has it, defines
+                // `define` as a plain identifier, as in code built from syntax objects, defines too
                 if let Some(ExprKind::Atom(Atom { syn })) = l.args.first_mut() {
                     if syn.ty == TokenType::Identifier(*DEFINE)
                         && !self.in_scope_values.contains(&DEFINE)
@@ -3133,8 +3362,8 @@ impl<'a> Expander<'a> {
                     }
                 }
 
-                // A template in transformer code is the code it makes, apart from its holes,
-                // and a with-syntax pattern isn't code
+                // In transformer code a template is output, not code to expand (apart from its
+                // holes), and a with-syntax pattern isn't code either
                 if self.prelude_only {
                     match super::kernel::form_name(l) {
                         Some("syntax" | "quote-syntax" | "#%expand-syntax-case") => return Ok(()),
@@ -3266,7 +3495,7 @@ impl<'a> Expander<'a> {
                                 ..
                             },
                     })) => {
-                        // A begin in a body splices into it, one in an expression is its own
+                        // A begin in a body splices into it, one in an expression is its own body
                         let visible = if body_form {
                             self.local_macros
                                 .splice(&mut l.args, 1, &self.in_scope_values)?;
@@ -3278,7 +3507,7 @@ impl<'a> Expander<'a> {
                             )
                         };
 
-                        // The body's first pass went through one spliced into it
+                        // The body's first pass already went through a begin spliced into it
                         let depth = if body_form && covered {
                             0
                         } else {
@@ -3333,8 +3562,8 @@ impl<'a> Expander<'a> {
                                 ..
                             },
                     })) if *i == *DEFINE_SYNTAX && !self.in_scope_values.contains(i) => {
-                        // The name where it's defined, whose scopes the kernel gives what a
-                        // function's macro's templates write
+                        // Scopes of the name at its definition. The kernel gives them to
+                        // identifiers a function's macro templates write
                         match l.args.get_mut(1) {
                             Some(ExprKind::List(signature)) => {
                                 if let Some(name) = signature.args.first_mut() {
@@ -3347,9 +3576,9 @@ impl<'a> Expander<'a> {
                         if !IDENTIFIER_SYNTAX.with(|x| self.in_scope_values.contains(x)) {
                             lower_identifier_syntax(l);
                         }
-                        // A procedural macro, which the kernel defines where it is: a function's,
-                        // and one at the top level, in order with the other forms. One a macro
-                        // made there is kept for the checks of what the code defines.
+                        // The kernel defines a procedural macro where it appears: in a function,
+                        // or at the top level in order with the other forms. One a macro produced
+                        // at the top level is recorded for the definition checks.
                         let local = self.kernel.as_ref().is_some_and(|x| x.locals.depth() > 1);
                         let made = l
                             .first()
@@ -3359,7 +3588,7 @@ impl<'a> Expander<'a> {
                             && procedural_macro_name(l).is_some()
                         {
                             let defined = procedural_macro_name(l).zip(procedural_name_span(l));
-                            // It replaces a syntax-rules macro of its name for the forms after it
+                            // It replaces a syntax-rules macro with its name for later forms
                             if let Some(map) = self.map.macros_mut().filter(|_| top_level) {
                                 forget_replaced_macro(map, l);
                             }
@@ -3375,9 +3604,13 @@ impl<'a> Expander<'a> {
                             }
                         }
 
-                        // The name isn't a macro use, even when it names a macro
+                        // The name isn't a macro use, even when it names a macro. What the
+                        // transformer defines is its own, and hides none of the code's macros.
                         if let Some(arg) = l.args.get_mut(2) {
-                            self.visit(arg)?;
+                            self.in_scope_values.push_layer();
+                            let result = self.visit(arg);
+                            self.in_scope_values.pop_layer();
+                            result?;
                         }
 
                         // A procedural macro replaces a syntax-rules one of its name for the
@@ -3396,8 +3629,8 @@ impl<'a> Expander<'a> {
                                 ..
                             },
                     })) if !self.in_scope_values.contains(&DEFINE_SYNTAX) => {
-                        // The name where it's defined, whose scopes the kernel gives what a
-                        // function's macro's templates write
+                        // Scopes of the name at its definition. The kernel gives them to
+                        // identifiers a function's macro templates write
                         match l.args.get_mut(1) {
                             Some(ExprKind::List(signature)) => {
                                 if let Some(name) = signature.args.first_mut() {
@@ -3410,8 +3643,8 @@ impl<'a> Expander<'a> {
                         if !IDENTIFIER_SYNTAX.with(|x| self.in_scope_values.contains(x)) {
                             lower_identifier_syntax(l);
                         }
-                        // A function's procedural macro, which the kernel defines here, and one a
-                        // macro made at the top level
+                        // The kernel defines a function's procedural macros here, and also ones a
+                        // macro produced at the top level
                         let top_level_definition =
                             self.define_top_level_procedural && top_level && !body_form
                                 || self.define_top_level_procedural
@@ -3446,8 +3679,12 @@ impl<'a> Expander<'a> {
                             }
                         }
 
+                        // What the transformer defines is its own
                         if let Some(arg) = l.args.get_mut(2) {
-                            self.visit(arg)?;
+                            self.in_scope_values.push_layer();
+                            let result = self.visit(arg);
+                            self.in_scope_values.pop_layer();
+                            result?;
                         }
 
                         if let Some(map) = self.map.macros_mut().filter(|_| top_level) {
@@ -3493,8 +3730,8 @@ impl<'a> Expander<'a> {
                     })) if l.args.len() > 1 => {
                         uncurry_define(l);
 
-                        // The name, where it's defined. A function's parameters and body
-                        // get the function's scopes, as a lambda's.
+                        // Record the defined name. A function's parameters and body get the
+                        // function's scopes, as with a lambda.
                         let function_scopes =
                             matches!(&l.args[1], ExprKind::List(s) if s.first_ident().is_some());
                         let key = form_key(l);
@@ -3529,14 +3766,23 @@ impl<'a> Expander<'a> {
                             kernel.defined(&l.args[1], body_form, form)?;
                         }
 
+                        // A global a template defines doesn't hide a macro of its name from
+                        // the rest of the code
+                        let hides = |syn: Option<&SyntaxObject>| {
+                            !(top_level && syn.is_some_and(|x| x.scopes.introduced()))
+                        };
                         let is_function = match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
-                                self.in_scope_values.define(*l.first_ident().unwrap());
+                                if hides(l.first().and_then(ExprKind::atom_syntax_object)) {
+                                    self.in_scope_values.define(*l.first_ident().unwrap());
+                                }
                                 true
                             }
 
                             ExprKind::Atom(a) if a.ident().is_some() => {
-                                self.in_scope_values.define(*a.ident().unwrap());
+                                if hides(Some(&a.syn)) {
+                                    self.in_scope_values.define(*a.ident().unwrap());
+                                }
                                 false
                             }
                             _ => false,
@@ -3633,9 +3879,9 @@ impl<'a> Expander<'a> {
                                 ..
                             },
                     })) => {
-                        // A prelude template means the prelude's macro, which a macro of
-                        // the same name defined here keeps under another name. So does what a
-                        // required module's procedural macro wrote.
+                        // A head from a prelude template refers to the prelude's macro, which is
+                        // kept under an alias when a macro of the same name is defined here. The
+                        // same goes for a head a required module's procedural macro wrote.
                         let mut found_index = None;
                         let prelude_template = l
                             .first()
@@ -3647,7 +3893,7 @@ impl<'a> Expander<'a> {
                         let alias = (prelude_template && PRELUDE_ALIASES.load(Ordering::Relaxed))
                             .then(|| prelude_macro_alias(s))
                             .filter(|alias| self.map.contains_key(alias));
-                        // Or the prelude's, where nothing here keeps it
+                        // Otherwise use the prelude's own macro, when no alias was kept here
                         let prelude_macros = (prelude_template && alias.is_none())
                             .then(crate::steel_vm::engine::default_prelude_macros);
                         let prelude_macro = prelude_macros.as_ref().and_then(|x| x.get(s));
@@ -3655,7 +3901,7 @@ impl<'a> Expander<'a> {
 
                         let prelude_only = self.prelude_only;
 
-                        // What the head means by its scopes
+                        // Resolve the head by its scopes
                         let meaning = l
                             .first()
                             .and_then(ExprKind::atom_syntax_object)
@@ -3676,8 +3922,8 @@ impl<'a> Expander<'a> {
                             _ => false,
                         };
 
-                        // At the top level a procedural macro defined before the use is the one
-                        // it means, as a syntax-rules one of the name defined after it is
+                        // At the top level a use refers to a procedural macro defined before it,
+                        // even if a syntax-rules macro of the same name is defined after it
                         let top_level_procedural = local.is_none()
                             && self.kernel.as_ref().is_some_and(|kernel| {
                                 kernel.environment == Some("top-level")
@@ -3692,12 +3938,24 @@ impl<'a> Expander<'a> {
                         } else if let Some(local) = local {
                             let span = *sp;
 
-                            let (mut expanded, _) = local.expand(
+                            let binders = UseBinders::set(&self.scope_chain);
+                            let literals = LITERAL_SCOPES
+                                .with(|x| x.borrow_mut().replace(local.scopes.clone()));
+                            let expanded = local.expand(
                                 List::new_maybe_improper(core::mem::take(&mut l.args), l.improper),
                                 span,
                                 &self.in_scope_values,
                                 self.globals,
-                            )?;
+                            );
+                            LITERAL_SCOPES.with(|x| *x.borrow_mut() = literals);
+                            drop(binders);
+                            let (mut expanded, introduction) = expanded?;
+                            if self.prelude_only {
+                                crate::parser::kernel::rename_template_binders(
+                                    &mut expanded,
+                                    introduction,
+                                );
+                            }
                             if body_form || head_only {
                                 self.scope_chain.body_use();
                             }
@@ -3720,7 +3978,7 @@ impl<'a> Expander<'a> {
 
                             return Ok(());
                         } else if let Some(m) = prelude_macro.or_else(|| {
-                            // A required module's macro, then the code's own
+                            // Look in the required modules' macros, then the code's own
                             self.overlays
                                 .iter()
                                 .enumerate()
@@ -3747,6 +4005,7 @@ impl<'a> Expander<'a> {
                                 if expands {
                                     let span = *sp;
 
+                                    let binders = UseBinders::set(&self.scope_chain);
                                     let (mut expanded, introduction) = m.expand_marked(
                                         List::new_maybe_improper(
                                             core::mem::take(&mut l.args),
@@ -3756,12 +4015,20 @@ impl<'a> Expander<'a> {
                                         &self.in_scope_values,
                                         self.globals,
                                     )?;
+                                    drop(binders);
+                                    // Transformer code becomes data, without the scopes
+                                    if self.prelude_only {
+                                        crate::parser::kernel::rename_template_binders(
+                                            &mut expanded,
+                                            introduction,
+                                        );
+                                    }
                                     self.changed = true;
                                     if body_form || head_only {
                                         self.scope_chain.body_use();
                                     }
 
-                                    // What a required module's macro wrote means names where the
+                                    // Names a required module's macro wrote refer to where that
                                     // macro is defined
                                     if let Some(index) = found_index {
                                         self.overlays[index].changed = true;
@@ -3803,8 +4070,8 @@ impl<'a> Expander<'a> {
                     _ => {}
                 }
 
-                // A procedural macro gets its arguments as they're written, as the macros
-                // expand from the outside in
+                // A procedural macro gets its arguments unexpanded, since macros expand from the
+                // outside in
                 self.head_only = head_only;
                 if let Some(expanded) = self.kernel_use(l, top_level, body_form, UseKind::Form)? {
                     *expr = expanded;
@@ -3815,12 +4082,12 @@ impl<'a> Expander<'a> {
                     return Ok(());
                 }
 
-                // Without the kernel here, it expands them later
+                // Without the kernel, procedural macro uses are left for a later pass
                 if self.kernel.is_none() && procedural_use(l, &self.in_scope_values) {
                     return Ok(());
                 }
 
-                // The head is no use of an identifier alone, nor are the names a provide or
+                // The head isn't a bare identifier use, and neither are the names a provide or
                 // require lists
                 let names = names_bindings(l);
                 for (i, expr) in l.args.iter_mut().enumerate() {
@@ -3831,9 +4098,9 @@ impl<'a> Expander<'a> {
                         }
                     }
 
-                    // A head that expands to a procedural macro's name alone is that macro's use
-                    // of the identifier, which a later pass with the kernel expands. Not a use
-                    // of the form it heads.
+                    // A head that expands to just a procedural macro's name is an identifier use
+                    // of that macro, not a use of the form it heads. Keep it as written for a
+                    // later pass with the kernel.
                     if i == 0 && self.kernel.is_none() && matches!(expr, ExprKind::List(_)) {
                         let written = expr.clone();
                         self.visit(expr)?;
@@ -3894,7 +4161,7 @@ impl<'a> Expander<'a> {
 impl<'a> VisitorMutRef for Expander<'a> {
     type Output = Result<()>;
 
-    // Expansions nest as deep as macros expand into each other
+    // Grow the stack as needed, since expansions nest as deep as macros expand into each other
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
         crate::compiler::passes::with_stack(|| self.visit_expr(expr))
     }
@@ -3924,8 +4191,8 @@ impl<'a> VisitorMutRef for Expander<'a> {
         &mut self,
         lambda_function: &mut super::ast::LambdaFunction,
     ) -> Self::Output {
-        // The parameters and body get the lambda's scope, and the body, a definition context,
-        // one of its own
+        // The parameters and body get the lambda's scope, and the body (a definition context)
+        // also gets one of its own
         self.scope_chain
             .enter(lambda_function.location.syntax_object_id.0 as usize, 0);
         for parameter in lambda_function.args.iter_mut() {
@@ -3938,6 +4205,13 @@ impl<'a> VisitorMutRef for Expander<'a> {
                 parameter => self.scope_chain.bind_expr(parameter),
             }
         }
+        duplicate_binder(
+            lambda_function.args.iter().map(|x| match x {
+                ExprKind::List(default) => default.args.first().unwrap_or(x),
+                x => x,
+            }),
+            "lambda: duplicate argument name",
+        )?;
         self.scope_chain
             .enter(lambda_function.location.syntax_object_id.0 as usize, 1);
         self.scope_chain
@@ -3951,13 +4225,13 @@ impl<'a> VisitorMutRef for Expander<'a> {
             }
         }
 
-        // The kernel's locals too, before what the parameters' defaults use
+        // Enter the kernel's locals too, before visiting the parameters' defaults
         let hidden = self
             .kernel
             .as_mut()
             .map(|kernel| kernel.enter_scope(core::slice::from_ref(&lambda_function.body)));
 
-        // A parameter's default, not its name
+        // Visit a parameter's default, not its name
         for value in &mut lambda_function.args {
             if !matches!(value, ExprKind::Atom(_)) {
                 self.visit(value)?;
@@ -4045,12 +4319,13 @@ impl<'a> VisitorMutRef for Expander<'a> {
             self.visit(expr)?;
         }
 
-        // The binders and body, not the values, as `lambda`
+        // The binders and body get the let's scopes, not the values, as with `lambda`
         self.scope_chain
             .enter(l.location.syntax_object_id.0 as usize, 0);
         for (binder, _) in l.bindings.iter_mut() {
             self.scope_chain.bind_expr(binder);
         }
+        duplicate_binder(l.bindings.iter().map(|x| &x.0), "let: duplicate identifier")?;
         self.scope_chain
             .enter(l.location.syntax_object_id.0 as usize, 1);
         self.scope_chain
@@ -4090,21 +4365,20 @@ impl<'a> VisitorMutRef for Expander<'a> {
     }
 }
 
-/// The procedural macros a required module provides, by the names they're required as
+/// The procedural macros a required module provides, keyed by the names they're required under
 pub struct RequiredKernelMacros<'a> {
     pub environment: &'a str,
     pub provided: &'a FxHashMap<InternedString, InternedString>,
     pub mangler: &'a mut NameMangler,
 }
 
-// A macro use the kernel expanded
-// What a use's name means by its scopes, for the kernel
+// What a use's name refers to by its scopes, for the kernel
 #[derive(Clone, PartialEq, Eq)]
 enum ScopedDecision {
     Variable,
     // A function's procedural macro the kernel defined, by its kernel name
     Kernel(InternedString),
-    // One a body defines, by its name and its name's scopes
+    // A macro a body defines, by its name and its name's scopes
     Placeholder(InternedString, steel_parser::scopes::ScopeSetId),
     // A function's syntax-rules macro, which hides a global procedural one
     Rules,
@@ -4114,7 +4388,8 @@ enum ScopedDecision {
 enum KernelUse {
     // Nothing more to expand in it
     Done(ExprKind),
-    // What a macro made, to expand, with the marker a function's macro definition leaves
+    // A macro's output, still to be expanded, with the marker a function's macro definition
+    // leaves
     Expanded {
         expr: ExprKind,
         definition: Option<(
@@ -4130,27 +4405,26 @@ pub struct KernelExpander<'a> {
     pub(crate) changed: bool,
     builtin_modules: ModuleContainer,
     environment: Option<&'a str>,
-    // The names a required module's macros are used by, with the macros they name
+    // The names a required module's macros are used under, mapped to the macros they name
     allowed_macros: Option<&'a FxHashMap<InternedString, InternedString>>,
     mangler: Option<&'a mut NameMangler>,
-    // Local variables, which hide macros of the same name
     // How many function and let bodies deep, 1 at the top
     locals: Depth,
     required: Vec<RequiredKernelMacros<'a>>,
-    // The macros the functions around here define, with the scope depth they're defined in
-    // and the name the kernel has them by
+    // The macros the enclosing functions define, with the scope depth they're defined at and
+    // the kernel's name for them
     local_macros: Vec<(
         InternedString,
         usize,
         InternedString,
         steel_parser::scopes::ScopeSetId,
     )>,
-    // The procedural macros the bodies around here define, which hide imported ones in them
+    // The procedural macros the enclosing bodies define, which hide imported ones in them
     local_hidden: Vec<(InternedString, usize)>,
-    // Where each of `local_macros` is defined, by its kernel name
+    // Where each of `local_macros` is defined, keyed by its kernel name
     local_definitions: FxHashMap<InternedString, steel_parser::span::Span>,
-    // The variables the bodies around here define, not their parameters, by key and depth,
-    // with where
+    // The variables the enclosing bodies define (not their parameters), keyed by `LocalKey`
+    // and depth, with the span and form that defined them
     local_variables:
         FxHashMap<(LocalKey, usize), (steel_parser::span::Span, Option<SyntaxObjectId>)>,
 }
@@ -4173,8 +4447,8 @@ impl<'a> KernelExpander<'a> {
         }
     }
 
-    // For the macros of a required module, where it defines them: those named in `allowed`
-    // when given, introducing the module's names
+    // Expands a required module's macros in that module's environment, limited to `allowed`
+    // when given. Their output introduces the module's names.
     pub(crate) fn for_module(
         map: Option<&'a mut Kernel>,
         environment: &'a str,
@@ -4189,7 +4463,7 @@ impl<'a> KernelExpander<'a> {
         }
     }
 
-    // With the procedural macros required modules provide
+    // Adds the procedural macros required modules provide
     pub(crate) fn with_required(mut self, required: Vec<RequiredKernelMacros<'a>>) -> Self {
         self.required = required;
         self
@@ -4213,8 +4487,8 @@ impl<'a> KernelExpander<'a> {
         self.local_variables.retain(|x, _| x.1 <= depth);
     }
 
-    // Only a body's own define, not one in the arguments of a form left unexpanded, is checked
-    // and kept as the body's
+    // Only a body's own defines are checked and recorded, not ones inside the arguments of a
+    // form left unexpanded
     fn define_local(
         &mut self,
         name: &ExprKind,
@@ -4230,7 +4504,7 @@ impl<'a> KernelExpander<'a> {
 
         let depth = self.locals.depth();
         if depth > 1 && body {
-            // A body defines a name once, a macro of it too
+            // A body can define a name only once, including as a macro
             if let Some(defined) = self
                 .local_macros
                 .iter()
@@ -4245,8 +4519,8 @@ impl<'a> KernelExpander<'a> {
                 stop!(BadSyntax => format!("define: duplicate binding name: {}", written_name(&syn.ty.to_string())); span);
             }
 
-            // Or a variable, which the same define visited again isn't: one of the same name
-            // there and its own define form. Two a macro made can share a name's span.
+            // Or as a variable. The same define visited again has the same span and form, but
+            // two defines a macro made can share a name's span, so the form is checked too.
             if let Some((defined, defined_form)) = self.local_variables.get(&(key.clone(), depth)) {
                 if *defined != syn.span || *defined_form != form {
                     let span = if defined.start > syn.span.start {
@@ -4266,15 +4540,15 @@ impl<'a> KernelExpander<'a> {
         Ok(())
     }
 
-    // A use of a macro the kernel expands: the macro it means, expanded, for the caller to
-    // expand what it made. None if it isn't one.
+    // Expands a use of a procedural macro, leaving its output for the caller to expand. None
+    // if it isn't one.
     fn expand_use(
         &mut self,
         s: InternedString,
         l: &mut List,
         required: &mut [RequiredKernelMacros<'_>],
         kind: UseKind,
-        // What the name means by its scopes
+        // What the name refers to by its scopes
         scoped: ScopedDecision,
     ) -> Result<Option<KernelUse>> {
         let identifier = kind == UseKind::Identifier;
@@ -4287,7 +4561,7 @@ impl<'a> KernelExpander<'a> {
         let head = named.and_then(ExprKind::atom_syntax_object);
 
         let shadowed = scoped == ScopedDecision::Variable;
-        // Into `local_macros`
+        // Index into `local_macros`
         let local_index = match scoped {
             ScopedDecision::Kernel(internal) => {
                 self.local_macros.iter().position(|x| x.2 == internal)
@@ -4298,7 +4572,7 @@ impl<'a> KernelExpander<'a> {
                 .position(|x| x.0 == name && x.3 == *scopes),
             _ => None,
         };
-        // One a body defines before its definition is expanded
+        // A macro a body defines whose definition isn't expanded yet
         let pending_local = match scoped {
             ScopedDecision::Placeholder(name, scopes) => !self
                 .local_macros
@@ -4308,13 +4582,13 @@ impl<'a> KernelExpander<'a> {
             _ => false,
         };
         let head_scopes = head.map(|head| head.scopes.clone());
-        // Written by a required module's macro, which resolves where that macro is defined
+        // Written by a required module's macro, so it resolves where that macro is defined
         let foreign_name = head.is_some_and(|head| {
             self.map
                 .as_ref()
                 .is_some_and(|map| map.is_foreign(&head.scopes))
         });
-        // The environment's own macro of the name hides an imported one
+        // The environment's own macro with this name hides an imported one
         let own_macro = !foreign_name
             && (local_index.is_some()
                 || pending_local
@@ -4323,11 +4597,11 @@ impl<'a> KernelExpander<'a> {
                         .is_some_and(|env| map.has_own_macro(env, &s))
                 }));
 
-        // A macro a function defines hides the module's of its name
+        // A macro a function defines hides the module's macro with the same name
         let local_macro = local_index.is_some() || pending_local;
 
-        // A module's code names the macros it defines and imports by its
-        // prefix, private ones too
+        // A module's code can name the macros it defines and imports by its prefix, private
+        // ones too
         if let Some(map) = self.map.as_mut().filter(|_| !shadowed && !local_macro) {
             if let Some(expanded) = map.expand_prefixed_macro(&s, l, self.environment, kind)? {
                 self.changed = true;
@@ -4338,7 +4612,7 @@ impl<'a> KernelExpander<'a> {
             }
         }
 
-        // A macro of one of the required modules, in the order they're used
+        // A macro from one of the required modules, searched in the order they're required
         let index = required
             .iter()
             .position(|x| x.provided.contains_key(&s))
@@ -4348,7 +4622,7 @@ impl<'a> KernelExpander<'a> {
             let required = &mut required[index];
             let name = required.provided[&s];
 
-            // A `set!` of it only if it's a set! transformer
+            // A `set!` of it expands only if it's a set! transformer
             if map.contains_syntax_object_macro(&name, Some(required.environment))
                 && (kind != UseKind::Set || map.is_set_transformer(&name))
             {
@@ -4372,10 +4646,10 @@ impl<'a> KernelExpander<'a> {
         let name = match self.allowed_macros {
             _ if shadowed => None,
             _ if local_name.is_some() => local_name,
-            // One a body here defines, before its definition is expanded
+            // A macro a body here defines, whose definition isn't expanded yet
             _ if pending_local => None,
-            // Only the environment's own macros, not the kernel's, unless the same template
-            // defined it
+            // A foreign name doesn't refer to the environment's own macro, unless the same
+            // template defined it
             _ if foreign_name
                 && self.map.as_ref().is_some_and(|map| {
                     self.environment
@@ -4389,7 +4663,7 @@ impl<'a> KernelExpander<'a> {
             None => Some(s),
         };
 
-        // A macro a function defines is only that function's
+        // A macro a function defines is only visible in that function
         let local_macros = &self.local_macros;
         let out_of_scope = |map: &Kernel, name: &InternedString| {
             map.is_local_macro(name) && !local_macros.iter().any(|x| x.2 == *name)
@@ -4418,7 +4692,7 @@ impl<'a> KernelExpander<'a> {
                     });
 
                     if let Some(defined) = defined {
-                        // A body defines a name once
+                        // A body can only define a name once
                         let depth = self.locals.depth();
                         let here = written.map(|x| x.span).unwrap_or(l.location);
                         let duplicate = if self
@@ -4436,8 +4710,8 @@ impl<'a> KernelExpander<'a> {
                             stop!(BadSyntax => format!("define-syntax: duplicate binding name: {}", written_name(&defined.to_string())); span);
                         }
 
-                        // Under a name of its own, so it doesn't replace a macro
-                        // of the module's of that name
+                        // Give it a fresh name so it doesn't replace the module's macro of
+                        // the same name
                         let internal = fresh_local_macro_name(defined);
                         let written = match l.args.get_mut(1) {
                             Some(ExprKind::List(f)) => f.args.first_mut(),
@@ -4447,8 +4721,8 @@ impl<'a> KernelExpander<'a> {
                             a.syn.ty = TokenType::Identifier(internal);
                         }
 
-                        // What its templates write means what it does where the definition is
-                        // written, which a template that made the definition wrote, not only
+                        // Names its templates write resolve where the definition is written,
+                        // which may be inside the template that made the definition, not just
                         // where the name came from
                         let written_with = definition_scopes(l).without_use_sites();
                         let scopes = written_scopes
@@ -4462,16 +4736,16 @@ impl<'a> KernelExpander<'a> {
                             internal,
                             written_scopes.clone().unwrap_or_default(),
                         ));
-                        // The hygiene pass finds what it captures by this name,
-                        // which is the macro's own
+                        // The hygiene pass finds what the macro captures by this name, which is
+                        // the macro's own
                         local_definition =
                             Some((internal, l.location, written_scopes.unwrap_or_default()));
                         self.local_definitions.insert(internal, l.location);
                     }
                 }
 
-                // One a template defines outside a function means what its templates write
-                // where that template is
+                // For a macro a template defines outside a function, names its templates write
+                // resolve where that template is
                 if self.locals.depth() <= 1 && name.resolve() == "define-syntax" && form {
                     let written = match l.args.get(1) {
                         Some(ExprKind::List(f)) => f.first(),
@@ -4608,8 +4882,8 @@ impl<'a> KernelExpander<'a> {
         Ok(None)
     }
 
-    // The scope of a function's or a let's body, with its binders and the procedural macros
-    // the body defines, which hide others of their names in it. What `leave_scope` takes.
+    // Enters a function or let body. The procedural macros the body defines hide others with
+    // the same names in it. Returns what `leave_scope` takes.
     fn enter_scope(&mut self, body: &[ExprKind]) -> usize {
         self.locals.push_layer();
 
@@ -4630,7 +4904,7 @@ impl<'a> KernelExpander<'a> {
         self.leave_local_macros();
     }
 
-    // Whether a name could mean a procedural macro here, before the rules for which one
+    // Whether a name could refer to a procedural macro here, before working out which one
     fn may_name_macro(&self, s: &InternedString) -> bool {
         self.local_macros.iter().any(|x| x.0 == *s)
             || self
@@ -4645,8 +4919,8 @@ impl<'a> KernelExpander<'a> {
             })
     }
 
-    // A variable defined here, by the name of a define, `f` of `(define (f ...) ...)` too.
-    // At the top level it replaces a procedural macro of its name.
+    // Records a variable a define introduces, including `f` in `(define (f ...) ...)`. At the
+    // top level it replaces a procedural macro of the same name.
     fn defined(&mut self, name: &ExprKind, body: bool, form: Option<SyntaxObjectId>) -> Result<()> {
         let name = match name {
             ExprKind::List(f) => match f.args.first() {
@@ -4666,7 +4940,7 @@ impl<'a> KernelExpander<'a> {
         Ok(())
     }
 
-    // Where an earlier pass defined a function's macro, which is the body's again
+    // Restores a function's macro from the marker an earlier pass left where it was defined
     fn revive(&mut self, expr: &ExprKind) {
         if let Some((internal, span, scopes)) = kernel_local_macro_entry(expr) {
             if !self.local_macros.iter().any(|x| x.2 == internal) {
@@ -4678,16 +4952,16 @@ impl<'a> KernelExpander<'a> {
         }
     }
 
-    // What the kernel's locals are where a function's syntax-rules macro is defined
+    // Checks a function's syntax-rules macro definition against the kernel's locals
     fn rules_defined(&mut self, l: &List) -> Result<()> {
-        // A body defines a name once, a macro of it too
+        // A body can define a name only once, including as a macro
         if let Some(name) = l.get(1).and_then(ExprKind::atom_syntax_object) {
             let depth = self.locals.depth();
             if let Some((defined, _)) = local_key(name)
                 .filter(|_| depth > 1)
                 .and_then(|key| self.local_variables.get(&(key, depth)))
             {
-                // At the later of the two, named for it
+                // Report it at the later of the two, named after that one's form
                 let (span, form) = if defined.start > name.span.start {
                     (*defined, "define")
                 } else {
@@ -4700,7 +4974,7 @@ impl<'a> KernelExpander<'a> {
         Ok(())
     }
 
-    // A syntax-rules definition a procedural macro made, as the list it's written as
+    // Turns a syntax-rules definition a procedural macro produced back into a list
     fn macro_definition(&mut self, expr: &mut ExprKind) {
         let ExprKind::Macro(m) = core::mem::replace(expr, ExprKind::empty()) else {
             unreachable!()
@@ -4783,8 +5057,8 @@ fn written_at(parameters: &[ExprKind], name: &ExprKind) -> usize {
 //
 // Handling args with non defaults just means we'll just plist-get instead of plist-try-get
 // with a default value. That more or less means we'll only do a handful of scans.
-// The written procedural macro definitions at the top level of the code, which are loaded before
-// it's expanded, so they leave nothing
+// Removes the procedural macro definitions written at the top level, since they're loaded
+// before the code is expanded
 pub(crate) fn strip_loaded_procedural_definitions(form: &mut ExprKind) {
     match form {
         ExprKind::Begin(b) => b
@@ -4801,8 +5075,8 @@ pub(crate) fn strip_loaded_procedural_definitions(form: &mut ExprKind) {
     }
 }
 
-// Expands the keyword and default arguments of the functions in a lowered expression, each
-// named by the define it's the value of
+// Expands the keyword and default arguments of the functions in a lowered expression. A
+// function takes its name from the define it's the value of.
 pub(crate) fn expand_keyword_arguments(expr: &mut ExprKind) -> Result<()> {
     struct KeywordArguments {
         define_context: Option<ExprKind>,
@@ -4931,8 +5205,8 @@ fn expand_keyword_and_default_arguments(
     // #:foo [foo 10] or #:foo foo.
     let mut keyword_map: SmallVec<[(&ExprKind, &ExprKind); 6]> = SmallVec::new();
 
-    // A call can give keywords before positional arguments too, so with keywords every
-    // positional argument is found in the arguments given
+    // A call can pass keywords before positional arguments, so when there are keywords every
+    // positional argument is looked up in the arguments given
     let has_keywords = lambda_function.args.iter().any(|x| {
         matches!(
             x,
@@ -5304,7 +5578,7 @@ fn expand_keyword_and_default_arguments(
         SyntaxObject::default(TokenType::If),
     )));
 
-    // Checked before the arity, so a keyword it doesn't take is what's reported
+    // Check keywords before arity, so an unexpected keyword is what gets reported
     let arity_check_condition = ExprKind::If(Box::new(ast::If::new(
         keyword_check,
         arity_check_condition,
@@ -5412,4 +5686,26 @@ mod expansion_tests {
 
         assert_eq!(expected, input)
     }
+}
+
+// Two binders of one form that are the same identifier, the same name with the same scopes,
+// as Racket reports
+fn duplicate_binder<'a>(binders: impl Iterator<Item = &'a ExprKind>, message: &str) -> Result<()> {
+    let mut seen: Vec<&SyntaxObject> = Vec::new();
+    for binder in binders {
+        let Some(syn) = binder.atom_syntax_object() else {
+            continue;
+        };
+        let Some(name) = syn.ty.identifier() else {
+            continue;
+        };
+        if seen
+            .iter()
+            .any(|x| x.ty.identifier() == Some(name) && x.scopes == syn.scopes)
+        {
+            stop!(BadSyntax => format!("{}: {}", message, written_name(name.resolve())); syn.span);
+        }
+        seen.push(syn);
+    }
+    Ok(())
 }

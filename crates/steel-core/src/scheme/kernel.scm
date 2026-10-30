@@ -132,11 +132,11 @@
     [(#%syntax-transformer-module provide) (%proto-hash%)]
 
     [(#%syntax-transformer-module name)
-     (define (datum->syntax name)
+     (define name
        (%proto-hash%))]
 
     [(#%syntax-transformer-module name (provide ids ...) funcs ...)
-     (define (datum->syntax name)
+     (define name
        (let ()
          (begin
            funcs ...)
@@ -157,7 +157,7 @@
     [(#%syntax-transformer-module name) void]
 
     [(#%syntax-transformer-module name (provide ids ...) funcs ...)
-     (set! (datum->syntax name)
+     (set! name
            (let ()
              (begin
                funcs ...)
@@ -289,12 +289,28 @@
        (eq? (syntax-e a) (syntax-e b))
        (#%syntax-same-scopes? a b)))
 
-;; The same name meaning the same where they're used: the same local, or no local
+;; Whether they refer to the same binding where they're used. An imported name can be spelled
+;; differently.
 (define (free-identifier=? a b)
   (and (identifier? a)
        (identifier? b)
-       (eq? (syntax-e a) (syntax-e b))
        (#%syntax-same-binding? a b)))
+
+;; Fresh identifiers, one for each element of a syntax list
+(define (generate-temporaries stx)
+  (map (lambda (x) (#%datum->syntax x (gensym-sym '#%temporary)))
+       (if (list? stx) stx (syntax->list stx))))
+
+;; The transformers that define-syntax expressions made, by their keys
+(define #%transformer-values (box (hash)))
+
+(define (#%transformer-once key make)
+  (let ([made (hash-try-get (unbox #%transformer-values) key)])
+    (if made
+        made
+        (let ([made (make)])
+          (set-box! #%transformer-values (hash-insert (unbox #%transformer-values) key made))
+          made))))
 
 (define (all-but-last l)
   (reverse (cdr (reverse l))))
@@ -652,16 +668,20 @@
      ;; List of cases, in order, for the syntax rules
      (define matched-case-bindings (#%macro-case-bindings (symbol->string gensym-name)))
      (define generated-function-name (gensym-sym '#%func))
-     (define expressions
-       (transduce (map list (range 0 (length conditions))) (zipping conditions) (into-list)))
+     ;; Picks the clause by index with `if`, which the transformer's own definitions can't shadow
+     (define dispatch
+       (let loop ([i 0]
+                  [conditions conditions])
+         (if (null? (cdr conditions))
+             (car conditions)
+             `(if (#%prim.eq? #%#%index ,i) ,(car conditions) ,(loop (+ i 1) (cdr conditions))))))
 
      (define expansion-func
        ;; TODO: gensym this!
        `(define ,generated-function-name
           (lambda (#%#%index ,param-name)
             ,@body-exprs
-            (case #%#%index
-              ,@expressions))))
+            ,dispatch)))
 
      (define generated-match-function
        `(#%syntax-case-transformer ,(symbol->string gensym-name) ,generated-function-name))
@@ -674,8 +694,7 @@
                                    (symbol->string gensym-name)
                                    `(lambda (#%#%index ,param-name)
                                       ,@body-exprs
-                                      (case #%#%index
-                                        ,@expressions)))
+                                      ,dispatch))
 
      generated-match-function]
 
@@ -724,7 +743,15 @@
 
         (parse-def-syntax lowered-expression phase1-env)]
 
-       [else (error "syntax-case expects a function")])]
+       ;; Any other expression that makes a transformer, like a let around a lambda or a call
+       ;; of a phase 1 function. It's evaluated once, at the first use.
+       [else
+        (define key (symbol->string (gensym-sym 'transformer)))
+        (parse-def-syntax (list 'define-syntax
+                                (list name-expr '#%transformer-input)
+                                (list (list '#%transformer-once key (list 'lambda '() lambda-expr))
+                                      '#%transformer-input))
+                          phase1-env)])]
 
     [else (error "internal compilation error")]))
 
