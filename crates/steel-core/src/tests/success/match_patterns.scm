@@ -79,3 +79,38 @@
   (define else #f)
   (match 5 [1 'one] [else (list 'else-var else)]))
 (assert! (equal? (local-else) '(else-var 5)))
+
+;; match-syntax looks inside syntax, and binds the syntax itself
+(define (kind e)
+  (match-syntax e
+    [(list 'if c t f) (list 'if (syntax->datum c))]
+    [(list 'lambda (list args ...) body) (list 'lambda (map syntax->datum args))]
+    [(list a b ... c) (list 'many (syntax->datum a) (length b) (syntax->datum c))]
+    [10 'ten]
+    [(list) 'empty]
+    [(? identifier? x) (list 'id (syntax->datum x))]
+    [x (list 'other (syntax->datum x))]))
+(assert! (equal? (kind (quasisyntax (if x 1 2))) '(if x)))
+(assert! (equal? (kind (quasisyntax (lambda (a b) a))) '(lambda (a b))))
+(assert! (equal? (kind (quasisyntax (f 1 2 3))) '(many f 2 3)))
+(assert! (equal? (kind (quasisyntax 10)) 'ten))
+(assert! (equal? (kind (quasisyntax ())) 'empty))
+(assert! (equal? (kind (quasisyntax foo)) '(id foo)))
+(assert! (equal? (kind (quasisyntax "s")) '(other "s")))
+(assert! (equal? (match-syntax (quasisyntax (a b)) [(list x y) #f] [_ 'fell-through]) #f))
+(assert! (equal? (match-syntax (quasisyntax (#%prim.null? (#%prim.cdr y)))
+                   [`(#%prim.null? (#%prim.cdr ,e)) (syntax->datum e)]
+                   [_ 'no])
+                 'y))
+(assert! (equal? (match-syntax (quasisyntax (a (b c))) [(list _ (or (list 'b x) x)) (syntax->datum x)])
+                 'c))
+
+;; And works in a transformer
+(define-syntax (second-form stx)
+  (match-syntax stx
+    [(list _ a b) b]))
+(assert! (equal? (second-form 1 2) 2))
+(define-syntax (hash-rest stx)
+  (datum->syntax stx
+                 (list 'quote (match (hash 'a 1 'b 2) [(hash-table ('a v) rest ...) (list v rest)]))))
+(assert! (equal? (hash-rest) '(1 ((b 2)))))

@@ -11,28 +11,6 @@
 
 ; (require-builtin steel/base)
 
-;; ------------------- match functions ----------------------
-
-;;
-(define (collect-until-last-p input collected)
-  (if (null? (cdr input))
-      (list (car input) collected)
-      (collect-until-last-p (cdr input) (cons (car input) collected))))
-
-(define (collect-until-last input)
-  (collect-until-last-p input '()))
-
-(define (quoted? x)
-  (and (list? x) (not (null? x)) (equal? (car x) 'quote)))
-
-;; The entries of a hash without the given keys, as lists of key and value
-(define (match-hash-entries h keys)
-  (let loop ([h h]
-             [keys keys])
-    (if (null? keys)
-        (map (lambda (entry) (list (car entry) (cdr entry))) (hash->list h))
-        (loop (hash-remove h (car keys)) (cdr keys)))))
-
 ;; A pattern's `list` or `cons`, as written or under the module prefix a template in another
 ;; module wrote it with
 (begin-for-syntax
@@ -46,277 +24,11 @@
     (set! *gensym-counter* (+ 1 *gensym-counter*))
     (string->symbol (string-append "##gensym" (to-string *gensym-counter*))))
 
-  (define (gensym-ident identifier)
-    (concat-symbols (gensym) 'match identifier))
   (define (quoted? x)
     (and (list? x) (not (null? x)) (equal? (car x) 'quote)))
 
-  (define (compile-cons-to-list pattern depth)
-    (cond
-      [(and (list? pattern)
-            (not (null? pattern))
-            (= (length pattern) 3)
-            (pattern-keyword? (car pattern) 'cons)
-            (list? (caddr pattern))
-            (equal? (caaddr pattern) 'append))
-
-       (define first (cadr pattern))
-       (define first-depth
-         (if (and (list? first) (not (quoted? first)))
-             0
-             (+ 1 depth)))
-
-       (define rest (cadr (caddr pattern)))
-
-       (if (= depth 0)
-           (cons 'list
-                 (cons (compile-cons-to-list (cadr pattern) first-depth)
-                       (cons (compile-cons-to-list rest (+ 1 depth)) '(...))))
-
-           (cons (compile-cons-to-list (cadr pattern) first-depth)
-                 (cons (compile-cons-to-list rest depth) '(...))))]
-
-      [(and (list? pattern)
-            (not (null? pattern))
-            (= (length pattern) 3)
-            (pattern-keyword? (car pattern) 'cons)
-            (equal? (caddr pattern) '(quote ())))
-
-       (define first (cadr pattern))
-       (define first-depth
-         (if (and (list? first) (not (quoted? first)))
-             0
-             (+ 1 depth)))
-
-       (if (= depth 0)
-           (cons 'list (cons (compile-cons-to-list (cadr pattern) first-depth) '()))
-           (cons (compile-cons-to-list (cadr pattern) first-depth) '()))]
-
-      [(and (list? pattern)
-            (not (null? pattern))
-            (= (length pattern) 3)
-            (pattern-keyword? (car pattern) 'cons)
-            (list? (caddr pattern))
-            (equal? (caaddr pattern) 'cons))
-
-       (define first (cadr pattern))
-       (define rest (caddr pattern))
-
-       (define first-depth
-         (if (and (list? first) (not (quoted? first)))
-             0
-             (+ 1 depth)))
-       (define rest-depth
-         (if (and (list? rest) (not (quoted? rest)))
-             0
-             (+ 1 depth)))
-
-       ; (displayln "GETTING HERE with" first " and " rest " " first-depth " " rest-depth " " depth)
-
-       (if (= depth 0)
-           (cons 'list
-                 (cons (compile-cons-to-list (cadr pattern) first-depth)
-                       (compile-cons-to-list (caddr pattern) (+ 1 depth))))
-
-           (cons (compile-cons-to-list (cadr pattern) first-depth)
-                 (compile-cons-to-list (caddr pattern) depth)))]
-
-      [else pattern]))
-
-;; A quasiquote pattern is the list pattern it writes out: what's unquoted is a pattern,
-  ;; what's spliced in matches the rest of the elements, and anything else is a literal
   (define unquote-names '(unquote #%unquote))
   (define unquote-splicing-names '(unquote-splicing #%unquote-splicing))
-
-  (define (unquote-of? x names)
-    (and (list? x) (= (length x) 2) (member (car x) names)))
-
-  (define (compile-quasi template)
-    (cond
-      [(unquote-of? template unquote-names) (cadr template)]
-      [(null? template) (list 'quote '())]
-      [(list? template) (cons 'list (compile-quasi-items template))]
-      [else (list 'quote template)]))
-
-  (define (compile-quasi-items items)
-    (cond
-      [(null? items) '()]
-      [(unquote-of? (car items) unquote-splicing-names)
-       (cons (cadr (car items)) (cons '... (compile-quasi-items (cdr items))))]
-      [else (cons (compile-quasi (car items)) (compile-quasi-items (cdr items)))]))
-
-  ;; The quasiquote patterns in a pattern, as list patterns
-  (define (expand-quasi-patterns pattern)
-    (cond
-      [(and (list? pattern) (= (length pattern) 2) (equal? (car pattern) 'quasiquote))
-       (compile-quasi (cadr pattern))]
-      [(quoted? pattern) pattern]
-      [(list? pattern) (map expand-quasi-patterns pattern)]
-      [else pattern]))
-
-  (define var? symbol?)
-
-  (define (ignore? x)
-    (equal? x '_))
-
-  ; (define (quoted? x)
-  ; (and (list? x) (not (null? x)) (equal? (car x) 'quote)))
-
-  (define (many? x)
-    (and
-     (symbol? x)
-     (let ([str (symbol->string x)])
-       ; (and (starts-with? str "?")
-       (ends-with?
-        str
-        "...") ;; TODO: Convert this to a separate symbol, something like "a ..." rather than "a..."
-       ; )
-       )))
-
-  (define (starts-with-many? pat)
-    (and (>= (length pat) 2) (equal? (cadr pat) '...)))
-
-  (define (equal-or-insert hm key value)
-    (define existing-value (hash-try-get hm key))
-    (if existing-value
-        (if (equal? existing-value value) hm #f)
-        (hash-insert hm key value)))
-
-  (define (number->symbol n)
-    (~> n number->string string->symbol))
-
-  (define (match-p-syntax-object pattern
-                                 input
-                                 final-body-expr
-                                 depth
-                                 bound-vars
-                                 check-var?
-                                 cdr-depth
-                                 introduced-identifiers)
-
-    (cond
-      [(quoted? pattern) `(and (#%prim.equal? ,pattern (syntax-e ,input)) ,final-body-expr)]
-      [(and (list? pattern) (not (null? pattern)) (= cdr-depth 0))
-       (cond
-         [(pattern-keyword? (car pattern) 'list)
-          `(if (#%prim.list? (syntax-e ,input))
-               ;; Recur after dropping the list
-               ,(match-p-syntax-object (cdr pattern)
-                                       `(syntax-e ,input)
-                                       final-body-expr
-                                       depth
-                                       bound-vars
-                                       check-var?
-                                       (+ 1 cdr-depth)
-                                       introduced-identifiers)
-
-               #f)]
-
-         [else (error "list pattern must start with `list - found " (car pattern) pattern)])]
-
-      [(and (list? pattern) (not (null? pattern)) (starts-with-many? pattern))
-       (if (null? (cddr pattern))
-           (begin
-             (vector-push! introduced-identifiers (car pattern))
-
-             `(let ([,(car pattern) ,input]) ,final-body-expr))
-           (begin
-
-             (vector-push! introduced-identifiers (car (cddr pattern)))
-             (vector-push! introduced-identifiers (car pattern))
-
-             (let ([collected (gensym)])
-             `(let ([,collected (collect-until-last ,input)])
-                ,(if (null? (cdddr pattern))
-                     `(let ([,(car (cddr pattern)) (#%prim.car ,collected)]
-                            [,(car pattern) (#%prim.reverse (#%prim.car (#%prim.cdr ,collected)))])
-
-                        ,final-body-expr)
-
-                     #f)))))]
-
-      ;; If the pattern is to be ignored, just return the body - the automatically match
-      [(ignore? pattern) final-body-expr]
-
-      ;; If this is a free variable, bind against it.
-      ;; Note: We currently don't have the ability to check if this is a free variable
-      ;; within the context of the macro expansion
-      [(var? pattern)
-
-       (if check-var?
-           `(if (#%prim.equal? ,pattern ,(syntax-e input)) ,final-body-expr #f)
-           (begin
-             ;; Keep track of the introduced identifiers
-             (vector-push! introduced-identifiers pattern)
-
-             `(let ([,pattern ,input]) ,final-body-expr)))]
-
-      ;; If the pattern is the same, just return whether they match
-      [(atom? pattern) `(and (#%prim.equal? ,pattern (syntax-e ,input)) ,final-body-expr)]
-
-      ;; If there is no pattern, just return whether the pattern and input match
-      [(null? pattern) `(and (#%prim.null? ,input) ,final-body-expr)]
-
-      ;; TODO: Not sure how we can even get here?
-      ; (displayln "getting here!")
-      [(null? input) #f]
-
-      [else
-
-       (define cdr-input-depth (gensym-ident (concat-symbols 'cdr-input (number->symbol depth))))
-       (define car-input-depth
-         (gensym-ident (concat-symbols 'car-input (number->symbol (+ 1 depth)))))
-
-       ;; If the pattern is an atom, then we're going to bind the pattern here!
-       (define car-pattern-is-atom? (atom? (car pattern)))
-       (define should-check-var?
-         (and car-pattern-is-atom? (hashset-contains? bound-vars (car pattern))))
-
-       (define remaining
-         (match-p-syntax-object (cdr pattern)
-                                cdr-input-depth
-                                final-body-expr
-                                depth
-                                (if car-pattern-is-atom?
-                                    (hashset-insert bound-vars (car pattern))
-                                    bound-vars)
-                                should-check-var?
-                                ;; Increment the cdr depth since we're traversing across the list
-                                (+ 1 cdr-depth)
-                                introduced-identifiers))
-
-       (if remaining
-
-           `(if (#%prim.not (#%prim.null? ,input))
-                ;; Save our spot in the recursion so we don't have to recompute a bunch
-                ;; of stuff
-                (let ([,cdr-input-depth (#%prim.cdr ,input)]
-                      [,car-input-depth (#%prim.car ,input)])
-                  ,(match-p-syntax-object (car pattern)
-                                          car-input-depth
-                                          remaining
-                                          (+ 1 depth)
-                                          (if car-pattern-is-atom?
-                                              (hashset-insert bound-vars (car pattern))
-                                              bound-vars)
-                                          should-check-var?
-                                          0
-                                          introduced-identifiers))
-                #f)
-
-           #f)]))
-
-  ;; Find a way to merge these?
-  (define (go-match-syntax pattern input final-body-expr introduced-identifiers)
-    (define compile-pattern (compile-cons-to-list (expand-quasi-patterns pattern) 0))
-    (match-p-syntax-object compile-pattern
-                           input
-                           final-body-expr
-                           0
-                           (hashset)
-                           #f
-                           0
-                           introduced-identifiers))
 
   (define (pattern-identifiers pattern found)
     (define inner (if (syntax? pattern) (#%syntax-e pattern) pattern))
@@ -332,8 +44,6 @@
                        (pattern-identifiers (car items) found)
                        found))))]
       [else found]))
-
-  ;; ------------------- the value matcher ----------------------
 
   ;; A pattern is compiled with the syntax it was written with turned into data, except for the
   ;; expressions in it (predicates, functions, values and struct names), which stay syntax.
@@ -494,11 +204,28 @@
          [(assoc pat env) (mk-if (list '#%prim.equal? v (lookup pat env)) (k env) fail)]
          [else (k (cons (cons pat v) env))])]
       [(quoted? pat)
-       (if (null? (cadr pat))
-           (mk-if (list '#%prim.null? v) (k env) fail)
-           (mk-if (list '#%prim.equal? v pat) (k env) fail))]
+       (inspect v
+                (lambda (v)
+                  (if (null? (cadr pat))
+                      (mk-if (list '#%prim.null? v) (k env) fail)
+                      (mk-if (list '#%prim.equal? v pat) (k env) fail))))]
+      [(and (pair? pat) (structural? pat))
+       (inspect v (lambda (v) (compile-compound pat v env k fail)))]
       [(pair? pat) (compile-compound pat v env k fail)]
-      [else (mk-if (list '#%prim.equal? v (list 'quote pat)) (k env) fail)]))
+      [else (inspect v (lambda (v) (mk-if (list '#%prim.equal? v (list 'quote pat)) (k env) fail)))]))
+
+  ;; In match-syntax, a value is looked inside after unwrapping it, and variables bind the
+  ;; syntax itself
+  (define *syntax-mode* #f)
+
+  (define (inspect v make)
+    (if *syntax-mode*
+        (bind-temp (mk-if (list 'syntax? v) (list 'syntax-e v) v) make)
+        (make v)))
+
+  (define (structural? pat)
+    (or (syntax? (car pat))
+        (member (car pat) '(struct list list-rest list* cons vector box hash-table))))
 
   (define (compile-all pats v env k fail)
     (if (null? pats)
@@ -613,7 +340,7 @@
                [env env])
       (if (null? remaining)
           (if repeated
-              (bind-temp (list 'match-hash-entries v (cons 'list (map key-of lookups)))
+              (bind-temp (hash-entries-without v (map key-of lookups))
                          (lambda (t)
                            (compile-list (list (if (pair? repeated)
                                                    (cons 'list (cdr repeated))
@@ -635,6 +362,19 @@
                                                  (lambda (env) (loop (cdr remaining) env))
                                                  fail)))
                    fail)))))
+
+  ;; The entries of a hash without the given keys, as lists of key and value. The code is written
+  ;; out in place so that phase 1 code can use it.
+  (define (hash-entries-without v keys)
+    (define entry (gensym))
+    (list 'map
+          (mk-lambda (list entry) (list 'list (list 'car entry) (list 'cdr entry)))
+          (list 'hash->list
+                (let loop ([h v]
+                           [keys keys])
+                  (if (null? keys)
+                      h
+                      (loop (list 'hash-remove h (car keys)) (cdr keys)))))))
 
   (define (compile-struct name pats v env k fail)
     (define predicate
@@ -898,8 +638,9 @@
           " to any of the given patterns"))
 
   ;; `head` is the name of the macro as this module's template wrote it
-  (define (compile-match head exprs clauses split)
+  (define (compile-match head exprs clauses split syntax-mode)
     (define inputs (map (lambda (_) (gensym)) exprs))
+    (set! *syntax-mode* syntax-mode)
     (mk-let (map list inputs exprs)
             (compile-clauses clauses
                              inputs
@@ -911,16 +652,8 @@
     (cond
       [(null? identifiers) name]
       [(equal? (#%syntax->datum (car identifiers)) name) (car identifiers)]
-      [else (written-identifier name (cdr identifiers))]))
+      [else (written-identifier name (cdr identifiers))])))
 
-  ;; The code a match made, with each variable it binds as the identifier the pattern wrote,
-  ;; so that it's the variable the pattern's author means
-  (define (with-written-identifiers expr names written)
-    (cond
-      [(symbol? expr) (if (member expr names) (written-identifier expr written) expr)]
-      [(and (pair? expr) (equal? (car expr) 'quote)) expr]
-      [(list? expr) (map (lambda (x) (with-written-identifiers x names written)) expr)]
-      [else expr])))
 
 ;; ----------------- match --------------------
 
@@ -929,7 +662,7 @@
           (define items (stx-list expression))
           (when (< (length items) 2)
             (error! "match: expects an expression and clauses"))
-          (syntax/loc (compile-match (car items) (list (cadr items)) (cddr items) list)
+          (syntax/loc (compile-match (car items) (list (cadr items)) (cddr items) list #f)
             (syntax-span expression)))
 
 (defmacro (match*-clauses expression)
@@ -946,7 +679,8 @@
                                  (unless (and split (= (length split) (length exprs)))
                                    (error! "match*: expected a pattern for each expression"
                                            (datum-of patterns)))
-                                 split)))
+                                 split))
+                             #f)
             (syntax-span expression)))
 
 ;; Defines the pattern variables where the form is written
@@ -964,6 +698,7 @@
                   "Unable to match the given expression: "
                   input
                   "to any of the patterns"))
+          (set! *syntax-mode* #f)
           (syntax/loc
               (list 'define-values
                     (map (lambda (var) (written-identifier var written)) vars)
@@ -979,6 +714,14 @@
                                                                         vars)))
                                                            fail))
                                         fail)))
+            (syntax-span expression)))
+
+;; The syntax's contents are matched, and pattern variables are bound to syntax
+(defmacro (match-syntax-clauses expression)
+          (define items (stx-list expression))
+          (when (< (length items) 2)
+            (error! "match-syntax: expects an expression and clauses"))
+          (syntax/loc (compile-match (car items) (list (cadr items)) (cddr items) list #t)
             (syntax-span expression)))
 
 (define-syntax match
@@ -1010,91 +753,6 @@
     [(_ () body ...) (let () body ...)]
     [(_ ([pat expr] rest ...) body ...) (match expr [pat (match-let* (rest ...) body ...)])]))
 
-(defmacro (single-match-syntax expression)
-          (define unwrapped (syntax-e expression))
-          ;; Unwrapping entirely, not what we want! We want to
-          ;; wrap it back up with the span of the original definition!
-          ;; The variable as written, which names the binder it was written by
-          (define variable (second unwrapped))
-          (define pattern (#%syntax->datum (third unwrapped)))
-          (define body (list-ref unwrapped 3))
-          ;; Keep track of all of the identifiers that this
-          ;; expression introduces
-          ;; TODO: Keep one top level around and clear each time. Then
-          ;; we won't keep around any garbage
-          (define introduced-identifiers (mutable-vector))
-          (define matcher (go-match-syntax pattern variable body introduced-identifiers))
-          (define res
-            (with-written-identifiers matcher
-                                      (mutable-vector->list introduced-identifiers)
-                                      (pattern-identifiers (third unwrapped) '())))
-          (syntax/loc res
-            (syntax-span expression)))
-
-;; ----------------- match! syntax --------------------
-
-(define-syntax match-syntax-dispatch
-  (syntax-rules (else)
-    ;; Explicitly giving an else case
-    [(match-syntax-dispatch expr [else e0 e1 ...])
-     (begin
-       e0
-       e1 ...)]
-
-    ;; Adding guard on one of the expressions
-    [(match-syntax-dispatch expr [p1 #:when when-expr e2 ...] c0 c1 ...)
-     (let ([match? (single-match-syntax expr
-                                        p1
-                                        (if when-expr
-                                            (begin
-                                              e2 ...)
-                                            #f))])
-       (if (not (equal? #f match?))
-           match?
-           (match-syntax-dispatch expr c0 c1 ...)))]
-
-    ;; Generic recursive case
-    [(match-syntax-dispatch expr [p1 e2 ...] c0 c1 ...)
-     (let ([match? (single-match-syntax expr
-                                        p1
-                                        (begin
-                                          e2 ...))])
-       (if (not (equal? #f match?))
-           match?
-
-           (match-syntax-dispatch expr c0 c1 ...)))]
-
-    [(match-syntax-dispatch expr (p1 #:when when-expr e2 ...))
-     (let ([match? (single-match-syntax expr
-                                        p1
-                                        (if when-expr
-                                            (begin
-                                              e2 ...)
-                                            #f))])
-       (if (not (equal? #f match?))
-           match?
-           (error! "Unable to match expression: " expr " to any of the given patterns")))]
-
-    ;; When there isn't an else case given, the last case
-    ;; Should include a failure mode
-    [(match-syntax-dispatch expr (p1 e2 ...))
-     (let ([match? (single-match-syntax expr
-                                        p1
-                                        (begin
-                                          e2 ...))])
-       (if (not (equal? #f match?))
-           match?
-           (error! "Unable to match expression: " expr " to any of the given patterns")))]))
-
 (define-syntax match-syntax
   (syntax-rules ()
-    [(match-syntax expr pat) (let ([evald-expr expr]) (match-syntax-dispatch evald-expr pat))]
-    [(match-syntax expr pat pats ...)
-     (let ([evald-expr expr]) (match-syntax-dispatch evald-expr pat pats ...))]))
-
-; (match (list 10 20 30 40 50)
-;   [(?x 20 ?y 40 ?z) (+ ?x ?y ?z)])
-
-;; --------------------- match! tests ------------------------
-
-; (displayln "--------------------- match! tests ----------------------")
+    [(_ expr clause ...) (match-syntax-clauses expr clause ...)]))

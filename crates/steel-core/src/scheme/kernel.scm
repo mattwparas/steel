@@ -227,20 +227,7 @@
       (reverse accum)
       (enumerate (+ start 1) (cons (list (car lst) start) accum) (cdr lst))))
 
-(define (hash->list hm)
-  (transduce (transduce hm (into-list))
-             (mapping (lambda (pair)
-                        ;; If we have a symbol as a key, that means we need to
-                        ;; quote it before we put it back into the map
-                        (if (symbol? (car pair))
-                            ;; TODO: @Matt - this causes a parser error
-                            ;; (cons `(quote ,(car x)) (cdr x))
-                            (list (list 'quote (car pair)) (cadr pair))
-                            pair)))
-             (flattening)
-             (into-list)))
-
-;; Like `hash->list`, but only for the given keys, in their order.
+;; The keys and values of a hash map as arguments to `hash`, for the given keys in their order.
 (define (option-arguments hm keys)
   (apply append
          (map (lambda (k)
