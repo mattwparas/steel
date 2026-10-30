@@ -2642,3 +2642,38 @@ fn rename_in_and_rename_out() {
         "(kw-literal other kwv-literal 11 kw-used 12 kw-literal)"
     );
 }
+
+#[test]
+fn struct_out_provides_a_structs_names() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "structs/lib".to_owned(),
+        r#"(provide (struct-out pt) (struct-out cell) (prefix-out q: (struct-out other)))
+           (struct pt (x y) #:transparent)
+           (struct cell (v) #:mutable)
+           (struct other (w))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "structs/lib")
+               (define c (cell 1))
+               (set-cell-v! c 5)
+               (list (pt? (pt 1 2)) (pt-y (pt 1 2)) (match (pt 1 2) [(pt a b) (+ a b)])
+                     (cell-v c) (q:other-w (q:other 7)) (q:other? 3))"#
+        )
+        .to_string(),
+        "(#true 2 3 5 7 #false)"
+    );
+
+    engine.register_steel_module(
+        "structs/bad".to_owned(),
+        "(provide (struct-out nope)) (define nope 1)".to_owned(),
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "structs/bad")"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("isn't a struct this module defines"));
+}

@@ -155,6 +155,7 @@ test_harness_success! {
     template_binder_scope,
     scope_hygiene,
     match_patterns,
+    match_for_syntax,
     own_builtin_redefinition,
     begin_in_body_and_expression_position,
     define_values_one_name,

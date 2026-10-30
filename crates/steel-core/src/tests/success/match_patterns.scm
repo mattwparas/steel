@@ -18,7 +18,7 @@
 (assert! (equal? (match '(1 2) [(and l (list a b)) (list l a b)]) '((1 2) 1 2)))
 (assert! (equal? (match 2 [(or 1 2) 'one-or-two] [_ 'other]) 'one-or-two))
 (assert! (equal? (match 1 [(or (list a) a) a]) 1))
-(assert! (equal? (match '(1) [(or (list a) b) (list a b)]) '(1 #f)))
+(assert! (equal? (match '(2 1) [(or (list 1 a) (list a 1)) a]) 2))
 (assert! (equal? (match 3 [(not 4) 'not-four] [_ 'four]) 'not-four))
 (assert! (equal? (match 4 [(not 4) 'not-four] [_ 'four]) 'four))
 (assert! (equal? (match 4 [(app add1 n) n]) 5))
@@ -114,3 +114,69 @@
   (datum->syntax stx
                  (list 'quote (match (hash 'a 1 'b 2) [(hash-table ('a v) rest ...) (list v rest)]))))
 (assert! (equal? (hash-rest) '(1 ((b 2)))))
+
+;; Pattern variables are identifiers, so a template's and a use site's of the same name differ
+(define x-outer 'outer)
+(define-syntax pair-with
+  (syntax-rules ()
+    [(_ e p body) (match e [(list tmp p) (list tmp body)] [_ 'no])]))
+(assert! (equal? (pair-with '(1 2) tmp tmp) '(1 2)))
+(define-syntax with-pred
+  (syntax-rules ()
+    [(_ e p body) (match e [(list p (? (lambda (x) (number? x)))) body] [_ 'no])]))
+(assert! (equal? (let ([x 'shadowed]) (with-pred '(1 2) x x)) 1))
+(define-syntax tagged
+  (syntax-rules ()
+    [(_ e p body) (match e [(list p 'v) body] [_ 'no])]))
+(assert! (equal? (tagged '(1 v) v v) 1))
+
+;; A variable bound before an ellipsis or an or has to be equal to what they match
+(assert! (equal? (match '((1 1) 1 1) [(list x x ...) x] [_ 'no]) '(1 1)))
+(assert! (equal? (match '(1 1 1) [(list x x ...) x] [_ 'no]) 'no))
+(assert! (equal? (match '((1 2) (1 2)) [(list (list x ...) (list x ...)) x]) '(1 2)))
+(assert! (equal? (match '((1 2) (1 3)) [(list (list x ...) (list x ...)) x] [_ 'no]) 'no))
+(assert! (equal? (match '(1 1) [(list x (or (list x) x)) 'ok] [_ 'no]) 'ok))
+(assert! (equal? (match '(1 2) [(list x (or (list x) x)) 'ok] [_ 'no]) 'no))
+
+(assert! (equal? (match '#:foo [#:foo 'kw] [_ 'other]) 'kw))
+(assert! (equal? (match 1 [(app (lambda (v) (values v (+ v 1))) a b) (list a b)]) '(1 2)))
+(assert! (equal? (match (hash 'a 1) [(hash-table) 'empty] [_ 'no]) 'no))
+(assert! (equal? (match (hash) [(hash-table) 'empty] [_ 'no]) 'empty))
+(assert! (equal? (match (hash 1 'one "s" 'str) [(hash-table (1 a) ("s" b)) (list a b)]) '(one str)))
+(assert! (equal? (match (hash 'a 1 'b 2) [(hash-table ('a v) rest ..1) v] [_ 'no]) 1))
+
+(assert! (equal? (match '(1 2 3) [`(1 ,@(list a b)) (list a b)] [_ 'no]) '(2 3)))
+(assert! (equal? (match '(1 2 3) [`(,@(list a ...) ,b) (list a b)] [_ 'no]) '((1 2) 3)))
+(assert! (equal? (match '(1 2) [`(,a ,@'(2)) a] [_ 'no]) 1))
+(assert! (equal? (match '(1 2 3) [`(,x ...) x] [_ 'no]) '(1 2 3)))
+(assert! (equal? (match '(1 #(2 3)) [`(1 #(,a ,b)) (list a b)] [_ 'no]) '(2 3)))
+(assert! (equal? (match (cons 1 2) [`(,a . ,b) (list a b)] [_ 'no]) '(1 2)))
+
+(assert! (equal? (match '(1 2 3) [(list a ___) a]) '(1 2 3)))
+(assert! (equal? (match '(1 2 3) [(list a __3) a] [_ 'no]) '(1 2 3)))
+(assert! (equal? (match '(1 2 3) [(list a ..0) a]) '(1 2 3)))
+(assert! (equal? (match '(1 2 3 4) [(list-rest a ... (list 4)) a] [_ 'no]) '(1 2 3)))
+(assert! (equal? (match '(1 2 3 . 4) [(list-rest a ... 4) a] [_ 'no]) '(1 2 3)))
+(assert! (equal? (match '((1 (2 3)) (4 (5))) [(list (list a (list b ...)) ...) (list a b)])
+                 '((1 4) ((2 3) (5)))))
+(assert! (equal? (match 3 [(not 1 2) 'neither] [_ 'one-of]) 'neither))
+(assert! (equal? (match 2 [(not 1 2) 'neither] [_ 'one-of]) 'one-of))
+(assert! (equal? (match '(1 (2)) [(or (list a (list b)) (list b a)) (list a b)]) '(1 2)))
+(assert! (equal? (match '(1 2) [(== '(1 2)) 'same] [_ 'no]) 'same))
+(assert! (equal? (match* (1 2) [(a b) #:when (> a b) 'gt] [(a b) #:when (< a b) 'lt]) 'lt))
+(assert! (equal? (match 1 [1 #:when #f 'no] [1 (=> next) (next)] [_ 'last]) 'last))
+
+(struct mut (x) #:mutable)
+(define m (mut 1))
+(set-mut-x! m 2)
+(assert! (equal? (match m [(mut v) v]) 2))
+(struct holder (b))
+(assert! (box? (match (holder (box 1)) [(holder b) b])))
+(assert! (equal? (match (holder 1) [(pt a b) 'pt] [_ 'other]) 'other))
+(assert! (equal? (match (vector 1 2) [(vector a b) (+ a b)]) 3))
+(assert! (equal? (match #(1 2) [(vector a ...) a]) '(1 2)))
+
+(define-syntax (match-in-transformer stx)
+  (define result (match-syntax stx [(list _ (list 'quote (list a b))) (syntax->datum b)]))
+  (datum->syntax stx (list 'quote result)))
+(assert! (equal? (match-in-transformer '(1 2)) 2))

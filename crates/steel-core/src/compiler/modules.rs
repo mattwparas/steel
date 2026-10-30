@@ -1497,6 +1497,91 @@ fn reexport_requires(
         .collect()
 }
 
+// The structs the module's own `struct` forms define, with their fields and whether they're
+// mutable
+fn written_structs(ast: &[ExprKind]) -> FxHashMap<InternedString, (Vec<InternedString>, bool)> {
+    let mut structs = FxHashMap::default();
+    for expr in ast {
+        let Some(l) = expr.list() else {
+            continue;
+        };
+        if l.first_ident().map(|x| x.resolve()) != Some("struct") {
+            continue;
+        }
+        let Some(name) = l.args.get(1).and_then(ExprKind::atom_identifier) else {
+            continue;
+        };
+        let Some(fields) = l.args.get(2).and_then(ExprKind::list).and_then(|fields| {
+            fields
+                .args
+                .iter()
+                .map(|x| x.atom_identifier().copied())
+                .collect::<Option<Vec<_>>>()
+        }) else {
+            continue;
+        };
+        let mutable = l.args.iter().skip(3).any(|x| {
+            matches!(
+                x.atom_syntax_object().map(|x| &x.ty),
+                Some(TokenType::Keyword(k)) if k.resolve() == "#:mutable"
+            )
+        });
+        structs.insert(*name, (fields, mutable));
+    }
+    structs
+}
+
+// Provide specs with each `(struct-out name)` among them, from `start` on, replaced by the names
+// the struct's definition makes
+fn expand_struct_outs(
+    specs: ThinVec<ExprKind>,
+    structs: &FxHashMap<InternedString, (Vec<InternedString>, bool)>,
+    start: usize,
+) -> Result<ThinVec<ExprKind>> {
+    let mut expanded = ThinVec::with_capacity(specs.len());
+    for (i, spec) in specs.into_iter().enumerate() {
+        let Some(l) = spec
+            .list()
+            .filter(|x| i >= start && x.first_ident().is_some_and(|x| x.resolve() == "struct-out"))
+        else {
+            expanded.push(spec);
+            continue;
+        };
+        let Some(name) = l
+            .args
+            .get(1)
+            .filter(|_| l.len() == 2)
+            .and_then(ExprKind::atom_identifier)
+        else {
+            stop!(BadSyntax => "struct-out expects the name of a struct"; spec.span());
+        };
+        let Some((fields, mutable)) = structs.get(name) else {
+            stop!(BadSyntax => format!("struct-out: {} isn't a struct this module defines", name); spec.span());
+        };
+        let name = name.resolve();
+        let mut names = vec![
+            name.to_string(),
+            format!("{name}?"),
+            format!("struct:{name}"),
+            format!("___{name}-options___"),
+        ];
+        for field in fields {
+            names.push(format!("{name}-{}", field.resolve()));
+        }
+        if *mutable {
+            for field in fields {
+                names.push(format!("set-{name}-{}!", field.resolve()));
+            }
+        }
+        expanded.extend(
+            names
+                .into_iter()
+                .map(|x| ExprKind::atom(InternedString::from(x))),
+        );
+    }
+    Ok(expanded)
+}
+
 pub static MANGLER_PREFIX: &str = "##mm";
 pub static MODULE_PREFIX: &str = "__module-";
 pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
@@ -4058,6 +4143,25 @@ impl<'a> ModuleBuilder<'a> {
                 }
             }
             provide.args = expanded;
+        }
+        // `(struct-out name)` provides what the module's `struct` form for it defines
+        let structs = written_structs(&ast);
+        for provide in provides.iter_mut() {
+            let Some(provide) = provide.list_mut() else {
+                continue;
+            };
+            let args = core::mem::take(&mut provide.args);
+            provide.args = expand_struct_outs(args, &structs, 0)?;
+            // Also in what a prefix-out provides
+            for spec in provide.args.iter_mut() {
+                if let Some(l) = spec
+                    .list_mut()
+                    .filter(|x| x.first_ident().is_some_and(|x| x.resolve() == "prefix-out"))
+                {
+                    let args = core::mem::take(&mut l.args);
+                    l.args = expand_struct_outs(args, &structs, 2)?;
+                }
+            }
         }
         // `(prefix-out p: name ...)` provides each name as `p:name`, and
         // `(rename-out [name other] ...)` each as the other
