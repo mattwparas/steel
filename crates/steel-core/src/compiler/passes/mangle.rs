@@ -228,7 +228,7 @@ pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
 }
 
 // A procedural macro's definition, as a macro's template can write it
-fn is_procedural_definition(l: &List) -> bool {
+pub(crate) fn is_procedural_definition(l: &List) -> bool {
     l.first()
         .and_then(ExprKind::atom_syntax_object)
         .is_some_and(|x| match &x.ty {

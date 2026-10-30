@@ -2339,7 +2339,7 @@ fn datum_to_syntax(context: SteelVal, datum: SteelVal) -> Result<SteelVal> {
 
     fn convert(
         context: &crate::rvals::Syntax,
-        scopes: steel_parser::scopes::ScopeSetId,
+        scopes: &steel_parser::scopes::ScopeSetId,
         datum: &SteelVal,
     ) -> SteelVal {
         let span = context.syntax_loc();
@@ -2348,23 +2348,18 @@ fn datum_to_syntax(context: SteelVal, datum: SteelVal) -> Result<SteelVal> {
             SteelVal::SyntaxObject(_) => datum.clone(),
             SteelVal::ListV(items) => crate::rvals::Syntax::proto(
                 datum.clone(),
-                SteelVal::ListV(
-                    items
-                        .iter()
-                        .map(|x| convert(context, scopes.clone(), x))
-                        .collect(),
-                ),
+                SteelVal::ListV(items.iter().map(|x| convert(context, scopes, x)).collect()),
                 span,
             )
-            .with_scopes(scopes)
+            .with_scopes(scopes.clone())
             .into(),
             _ => crate::rvals::Syntax::proto(datum.clone(), datum.clone(), span)
-                .with_scopes(scopes)
+                .with_scopes(scopes.clone())
                 .into(),
         }
     }
 
-    Ok(convert(context, scopes, &datum))
+    Ok(convert(context, &scopes, &datum))
 }
 
 // A part of a syntax object, with its symbols the interned ones under the names the code
@@ -3292,8 +3287,8 @@ fn syntax_module() -> BuiltInModule {
                                 InternedString::from(x.as_str()),
                                 InternedString::from(y.as_str()),
                             );
-                            crate::parser::expand_visitor::local_binding(x, a.scopes())
-                                == crate::parser::expand_visitor::local_binding(y, b.scopes())
+                            crate::parser::expand_visitor::local_binding(x, &a.scopes())
+                                == crate::parser::expand_visitor::local_binding(y, &b.scopes())
                         }
                         _ => false,
                     }

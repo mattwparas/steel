@@ -84,7 +84,7 @@ impl ResolveByScopes {
     fn template_global_of(
         &self,
         name: InternedString,
-        scopes: steel_parser::scopes::ScopeSetId,
+        scopes: &steel_parser::scopes::ScopeSetId,
     ) -> Option<InternedString> {
         let defined = self.earlier.get(&name)?;
         // Most often the one the same expansion wrote
@@ -200,7 +200,7 @@ impl ResolveByScopes {
         let Some(binder) = by_scopes else {
             // No local: one a template defines at the top level, a prelude builtin, or a global,
             // which a local of its name in the way is renamed for
-            if let Some(global) = self.template_global_of(name, scopes.clone()) {
+            if let Some(global) = self.template_global_of(name, scopes) {
                 a.syn.ty = TokenType::Identifier(global);
                 a.syn.unresolved = false;
                 return;

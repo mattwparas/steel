@@ -1008,14 +1008,14 @@ thread_local! {
 // binder's scopes, as `meaning` finds it. None for a global or a free name.
 pub(crate) fn local_binding(
     name: InternedString,
-    scopes: steel_parser::scopes::ScopeSetId,
+    scopes: &steel_parser::scopes::ScopeSetId,
 ) -> Option<steel_parser::scopes::ScopeSetId> {
     BINDER_TABLES.with(|x| {
         x.borrow()
             .last()?
             .get(&name)?
             .iter()
-            .filter(|x| x.is_subset(&scopes))
+            .filter(|x| x.is_subset(scopes))
             .max_by_key(|x| x.len())
             .cloned()
     })
@@ -1161,7 +1161,7 @@ impl ScopeChain {
             // Without the use-site scopes of the body's macro uses that made it, so what's
             // written elsewhere in the body names it
             self.stamp(syn);
-            syn.scopes = self.without_body_use_sites(syn.scopes.clone());
+            syn.scopes = self.without_body_use_sites(core::mem::take(&mut syn.scopes));
             self.record(syn);
         }
     }
@@ -1373,7 +1373,7 @@ pub(crate) fn record_foreign(introduction: steel_parser::scopes::Scope) {
 }
 
 // Whether a required module's macro wrote it
-pub(crate) fn is_foreign(scopes: steel_parser::scopes::ScopeSetId) -> bool {
+pub(crate) fn is_foreign(scopes: &steel_parser::scopes::ScopeSetId) -> bool {
     FOREIGN_EXPANSIONS.with(|x| {
         let foreign = x.borrow();
         !foreign.is_empty()
@@ -2395,7 +2395,7 @@ impl<'a> Expander<'a> {
         // defined
         if syn.unresolved
             || syn.scopes.contains(steel_parser::scopes::Scope::prelude())
-            || is_foreign(syn.scopes.clone())
+            || is_foreign(&syn.scopes)
             || self.exclusions.contains(s)
         {
             return false;
@@ -3642,7 +3642,7 @@ impl<'a> Expander<'a> {
                             .and_then(ExprKind::atom_syntax_object)
                             .is_some_and(|x| {
                                 x.scopes.contains(steel_parser::scopes::Scope::prelude())
-                                    || is_foreign(x.scopes.clone())
+                                    || is_foreign(&x.scopes)
                             });
                         let alias = (prelude_template && PRELUDE_ALIASES.load(Ordering::Relaxed))
                             .then(|| prelude_macro_alias(s))
@@ -4312,7 +4312,7 @@ impl<'a> KernelExpander<'a> {
         let foreign_name = head.is_some_and(|head| {
             self.map
                 .as_ref()
-                .is_some_and(|map| map.is_foreign(head.scopes.clone()))
+                .is_some_and(|map| map.is_foreign(&head.scopes))
         });
         // The environment's own macro of the name hides an imported one
         let own_macro = !foreign_name
@@ -4460,7 +4460,7 @@ impl<'a> KernelExpander<'a> {
                             defined,
                             self.locals.depth(),
                             internal,
-                            written_scopes.clone().unwrap_or_default().clone(),
+                            written_scopes.clone().unwrap_or_default(),
                         ));
                         // The hygiene pass finds what it captures by this name,
                         // which is the macro's own

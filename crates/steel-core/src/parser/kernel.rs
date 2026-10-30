@@ -1415,9 +1415,9 @@ impl VisitorMutRefUnit for Introduced<'_> {
 
         impl VisitorMutRefUnit for TemplateScopes<'_> {
             fn visit_atom(&mut self, a: &mut Atom) {
-                if let (false, Some((captured, scope))) = (self.0.wrote(&a.syn), self.1.clone()) {
+                if let (false, Some((captured, scope))) = (self.0.wrote(&a.syn), self.1.as_ref()) {
                     if a.syn.ty.identifier().is_some() {
-                        a.syn.scopes = a.syn.scopes.union(&captured).add(scope);
+                        a.syn.scopes = a.syn.scopes.union(captured).add(*scope);
                     }
                 }
             }
@@ -2964,7 +2964,7 @@ impl Kernel {
     }
 
     // Whether a required module's macro introduced a name with these scopes
-    pub(crate) fn is_foreign(&self, scopes: steel_parser::scopes::ScopeSetId) -> bool {
+    pub(crate) fn is_foreign(&self, scopes: &steel_parser::scopes::ScopeSetId) -> bool {
         crate::parser::expand_visitor::is_foreign(scopes)
     }
 
@@ -3117,8 +3117,7 @@ impl Kernel {
 
         // The input's lists have the use's scopes, as its atoms do, which `datum->syntax` can
         // take its context from
-        let syntax_objects =
-            crate::rvals::with_list_scopes(&syntax_objects, use_scopes.clone(), use_site);
+        let syntax_objects = crate::rvals::with_list_scopes(&syntax_objects, &use_scopes, use_site);
 
         MACRO_INPUTS.with(|x| {
             x.borrow_mut().push(MacroInput {

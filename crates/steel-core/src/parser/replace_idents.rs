@@ -274,6 +274,8 @@ pub struct ReplaceExpressions<'a> {
     binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
     wildcard: InternedString,
     escaped: bool,
+    // In a transformer the template writes, where datum->syntax is the procedure
+    in_transformer: bool,
 }
 
 fn check_ellipses(expr: &ExprKind) -> bool {
@@ -366,6 +368,7 @@ impl<'a> ReplaceExpressions<'a> {
             fallback_bindings,
             wildcard: InternedString::from_static("_"),
             escaped: false,
+            in_transformer: false,
         }
     }
 
@@ -665,6 +668,10 @@ impl<'a> ReplaceExpressions<'a> {
     }
 
     fn vec_expr_datum_to_syntax(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
+        if self.in_transformer {
+            return Ok(None);
+        }
+
         match vec_exprs.first() {
             Some(ExprKind::Atom(Atom {
                 syn:
@@ -845,8 +852,13 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                         // return self.visit(expanded);
                     }
 
+                    let entering = crate::compiler::passes::mangle::is_procedural_definition(l);
+                    let in_transformer = self.in_transformer;
+                    self.in_transformer = in_transformer || entering;
+                    let spliced = self.visit_elements(&mut l.args);
+                    self.in_transformer = in_transformer;
                     // An improper list spliced in at the end makes this one improper
-                    if self.visit_elements(&mut l.args)? {
+                    if spliced? {
                         l.improper = true;
                     }
 

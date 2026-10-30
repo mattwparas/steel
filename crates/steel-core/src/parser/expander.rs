@@ -1172,14 +1172,14 @@ fn literal_shadowed(
     if !syn.scopes.introduced() {
         return in_scope.contains(name)
             || globals.contains(name)
-            || crate::parser::expand_visitor::local_binding(*name, syn.scopes.clone()).is_some();
+            || crate::parser::expand_visitor::local_binding(*name, &syn.scopes).is_some();
     }
 
     let elsewhere =
-        syn.scopes.has_module() || crate::parser::expand_visitor::is_foreign(syn.scopes.clone());
+        syn.scopes.has_module() || crate::parser::expand_visitor::is_foreign(&syn.scopes);
 
     !elsewhere && globals.contains(name)
-        || crate::parser::expand_visitor::local_binding(*name, syn.scopes.clone()).is_some()
+        || crate::parser::expand_visitor::local_binding(*name, &syn.scopes).is_some()
 }
 
 fn match_single_pattern(

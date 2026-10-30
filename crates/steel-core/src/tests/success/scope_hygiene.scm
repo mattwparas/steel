@@ -77,3 +77,21 @@
   (syntax-case stx ()
     [(_ k body) (with-syntax ([it (datum->syntax #'(k z) 'it)]) #'(let ([it 10]) body))]))
 (assert! (equal? (with-template-it foo it) 1))
+
+;; In a transformer a template writes, datum->syntax is the procedure, not the template's
+;; identifier joining
+(define-syntax phase1-getter
+  (syntax-rules ()
+    [(_ get v)
+     (begin
+       (begin-for-syntax
+         (define p1 v))
+       (define-syntax (get stx)
+         (datum->syntax stx p1)))]))
+(phase1-getter get-p1 1)
+(assert! (equal? (get-p1) 1))
+(define-syntax pattern-getter
+  (syntax-rules ()
+    [(_ get v) (define-syntax (get stx) (datum->syntax stx v))]))
+(pattern-getter get-v 3)
+(assert! (equal? (get-v) 3))

@@ -933,14 +933,14 @@ pub(crate) fn improper_list_elements(pair: &crate::values::lists::Pair) -> (Vec<
 // what a macro's use wrote
 pub(crate) fn with_list_scopes(
     value: &SteelVal,
-    scopes: steel_parser::scopes::ScopeSetId,
+    scopes: &steel_parser::scopes::ScopeSetId,
     use_site: steel_parser::scopes::Scope,
 ) -> SteelVal {
     let each = |items: &crate::values::lists::List<SteelVal>| -> SteelVal {
         ListV(
             items
                 .iter()
-                .map(|x| with_list_scopes(x, scopes.clone(), use_site))
+                .map(|x| with_list_scopes(x, scopes, use_site))
                 .collect(),
         )
     };
@@ -950,7 +950,7 @@ pub(crate) fn with_list_scopes(
                 let mut syntax = Syntax::clone(s);
                 syntax.syntax = each(items);
                 if syntax.scopes.is_empty() {
-                    syntax.scopes = scopes;
+                    syntax.scopes = scopes.clone();
                 }
                 syntax.scopes = syntax.scopes.add(use_site);
                 SyntaxObject(Gc::new(syntax))

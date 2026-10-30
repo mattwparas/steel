@@ -146,8 +146,9 @@ static SERIAL: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::ne
 #[derive(Default)]
 struct Interner {
     sets: FxHashMap<u64, Vec<Weak<SetData>>>,
-    // Interned since the dead entries were last dropped
+    // Interned since the dead entries were last dropped, and how many entries were left then
     since_prune: usize,
+    after_prune: usize,
 }
 
 fn hash_scopes(scopes: &[Scope]) -> u64 {
@@ -158,11 +159,12 @@ fn hash_scopes(scopes: &[Scope]) -> u64 {
 }
 
 impl Interner {
-    fn intern(&mut self, scopes: Vec<Scope>) -> ScopeSetId {
+    // Looked up before anything is allocated
+    fn intern(&mut self, scopes: &[Scope]) -> ScopeSetId {
         if scopes.is_empty() {
             return ScopeSetId::EMPTY;
         }
-        let hash = hash_scopes(&scopes);
+        let hash = hash_scopes(scopes);
         let bucket = self.sets.entry(hash).or_default();
         let mut found = None;
         bucket.retain(|x| match x.upgrade() {
@@ -179,17 +181,23 @@ impl Interner {
         }
         let set = Arc::new(SetData {
             serial: SERIAL.fetch_add(1, Ordering::Relaxed),
-            scopes: scopes.into_boxed_slice(),
+            scopes: scopes.into(),
         });
         bucket.push(Arc::downgrade(&set));
 
+        // The dead entries go once as many sets have been made as there were entries left,
+        // so the table stays within twice the live sets
         self.since_prune += 1;
-        if self.since_prune > 1 << 12 && self.since_prune > self.sets.len() {
+        if self.since_prune > self.after_prune.max(1 << 12) {
             self.since_prune = 0;
             self.sets.retain(|_, bucket| {
                 bucket.retain(|x| x.strong_count() > 0);
                 !bucket.is_empty()
             });
+            self.after_prune = self.sets.len();
+            if self.sets.capacity() > 4 * self.sets.len().max(1 << 10) {
+                self.sets.shrink_to_fit();
+            }
         }
 
         ScopeSetId(Some(set))
@@ -198,30 +206,21 @@ impl Interner {
 
 static INTERNER: Lazy<Mutex<Interner>> = Lazy::new(Default::default);
 
-fn intern(scopes: Vec<Scope>) -> ScopeSetId {
+fn intern(scopes: &[Scope]) -> ScopeSetId {
     if scopes.is_empty() {
         return ScopeSetId::EMPTY;
     }
     INTERNER.lock().unwrap().intern(scopes)
 }
 
-// A memoised operation's operand or result, which is only what it was while it's alive
+// A memoised operation's result, which is only that while it's alive. Operands are known by
+// their serials, which no other set ever has.
 #[derive(Clone)]
 struct Held(Option<Weak<SetData>>);
 
 impl Held {
     fn of(set: &ScopeSetId) -> Self {
         Held(set.0.as_ref().map(Arc::downgrade))
-    }
-
-    fn is(&self, set: &ScopeSetId) -> bool {
-        match (&self.0, &set.0) {
-            (None, None) => true,
-            (Some(held), Some(set)) => {
-                held.strong_count() > 0 && Weak::ptr_eq(held, &Arc::downgrade(set))
-            }
-            _ => false,
-        }
     }
 
     fn get(&self) -> Option<ScopeSetId> {
@@ -239,8 +238,38 @@ thread_local! {
 
 #[derive(Default)]
 struct Memo {
-    added: FxHashMap<(u64, Scope), (Held, Held)>,
-    unions: FxHashMap<(u64, u64), (Held, Held, Held)>,
+    added: FxHashMap<(u64, Scope), Held>,
+    unions: FxHashMap<(u64, u64), Held>,
+    // `introductions` and `without_use_sites`, by which
+    filtered: FxHashMap<(u64, bool), Held>,
+}
+
+// The most memoised operations a thread keeps
+const MEMO_LIMIT: usize = 1 << 13;
+
+impl Memo {
+    fn lookup<K: core::hash::Hash + Eq>(
+        map: impl FnOnce(&Memo) -> &FxHashMap<K, Held>,
+        key: &K,
+    ) -> Option<ScopeSetId> {
+        MEMO.with(|x| map(&x.borrow()).get(key)?.get())
+    }
+
+    fn insert<K: core::hash::Hash + Eq>(
+        map: impl FnOnce(&mut Memo) -> &mut FxHashMap<K, Held>,
+        key: K,
+        set: &ScopeSetId,
+    ) {
+        MEMO.with(|x| {
+            let mut memo = x.borrow_mut();
+            if memo.added.len() + memo.unions.len() + memo.filtered.len() > MEMO_LIMIT {
+                memo.added.clear();
+                memo.unions.clear();
+                memo.filtered.clear();
+            }
+            map(&mut memo).insert(key, Held::of(set));
+        })
+    }
 }
 
 impl ScopeSetId {
@@ -250,13 +279,15 @@ impl ScopeSetId {
         let mut scopes = scopes.to_vec();
         scopes.sort_unstable();
         scopes.dedup();
-        intern(scopes)
+        intern(&scopes)
     }
 
     // The set of scopes that are already sorted and distinct
     pub fn of_sorted(scopes: &[Scope]) -> Self {
-        debug_assert!(scopes.windows(2).all(|x| x[0] < x[1]));
-        intern(scopes.to_vec())
+        if !scopes.windows(2).all(|x| x[0] < x[1]) {
+            return Self::of(scopes);
+        }
+        intern(scopes)
     }
 
     // A number of the set's own, never another live or freed set's; 0 for the empty set
@@ -283,27 +314,20 @@ impl ScopeSetId {
 
     pub fn add(&self, scope: Scope) -> Self {
         let key = (self.serial(), scope);
-        let memoised = MEMO.with(|x| {
-            let memo = x.borrow();
-            let (operand, result) = memo.added.get(&key)?;
-            operand.is(self).then(|| result.get()).flatten()
-        });
-        if let Some(set) = memoised {
+        if let Some(set) = Memo::lookup(|x| &x.added, &key) {
             return set;
         }
         let set = match self.scopes().binary_search(&scope) {
             Ok(_) => self.clone(),
             Err(at) => {
-                let mut scopes = self.scopes().to_vec();
-                scopes.insert(at, scope);
-                intern(scopes)
+                let mut scopes = Vec::with_capacity(self.len() + 1);
+                scopes.extend_from_slice(&self.scopes()[..at]);
+                scopes.push(scope);
+                scopes.extend_from_slice(&self.scopes()[at..]);
+                intern(&scopes)
             }
         };
-        MEMO.with(|x| {
-            x.borrow_mut()
-                .added
-                .insert(key, (Held::of(self), Held::of(&set)))
-        });
+        Memo::insert(|x| &mut x.added, key, &set);
         set
     }
 
@@ -312,7 +336,7 @@ impl ScopeSetId {
             Ok(at) => {
                 let mut scopes = self.scopes().to_vec();
                 scopes.remove(at);
-                intern(scopes)
+                intern(&scopes)
             }
             Err(_) => self.clone(),
         }
@@ -340,14 +364,7 @@ impl ScopeSetId {
             (other, self)
         };
         let key = (a.serial(), b.serial());
-        let memoised = MEMO.with(|x| {
-            let memo = x.borrow();
-            let (first, second, result) = memo.unions.get(&key)?;
-            (first.is(a) && second.is(b))
-                .then(|| result.get())
-                .flatten()
-        });
-        if let Some(set) = memoised {
+        if let Some(set) = Memo::lookup(|x| &x.unions, &key) {
             return set;
         }
 
@@ -374,12 +391,8 @@ impl ScopeSetId {
         }
         scopes.extend_from_slice(&x[i..]);
         scopes.extend_from_slice(&y[j..]);
-        let set = intern(scopes);
-        MEMO.with(|m| {
-            m.borrow_mut()
-                .unions
-                .insert(key, (Held::of(a), Held::of(b), Held::of(&set)))
-        });
+        let set = intern(&scopes);
+        Memo::insert(|x| &mut x.unions, key, &set);
         set
     }
 
@@ -399,7 +412,22 @@ impl ScopeSetId {
         if self.scopes().iter().all(&keep) {
             return self.clone();
         }
-        intern(self.scopes().iter().copied().filter(keep).collect())
+        let kept: Vec<Scope> = self.scopes().iter().copied().filter(keep).collect();
+        intern(&kept)
+    }
+
+    fn filtered_memoised(&self, introductions: bool) -> Self {
+        let key = (self.serial(), introductions);
+        if let Some(set) = Memo::lookup(|x| &x.filtered, &key) {
+            return set;
+        }
+        let set = if introductions {
+            self.filtered(|x| x.is_introduction())
+        } else {
+            self.filtered(|x| !x.is_use_site())
+        };
+        Memo::insert(|x| &mut x.filtered, key, &set);
+        set
     }
 
     // The set without these scopes
@@ -412,12 +440,12 @@ impl ScopeSetId {
 
     // Just its introduction scopes, which tell apart what different expansions wrote
     pub fn introductions(&self) -> Self {
-        self.filtered(|x| x.is_introduction())
+        self.filtered_memoised(true)
     }
 
     // The set without its use-site scopes
     pub fn without_use_sites(&self) -> Self {
-        self.filtered(|x| !x.is_use_site())
+        self.filtered_memoised(false)
     }
 
     // Whether the last expansion it went through wrote it, rather than took it as input: its
@@ -467,14 +495,14 @@ impl ScopeSetId {
     }
 }
 
-// Drops this thread's memoised operations once there are many, and those of sets that are gone
+// Drops this thread's memoised operations once there are many
 pub fn trim_caches() {
-    const LIMIT: usize = 1 << 13;
     MEMO.with(|x| {
         let mut memo = x.borrow_mut();
-        if memo.unions.len() + memo.added.len() > LIMIT {
-            memo.unions.clear();
+        if memo.added.len() + memo.unions.len() + memo.filtered.len() > MEMO_LIMIT / 2 {
             memo.added.clear();
+            memo.unions.clear();
+            memo.filtered.clear();
         }
     });
 }
