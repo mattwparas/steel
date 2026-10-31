@@ -200,7 +200,6 @@
 (assert! (equal? (match '(1 2 3) [`(1 ,@(list-rest a b)) (list a b)]) '(2 (3))))
 
 (assert! (equal? (match-syntax (quote-syntax (1 2 3)) [(list-rest a '(2 3)) 'ok] [_ 'no]) 'ok))
-(assert! (equal? (with-handler (lambda (e) 'error) (match (pt 1 2) [(pt 5) 'one] [_ 'no])) 'error))
 
 ;; A hash-table key can be a pattern. Then the entries have to be all of the hash's, unless there's
 ;; an ellipsis.
@@ -209,3 +208,8 @@
 (assert! (equal? (match (hash 'a 1 'b 2) [(hash-table (k 2) (j 1)) (list k j)]) '(b a)))
 (assert! (equal? (match (hash 'a 1 'b 2) [(hash-table (k v)) 'one] [_ 'no]) 'no))
 (assert! (equal? (match (hash 'a 1 'b 2) [(hash-table (k 2) rest ...) (list k rest)]) '(b ((a 1)))))
+
+;; A struct pattern uses the struct's own predicate, so a local of the same name doesn't hide it
+(define (local-predicate pt?)
+  (match 5 [(pt a b) 'pt] [_ 'other]))
+(assert! (equal? (local-predicate (lambda (x) #t)) 'other))

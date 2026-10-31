@@ -187,6 +187,15 @@
   (define (struct-pattern name fields table stx)
     (when (has-ellipsis? (map datum-of fields))
       (pattern-error stx "match: an ellipsis can't be used in a struct pattern"))
+    (let ([info (#%struct-info name)])
+      (when (and info (not (= (length fields) (length (cadr info)))))
+        (pattern-error stx
+                       (string-append "match: "
+                                      (symbol->string (car info))
+                                      " has "
+                                      (number->string (length (cadr info)))
+                                      " fields, but the pattern has "
+                                      (number->string (length fields))))))
     (cons name (map (lambda (p) (pattern-of p table)) fields)))
 
   (define (hash-entries-of entries table stx)
@@ -616,15 +625,29 @@
                       h
                       (loop (list 'hash-remove h (car keys)) (cdr keys)))))))
 
-  ;; #%struct-fields raises an error when the pattern has the wrong number of fields
+  ;; With the struct's info, its predicate and accessors are named as where it's defined, so a
+  ;; local binding can't hide them. Without it, `name?` is looked up where the match is, and
+  ;; #%struct-fields raises an error when the pattern has the wrong number of fields.
   (define (compile-struct name pats v env k fail)
-    (define predicate
-      (#%datum->syntax name
-                       (string->symbol (string-append (symbol->string (#%syntax->datum name)) "?"))))
-    (mk-if (list predicate v)
-           (bind-temp (list '#%struct-fields v (length pats))
-                      (lambda (t) (compile-list pats (list 'quote '()) t env k fail)))
-           fail))
+    (define info (#%struct-info name))
+    (if info
+        (let* ([prefix (string-append (list-ref info 3) (symbol->string (car info)))]
+               [named (lambda (suffix) (string->symbol (string-append prefix suffix)))]
+               [fields (map (lambda (_) (gensym)) pats)])
+          (mk-if (list (named "?") v)
+                 (mk-let (map (lambda (t field)
+                                (list t (list (named (string-append "-" (symbol->string field))) v)))
+                              fields
+                              (cadr info))
+                         (compile-pairwise pats fields env k fail))
+                 fail))
+        (let ([predicate (#%datum->syntax
+                          name
+                          (string->symbol (string-append (symbol->string (#%syntax->datum name)) "?")))])
+          (mk-if (list predicate v)
+                 (bind-temp (list '#%struct-fields v (length pats))
+                            (lambda (t) (compile-list pats (list 'quote '()) t env k fail)))
+                 fail))))
 
   (define (null-pattern? pat)
     (and (quoted? pat) (null? (cadr pat))))

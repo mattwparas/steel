@@ -317,6 +317,33 @@
                                           (syntax-span expr))
                                         (second unwrapped)))
 
+;; The names a struct's definition makes, as a provide spec
+(#%define-syntax (struct-out expr)
+                 (define unwrapped (syntax-e expr))
+                 (define info
+                   (and (= (length unwrapped) 2) (#%struct-info (second unwrapped))))
+                 (unless info
+                   (error-with-span (syntax-span expr)
+                                    "struct-out expects the name of a struct, found:"
+                                    (#%syntax->datum/kernel expr)))
+                 ;; For a struct another module defines, only the names imported here
+                 (define names
+                   (let ([names (struct-names (first info) (second info) (third info))])
+                     (if (list-ref info 4) names (filter #%imported? names))))
+                 (#%syntax/with-mark-of (syntax/loc (cons 'begin names)
+                                          (syntax-span expr))
+                                        (second unwrapped)))
+
+(define (struct-names struct-name fields mutable?)
+  (append (list struct-name
+                (concat-symbols struct-name '?)
+                (concat-symbols 'struct: struct-name)
+                (concat-symbols '___ struct-name '-options___))
+          (map (lambda (field) (concat-symbols struct-name '- field)) fields)
+          (if mutable?
+              (map (lambda (field) (concat-symbols 'set- struct-name '- field '!)) fields)
+              '())))
+
 ;; Macro for creating a new struct, in the form of:
 ;; `(struct <struct-name> (fields ...) options ...)`
 ;; The options can consist of the following:
@@ -387,6 +414,9 @@
 
   (when (odd? (length options-without-single-keywords))
     (error! "struct options are malformed - each option requires a value"))
+
+  ;; For struct-out and match, like Racket's static struct info
+  (#%record-struct-info! struct-name fields mutable?)
 
   ;; Update the options-map to have the fields included
   (let* ([options-map (apply hash options-without-single-keywords)]

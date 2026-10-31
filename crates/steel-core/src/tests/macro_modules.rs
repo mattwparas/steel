@@ -2692,6 +2692,31 @@ fn struct_out_provides_a_structs_names() {
         "(2 9 3 contract-error)"
     );
 
+    // A struct's info goes with its binding: a module can re-export it, and a match on it only
+    // needs the struct's name
+    engine.register_steel_module(
+        "structs/re".to_owned(),
+        r#"(require "structs/lib") (provide (struct-out pt))"#.to_owned(),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require (only-in "structs/re" pt))
+               (match (pt 1 2) [(pt a b) (+ a b)])"#
+        )
+        .to_string(),
+        "3"
+    );
+
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "structs/lib") (match (pt 1 2) [(pt a) a])"#)
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("pt has 2 fields, but the pattern has 1"),
+        "{err}"
+    );
+
     engine.register_steel_module(
         "structs/bad".to_owned(),
         "(provide (struct-out nope)) (define nope 1)".to_owned(),
@@ -2701,5 +2726,23 @@ fn struct_out_provides_a_structs_names() {
         .unwrap_err();
     assert!(err
         .to_string()
-        .contains("isn't a struct this module defines"));
+        .contains("struct-out expects the name of a struct"));
+}
+
+#[test]
+fn a_provide_spec_macro_can_provide_several_names() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "specs/lib".to_owned(),
+        r#"(provide (both a b))
+           (define-syntax both (syntax-rules () [(_ x y) (begin x (begin y))]))
+           (define a 1)
+           (define b 2)"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(&mut engine, r#"(require "specs/lib") (list a b)"#).to_string(),
+        "(1 2)"
+    );
 }

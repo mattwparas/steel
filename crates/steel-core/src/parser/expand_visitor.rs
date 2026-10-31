@@ -1207,6 +1207,64 @@ pub(crate) fn global_binding(
     })
 }
 
+// Whether the module being compiled imports the name
+pub(crate) fn imported_here(name: InternedString) -> bool {
+    let Some(module) = current_module() else {
+        return false;
+    };
+    MODULE_BINDINGS.with(|x| {
+        x.borrow()
+            .get(&module)
+            .is_some_and(|entry| entry.imports.contains_key(&name))
+    })
+}
+
+// The module a name comes from and its name there, following imports from where it's used. A
+// name a module's macros define isn't one of its own names until the module is expanded.
+pub(crate) fn import_origin(
+    module: InternedString,
+    name: InternedString,
+) -> (InternedString, InternedString) {
+    MODULE_BINDINGS.with(|x| {
+        let bindings = x.borrow();
+        let (mut module, mut name) = (module, name);
+        for _ in 0..32 {
+            match bindings
+                .get(&module)
+                .and_then(|entry| entry.imports.get(&name))
+            {
+                Some((from, original)) => {
+                    module = *from;
+                    name = *original;
+                }
+                None => break,
+            }
+        }
+        (module, name)
+    })
+}
+
+// The fields of each struct and whether it's mutable, by the module that defines it and its
+// name. The struct macro records them as it's expanded, like Racket's static struct info.
+static STRUCT_INFO: once_cell::sync::Lazy<
+    std::sync::RwLock<FxHashMap<(InternedString, InternedString), (Vec<InternedString>, bool)>>,
+> = once_cell::sync::Lazy::new(Default::default);
+
+pub(crate) fn record_struct_info(name: InternedString, fields: Vec<InternedString>, mutable: bool) {
+    let module = current_module().unwrap_or_else(|| InternedString::from_static("top-level"));
+    STRUCT_INFO
+        .write()
+        .unwrap()
+        .insert((module, name), (fields, mutable));
+}
+
+pub(crate) fn struct_info(
+    module: InternedString,
+    name: InternedString,
+) -> Option<(Vec<InternedString>, bool)> {
+    STRUCT_INFO.read().unwrap().get(&(module, name)).cloned()
+}
+
 // Whether two names, each in its module, have the same global binding. None when either
 // module isn't known.
 pub(crate) fn same_global_binding(
@@ -1549,6 +1607,8 @@ thread_local! {
         "rename-in",
         "struct-out",
         "all-from-out",
+        "prefix-out",
+        "rename-out",
         "#%require-dylib",
     ]
     .into_iter()
@@ -4090,10 +4150,25 @@ impl<'a> Expander<'a> {
                 // The head isn't a bare identifier use, and neither are the names a provide or
                 // require lists
                 let names = names_bindings(l);
+                let renames = names
+                    && l.first_ident()
+                        .is_some_and(|x| matches!(x.resolve(), "rename-out" | "rename-in"));
                 for (i, expr) in l.args.iter_mut().enumerate() {
                     if let ExprKind::Atom(a) = expr {
                         if i == 0 || names {
                             self.scope_chain.stamp(&mut a.syn);
+                            continue;
+                        }
+                    }
+
+                    // The pairs of names a rename lists
+                    if renames {
+                        if let ExprKind::List(pair) = expr {
+                            for name in pair.args.iter_mut() {
+                                if let ExprKind::Atom(a) = name {
+                                    self.scope_chain.stamp(&mut a.syn);
+                                }
+                            }
                             continue;
                         }
                     }

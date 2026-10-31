@@ -1497,156 +1497,21 @@ fn reexport_requires(
         .collect()
 }
 
-struct StructShape {
-    fields: Vec<InternedString>,
-    mutable: bool,
-}
-
-type StructShapes = FxHashMap<InternedString, StructShape>;
-
-// The structs the module's written `struct` forms define
-fn written_structs(ast: &[ExprKind]) -> StructShapes {
-    let mut structs = FxHashMap::default();
-    for l in ast.iter().filter_map(ExprKind::list) {
-        if l.first_ident().map(|x| x.resolve()) != Some("struct") {
-            continue;
-        }
-        let Some(name) = l.args.get(1).and_then(ExprKind::atom_identifier) else {
-            continue;
-        };
-        let Some(fields) = l.args.get(2).and_then(ExprKind::list).and_then(|fields| {
-            fields
-                .args
-                .iter()
-                .map(|x| x.atom_identifier().copied())
-                .collect::<Option<Vec<_>>>()
-        }) else {
-            continue;
-        };
-        let mutable = l.args.iter().skip(3).any(|x| {
-            matches!(
-                x.atom_syntax_object().map(|x| &x.ty),
-                Some(TokenType::Keyword(k)) if k.resolve() == "#:mutable"
-            )
-        });
-        structs.insert(*name, StructShape { fields, mutable });
-    }
-    structs
-}
-
-// The structs the expanded module defines, read from the options hash that kernel.scm's
-// struct-impl binds to `___<name>-options___`
-fn expanded_structs(ast: &[ExprKind], structs: &mut StructShapes) {
-    for expr in ast {
-        let define = match expr {
-            ExprKind::Begin(b) => {
-                expanded_structs(&b.exprs, structs);
-                continue;
-            }
-            ExprKind::Define(d) => d,
-            _ => continue,
-        };
-        let Some(options) = define.body.list().filter(|x| {
-            define.name.atom_identifier().is_some_and(|x| {
-                let x = x.resolve();
-                x.starts_with("___") && x.ends_with("-options___")
-            })
-        }) else {
-            continue;
-        };
-        let quoted = |x: &ExprKind| match x {
-            ExprKind::Quote(q) => Some(q.expr.clone()),
-            _ => None,
-        };
-        let mut name = None;
-        let mut fields = None;
-        let mut mutable = false;
-        for pair in options.args[1..].chunks(2) {
-            let [key, value] = pair else {
-                continue;
-            };
-            let key = quoted(key).unwrap_or_else(|| key.clone());
-            match key.atom_syntax_object().map(|x| &x.ty) {
-                Some(TokenType::Keyword(k)) if k.resolve() == "#:name" => {
-                    name = quoted(value).and_then(|x| x.atom_identifier().copied());
-                }
-                Some(TokenType::Keyword(k)) if k.resolve() == "#:fields" => {
-                    fields = quoted(value).and_then(|x| {
-                        x.list()?
-                            .args
-                            .iter()
-                            .map(|x| x.atom_identifier().copied())
-                            .collect::<Option<Vec<_>>>()
-                    });
-                }
-                Some(TokenType::Keyword(k)) if k.resolve() == "#:mutable" => {
-                    mutable = matches!(
-                        value.atom_syntax_object().map(|x| &x.ty),
-                        Some(TokenType::BooleanLiteral(true))
-                    );
-                }
-                _ => {}
-            }
-        }
-        if let (Some(name), Some(fields)) = (name, fields) {
-            structs.insert(name, StructShape { fields, mutable });
-        }
-    }
-}
-
-// The specs with each `(struct-out name)` replaced by the names the struct's definition makes.
-// One for a struct it doesn't know is kept when `keep_unknown` is set.
-fn expand_struct_outs(
-    specs: ThinVec<ExprKind>,
-    structs: &StructShapes,
-    keep_unknown: bool,
-) -> Result<ThinVec<ExprKind>> {
-    let mut expanded = ThinVec::with_capacity(specs.len());
+// Specs with the ones a macro expanded to `(begin spec ...)` spliced in
+fn spliced_specs<'a>(specs: impl Iterator<Item = &'a ExprKind>, spliced: &mut Vec<ExprKind>) {
     for spec in specs {
-        let Some(l) = spec
-            .list()
-            .filter(|x| x.first_ident().is_some_and(|x| x.resolve() == "struct-out"))
-        else {
-            expanded.push(spec);
-            continue;
-        };
-        if l.len() != 2 {
-            stop!(BadSyntax => "struct-out expects the name of a struct"; spec.span());
-        }
-        let Some(name) = l.args[1].atom_identifier() else {
-            stop!(BadSyntax => "struct-out expects the name of a struct"; spec.span());
-        };
-        let Some(shape) = structs.get(name) else {
-            if keep_unknown {
-                expanded.push(spec);
-                continue;
+        match spec {
+            ExprKind::Begin(b) => spliced_specs(b.exprs.iter(), spliced),
+            ExprKind::List(l)
+                if l.first()
+                    .and_then(ExprKind::atom_syntax_object)
+                    .is_some_and(|x| x.ty == TokenType::Begin) =>
+            {
+                spliced_specs(l.args[1..].iter(), spliced)
             }
-            stop!(BadSyntax => format!("struct-out: {} isn't a struct this module defines", name); spec.span());
-        };
-        // The names kernel.scm's struct-impl defines
-        let name = name.resolve();
-        let mut names = vec![
-            name.to_string(),
-            format!("{name}?"),
-            format!("struct:{name}"),
-            format!("___{name}-options___"),
-        ];
-        names.extend(shape.fields.iter().map(|field| format!("{name}-{field}")));
-        if shape.mutable {
-            names.extend(
-                shape
-                    .fields
-                    .iter()
-                    .map(|field| format!("set-{name}-{field}!")),
-            );
+            _ => spliced.push(spec.clone()),
         }
-        expanded.extend(
-            names
-                .into_iter()
-                .map(|x| ExprKind::atom(InternedString::from(x))),
-        );
     }
-    Ok(expanded)
 }
 
 // A name provided both as itself and under contract/out is provided with its contract
@@ -4176,179 +4041,6 @@ impl<'a> ModuleBuilder<'a> {
             .for_each(|x| crate::parser::expand_visitor::defined_macro_names(x, &mut procedural));
         own_names.extend(procedural);
         let mut provides = core::mem::take(&mut self.provides);
-        // `(all-from-out "path")` provides what the module imports from that require
-        for provide in provides.iter_mut() {
-            let Some(provide) = provide.list_mut() else {
-                continue;
-            };
-            if !provide.args.iter().any(|x| {
-                x.list()
-                    .and_then(|x| x.first_ident())
-                    .is_some_and(|x| x.resolve() == "all-from-out")
-            }) {
-                continue;
-            }
-            let mut expanded = ThinVec::new();
-            for spec in core::mem::take(&mut provide.args) {
-                let Some(paths) = spec
-                    .list()
-                    .filter(|x| {
-                        x.first_ident()
-                            .is_some_and(|x| x.resolve() == "all-from-out")
-                    })
-                    .map(|x| x.args[1..].to_vec())
-                else {
-                    expanded.push(spec);
-                    continue;
-                };
-                for path in paths {
-                    let Some(written) = path.string_literal().map(|x| x.to_string()) else {
-                        stop!(BadSyntax => "all-from-out expects a module path"; spec.span());
-                    };
-                    let required =
-                        self.require_objects
-                            .iter()
-                            .filter(|x| !x.for_syntax)
-                            .find(|x| {
-                                x.path
-                                    .get_path()
-                                    .to_string_lossy()
-                                    .ends_with(written.as_str())
-                            });
-                    let Some(module) = required.and_then(|x| {
-                        self.compiled_modules
-                            .compiled_modules
-                            .get(x.path.get_path().as_ref())
-                            .map(|module| (x, module))
-                    }) else {
-                        stop!(BadSyntax => format!("all-from-out: {} isn't required", written); spec.span());
-                    };
-                    for (local, _) in imported_names(module.0, module.1) {
-                        expanded.push(ExprKind::atom(local));
-                    }
-                }
-            }
-            provide.args = expanded;
-        }
-        // A struct-out of a written struct is expanded here, and any other after expansion
-        let structs = written_structs(&ast);
-        for provide in provides.iter_mut().filter_map(ExprKind::list_mut) {
-            let args = core::mem::take(&mut provide.args);
-            provide.args = expand_struct_outs(args, &structs, true)?;
-        }
-        // `(prefix-out p: name ...)` provides each name as `p:name`, and
-        // `(rename-out [name other] ...)` each as the other
-        for provide in provides.iter_mut() {
-            let Some(provide) = provide.list_mut() else {
-                continue;
-            };
-            let mut expanded = ThinVec::new();
-            for spec in core::mem::take(&mut provide.args) {
-                // The names it provides, each with the name to provide it as
-                let renamed: Vec<(InternedString, InternedString)> = match spec
-                    .list()
-                    .and_then(|x| Some((x.first_ident()?.resolve(), x)))
-                {
-                    Some(("prefix-out", l)) => {
-                        let Some(prefix) = l.args.get(1).and_then(ExprKind::atom_identifier) else {
-                            stop!(BadSyntax => "prefix-out expects a prefix and names"; spec.span());
-                        };
-                        let names = expand_struct_outs(
-                            l.args.iter().skip(2).cloned().collect(),
-                            &structs,
-                            false,
-                        )?;
-                        let mut renamed = Vec::new();
-                        for name in &names {
-                            let Some(name) = name.atom_identifier() else {
-                                stop!(BadSyntax => "prefix-out expects a prefix and names"; spec.span());
-                            };
-                            renamed.push((
-                                *name,
-                                (prefix.resolve().to_string() + name.resolve()).into(),
-                            ));
-                        }
-                        renamed
-                    }
-                    Some(("rename-out", l)) => {
-                        let mut renamed = Vec::new();
-                        for pair in l.args.iter().skip(1) {
-                            let names = pair.list().filter(|x| x.len() == 2).and_then(|x| {
-                                Some((*x.args[0].atom_identifier()?, *x.args[1].atom_identifier()?))
-                            });
-                            match names {
-                                Some(names) => renamed.push(names),
-                                None => {
-                                    stop!(BadSyntax => "rename-out expects pairs of a name and the name to provide it as"; pair.span())
-                                }
-                            }
-                        }
-                        renamed
-                    }
-                    _ => {
-                        expanded.push(spec);
-                        continue;
-                    }
-                };
-                for (name, exported) in renamed {
-                    let name = &name;
-                    // Its own macro, or one a require brings in
-                    let imported_macro = self
-                        .require_objects
-                        .iter()
-                        .filter(|x| !x.for_syntax)
-                        .filter_map(|x| {
-                            let module = self
-                                .compiled_modules
-                                .compiled_modules
-                                .get(x.path.get_path().as_ref())?;
-                            Some((x, module))
-                        })
-                        .any(|(x, module)| {
-                            imported_names(x, module).iter().any(|(local, original)| {
-                                local == name && module.macro_map.contains_key(original)
-                            })
-                        });
-                    if self.macro_map.contains_key(name) || imported_macro {
-                        // A macro that passes its use on to the macro of the name
-                        let rest = ExprKind::atom("rest");
-                        let pattern = List::new_maybe_improper(
-                            thin_vec![ExprKind::atom("_"), rest.clone()],
-                            true,
-                        );
-                        let template =
-                            List::new_maybe_improper(thin_vec![ExprKind::atom(*name), rest], true);
-                        let mut alias = SteelMacro::parse_from_ast_macro(Box::new(Macro::new(
-                            ExprKind::atom(exported),
-                            Box::new(SyntaxRules::new(
-                                ThinVec::new(),
-                                thin_vec![PatternPair::new(pattern.into(), template.into())
-                                    .map_err(|x| {
-                                        crate::rerrs::SteelErr::new(
-                                            crate::rerrs::ErrorKind::BadSyntax,
-                                            x.to_string(),
-                                        )
-                                    },)?],
-                                SyntaxObject::default(TokenType::SyntaxRules),
-                            )),
-                            SyntaxObject::default(TokenType::DefineSyntax),
-                        )))?;
-                        alias.mark_definition_resolved(&self.name.to_string_lossy());
-                        Arc::make_mut(&mut self.macro_map).insert(exported, alias);
-                        self.local_macros.insert(exported);
-                    } else {
-                        ast.push(ExprKind::Define(Box::new(Define::new(
-                            ExprKind::atom(exported),
-                            ExprKind::atom(*name),
-                            SyntaxObject::default(TokenType::Define),
-                        ))));
-                    }
-                    own_names.insert(exported);
-                    expanded.push(ExprKind::atom(exported));
-                }
-            }
-            provide.args = expanded;
-        }
         // Clone the requires... I suppose
         let requires = self.require_objects.clone();
 
@@ -4523,21 +4215,6 @@ impl<'a> ModuleBuilder<'a> {
                     ),
                 )?;
             }
-        }
-
-        // TODO: Provides also need to have this kind of macro expansion as the above!
-        for expr in provides.iter_mut() {
-            crate::parser::expand_visitor::expand_with_kernel_defining(
-                expr,
-                &self.macro_map,
-                globals,
-                crate::parser::expand_visitor::KernelExpander::in_environment(
-                    self.kernel.as_mut(),
-                    self.builtin_modules.clone(),
-                    self.name.to_str().unwrap(),
-                ),
-                false,
-            )?;
         }
 
         let mut mangled_asts = Vec::with_capacity(ast.len() + 16);
@@ -4884,6 +4561,12 @@ impl<'a> ModuleBuilder<'a> {
             }
         }
 
+        // Like in Racket, provide specs are expanded after the module's forms, so they can use
+        // the macros those forms define
+        for expr in provides.iter_mut() {
+            many_expander.expand(expr)?;
+        }
+
         self.local_macros.extend(generated);
 
         // Like in Racket, a name can only be defined once, as either a value or a macro
@@ -4901,15 +4584,6 @@ impl<'a> ModuleBuilder<'a> {
             }
         }
 
-        for req_macro in &mut required_macros {
-            for expr in provides.iter_mut() {
-                // First expand the in scope macros
-                if expand_foreign(expr, &req_macro.in_scope_macros, globals)? {
-                    expand(expr, &req_macro.in_scope_macros, globals)?;
-                }
-            }
-        }
-
         // TODO: Check HERE for whether there are more requires than were previously found.
         // If so, we should go back and compile the module again
 
@@ -4924,6 +4598,11 @@ impl<'a> ModuleBuilder<'a> {
             crate::parser::expand_visitor::expand_keyword_arguments(expr)?;
         }
 
+        for provide in provides.iter_mut().filter_map(ExprKind::list_mut) {
+            let args = core::mem::take(&mut provide.args);
+            provide.args = self.filter_out_for_syntax_provides(args)?;
+        }
+
         // Collect the provides the expansion made along with the written ones, before sorting
         {
             self.source_ast = ast;
@@ -4935,11 +4614,170 @@ impl<'a> ModuleBuilder<'a> {
             ast = core::mem::take(&mut self.source_ast);
         }
 
-        let mut structs = written_structs(&ast);
-        expanded_structs(&ast, &mut structs);
-        for provide in provides.iter_mut().filter_map(ExprKind::list_mut) {
-            let args = core::mem::take(&mut provide.args);
-            provide.args = expand_struct_outs(args, &structs, false)?;
+        // Like Racket's provide transformers, these run once the module is expanded
+        // `(all-from-out "path")` provides what the module imports from that require
+        for provide in provides.iter_mut() {
+            let Some(provide) = provide.list_mut() else {
+                continue;
+            };
+            if !provide.args.iter().any(|x| {
+                x.list()
+                    .and_then(|x| x.first_ident())
+                    .is_some_and(|x| x.resolve() == "all-from-out")
+            }) {
+                continue;
+            }
+            let mut expanded = ThinVec::new();
+            for spec in core::mem::take(&mut provide.args) {
+                let Some(paths) = spec
+                    .list()
+                    .filter(|x| {
+                        x.first_ident()
+                            .is_some_and(|x| x.resolve() == "all-from-out")
+                    })
+                    .map(|x| x.args[1..].to_vec())
+                else {
+                    expanded.push(spec);
+                    continue;
+                };
+                for path in paths {
+                    let Some(written) = path.string_literal().map(|x| x.to_string()) else {
+                        stop!(BadSyntax => "all-from-out expects a module path"; spec.span());
+                    };
+                    let required =
+                        self.require_objects
+                            .iter()
+                            .filter(|x| !x.for_syntax)
+                            .find(|x| {
+                                x.path
+                                    .get_path()
+                                    .to_string_lossy()
+                                    .ends_with(written.as_str())
+                            });
+                    let Some(module) = required.and_then(|x| {
+                        self.compiled_modules
+                            .compiled_modules
+                            .get(x.path.get_path().as_ref())
+                            .map(|module| (x, module))
+                    }) else {
+                        stop!(BadSyntax => format!("all-from-out: {} isn't required", written); spec.span());
+                    };
+                    for (local, _) in imported_names(module.0, module.1) {
+                        expanded.push(ExprKind::atom(local));
+                    }
+                }
+            }
+            provide.args = expanded;
+        }
+        // `(prefix-out p: name ...)` provides each name as `p:name`, and
+        // `(rename-out [name other] ...)` each as the other
+        for provide in provides.iter_mut() {
+            let Some(provide) = provide.list_mut() else {
+                continue;
+            };
+            let mut expanded = ThinVec::new();
+            for spec in core::mem::take(&mut provide.args) {
+                // The names it provides, each with the name to provide it as
+                let renamed: Vec<(InternedString, InternedString)> = match spec
+                    .list()
+                    .and_then(|x| Some((x.first_ident()?.resolve(), x)))
+                {
+                    Some(("prefix-out", l)) => {
+                        let Some(prefix) = l.args.get(1).and_then(ExprKind::atom_identifier) else {
+                            stop!(BadSyntax => "prefix-out expects a prefix and names"; spec.span());
+                        };
+                        let mut names = Vec::new();
+                        spliced_specs(l.args.iter().skip(2), &mut names);
+                        let mut renamed = Vec::new();
+                        for name in &names {
+                            let Some(name) = name.atom_identifier() else {
+                                stop!(BadSyntax => "prefix-out expects a prefix and names"; spec.span());
+                            };
+                            renamed.push((
+                                *name,
+                                (prefix.resolve().to_string() + name.resolve()).into(),
+                            ));
+                        }
+                        renamed
+                    }
+                    Some(("rename-out", l)) => {
+                        let mut renamed = Vec::new();
+                        for pair in l.args.iter().skip(1) {
+                            let names = pair.list().filter(|x| x.len() == 2).and_then(|x| {
+                                Some((*x.args[0].atom_identifier()?, *x.args[1].atom_identifier()?))
+                            });
+                            match names {
+                                Some(names) => renamed.push(names),
+                                None => {
+                                    stop!(BadSyntax => "rename-out expects pairs of a name and the name to provide it as"; pair.span())
+                                }
+                            }
+                        }
+                        renamed
+                    }
+                    _ => {
+                        expanded.push(spec);
+                        continue;
+                    }
+                };
+                for (name, exported) in renamed {
+                    let name = &name;
+                    // Its own macro, or one a require brings in
+                    let imported_macro = self
+                        .require_objects
+                        .iter()
+                        .filter(|x| !x.for_syntax)
+                        .filter_map(|x| {
+                            let module = self
+                                .compiled_modules
+                                .compiled_modules
+                                .get(x.path.get_path().as_ref())?;
+                            Some((x, module))
+                        })
+                        .any(|(x, module)| {
+                            imported_names(x, module).iter().any(|(local, original)| {
+                                local == name && module.macro_map.contains_key(original)
+                            })
+                        });
+                    if self.macro_map.contains_key(name) || imported_macro {
+                        // A macro that passes its use on to the macro of the name
+                        let rest = ExprKind::atom("rest");
+                        let pattern = List::new_maybe_improper(
+                            thin_vec![ExprKind::atom("_"), rest.clone()],
+                            true,
+                        );
+                        let template =
+                            List::new_maybe_improper(thin_vec![ExprKind::atom(*name), rest], true);
+                        let mut alias = SteelMacro::parse_from_ast_macro(Box::new(Macro::new(
+                            ExprKind::atom(exported),
+                            Box::new(SyntaxRules::new(
+                                ThinVec::new(),
+                                thin_vec![PatternPair::new(pattern.into(), template.into())
+                                    .map_err(|x| {
+                                        crate::rerrs::SteelErr::new(
+                                            crate::rerrs::ErrorKind::BadSyntax,
+                                            x.to_string(),
+                                        )
+                                    },)?],
+                                SyntaxObject::default(TokenType::SyntaxRules),
+                            )),
+                            SyntaxObject::default(TokenType::DefineSyntax),
+                        )))?;
+                        alias.mark_definition_resolved(&self.name.to_string_lossy());
+                        Arc::make_mut(&mut self.macro_map).insert(exported, alias);
+                        self.local_macros.insert(exported);
+                    } else {
+                        ast.push(ExprKind::Define(Box::new(Define::new(
+                            ExprKind::atom(exported),
+                            ExprKind::atom(*name),
+                            SyntaxObject::default(TokenType::Define),
+                        ))));
+                    }
+                    own_names.insert(exported);
+                    expanded.push(ExprKind::atom(exported));
+                }
+            }
+            provide.args = expanded;
         }
         drop_uncontracted_duplicates(&mut provides);
 
@@ -5208,6 +5046,15 @@ impl<'a> ModuleBuilder<'a> {
 
                     normal_provides.push(expr);
                 }
+                // What a provide spec's macro expands to can be several specs
+                ExprKind::List(l)
+                    if l.first()
+                        .and_then(ExprKind::atom_syntax_object)
+                        .is_some_and(|x| x.ty == TokenType::Begin) =>
+                {
+                    let specs = l.args[1..].iter().cloned().collect();
+                    normal_provides.extend(self.filter_out_for_syntax_provides(specs)?);
+                }
                 ExprKind::List(l) => {
                     if let Some(for_syntax) = l.first_ident() {
                         match *for_syntax {
@@ -5238,6 +5085,10 @@ impl<'a> ModuleBuilder<'a> {
                     } else {
                         stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)"; l.location)
                     }
+                }
+                ExprKind::Begin(b) => {
+                    let specs = b.exprs.iter().cloned().collect();
+                    normal_provides.extend(self.filter_out_for_syntax_provides(specs)?);
                 }
                 _ => {
                     stop!(TypeMismatch => "provide expects either a (for-syntax <ident>) or an ident"; expr.span())

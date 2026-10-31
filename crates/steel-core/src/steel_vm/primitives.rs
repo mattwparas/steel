@@ -2281,40 +2281,112 @@ fn with_syntax_match(pattern: SteelVal, value: SteelVal) -> Result<SteelVal> {
 // The same for a syntax-case clause, or #f when the clause doesn't match
 // Whether two identifiers given to a procedural macro refer to the same binding where it's
 // used: the same local, or the same global in the modules their scopes are from
+// The module where an identifier given to a procedural macro is used
+fn use_module(scopes: &steel_parser::scopes::ScopeSetId) -> Option<InternedString> {
+    use crate::parser::expand_visitor::{current_module, literal_module};
+
+    scopes
+        .modules()
+        .into_iter()
+        .rev()
+        .filter(|x| *x != steel_parser::scopes::Scope::prelude())
+        .find_map(|x| x.module_name())
+        .map(|x| InternedString::from(x.as_str()))
+        .or_else(|| {
+            // What the transformer made itself is in the module that defines it
+            if crate::parser::kernel::is_macro_input_scopes(scopes) {
+                current_module()
+            } else {
+                literal_module().or_else(current_module)
+            }
+        })
+}
+
 fn same_binding(
     a: (InternedString, &steel_parser::scopes::ScopeSetId),
     b: (InternedString, &steel_parser::scopes::ScopeSetId),
 ) -> bool {
-    use crate::parser::expand_visitor::{
-        current_module, literal_module, local_binding, same_global_binding,
-    };
+    use crate::parser::expand_visitor::{local_binding, same_global_binding};
 
     let locals = (local_binding(a.0, a.1), local_binding(b.0, b.1));
     if locals.0.is_some() || locals.1.is_some() {
         return a.0 == b.0 && locals.0 == locals.1;
     }
 
-    let module = |scopes: &steel_parser::scopes::ScopeSetId| {
-        scopes
-            .modules()
-            .into_iter()
-            .rev()
-            .filter(|x| *x != steel_parser::scopes::Scope::prelude())
-            .find_map(|x| x.module_name())
-            .map(|x| InternedString::from(x.as_str()))
-            .or_else(|| {
-                // What the transformer made itself is in the module that defines it
-                if crate::parser::kernel::is_macro_input_scopes(scopes) {
-                    current_module()
-                } else {
-                    literal_module().or_else(current_module)
-                }
-            })
-    };
-    match (module(a.1), module(b.1)) {
+    match (use_module(a.1), use_module(b.1)) {
         (Some(x), Some(y)) => same_global_binding((x, a.0), (y, b.0)).unwrap_or(a.0 == b.0),
         _ => a.0 == b.0,
     }
+}
+
+// What a struct's name refers to: its name where it's defined, its fields, whether it's
+// mutable, the prefix its module's names have once compiled ("" at the top level), and whether
+// it's defined in the module being compiled. #f for a name that isn't a struct.
+fn struct_info_of(id: SteelVal) -> Result<SteelVal> {
+    use crate::parser::expand_visitor::{
+        current_module, import_origin, local_binding, struct_info,
+    };
+
+    let SteelVal::SyntaxObject(syntax) = &id else {
+        stop!(TypeMismatch => "#%struct-info expects an identifier, found: {}", id);
+    };
+    let SteelVal::SymbolV(name) = &syntax.syntax else {
+        return Ok(SteelVal::BoolV(false));
+    };
+    let name = InternedString::from(name.as_str());
+    let scopes = syntax.scopes();
+    if local_binding(name, &scopes).is_some() {
+        return Ok(SteelVal::BoolV(false));
+    }
+
+    let top_level = InternedString::from_static("top-level");
+    let here = current_module().unwrap_or(top_level);
+    let (module, original) = import_origin(use_module(&scopes).unwrap_or(here), name);
+    let Some((fields, mutable)) = struct_info(module, original)
+        .or_else(|| struct_info(top_level, original).filter(|_| here == top_level))
+    else {
+        return Ok(SteelVal::BoolV(false));
+    };
+    let prefix = if module == top_level {
+        String::new()
+    } else {
+        crate::compiler::modules::path_to_prefix_name(std::path::PathBuf::from(module.resolve()))
+    };
+
+    Ok(SteelVal::ListV(
+        vec![
+            SteelVal::SymbolV(original.resolve().into()),
+            SteelVal::ListV(
+                fields
+                    .iter()
+                    .map(|x| SteelVal::SymbolV(x.resolve().into()))
+                    .collect(),
+            ),
+            SteelVal::BoolV(mutable),
+            SteelVal::StringV(prefix.into()),
+            SteelVal::BoolV(module == here),
+        ]
+        .into(),
+    ))
+}
+
+fn record_struct_info(name: SteelVal, fields: SteelVal, mutable: SteelVal) -> Result<SteelVal> {
+    let (SteelVal::SymbolV(name), Some(fields)) = (&name, fields.list()) else {
+        stop!(TypeMismatch => "#%record-struct-info! expects a name and a list of fields");
+    };
+    let fields = fields
+        .iter()
+        .map(|x| match x {
+            SteelVal::SymbolV(x) => Ok(InternedString::from(x.as_str())),
+            _ => stop!(TypeMismatch => "#%record-struct-info! expects field names, found: {}", x),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    crate::parser::expand_visitor::record_struct_info(
+        InternedString::from(name.as_str()),
+        fields,
+        mutable.is_truthy(),
+    );
+    Ok(SteelVal::Void)
 }
 
 fn syntax_case_match(pattern: SteelVal, literals: SteelVal, value: SteelVal) -> Result<SteelVal> {
@@ -3328,6 +3400,14 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("#%datum->syntax", datum_to_syntax)
         .register_fn("#%with-syntax-match", with_syntax_match)
         .register_fn("#%syntax-case-match", syntax_case_match)
+        .register_fn("#%struct-info", struct_info_of)
+        .register_fn("#%record-struct-info!", record_struct_info)
+        .register_fn("#%imported?", |name: SteelVal| match name {
+            SteelVal::SymbolV(name) => {
+                crate::parser::expand_visitor::imported_here(InternedString::from(name.as_str()))
+            }
+            _ => false,
+        })
         // Whether two identifiers given to a procedural macro refer to the same binding at the
         // use site: the same local, or neither is a local
         .register_fn(
