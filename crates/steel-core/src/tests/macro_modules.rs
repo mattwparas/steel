@@ -2130,12 +2130,12 @@ fn a_templates_procedural_helper_is_its_expansions_own() {
         "{error}"
     );
 
-    // A require in a begin is an error, not a panic
+    // A require in a begin is handled like any other
     let error = module_error(
         "helper/require",
         "(begin (require \"nowhere.scm\")) (define results 1)",
     );
-    assert!(error.contains("require"), "{error}");
+    assert!(error.contains("nowhere.scm"), "{error}");
 }
 
 #[test]
@@ -2773,4 +2773,225 @@ fn provide_forms_nest() {
         "(h k h mac 1 2 h k)"
     );
     assert!(engine.compile_and_run_raw_program("secret").is_err());
+}
+
+fn require_engine() -> Engine {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "late/values".to_owned(),
+        "(provide a b) (define a 1) (define b 2)".to_owned(),
+    );
+    engine.register_steel_module(
+        "late/macros".to_owned(),
+        "(provide twice) (define-syntax twice (syntax-rules () [(_ e) (list e e)]))".to_owned(),
+    );
+    engine.register_steel_module(
+        "late/phase1".to_owned(),
+        "(provide helper) (define (helper) 'from-phase1)".to_owned(),
+    );
+    engine.register_steel_module(
+        "late/plugin".to_owned(),
+        r#"(define-syntax register-plugin
+             (syntax-rules ()
+               [(_ path ids ...) (begin (require (only-in path ids ...)) (provide ids ...))]))
+           (register-plugin "late/values" a b)"#
+            .to_owned(),
+    );
+    engine
+}
+
+#[test]
+fn a_require_a_macro_writes_in_a_module() {
+    let mut engine = require_engine();
+    assert_eq!(
+        last(&mut engine, r#"(require "late/plugin") (list a b)"#).to_string(),
+        "(1 2)"
+    );
+
+    // A require spec can be a macro the module defines, and a required macro is usable in the
+    // forms after the require, and in function bodies anywhere in the module
+    engine.register_steel_module(
+        "late/specs".to_owned(),
+        r#"(provide results)
+           (define (early) (twice 0))
+           (define-syntax just-a (syntax-rules () [(_ path) (only-in path a)]))
+           (require (just-a "late/values"))
+           (define-syntax use-macros (syntax-rules () [(_) (require "late/macros")]))
+           (use-macros)
+           (define results (list a (twice 3) (early)))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "late/specs") results"#).to_string(),
+        "(1 (3 3) (0 0))"
+    );
+
+    // Transformer code after a require for syntax gets a phase 1 instance of the module, and
+    // after a require, what the module provides for syntax. A module using the macros gets its
+    // own copy of that transformer environment.
+    engine.register_steel_module(
+        "late/provides-for-syntax".to_owned(),
+        r#"(provide (for-syntax shout))
+           (begin-for-syntax (define (shout) 'shouted))"#
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "late/for-syntax".to_owned(),
+        r#"(provide m n)
+           (define-syntax fs (syntax-rules () [(_) (require (for-syntax "late/phase1"))]))
+           (fs)
+           (define-syntax (m stx) (datum->syntax stx (list 'quote (helper))))
+           (define-syntax use-shout (syntax-rules () [(_) (require "late/provides-for-syntax")]))
+           (use-shout)
+           (define-syntax (n stx) (datum->syntax stx (list 'quote (shout))))
+           (define results (list (m) (n)))
+           (provide results)"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "late/for-syntax") (list results (m) (n))"#
+        )
+        .to_string(),
+        "((from-phase1 shouted) from-phase1 shouted)"
+    );
+}
+
+#[test]
+fn a_require_a_macro_writes_at_the_top_level() {
+    let mut engine = require_engine();
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(define-syntax use-values (syntax-rules () [(_) (require "late/values")]))
+               (use-values)
+               (+ a b)"#
+        )
+        .to_string(),
+        "3"
+    );
+    // Later programs see what it brought in
+    assert_eq!(last(&mut engine, "(list a b)").to_string(), "(1 2)");
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(define-syntax use-macros (syntax-rules () [(_) (begin (require "late/macros"))]))
+               (use-macros)
+               (twice 5)"#
+        )
+        .to_string(),
+        "(5 5)"
+    );
+
+    // Like at Racket's top level, phase 1 code after it sees the instance
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(define-syntax fs (syntax-rules () [(_) (require (for-syntax "late/phase1"))]))
+               (fs)
+               (define-syntax (m stx) (datum->syntax stx (list 'quote (helper))))
+               (m)"#
+        )
+        .to_string(),
+        "from-phase1"
+    );
+}
+
+#[test]
+fn require_specs_can_be_the_programs_macros() {
+    let mut engine = require_engine();
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(define-syntax just-a (syntax-rules () [(_ p) (only-in p a)]))
+               (require (just-a "late/values"))
+               a"#
+        )
+        .to_string(),
+        "1"
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require (nope-in "late/values"))"#)
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("require expects a module path"),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_circular_require_a_macro_writes_is_an_error() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "cycle/a".to_owned(),
+        r#"(require "cycle/b") (provide x) (define x 1)"#.to_owned(),
+    );
+    engine.register_steel_module(
+        "cycle/b".to_owned(),
+        r#"(define-syntax back (syntax-rules () [(_) (require "cycle/a")]))
+           (back)"#
+            .to_owned(),
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "cycle/a")"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("circular"), "{err}");
+}
+
+#[test]
+fn phase1_code_is_loaded_in_module_order() {
+    let mut engine = require_engine();
+    // A begin-for-syntax after a require for syntax sees the instance, and one can refer to
+    // what a later one defines
+    engine.register_steel_module(
+        "order/lib".to_owned(),
+        r#"(provide m results)
+           (define-syntax fs (syntax-rules () [(_) (require (for-syntax "late/phase1"))]))
+           (fs)
+           (begin-for-syntax (define (early) (later)))
+           (begin-for-syntax (define (later) (helper)))
+           (define-syntax (m stx) (datum->syntax stx (list 'quote (early))))
+           (define results (m))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "order/lib") (list results (m))"#).to_string(),
+        "(from-phase1 from-phase1)"
+    );
+
+    // A template's begin-for-syntax variables are its own, and a transformer can refer to a
+    // function a later begin-for-syntax defines
+    engine.register_steel_module(
+        "order/templates".to_owned(),
+        r#"(provide results)
+           (define-syntax gen
+             (syntax-rules ()
+               [(_ name v) (begin (begin-for-syntax (define name-val v))
+                                  (define-syntax (name stx) (datum->syntax stx name-val)))]))
+           (gen k1 10)
+           (gen k2 20)
+           (define-syntax (tripled stx) (datum->syntax stx (triple 2)))
+           (begin-for-syntax (define (triple x) (* x 3)))
+           (define results (list (k1) (k2) (tripled)))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "order/templates") results"#).to_string(),
+        "(10 20 6)"
+    );
+
+    // Transformer code before the require doesn't see it
+    engine.register_steel_module(
+        "order/before".to_owned(),
+        r#"(define-syntax (m stx) (datum->syntax stx (list 'quote (helper))))
+           (define-syntax fs (syntax-rules () [(_) (require (for-syntax "late/phase1"))]))
+           (fs)
+           (m)"#
+            .to_owned(),
+    );
+    assert!(engine
+        .compile_and_run_raw_program(r#"(require "order/before")"#)
+        .is_err());
 }

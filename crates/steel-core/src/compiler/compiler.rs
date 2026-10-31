@@ -997,11 +997,17 @@ impl Compiler {
     // TODO: Compare this to the lower_expressions_impl and merge the behavior
     // Expands the top level's forms with the macros it defines and those its requires
     // provide, a form at a time
-    fn expand_top_level(&mut self, expanded_statements: &mut Vec<ExprKind>) -> Result<()> {
+    fn expand_top_level(
+        &mut self,
+        expanded_statements: &mut Vec<ExprKind>,
+        path: Option<PathBuf>,
+    ) -> Result<()> {
+        // Its phase 1 code is loaded as expansion reaches it, a run at a time, with the names it
+        // defines known from the start
         if let Some(kernel) = self.kernel.as_mut() {
-            // Label anything at the top as well - top level
+            kernel.declare_phase1_names("top-level", expanded_statements);
             kernel.load_syntax_transformers(
-                expanded_statements,
+                &mut Vec::new(),
                 "top-level".to_string(),
                 &self.phase1_imports,
                 Vec::new(),
@@ -1009,7 +1015,38 @@ impl Compiler {
             )?;
         }
 
-        for expr in expanded_statements.iter_mut() {
+        let mut phase1_queue = Vec::new();
+        let mut index = 0;
+        'forms: while index <= expanded_statements.len() {
+            let at_end = index == expanded_statements.len();
+            if !at_end
+                && (crate::parser::kernel::is_phase1_form(&expanded_statements[index])
+                    || crate::parser::kernel::has_phase1(&expanded_statements[index]))
+            {
+                phase1_queue.push(expanded_statements.remove(index));
+                continue;
+            }
+            if !phase1_queue.is_empty() {
+                let mut forms = core::mem::take(&mut phase1_queue);
+                if let Some(kernel) = self.kernel.as_mut() {
+                    kernel.load_syntax_transformers(
+                        &mut forms,
+                        "top-level".to_string(),
+                        &self.phase1_imports,
+                        Vec::new(),
+                        Vec::new(),
+                    )?;
+                }
+                // What a begin had besides phase 1 code goes back in its place
+                if !forms.is_empty() {
+                    expanded_statements.splice(index..index, forms);
+                    continue;
+                }
+            }
+            if at_end {
+                break;
+            }
+            let expr = &mut expanded_statements[index];
             // Both kinds of macros expand where they're used. Another round is for what a
             // definition of one made, or a required module's macro.
             for round in 0.. {
@@ -1041,6 +1078,52 @@ impl Compiler {
                 )?;
                 self.hide_required_kernel_macros(expr, &generated);
                 changed |= !generated.is_empty();
+
+                // Like at Racket's top level, a require a macro wrote is handled where it is:
+                // its modules are compiled and their names and macros added, as for the
+                // program's written requires
+                if crate::compiler::modules::has_require(expr) {
+                    let statements = match crate::compiler::modules::begin_forms(expr) {
+                        Some(forms) => forms,
+                        None => {
+                            crate::compiler::modules::as_require(expr);
+                            // Its specs can be the top level's macros
+                            if let ExprKind::Require(require) = expr {
+                                for spec in require.modules.iter_mut() {
+                                    crate::parser::expand_visitor::expand_with_kernel(
+                                        spec,
+                                        &self.macro_env,
+                                        GlobalMap::Map(self.symbol_map.map()),
+                                        crate::parser::expand_visitor::KernelExpander::in_environment(
+                                            self.kernel.as_mut(),
+                                            self.builtin_modules.clone(),
+                                            "top-level",
+                                        ),
+                                    )?;
+                                    if !crate::compiler::modules::is_require_spec(spec) {
+                                        stop!(BadSyntax => "require expects a module path, or a require spec such as only-in, prefix-in, rename-in, except-in or for-syntax"; crate::parser::span_visitor::get_span(spec));
+                                    }
+                                }
+                            }
+                            let require = core::mem::replace(expr, ExprKind::empty());
+                            let mut statements =
+                                self.expand_expressions(vec![require], path.clone())?;
+                            if let Some(kernel) = self.kernel.as_mut() {
+                                kernel.load_syntax_transformers(
+                                    &mut statements,
+                                    "top-level".to_string(),
+                                    &self.phase1_imports,
+                                    Vec::new(),
+                                    Vec::new(),
+                                )?;
+                            }
+                            statements
+                        }
+                    };
+                    expanded_statements.splice(index..=index, statements);
+                    continue 'forms;
+                }
+
                 lower_entire_ast(expr)?;
 
                 for (module, shadowed_vars) in &self.lifted_macro_environments {
@@ -1072,17 +1155,18 @@ impl Compiler {
             if let Some(by_scopes) = by_scopes {
                 crate::compiler::passes::scopes_check::compare(expr, &by_scopes);
             }
+            index += 1;
         }
 
         Ok(())
     }
 
     fn expand_ast(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<Vec<ExprKind>> {
-        let mut expanded_statements = self.expand_expressions(exprs, path)?;
+        let mut expanded_statements = self.expand_expressions(exprs, path.clone())?;
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
-        self.expand_top_level(&mut expanded_statements)?;
+        self.expand_top_level(&mut expanded_statements, path)?;
 
         // @Matt 11/15/2024
         // TODO: At this point, we'll want to remove
@@ -1211,7 +1295,7 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
-        let mut expanded_statements = self.expand_expressions(exprs, path)?;
+        let mut expanded_statements = self.expand_expressions(exprs, path.clone())?;
 
         // println!("---- Post expansion ----");
         // expanded_statements.pretty_print();
@@ -1225,7 +1309,7 @@ impl Compiler {
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
-        self.expand_top_level(&mut expanded_statements)?;
+        self.expand_top_level(&mut expanded_statements, path)?;
 
         // TODO: Check that defines are in legal positions, post expansion.
 

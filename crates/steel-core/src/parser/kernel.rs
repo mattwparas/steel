@@ -1332,6 +1332,9 @@ pub struct Kernel {
     pub(crate) share_host_modules: bool,
     // The modules being compiled, innermost last. With none, it's the top level.
     compiling: Vec<String>,
+    // The modules whose transformer environment has been loaded since they began compiling,
+    // so loading more adds to it
+    loaded: FxHashSet<String>,
     // The transformer environment each module being compiled uses for another module's macros
     instances: FxHashMap<(String, String), String>,
     // Number of instances made so far, used to name their copies of modules
@@ -1749,6 +1752,13 @@ impl Default for Kernel {
     }
 }
 
+// A written begin-for-syntax or defmacro
+pub(crate) fn is_phase1_form(expr: &ExprKind) -> bool {
+    expr.list()
+        .and_then(|l| l.first_ident())
+        .is_some_and(|x| *x == *BEGIN_FOR_SYNTAX || *x == *DEFMACRO)
+}
+
 // Whether this is a begin-for-syntax, or a begin with one in it
 pub(crate) fn has_phase1(expr: &ExprKind) -> bool {
     match expr {
@@ -1922,6 +1932,7 @@ impl Kernel {
             shared_instances: FxHashSet::default(),
             share_host_modules: false,
             compiling: Vec::new(),
+            loaded: FxHashSet::default(),
             instances: FxHashMap::default(),
             instance_count: 0,
             compile_tags: FxHashMap::default(),
@@ -2106,10 +2117,13 @@ impl Kernel {
 
         let mut macro_of_choice: InternedString = "#%syntax-transformer-module".into();
 
-        if environment == "top-level" {
-            if self.engine.extract_value("top-level").is_ok() {
-                macro_of_choice = "#%syntax-transformer-module-update".into();
-            }
+        // Loading more of a module's transformer code adds to what's loaded, like the top
+        // level's
+        let extending = !self.loaded.insert(environment.clone());
+        if (environment == "top-level" && self.engine.extract_value("top-level").is_ok())
+            || (extending && environment != "top-level")
+        {
+            macro_of_choice = "#%syntax-transformer-module-update".into();
         }
 
         def_macro_exprs.push(ExprKind::atom(macro_of_choice));
@@ -2296,19 +2310,39 @@ impl Kernel {
         // A module's transformer environment can be built again for each module that uses it
         if environment != "top-level" && environment != "default" {
             self.forget_instances(&environment);
-            self.transformers.programs.write().unwrap().insert(
-                environment.clone(),
-                Phase1Program {
-                    for_syntax,
-                    for_syntax_prefixes,
-                    imports: imports.to_vec(),
-                    forms,
-                    defmacros,
-                    names,
-                    transformers: Vec::new(),
-                    imported,
-                },
-            );
+            let mut programs = self.transformers.programs.write().unwrap();
+            let existing = programs.get_mut(&environment).filter(|_| extending);
+            match existing {
+                // In the order it was loaded, so an instance runs it the same way
+                Some(program) => {
+                    program.for_syntax.extend(for_syntax);
+                    program.for_syntax_prefixes.extend(for_syntax_prefixes);
+                    program.imports.extend(imports.iter().cloned());
+                    program.forms.extend(forms);
+                    program.defmacros.extend(defmacros);
+                    for name in names {
+                        if !program.names.contains(&name) {
+                            program.names.push(name);
+                        }
+                    }
+                    program.imported.extend(imported);
+                }
+                None => {
+                    programs.insert(
+                        environment.clone(),
+                        Phase1Program {
+                            for_syntax,
+                            for_syntax_prefixes,
+                            imports: imports.to_vec(),
+                            forms,
+                            defmacros,
+                            names,
+                            transformers: Vec::new(),
+                            imported,
+                        },
+                    );
+                }
+            }
         }
 
         if !has_provides && !defmacro_exprs.is_empty() {
@@ -2526,6 +2560,7 @@ impl Kernel {
     // From now on, macro uses are part of compiling this module, which gets its own
     // transformer environments for other modules' macros
     pub(crate) fn begin_compiling(&mut self, module: String) {
+        self.loaded.remove(&module);
         self.phase1_macros.remove(&module);
         self.phase1_procedural.remove(&module);
         self.phase1_renames.remove(&module);
@@ -2566,6 +2601,51 @@ impl Kernel {
 
     // Adds the macros of modules required for syntax for the environment's transformer code.
     // `renames` are the instance names of those modules, when they differ from the modules' own.
+    // Makes the phase 1 names the forms' begin-for-syntax define known before they're loaded,
+    // so code loaded earlier can refer to ones defined later, as in a Racket module
+    pub(crate) fn declare_phase1_names(&mut self, environment: &str, forms: &[ExprKind]) {
+        let mut names = Vec::new();
+        for form in forms {
+            if let Some(l) = form
+                .list()
+                .filter(|l| l.first_ident() == Some(&*BEGIN_FOR_SYNTAX))
+            {
+                l.args[1..]
+                    .iter()
+                    .for_each(|x| phase1_definitions(x, &mut names));
+            }
+        }
+        let mut declared = Vec::new();
+        {
+            let mut phase1 = self.transformers.phase1.write().unwrap();
+            let known = phase1.entry(environment.to_owned()).or_default();
+            for name in names {
+                if !known.contains(&name) {
+                    known.push(name);
+                    declared.push(name);
+                }
+            }
+        }
+
+        // Transformer code compiled before a definition can refer to it, so each name has a
+        // value until its definition is loaded
+        let placeholders: Vec<ExprKind> = declared
+            .into_iter()
+            .map(|name| self.phase1_global(environment, name))
+            .filter(|global| self.engine.extract_value(global.resolve()).is_err())
+            .map(|global| {
+                expr_list![
+                    ExprKind::ident("define"),
+                    ExprKind::atom(global),
+                    ExprKind::ident("void"),
+                ]
+            })
+            .collect();
+        if !placeholders.is_empty() {
+            let _ = self.engine.run_raw_program_from_exprs(placeholders);
+        }
+    }
+
     pub(crate) fn add_phase1_macros(
         &mut self,
         environment: &str,

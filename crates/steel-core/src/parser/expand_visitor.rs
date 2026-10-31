@@ -935,6 +935,10 @@ impl ProceduralHeads {
         ProceduralHeads(PROCEDURAL_HEADS.with(|x| x.replace(names)))
     }
 
+    pub(crate) fn add_names(&self, names: impl IntoIterator<Item = InternedString>) {
+        PROCEDURAL_HEADS.with(|x| x.borrow_mut().extend(names));
+    }
+
     // Adds the macros a form defined, once it's expanded
     pub(crate) fn add(&self, form: &ExprKind) {
         PROCEDURAL_HEADS.with(|x| defined_procedural_macro_names(form, &mut x.borrow_mut()));
@@ -1648,6 +1652,7 @@ thread_local! {
         "combine-out",
         "#%provide-as",
         "#%provide-specs",
+        "#%require-spec",
         "#%require-dylib",
     ]
     .into_iter()
@@ -2520,6 +2525,12 @@ pub struct RequiredMacroMap<'a> {
 // top-level define-syntax can replace entries
 pub type ExpanderMany<'a> = Expander<'a>;
 
+pub(crate) struct ExpanderState {
+    scope_chain: ScopeChain,
+    local_macros: LocalMacros,
+    prelude_base: usize,
+}
+
 // An expander's macros: a shared read-only map, or its own
 pub(crate) enum MacroMap<'a> {
     Shared(&'a FxHashMap<InternedString, SteelMacro>),
@@ -2622,6 +2633,35 @@ impl<'a> Expander<'a> {
     // Also expand procedural macros
     pub(crate) fn with_kernel(mut self, kernel: KernelExpander<'a>) -> Self {
         self.kernel = Some(kernel);
+        self
+    }
+
+    fn stamp_names(&mut self, names: &mut List) {
+        for name in names.args.iter_mut() {
+            match name {
+                ExprKind::Atom(a) => self.scope_chain.stamp(&mut a.syn),
+                ExprKind::List(inner) => self.stamp_names(inner),
+                _ => {}
+            }
+        }
+    }
+
+    // What a module's expander keeps from form to form, to carry over to the expander that
+    // replaces it when a require adds macros
+    pub(crate) fn into_state(self) -> ExpanderState {
+        ExpanderState {
+            scope_chain: self.scope_chain,
+            local_macros: self.local_macros,
+            prelude_base: self.prelude_base,
+        }
+    }
+
+    pub(crate) fn with_state(mut self, state: Option<ExpanderState>) -> Self {
+        if let Some(state) = state {
+            self.scope_chain = state.scope_chain;
+            self.local_macros = state.local_macros;
+            self.prelude_base = state.prelude_base;
+        }
         self
     }
 
@@ -4190,8 +4230,9 @@ impl<'a> Expander<'a> {
                 // require lists
                 let names = names_bindings(l);
                 let renames = names
-                    && l.first_ident()
-                        .is_some_and(|x| matches!(x.resolve(), "rename-out" | "rename-in"));
+                    && l.first_ident().is_some_and(|x| {
+                        matches!(x.resolve(), "rename-out" | "rename-in" | "#%require-spec")
+                    });
                 for (i, expr) in l.args.iter_mut().enumerate() {
                     if let ExprKind::Atom(a) = expr {
                         if i == 0 || names {
@@ -4200,14 +4241,10 @@ impl<'a> Expander<'a> {
                         }
                     }
 
-                    // The pairs of names a rename lists
+                    // The pairs of names a rename lists, and what a require spec does
                     if renames {
-                        if let ExprKind::List(pair) = expr {
-                            for name in pair.args.iter_mut() {
-                                if let ExprKind::Atom(a) = name {
-                                    self.scope_chain.stamp(&mut a.syn);
-                                }
-                            }
+                        if let ExprKind::List(names) = expr {
+                            self.stamp_names(names);
                             continue;
                         }
                     }

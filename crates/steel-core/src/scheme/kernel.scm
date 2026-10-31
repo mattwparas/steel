@@ -320,7 +320,7 @@
 ;; Provide specs, like Racket's provide transformers. Each is a list of names and the names to
 ;; provide them as, and nests in the others. Ones that rename expand to `(#%provide-as name
 ;; exported)`.
-(define (provide-error expr message)
+(define (spec-error expr message)
   (error-with-span (syntax-span expr) message (#%syntax->datum/kernel expr)))
 
 (define (provide-exports expr)
@@ -334,7 +334,7 @@
          [(equal? head 'struct-out)
           (let ([info (and (= (length args) 1) (#%struct-info (car args)))])
             (unless info
-              (provide-error expr "struct-out expects the name of a struct, found:"))
+              (spec-error expr "struct-out expects the name of a struct, found:"))
             ;; For a struct another module defines, only the names imported here
             (let ([names (struct-names (first info) (second info) (third info))])
               (map (lambda (x) (cons x x))
@@ -344,18 +344,18 @@
                  (map (lambda (path)
                         (let ([names (and (string? (syntax-e path)) (#%imported-from (syntax-e path)))])
                           (unless names
-                            (provide-error path "all-from-out expects a required module, found:"))
+                            (spec-error path "all-from-out expects a required module, found:"))
                           (map (lambda (x) (cons x x)) names)))
                       args))]
          [(equal? head 'all-defined-out)
           (unless (null? args)
-            (provide-error expr "all-defined-out takes no arguments:"))
+            (spec-error expr "all-defined-out takes no arguments:"))
           (map (lambda (x) (cons x x))
                (filter (lambda (x) (not (starts-with? (symbol->string x) "#")))
                        (#%defined-names)))]
          [(equal? head 'prefix-out)
           (unless (and (pair? args) (symbol? (syntax-e (car args))))
-            (provide-error expr "prefix-out expects a prefix and provide specs:"))
+            (spec-error expr "prefix-out expects a prefix and provide specs:"))
           (map (lambda (export) (cons (car export) (concat-symbols (syntax-e (car args)) (cdr export))))
                (apply append (map provide-exports (cdr args))))]
          [(equal? head 'rename-out)
@@ -365,18 +365,18 @@
                                 (= (length names) 2)
                                 (symbol? (syntax-e (first names)))
                                 (symbol? (syntax-e (second names))))
-                     (provide-error pair "rename-out expects pairs of a name and the name to provide it as:"))
+                     (spec-error pair "rename-out expects pairs of a name and the name to provide it as:"))
                    (cons (syntax-e (first names)) (syntax-e (second names)))))
                args)]
          [(equal? head 'except-out)
           (unless (pair? args)
-            (provide-error expr "except-out expects a provide spec and names:"))
+            (spec-error expr "except-out expects a provide spec and names:"))
           (let ([excluded (map syntax-e (cdr args))])
             (filter (lambda (export) (not (member (cdr export) excluded)))
                     (provide-exports (car args))))]
          [(equal? head 'combine-out) (apply append (map provide-exports args))]
-         [else (provide-error expr "this can't be used inside another provide spec:")]))]
-    [else (provide-error expr "bad provide spec:")]))
+         [else (spec-error expr "this can't be used inside another provide spec:")]))]
+    [else (spec-error expr "bad provide spec:")]))
 
 ;; The names a spec's first identifier is written with, or its head's when it has none
 (define (spec-identifier expr)
@@ -413,6 +413,61 @@
                  (provide-spec expr))
 (#%define-syntax (combine-out expr)
                  (provide-spec expr))
+
+;; Require specs, like Racket's require transformers. Each is a module and what the forms around
+;; it do to what's imported, from the inside out, for `(#%require-spec module what ...)`.
+(define (require-parts expr)
+  (define e (syntax-e expr))
+  (define (identifier? x)
+    (symbol? (syntax-e x)))
+  (define (pair-of-identifiers? x)
+    (let ([names (syntax-e x)])
+      (and (list? names) (= (length names) 2) (identifier? (first names)) (identifier? (second names)))))
+  (cond
+    [(string? e) (list expr)]
+    [(and (list? e) (pair? e) (identifier? (car e)))
+     (let ([head (syntax-e (car e))]
+           [args (cdr e)])
+       (cond
+         [(equal? head '#%require-spec) args]
+         [(null? args) (spec-error expr "a require spec needs a module:")]
+         [(equal? head 'only-in)
+          (for-each (lambda (x)
+                      (unless (or (identifier? x) (pair-of-identifiers? x))
+                        (spec-error x "only-in expects identifiers, or pairs of identifiers to rename:")))
+                    (cdr args))
+          (append (require-parts (car args)) (list (cons '#:only (cdr args))))]
+         [(equal? head 'prefix-in)
+          (unless (and (= (length args) 2) (identifier? (car args)))
+            (spec-error expr "prefix-in expects a prefix and a require spec:"))
+          (append (require-parts (cadr args)) (list (list '#:prefix (car args))))]
+         [(equal? head 'rename-in)
+          (for-each (lambda (x)
+                      (unless (pair-of-identifiers? x)
+                        (spec-error x "rename-in expects pairs of the name it provides and the name to bind:")))
+                    (cdr args))
+          (append (require-parts (car args)) (list (cons '#:rename (cdr args))))]
+         [(equal? head 'except-in)
+          (for-each (lambda (x)
+                      (unless (identifier? x)
+                        (spec-error x "except-in expects identifiers to leave out:")))
+                    (cdr args))
+          (append (require-parts (car args)) (list (cons '#:except (cdr args))))]
+         [else (spec-error expr "this can't be used inside another require spec:")]))]
+    [else (spec-error expr "bad require spec:")]))
+
+(define (require-spec expr)
+  (syntax/loc (cons '#%require-spec (require-parts expr))
+    (syntax-span expr)))
+
+(#%define-syntax (only-in expr)
+                 (require-spec expr))
+(#%define-syntax (prefix-in expr)
+                 (require-spec expr))
+(#%define-syntax (rename-in expr)
+                 (require-spec expr))
+(#%define-syntax (except-in expr)
+                 (require-spec expr))
 
 (define (struct-names struct-name fields mutable?)
   (append (list struct-name
