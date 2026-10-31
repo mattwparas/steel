@@ -3402,6 +3402,25 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("#%syntax-case-match", syntax_case_match)
         .register_fn("#%struct-info", struct_info_of)
         .register_fn("#%record-struct-info!", record_struct_info)
+        .register_fn("#%imported-from", |path: SteelString| {
+            match crate::parser::expand_visitor::imported_from(path.as_str()) {
+                Some(names) => SteelVal::ListV(
+                    names
+                        .into_iter()
+                        .map(|x| SteelVal::SymbolV(x.resolve().into()))
+                        .collect(),
+                ),
+                None => SteelVal::BoolV(false),
+            }
+        })
+        .register_fn("#%defined-names", || {
+            SteelVal::ListV(
+                crate::parser::expand_visitor::defined_names()
+                    .into_iter()
+                    .map(|x| SteelVal::SymbolV(x.resolve().into()))
+                    .collect(),
+            )
+        })
         .register_fn("#%imported?", |name: SteelVal| match name {
             SteelVal::SymbolV(name) => {
                 crate::parser::expand_visitor::imported_here(InternedString::from(name.as_str()))

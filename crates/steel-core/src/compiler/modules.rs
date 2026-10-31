@@ -1497,23 +1497,6 @@ fn reexport_requires(
         .collect()
 }
 
-// Specs with the ones a macro expanded to `(begin spec ...)` spliced in
-fn spliced_specs<'a>(specs: impl Iterator<Item = &'a ExprKind>, spliced: &mut Vec<ExprKind>) {
-    for spec in specs {
-        match spec {
-            ExprKind::Begin(b) => spliced_specs(b.exprs.iter(), spliced),
-            ExprKind::List(l)
-                if l.first()
-                    .and_then(ExprKind::atom_syntax_object)
-                    .is_some_and(|x| x.ty == TokenType::Begin) =>
-            {
-                spliced_specs(l.args[1..].iter(), spliced)
-            }
-            _ => spliced.push(spec.clone()),
-        }
-    }
-}
-
 // A name provided both as itself and under contract/out is provided with its contract
 fn drop_uncontracted_duplicates(provides: &mut [ExprKind]) {
     let contracted: FxHashSet<InternedString> = provides
@@ -4562,7 +4545,26 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         // Like in Racket, provide specs are expanded after the module's forms, so they can use
-        // the macros those forms define
+        // the macros those forms define, and all-defined-out sees what the forms defined
+        let defined: Vec<InternedString> = collect_globals(
+            &ast.iter()
+                .filter(|x| !is_builtin_import(x))
+                .cloned()
+                .collect::<Vec<_>>(),
+        )
+        .into_iter()
+        .chain(generated.iter().copied())
+        .chain(self.local_macros.iter().copied())
+        .chain(written_procedural.iter().flatten().copied())
+        .collect();
+        crate::parser::expand_visitor::record_module_bindings(
+            module_name.into(),
+            crate::parser::expand_visitor::ModuleBindings {
+                own: defined.iter().copied().collect(),
+                imports: FxHashMap::default(),
+            },
+        );
+        crate::parser::expand_visitor::record_defined_names(module_name.into(), defined);
         for expr in provides.iter_mut() {
             many_expander.expand(expr)?;
         }
@@ -4614,168 +4616,79 @@ impl<'a> ModuleBuilder<'a> {
             ast = core::mem::take(&mut self.source_ast);
         }
 
-        // Like Racket's provide transformers, these run once the module is expanded
-        // `(all-from-out "path")` provides what the module imports from that require
-        for provide in provides.iter_mut() {
-            let Some(provide) = provide.list_mut() else {
-                continue;
-            };
-            if !provide.args.iter().any(|x| {
-                x.list()
-                    .and_then(|x| x.first_ident())
-                    .is_some_and(|x| x.resolve() == "all-from-out")
-            }) {
-                continue;
-            }
+        // `(#%provide-as name exported)` provides the name as another. The provide forms in
+        // kernel.scm expand to it, once the module is expanded like Racket's provide transformers.
+        for provide in provides.iter_mut().filter_map(ExprKind::list_mut) {
             let mut expanded = ThinVec::new();
             for spec in core::mem::take(&mut provide.args) {
-                let Some(paths) = spec
-                    .list()
-                    .filter(|x| {
-                        x.first_ident()
-                            .is_some_and(|x| x.resolve() == "all-from-out")
-                    })
-                    .map(|x| x.args[1..].to_vec())
-                else {
+                let Some(l) = spec.list().filter(|x| {
+                    x.first_ident()
+                        .is_some_and(|x| x.resolve() == "#%provide-as")
+                }) else {
                     expanded.push(spec);
                     continue;
                 };
-                for path in paths {
-                    let Some(written) = path.string_literal().map(|x| x.to_string()) else {
-                        stop!(BadSyntax => "all-from-out expects a module path"; spec.span());
-                    };
-                    let required =
-                        self.require_objects
-                            .iter()
-                            .filter(|x| !x.for_syntax)
-                            .find(|x| {
-                                x.path
-                                    .get_path()
-                                    .to_string_lossy()
-                                    .ends_with(written.as_str())
-                            });
-                    let Some(module) = required.and_then(|x| {
-                        self.compiled_modules
-                            .compiled_modules
-                            .get(x.path.get_path().as_ref())
-                            .map(|module| (x, module))
-                    }) else {
-                        stop!(BadSyntax => format!("all-from-out: {} isn't required", written); spec.span());
-                    };
-                    for (local, _) in imported_names(module.0, module.1) {
-                        expanded.push(ExprKind::atom(local));
-                    }
-                }
-            }
-            provide.args = expanded;
-        }
-        // `(prefix-out p: name ...)` provides each name as `p:name`, and
-        // `(rename-out [name other] ...)` each as the other
-        for provide in provides.iter_mut() {
-            let Some(provide) = provide.list_mut() else {
-                continue;
-            };
-            let mut expanded = ThinVec::new();
-            for spec in core::mem::take(&mut provide.args) {
-                // The names it provides, each with the name to provide it as
-                let renamed: Vec<(InternedString, InternedString)> = match spec
-                    .list()
-                    .and_then(|x| Some((x.first_ident()?.resolve(), x)))
-                {
-                    Some(("prefix-out", l)) => {
-                        let Some(prefix) = l.args.get(1).and_then(ExprKind::atom_identifier) else {
-                            stop!(BadSyntax => "prefix-out expects a prefix and names"; spec.span());
-                        };
-                        let mut names = Vec::new();
-                        spliced_specs(l.args.iter().skip(2), &mut names);
-                        let mut renamed = Vec::new();
-                        for name in &names {
-                            let Some(name) = name.atom_identifier() else {
-                                stop!(BadSyntax => "prefix-out expects a prefix and names"; spec.span());
-                            };
-                            renamed.push((
-                                *name,
-                                (prefix.resolve().to_string() + name.resolve()).into(),
-                            ));
-                        }
-                        renamed
-                    }
-                    Some(("rename-out", l)) => {
-                        let mut renamed = Vec::new();
-                        for pair in l.args.iter().skip(1) {
-                            let names = pair.list().filter(|x| x.len() == 2).and_then(|x| {
-                                Some((*x.args[0].atom_identifier()?, *x.args[1].atom_identifier()?))
-                            });
-                            match names {
-                                Some(names) => renamed.push(names),
-                                None => {
-                                    stop!(BadSyntax => "rename-out expects pairs of a name and the name to provide it as"; pair.span())
-                                }
-                            }
-                        }
-                        renamed
-                    }
-                    _ => {
-                        expanded.push(spec);
-                        continue;
-                    }
+                let names = match l.args.as_slice() {
+                    [_, name, exported] => name.atom_identifier().zip(exported.atom_identifier()),
+                    _ => None,
                 };
-                for (name, exported) in renamed {
-                    let name = &name;
-                    // Its own macro, or one a require brings in
-                    let imported_macro = self
-                        .require_objects
-                        .iter()
-                        .filter(|x| !x.for_syntax)
-                        .filter_map(|x| {
-                            let module = self
-                                .compiled_modules
-                                .compiled_modules
-                                .get(x.path.get_path().as_ref())?;
-                            Some((x, module))
+                let Some((name, &exported)) = names else {
+                    stop!(BadSyntax => "#%provide-as expects a name and the name to provide it as"; spec.span());
+                };
+                // Its own macro, or one a require brings in
+                let imported_macro = self
+                    .require_objects
+                    .iter()
+                    .filter(|x| !x.for_syntax)
+                    .filter_map(|x| {
+                        let module = self
+                            .compiled_modules
+                            .compiled_modules
+                            .get(x.path.get_path().as_ref())?;
+                        Some((x, module))
+                    })
+                    .any(|(x, module)| {
+                        imported_names(x, module).iter().any(|(local, original)| {
+                            local == name && module.macro_map.contains_key(original)
                         })
-                        .any(|(x, module)| {
-                            imported_names(x, module).iter().any(|(local, original)| {
-                                local == name && module.macro_map.contains_key(original)
-                            })
-                        });
-                    if self.macro_map.contains_key(name) || imported_macro {
-                        // A macro that passes its use on to the macro of the name
-                        let rest = ExprKind::atom("rest");
-                        let pattern = List::new_maybe_improper(
-                            thin_vec![ExprKind::atom("_"), rest.clone()],
-                            true,
-                        );
-                        let template =
-                            List::new_maybe_improper(thin_vec![ExprKind::atom(*name), rest], true);
-                        let mut alias = SteelMacro::parse_from_ast_macro(Box::new(Macro::new(
-                            ExprKind::atom(exported),
-                            Box::new(SyntaxRules::new(
-                                ThinVec::new(),
-                                thin_vec![PatternPair::new(pattern.into(), template.into())
-                                    .map_err(|x| {
-                                        crate::rerrs::SteelErr::new(
-                                            crate::rerrs::ErrorKind::BadSyntax,
-                                            x.to_string(),
-                                        )
-                                    },)?],
-                                SyntaxObject::default(TokenType::SyntaxRules),
-                            )),
-                            SyntaxObject::default(TokenType::DefineSyntax),
-                        )))?;
-                        alias.mark_definition_resolved(&self.name.to_string_lossy());
-                        Arc::make_mut(&mut self.macro_map).insert(exported, alias);
-                        self.local_macros.insert(exported);
-                    } else {
-                        ast.push(ExprKind::Define(Box::new(Define::new(
-                            ExprKind::atom(exported),
-                            ExprKind::atom(*name),
-                            SyntaxObject::default(TokenType::Define),
-                        ))));
-                    }
-                    own_names.insert(exported);
-                    expanded.push(ExprKind::atom(exported));
+                    });
+                if self.macro_map.contains_key(name) || imported_macro {
+                    // A macro that passes its use on to the macro of the name
+                    let rest = ExprKind::atom("rest");
+                    let pattern = List::new_maybe_improper(
+                        thin_vec![ExprKind::atom("_"), rest.clone()],
+                        true,
+                    );
+                    let template =
+                        List::new_maybe_improper(thin_vec![ExprKind::atom(*name), rest], true);
+                    let mut alias = SteelMacro::parse_from_ast_macro(Box::new(Macro::new(
+                        ExprKind::atom(exported),
+                        Box::new(SyntaxRules::new(
+                            ThinVec::new(),
+                            thin_vec![PatternPair::new(pattern.into(), template.into()).map_err(
+                                |x| {
+                                    crate::rerrs::SteelErr::new(
+                                        crate::rerrs::ErrorKind::BadSyntax,
+                                        x.to_string(),
+                                    )
+                                },
+                            )?],
+                            SyntaxObject::default(TokenType::SyntaxRules),
+                        )),
+                        SyntaxObject::default(TokenType::DefineSyntax),
+                    )))?;
+                    alias.mark_definition_resolved(&self.name.to_string_lossy());
+                    Arc::make_mut(&mut self.macro_map).insert(exported, alias);
+                    self.local_macros.insert(exported);
+                } else {
+                    ast.push(ExprKind::Define(Box::new(Define::new(
+                        ExprKind::atom(exported),
+                        ExprKind::atom(*name),
+                        SyntaxObject::default(TokenType::Define),
+                    ))));
                 }
+                own_names.insert(exported);
+                expanded.push(ExprKind::atom(exported));
             }
             provide.args = expanded;
         }
@@ -5050,7 +4963,9 @@ impl<'a> ModuleBuilder<'a> {
                 ExprKind::List(l)
                     if l.first()
                         .and_then(ExprKind::atom_syntax_object)
-                        .is_some_and(|x| x.ty == TokenType::Begin) =>
+                        .is_some_and(|x| x.ty == TokenType::Begin)
+                        || l.first_ident()
+                            .is_some_and(|x| x.resolve() == "#%provide-specs") =>
                 {
                     let specs = l.args[1..].iter().cloned().collect();
                     normal_provides.extend(self.filter_out_for_syntax_provides(specs)?);

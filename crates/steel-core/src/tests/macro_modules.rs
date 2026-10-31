@@ -2746,3 +2746,31 @@ fn a_provide_spec_macro_can_provide_several_names() {
         "(1 2)"
     );
 }
+
+#[test]
+fn provide_forms_nest() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "nest/lib".to_owned(),
+        r#"(provide (except-out (all-defined-out) secret)
+                    (prefix-out q: (struct-out pt) (combine-out h k))
+                    (rename-out [h hh]))
+           (struct pt (x y))
+           (define (h) 'h)
+           (define (k) 'k)
+           (define secret 1)
+           (define-syntax mac (syntax-rules () [(_) 'mac]))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "nest/lib")
+               (list (h) (k) (hh) (mac) (pt-x (pt 1 2)) (q:pt-y (q:pt 1 2)) (q:h) (q:k))"#
+        )
+        .to_string(),
+        "(h k h mac 1 2 h k)"
+    );
+    assert!(engine.compile_and_run_raw_program("secret").is_err());
+}

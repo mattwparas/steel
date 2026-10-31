@@ -317,22 +317,102 @@
                                           (syntax-span expr))
                                         (second unwrapped)))
 
-;; The names a struct's definition makes, as a provide spec
+;; Provide specs, like Racket's provide transformers. Each is a list of names and the names to
+;; provide them as, and nests in the others. Ones that rename expand to `(#%provide-as name
+;; exported)`.
+(define (provide-error expr message)
+  (error-with-span (syntax-span expr) message (#%syntax->datum/kernel expr)))
+
+(define (provide-exports expr)
+  (define e (syntax-e expr))
+  (cond
+    [(symbol? e) (list (cons e e))]
+    [(and (list? e) (pair? e) (symbol? (syntax-e (car e))))
+     (let ([head (syntax-e (car e))]
+           [args (cdr e)])
+       (cond
+         [(equal? head 'struct-out)
+          (let ([info (and (= (length args) 1) (#%struct-info (car args)))])
+            (unless info
+              (provide-error expr "struct-out expects the name of a struct, found:"))
+            ;; For a struct another module defines, only the names imported here
+            (let ([names (struct-names (first info) (second info) (third info))])
+              (map (lambda (x) (cons x x))
+                   (if (list-ref info 4) names (filter #%imported? names)))))]
+         [(equal? head 'all-from-out)
+          (apply append
+                 (map (lambda (path)
+                        (let ([names (and (string? (syntax-e path)) (#%imported-from (syntax-e path)))])
+                          (unless names
+                            (provide-error path "all-from-out expects a required module, found:"))
+                          (map (lambda (x) (cons x x)) names)))
+                      args))]
+         [(equal? head 'all-defined-out)
+          (unless (null? args)
+            (provide-error expr "all-defined-out takes no arguments:"))
+          (map (lambda (x) (cons x x))
+               (filter (lambda (x) (not (starts-with? (symbol->string x) "#")))
+                       (#%defined-names)))]
+         [(equal? head 'prefix-out)
+          (unless (and (pair? args) (symbol? (syntax-e (car args))))
+            (provide-error expr "prefix-out expects a prefix and provide specs:"))
+          (map (lambda (export) (cons (car export) (concat-symbols (syntax-e (car args)) (cdr export))))
+               (apply append (map provide-exports (cdr args))))]
+         [(equal? head 'rename-out)
+          (map (lambda (pair)
+                 (let ([names (syntax-e pair)])
+                   (unless (and (list? names)
+                                (= (length names) 2)
+                                (symbol? (syntax-e (first names)))
+                                (symbol? (syntax-e (second names))))
+                     (provide-error pair "rename-out expects pairs of a name and the name to provide it as:"))
+                   (cons (syntax-e (first names)) (syntax-e (second names)))))
+               args)]
+         [(equal? head 'except-out)
+          (unless (pair? args)
+            (provide-error expr "except-out expects a provide spec and names:"))
+          (let ([excluded (map syntax-e (cdr args))])
+            (filter (lambda (export) (not (member (cdr export) excluded)))
+                    (provide-exports (car args))))]
+         [(equal? head 'combine-out) (apply append (map provide-exports args))]
+         [else (provide-error expr "this can't be used inside another provide spec:")]))]
+    [else (provide-error expr "bad provide spec:")]))
+
+;; The names a spec's first identifier is written with, or its head's when it has none
+(define (spec-identifier expr)
+  (let loop ([items (cdr (syntax-e expr))])
+    (cond
+      [(null? items) (car (syntax-e expr))]
+      [(symbol? (syntax-e (car items))) (car items)]
+      [(list? (syntax-e (car items)))
+       (let ([inner (loop (syntax-e (car items)))])
+         (if (equal? inner (car (syntax-e expr))) (loop (cdr items)) inner))]
+      [else (loop (cdr items))])))
+
+(define (provide-spec expr)
+  (#%syntax/with-mark-of (syntax/loc (cons '#%provide-specs
+                                           (map (lambda (export)
+                                                  (if (equal? (car export) (cdr export))
+                                                      (car export)
+                                                      (list '#%provide-as (car export) (cdr export))))
+                                                (provide-exports expr)))
+                           (syntax-span expr))
+                         (spec-identifier expr)))
+
 (#%define-syntax (struct-out expr)
-                 (define unwrapped (syntax-e expr))
-                 (define info
-                   (and (= (length unwrapped) 2) (#%struct-info (second unwrapped))))
-                 (unless info
-                   (error-with-span (syntax-span expr)
-                                    "struct-out expects the name of a struct, found:"
-                                    (#%syntax->datum/kernel expr)))
-                 ;; For a struct another module defines, only the names imported here
-                 (define names
-                   (let ([names (struct-names (first info) (second info) (third info))])
-                     (if (list-ref info 4) names (filter #%imported? names))))
-                 (#%syntax/with-mark-of (syntax/loc (cons 'begin names)
-                                          (syntax-span expr))
-                                        (second unwrapped)))
+                 (provide-spec expr))
+(#%define-syntax (all-from-out expr)
+                 (provide-spec expr))
+(#%define-syntax (all-defined-out expr)
+                 (provide-spec expr))
+(#%define-syntax (prefix-out expr)
+                 (provide-spec expr))
+(#%define-syntax (rename-out expr)
+                 (provide-spec expr))
+(#%define-syntax (except-out expr)
+                 (provide-spec expr))
+(#%define-syntax (combine-out expr)
+                 (provide-spec expr))
 
 (define (struct-names struct-name fields mutable?)
   (append (list struct-name

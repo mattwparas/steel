@@ -1219,6 +1219,41 @@ pub(crate) fn imported_here(name: InternedString) -> bool {
     })
 }
 
+// The names the module being compiled imports from modules whose path ends with `path`, or None
+// when it imports nothing from one
+pub(crate) fn imported_from(path: &str) -> Option<Vec<InternedString>> {
+    let module = current_module()?;
+    MODULE_BINDINGS.with(|x| {
+        let bindings = x.borrow();
+        let names: Vec<InternedString> = bindings
+            .get(&module)?
+            .imports
+            .iter()
+            .filter(|(_, (from, _))| from.resolve().ends_with(path))
+            .map(|(local, _)| *local)
+            .collect();
+        (!names.is_empty()).then_some(names)
+    })
+}
+
+thread_local! {
+    // What each module's forms define, once they're expanded
+    static DEFINED_NAMES: core::cell::RefCell<FxHashMap<InternedString, Vec<InternedString>>> =
+        core::cell::RefCell::new(FxHashMap::default());
+}
+
+pub(crate) fn record_defined_names(module: InternedString, names: Vec<InternedString>) {
+    DEFINED_NAMES.with(|x| x.borrow_mut().insert(module, names));
+}
+
+// The names the module being compiled defines
+pub(crate) fn defined_names() -> Vec<InternedString> {
+    let Some(module) = current_module() else {
+        return Vec::new();
+    };
+    DEFINED_NAMES.with(|x| x.borrow().get(&module).cloned().unwrap_or_default())
+}
+
 // The module a name comes from and its name there, following imports from where it's used. A
 // name a module's macros define isn't one of its own names until the module is expanded.
 pub(crate) fn import_origin(
@@ -1609,6 +1644,10 @@ thread_local! {
         "all-from-out",
         "prefix-out",
         "rename-out",
+        "except-out",
+        "combine-out",
+        "#%provide-as",
+        "#%provide-specs",
         "#%require-dylib",
     ]
     .into_iter()
