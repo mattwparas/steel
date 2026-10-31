@@ -42,7 +42,7 @@
            [(pattern-keyword? x (car heads)) (car heads)]
            [else (loop (cdr heads))]))]))
 
-  ;; Quoted parts of syntax can be plain data
+  ;; These take syntax or plain data, since the quoted parts of syntax can be data
   (define (stx-e x)
     (if (syntax? x) (syntax-e x) x))
 
@@ -52,6 +52,9 @@
   (define (stx-list x)
     (let ([e (stx-e x)])
       (if (list? e) e #f)))
+
+  (define (as-identifier x stx)
+    (if (syntax? x) x (#%datum->syntax stx (datum-of x))))
 
   (define (pattern-error stx message)
     (if (syntax? stx)
@@ -98,7 +101,7 @@
         [(equal? (car (car entries)) key) (cdr (car entries))]
         [else (loop (cdr entries))])))
 
-  ;; Elements of a list, where an ellipsis must follow a pattern
+  ;; The elements of a list pattern. An ellipsis has to come after a pattern.
   (define (pattern-elements items table stx)
     (let loop ([items items]
                [previous #f])
@@ -150,17 +153,15 @@
          [(equal? keyword 'struct)
           (unless (and (= (length args) 2) (symbol? (datum-of (car args))) (stx-list (cadr args)))
             (pattern-error stx "match: a struct pattern is (struct name (pattern ...))"))
-          (struct-pattern (if (syntax? (car args)) (car args) (#%datum->syntax stx (datum-of (car args))))
-                          (stx-list (cadr args))
-                          table
-                          stx)]
-         [(or (equal? keyword 'cons) (equal? keyword 'box))
-          (unless (= (length args) (if (equal? keyword 'cons) 2 1))
-            (pattern-error stx
-                           (if (equal? keyword 'cons)
-                               "match: cons takes two patterns"
-                               "match: box takes one pattern")))
-          (cons keyword (map (lambda (p) (pattern-of p table)) args))]
+          (struct-pattern (as-identifier (car args) stx) (stx-list (cadr args)) table stx)]
+         [(equal? keyword 'cons)
+          (unless (= (length args) 2)
+            (pattern-error stx "match: cons takes two patterns"))
+          (cons 'cons (map (lambda (p) (pattern-of p table)) args))]
+         [(equal? keyword 'box)
+          (unless (= (length args) 1)
+            (pattern-error stx "match: box takes one pattern"))
+          (cons 'box (map (lambda (p) (pattern-of p table)) args))]
          [(or (equal? keyword 'list-rest) (equal? keyword 'list*))
           (when (or (null? args) (ellipsis-min (datum-of (last args))))
             (pattern-error stx "match: list-rest needs a pattern for the rest of the list"))
@@ -178,7 +179,7 @@
          [(or (equal? keyword 'and) (equal? keyword 'not))
           (cons keyword (map (lambda (p) (pattern-of p table)) args))]
          [(symbol? head)
-          (struct-pattern (if (syntax? (car e)) (car e) (#%datum->syntax stx head)) args table stx)]
+          (struct-pattern (as-identifier (car e) stx) args table stx)]
          [else (pattern-error stx "match: bad pattern")])]
       [(or (pair? e) (vector? e)) (pattern-error stx "match: bad pattern")]
       [else (datum-of stx)]))
@@ -217,44 +218,58 @@
       [(unquote-form? stx unquote-names) (pattern-of (cadr e) table)]
       [(null? e) (list 'quote '())]
       [(list? e) (quasi-list e table stx)]
-      [(vector? e) (cons 'vector (quasi-items (vector->list e) table stx))]
+      [(vector? e) (cons 'vector (cdr (quasi-items (vector->list e) table stx #f)))]
       [(pair? e)
        (let loop ([items e]
                   [front '()])
          (if (pair? items)
              (loop (cdr items) (cons (car items) front))
              (cons 'list-rest
-                   (append (quasi-items (reverse front) table stx)
+                   (append (cdr (quasi-items (reverse front) table stx #f))
                            (list (list 'quote (datum-of items)))))))]
       [else (list 'quote (datum-of stx))]))
 
-  ;; `(a . ,b)` reads as `(a unquote b)`
+  ;; The reader turns `(a . ,b)` into `(a unquote b)`, so an unquote second to last is the tail
   (define (quasi-list items table stx)
     (let loop ([rest items]
                [front '()])
       (cond
-        [(null? rest) (cons 'list (quasi-items items table stx))]
+        [(null? rest) (quasi-items items table stx #t)]
         [(and (member (datum-of (car rest)) unquote-names) (pair? (cdr rest)) (null? (cddr rest)))
          (cons 'list-rest
-               (append (quasi-items (reverse front) table stx)
+               (append (cdr (quasi-items (reverse front) table stx #f))
                        (list (pattern-of (cadr rest) table))))]
         [else (loop (cdr rest) (cons (car rest) front))])))
 
-  (define (quasi-items items table stx)
-    (cond
-      [(null? items) '()]
-      [(ellipsis-min (datum-of (car items)))
-       (cons (datum-of (car items)) (quasi-items (cdr items) table stx))]
-      [(unquote-form? (car items) unquote-splicing-names)
-       (let ([spliced (pattern-of (cadr (stx-e (car items))) table)]
-             [rest (quasi-items (cdr items) table stx)])
-         (cond
-           [(symbol? spliced) (cons spliced (cons '... rest))]
-           [(and (pair? spliced) (equal? (car spliced) 'list)) (append (cdr spliced) rest)]
-           [(and (quoted? spliced) (list? (cadr spliced)))
-            (append (map (lambda (x) (list 'quote x)) (cadr spliced)) rest)]
-           [else (pattern-error (car items) "match: ,@ needs a list pattern")]))]
-      [else (cons (pattern-of-quasi (car items) table) (quasi-items (cdr items) table stx))]))
+  ;; As in Racket, an ellipsis that doesn't follow a pattern, or follows a `,@`, is a literal. A
+  ;; `,@` of a pattern that isn't a list pattern is the rest of the list, when it comes last.
+  (define (quasi-items items table stx last-tail?)
+    (let loop ([items items]
+               [previous #f]
+               [done '()])
+      (cond
+        [(null? items) (cons 'list (reverse done))]
+        [(ellipsis-min (datum-of (car items)))
+         (if (equal? previous 'pattern)
+             (loop (cdr items) 'ellipsis (cons (datum-of (car items)) done))
+             (loop (cdr items) 'pattern (cons (list 'quote (datum-of (car items))) done)))]
+        [(unquote-form? (car items) unquote-splicing-names)
+         (let ([spliced (pattern-of (cadr (stx-e (car items))) table)])
+           (cond
+             [(symbol? spliced) (loop (cdr items) 'splice (cons '... (cons spliced done)))]
+             [(and (pair? spliced) (equal? (car spliced) 'list))
+              (loop (cdr items) 'splice (append (reverse (cdr spliced)) done))]
+             [(and (quoted? spliced) (list? (cadr spliced)))
+              (loop (cdr items)
+                    'splice
+                    (append (reverse (map (lambda (x) (list 'quote x)) (cadr spliced))) done))]
+             [(and last-tail? (null? (cdr items)))
+              (if (and (pair? spliced) (equal? (car spliced) 'list-rest))
+                  (cons 'list-rest (append (reverse done) (cdr spliced)))
+                  (cons 'list-rest (append (reverse done) (list spliced))))]
+             [else (pattern-error (car items) "match: ,@ needs a list pattern here")]))]
+        [else
+         (loop (cdr items) 'pattern (cons (pattern-of-quasi (car items) table) done))])))
 
   (define (has-ellipsis? pats)
     (cond
@@ -262,7 +277,6 @@
       [(ellipsis-min (car pats)) #t]
       [else (has-ellipsis? (cdr pats))]))
 
-  ;; The variables a pattern binds, in the order they're written
   (define (pattern-vars pat found)
     (cond
       [(symbol? pat)
@@ -290,10 +304,10 @@
   (define (mk-lambda args body)
     (list 'lambda args body))
 
-  (define (calls-of expr name)
+  (define (count-calls expr name)
     (cond
       [(and (pair? expr) (equal? (car expr) name) (null? (cdr expr))) 1]
-      [(list? expr) (apply + (map (lambda (x) (calls-of x name)) expr))]
+      [(list? expr) (apply + (map (lambda (x) (count-calls x name)) expr))]
       [else 0]))
 
   (define (replace-call expr name body)
@@ -302,42 +316,60 @@
       [(list? expr) (map (lambda (x) (replace-call x name body)) expr)]
       [else expr]))
 
-  ;; Puts `body` in a thunk that the code `make` builds calls on failure. If it's called once, `body`
-  ;; goes in place of the call. Failures only happen where nothing but the matcher's temporaries
-  ;; are bound, so `body` sees the same bindings either way.
+  ;; Calls `make` with a call to a thunk that runs `body`. If the code calls it once, `body`
+  ;; replaces the call. Failures only happen where nothing but the matcher's temporaries are
+  ;; bound, so `body` sees the same bindings either way.
   (define (with-thunk make body)
     (define name (gensym))
     (define expr (make (list name)))
-    (define uses (calls-of expr name))
+    (define uses (count-calls expr name))
     (cond
       [(= uses 0) expr]
       [(= uses 1) (replace-call expr name body)]
       [else (mk-let (list (list name (mk-lambda '() body))) expr)]))
 
+  ;; Besides the variables bound so far, the environment can hold `#%syntax` for match-syntax,
+  ;; `#%guarded` for a clause with a guard or failure name, and `#%fail` for what a failed guard
+  ;; calls instead of the clause's failure
+  (define flags '(#%syntax #%guarded #%fail))
+
   (define (lookup var env)
     (let ([found (assoc var env)])
       (if found (cdr found) #f)))
 
-  ;; In match-syntax, a value is looked inside after unwrapping it, literals are compared with its
-  ;; datum, and variables bind the syntax itself
-  (define *syntax-mode* #f)
-
-  (define (inspect v make)
-    (if *syntax-mode*
+  ;; In match-syntax, compound patterns look inside syntax with syntax-e, literals are compared
+  ;; with syntax->datum, and variables bind the syntax itself
+  (define (inspect v env make)
+    (if (lookup '#%syntax env)
         (bind-temp (mk-if (list 'syntax? v) (list 'syntax-e v) v) make)
         (make v)))
 
-  (define (inspect-datum v make)
-    (if *syntax-mode*
-        (bind-temp (mk-if (list 'syntax? v) (list 'syntax->datum v) v) make)
+  ;; In match-syntax the rest of a list is a plain list of syntax objects
+  (define (inspect-datum v env make)
+    (if (lookup '#%syntax env)
+        (let ([e (gensym)])
+          (bind-temp (mk-if (list 'syntax? v)
+                            (list 'syntax->datum v)
+                            (mk-if (list 'list? v)
+                                   (list 'map
+                                         (mk-lambda (list e)
+                                                    (mk-if (list 'syntax? e)
+                                                           (list 'syntax->datum e)
+                                                           e))
+                                         v)
+                                   v))
+                     make))
         (make v)))
 
   (define (bind-temp expr make)
     (define t (gensym))
     (mk-let (list (list t expr)) (make t)))
 
-  (define (all-but-last xs)
-    (reverse (cdr (reverse xs))))
+  (define (without-vars vars env)
+    (cond
+      [(null? env) '()]
+      [(member (car (car env)) vars) (without-vars vars (cdr env))]
+      [else (cons (car env) (without-vars vars (cdr env)))]))
 
   ;; The code that matches `pat` against the variable `v`. `k` makes the code for a match from the
   ;; variables bound so far, which are bound to temporaries until the whole pattern has matched.
@@ -351,47 +383,51 @@
          [else (k (cons (cons pat v) env))])]
       [(quoted? pat)
        (inspect-datum v
+                      env
                       (lambda (v)
-                        (if (null? (cadr pat))
+                        (if (null-pattern? pat)
                             (mk-if (list '#%prim.null? v) (k env) fail)
                             (mk-if (list '#%prim.equal? v pat) (k env) fail))))]
       [(pair? pat) (compile-compound pat v env k fail)]
       [else
        (inspect-datum v
+                      env
                       (lambda (v) (mk-if (list '#%prim.equal? v (list 'quote pat)) (k env) fail)))]))
 
-  (define (compile-all pats v env k fail)
+  ;; Matches every pattern against `v`
+  (define (compile-and pats v env k fail)
     (if (null? pats)
         (k env)
         (compile-pattern (car pats)
                          v
                          env
-                         (lambda (env) (compile-all (cdr pats) v env k fail))
+                         (lambda (env) (compile-and (cdr pats) v env k fail))
                          fail)))
 
-  ;; Each pattern against its own variable
-  (define (compile-each-of pats vs env k fail)
+  ;; Matches each pattern against the variable in the same position in `vs`
+  (define (compile-pairwise pats vs env k fail)
     (if (null? pats)
         (k env)
         (compile-pattern (car pats)
                          (car vs)
                          env
-                         (lambda (env) (compile-each-of (cdr pats) (cdr vs) env k fail))
+                         (lambda (env) (compile-pairwise (cdr pats) (cdr vs) env k fail))
                          fail)))
 
   (define (compile-compound pat v env k fail)
     (define head (car pat))
     (define args (cdr pat))
     (cond
-      [(syntax? head) (inspect v (lambda (v) (compile-struct head args v env k fail)))]
+      [(syntax? head) (inspect v env (lambda (v) (compile-struct head args v env k fail)))]
       [(equal? head 'list)
-       (inspect v (lambda (v) (compile-list args (list 'quote '()) v env k fail)))]
+       (inspect v env (lambda (v) (compile-list args (list 'quote '()) v env k fail)))]
       [(equal? head 'list-rest)
-       (inspect v (lambda (v) (compile-list (all-but-last args) (last args) v env k fail)))]
+       (inspect v env (lambda (v) (compile-list (all-but-last args) (last args) v env k fail)))]
       [(equal? head 'cons)
-       (inspect v (lambda (v) (compile-list (list (car args)) (cadr args) v env k fail)))]
+       (inspect v env (lambda (v) (compile-list (list (car args)) (cadr args) v env k fail)))]
       [(equal? head 'vector)
        (inspect v
+                env
                 (lambda (v)
                   (mk-if (list '#%prim.vector? v)
                          (bind-temp (list 'vector->list v)
@@ -400,6 +436,7 @@
                          fail)))]
       [(equal? head 'box)
        (inspect v
+                env
                 (lambda (v)
                   (mk-if (list 'box? v)
                          (bind-temp (list 'unbox v)
@@ -407,27 +444,28 @@
                          fail)))]
       [(equal? head 'hash-table)
        (inspect v
+                env
                 (lambda (v)
                   (mk-if (list '#%prim.hash? v) (compile-hash args v env k fail) fail)))]
       [(equal? head '?)
-       (mk-if (list (car args) v) (compile-all (cdr args) v env k fail) fail)]
+       (mk-if (list (car args) v) (compile-and (cdr args) v env k fail) fail)]
       [(equal? head 'app)
        (if (> (length args) 2)
-           ;; Several patterns match the values the function returns
            (let ([results (map (lambda (_) (gensym)) (cdr args))])
              (list 'call-with-values
                    (mk-lambda '() (list (car args) v))
-                   (mk-lambda results (compile-each-of (cdr args) results env k fail))))
-           (bind-temp (list (car args) v) (lambda (t) (compile-all (cdr args) t env k fail))))]
+                   (mk-lambda results (compile-pairwise (cdr args) results env k fail))))
+           (bind-temp (list (car args) v) (lambda (t) (compile-and (cdr args) t env k fail))))]
       [(equal? head '==)
        (inspect-datum v
+                      env
                       (lambda (v)
                         (mk-if (if (null? (cdr args))
                                    (list '#%prim.equal? v (car args))
                                    (list (cadr args) (car args) v))
                                (k env)
                                fail)))]
-      [(equal? head 'and) (compile-all args v env k fail)]
+      [(equal? head 'and) (compile-and args v env k fail)]
       [(equal? head 'not)
        (with-thunk (lambda (matched)
                      (let loop ([pats args])
@@ -450,7 +488,7 @@
       [(assoc (car vars) env) (unbound-vars (cdr vars) env)]
       [else (cons (car vars) (unbound-vars (cdr vars) env))]))
 
-  ;; Each alternative jumps to one continuation with the variables they bind
+  ;; Every alternative jumps to the same continuation, passing the variables it binds
   (define (compile-or alts v env k fail)
     (define vars (if (null? alts) '() (vars-of (car alts))))
     (define new-vars (unbound-vars vars env))
@@ -474,36 +512,50 @@
         (let ([name (gensym)])
           (mk-let (list (list name (mk-lambda params (k rest-env)))) (alternatives (list name))))))
 
-  ;; Each entry with a literal key is looked up. An entry followed by an ellipsis matches the
-  ;; entries left over, each as a list of its key and value.
+  (define (literal-key? key)
+    (or (quoted? key) (not (or (symbol? key) (pair? key)))))
+
+  (define (entries-where entries literal)
+    (cond
+      [(null? entries) '()]
+      [(equal? (literal-key? (cadr (car entries))) literal)
+       (cons (car entries) (entries-where (cdr entries) literal))]
+      [else (entries-where (cdr entries) literal)]))
+
+  ;; Entries with a literal key are looked up, and the others are matched against the entries left
+  ;; over, each against a different one. An entry followed by an ellipsis matches what's left
+  ;; after that, each as a list of its key and value. As in Racket, other entries are only allowed
+  ;; when every key is literal or there's an ellipsis.
   (define (compile-hash entries v env k fail)
     (define repeated
       (and (>= (length entries) 2) (ellipsis-min (last entries)) (last (all-but-last entries))))
-    (define lookups (if repeated (all-but-last (all-but-last entries)) entries))
-    (define (key-of entry)
-      (define key (cadr entry))
-      (unless (or (quoted? key) (not (or (symbol? key) (pair? key))))
-        (error! "match: a hash-table key must be a literal" (cons 'hash-table entries)))
-      (if (quoted? key) key (list 'quote key)))
-    (define keys (map key-of lookups))
+    (define given (if repeated (all-but-last (all-but-last entries)) entries))
+    (define lookups (entries-where given #t))
+    (define searched (entries-where given #f))
+    (define keys
+      (map (lambda (entry)
+             (let ([key (cadr entry)])
+               (if (quoted? key) key (list 'quote key))))
+           lookups))
+    (define (match-rest rest env)
+      (if repeated
+          (compile-list (list (if (pair? repeated) (cons 'list (cdr repeated)) repeated)
+                              (last entries))
+                        (list 'quote '())
+                        rest
+                        env
+                        k
+                        fail)
+          (mk-if (list '#%prim.null? rest) (k env) fail)))
     (if (null? entries)
         (mk-if (list '#%prim.= (list 'hash-length v) 0) (k env) fail)
         (let loop ([remaining lookups]
                    [keys-left keys]
                    [env env])
           (if (null? remaining)
-              (if repeated
+              (if (or repeated (pair? searched))
                   (bind-temp (hash-entries-without v keys)
-                             (lambda (t)
-                               (compile-list (list (if (pair? repeated)
-                                                       (cons 'list (cdr repeated))
-                                                       repeated)
-                                                   (last entries))
-                                             (list 'quote '())
-                                             t
-                                             env
-                                             k
-                                             fail)))
+                             (lambda (t) (compile-search searched t env match-rest fail)))
                   (k env))
               (let ([key (car keys-left)])
                 (mk-if (list '#%prim.hash-contains? v key)
@@ -516,6 +568,40 @@
                                                        (loop (cdr remaining) (cdr keys-left) env))
                                                      fail)))
                        fail))))))
+
+  ;; Matches each entry pattern against a different entry in `xs`, trying them in turn. `k` gets
+  ;; the entries none of them matched.
+  (define (compile-search entries xs env k fail)
+    (if (null? entries)
+        (k xs env)
+        (let ([loop (gensym)]
+              [ys (gensym)]
+              [skipped (gensym)])
+          (list 'let
+                loop
+                (list (list ys xs) (list skipped (list 'quote '())))
+                (mk-if (list '#%prim.pair? ys)
+                       (bind-temp (list '#%prim.car ys)
+                                  (lambda (e)
+                                    (with-thunk
+                                     (lambda (next)
+                                       (compile-pattern
+                                        (cons 'list (cdr (car entries)))
+                                        e
+                                        env
+                                        (lambda (env)
+                                          (bind-temp (list 'append skipped (list '#%prim.cdr ys))
+                                                     (lambda (rest)
+                                                       (compile-search (cdr entries)
+                                                                       rest
+                                                                       env
+                                                                       k
+                                                                       next))))
+                                        next))
+                                     (list loop
+                                           (list '#%prim.cdr ys)
+                                           (list '#%prim.cons e skipped)))))
+                       fail)))))
 
   ;; The entries of a hash without the given keys, as lists of key and value. The code is written
   ;; out in place, since phase 1 code can't call this module's functions.
@@ -530,47 +616,20 @@
                       h
                       (loop (list 'hash-remove h (car keys)) (cdr keys)))))))
 
+  ;; #%struct-fields raises an error when the pattern has the wrong number of fields
   (define (compile-struct name pats v env k fail)
     (define predicate
       (#%datum->syntax name
                        (string->symbol (string-append (symbol->string (#%syntax->datum name)) "?"))))
     (mk-if (list predicate v)
-           (bind-temp (list '#%struct-fields v)
-                      (lambda (t)
-                        (compile-fields pats
-                                        t
-                                        env
-                                        k
-                                        fail
-                                        (list 'error!
-                                              "match: a pattern for"
-                                              (list 'quote (#%syntax->datum name))
-                                              "has"
-                                              (length pats)
-                                              "fields, but the struct has"
-                                              (list '#%prim.length t)))))
+           (bind-temp (list '#%struct-fields v (length pats))
+                      (lambda (t) (compile-list pats (list 'quote '()) t env k fail)))
            fail))
-
-  ;; A struct's fields, where a list of the wrong length is an error rather than a failed match
-  (define (compile-fields pats v env k fail wrong-count)
-    (if (null? pats)
-        (mk-if (list '#%prim.null? v) (k env) wrong-count)
-        (let ([a (gensym)]
-              [d (gensym)])
-          (mk-if (list '#%prim.pair? v)
-                 (mk-let (list (list a (list '#%prim.car v)) (list d (list '#%prim.cdr v)))
-                         (compile-pattern (car pats)
-                                          a
-                                          env
-                                          (lambda (env)
-                                            (compile-fields (cdr pats) d env k fail wrong-count))
-                                          fail))
-                 wrong-count))))
 
   (define (null-pattern? pat)
     (and (quoted? pat) (null? (cadr pat))))
 
-  ;; The elements of a list against `pats`, and what follows them against `tail`
+  ;; Matches the elements of a list against `pats`, and the rest of it against `tail`
   (define (compile-list pats tail v env k fail)
     (cond
       [(null? pats) (compile-pattern tail v env k fail)]
@@ -588,17 +647,18 @@
                                        fail))
               fail)]))
 
-  ;; `pat` repeated at least `least` times, then `rest`
+  ;; Matches `pat` at least `least` times, followed by `rest`
   (define (compile-repeat pat least rest tail v env k fail)
     (if (and (null-pattern? tail) (not (has-ellipsis? rest)))
         (compile-repeat-fixed pat least rest v env k fail)
         (compile-repeat-backtracking pat least rest tail v env k fail)))
 
-  ;; Only the last `(length rest)` elements are left for `rest`
+  ;; When the list ends after `rest`, which has no ellipsis, its last `(length rest)` elements
+  ;; are left for `rest`
   (define (compile-repeat-fixed pat least rest v env k fail)
     (define after (length rest))
     (define (each front env k)
-      (compile-each pat front env k fail))
+      (compile-ellipsis pat front env k fail))
     (mk-if
      (list '#%prim.list? v)
      (cond
@@ -637,12 +697,16 @@
       [else
        (merge-repeated (cdr vars) (cdr results) (cons (cons (car vars) (car results)) env) k fail)]))
 
-  (define (reversed results accs)
+  (define (reverse-bindings results accs)
     (map (lambda (r acc) (list r (list '#%prim.reverse acc))) results accs))
 
-  ;; `pat` against every element of the list `v`, each of its variables bound to the list of what
-  ;; it matched
-  (define (compile-each pat v env k fail)
+  ;; An element of an ellipsis sees the variables bound outside it, apart from its own
+  (define (element-env pat env)
+    (without-vars (vars-of pat) env))
+
+  ;; Matches `pat` against every element of the list `v`. Each of its variables is bound to the
+  ;; list of what it matched.
+  (define (compile-ellipsis pat v env k fail)
     (cond
       [(wildcard? pat) (k env)]
       [(and (symbol? pat) (not (assoc pat env))) (k (cons (cons pat v) env))]
@@ -660,7 +724,7 @@
                                (lambda (e)
                                  (compile-pattern pat
                                                   e
-                                                  '()
+                                                  (element-env pat env)
                                                   (lambda (inner)
                                                     (cons loop
                                                           (cons (list '#%prim.cdr xs)
@@ -671,9 +735,11 @@
                                                                      vars
                                                                      accs))))
                                                   fail)))
-                    (mk-let (reversed results accs) (merge-repeated vars results env k fail))))]))
+                    (mk-let (reverse-bindings results accs)
+                            (merge-repeated vars results env k fail))))]))
 
-  ;; The longest run of elements that match `pat` such that `rest` and `tail` match what follows
+  ;; The longest run of elements that match `pat` such that `rest` and `tail` match what follows.
+  ;; A failed guard tries a shorter run too.
   (define (compile-repeat-backtracking pat least rest tail v env k fail)
     (define vars (vars-of pat))
     (define accs (map (lambda (_) (gensym)) vars))
@@ -683,6 +749,12 @@
     (define xs (gensym))
     (define seen (gensym))
     (define n (gensym))
+    (define (matched env shorter)
+      (if (lookup '#%guarded env)
+          (let ([retry (gensym)])
+            (mk-let (list (list retry (mk-lambda '() shorter)))
+                    (k (cons (cons '#%fail (list retry)) env))))
+          (k env)))
     (define try-body
       (mk-if (list '#%prim.>= n least)
              (with-thunk (lambda (shorter)
@@ -692,8 +764,12 @@
                                          xs
                                          env
                                          (lambda (env)
-                                           (mk-let (reversed results accs)
-                                                   (merge-repeated vars results env k shorter)))
+                                           (mk-let (reverse-bindings results accs)
+                                                   (merge-repeated vars
+                                                                   results
+                                                                   env
+                                                                   (lambda (env) (matched env shorter))
+                                                                   shorter)))
                                          shorter))
                          (mk-if (list '#%prim.pair? seen)
                                 (cons try
@@ -719,7 +795,7 @@
                                     (compile-pattern
                                      pat
                                      e
-                                     '()
+                                     (element-env pat env)
                                      (lambda (inner)
                                        (cons collect
                                              (cons (list '#%prim.cdr xs)
@@ -734,8 +810,16 @@
                                      (call-try))))
                        (call-try)))))
 
-  ;; A clause's pattern, guard, failure name and body
-  (define (clause-parts clause)
+  (define (mk-body body)
+    (cons 'let (cons '() body)))
+
+  (define (clause-body clause body)
+    (when (null? body)
+      (pattern-error clause "match: a clause needs a body"))
+    body)
+
+  ;; Calls `k` with the clause's pattern, guard, failure name and body
+  (define (with-clause-parts clause k)
     (define items (stx-list clause))
     (when (or (not items) (null? items))
       (pattern-error clause "match: a clause needs a pattern and a body"))
@@ -743,7 +827,6 @@
     (define has-guard (and (pair? rest) (equal? (datum-of (car rest)) '#:when)))
     (when (and has-guard (null? (cdr rest)))
       (pattern-error clause "match: #:when needs an expression"))
-    (define guard (if has-guard (cadr rest) #f))
     (define after-guard (if has-guard (cddr rest) rest))
     (define escape
       (let ([e (and (pair? after-guard) (stx-list (car after-guard)))])
@@ -751,12 +834,12 @@
           [(not (and e (pair? e) (equal? (datum-of (car e)) '=>))) #f]
           [(and (= (length e) 2) (symbol? (datum-of (cadr e)))) (cadr e)]
           [else (pattern-error (car after-guard) "match: (=> name) needs one identifier")])))
-    (define body (if escape (cdr after-guard) after-guard))
-    (when (null? body)
-      (pattern-error clause "match: a clause needs a body"))
-    (list (car items) guard escape body))
+    (k (car items)
+       (if has-guard (cadr rest) #f)
+       escape
+       (clause-body clause (if escape (cdr after-guard) after-guard))))
 
-  ;; `else` as the match module means it, so a local `else` is a pattern variable
+  ;; Whether the clause is an `else` clause. A locally bound `else` is a pattern variable instead.
   (define (else-clause? clause else-id)
     (let ([items (stx-list clause)])
       (and items
@@ -770,58 +853,60 @@
                [bindings '()])
       (cond
         [(null? env) (mk-let (reverse bindings) body)]
-        [(member (car (car env)) seen) (loop (cdr env) seen bindings)]
+        [(or (member (car (car env)) seen) (member (car (car env)) flags))
+         (loop (cdr env) seen bindings)]
         [else
          (loop (cdr env)
                (cons (car (car env)) seen)
                (cons (list (key-identifier (car (car env)) table) (cdr (car env))) bindings))])))
 
-  ;; The patterns of a clause against each of `inputs`
-  (define (compile-clause patterns guard escape body inputs fail)
+  ;; Matches the patterns of a clause against each of `inputs`
+  (define (compile-clause patterns guard escape body inputs start fail)
     (define table (mutable-vector))
     (define converted (map (lambda (p) (pattern-of p table)) patterns))
-    (define body-expr (cons 'let (cons '() body)))
-    (compile-each-of converted
-                     inputs
-                     '()
-                     (lambda (env)
-                       (bind-pattern-vars env
-                                          table
-                                          (let ([body-expr (if escape
-                                                               (mk-let (list (list escape
-                                                                                   (mk-lambda '()
-                                                                                              fail)))
-                                                                       body-expr)
-                                                               body-expr)])
-                                            (if guard
-                                                (mk-if guard body-expr fail)
-                                                body-expr))))
-                     fail))
+    (compile-pairwise
+     converted
+     inputs
+     (if (or guard escape) (cons (cons '#%guarded #t) start) start)
+     (lambda (env)
+       (let ([fail (or (lookup '#%fail env) fail)])
+         (bind-pattern-vars env
+                            table
+                            (let ([body-expr (if escape
+                                                 (mk-let (list (list escape (mk-lambda '() fail)))
+                                                         (mk-body body))
+                                                 (mk-body body))])
+                              (if guard
+                                  (mk-if guard body-expr fail)
+                                  body-expr)))))
+     fail))
 
   ;; Each clause's failure is a thunk running the clauses after it. The failure only runs where
   ;; the matcher's temporaries are bound, unless the clause has a guard or a failure name.
-  (define (compile-clauses clauses inputs split no-match else-id)
+  (define (compile-clauses clauses inputs split start no-match else-id)
     (if (null? clauses)
         no-match
         (let ([clause (car clauses)])
           (if (else-clause? clause else-id)
-              (begin
-                (when (null? (cdr (stx-list clause)))
-                  (pattern-error clause "match: a clause needs a body"))
-                (cons 'let (cons '() (cdr (stx-list clause)))))
-              (let* ([parts (clause-parts clause)]
-                     [patterns (split (car parts))]
-                     [guard (cadr parts)]
-                     [escape (caddr parts)]
-                     [rest (compile-clauses (cdr clauses) inputs split no-match else-id)]
-                     [name (gensym)]
-                     [code (compile-clause patterns guard escape (cadddr parts) inputs (list name))]
-                     [uses (calls-of code name)])
-                (cond
-                  ;; Clauses after one that can't fail are still compiled, for their errors
-                  [(and (= uses 0) (null? (cdr clauses))) code]
-                  [(and (= uses 1) (not guard) (not escape)) (replace-call code name rest)]
-                  [else (mk-let (list (list name (mk-lambda '() rest))) code)]))))))
+              (mk-body (clause-body clause (cdr (stx-list clause))))
+              (with-clause-parts
+               clause
+               (lambda (pattern guard escape body)
+                 (let* ([rest (compile-clauses (cdr clauses) inputs split start no-match else-id)]
+                        [name (gensym)]
+                        [code (compile-clause (split pattern)
+                                              guard
+                                              escape
+                                              body
+                                              inputs
+                                              start
+                                              (list name))]
+                        [uses (count-calls code name)])
+                   (cond
+                     ;; Clauses after one that can't fail are still compiled, for their errors
+                     [(and (= uses 0) (null? (cdr clauses))) code]
+                     [(and (= uses 1) (not guard) (not escape)) (replace-call code name rest)]
+                     [else (mk-let (list (list name (mk-lambda '() rest))) code)]))))))))
 
   (define (match-error inputs)
     (list 'error!
@@ -831,10 +916,14 @@
 
   ;; `head` is the name of the macro as this module's template wrote it
   (define (compile-match head exprs clauses split syntax-mode)
-    (set! *syntax-mode* syntax-mode)
     (let ([inputs (map (lambda (_) (gensym)) exprs)])
       (mk-let (map list inputs exprs)
-              (compile-clauses clauses inputs split (match-error inputs) (#%datum->syntax head 'else))))))
+              (compile-clauses clauses
+                               inputs
+                               split
+                               (if syntax-mode (list (cons '#%syntax #t)) '())
+                               (match-error inputs)
+                               (#%datum->syntax head 'else))))))
 
 ;; ----------------- match --------------------
 
@@ -867,12 +956,10 @@
                              #f)
             (syntax-span expression)))
 
-;; Defines the pattern variables where the form is written
 (defmacro (match-define-pattern expression)
           (define items (stx-list expression))
           (unless (= (length items) 3)
             (error! "match-define: expects a pattern and an expression"))
-          (set! *syntax-mode* #f)
           (let* ([pattern (cadr items)]
                  [input (gensym)]
                  [table (mutable-vector)]
@@ -900,7 +987,6 @@
                                           fail)))
               (syntax-span expression))))
 
-;; The syntax's contents are matched, and pattern variables are bound to syntax
 (defmacro (match-syntax-clauses expression)
           (define items (stx-list expression))
           (when (< (length items) 2)

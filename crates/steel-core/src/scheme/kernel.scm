@@ -227,7 +227,7 @@
       (reverse accum)
       (enumerate (+ start 1) (cons (list (car lst) start) accum) (cdr lst))))
 
-;; The keys and values of a hash map as arguments to `hash`, for the given keys in their order.
+;; The keys and values of a hash map as arguments to `hash`, for the given keys in their order
 (define (option-arguments hm keys)
   (apply append
          (map (lambda (k)

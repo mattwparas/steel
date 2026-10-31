@@ -55,7 +55,7 @@
 (match-define (list q (? number? r)) '(1 2))
 (assert! (equal? (+ q r) 3))
 
-;; A later clause's body sees its own scope, not an earlier clause's pattern variables
+;; A later clause doesn't see an earlier clause's pattern variables
 (define x 10)
 (assert! (equal? (match '(5) [(list x) #:when #f 1] [_ x]) 10))
 (assert! (equal? (match '(5) [(list 6) 1] [_ x]) 10))
@@ -67,20 +67,20 @@
     [n (count-down (- n 1))]))
 (assert! (equal? (count-down 1000000) 'done))
 
-;; A predicate is an expression where the match is written
+;; A ? predicate is evaluated where the match is written
 (define (big? n)
   (> n 100))
 (assert! (equal? (let ([small? (lambda (n) (< n 5))]) (match 3 [(? small?) 'small] [_ 'other])) 'small))
 (assert! (equal? (match 200 [(? big?) 'big] [_ 'other]) 'big))
 
-;; `else` ends the clauses, unless it's a local variable, where it's a pattern variable
+;; `else` is the last clause, unless `else` is a local variable, which makes it a pattern variable
 (assert! (equal? (match 5 [1 'one] [else 'other]) 'other))
 (define (local-else)
   (define else #f)
   (match 5 [1 'one] [else (list 'else-var else)]))
 (assert! (equal? (local-else) '(else-var 5)))
 
-;; match-syntax looks inside syntax, and binds the syntax itself
+;; match-syntax matches the contents of syntax objects and binds pattern variables to syntax
 (define (kind e)
   (match-syntax e
     [(list 'if c t f) (list 'if (syntax->datum c))]
@@ -105,7 +105,7 @@
 (assert! (equal? (match-syntax (quasisyntax (a (b c))) [(list _ (or (list 'b x) x)) (syntax->datum x)])
                  'c))
 
-;; And works in a transformer
+;; match-syntax in a transformer
 (define-syntax (second-form stx)
   (match-syntax stx
     [(list _ a b) b]))
@@ -115,7 +115,7 @@
                  (list 'quote (match (hash 'a 1 'b 2) [(hash-table ('a v) rest ...) (list v rest)]))))
 (assert! (equal? (hash-rest) '(1 ((b 2)))))
 
-;; Pattern variables are identifiers, so a template's and a use site's of the same name differ
+;; A pattern variable from a macro template and one from the use site with the same name are different
 (define x-outer 'outer)
 (define-syntax pair-with
   (syntax-rules ()
@@ -130,7 +130,7 @@
     [(_ e p body) (match e [(list p 'v) body] [_ 'no])]))
 (assert! (equal? (tagged '(1 v) v v) 1))
 
-;; A variable bound before an ellipsis or an or has to be equal to what they match
+;; A variable bound before an ellipsis or `or` has to equal what it matches inside them
 (assert! (equal? (match '((1 1) 1 1) [(list x x ...) x] [_ 'no]) '(1 1)))
 (assert! (equal? (match '(1 1 1) [(list x x ...) x] [_ 'no]) 'no))
 (assert! (equal? (match '((1 2) (1 2)) [(list (list x ...) (list x ...)) x]) '(1 2)))
@@ -180,3 +180,32 @@
   (define result (match-syntax stx [(list _ (list 'quote (list a b))) (syntax->datum b)]))
   (datum->syntax stx (list 'quote result)))
 (assert! (equal? (match-in-transformer '(1 2)) 2))
+
+;; Inside an ellipsis, not, ? and app see variables bound before it
+(assert! (equal? (match '(1 2 3) [(list x (not x) ...) 'ok] [_ 'no]) 'ok))
+(assert! (equal? (match '(1 2 3) [(list x (and y (not x)) ...) y] [_ 'no]) '(2 3)))
+(assert! (equal? (match '(1 (2 3)) [(list x (list (not x) ...)) 'ok] [_ 'no]) 'ok))
+
+;; A failed guard tries a shorter run of an ellipsis
+(assert! (equal? (match '(1 2 3) [(list a ... b ...) #:when (= (length a) 1) (list a b)] [_ 'no])
+                 '((1) (2 3))))
+(assert! (equal? (match '(1 2 3) [(list a ... b ...) (=> k) (if (= (length a) 1) (list a b) (k))] [_ 'no])
+                 '((1) (2 3))))
+
+;; In a quasipattern, an ellipsis that doesn't follow a pattern is a literal
+(assert! (equal? (match '(1 2) [`(... 2) 'odd] [_ 'no]) 'no))
+(assert! (equal? (match '(1 2 3) [`(,x ... ...) x] [_ 'no]) 'no))
+(assert! (equal? (match '(1 2 3) [`(,@x ...) x] [_ 'no]) 'no))
+(assert! (equal? (match '(1 2 3) [`(1 ,@(? list? x)) x]) '(2 3)))
+(assert! (equal? (match '(1 2 3) [`(1 ,@(list-rest a b)) (list a b)]) '(2 (3))))
+
+(assert! (equal? (match-syntax (quote-syntax (1 2 3)) [(list-rest a '(2 3)) 'ok] [_ 'no]) 'ok))
+(assert! (equal? (with-handler (lambda (e) 'error) (match (pt 1 2) [(pt 5) 'one] [_ 'no])) 'error))
+
+;; A hash-table key can be a pattern. Then the entries have to be all of the hash's, unless there's
+;; an ellipsis.
+(assert! (equal? (match (hash 'a 1) [(hash-table (k v)) (list k v)]) '(a 1)))
+(assert! (equal? (match (hash 'a 1 'b 2) [(hash-table ('a 1) (k v)) (list k v)]) '(b 2)))
+(assert! (equal? (match (hash 'a 1 'b 2) [(hash-table (k 2) (j 1)) (list k j)]) '(b a)))
+(assert! (equal? (match (hash 'a 1 'b 2) [(hash-table (k v)) 'one] [_ 'no]) 'no))
+(assert! (equal? (match (hash 'a 1 'b 2) [(hash-table (k 2) rest ...) (list k rest)]) '(b ((a 1)))))

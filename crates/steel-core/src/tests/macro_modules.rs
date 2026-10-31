@@ -2668,6 +2668,30 @@ fn struct_out_provides_a_structs_names() {
         "(#true 2 3 5 7 #false)"
     );
 
+    // Structs and provides that macros make, and a contract on an accessor
+    engine.register_steel_module(
+        "structs/made".to_owned(),
+        r#"(provide (struct-out gen) (struct-out pt2) (contract/out pt2-x (->/c pt2? int?)))
+           (define-syntax mk (syntax-rules () [(_ n) (struct n (a b))]))
+           (mk gen)
+           (define-syntax prov (syntax-rules () [(_ n) (provide (struct-out n))]))
+           (struct by-macro (q))
+           (prov by-macro)
+           (struct pt2 (x y))"#
+            .to_owned(),
+    );
+
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "structs/made")
+               (list (gen-b (gen 1 2)) (by-macro-q (by-macro 9)) (pt2-y (pt2 "a" 3))
+                     (with-handler (lambda (e) 'contract-error) (pt2-x (pt2 "a" 3))))"#
+        )
+        .to_string(),
+        "(2 9 3 contract-error)"
+    );
+
     engine.register_steel_module(
         "structs/bad".to_owned(),
         "(provide (struct-out nope)) (define nope 1)".to_owned(),
@@ -2675,5 +2699,7 @@ fn struct_out_provides_a_structs_names() {
     let err = engine
         .compile_and_run_raw_program(r#"(require "structs/bad")"#)
         .unwrap_err();
-    assert!(err.to_string().contains("isn't a struct this module defines"));
+    assert!(err
+        .to_string()
+        .contains("isn't a struct this module defines"));
 }

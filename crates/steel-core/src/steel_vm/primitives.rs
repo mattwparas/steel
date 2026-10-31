@@ -2927,16 +2927,18 @@ pub fn struct_to_list(value: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-// The fields of any struct, for match's struct patterns
+// The fields of a struct that a match pattern with `count` fields is for
 #[steel_derive::function(name = "#%struct-fields")]
-pub fn struct_fields(value: &SteelVal) -> Result<SteelVal> {
-    match value {
-        SteelVal::CustomStruct(value) => {
-            Ok(SteelVal::ListV(value.fields().iter().cloned().collect()))
-        }
-        SteelVal::MutableStruct(value) => Ok(SteelVal::ListV(value.fields().into_iter().collect())),
+pub fn struct_fields(value: &SteelVal, count: usize) -> Result<SteelVal> {
+    let (name, fields): (_, List<SteelVal>) = match value {
+        SteelVal::CustomStruct(value) => (value.name(), value.fields().iter().cloned().collect()),
+        SteelVal::MutableStruct(value) => (value.name(), value.fields().into_iter().collect()),
         _ => stop!(TypeMismatch => "#%struct-fields expects a struct, found: {}", value),
+    };
+    if fields.len() != count {
+        stop!(Generic => "match: a pattern for {} has {} fields, but the struct has {}", name, count, fields.len());
     }
+    Ok(SteelVal::ListV(fields))
 }
 
 #[cfg(feature = "sync")]
