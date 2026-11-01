@@ -3489,3 +3489,36 @@ fn begin_for_syntax_requires_anywhere_are_for_syntax() {
         "(from-phase1 from-phase1 from-phase1 from-phase1)"
     );
 }
+
+#[test]
+fn a_require_a_syntax_case_template_writes_is_hygienic() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "sc/m".to_owned(),
+        "(provide foo) (define (foo) 'm-foo)".to_owned(),
+    );
+    engine.register_steel_module(
+        "sc/n".to_owned(),
+        "(provide foo) (define (foo) 'n-foo)".to_owned(),
+    );
+    engine.register_steel_module(
+        "sc/lib".to_owned(),
+        r#"(provide use-m req rename)
+           (define-syntax (use-m stx)
+             (syntax-case stx () [(_ g) #'(begin (require "sc/m") (define (g) (foo)))]))
+           (define-syntax (req stx) (syntax-case stx () [(_ p) #'(require p)]))
+           (define-syntax (rename stx)
+             (syntax-case stx () [(_ p g) #'(begin (require (rename-in p [foo baz])) (define (g) (baz)))]))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "sc/lib") (req "sc/n") (use-m g) (rename "sc/m" h) (list (g) (h) (foo))"#
+        )
+        .to_string(),
+        "(m-foo m-foo n-foo)"
+    );
+    let err = engine.compile_and_run_raw_program("baz").unwrap_err();
+    assert!(err.to_string().contains("baz"), "{err}");
+}

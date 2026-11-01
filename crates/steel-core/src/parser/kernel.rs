@@ -1558,6 +1558,13 @@ impl VisitorMutRefUnit for Introduced<'_> {
     }
 
     fn visit_atom(&mut self, a: &mut Atom) {
+        // A module path the macro wrote is the macro's, like its identifiers
+        if let TokenType::StringLiteral(_) = a.syn.ty {
+            if self.input.hygienic && !self.input.wrote(&a.syn) {
+                a.syn.scopes = a.syn.scopes.union(&self.captures.scopes).add(self.scope);
+            }
+            return;
+        }
         let TokenType::Identifier(_) = a.syn.ty else {
             return;
         };
@@ -1597,6 +1604,12 @@ impl VisitorMutRefUnit for Introduced<'_> {
 
     fn visit_quote(&mut self, quote: &mut Quote) {
         self.visit_quoted(&mut quote.expr);
+    }
+
+    fn visit_require(&mut self, r: &mut super::ast::Require) {
+        for spec in r.modules.iter_mut() {
+            self.visit(spec);
+        }
     }
 
     // A syntax-rules macro it defines. What came from the input keeps its scopes.
