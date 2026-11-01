@@ -1332,10 +1332,7 @@ pub struct Kernel {
     pub(crate) share_host_modules: bool,
     // The modules being compiled, innermost last. With none, it's the top level.
     compiling: Vec<String>,
-    // The modules whose transformer environment has been loaded since they began compiling,
-    // so loading more adds to it
     loaded: FxHashSet<String>,
-    // Phase 1 names declared ahead of their definitions, until those are loaded
     declared: FxHashMap<String, Vec<InternedString>>,
     // The transformer environment each module being compiled uses for another module's macros
     instances: FxHashMap<(String, String), String>,
@@ -1754,7 +1751,6 @@ impl Default for Kernel {
     }
 }
 
-// A written begin-for-syntax or defmacro, or a begin with one in it
 pub(crate) fn is_phase1_form(expr: &ExprKind) -> bool {
     expr.list()
         .and_then(|l| l.first_ident())
@@ -2121,8 +2117,7 @@ impl Kernel {
 
         let mut macro_of_choice: InternedString = "#%syntax-transformer-module".into();
 
-        // Loading more of an environment's transformer code adds to what's loaded. The top
-        // level's lasts from one compile to the next.
+        // More code for an environment extends it. The top level's persists across compiles.
         let extending = !self.loaded.insert(environment.clone());
         let update = if environment == "top-level" {
             self.engine.extract_value("top-level").is_ok()
@@ -2321,7 +2316,7 @@ impl Kernel {
             let mut programs = self.transformers.programs.write().unwrap();
             let existing = programs.get_mut(&environment).filter(|_| extending);
             match existing {
-                // In the order it was loaded, so an instance runs it the same way
+                // In load order
                 Some(program) => {
                     program.for_syntax.extend(for_syntax);
                     program.for_syntax_prefixes.extend(for_syntax_prefixes);
@@ -2571,7 +2566,7 @@ impl Kernel {
     // From now on, macro uses are part of compiling this module, which gets its own
     // transformer environments for other modules' macros
     pub(crate) fn begin_compiling(&mut self, module: String) {
-        // Its phase 1 names are the ones its new code defines
+        // Drop the old code's phase 1 names
         self.transformers.phase1.write().unwrap().remove(&module);
         self.loaded.remove(&module);
         self.phase1_macros.remove(&module);
@@ -2612,14 +2607,12 @@ impl Kernel {
             .unwrap_or_else(|| "top-level".to_string())
     }
 
-    // Makes the phase 1 names the forms' begin-for-syntax define known before they're loaded,
-    // so code loaded earlier can refer to ones defined later, as in a Racket module
     pub(crate) fn declare_phase1_names(
         &mut self,
         environment: &str,
         forms: &[ExprKind],
     ) -> Result<()> {
-        // Ones a failed compile declared and never loaded aren't defined
+        // Drop names a failed compile declared
         self.forget_declared(environment);
         fn phase1_forms<'a>(form: &'a ExprKind, out: &mut Vec<&'a ExprKind>) {
             match form {
@@ -2636,7 +2629,7 @@ impl Kernel {
         let mut code = Vec::new();
         forms.iter().for_each(|x| phase1_forms(x, &mut code));
 
-        // With the kernel's macros expanded, like when it's loaded, for the names they define
+        // Expanded like at load, for the names kernel macros define
         let mut names = Vec::new();
         for written in code {
             let mut form = written.clone();
@@ -2682,8 +2675,7 @@ impl Kernel {
             .or_default()
             .extend(declared.iter().copied());
 
-        // Transformer code compiled before a definition can refer to it, so each name has a
-        // value until its definition is loaded
+        // Placeholders until the definitions load
         let placeholders: Vec<ExprKind> = declared
             .into_iter()
             .map(|name| (name, self.phase1_global(environment, name)))
@@ -2755,8 +2747,7 @@ impl Kernel {
     fn forget_instances(&mut self, environment: &str, extending: bool) {
         let mut stale = vec![environment.to_owned()];
 
-        // A reloaded module has new code. A new module, or more of the one being compiled, leaves
-        // the top level's instances alone.
+        // Only a recompile resets the top level's instances
         let reloaded = !extending
             && self
                 .transformers
@@ -3521,7 +3512,7 @@ impl Kernel {
 
         let mut input = MACRO_INPUTS.with(|x| x.borrow_mut().pop()).unwrap();
 
-        // Reported at the use, or at a part of it the macro pointed to
+        // Keep the macro's span when it points inside the use
         let result = result.map_err(|x| match x.span() {
             Some(at)
                 if at.source_id() == span.source_id()

@@ -2808,8 +2808,6 @@ fn a_require_a_macro_writes_in_a_module() {
         "(1 2)"
     );
 
-    // A require spec can be a macro the module defines, and a required macro is usable in the
-    // forms after the require, and in function bodies anywhere in the module
     engine.register_steel_module(
         "late/specs".to_owned(),
         r#"(provide results)
@@ -2826,9 +2824,6 @@ fn a_require_a_macro_writes_in_a_module() {
         "(1 (3 3) (0 0))"
     );
 
-    // Transformer code after a require for syntax gets a phase 1 instance of the module, and
-    // after a require, what the module provides for syntax. A module using the macros gets its
-    // own copy of that transformer environment.
     engine.register_steel_module(
         "late/provides-for-syntax".to_owned(),
         r#"(provide (for-syntax shout))
@@ -2885,7 +2880,7 @@ fn a_require_a_macro_writes_at_the_top_level() {
         "(5 5)"
     );
 
-    // Like at Racket's top level, phase 1 code after it sees the instance
+    // Phase 1 code after it sees the instance
     assert_eq!(
         last(
             &mut engine,
@@ -2943,8 +2938,6 @@ fn a_circular_require_a_macro_writes_is_an_error() {
 #[test]
 fn phase1_code_is_loaded_in_module_order() {
     let mut engine = require_engine();
-    // A begin-for-syntax after a require for syntax sees the instance, and one can refer to
-    // what a later one defines
     engine.register_steel_module(
         "order/lib".to_owned(),
         r#"(provide m results)
@@ -2961,8 +2954,6 @@ fn phase1_code_is_loaded_in_module_order() {
         "(from-phase1 from-phase1)"
     );
 
-    // A template's begin-for-syntax variables are its own, and a transformer can refer to a
-    // function a later begin-for-syntax defines
     engine.register_steel_module(
         "order/templates".to_owned(),
         r#"(provide results)
@@ -3019,8 +3010,7 @@ fn a_module_path_a_template_writes_binds_for_the_template() {
                [(_ name) (begin (require "hyg/m") (define (name) (list (foo) (mymac 1))))]))"#
             .to_owned(),
     );
-    // Like in Racket, the template's code sees what its require brings in, and the code that
-    // uses the macro doesn't
+    // The template sees m's names, the macro's user doesn't
     engine.register_steel_module(
         "hyg/main".to_owned(),
         r#"(provide results)
@@ -3068,7 +3058,7 @@ fn a_name_imported_from_two_modules_is_an_error() {
         .unwrap_err();
     assert!(err.to_string().contains("imported twice"), "{err}");
 
-    // The same binding through another module is fine, and so is a name the module defines
+    // Fine for the same binding, or a name the module defines
     engine.register_steel_module(
         "twice/same".to_owned(),
         r#"(require "twice/n") (require "twice/again") (provide x) (define x (foo))"#.to_owned(),
@@ -3107,9 +3097,7 @@ fn requires_are_handled_in_module_order() {
         "ord/b".to_owned(),
         r#"(require "ord/log") (provide b) (define b 2) (note! 'b)"#.to_owned(),
     );
-    // The written require after the macro's is instantiated after it, as in Racket. A require
-    // left by the full expansion of a macro that expands to another is handled right there, so
-    // the forms after it can use the macros it brings in.
+    // Instantiated in source order
     engine.register_steel_module(
         "ord/main".to_owned(),
         r#"(provide results)
@@ -3126,7 +3114,6 @@ fn requires_are_handled_in_module_order() {
         last(&mut engine, r#"(require "ord/main") results"#).to_string(),
         "((a b) 1 2)"
     );
-    // What a module requires isn't the requiring program's
     let err = engine
         .compile_and_run_raw_program(r#"(require "ord/main") a"#)
         .unwrap_err();
@@ -3169,7 +3156,6 @@ fn require_specs_check_what_they_are_given() {
         "{err}"
     );
 
-    // for-syntax nests in the other specs, and a require in begin-for-syntax is for syntax
     assert_eq!(
         last(
             &mut engine,
@@ -3217,7 +3203,6 @@ fn phase1_names_of_a_failed_compile_are_forgotten() {
         .unwrap_err();
     assert!(err.to_string().contains("g"), "{err}");
 
-    // A use before the definition is loaded says so
     let err = engine
         .run(
             r#"(begin-for-syntax (define (helper x) (other x)))
@@ -3294,7 +3279,6 @@ fn modules_required_for_syntax_keep_their_instance_at_the_top_level() {
         "1"
     );
     assert_eq!(last(&mut engine, "(mx)").to_string(), "2");
-    // Compiling another module with phase 1 code leaves the top level's instances alone
     engine.run(r#"(require "inst/p")"#.to_owned()).unwrap();
     assert_eq!(last(&mut engine, "(mx)").to_string(), "3");
 }

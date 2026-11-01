@@ -415,8 +415,6 @@
 (#%define-syntax (combine-out expr)
                  (provide-spec expr))
 
-;; Require specs, like Racket's require transformers. Each expands to `(#%require-spec module
-;; what ...)`: the module, then what each spec around it does to the names, innermost first.
 (define (require-parts expr)
   (define e (syntax-e expr))
   (define (identifier? x)

@@ -447,7 +447,6 @@ pub(crate) fn expand_with_kernel(
     expand_with_kernel_defining(expr, map, globals, kernel, true)
 }
 
-// Expands a top-level form, where the variables earlier forms defined hide the kernel's macros
 pub(crate) fn expand_top_level_form(
     expr: &mut ExprKind,
     map: &FxHashMap<InternedString, SteelMacro>,
@@ -1228,7 +1227,6 @@ pub(crate) fn global_binding(
     })
 }
 
-// Where a name a module has is defined, when the modules it comes through are known
 pub(crate) fn defining_binding(
     module: InternedString,
     name: InternedString,
@@ -1247,7 +1245,6 @@ pub(crate) fn defining_binding(
     })
 }
 
-// Forgets what a module had, before it's compiled again
 pub(crate) fn forget_module_bindings(module: InternedString) {
     MODULE_BINDINGS.with(|x| x.borrow_mut().remove(&module));
 }
@@ -2554,7 +2551,6 @@ pub struct Expander<'a> {
     pub(crate) define_top_level_procedural: bool,
     pub(crate) defined_procedural: Vec<(InternedString, steel_parser::span::Span)>,
     pub(crate) scope_chain: ScopeChain,
-    // The top level's variables from earlier forms, which hide the kernel's macros
     variables: Option<&'a FxHashSet<InternedString>>,
 }
 
@@ -2691,8 +2687,6 @@ impl<'a> Expander<'a> {
         }
     }
 
-    // What a module's expander keeps from form to form, to carry over to the expander that
-    // replaces it when a require adds macros
     pub(crate) fn into_state(self) -> ExpanderState {
         ExpanderState {
             scope_chain: self.scope_chain,
@@ -2701,7 +2695,6 @@ impl<'a> Expander<'a> {
         }
     }
 
-    // Names the module imports as variables, which hide macros of the same names
     pub(crate) fn import_variables(&mut self, names: impl IntoIterator<Item = InternedString>) {
         self.scope_chain.top_level.extend(names);
     }
@@ -2858,8 +2851,6 @@ impl<'a> Expander<'a> {
         })
     }
 
-    // A top-level variable an earlier form defined, unless the top level defined a macro of
-    // the name since
     fn is_earlier_variable(&self, syn: &SyntaxObject) -> bool {
         let Some(name) = syn.ty.identifier() else {
             return false;
@@ -4308,7 +4299,6 @@ impl<'a> Expander<'a> {
                         }
                     }
 
-                    // A rename's pairs of names, and a require spec's operations
                     if renames {
                         if let ExprKind::List(names) = expr {
                             self.stamp_names(names);

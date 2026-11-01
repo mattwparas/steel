@@ -406,8 +406,6 @@ pub struct ModuleManager {
     rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
     // Phase 0 code that modules had kept when the last compile began
     rollback_deferred: crate::HashMap<PathBuf, DeferredCode>,
-    // A require a macro wrote is compiled partway through a program, which rolls back to where
-    // the program began
     pub(crate) late_require: bool,
     // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
@@ -1507,7 +1505,6 @@ fn reexport_requires(
 
 pub(crate) const BAD_REQUIRE_SPEC: &str = "require expects a module path, or a require spec such as only-in, prefix-in, rename-in, except-in or for-syntax";
 
-// A module path, or a spec the require parser knows
 pub(crate) fn is_require_spec(spec: &ExprKind) -> bool {
     match spec {
         ExprKind::Atom(a) => matches!(a.syn.ty, TokenType::StringLiteral(_)),
@@ -1519,8 +1516,6 @@ pub(crate) fn is_require_spec(spec: &ExprKind) -> bool {
     }
 }
 
-// Loads the module's phase 1 code queued so far, and gives back the other forms of the begins
-// in it
 fn load_phase1(
     expander: &mut ExpanderMany,
     queue: &mut Vec<ExprKind>,
@@ -1540,20 +1535,15 @@ fn load_phase1(
     Ok(forms)
 }
 
-// What the module's expansion keeps for each of its forms
 #[derive(Clone, Default)]
 struct FormInfo {
-    // Expanded fully, in the second pass
     expanded: bool,
-    // The module wrote it, rather than a macro
     written: bool,
-    // The procedural macros it defines as written
     procedural: FxHashSet<InternedString>,
     span: Span,
 }
 
 impl FormInfo {
-    // A form a macro made, reported where the form it came from is
     fn made(span: Span) -> Self {
         FormInfo {
             span,
@@ -1562,7 +1552,6 @@ impl FormInfo {
     }
 }
 
-// The scopes of the template that wrote a require spec's module path, if one did
 pub(crate) fn template_path(spec: &ExprKind) -> Option<ScopeSetId> {
     match spec {
         ExprKind::Atom(a) if matches!(a.syn.ty, TokenType::StringLiteral(_)) => a
@@ -1575,14 +1564,12 @@ pub(crate) fn template_path(spec: &ExprKind) -> Option<ScopeSetId> {
     }
 }
 
-// The prefix for the names a require a template wrote imports
 pub(crate) fn template_prefix() -> String {
     static COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     let n = COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     format!("#%template{n}:")
 }
 
-// Gives the template's identifiers the names its require imported them with
 pub(crate) fn rename_template_imports(
     forms: &mut [ExprKind],
     prefix: &str,
@@ -1619,7 +1606,6 @@ impl VisitorMutRefUnit for TemplateImports<'_> {
     fn visit_quote(&mut self, _q: &mut Quote) {}
 }
 
-// A require in begin-for-syntax is a require for syntax, as in Racket
 fn lift_phase1_requires(forms: &mut Vec<ExprKind>) {
     let mut lifted = Vec::with_capacity(forms.len());
     for mut form in core::mem::take(forms) {
@@ -1654,7 +1640,6 @@ fn lift_phase1_requires(forms: &mut Vec<ExprKind>) {
     *forms = lifted;
 }
 
-// Whether the form is a require, or a begin with one in it, as written or as a macro wrote it
 pub(crate) fn has_require(form: &ExprKind) -> bool {
     match form {
         ExprKind::Require(_) => true,
@@ -1672,7 +1657,6 @@ pub(crate) fn has_require(form: &ExprKind) -> bool {
     }
 }
 
-// Whether the form is a require, making one a macro wrote into a `Require`
 pub(crate) fn as_require(form: &mut ExprKind) -> bool {
     if let ExprKind::List(l) = form {
         let head = l.first().and_then(ExprKind::atom_syntax_object);
@@ -1689,7 +1673,6 @@ pub(crate) fn as_require(form: &mut ExprKind) -> bool {
     matches!(form, ExprKind::Require(_))
 }
 
-// Where cogs are installed
 fn cogs_home() -> Option<PathBuf> {
     STEEL_HOME
         .clone()
@@ -1741,7 +1724,6 @@ pub static MANGLER_PREFIX: &str = "##mm";
 pub static MODULE_PREFIX: &str = "__module-";
 pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
 // The names a require brings in, each with its name in the module it comes from
-// The names a require imports as variables
 fn imported_variables(
     kernel: Option<&Kernel>,
     require_object: &RequireObject,
@@ -2841,7 +2823,6 @@ struct ModuleBuilder<'a> {
     main: bool,
     // Only required for syntax, so its phase 0 code waits until something requires it
     for_syntax_only: bool,
-    // The code of the modules of requires found while it expanded
     late_exprs: Vec<ExprKind>,
     source_ast: Vec<ExprKind>,
     local_macros: FxHashSet<InternedString>,
@@ -3115,8 +3096,7 @@ fn expand_head(
                     return Ok(());
                 };
 
-                // A head a required module's template wrote means what it means in that module.
-                // The full expansion works that out
+                // Left to the full expansion, which resolves it in that module
                 if l.first()
                     .and_then(ExprKind::atom_syntax_object)
                     .is_some_and(|x| crate::parser::expand_visitor::is_foreign(&x.scopes))
@@ -3803,8 +3783,6 @@ impl<'a> ModuleBuilder<'a> {
         Ok(new_exprs)
     }
 
-    // The macros of the modules the requires bring in, and of the modules they re-export macros
-    // from. The names in `shadowing` are the module's own, which hide imported macros.
     fn require_macros(
         &mut self,
         requires: &[RequireObject],
@@ -3932,11 +3910,6 @@ impl<'a> ModuleBuilder<'a> {
         }
     }
 
-    // Compiles the modules of the requires from `start` on, and gives the code to run before
-    // this module's
-    // What the module's transformer code gets from the requires at phase 1: what modules
-    // provide for syntax, and a phase 1 instance of each module required for syntax, whose
-    // macros it can use. One instance of a module is shared, wherever it's required for syntax.
     fn phase1_requires(
         &mut self,
         requires: &[RequireObject],
@@ -4003,8 +3976,6 @@ impl<'a> ModuleBuilder<'a> {
         Ok(Some((imports, for_syntax, prefixes)))
     }
 
-    // Records the names the requires bring in. Like in Racket, a name can't come from two
-    // modules that mean different things by it, unless the module defines it itself.
     fn record_imports(
         &self,
         requires: &[RequireObject],
@@ -4434,7 +4405,6 @@ impl<'a> ModuleBuilder<'a> {
 
     // A module only required for syntax keeps its phase 0 code until something requires it
     fn emit(&mut self, new_exprs: &mut Vec<ExprKind>, expr: ExprKind) {
-        // The modules of requires found while it expanded run first
         new_exprs.append(&mut self.late_exprs);
 
         if self.for_syntax_only {
@@ -4493,7 +4463,6 @@ impl<'a> ModuleBuilder<'a> {
 
         expand_phase1_forms(&mut ast, &self.macro_map)?;
 
-        // The module gets one phase 1 instance of each module, wherever it's required for syntax
         let mut instantiated = FxHashMap::default();
 
         // Attempt extracting the syntax transformers from this module
@@ -4521,7 +4490,6 @@ impl<'a> ModuleBuilder<'a> {
                 }
             }
 
-            // Like in a Racket module, its own phase 1 code is loaded as expansion reaches it
             kernel.declare_phase1_names(self.name.to_str().unwrap(), &ast)?;
             kernel.load_syntax_transformers(
                 &mut Vec::new(),
@@ -4638,8 +4606,7 @@ impl<'a> ModuleBuilder<'a> {
         // defined deeper inside a form. A begin's forms are module forms, so its definitions
         // and expressions are expanded along with the module's.
         //
-        // A begin with phase 1 code stays whole until it's loaded, since its template's
-        // variables are renamed across all of it, unless it has a require to handle first
+        // A begin with phase 1 code is kept whole for renaming, unless it has a require
         let mut ast = ast
             .into_iter()
             .flat_map(|form| {
@@ -4684,9 +4651,7 @@ impl<'a> ModuleBuilder<'a> {
         }
         let mut last_defining = None;
 
-        // Like in Racket, a require is handled where expansion reaches it, including one a macro
-        // wrote. Expansion stops while its modules compile, then carries on from there with
-        // their macros.
+        // Expansion stops at a require and resumes there with its macros
         let home = cogs_home();
         let mut variables: Vec<InternedString> = written_requires
             .iter()
@@ -4734,8 +4699,7 @@ impl<'a> ModuleBuilder<'a> {
                     next += 1;
                     let at_end = index == ast.len();
 
-                    // Phase 1 code is loaded when the next other form is reached, a run of it at
-                    // a time
+                    // Queued phase 1 code is loaded before the next other form
                     if !at_end
                         && pass == 0
                         && info[index].written
@@ -4747,7 +4711,7 @@ impl<'a> ModuleBuilder<'a> {
                         continue;
                     }
                     if !phase1_queue.is_empty() {
-                        // What a begin had besides phase 1 code goes back in its place
+                        // The rest of the begin goes back in its place
                         let rest = load_phase1(&mut many_expander, &mut phase1_queue, module_name)?;
                         if !rest.is_empty() {
                             let count = rest.len();
@@ -4905,8 +4869,7 @@ impl<'a> ModuleBuilder<'a> {
                             }
                         }
 
-                        // Like a written macro, a macro the module defines hides an imported one
-                        // with the same name
+                        // A macro the module defines hides an imported one
                         for overlay in many_expander.overlays.iter_mut() {
                             for name in &defined {
                                 overlay.map.in_scope_macros.remove(name);
@@ -4921,8 +4884,6 @@ impl<'a> ModuleBuilder<'a> {
                         }
                     }
 
-                    // A require the expansion made is handled where it is, so the forms after it
-                    // see what it brings in
                     if has_require(&ast[index]) {
                         if let Some(forms) = begin_forms(&mut ast[index]) {
                             check_begin_definitions(&forms)?;
@@ -4950,9 +4911,7 @@ impl<'a> ModuleBuilder<'a> {
             }
 
             let Some(index) = found else {
-                // Like in Racket, provide specs are expanded after the module's forms, so they can
-                // use the macros those forms define, and all-defined-out sees what the forms
-                // defined
+                // Last, so provide specs see the module's macros and definitions
                 let defined: Vec<InternedString> = collect_globals(
                     &ast.iter()
                         .filter(|x| !is_builtin_import(x))
@@ -4978,7 +4937,6 @@ impl<'a> ModuleBuilder<'a> {
                 break;
             };
 
-            // Its specs can use the module's macros
             let ExprKind::Require(mut require) = ast.remove(index) else {
                 unreachable!()
             };
@@ -4992,12 +4950,10 @@ impl<'a> ModuleBuilder<'a> {
             }
             state = Some(many_expander.into_state());
             resume = index;
-            // The forms after it are expanded with what it brings in
+            // Later forms are expanded again with its macros
             pass = pass.min(1);
 
-            // Like in Racket, a module path a template wrote binds its names for that template's
-            // code. They're imported with a prefix of their own, which the template's identifiers
-            // get.
+            // A module path a template wrote only binds for the template's code, as in Racket
             let start = self.require_objects.len();
             let mut hygienic = Vec::new();
             for (spec, template) in require.modules.iter().zip(template_paths) {
@@ -5032,7 +4988,6 @@ impl<'a> ModuleBuilder<'a> {
                 own_names.iter().chain(generated.iter()).copied().collect();
             self.record_imports(&added, &mut imported, &defined)?;
 
-            // Transformer code after the require sees what it brings in at phase 1
             if let Some((imports, for_syntax, for_syntax_prefixes)) =
                 self.phase1_requires(&added, &mut instantiated)?
             {
@@ -5047,7 +5002,6 @@ impl<'a> ModuleBuilder<'a> {
                 }
             }
 
-            // What the module defined so far hides what the require brings in
             let shadowing: FxHashSet<InternedString> =
                 own_names.iter().chain(generated.iter()).copied().collect();
             let before = required_macros.len();
@@ -5736,8 +5690,7 @@ impl<'a> ModuleBuilder<'a> {
             // (with-prefix <xyz>)
             ExprKind::List(l) => {
                 match l.first_ident() {
-                    // What kernel.scm's require specs expand to: the module, then what each spec
-                    // around it does to the names, innermost first
+                    // From kernel.scm's specs: the module, then each spec's operation, innermost first
                     Some(x) if x.resolve() == "#%require-spec" => {
                         let Some(path) = l.args.get(1) else {
                             stop!(BadSyntax => "#%require-spec expects a module"; l.location);
@@ -5844,8 +5797,6 @@ impl<'a> ModuleBuilder<'a> {
         Ok(())
     }
 
-    // A require spec other than a path is a macro, like Racket's require transformers. The ones
-    // in kernel.scm expand to `#%require-spec`.
     fn expand_require_spec(&mut self, spec: &ExprKind) -> Result<ExprKind> {
         let mut spec = spec.clone();
         if matches!(spec, ExprKind::List(_)) && self.kernel.is_some() {
@@ -5872,8 +5823,7 @@ impl<'a> ModuleBuilder<'a> {
 
         let home = cogs_home();
 
-        // A module's requires after its other forms are handled where they are, so its
-        // modules are instantiated in order. The program's are all collected.
+        // Requires after a module's first other form are handled in order by the expansion
         let mut in_body = false;
 
         fn walk(
@@ -5896,7 +5846,7 @@ impl<'a> ModuleBuilder<'a> {
                             .iter()
                             .map(|x| module_builder.expand_require_spec(x))
                             .collect::<Result<Vec<_>>>()?;
-                        // A spec that's a macro the module defines is expanded where it's used
+                        // A spec using the module's own macros waits for the expansion
                         if !specs.iter().all(is_require_spec) {
                             exprs_without_requires.push(ExprKind::Require(r));
                             continue;

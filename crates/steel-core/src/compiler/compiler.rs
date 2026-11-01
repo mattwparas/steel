@@ -474,7 +474,6 @@ pub struct Compiler {
     // References to these stay as globals instead of `#%prim.` names.
     pub(crate) redefined_builtins: FxHashSet<InternedString>,
 
-    // The top level's variables, which hide the kernel's macros of the same names
     top_level_variables: FxHashSet<InternedString>,
 }
 
@@ -1007,8 +1006,7 @@ impl Compiler {
         expanded_statements: &mut Vec<ExprKind>,
         path: Option<PathBuf>,
     ) -> Result<()> {
-        // Phase 1 code is loaded as expansion reaches it. Its names are declared first, so code
-        // loaded earlier can refer to later definitions
+        // Declared first, so earlier phase 1 code can refer to later definitions
         if let Some(kernel) = self.kernel.as_mut() {
             kernel.declare_phase1_names("top-level", expanded_statements)?;
             kernel.load_syntax_transformers(
@@ -1024,7 +1022,7 @@ impl Compiler {
         let mut index = 0;
         'forms: while index <= expanded_statements.len() {
             let at_end = index == expanded_statements.len();
-            // A begin's require is handled before the phase 1 code after it
+            // A begin's require goes before its phase 1 code
             if !at_end && crate::compiler::modules::has_require(&expanded_statements[index]) {
                 if let Some(forms) =
                     crate::compiler::modules::begin_forms(&mut expanded_statements[index])
@@ -1127,7 +1125,6 @@ impl Compiler {
             if let Some(by_scopes) = by_scopes {
                 crate::compiler::passes::scopes_check::compare(expr, &by_scopes);
             }
-            // Its definitions hide the kernel's macros of the same names from here on
             self.top_level_variables
                 .extend(crate::compiler::passes::mangle::collect_globals(
                     core::slice::from_ref(expr),
@@ -1138,9 +1135,6 @@ impl Compiler {
         Ok(())
     }
 
-    // Like at Racket's top level, a require a macro wrote is handled where it is: its modules are
-    // compiled and their names and macros added, as for the program's written requires. A begin's
-    // forms are spliced in first.
     fn top_level_require(
         &mut self,
         statements: &mut Vec<ExprKind>,
@@ -1157,8 +1151,7 @@ impl Compiler {
             unreachable!()
         };
 
-        // Like in Racket, a module path a template wrote binds its names for that template's
-        // code. They're imported with a prefix of their own, which the template's identifiers get.
+        // A module path a template wrote only binds for the template's code, as in Racket
         let mut hygienic = Vec::new();
         let templates: Vec<_> = require
             .modules
@@ -1185,7 +1178,6 @@ impl Compiler {
             }
         }
 
-        // Its specs can be the top level's macros
         for spec in require.modules.iter_mut() {
             crate::parser::expand_visitor::expand_with_kernel(
                 spec,
@@ -1207,7 +1199,7 @@ impl Compiler {
         self.module_manager.late_require = false;
         let mut compiled = compiled?;
 
-        // A name the program already has from the same module isn't defined again
+        // Not again for what the program already imported
         let imported: HashSet<String> = statements[..index]
             .iter()
             .filter_map(required_value)
@@ -1945,7 +1937,6 @@ impl Compiler {
     }
 }
 
-// A require's `(define name (hash-get module 'name))`, as text
 fn required_value(expr: &ExprKind) -> Option<String> {
     let ExprKind::Define(define) = expr else {
         return None;
