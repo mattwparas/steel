@@ -793,10 +793,7 @@ fn only_in_around_except_in_reports_what_is_left_out() {
         .run(r#"(require (only-in (except-in "macros/letters" x) x)) x"#)
         .unwrap_err();
 
-    assert!(
-        error.to_string().contains("left out by the except-in"),
-        "{error}"
-    );
+    assert!(error.to_string().contains("isn't included"), "{error}");
 }
 
 // The vector representations are equal, so they find each other as keys
@@ -953,10 +950,7 @@ fn only_in_renames_around_except_in() {
     let error = first
         .run(r#"(require (only-in (except-in "excludes/x" b) [b bb])) bb"#)
         .unwrap_err();
-    assert!(
-        error.to_string().contains("left out by the except-in"),
-        "{error}"
-    );
+    assert!(error.to_string().contains("isn't included"), "{error}");
 
     let mut second = engine();
     second.register_steel_module("excludes/x".to_owned(), EXCLUDES.to_owned());
@@ -1572,11 +1566,8 @@ fn set_and_calls_of_undefined_globals_raise() {
 
     assert!(message(&mut engine, "(define (setc) (set! c 10)) (setc)")
         .contains("c: assignment disallowed"));
-    assert!(message(&mut engine, "(define (callc) (c 1)) (callc)").contains("free identifier: c"));
-    assert!(
-        message(&mut engine, "(define (tailc) (c 1)) (list (tailc))")
-            .contains("free identifier: c")
-    );
+    assert!(message(&mut engine, "(define (callc) (c 1)) (callc)").contains("c: undefined"));
+    assert!(message(&mut engine, "(define (tailc) (c 1)) (list (tailc))").contains("c: undefined"));
 
     engine
         .run("(define c (lambda (x) (+ x 1)))".to_owned())
@@ -1767,7 +1758,7 @@ fn errors_name_globals_as_written() {
 
     assert_eq!(
         last(&mut engine, program).to_string(),
-        "\"free identifier: tmp2\""
+        "\"tmp2: undefined; cannot reference an identifier before its definition\""
     );
 }
 
@@ -2911,7 +2902,7 @@ fn require_specs_can_be_the_programs_macros() {
         .compile_and_run_raw_program(r#"(require (nope-in "late/values"))"#)
         .unwrap_err();
     assert!(
-        err.to_string().contains("require expects a module path"),
+        err.to_string().contains("nope-in: not a require sub-form"),
         "{err}"
     );
 }
@@ -3281,4 +3272,220 @@ fn modules_required_for_syntax_keep_their_instance_at_the_top_level() {
     assert_eq!(last(&mut engine, "(mx)").to_string(), "2");
     engine.run(r#"(require "inst/p")"#.to_owned()).unwrap();
     assert_eq!(last(&mut engine, "(mx)").to_string(), "3");
+}
+
+#[test]
+fn a_phase1_name_defined_twice_in_a_module_is_an_error() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "dup/defmacro".to_owned(),
+        "(defmacro (m s) ''a) (define x (m)) (defmacro (m s) ''b)".to_owned(),
+    );
+    engine.register_steel_module(
+        "dup/phase1".to_owned(),
+        r#"(begin-for-syntax (define (h) 1))
+           (define x 1)
+           (begin-for-syntax (define (h) 2))"#
+            .to_owned(),
+    );
+    for module in ["dup/defmacro", "dup/phase1"] {
+        let err = engine
+            .compile_and_run_raw_program(format!(r#"(require "{module}")"#))
+            .unwrap_err();
+        assert!(err.to_string().contains("duplicate binding name"), "{err}");
+    }
+}
+
+#[test]
+fn a_phase1_name_used_before_its_definition_is_undefined() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "early/value".to_owned(),
+        r#"(begin-for-syntax (define h g))
+           (define x 1)
+           (begin-for-syntax (define g 42))"#
+            .to_owned(),
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "early/value")"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("g: undefined"), "{err}");
+}
+
+#[test]
+fn a_template_can_write_a_require_and_phase1_code_together() {
+    let mut engine = require_engine();
+    let program = r#"(define-syntax with-lib
+                       (syntax-rules ()
+                         [(_ mac) (begin (require (for-syntax "late/phase1"))
+                                         (begin-for-syntax (define (h) (list 'quote (helper))))
+                                         (define-syntax (mac s) (datum->syntax s (h))))]))
+                     (with-lib mm)"#;
+    engine.register_steel_module(
+        "together/lib".to_owned(),
+        format!("(provide results) {program} (define results (mm))"),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "together/lib") results"#).to_string(),
+        "from-phase1"
+    );
+    assert_eq!(
+        last(&mut engine, &format!("{program} (mm)")).to_string(),
+        "from-phase1"
+    );
+}
+
+#[test]
+fn imports_and_prelude_templates_keep_a_modules_macros() {
+    let mut engine = require_engine();
+    engine.register_steel_module(
+        "own/main".to_owned(),
+        r#"(provide results)
+           (require "late/values")
+           (define-syntax a (syntax-rules () [(_) 7]))
+           (define-syntax when (syntax-rules () [(_ . x) 'hijacked]))
+           (define results (list (a) (case 1 [(1) 'one] [else 'other])))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "own/main") results"#).to_string(),
+        "(7 one)"
+    );
+}
+
+#[test]
+fn a_required_procedural_macro_replaces_an_earlier_top_level_variable() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "kmac/lib".to_owned(),
+        "(provide kmac) (defmacro (kmac stx) ''from-macro)".to_owned(),
+    );
+    engine.run("(define kmac 1)".to_owned()).unwrap();
+    assert_eq!(
+        last(&mut engine, r#"(require "kmac/lib") (kmac)"#).to_string(),
+        "from-macro"
+    );
+}
+
+#[test]
+fn template_imports_leave_quoted_data_and_written_names_alone() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "tdata/m".to_owned(),
+        r#"(provide foo mac)
+           (define foo 1)
+           (define-syntax mac (syntax-rules () [(_) 'mac]))"#
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "tdata/lib".to_owned(),
+        r#"(provide use-m getfoo)
+           (define-syntax use-m
+             (syntax-rules ()
+               [(_ g n) (begin (require (only-in "tdata/m" foo [foo n]))
+                               (define (g x)
+                                 (list `(foo ,foo) 'foo (case x [(foo) 'matched] [else 'no]) n)))]))
+           (define-syntax def-get
+             (syntax-rules ()
+               [(_ name) (begin (require "tdata/m")
+                                (define-syntax name (syntax-rules () [(_) (list foo (mac))])))]))
+           (def-get getfoo)"#
+            .to_owned(),
+    );
+    // A rename's name is the use's, and a provided macro still sees the template's import
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "tdata/lib") (use-m g bound) (list (g 'foo) bound (getfoo))"#
+        )
+        .to_string(),
+        "(((foo 1) foo matched 1) 1 (1 mac))"
+    );
+}
+
+#[test]
+fn require_specs_apply_in_order() {
+    let mut engine = require_engine();
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require (rename-in (prefix-in p: "late/values") [p:a q]))
+               (require (only-in "late/values" [a x] a))
+               (require (except-in (rename-in "late/values" [b y]) y))
+               (list q p:b x a)"#
+        )
+        .to_string(),
+        "(1 2 1 1)"
+    );
+    for (spec, message) in [
+        (r#"(only-in "late/values" nope)"#, "isn't included"),
+        (r#"(only-in "late/values" a a)"#, "duplicate identifier"),
+        (r#"(for-syntax (for-syntax "late/values"))"#, "phase 1"),
+    ] {
+        let err = engine
+            .compile_and_run_raw_program(format!("(require {spec})"))
+            .unwrap_err();
+        assert!(err.to_string().contains(message), "{spec}: {err}");
+    }
+    let err = require_engine()
+        .compile_and_run_raw_program(r#"(require (only-in "late/values")) a"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("a"), "{err}");
+}
+
+#[test]
+fn except_out_leaves_out_by_the_modules_names() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "eo/lib".to_owned(),
+        r#"(provide (except-out (prefix-out q: (combine-out a b)) a))
+           (define a 1)
+           (define b 2)"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "eo/lib") q:b"#).to_string(),
+        "2"
+    );
+    engine.register_steel_module(
+        "eo/bad".to_owned(),
+        "(provide (except-out (all-defined-out) nope)) (define a 1)".to_owned(),
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "eo/bad")"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("except-out"), "{err}");
+}
+
+#[test]
+fn option_and_result_can_be_required_together() {
+    let mut engine = engine();
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "steel/option" "steel/result")
+               (list (unwrap-or (Some 1) 0) (unwrap-or (None) 0) (unwrap-or (Ok 2) 0) (unwrap-or (Err 3) 0))"#
+        )
+        .to_string(),
+        "(1 0 2 0)"
+    );
+}
+
+#[test]
+fn begin_for_syntax_requires_anywhere_are_for_syntax() {
+    let mut engine = require_engine();
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(define-syntax r (syntax-rules () [(_) (begin-for-syntax (require "late/phase1"))]))
+               (r)
+               (begin (begin-for-syntax (require (prefix-in p: "late/phase1"))))
+               (require (for-syntax (prefix-in q: "late/phase1") (prefix-in z: "late/phase1")))
+               (define-syntax (m stx)
+                 (datum->syntax stx (list 'quote (list (helper) (p:helper) (q:helper) (z:helper)))))
+               (m)"#
+        )
+        .to_string(),
+        "(from-phase1 from-phase1 from-phase1 from-phase1)"
+    );
 }

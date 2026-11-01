@@ -429,6 +429,7 @@ pub fn expand(
         head_body: true,
         scope_chain: ScopeChain::default(),
         variables: None,
+        template_imports: &[],
         prelude_base: 0,
     };
     expander.visit(expr)?;
@@ -453,10 +454,12 @@ pub(crate) fn expand_top_level_form(
     globals: GlobalMap,
     kernel: KernelExpander<'_>,
     variables: &FxHashSet<InternedString>,
+    template_imports: &[TemplateImport],
 ) -> Result<bool> {
     let mut expander = Expander::new(map, &NO_EXCLUSIONS, globals).with_kernel(kernel);
     expander.define_top_level_procedural = true;
     expander.variables = Some(variables);
+    expander.template_imports = template_imports;
     expander.expand(expr)?;
     Ok(expander.changed)
 }
@@ -518,6 +521,7 @@ pub fn expand_with_source_id(
         head_body: true,
         scope_chain: ScopeChain::default(),
         variables: None,
+        template_imports: &[],
         prelude_base: 0,
     };
 
@@ -770,6 +774,9 @@ impl VisitorMutRefUnit for RenameTemplateMacros<'_> {
             let introductions = a.syn.scopes.introductions();
             if self.names.contains(&(*name, introductions.clone())) {
                 let written = name.resolve();
+                if template_macro_written_name(written).is_some() {
+                    return;
+                }
                 *name = format!(
                     "##{}#{}",
                     written.trim_start_matches("##"),
@@ -827,7 +834,9 @@ pub(crate) fn rename_template_definitions(forms: &mut [ExprKind]) {
         if let Some(syn) = name.atom_syntax_object() {
             if let TokenType::Identifier(name) = syn.ty {
                 // A name the template wrote, not one the use passed in
-                if syn.scopes.from_template() {
+                if syn.scopes.from_template()
+                    && template_macro_written_name(name.resolve()).is_none()
+                {
                     names.push((name, syn.scopes.introductions()));
                 }
             }
@@ -1247,6 +1256,74 @@ pub(crate) fn defining_binding(
 
 pub(crate) fn forget_module_bindings(module: InternedString) {
     MODULE_BINDINGS.with(|x| x.borrow_mut().remove(&module));
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TemplateImport {
+    pub(crate) name: InternedString,
+    pub(crate) scopes: steel_parser::scopes::ScopeSetId,
+    pub(crate) alias: InternedString,
+}
+
+pub(crate) fn template_import_alias(
+    syn: &SyntaxObject,
+    imports: &[TemplateImport],
+) -> Option<InternedString> {
+    let name = syn.ty.identifier()?;
+    imports
+        .iter()
+        .find(|x| x.name == *name && x.scopes.is_subset(&syn.scopes))
+        .map(|x| x.alias)
+}
+
+fn rename_template_import(syn: &mut SyntaxObject, imports: &[TemplateImport]) {
+    if let Some(alias) = template_import_alias(syn, imports) {
+        syn.ty = TokenType::Identifier(alias);
+    }
+}
+
+pub(crate) fn rename_template_imports(forms: &mut [ExprKind], imports: &[TemplateImport]) {
+    struct Renamer<'a>(&'a [TemplateImport]);
+
+    fn head(l: &List) -> Option<String> {
+        l.first()
+            .and_then(ExprKind::atom_syntax_object)
+            .map(|x| x.ty.to_string())
+    }
+
+    fn unquoted(renamer: &mut Renamer, expr: &mut ExprKind) {
+        let ExprKind::List(l) = expr else {
+            return;
+        };
+        match head(l).as_deref() {
+            Some("unquote" | "unquote-splicing" | "#%unquote" | "#%unquote-splicing") => {
+                l.args.iter_mut().skip(1).for_each(|x| renamer.visit(x))
+            }
+            _ => l.args.iter_mut().for_each(|x| unquoted(renamer, x)),
+        }
+    }
+
+    impl VisitorMutRefUnit for Renamer<'_> {
+        fn visit_atom(&mut self, a: &mut Atom) {
+            rename_template_import(&mut a.syn, self.0);
+        }
+
+        fn visit_list(&mut self, l: &mut List) {
+            match head(l).as_deref() {
+                Some("quote") => {}
+                Some("quasiquote") => l.args.iter_mut().skip(1).for_each(|x| unquoted(self, x)),
+                _ => l.args.iter_mut().for_each(|x| self.visit(x)),
+            }
+        }
+
+        fn visit_quote(&mut self, _q: &mut Quote) {}
+    }
+
+    if imports.is_empty() {
+        return;
+    }
+    let mut renamer = Renamer(imports);
+    forms.iter_mut().for_each(|x| renamer.visit(x));
 }
 
 // Whether the module being compiled imports the name
@@ -2552,6 +2629,7 @@ pub struct Expander<'a> {
     pub(crate) defined_procedural: Vec<(InternedString, steel_parser::span::Span)>,
     pub(crate) scope_chain: ScopeChain,
     variables: Option<&'a FxHashSet<InternedString>>,
+    template_imports: &'a [TemplateImport],
 }
 
 #[derive(Debug)]
@@ -2633,6 +2711,7 @@ impl<'a> Expander<'a> {
             head_body: true,
             scope_chain: ScopeChain::default(),
             variables: None,
+            template_imports: &[],
             prelude_base: 0,
         }
     }
@@ -2667,6 +2746,7 @@ impl<'a> Expander<'a> {
             head_body: true,
             scope_chain: ScopeChain::default(),
             variables: None,
+            template_imports: &[],
             prelude_base: 0,
         }
     }
@@ -2695,8 +2775,14 @@ impl<'a> Expander<'a> {
         }
     }
 
-    pub(crate) fn import_variables(&mut self, names: impl IntoIterator<Item = InternedString>) {
-        self.scope_chain.top_level.extend(names);
+    pub(crate) fn with_template_imports(mut self, imports: &'a [TemplateImport]) -> Self {
+        self.template_imports = imports;
+        self
+    }
+
+    pub(crate) fn with_variables(mut self, variables: &'a FxHashSet<InternedString>) -> Self {
+        self.variables = Some(variables);
+        self
     }
 
     pub(crate) fn with_state(mut self, state: Option<ExpanderState>) -> Self {
@@ -2859,9 +2945,13 @@ impl<'a> Expander<'a> {
             && self.variables.is_some_and(|x| x.contains(name))
             && !self.kernel.as_ref().is_some_and(|kernel| {
                 kernel
-                    .environment
-                    .zip(kernel.map.as_ref())
-                    .is_some_and(|(environment, map)| map.has_own_macro(environment, name))
+                    .required
+                    .iter()
+                    .any(|x| x.provided.contains_key(name))
+                    || kernel
+                        .environment
+                        .zip(kernel.map.as_ref())
+                        .is_some_and(|(environment, map)| map.has_own_macro(environment, name))
             })
     }
 
@@ -3516,6 +3606,7 @@ impl<'a> Expander<'a> {
                 // Stamp the head's scopes before deciding what it refers to
                 if let Some(ExprKind::Atom(a)) = l.args.first_mut() {
                     self.scope_chain.stamp(&mut a.syn);
+                    rename_template_import(&mut a.syn, self.template_imports);
                 }
 
                 if defines_local_macro(l) {

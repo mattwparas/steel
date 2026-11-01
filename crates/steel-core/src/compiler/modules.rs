@@ -407,6 +407,7 @@ pub struct ModuleManager {
     // Phase 0 code that modules had kept when the last compile began
     rollback_deferred: crate::HashMap<PathBuf, DeferredCode>,
     pub(crate) late_require: bool,
+    pub(crate) template_imports: Vec<crate::parser::expand_visitor::TemplateImport>,
     // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 
@@ -433,6 +434,7 @@ impl ModuleManager {
             rollback_metadata: crate::HashMap::new(),
             rollback_deferred: crate::HashMap::new(),
             late_require: false,
+            template_imports: Vec::new(),
             module_resolvers: Vec::new(),
             prelude_string: Cow::Borrowed(PRELUDE_STRING),
             origins: ModuleOrigins::default(),
@@ -806,12 +808,29 @@ impl ModuleManager {
                     }
                 }
             }
+
+            for (source, local) in extra_aliases(require_object, module) {
+                let local = match &require_object.prefix {
+                    Some(prefix) => (prefix.clone() + local.resolve()).into(),
+                    None => local,
+                };
+                require_defines.push(ExprKind::Define(Box::new(Define::new(
+                    ExprKind::atom(local),
+                    module_get(&module.prefix(), source),
+                    SyntaxObject::default(TokenType::Define),
+                ))));
+            }
         }
 
         let mut mangled_asts = Vec::with_capacity(ast.len());
 
         let require_objects = core::mem::take(&mut module_builder.require_objects);
         drop(module_builder);
+        self.template_imports.extend(
+            require_objects
+                .iter()
+                .flat_map(|x| x.template_imports.iter().cloned()),
+        );
 
         if let Some(kernel) = kernel.as_mut() {
             let mut instantiated = FxHashMap::default();
@@ -1496,8 +1515,9 @@ fn reexport_requires(
                 )],
                 prefix: None,
                 span: require_object.span,
-                except: Vec::new(),
-                renames: Vec::new(),
+                ops: Vec::new(),
+                template: Vec::new(),
+                template_imports: Vec::new(),
             })
         })
         .collect()
@@ -1544,7 +1564,7 @@ struct FormInfo {
 }
 
 impl FormInfo {
-    fn made(span: Span) -> Self {
+    fn from_macro(span: Span) -> Self {
         FormInfo {
             span,
             ..Default::default()
@@ -1552,7 +1572,7 @@ impl FormInfo {
     }
 }
 
-pub(crate) fn template_path(spec: &ExprKind) -> Option<ScopeSetId> {
+fn template_path(spec: &ExprKind) -> Option<ScopeSetId> {
     match spec {
         ExprKind::Atom(a) if matches!(a.syn.ty, TokenType::StringLiteral(_)) => a
             .syn
@@ -1564,51 +1584,154 @@ pub(crate) fn template_path(spec: &ExprKind) -> Option<ScopeSetId> {
     }
 }
 
-pub(crate) fn template_prefix() -> String {
-    static COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-    let n = COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+fn template_prefix() -> String {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    let n = COUNT.fetch_add(1, Ordering::Relaxed);
     format!("#%template{n}:")
 }
 
-pub(crate) fn rename_template_imports(
-    forms: &mut [ExprKind],
-    prefix: &str,
-    scopes: &ScopeSetId,
-    imported: &FxHashSet<InternedString>,
-) {
-    let mut renamer = TemplateImports {
-        prefix,
-        scopes,
-        imported,
-    };
-    forms.iter_mut().for_each(|x| renamer.visit(x));
-}
-
-struct TemplateImports<'a> {
-    prefix: &'a str,
-    scopes: &'a ScopeSetId,
-    imported: &'a FxHashSet<InternedString>,
-}
-
-impl VisitorMutRefUnit for TemplateImports<'_> {
-    fn visit_atom(&mut self, a: &mut Atom) {
-        if !self.scopes.is_subset(&a.syn.scopes) {
-            return;
-        }
-        if let Some(name) = a.syn.ty.identifier_mut() {
-            let prefixed: InternedString = format!("{}{}", self.prefix, name.resolve()).into();
-            if self.imported.contains(&prefixed) {
-                *name = prefixed;
+pub(crate) fn split_for_syntax(require: &mut crate::parser::ast::Require) {
+    if !require.modules.iter().any(|x| {
+        x.list()
+            .is_some_and(|l| l.first_ident() == Some(&*FOR_SYNTAX) && l.len() > 2)
+    }) {
+        return;
+    }
+    let mut specs = Vec::with_capacity(require.modules.len());
+    for spec in core::mem::take(&mut require.modules) {
+        match spec {
+            ExprKind::List(l) if l.first_ident() == Some(&*FOR_SYNTAX) && l.len() > 2 => {
+                let head = l.args[0].clone();
+                for inner in l.args.into_iter().skip(1) {
+                    specs.push(ExprKind::List(List::new(thin_vec![head.clone(), inner])));
+                }
             }
+            spec => specs.push(spec),
         }
     }
-
-    fn visit_quote(&mut self, _q: &mut Quote) {}
+    require.modules = specs;
 }
 
-fn lift_phase1_requires(forms: &mut Vec<ExprKind>) {
+pub(crate) fn not_a_require_spec(spec: &ExprKind) -> String {
+    match spec.list().and_then(|x| x.first_ident()) {
+        Some(head) => format!("{head}: not a require sub-form"),
+        None => BAD_REQUIRE_SPEC.to_owned(),
+    }
+}
+
+fn require_ops(ops: &[ExprKind], require_object: &mut RequireObjectBuilder) -> Result<()> {
+    let pair = |x: &ExprKind| {
+        let l = x.list().filter(|x| x.len() == 2)?;
+        Some((*l.args[0].atom_identifier()?, *l.args[1].atom_identifier()?))
+    };
+    for op in ops {
+        let parsed = op.list().filter(|x| !x.is_empty()).and_then(|l| {
+            let names = &l.args[1..];
+            let op = match l.args[0].atom_syntax_object()?.ty.to_string().as_str() {
+                "#:only" => RequireOp::Only(
+                    names
+                        .iter()
+                        .map(|x| x.atom_identifier().map(|x| (*x, *x)).or_else(|| pair(x)))
+                        .collect::<Option<_>>()?,
+                ),
+                "#:prefix" => match names {
+                    [prefix] => RequireOp::Prefix(prefix.atom_identifier()?.resolve().to_owned()),
+                    _ => return None,
+                },
+                "#:rename" => RequireOp::Rename(names.iter().map(pair).collect::<Option<_>>()?),
+                "#:except" => RequireOp::Except(
+                    names
+                        .iter()
+                        .map(|x| x.atom_identifier().copied())
+                        .collect::<Option<_>>()?,
+                ),
+                _ => return None,
+            };
+            Some(op)
+        });
+        let Some(parsed) = parsed else {
+            stop!(BadSyntax => "#%require-spec: bad operation"; op.span());
+        };
+        // For a module that isn't compiled from source, only these apply
+        match &parsed {
+            RequireOp::Only(names) if require_object.idents_to_import.is_empty() => {
+                require_object.idents_to_import = names
+                    .iter()
+                    .map(|(from, to)| {
+                        MaybeRenamed::Renamed(ExprKind::atom(*from), ExprKind::atom(*to))
+                    })
+                    .collect();
+            }
+            RequireOp::Prefix(prefix) => {
+                let inner = require_object.prefix.take().unwrap_or_default();
+                require_object.prefix = Some(prefix.clone() + &inner);
+            }
+            _ => {}
+        }
+        require_object.ops.push(parsed);
+    }
+    Ok(())
+}
+
+fn rename_targets<'a>(spec: &'a ExprKind, out: &mut Vec<&'a SyntaxObject>) {
+    let Some(l) = spec.list() else {
+        return;
+    };
+    match l.first_ident().map(|x| x.resolve()) {
+        Some("#%require-spec") => {
+            if let Some(path) = l.args.get(1) {
+                rename_targets(path, out);
+            }
+            for op in l.args.iter().skip(2).filter_map(ExprKind::list) {
+                let kind = op.first().and_then(ExprKind::atom_syntax_object);
+                if kind.is_some_and(|x| matches!(x.ty.to_string().as_str(), "#:only" | "#:rename"))
+                {
+                    out.extend(
+                        op.args[1..]
+                            .iter()
+                            .filter_map(ExprKind::list)
+                            .filter_map(|x| x.args.get(1)?.atom_syntax_object()),
+                    );
+                }
+            }
+        }
+        Some("for-syntax") => {
+            if let Some(inner) = l.args.get(1) {
+                rename_targets(inner, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn has_phase1_require(form: &ExprKind) -> bool {
+    match form {
+        ExprKind::List(l)
+            if l.first_ident() == Some(&*crate::compiler::program::BEGIN_FOR_SYNTAX) =>
+        {
+            l.args[1..].iter().any(has_require)
+        }
+        ExprKind::Begin(b) => b.exprs.iter().any(has_phase1_require),
+        ExprKind::List(l) if crate::parser::expand_visitor::is_begin(l) => {
+            l.args[1..].iter().any(has_phase1_require)
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn lift_phase1_requires(forms: &mut Vec<ExprKind>) {
     let mut lifted = Vec::with_capacity(forms.len());
     for mut form in core::mem::take(forms) {
+        match &mut form {
+            ExprKind::Begin(b) => lift_phase1_requires(&mut b.exprs),
+            ExprKind::List(l) if crate::parser::expand_visitor::is_begin(l) => {
+                let mut inner: Vec<ExprKind> = l.args.drain(1..).collect();
+                lift_phase1_requires(&mut inner);
+                l.args.extend(inner);
+            }
+            _ => {}
+        }
         if let ExprKind::List(l) = &mut form {
             if l.first_ident() == Some(&*crate::compiler::program::BEGIN_FOR_SYNTAX) {
                 let mut rest = ThinVec::new();
@@ -1647,22 +1770,20 @@ pub(crate) fn has_require(form: &ExprKind) -> bool {
         ExprKind::List(l) if crate::parser::expand_visitor::is_begin(l) => {
             l.args[1..].iter().any(has_require)
         }
-        ExprKind::List(l) => l
-            .first()
-            .and_then(ExprKind::atom_syntax_object)
-            .is_some_and(|x| {
-                x.ty == TokenType::Require || x.ty == TokenType::Identifier("require".into())
-            }),
+        ExprKind::List(l) => require_head(l).is_some(),
         _ => false,
     }
 }
 
+fn require_head(l: &List) -> Option<&SyntaxObject> {
+    l.first()
+        .and_then(ExprKind::atom_syntax_object)
+        .filter(|x| x.ty == TokenType::Require || x.ty == TokenType::Identifier("require".into()))
+}
+
 pub(crate) fn as_require(form: &mut ExprKind) -> bool {
     if let ExprKind::List(l) = form {
-        let head = l.first().and_then(ExprKind::atom_syntax_object);
-        if let Some(head) = head.filter(|x| {
-            x.ty == TokenType::Require || x.ty == TokenType::Identifier("require".into())
-        }) {
+        if let Some(head) = require_head(l) {
             let location = head.clone();
             let modules = l.args[1..].to_vec();
             *form = ExprKind::Require(Box::new(crate::parser::ast::Require::new(
@@ -1723,7 +1844,6 @@ fn drop_uncontracted_duplicates(provides: &mut [ExprKind]) {
 pub static MANGLER_PREFIX: &str = "##mm";
 pub static MODULE_PREFIX: &str = "__module-";
 pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
-// The names a require brings in, each with its name in the module it comes from
 fn imported_variables(
     kernel: Option<&Kernel>,
     require_object: &RequireObject,
@@ -1739,24 +1859,52 @@ fn imported_variables(
         .collect()
 }
 
+fn import_pairs(require_object: &RequireObject) -> Vec<(InternedString, InternedString)> {
+    require_object
+        .idents_to_import
+        .iter()
+        .filter_map(|x| match x {
+            MaybeRenamed::Normal(name) => name.atom_identifier().map(|x| (*x, *x)),
+            MaybeRenamed::Renamed(from, to) => {
+                Some((*from.atom_identifier()?, *to.atom_identifier()?))
+            }
+        })
+        .collect()
+}
+
+fn extra_aliases(
+    require_object: &RequireObject,
+    module: &CompiledModule,
+) -> Vec<(InternedString, InternedString)> {
+    let pairs = import_pairs(require_object);
+    pairs
+        .iter()
+        .enumerate()
+        .filter(|(i, (from, _))| pairs[i + 1..].iter().any(|x| x.0 == *from))
+        .map(|(_, pair)| *pair)
+        .filter(|(from, _)| !module.macro_map.contains_key(from))
+        .collect()
+}
+
+fn module_get(module_prefix: &str, name: InternedString) -> ExprKind {
+    expr_list![
+        ExprKind::atom(*PROTO_HASH_GET),
+        ExprKind::atom(CompactString::new(MODULE_PREFIX) + module_prefix),
+        ExprKind::Quote(Box::new(Quote::new(
+            ExprKind::atom(name),
+            SyntaxObject::default(TokenType::Quote)
+        ))),
+    ]
+}
+
+// The names a require brings in, each with its name in the module it comes from
 fn imported_names(
     require_object: &RequireObject,
     module: &CompiledModule,
 ) -> Vec<(InternedString, InternedString)> {
-    let mut explicit = FxHashMap::default();
-    for ident in &require_object.idents_to_import {
-        match ident {
-            MaybeRenamed::Normal(i) => {
-                if let Some(i) = i.atom_identifier() {
-                    explicit.insert(*i, *i);
-                }
-            }
-            MaybeRenamed::Renamed(from, to) => {
-                if let (Some(from), Some(to)) = (from.atom_identifier(), to.atom_identifier()) {
-                    explicit.insert(*from, *to);
-                }
-            }
-        }
+    let mut explicit: FxHashMap<InternedString, Vec<InternedString>> = FxHashMap::default();
+    for (from, to) in import_pairs(require_object) {
+        explicit.entry(from).or_default().push(to);
     }
 
     let mut names = Vec::new();
@@ -1775,19 +1923,21 @@ fn imported_names(
             let Some(name) = name.copied() else {
                 continue;
             };
-            let local = if explicit.is_empty() {
-                name
+            let locals = if explicit.is_empty() {
+                vec![name]
             } else {
                 match explicit.get(&name) {
-                    Some(local) => *local,
+                    Some(locals) => locals.clone(),
                     None => continue,
                 }
             };
-            let local = match &require_object.prefix {
-                Some(prefix) => (prefix.clone() + local.resolve()).into(),
-                None => local,
-            };
-            names.push((local, name));
+            for local in locals {
+                let local = match &require_object.prefix {
+                    Some(prefix) => (prefix.clone() + local.resolve()).into(),
+                    None => local,
+                };
+                names.push((local, name));
+            }
         }
     }
     names
@@ -2111,6 +2261,19 @@ impl CompiledModule {
                     }
                 }
             }
+
+            for (source, local) in extra_aliases(require_object, module) {
+                let local = match &require_object.prefix {
+                    Some(prefix) => (prefix.clone() + local.resolve()).into(),
+                    None => local,
+                };
+                globals.insert(local);
+                provide_definitions.push(ExprKind::Define(Box::new(Define::new(
+                    ExprKind::atom(prefix.clone() + local.resolve()),
+                    module_get(&other_module_prefix, source),
+                    SyntaxObject::default(TokenType::Define),
+                ))));
+            }
         }
 
         // Mangle all of the variables that are either:
@@ -2413,28 +2576,35 @@ pub struct RequireObject {
     pub idents_to_import: Vec<MaybeRenamed>,
     pub prefix: Option<String>,
     pub span: Span,
-    // Names left out by except-in, kept until the module's provides are known
     #[serde(default)]
-    except: Vec<Excluded>,
-    // Names rename-in gives other names, applied then too
-    #[serde(default)]
-    renames: Vec<(InternedString, InternedString)>,
+    ops: Vec<RequireOp>,
+    #[serde(skip)]
+    template: Vec<(String, ScopeSetId)>,
+    #[serde(skip)]
+    template_imports: Vec<crate::parser::expand_visitor::TemplateImport>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+enum RequireOp {
+    Only(Vec<(InternedString, InternedString)>),
+    Prefix(String),
+    Rename(Vec<(InternedString, InternedString)>),
+    Except(Vec<InternedString>),
 }
 
 impl RequireObject {
     fn as_identifiers(&self) -> Vec<InternedString> {
-        let mut out = Vec::new();
-        for identifier in &self.idents_to_import {
-            if let MaybeRenamed::Normal(n) = identifier {
-                if let Some(ident) = n.atom_identifier() {
-                    if let Some(prefix) = self.prefix.as_ref() {
-                        out.push((prefix.clone() + ident.resolve()).into());
-                    }
-                }
-            }
-        }
-
-        out
+        self.idents_to_import
+            .iter()
+            .filter_map(|x| match x {
+                MaybeRenamed::Normal(name) => name.atom_identifier(),
+                MaybeRenamed::Renamed(_, to) => to.atom_identifier(),
+            })
+            .map(|name| match self.prefix.as_ref() {
+                Some(prefix) => (prefix.clone() + name.resolve()).into(),
+                None => *name,
+            })
+            .collect()
     }
 }
 
@@ -2461,19 +2631,8 @@ struct RequireObjectBuilder {
     // Built up prefix
     prefix: Option<String>,
     span: Span,
-    except: Vec<Excluded>,
-    renames: Vec<(InternedString, InternedString)>,
-}
-
-// A name an except-in leaves out
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct Excluded {
-    name: InternedString,
-    // The prefix the name is written with in the except-in
-    prefix: String,
-    // Whether it's left out of an only-in inside the except-in, rather than out of everything
-    // the module provides
-    of_only_in: bool,
+    ops: Vec<RequireOp>,
+    template: Vec<(String, ScopeSetId)>,
 }
 
 impl RequireObjectBuilder {
@@ -2488,8 +2647,9 @@ impl RequireObjectBuilder {
             idents_to_import: self.idents_to_import,
             prefix: self.prefix,
             span: self.span,
-            except: self.except,
-            renames: self.renames,
+            ops: self.ops,
+            template: self.template,
+            template_imports: Vec::new(),
         })
     }
 }
@@ -2953,6 +3113,10 @@ pub(crate) fn begin_forms(expr: &mut ExprKind) -> Option<Vec<ExprKind>> {
     };
 
     crate::parser::expand_visitor::rename_template_macros(&mut forms, true);
+    if forms.iter().any(crate::parser::kernel::has_phase1) {
+        crate::parser::expand_visitor::rename_template_definitions(&mut forms);
+        lift_phase1_requires(&mut forms);
+    }
     Some(forms)
 }
 
@@ -3096,10 +3260,13 @@ fn expand_head(
                     return Ok(());
                 };
 
-                // Left to the full expansion, which resolves it in that module
+                // A head the prelude or a required module wrote is left to the full expansion
                 if l.first()
                     .and_then(ExprKind::atom_syntax_object)
-                    .is_some_and(|x| crate::parser::expand_visitor::is_foreign(&x.scopes))
+                    .is_some_and(|x| {
+                        crate::parser::expand_visitor::is_foreign(&x.scopes)
+                            || x.scopes.contains(steel_parser::scopes::Scope::prelude())
+                    })
                 {
                     return Ok(());
                 }
@@ -3775,7 +3942,7 @@ impl<'a> ModuleBuilder<'a> {
             new_exprs.append(&mut self.load_requires(0)?);
         }
 
-        self.resolve_except_in()?;
+        self.resolve_require_ops()?;
 
         // log::info!("Compiling module: {:?} took {:?}", self.name, now.elapsed());
         // new_exprs.pretty_print();
@@ -4284,21 +4451,20 @@ impl<'a> ModuleBuilder<'a> {
             })
     }
 
-    // Now that the module is compiled, an except-in imports everything it provides except the
-    // names left out, and a rename-in everything with the names it gives
-    fn resolve_except_in(&mut self) -> Result<()> {
+    fn resolve_require_ops(&mut self) -> Result<()> {
         for require_object in self.require_objects.iter_mut() {
-            if require_object.except.is_empty() && require_object.renames.is_empty() {
+            if require_object.ops.is_empty() {
                 continue;
             }
-
+            let ops = core::mem::take(&mut require_object.ops);
             let path = require_object.path.get_path().into_owned();
-
             let Some(module) = self.compiled_modules.get(&path, self.sources) else {
                 continue;
             };
+            let span = require_object.span;
 
-            let provided: Vec<MaybeRenamed> = module
+            // Each name the module provides, and the name it's bound as
+            let mut names: Vec<(InternedString, InternedString)> = module
                 .provides
                 .iter()
                 .filter_map(ExprKind::list)
@@ -4311,93 +4477,94 @@ impl<'a> ModuleBuilder<'a> {
                 })
                 .chain(module.provides_for_syntax.iter().copied())
                 .chain(module.reexports.iter().map(|x| x.provided))
-                .map(|name| MaybeRenamed::Normal(ExprKind::atom(name)))
+                .map(|name| (name, name))
                 .collect();
 
-            let only_in = core::mem::take(&mut require_object.idents_to_import);
-
-            let local = |maybe: &MaybeRenamed| match maybe {
-                MaybeRenamed::Normal(name) => name.atom_identifier().copied(),
-                MaybeRenamed::Renamed(_, to) => to.atom_identifier().copied(),
+            let find = |names: &[(InternedString, InternedString)], name: InternedString| {
+                names.iter().find(|x| x.1 == name).copied()
             };
 
-            // The name the module provides it under
-            let source = |maybe: &MaybeRenamed| match maybe {
-                MaybeRenamed::Normal(name) => name.atom_identifier().copied(),
-                MaybeRenamed::Renamed(from, _) => from.atom_identifier().copied(),
-            };
-
-            let written = |excluded: &Excluded, name: InternedString| {
-                excluded.name.resolve() == format!("{}{}", excluded.prefix, name.resolve())
-            };
-
-            // Each excluded name has to be imported by the spec inside the except-in
-            for excluded in &require_object.except {
-                let inside = if excluded.of_only_in {
-                    &only_in
-                } else {
-                    &provided
-                };
-
-                if !inside
-                    .iter()
-                    .filter_map(local)
-                    .any(|name| written(excluded, name))
-                {
-                    stop!(BadSyntax => format!("except-in: {} isn't provided by {:?}", excluded.name, path); require_object.span);
+            for op in ops {
+                match op {
+                    RequireOp::Only(only) => {
+                        let mut kept: Vec<(InternedString, InternedString)> = Vec::new();
+                        for (from, to) in only {
+                            let Some((source, _)) = find(&names, from) else {
+                                stop!(BadSyntax => format!("only-in: {from} isn't included in the require spec inside it"); span);
+                            };
+                            if kept.iter().any(|x| x.1 == to) {
+                                stop!(BadSyntax => format!("only-in: duplicate identifier: {to}"); span);
+                            }
+                            kept.push((source, to));
+                        }
+                        names = kept;
+                    }
+                    RequireOp::Prefix(prefix) => {
+                        for name in names.iter_mut() {
+                            name.1 = (prefix.clone() + name.1.resolve()).into();
+                        }
+                    }
+                    RequireOp::Rename(renames) => {
+                        for (from, _) in &renames {
+                            if find(&names, *from).is_none() {
+                                stop!(BadSyntax => format!("rename-in: {from} isn't imported from {path:?}"); span);
+                            }
+                        }
+                        names = names
+                            .into_iter()
+                            .flat_map(|(source, local)| {
+                                let to: Vec<_> = renames
+                                    .iter()
+                                    .filter(|x| x.0 == local)
+                                    .map(|x| (source, x.1))
+                                    .collect();
+                                if to.is_empty() {
+                                    vec![(source, local)]
+                                } else {
+                                    to
+                                }
+                            })
+                            .collect();
+                    }
+                    RequireOp::Except(excluded) => {
+                        for (i, name) in excluded.iter().enumerate() {
+                            if excluded[..i].contains(name) {
+                                stop!(BadSyntax => format!("except-in: duplicate identifier: {name}"); span);
+                            }
+                            if find(&names, *name).is_none() {
+                                stop!(BadSyntax => format!("except-in: {name} isn't provided by {path:?}"); span);
+                            }
+                        }
+                        names.retain(|x| !excluded.contains(&x.1));
+                    }
                 }
-            }
-
-            // An only-in around an except-in can't name what the except-in left out
-            for excluded in require_object.except.iter().filter(|x| !x.of_only_in) {
-                if only_in
-                    .iter()
-                    .filter_map(source)
-                    .any(|name| written(excluded, name))
-                {
-                    stop!(BadSyntax => format!("only-in: {} is left out by the except-in inside it", excluded.name); require_object.span);
-                }
-            }
-
-            let candidates = if only_in.is_empty() {
-                provided
-            } else {
-                only_in
-            };
-
-            // An except-in around an only-in excludes by the name the only-in gives, otherwise
-            // by the name the module provides
-            let excluded = |x: &MaybeRenamed| {
-                require_object.except.iter().any(|excluded| {
-                    let name = if excluded.of_only_in {
-                        local(x)
-                    } else {
-                        source(x)
-                    };
-                    name.is_some_and(|name| written(excluded, name))
-                })
-            };
-
-            let mut imported: Vec<MaybeRenamed> =
-                candidates.into_iter().filter(|x| !excluded(x)).collect();
-
-            // rename-in gives an imported name another
-            for (from, to) in &require_object.renames {
-                let Some(found) = imported.iter_mut().find(|x| local(x) == Some(*from)) else {
-                    stop!(BadSyntax => format!("rename-in: {} isn't imported from {:?}", from, path); require_object.span);
-                };
-                let original = source(found).unwrap_or(*from);
-                *found = MaybeRenamed::Renamed(ExprKind::atom(original), ExprKind::atom(*to));
             }
 
             // An empty list means everything, so import a name no module provides instead
-            if imported.is_empty() {
-                imported.push(MaybeRenamed::Normal(ExprKind::atom("#%nothing")));
+            if names.is_empty() {
+                names.push(("#%nothing".into(), "#%nothing".into()));
             }
-
-            require_object.idents_to_import = imported;
-            require_object.except.clear();
-            require_object.renames.clear();
+            require_object.template_imports = require_object
+                .template
+                .iter()
+                .flat_map(|(prefix, scopes)| {
+                    names.iter().filter_map(|(_, local)| {
+                        let name = local.resolve().strip_prefix(prefix.as_str())?;
+                        Some(crate::parser::expand_visitor::TemplateImport {
+                            name: name.into(),
+                            scopes: scopes.clone(),
+                            alias: *local,
+                        })
+                    })
+                })
+                .collect();
+            require_object.idents_to_import = names
+                .into_iter()
+                .map(|(source, local)| {
+                    MaybeRenamed::Renamed(ExprKind::atom(source), ExprKind::atom(local))
+                })
+                .collect();
+            require_object.prefix = None;
         }
 
         Ok(())
@@ -4462,6 +4629,7 @@ impl<'a> ModuleBuilder<'a> {
         // );
 
         expand_phase1_forms(&mut ast, &self.macro_map)?;
+        lift_phase1_requires(&mut ast);
 
         let mut instantiated = FxHashMap::default();
 
@@ -4490,14 +4658,14 @@ impl<'a> ModuleBuilder<'a> {
                 }
             }
 
-            kernel.declare_phase1_names(self.name.to_str().unwrap(), &ast)?;
             kernel.load_syntax_transformers(
                 &mut Vec::new(),
                 self.name.to_str().unwrap().to_string(),
                 &imports,
                 for_syntax,
                 for_syntax_prefixes,
-            )?
+            )?;
+            kernel.declare_phase1_names(self.name.to_str().unwrap(), &ast)?;
         };
 
         let loaded_syntax_transformers =
@@ -4653,7 +4821,7 @@ impl<'a> ModuleBuilder<'a> {
 
         // Expansion stops at a require and resumes there with its macros
         let home = cogs_home();
-        let mut variables: Vec<InternedString> = written_requires
+        let mut variables: FxHashSet<InternedString> = written_requires
             .iter()
             .filter(|x| !x.for_syntax)
             .filter_map(|x| {
@@ -4665,6 +4833,7 @@ impl<'a> ModuleBuilder<'a> {
             })
             .flatten()
             .collect();
+        let mut template_imports = Vec::new();
         let mut phase1_queue = Vec::new();
         let mut state = None;
         let mut pass = 0;
@@ -4687,9 +4856,10 @@ impl<'a> ModuleBuilder<'a> {
                             module_name,
                         ),
                     )
-                    .with_state(state.take());
+                    .with_state(state.take())
+                    .with_variables(&variables)
+                    .with_template_imports(&template_imports);
             many_expander.define_top_level_procedural = true;
-            many_expander.import_variables(core::mem::take(&mut variables));
 
             let mut found = None;
             while pass < 3 {
@@ -4721,7 +4891,7 @@ impl<'a> ModuleBuilder<'a> {
                                 .map(|x| x.span)
                                 .unwrap_or_default();
                             ast.splice(index..index, rest);
-                            info.splice(index..index, vec![FormInfo::made(span); count]);
+                            info.splice(index..index, vec![FormInfo::from_macro(span); count]);
                             next = index;
                             continue;
                         }
@@ -4747,7 +4917,18 @@ impl<'a> ModuleBuilder<'a> {
                                 let count = forms.len();
                                 let span = info[index].span;
                                 ast.splice(index..=index, forms);
-                                info.splice(index..=index, vec![FormInfo::made(span); count]);
+                                info.splice(index..=index, vec![FormInfo::from_macro(span); count]);
+                                next = index;
+                                continue;
+                            }
+
+                            if has_phase1_require(&ast[index]) {
+                                let mut forms = vec![ast.remove(index)];
+                                lift_phase1_requires(&mut forms);
+                                let span = info[index].span;
+                                let count = forms.len();
+                                ast.splice(index..index, forms);
+                                info.splice(index..=index, vec![FormInfo::from_macro(span); count]);
                                 next = index;
                                 continue;
                             }
@@ -4757,7 +4938,9 @@ impl<'a> ModuleBuilder<'a> {
                                 break;
                             }
 
+                            // Phase 1 code a macro made is loaded in order too
                             !defines_macros(&ast[index])
+                                && !crate::parser::kernel::is_phase1_form(&ast[index])
                         }
                         1 => info[index].expanded,
                         // Every form before the last one that defined a macro, in either pass
@@ -4781,6 +4964,13 @@ impl<'a> ModuleBuilder<'a> {
                         }
 
                         many_expander.changed = false;
+                        // A macro's template, before the macro is defined
+                        if defines_macros(expr) {
+                            crate::parser::expand_visitor::rename_template_imports(
+                                core::slice::from_mut(expr),
+                                &template_imports,
+                            );
+                        }
                         many_expander.expand(expr)?;
                         // Only do another round if the form defined a macro
                         let mut changed = false;
@@ -4884,6 +5074,19 @@ impl<'a> ModuleBuilder<'a> {
                         }
                     }
 
+                    if has_phase1_require(&ast[index]) {
+                        let mut forms = vec![ast.remove(index)];
+                        lift_phase1_requires(&mut forms);
+                        let span = info[index].span;
+                        let count = forms.len();
+                        ast.splice(index..index, forms);
+                        info.splice(index..=index, vec![FormInfo::from_macro(span); count]);
+                        if let Some(last) = last_defining.as_mut().filter(|x| **x >= index) {
+                            *last += count - 1;
+                        }
+                        next = index;
+                        continue;
+                    }
                     if has_require(&ast[index]) {
                         if let Some(forms) = begin_forms(&mut ast[index]) {
                             check_begin_definitions(&forms)?;
@@ -4893,7 +5096,7 @@ impl<'a> ModuleBuilder<'a> {
                             ast.splice(index..=index, forms);
                             let made = (0..count).map(|i| FormInfo {
                                 expanded: i < before,
-                                ..FormInfo::made(span)
+                                ..FormInfo::from_macro(span)
                             });
                             info.splice(index..=index, made);
                             if let Some(last) = last_defining.as_mut().filter(|x| **x >= index) {
@@ -4931,6 +5134,36 @@ impl<'a> ModuleBuilder<'a> {
                     },
                 );
                 crate::parser::expand_visitor::record_defined_names(module_name.into(), defined);
+                // A template's provide of what its require imported provides it by its name
+                let written = ast
+                    .iter_mut()
+                    .filter_map(ExprKind::list_mut)
+                    .filter(|x| x.first_ident() == Some(&*PROVIDE));
+                for provide in provides
+                    .iter_mut()
+                    .filter_map(ExprKind::list_mut)
+                    .chain(written)
+                {
+                    for spec in provide.args.iter_mut().skip(1) {
+                        let alias = spec.atom_syntax_object().and_then(|x| {
+                            Some((
+                                crate::parser::expand_visitor::template_import_alias(
+                                    x,
+                                    &template_imports,
+                                )?,
+                                *x.ty.identifier()?,
+                            ))
+                        });
+                        if let Some((alias, name)) = alias {
+                            *spec = ExprKind::List(List::new(thin_vec![
+                                ExprKind::atom("#%provide-as"),
+                                ExprKind::atom(alias),
+                                ExprKind::atom(name)
+                            ]));
+                        }
+                    }
+                }
+                crate::parser::expand_visitor::rename_template_imports(&mut ast, &template_imports);
                 for expr in provides.iter_mut() {
                     many_expander.expand(expr)?;
                 }
@@ -4944,7 +5177,7 @@ impl<'a> ModuleBuilder<'a> {
             if let Some(last) = last_defining.as_mut().filter(|x| **x > index) {
                 *last -= 1;
             }
-            let template_paths: Vec<_> = require.modules.iter().map(template_path).collect();
+            split_for_syntax(&mut require);
             for spec in require.modules.iter_mut() {
                 many_expander.expand(spec)?;
             }
@@ -4953,23 +5186,20 @@ impl<'a> ModuleBuilder<'a> {
             // Later forms are expanded again with its macros
             pass = pass.min(1);
 
-            // A module path a template wrote only binds for the template's code, as in Racket
             let start = self.require_objects.len();
-            let mut hygienic = Vec::new();
-            for (spec, template) in require.modules.iter().zip(template_paths) {
-                let mut require_object = self.parse_require_object(&home, &require, spec)?;
-                if let Some(scopes) = template.filter(|_| !require_object.for_syntax) {
-                    let prefix = template_prefix();
-                    let inner = require_object.prefix.take().unwrap_or_default();
-                    require_object.prefix = Some(prefix.clone() + &inner);
-                    hygienic.push((prefix, scopes));
-                }
+            for spec in &require.modules {
+                let require_object = self.parse_require_object(&home, &require, spec)?;
                 self.require_objects.push(require_object);
             }
             let mut code = self.load_requires(start)?;
             self.late_exprs.append(&mut code);
-            self.resolve_except_in()?;
+            self.resolve_require_ops()?;
             let added = self.require_objects[start..].to_vec();
+            template_imports.extend(
+                added
+                    .iter()
+                    .flat_map(|x| x.template_imports.iter().cloned()),
+            );
             for require_object in added.iter().filter(|x| !x.for_syntax) {
                 if let Some(module) = self
                     .compiled_modules
@@ -4984,9 +5214,9 @@ impl<'a> ModuleBuilder<'a> {
                 }
             }
 
-            let defined: FxHashSet<InternedString> =
+            let shadowing: FxHashSet<InternedString> =
                 own_names.iter().chain(generated.iter()).copied().collect();
-            self.record_imports(&added, &mut imported, &defined)?;
+            self.record_imports(&added, &mut imported, &shadowing)?;
 
             if let Some((imports, for_syntax, for_syntax_prefixes)) =
                 self.phase1_requires(&added, &mut instantiated)?
@@ -5002,8 +5232,6 @@ impl<'a> ModuleBuilder<'a> {
                 }
             }
 
-            let shadowing: FxHashSet<InternedString> =
-                own_names.iter().chain(generated.iter()).copied().collect();
             let before = required_macros.len();
             self.require_macros(
                 &added,
@@ -5018,34 +5246,6 @@ impl<'a> ModuleBuilder<'a> {
                     .iter()
                     .flat_map(|x| x.provided_kernel_macros.keys().copied()),
             );
-
-            if !hygienic.is_empty() {
-                let mut imported: FxHashSet<InternedString> = required_macros[before..]
-                    .iter()
-                    .flat_map(|x| {
-                        x.in_scope_macros
-                            .keys()
-                            .chain(x.provided_kernel_macros.keys())
-                            .copied()
-                    })
-                    .collect();
-                for require_object in added.iter().filter(|x| !x.for_syntax) {
-                    if let Some(module) = self
-                        .compiled_modules
-                        .compiled_modules
-                        .get(require_object.path.get_path().as_ref())
-                    {
-                        imported.extend(
-                            imported_names(require_object, module)
-                                .into_iter()
-                                .map(|(local, _)| local),
-                        );
-                    }
-                }
-                for (prefix, scopes) in &hygienic {
-                    rename_template_imports(&mut ast, prefix, scopes, &imported);
-                }
-            }
         }
 
         self.local_macros.extend(generated);
@@ -5563,13 +5763,53 @@ impl<'a> ModuleBuilder<'a> {
         atom: &ExprKind,
     ) -> Result<RequireObject> {
         let mut object = RequireObjectBuilder::default();
+        object.span = match crate::parser::span_visitor::get_span(atom) {
+            span if span.source_id().is_some() => span,
+            _ => r.location.span,
+        };
 
-        // Set the span so we can pass through an error if the
-        // module is not found
-        object.span = r.location.span;
+        self.parse_require_object_inner(home, r, atom, &mut object)?;
 
-        self.parse_require_object_inner(home, r, atom, &mut object)
-            .and_then(|_| object.build())
+        // A template's module path or rename target binds only for the template's identifiers
+        if !object.for_syntax {
+            let mut targets = Vec::new();
+            rename_targets(atom, &mut targets);
+            match template_path(atom) {
+                Some(scopes) => {
+                    let prefix = template_prefix();
+                    object.ops.push(RequireOp::Prefix(prefix.clone()));
+                    let written: Vec<_> = targets
+                        .iter()
+                        .filter(|x| !x.scopes.introduced())
+                        .filter_map(|x| x.ty.identifier().copied())
+                        .map(|x| ((prefix.clone() + x.resolve()).into(), x))
+                        .collect();
+                    if !written.is_empty() {
+                        object.ops.push(RequireOp::Rename(written));
+                    }
+                    let inner = object.prefix.take().unwrap_or_default();
+                    object.prefix = Some(prefix.clone() + &inner);
+                    object.template.push((prefix, scopes));
+                }
+                None => {
+                    for target in targets.iter().filter(|x| x.scopes.introduced()) {
+                        let Some(name) = target.ty.identifier().copied() else {
+                            continue;
+                        };
+                        let prefix = template_prefix();
+                        object.ops.push(RequireOp::Rename(vec![(
+                            name,
+                            (prefix.clone() + name.resolve()).into(),
+                        )]));
+                        object
+                            .template
+                            .push((prefix, target.scopes.introductions()));
+                    }
+                }
+            }
+        }
+
+        object.build()
     }
 
     // TODO: Recursively crunch the requires to gather up the necessary information
@@ -5697,81 +5937,7 @@ impl<'a> ModuleBuilder<'a> {
                         };
                         self.parse_require_object_inner(home, r, path, require_object)?;
 
-                        for op in &l.args[2..] {
-                            let Some(op) = op.list().filter(|x| !x.is_empty()) else {
-                                stop!(BadSyntax => "#%require-spec expects lists of what to do"; op.span());
-                            };
-                            let names = &op.args[1..];
-                            let kind = op.args[0].atom_syntax_object().map(|x| x.ty.to_string());
-                            match kind.as_deref() {
-                                Some("#:only") => {
-                                    for name in names {
-                                        let import = match name {
-                                            ExprKind::List(pair)
-                                                if pair.len() == 2
-                                                    && pair.args[0].atom_identifier().is_some()
-                                                    && pair.args[1].atom_identifier().is_some() =>
-                                            {
-                                                MaybeRenamed::Renamed(
-                                                    pair.args[0].clone(),
-                                                    pair.args[1].clone(),
-                                                )
-                                            }
-                                            _ if name.atom_identifier().is_some() => {
-                                                MaybeRenamed::Normal(name.clone())
-                                            }
-                                            _ => {
-                                                stop!(BadSyntax => "only-in expects identifiers, or pairs of identifiers to rename"; name.span());
-                                            }
-                                        };
-                                        require_object.idents_to_import.push(import);
-                                    }
-                                }
-                                Some("#:prefix") => {
-                                    let Some(prefix) =
-                                        names.first().and_then(ExprKind::atom_identifier)
-                                    else {
-                                        stop!(BadSyntax => "prefix-in expects a prefix and a require spec"; op.location);
-                                    };
-                                    let inner = require_object.prefix.take().unwrap_or_default();
-                                    require_object.prefix =
-                                        Some(prefix.resolve().to_string() + &inner);
-                                }
-                                Some("#:rename") => {
-                                    for pair in names {
-                                        let renamed =
-                                            pair.list().filter(|x| x.len() == 2).and_then(|x| {
-                                                Some((
-                                                    *x.args[0].atom_identifier()?,
-                                                    *x.args[1].atom_identifier()?,
-                                                ))
-                                            });
-                                        let Some(renamed) = renamed else {
-                                            stop!(BadSyntax => "rename-in expects pairs of the name it provides and the name to bind"; pair.span());
-                                        };
-                                        require_object.renames.push(renamed);
-                                    }
-                                }
-                                Some("#:except") => {
-                                    for name in names {
-                                        let Some(name) = name.atom_identifier() else {
-                                            stop!(BadSyntax => "except-in expects identifiers to leave out"; name.span());
-                                        };
-                                        require_object.except.push(Excluded {
-                                            name: *name,
-                                            prefix: require_object
-                                                .prefix
-                                                .clone()
-                                                .unwrap_or_default(),
-                                            of_only_in: !require_object.idents_to_import.is_empty(),
-                                        });
-                                    }
-                                }
-                                _ => {
-                                    stop!(BadSyntax => "#%require-spec: unknown operation"; op.location);
-                                }
-                            }
-                        }
+                        require_ops(&l.args[2..], require_object)?;
                     }
 
                     // A require for transformer code, which gets a phase 1 instance of the module
@@ -5779,12 +5945,14 @@ impl<'a> ModuleBuilder<'a> {
                         if l.args.len() != 2 {
                             stop!(BadSyntax => "for-syntax expects one module to require"; l.location);
                         }
-
                         self.parse_require_object_inner(home, r, &l.args[1], require_object)?;
+                        if require_object.for_syntax {
+                            stop!(BadSyntax => "for-syntax: only phase 1 requires are supported"; l.location);
+                        }
                         require_object.for_syntax = true;
                     }
                     _ => {
-                        stop!(BadSyntax => BAD_REQUIRE_SPEC; l.location)
+                        stop!(BadSyntax => not_a_require_spec(atom); l.location)
                     }
                 }
             }
@@ -5840,7 +6008,8 @@ impl<'a> ModuleBuilder<'a> {
                     }
                     // Include require/for-syntax here
                     // This way we have some understanding of what dependencies a file has
-                    ExprKind::Require(r) => {
+                    ExprKind::Require(mut r) => {
+                        split_for_syntax(&mut r);
                         let specs = r
                             .modules
                             .iter()

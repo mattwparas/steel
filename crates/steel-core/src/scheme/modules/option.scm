@@ -1,4 +1,5 @@
 (require-builtin "steel/core/option")
+(require-builtin "steel/core/result")
 
 (provide Some
          None
@@ -8,7 +9,7 @@
          (contract/out map-option (->/c Option? (->/c any/c any/c) Option?))
          (contract/out unwrap-some (->/c Some? any/c))
          (contract/out flatten-option (->/c Option? Option?))
-         (contract/out unwrap-or (->/c Option? any/c any/c))
+         unwrap-or
          unwrap
          unwrap-or-else
          Option/c)
@@ -52,11 +53,12 @@
       (Some->value option)
       other))
 
-;; Unwraps the given option or returns the given other value
-(define (unwrap-or option other)
-  (if (Some? option)
-      (Some->value option)
-      other))
+;; Unwraps the given option or result or returns the given other value
+(define (unwrap-or value other)
+  (cond
+    [(Some? value) (Some->value value)]
+    [(Ok? value) (Ok->value value)]
+    [else other]))
 
 (define (unwrap-or-else option thunk)
   (if (Some? option)

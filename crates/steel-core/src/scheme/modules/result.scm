@@ -5,6 +5,7 @@
 ;; This should get preloaded at the top of every require, except the built ins!
 (require-builtin steel/base)
 (require "#%private/steel/contract")
+(require (only-in "steel/option" unwrap-or))
 
 (provide Result?
          Ok
@@ -63,10 +64,6 @@
     [(Ok? result) result]
     [(Err? result) (Err (func (Err->value result)))]))
 
-(define (unwrap-or result value)
-  (if (Ok? result)
-      (Ok->value result)
-      value))
 
 ; (define-syntax contract/out/test
 ;   (syntax-rules ()

@@ -2288,6 +2288,17 @@ impl Engine {
         )
     }
 
+    pub(crate) fn undefine_global(&mut self, name: &str) {
+        let idx = self
+            .virtual_machine
+            .compiler
+            .write()
+            .symbol_map
+            .define(&name.into());
+        self.virtual_machine
+            .insert_binding(idx, crate::env::undefined_global());
+    }
+
     pub fn update_value(&mut self, name: &str, value: SteelVal) -> Option<&mut Self> {
         let idx = self.virtual_machine.compiler.read().get_idx(name)?;
 

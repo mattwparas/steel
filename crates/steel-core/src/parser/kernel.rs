@@ -1285,6 +1285,14 @@ fn phase1_variable(environment: &str, name: InternedString) -> InternedString {
 }
 
 // The names a `begin-for-syntax` form defines
+fn defmacro_name(form: &ExprKind) -> Option<InternedString> {
+    let l = form.list()?;
+    match l.args.get(2)? {
+        ExprKind::List(f) => f.first_ident().copied(),
+        name => name.atom_identifier().copied(),
+    }
+}
+
 fn phase1_definitions(expr: &ExprKind, names: &mut Vec<InternedString>) {
     if let ExprKind::Define(d) = expr {
         names.extend(d.name.atom_identifier());
@@ -2204,6 +2212,29 @@ impl Kernel {
             .for_each(|(_, x)| phase1_definitions(x, &mut names));
         let loading: FxHashSet<InternedString> = names.iter().copied().collect();
 
+        // A module defines each phase 1 name once, across its loads
+        if extending && environment != "top-level" {
+            let programs = self.transformers.programs.read().unwrap();
+            if let Some(program) = programs.get(&environment) {
+                for (defmacro, form) in &exprs_buffer {
+                    let mut defined = Vec::new();
+                    if *defmacro {
+                        defined.extend(defmacro_name(form));
+                    } else {
+                        phase1_definitions(form, &mut defined);
+                    }
+                    let imported =
+                        |name: &InternedString| program.imports.iter().any(|x| x.local == *name);
+                    if let Some(name) = defined.iter().find(|name| {
+                        (program.names.contains(name) && !imported(name))
+                            || program.defmacros.contains(name)
+                    }) {
+                        stop!(BadSyntax => format!("define: duplicate binding name: {name}"); crate::parser::span_visitor::get_span(form));
+                    }
+                }
+            }
+        }
+
         let mut added = Vec::new();
         let defining = environment.clone();
 
@@ -2405,10 +2436,18 @@ impl Kernel {
             &mut [SteelVal::StringV("default".into())],
         )?;
 
-        // If the code failed, its names were never defined
+        // If the code failed, the names it didn't get to define aren't defined
         if result.is_err() {
+            let undefined: Vec<InternedString> = added
+                .iter()
+                .filter(|name| {
+                    let global = self.phase1_global(&defining, **name);
+                    self.engine.extract_value(global.resolve()).is_err()
+                })
+                .copied()
+                .collect();
             if let Some(known) = self.transformers.phase1.write().unwrap().get_mut(&defining) {
-                known.retain(|name| !added.contains(name));
+                known.retain(|name| !undefined.contains(name));
             }
             self.forget_declared(&defining);
         } else if let Some(declared) = self.declared.get_mut(&defining) {
@@ -2629,36 +2668,29 @@ impl Kernel {
         let mut code = Vec::new();
         forms.iter().for_each(|x| phase1_forms(x, &mut code));
 
-        // Expanded like at load, for the names kernel macros define
+        // Only the kernel's own macros are expanded, for the names they define
         let mut names = Vec::new();
         for written in code {
             let mut form = written.clone();
             let none = FxHashSet::default();
-            let expanded = self
-                .expand_phase1(
-                    environment,
-                    core::slice::from_mut(&mut form),
-                    &FxHashMap::default(),
-                    None,
-                )
-                .and_then(|_| {
-                    crate::parser::expand_visitor::expand_with_kernel_defining(
-                        &mut form,
-                        &FxHashMap::default(),
-                        crate::parser::expand_visitor::GlobalMap::Set(&none),
-                        crate::parser::expand_visitor::KernelExpander::in_environment(
-                            Some(&mut *self),
-                            crate::steel_vm::engine::ModuleContainer::default(),
-                            "default",
-                        ),
-                        false,
-                    )
-                });
+            let expanded = crate::parser::expand_visitor::expand_with_kernel_defining(
+                &mut form,
+                &FxHashMap::default(),
+                crate::parser::expand_visitor::GlobalMap::Set(&none),
+                crate::parser::expand_visitor::KernelExpander::in_environment(
+                    Some(&mut *self),
+                    crate::steel_vm::engine::ModuleContainer::default(),
+                    "default",
+                ),
+                false,
+            );
             match expanded {
                 Ok(_) => phase1_definitions(&form, &mut names),
                 Err(_) => phase1_definitions(written, &mut names),
             }
         }
+        // A builtin or an import keeps meaning that until the definition loads
+        names.retain(|name| self.engine.extract_value(name.resolve()).is_err());
         let mut declared = Vec::new();
         {
             let mut phase1 = self.transformers.phase1.write().unwrap();
@@ -2675,36 +2707,24 @@ impl Kernel {
             .or_default()
             .extend(declared.iter().copied());
 
-        // Placeholders until the definitions load
-        let placeholders: Vec<ExprKind> = declared
-            .into_iter()
-            .map(|name| (name, self.phase1_global(environment, name)))
-            .filter(|(_, global)| self.engine.extract_value(global.resolve()).is_err())
-            .map(|(name, global)| {
-                let message = format!(
-                    "{name}: undefined; cannot reference an identifier before its definition"
-                );
-                expr_list![
-                    ExprKind::ident("define"),
-                    ExprKind::atom(global),
-                    expr_list![
-                        ExprKind::ident("lambda"),
-                        ExprKind::ident("args"),
-                        expr_list![ExprKind::ident("error"), ExprKind::string_lit(message)],
-                    ],
-                ]
-            })
-            .collect();
-        if !placeholders.is_empty() {
-            self.engine.run_raw_program_from_exprs(placeholders)?;
+        // Undefined until the definitions load. The top level keeps an older value.
+        for name in declared {
+            let global = self.phase1_global(environment, name);
+            if environment != "top-level" || self.engine.extract_value(global.resolve()).is_err() {
+                self.engine.undefine_global(global.resolve());
+            }
         }
         Ok(())
     }
 
     fn forget_declared(&mut self, environment: &str) {
-        let Some(declared) = self.declared.remove(environment) else {
+        let Some(mut declared) = self.declared.remove(environment) else {
             return;
         };
+        declared.retain(|name| {
+            let global = self.phase1_global(environment, *name);
+            self.engine.extract_value(global.resolve()).is_err()
+        });
         if let Some(known) = self
             .transformers
             .phase1

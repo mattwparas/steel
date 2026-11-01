@@ -318,16 +318,24 @@
                                           (syntax-span expr))
                                         (second unwrapped)))
 
-;; Provide specs, like Racket's provide transformers. Each is a list of names and the names to
-;; provide them as, and nests in the others. Ones that rename expand to `(#%provide-as name
-;; exported)`.
 (define (spec-error expr message)
   (error-with-span (syntax-span expr) message (#%syntax->datum/kernel expr)))
 
+(define (spec-name? x)
+  (let ([x (syntax-e x)])
+    (and (symbol? x) (not (starts-with? (symbol->string x) "#:")))))
+
+(define (spec-pair? x)
+  (let ([names (syntax-e x)])
+    (and (list? names) (= (length names) 2) (spec-name? (first names)) (spec-name? (second names)))))
+
+;; Provide specs, like Racket's provide transformers. Each is a list of names and the names to
+;; provide them as, and nests in the others. Ones that rename expand to `(#%provide-as name
+;; exported)`.
 (define (provide-exports expr)
   (define e (syntax-e expr))
   (cond
-    [(symbol? e) (list (cons e e))]
+    [(spec-name? expr) (list (cons e e))]
     [(and (list? e) (pair? e) (symbol? (syntax-e (car e))))
      (let ([head (syntax-e (car e))]
            [args (cdr e)])
@@ -355,26 +363,28 @@
                (filter (lambda (x) (not (starts-with? (symbol->string x) "#")))
                        (#%defined-names)))]
          [(equal? head 'prefix-out)
-          (unless (and (pair? args) (symbol? (syntax-e (car args))))
+          (unless (and (pair? args) (spec-name? (car args)))
             (spec-error expr "prefix-out expects a prefix and provide specs:"))
           (map (lambda (export) (cons (car export) (concat-symbols (syntax-e (car args)) (cdr export))))
                (apply append (map provide-exports (cdr args))))]
          [(equal? head 'rename-out)
           (map (lambda (pair)
+                 (unless (spec-pair? pair)
+                   (spec-error pair "rename-out expects pairs of a name and the name to provide it as:"))
                  (let ([names (syntax-e pair)])
-                   (unless (and (list? names)
-                                (= (length names) 2)
-                                (symbol? (syntax-e (first names)))
-                                (symbol? (syntax-e (second names))))
-                     (spec-error pair "rename-out expects pairs of a name and the name to provide it as:"))
                    (cons (syntax-e (first names)) (syntax-e (second names)))))
                args)]
          [(equal? head 'except-out)
           (unless (pair? args)
             (spec-error expr "except-out expects a provide spec and names:"))
-          (let ([excluded (map syntax-e (cdr args))])
-            (filter (lambda (export) (not (member (cdr export) excluded)))
-                    (provide-exports (car args))))]
+          ;; By the names the module has, not the names they're provided as
+          (let ([exports (provide-exports (car args))])
+            (for-each (lambda (name)
+                        (unless (and (spec-name? name) (member (syntax-e name) (map car exports)))
+                          (spec-error name "except-out: not provided by the spec inside it:")))
+                      (cdr args))
+            (let ([excluded (map syntax-e (cdr args))])
+              (filter (lambda (export) (not (member (car export) excluded))) exports)))]
          [(equal? head 'combine-out) (apply append (map provide-exports args))]
          [else (spec-error expr "this can't be used inside another provide spec:")]))]
     [else (spec-error expr "bad provide spec:")]))
@@ -417,15 +427,9 @@
 
 (define (require-parts expr)
   (define e (syntax-e expr))
-  (define (identifier? x)
-    (let ([x (syntax-e x)])
-      (and (symbol? x) (not (starts-with? (symbol->string x) "#:")))))
-  (define (pair-of-identifiers? x)
-    (let ([names (syntax-e x)])
-      (and (list? names) (= (length names) 2) (identifier? (first names)) (identifier? (second names)))))
   (cond
     [(string? e) (list expr)]
-    [(and (list? e) (pair? e) (identifier? (car e)))
+    [(and (list? e) (pair? e) (spec-name? (car e)))
      (let ([head (syntax-e (car e))]
            [args (cdr e)])
        (cond
@@ -440,23 +444,23 @@
          [(null? args) (spec-error expr "a require spec needs a module:")]
          [(equal? head 'only-in)
           (for-each (lambda (x)
-                      (unless (or (identifier? x) (pair-of-identifiers? x))
+                      (unless (or (spec-name? x) (spec-pair? x))
                         (spec-error x "only-in expects identifiers, or pairs of identifiers to rename:")))
                     (cdr args))
           (append (require-parts (car args)) (list (cons '#:only (cdr args))))]
          [(equal? head 'prefix-in)
-          (unless (and (= (length args) 2) (identifier? (car args)))
+          (unless (and (= (length args) 2) (spec-name? (car args)))
             (spec-error expr "prefix-in expects a prefix and a require spec:"))
           (append (require-parts (cadr args)) (list (list '#:prefix (car args))))]
          [(equal? head 'rename-in)
           (for-each (lambda (x)
-                      (unless (pair-of-identifiers? x)
+                      (unless (spec-pair? x)
                         (spec-error x "rename-in expects pairs of the name it provides and the name to bind:")))
                     (cdr args))
           (append (require-parts (car args)) (list (cons '#:rename (cdr args))))]
          [(equal? head 'except-in)
           (for-each (lambda (x)
-                      (unless (identifier? x)
+                      (unless (spec-name? x)
                         (spec-error x "except-in expects identifiers to leave out:")))
                     (cdr args))
           (append (require-parts (car args)) (list (cons '#:except (cdr args))))]))]

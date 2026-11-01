@@ -1161,7 +1161,10 @@ impl SteelThread {
     pub(crate) fn free_identifier(&self, index: usize) -> SteelErr {
         SteelErr::new(
             ErrorKind::Generic,
-            format!("free identifier: {}", self.global_name(index)),
+            format!(
+                "{}: undefined; cannot reference an identifier before its definition",
+                self.global_name(index)
+            ),
         )
     }
 
