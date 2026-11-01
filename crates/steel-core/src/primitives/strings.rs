@@ -2,7 +2,7 @@ use crate::gc::Gc;
 use crate::values::lists::{List, SteelList};
 
 use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
-use crate::steel_vm::{builtin::BuiltInModule, vm::VmCore};
+use crate::steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn, vm::VmCore};
 use crate::{builtin_stop, stop, Vector};
 
 use std::hint::unreachable_unchecked;
@@ -14,10 +14,78 @@ use steel_derive::{function, native};
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
 /// are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
 /// as UTF-8 encoded bytes.
+fn compiled_regex(pattern: &str) -> Result<regex::Regex> {
+    thread_local! {
+        static COMPILED: core::cell::RefCell<rustc_hash::FxHashMap<String, regex::Regex>> =
+            core::cell::RefCell::new(rustc_hash::FxHashMap::default());
+    }
+    if let Some(regex) = COMPILED.with(|x| x.borrow().get(pattern).cloned()) {
+        return Ok(regex);
+    }
+    let regex = regex::Regex::new(pattern).map_err(|e| {
+        crate::rerrs::SteelErr::new(crate::rerrs::ErrorKind::Generic, e.to_string())
+    })?;
+    COMPILED.with(|x| x.borrow_mut().insert(pattern.to_owned(), regex.clone()));
+    Ok(regex)
+}
+
+fn regexp_match_p(pattern: SteelString, input: SteelString) -> Result<bool> {
+    Ok(compiled_regex(pattern.as_str())?.is_match(input.as_str()))
+}
+
+fn regexp_match(pattern: SteelString, input: SteelString) -> Result<SteelVal> {
+    Ok(
+        match compiled_regex(pattern.as_str())?.captures(input.as_str()) {
+            Some(captures) => SteelVal::ListV(
+                captures
+                    .iter()
+                    .map(|x| match x {
+                        Some(x) => SteelVal::StringV(x.as_str().into()),
+                        None => SteelVal::BoolV(false),
+                    })
+                    .collect(),
+            ),
+            None => SteelVal::BoolV(false),
+        },
+    )
+}
+
+fn regexp_replace(
+    pattern: SteelString,
+    input: SteelString,
+    insert: SteelString,
+) -> Result<SteelVal> {
+    let regex = compiled_regex(pattern.as_str())?;
+    Ok(SteelVal::StringV(
+        regex
+            .replace(input.as_str(), insert.as_str())
+            .as_ref()
+            .into(),
+    ))
+}
+
+fn regexp_replace_all(
+    pattern: SteelString,
+    input: SteelString,
+    insert: SteelString,
+) -> Result<SteelVal> {
+    let regex = compiled_regex(pattern.as_str())?;
+    Ok(SteelVal::StringV(
+        regex
+            .replace_all(input.as_str(), insert.as_str())
+            .as_ref()
+            .into(),
+    ))
+}
+
 #[steel_derive::define_module(name = "steel/strings")]
 pub fn string_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/strings");
     module
+        .register_fn("regexp-match?", regexp_match_p)
+        .register_fn("regexp-match", regexp_match)
+        .register_fn("regexp-replace", regexp_replace)
+        .register_fn("regexp-replace*", regexp_replace_all)
         .register_native_fn_definition(STRING_APPEND_DEFINITION)
         .register_native_fn_definition(TO_STRING_DEFINITION)
         .register_native_fn_definition(STRING_TO_LIST_DEFINITION)

@@ -1188,21 +1188,16 @@ impl Compiler {
         };
         crate::compiler::modules::split_for_syntax(require);
 
-        for spec in require.modules.iter_mut() {
-            crate::parser::expand_visitor::expand_with_kernel(
-                spec,
-                &self.macro_env,
-                GlobalMap::Map(self.symbol_map.map()),
-                crate::parser::expand_visitor::KernelExpander::in_environment(
-                    self.kernel.as_mut(),
-                    self.builtin_modules.clone(),
-                    "top-level",
-                ),
-            )?;
-            if !crate::compiler::modules::is_require_spec(spec) {
-                stop!(BadSyntax => crate::compiler::modules::not_a_require_spec(spec); crate::parser::span_visitor::get_span(spec));
+        let mut specs = Vec::new();
+        for spec in &require.modules {
+            for expanded in self.expand_top_level_spec(spec, path)? {
+                if !crate::compiler::modules::is_require_spec(&expanded) {
+                    stop!(BadSyntax => crate::compiler::modules::not_a_require_spec(&expanded); crate::parser::span_visitor::get_span(&expanded));
+                }
+                specs.push(expanded);
             }
         }
+        require.modules = specs;
 
         self.module_manager.late_require = true;
         let compiled = self.expand_expressions(vec![form], path.clone());
@@ -1237,6 +1232,68 @@ impl Compiler {
 
         statements.splice(index..=index, compiled);
         Ok(())
+    }
+
+    fn expand_spec_once(&mut self, spec: &mut ExprKind) -> Result<()> {
+        let required = required_kernel_macros(&mut self.lifted_kernel_environments);
+        crate::parser::expand_visitor::expand_with_kernel(
+            spec,
+            &self.macro_env,
+            GlobalMap::Map(self.symbol_map.map()),
+            crate::parser::expand_visitor::KernelExpander::in_environment(
+                self.kernel.as_mut(),
+                self.builtin_modules.clone(),
+                "top-level",
+            )
+            .with_required(required),
+        )
+        .map(|_| ())
+    }
+
+    fn expand_top_level_spec(
+        &mut self,
+        spec: &ExprKind,
+        path: &Option<PathBuf>,
+    ) -> Result<Vec<ExprKind>> {
+        use crate::parser::spec_requests::{has_requests, take_requests};
+
+        for _ in 0..256 {
+            let mut expanded = spec.clone();
+            let Err(e) = self.expand_spec_once(&mut expanded) else {
+                let mut specs = Vec::new();
+                crate::compiler::modules::flatten_require_specs(expanded, &mut specs);
+                return Ok(specs);
+            };
+            if !has_requests() {
+                return Err(e);
+            }
+            for _ in 0..256 {
+                if !has_requests() {
+                    break;
+                }
+                let requests = take_requests();
+                let pending = crate::compiler::modules::expand_spec_requests(requests, &mut |x| {
+                    self.expand_spec_once(x)
+                })?;
+                let pending = match pending {
+                    Ok(pending) => pending,
+                    Err(nested) => {
+                        take_requests();
+                        stop!(BadSyntax => crate::compiler::modules::not_a_require_spec(&nested); crate::parser::span_visitor::get_span(&nested));
+                    }
+                };
+                self.module_manager.answer_pending_specs(
+                    pending,
+                    &mut self.macro_env,
+                    &mut self.kernel,
+                    &mut self.sources,
+                    path.clone(),
+                    self.builtin_modules.clone(),
+                    &self.search_dirs,
+                )?;
+            }
+        }
+        stop!(BadSyntax => "require spec transformers don't finish"; crate::parser::span_visitor::get_span(spec))
     }
 
     fn expand_ast(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<Vec<ExprKind>> {

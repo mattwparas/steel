@@ -3142,8 +3142,7 @@ fn require_specs_check_what_they_are_given() {
         .compile_and_run_raw_program(r#"(require (only-in (nope "late/values") a))"#)
         .unwrap_err();
     assert!(
-        err.to_string()
-            .contains("can't be used inside another require spec"),
+        err.to_string().contains("nope: not a require sub-form"),
         "{err}"
     );
 
@@ -3521,4 +3520,136 @@ fn a_require_a_syntax_case_template_writes_is_hygienic() {
     );
     let err = engine.compile_and_run_raw_program("baz").unwrap_err();
     assert!(err.to_string().contains("baz"), "{err}");
+}
+
+fn transformer_engine() -> Engine {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "tf/s".to_owned(),
+        "(provide str-a str-b other) (define str-a 1) (define str-b 2) (define other 3)".to_owned(),
+    );
+    engine.register_steel_module(
+        "tf/o".to_owned(),
+        "(provide other) (define other 30)".to_owned(),
+    );
+    engine.register_steel_module(
+        "tf/lib/a".to_owned(),
+        "(provide la) (define la 'la)".to_owned(),
+    );
+    engine.register_steel_module(
+        "tf/lib/b".to_owned(),
+        "(provide lb) (define lb 'lb)".to_owned(),
+    );
+    engine
+}
+
+#[test]
+fn racket_require_forms() {
+    let mut engine = transformer_engine();
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "steel/require")
+               (require (matching-identifiers-in "^str-" "tf/s"))
+               (require (prefix-in z: (subtract-in "tf/s" "tf/o")) "tf/o")
+               (require (filtered-in (lambda (n) (and (regexp-match? "b$" n) (string-append "x" n)))
+                                     "tf/s"))
+               (require (multi-in "tf/lib" ("a" "b")))
+               (list str-a str-b z:str-a other xstr-b la lb)"#
+        )
+        .to_string(),
+        "(1 2 1 30 2 la lb)"
+    );
+}
+
+#[test]
+fn racket_provide_forms() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "tf/p".to_owned(),
+        r#"(require "steel/provide")
+           (provide (filtered-out (lambda (n) (and (regexp-match? "^pub-" n) (substring n 4 (string-length n))))
+                                  (all-defined-out))
+                    (matching-identifiers-out "^api-" (prefix-out api- (combine-out g h))))
+           (define pub-f 1)
+           (define priv 2)
+           (define g 3)
+           (define h 4)"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "tf/p") (list f api-g api-h)"#).to_string(),
+        "(1 3 4)"
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "tf/p") priv"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("priv"), "{err}");
+}
+
+#[test]
+fn user_require_and_provide_transformers() {
+    let mut engine = transformer_engine();
+    // A transformer the module defines, inside the built in specs and around them
+    engine.register_steel_module(
+        "tf/user".to_owned(),
+        r#"(provide results (shout-out a) (prefix-out p: (shout-out b)))
+           (require (for-syntax "steel/require-transform" "steel/provide-transform"))
+           (define-syntax only-vars
+             (make-require-transformer
+              (lambda (stx)
+                (syntax-case stx ()
+                  [(_ path)
+                   (let-values ([(vars macros) (module->exports (syntax-e #'path))])
+                     (let-values ([(imports sources) (expand-import #'path)])
+                       (values (filter (lambda (i) (member (import-src-sym i) (map car (cdr (car vars)))))
+                                       imports)
+                               sources)))]))))
+           (define-syntax shout-out
+             (make-provide-transformer
+              (lambda (stx modes)
+                (syntax-case stx ()
+                  [(_ spec)
+                   (map (lambda (e)
+                          (export (export-local-id e)
+                                  (string->symbol (string-append (symbol->string (export-out-sym e)) "!"))
+                                  0 #f stx))
+                        (expand-export #'spec modes))]))))
+           (require (rename-in (only-vars "tf/s") [str-a A]))
+           (require (prefix-in q: (except-in (only-vars "tf/s") other)))
+           (define a 1)
+           (define b 2)
+           (define results (list A str-b q:str-a q:str-b))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "tf/user") (list results a! p:b!)"#).to_string(),
+        "((1 2 1 2) 1 2)"
+    );
+    let err = engine
+        .compile_and_run_raw_program(
+            r#"(require "steel/require")
+               (require (only-in (matching-identifiers-in "^str-" "tf/s") other))"#,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("isn't included"), "{err}");
+}
+
+#[test]
+fn transformer_specs_written_by_macros_and_for_syntax() {
+    let mut engine = transformer_engine();
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "steel/require")
+               (define-syntax use-lib
+                 (syntax-rules () [(_ p) (require (matching-identifiers-in "^str-" p))]))
+               (use-lib "tf/s")
+               (require (for-syntax (matching-identifiers-in "b$" "tf/s")))
+               (define-syntax (k stx) (datum->syntax stx str-b))
+               (list str-a (k))"#
+        )
+        .to_string(),
+        "(1 2)"
+    );
 }

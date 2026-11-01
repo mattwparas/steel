@@ -1,4 +1,4 @@
-use crate::rvals::Result;
+use crate::rvals::{Result, SteelVal};
 use crate::{
     compiler::{
         passes::{analysis::SemanticAnalysis, VisitorMutRefUnit},
@@ -134,7 +134,11 @@ declare_builtins!(
     "#%private/steel/streams" => "../scheme/modules/streams.scm",
     "#%private/steel/transducers" => "../scheme/modules/transducers.scm",
     "steel/serde" => "../scheme/modules/serde.scm",
-    "steel/signatures" => "../scheme/modules/signatures.scm"
+    "steel/signatures" => "../scheme/modules/signatures.scm",
+    "steel/require-transform" => "../scheme/modules/require-transform.scm",
+    "steel/provide-transform" => "../scheme/modules/provide-transform.scm",
+    "steel/require" => "../scheme/modules/require.scm",
+    "steel/provide" => "../scheme/modules/provide.scm"
 );
 
 create_prelude!(
@@ -514,6 +518,36 @@ impl ModuleManager {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn answer_pending_specs(
+        &mut self,
+        pending: Vec<PendingSpec>,
+        global_macro_map: &mut FxHashMap<InternedString, SteelMacro>,
+        kernel: &mut Option<Kernel>,
+        sources: &mut Sources,
+        path: Option<PathBuf>,
+        builtin_modules: ModuleContainer,
+        search_dirs: &[PathBuf],
+    ) -> Result<()> {
+        let mut module_builder = ModuleBuilder::main(
+            path,
+            Vec::new(),
+            &mut self.compiled_modules,
+            &mut self.visited,
+            &mut self.file_metadata,
+            sources,
+            kernel,
+            builtin_modules,
+            global_macro_map,
+            &self.custom_builtins,
+            search_dirs,
+            &self.module_resolvers,
+            &self.prelude_string,
+            &mut self.origins,
+        )?;
+        module_builder.answer_pending(pending)
+    }
+
     pub(crate) fn rollback_metadata(&mut self) {
         self.file_metadata = self.rollback_metadata.clone();
         self.compiled_modules.deferred = self.rollback_deferred.clone();
@@ -540,6 +574,10 @@ impl ModuleManager {
         if !self.late_require {
             self.rollback_metadata = self.file_metadata.clone();
             self.rollback_deferred = self.compiled_modules.deferred.clone();
+            // Not for the code transformers evaluate, which compiles without a kernel
+            if kernel.is_some() {
+                crate::parser::spec_requests::clear();
+            }
         }
 
         // TODO
@@ -1530,10 +1568,212 @@ pub(crate) fn is_require_spec(spec: &ExprKind) -> bool {
         ExprKind::Atom(a) => matches!(a.syn.ty, TokenType::StringLiteral(_)),
         ExprKind::List(l) => l.first_ident().is_some_and(|x| {
             x.resolve() == "#%require-spec"
+                || (x.resolve() == "#%require-specs" && l.args[1..].iter().all(is_require_spec))
                 || (*x == *FOR_SYNTAX && l.args.get(1).is_some_and(is_require_spec))
         }),
         _ => false,
     }
+}
+
+pub(crate) fn flatten_require_specs(spec: ExprKind, out: &mut Vec<ExprKind>) {
+    match spec {
+        ExprKind::List(l)
+            if l.first_ident()
+                .is_some_and(|x| x.resolve() == "#%require-specs") =>
+        {
+            l.args
+                .into_iter()
+                .skip(1)
+                .for_each(|x| flatten_require_specs(x, out))
+        }
+        // `(for-syntax (#%require-specs a b))` is `(for-syntax a) (for-syntax b)`
+        ExprKind::List(l) if l.first_ident() == Some(&*FOR_SYNTAX) && l.len() == 2 => {
+            let mut inner = Vec::new();
+            flatten_require_specs(l.args[1].clone(), &mut inner);
+            let head = l.args[0].clone();
+            out.extend(
+                inner
+                    .into_iter()
+                    .map(|x| ExprKind::List(List::new(thin_vec![head.clone(), x]))),
+            );
+        }
+        spec => out.push(spec),
+    }
+}
+
+pub(crate) enum PendingSpec {
+    Imports(String, SteelVal, Vec<ExprKind>),
+    Exports(String, SteelVal, ExprKind),
+}
+
+const MAX_SPEC_ROUNDS: usize = 256;
+
+pub(crate) fn expand_spec_requests(
+    requests: Vec<(String, crate::parser::spec_requests::SpecRequest)>,
+    expand: &mut dyn FnMut(&mut ExprKind) -> Result<()>,
+) -> Result<core::result::Result<Vec<PendingSpec>, ExprKind>> {
+    use crate::parser::spec_requests::{answer, has_requests, SpecRequest};
+
+    let mut pending = Vec::new();
+    for (key, request) in requests {
+        let (SpecRequest::Import(stx) | SpecRequest::Export(stx) | SpecRequest::Exports(stx)) =
+            &request;
+        let asked = stx.clone();
+        let mut spec = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(stx)?;
+        if let SpecRequest::Exports(_) = request {
+            pending.push(PendingSpec::Exports(key, asked, spec));
+            continue;
+        }
+        match expand(&mut spec) {
+            Ok(()) => {}
+            // Asked again once what it asked for is answered
+            Err(_) if has_requests() => continue,
+            Err(e) => return Err(e),
+        }
+        match request {
+            SpecRequest::Import(_) => {
+                let mut specs = Vec::new();
+                flatten_require_specs(spec, &mut specs);
+                if let Some(spec) = specs.iter().find(|x| !is_require_spec(x)) {
+                    return Ok(Err(spec.clone()));
+                }
+                pending.push(PendingSpec::Imports(key, asked, specs));
+            }
+            _ => {
+                let mut exports = Vec::new();
+                provided_by(&spec, &mut exports)?;
+                answer(key, &asked, SteelVal::ListV(exports.into_iter().collect()));
+            }
+        }
+    }
+    Ok(Ok(pending))
+}
+
+fn provided_by(spec: &ExprKind, out: &mut Vec<SteelVal>) -> Result<()> {
+    match spec {
+        ExprKind::Atom(a) if a.syn.ty.identifier().is_some() => {
+            let name = SteelVal::SymbolV(a.syn.ty.identifier().unwrap().resolve().into());
+            out.push(SteelVal::ListV(
+                vec![
+                    crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
+                        spec.clone(),
+                    )?,
+                    name,
+                ]
+                .into_iter()
+                .collect(),
+            ));
+            Ok(())
+        }
+        ExprKind::List(l) => match l.first_ident().map(|x| x.resolve()) {
+            Some("#%provide-specs") => l.args[1..].iter().try_for_each(|x| provided_by(x, out)),
+            Some("#%provide-as") if l.len() == 3 => {
+                let Some(exported) = l.args[2].atom_identifier() else {
+                    stop!(BadSyntax => "#%provide-as expects a name to provide it as"; l.location);
+                };
+                out.push(SteelVal::ListV(
+                    vec![
+                        crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
+                            l.args[1].clone(),
+                        )?,
+                        SteelVal::SymbolV(exported.resolve().into()),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ));
+                Ok(())
+            }
+            _ => stop!(BadSyntax => "bad provide spec"; l.location),
+        },
+        _ => stop!(BadSyntax => "bad provide spec"; spec.span()),
+    }
+}
+
+fn spec_path(spec: &ExprKind) -> Option<&Atom> {
+    match spec {
+        ExprKind::Atom(a) if matches!(a.syn.ty, TokenType::StringLiteral(_)) => Some(a),
+        ExprKind::List(l) => l.args.iter().find_map(spec_path),
+        _ => None,
+    }
+}
+
+pub(crate) fn imports_to_require_spec(
+    imports: SteelVal,
+    sources: SteelVal,
+    stx: SteelVal,
+) -> Result<SteelVal> {
+    use crate::parser::ast::TryFromSteelValVisitorForExprKind as FromValue;
+
+    let list = |x: &SteelVal| match x {
+        SteelVal::ListV(l) => Ok(l.iter().cloned().collect::<Vec<_>>()),
+        other => stop!(TypeMismatch => "expected a list of imports, found: {}", other),
+    };
+    let span = match &stx {
+        SteelVal::SyntaxObject(s) => s.syntax_loc(),
+        _ => Span::default(),
+    };
+
+    // Grouped by module and phase, in order
+    type Group = (String, isize, ExprKind, Vec<ExprKind>);
+    fn group(modules: &mut Vec<Group>, path: &SteelVal, phase: &SteelVal) -> Result<usize> {
+        let path = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(path)?;
+        let phase = match phase {
+            SteelVal::IntV(x) => *x,
+            other => stop!(TypeMismatch => "expected a phase, found: {}", other),
+        };
+        let key = path.to_string();
+        Ok(
+            match modules.iter().position(|x| x.0 == key && x.1 == phase) {
+                Some(i) => i,
+                None => {
+                    modules.push((key, phase, path, Vec::new()));
+                    modules.len() - 1
+                }
+            },
+        )
+    }
+    let mut modules: Vec<Group> = Vec::new();
+    for import in list(&imports)? {
+        let [local, src, path, phase] = &list(&import)?[..] else {
+            stop!(TypeMismatch => "expected (local-id src-sym mod-path phase), found: {}", import);
+        };
+        let i = group(&mut modules, path, phase)?;
+        let SteelVal::SymbolV(src) = src else {
+            stop!(TypeMismatch => "expected a symbol, found: {}", src);
+        };
+        let pair = ExprKind::List(List::new(thin_vec![
+            ExprKind::atom(src.as_str()),
+            FromValue::root(local)?
+        ]));
+        modules[i].3.push(pair);
+    }
+    for source in list(&sources)? {
+        let [path, phase] = &list(&source)?[..] else {
+            stop!(TypeMismatch => "expected (mod-path phase), found: {}", source);
+        };
+        group(&mut modules, path, phase)?;
+    }
+
+    let mut specs = thin_vec![ExprKind::atom("#%require-specs")];
+    for (_, phase, path, pairs) in modules {
+        let mut only = thin_vec![ExprKind::Atom(Atom::new(SyntaxObject::new(
+            TokenType::Keyword("#:only".into()),
+            span
+        )))];
+        only.extend(pairs);
+        let spec = ExprKind::List(List::new(thin_vec![
+            ExprKind::atom("#%require-spec"),
+            path,
+            ExprKind::List(List::new(only))
+        ]));
+        specs.push(match phase {
+            0 => spec,
+            _ => ExprKind::List(List::new(thin_vec![ExprKind::atom(*FOR_SYNTAX), spec])),
+        });
+    }
+    crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(ExprKind::List(
+        List::new(specs),
+    ))
 }
 
 fn load_phase1(
@@ -3350,6 +3590,23 @@ fn expand_head(
 }
 
 // The names a module provides
+fn provided_list(module: &CompiledModule) -> Vec<InternedString> {
+    module
+        .provides
+        .iter()
+        .filter_map(ExprKind::list)
+        .flat_map(|provide| provide.args.iter().skip(1))
+        .filter_map(|provide| {
+            provide
+                .atom_identifier()
+                .or_else(|| provide.list().and_then(|x| x.second_ident()))
+                .copied()
+        })
+        .chain(module.provides_for_syntax.iter().copied())
+        .chain(module.reexports.iter().map(|x| x.provided))
+        .collect()
+}
+
 fn provided_names(module: &CompiledModule) -> FxHashSet<InternedString> {
     module
         .provides
@@ -3950,6 +4207,155 @@ impl<'a> ModuleBuilder<'a> {
         Ok(new_exprs)
     }
 
+    fn load_for_introspection(&mut self, spec: &ExprKind) -> Result<RequireObject> {
+        let home = cogs_home();
+        let require = crate::parser::ast::Require::new(
+            vec![spec.clone()],
+            SyntaxObject::new(
+                TokenType::Require,
+                crate::parser::span_visitor::get_span(spec),
+            ),
+        );
+        let mut object = self.parse_require(&home, &require, spec, false)?;
+        let for_syntax = object.for_syntax;
+        object.for_syntax = true;
+        let start = self.require_objects.len();
+        self.require_objects.push(object);
+        let loaded = self.load_requires(start).and_then(|mut code| {
+            self.late_exprs.append(&mut code);
+            self.resolve_require_ops()
+        });
+        let mut object = self.require_objects.remove(start);
+        loaded?;
+        object.for_syntax = for_syntax;
+        Ok(object)
+    }
+
+    fn spec_imports(&mut self, spec: &ExprKind) -> Result<Vec<SteelVal>> {
+        let object = self.load_for_introspection(spec)?;
+        let Some(module) = self
+            .compiled_modules
+            .compiled_modules
+            .get(object.path.get_path().as_ref())
+        else {
+            stop!(BadSyntax => format!("{:?} isn't a module compiled from source", object.path); crate::parser::span_visitor::get_span(spec));
+        };
+        let pairs: Vec<(InternedString, InternedString)> = if object.idents_to_import.is_empty() {
+            provided_list(module).into_iter().map(|x| (x, x)).collect()
+        } else {
+            import_pairs(&object)
+                .into_iter()
+                .filter(|x| x.0.resolve() != "#%nothing")
+                .collect()
+        };
+        let Some(path) = spec_path(spec) else {
+            stop!(BadSyntax => "a require spec needs a module"; crate::parser::span_visitor::get_span(spec));
+        };
+        let mut targets = Vec::new();
+        rename_targets(spec, &mut targets);
+        let to_value = crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind;
+        let path_value = to_value(ExprKind::Atom(path.clone()))?;
+        let phase = SteelVal::IntV(object.for_syntax as isize);
+        pairs
+            .into_iter()
+            .map(|(source, local)| {
+                let local = match &object.prefix {
+                    Some(prefix) => (prefix.clone() + local.resolve()).into(),
+                    None => local,
+                };
+                // A name a rename binds keeps where it's written, the others are the path's
+                let mut syn = targets
+                    .iter()
+                    .find(|x| x.ty.identifier() == Some(&local))
+                    .map(|x| (*x).clone())
+                    .unwrap_or_else(|| path.syn.clone());
+                syn.ty = TokenType::Identifier(local);
+                Ok(SteelVal::ListV(
+                    vec![
+                        to_value(ExprKind::Atom(Atom::new(syn)))?,
+                        SteelVal::SymbolV(source.resolve().into()),
+                        path_value.clone(),
+                        phase.clone(),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ))
+            })
+            .collect()
+    }
+
+    fn module_exports(&mut self, spec: &ExprKind) -> Result<SteelVal> {
+        let object = self.load_for_introspection(spec)?;
+        let Some(module) = self
+            .compiled_modules
+            .compiled_modules
+            .get(object.path.get_path().as_ref())
+        else {
+            stop!(BadSyntax => format!("{:?} isn't a module compiled from source", object.path); crate::parser::span_visitor::get_span(spec));
+        };
+        let procedural = provided_kernel_macros(self.kernel.as_ref(), module, &object);
+        let (syntax, variables): (Vec<_>, Vec<_>) =
+            provided_list(module).into_iter().partition(|name| {
+                module.macro_map.contains_key(name)
+                    || procedural.contains_key(name)
+                    || module.provides_for_syntax.contains(name)
+            });
+        let symbols = |names: Vec<InternedString>| {
+            SteelVal::ListV(
+                names
+                    .into_iter()
+                    .map(|x| SteelVal::SymbolV(x.resolve().into()))
+                    .collect(),
+            )
+        };
+        Ok(SteelVal::ListV(
+            vec![symbols(variables), symbols(syntax)]
+                .into_iter()
+                .collect(),
+        ))
+    }
+
+    fn answer_pending(&mut self, pending: Vec<PendingSpec>) -> Result<()> {
+        for pending in pending {
+            match pending {
+                PendingSpec::Imports(key, asked, specs) => {
+                    let mut imports = Vec::new();
+                    for spec in &specs {
+                        imports.extend(self.spec_imports(spec)?);
+                    }
+                    crate::parser::spec_requests::answer(
+                        key,
+                        &asked,
+                        SteelVal::ListV(imports.into_iter().collect()),
+                    );
+                }
+                PendingSpec::Exports(key, asked, spec) => {
+                    let exports = self.module_exports(&spec)?;
+                    crate::parser::spec_requests::answer(key, &asked, exports);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn answer_spec_requests(
+        &mut self,
+        expand: &mut dyn FnMut(&mut Self, &mut ExprKind) -> Result<()>,
+    ) -> Result<bool> {
+        for _ in 0..MAX_SPEC_ROUNDS {
+            let requests = crate::parser::spec_requests::take_requests();
+            if requests.is_empty() {
+                return Ok(true);
+            }
+            let Ok(pending) = expand_spec_requests(requests, &mut |x| expand(self, x))? else {
+                crate::parser::spec_requests::take_requests();
+                return Ok(false);
+            };
+            self.answer_pending(pending)?;
+        }
+        stop!(BadSyntax => "require spec transformers don't finish")
+    }
+
     fn require_macros(
         &mut self,
         requires: &[RequireObject],
@@ -4464,19 +4870,8 @@ impl<'a> ModuleBuilder<'a> {
             let span = require_object.span;
 
             // Each name the module provides, and the name it's bound as
-            let mut names: Vec<(InternedString, InternedString)> = module
-                .provides
-                .iter()
-                .filter_map(ExprKind::list)
-                .flat_map(|provide| provide.args.iter().skip(1))
-                .filter_map(|provide| {
-                    provide
-                        .atom_identifier()
-                        .or_else(|| provide.list().and_then(|x| x.second_ident()))
-                        .copied()
-                })
-                .chain(module.provides_for_syntax.iter().copied())
-                .chain(module.reexports.iter().map(|x| x.provided))
+            let mut names: Vec<(InternedString, InternedString)> = provided_list(module)
+                .into_iter()
                 .map(|name| (name, name))
                 .collect();
 
@@ -4834,6 +5229,7 @@ impl<'a> ModuleBuilder<'a> {
             .flatten()
             .collect();
         let mut template_imports = Vec::new();
+        let mut spec_rounds = 0;
         let mut phase1_queue = Vec::new();
         let mut state = None;
         let mut pass = 0;
@@ -5165,7 +5561,23 @@ impl<'a> ModuleBuilder<'a> {
                 }
                 crate::parser::expand_visitor::rename_template_imports(&mut ast, &template_imports);
                 for expr in provides.iter_mut() {
-                    many_expander.expand(expr)?;
+                    let written = expr.clone();
+                    for round in 0.. {
+                        let Err(e) = many_expander.expand(expr) else {
+                            break;
+                        };
+                        if !crate::parser::spec_requests::has_requests() || round == MAX_SPEC_ROUNDS
+                        {
+                            return Err(e);
+                        }
+                        let requests = crate::parser::spec_requests::take_requests();
+                        let pending =
+                            expand_spec_requests(requests, &mut |x| many_expander.expand(x))?;
+                        if pending.is_err() || pending.is_ok_and(|x| !x.is_empty()) {
+                            stop!(BadSyntax => "a provide spec can only ask about provide specs"; written.span());
+                        }
+                        *expr = written.clone();
+                    }
                 }
                 break;
             };
@@ -5173,14 +5585,52 @@ impl<'a> ModuleBuilder<'a> {
             let ExprKind::Require(mut require) = ast.remove(index) else {
                 unreachable!()
             };
-            info.remove(index);
+            let form_info = info.remove(index);
             if let Some(last) = last_defining.as_mut().filter(|x| **x > index) {
                 *last -= 1;
             }
             split_for_syntax(&mut require);
-            for spec in require.modules.iter_mut() {
-                many_expander.expand(spec)?;
+            let written = require.clone();
+            let mut specs = Vec::new();
+            let mut asked = false;
+            for spec in require.modules.iter() {
+                let mut spec = spec.clone();
+                match many_expander.expand(&mut spec) {
+                    Ok(()) => flatten_require_specs(spec, &mut specs),
+                    Err(e) if !crate::parser::spec_requests::has_requests() => return Err(e),
+                    Err(_) => {
+                        asked = true;
+                        break;
+                    }
+                }
             }
+            // What its transformers asked is answered, then it's expanded again
+            if asked {
+                spec_rounds += 1;
+                if spec_rounds > MAX_SPEC_ROUNDS {
+                    stop!(BadSyntax => "require spec transformers don't finish"; written.location.span);
+                }
+                let requests = crate::parser::spec_requests::take_requests();
+                let pending = expand_spec_requests(requests, &mut |x| many_expander.expand(x))?;
+                state = Some(many_expander.into_state());
+                let pending = match pending {
+                    Ok(pending) => pending,
+                    Err(spec) => {
+                        crate::parser::spec_requests::take_requests();
+                        stop!(BadSyntax => not_a_require_spec(&spec); crate::parser::span_visitor::get_span(&spec));
+                    }
+                };
+                self.answer_pending(pending)?;
+                ast.insert(index, ExprKind::Require(written));
+                info.insert(index, form_info);
+                if let Some(last) = last_defining.as_mut().filter(|x| **x >= index) {
+                    *last += 1;
+                }
+                resume = index;
+                continue;
+            }
+            spec_rounds = 0;
+            require.modules = specs;
             state = Some(many_expander.into_state());
             resume = index;
             // Later forms are expanded again with its macros
@@ -5762,6 +6212,16 @@ impl<'a> ModuleBuilder<'a> {
         r: &crate::parser::ast::Require,
         atom: &ExprKind,
     ) -> Result<RequireObject> {
+        self.parse_require(home, r, atom, true)
+    }
+
+    fn parse_require(
+        &mut self,
+        home: &Option<PathBuf>,
+        r: &crate::parser::ast::Require,
+        atom: &ExprKind,
+        hygiene: bool,
+    ) -> Result<RequireObject> {
         let mut object = RequireObjectBuilder::default();
         object.span = match crate::parser::span_visitor::get_span(atom) {
             span if span.source_id().is_some() => span,
@@ -5771,7 +6231,7 @@ impl<'a> ModuleBuilder<'a> {
         self.parse_require_object_inner(home, r, atom, &mut object)?;
 
         // A template's module path or rename target binds only for the template's identifiers
-        if !object.for_syntax {
+        if hygiene && !object.for_syntax {
             let mut targets = Vec::new();
             rename_targets(atom, &mut targets);
             match template_path(atom) {
@@ -5965,11 +6425,32 @@ impl<'a> ModuleBuilder<'a> {
         Ok(())
     }
 
-    fn expand_require_spec(&mut self, spec: &ExprKind) -> Result<ExprKind> {
-        let mut spec = spec.clone();
+    fn expand_require_spec(&mut self, spec: &ExprKind) -> Result<Option<Vec<ExprKind>>> {
+        for _ in 0..MAX_SPEC_ROUNDS {
+            let mut expanded = spec.clone();
+            match self.expand_require_spec_once(&mut expanded) {
+                Ok(()) => {
+                    let mut specs = Vec::new();
+                    flatten_require_specs(expanded, &mut specs);
+                    return Ok(Some(specs));
+                }
+                Err(e) if !crate::parser::spec_requests::has_requests() => return Err(e),
+                Err(_) => {
+                    if !self
+                        .answer_spec_requests(&mut |this, x| this.expand_require_spec_once(x))?
+                    {
+                        return Ok(None);
+                    }
+                }
+            }
+        }
+        stop!(BadSyntax => "require spec transformers don't finish"; crate::parser::span_visitor::get_span(spec))
+    }
+
+    fn expand_require_spec_once(&mut self, spec: &mut ExprKind) -> Result<()> {
         if matches!(spec, ExprKind::List(_)) && self.kernel.is_some() {
             crate::parser::expand_visitor::expand_with_kernel_defining(
-                &mut spec,
+                spec,
                 &self.macro_map,
                 GlobalMap::Set(&FxHashSet::default()),
                 crate::parser::expand_visitor::KernelExpander::in_environment(
@@ -5980,7 +6461,7 @@ impl<'a> ModuleBuilder<'a> {
                 false,
             )?;
         }
-        Ok(spec)
+        Ok(())
     }
 
     fn collect_requires(&mut self) -> Result<()> {
@@ -6010,13 +6491,16 @@ impl<'a> ModuleBuilder<'a> {
                     // This way we have some understanding of what dependencies a file has
                     ExprKind::Require(mut r) => {
                         split_for_syntax(&mut r);
-                        let specs = r
-                            .modules
-                            .iter()
-                            .map(|x| module_builder.expand_require_spec(x))
-                            .collect::<Result<Vec<_>>>()?;
+                        let mut specs = Vec::new();
+                        let mut later = false;
+                        for spec in &r.modules {
+                            match module_builder.expand_require_spec(spec)? {
+                                Some(expanded) => specs.extend(expanded),
+                                None => later = true,
+                            }
+                        }
                         // A spec using the module's own macros waits for the expansion
-                        if !specs.iter().all(is_require_spec) {
+                        if later || !specs.iter().all(is_require_spec) {
                             exprs_without_requires.push(ExprKind::Require(r));
                             continue;
                         }

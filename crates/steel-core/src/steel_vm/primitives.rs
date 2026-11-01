@@ -3401,6 +3401,32 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("#%with-syntax-match", with_syntax_match)
         .register_fn("#%syntax-case-match", syntax_case_match)
         .register_fn("#%struct-info", struct_info_of)
+        .register_fn("#%spec-answer", crate::parser::spec_requests::spec_answer)
+        .register_fn(
+            "#%imports->require-spec",
+            crate::compiler::modules::imports_to_require_spec,
+        )
+        .register_fn("#%path-up", |relative: SteelString| {
+            let module = crate::parser::expand_visitor::current_module()
+                .filter(|x| x.resolve() != "top-level")
+                .map(|x| std::path::PathBuf::from(x.resolve()));
+            let start = match module.as_ref().and_then(|x| x.parent()) {
+                Some(dir) => dir.to_path_buf(),
+                None => std::env::current_dir().unwrap_or_default(),
+            };
+            start
+                .ancestors()
+                .map(|dir| dir.join(relative.as_str()))
+                .find(|path| path.exists())
+                .map(|path| SteelVal::StringV(path.to_string_lossy().as_ref().into()))
+                .unwrap_or(SteelVal::BoolV(false))
+        })
+        .register_fn("#%current-module-path", || {
+            crate::parser::expand_visitor::current_module()
+                .filter(|x| x.resolve() != "top-level")
+                .map(|x| SteelVal::StringV(x.resolve().into()))
+                .unwrap_or(SteelVal::BoolV(false))
+        })
         .register_fn("#%record-struct-info!", record_struct_info)
         .register_fn("#%imported-from", |path: SteelString| {
             match crate::parser::expand_visitor::imported_from(path.as_str()) {

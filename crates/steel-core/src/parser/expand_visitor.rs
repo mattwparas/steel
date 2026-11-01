@@ -4382,12 +4382,24 @@ impl<'a> Expander<'a> {
                     && l.first_ident().is_some_and(|x| {
                         matches!(x.resolve(), "rename-out" | "rename-in" | "#%require-spec")
                     });
+                // A macro wrote this require. Its specs are expanded when the require is handled.
+                let require = l
+                    .first()
+                    .and_then(ExprKind::atom_syntax_object)
+                    .is_some_and(|x| {
+                        x.ty == TokenType::Require
+                            || x.ty.identifier().is_some_and(|x| x.resolve() == "require")
+                    });
                 for (i, expr) in l.args.iter_mut().enumerate() {
                     if let ExprKind::Atom(a) = expr {
                         if i == 0 || names {
                             self.scope_chain.stamp(&mut a.syn);
                             continue;
                         }
+                    }
+                    if require {
+                        self.scope_chain.stamp_all(expr);
+                        continue;
                     }
 
                     if renames {

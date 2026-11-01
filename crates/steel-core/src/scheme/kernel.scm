@@ -386,7 +386,10 @@
             (let ([excluded (map syntax-e (cdr args))])
               (filter (lambda (export) (not (member (car export) excluded))) exports)))]
          [(equal? head 'combine-out) (apply append (map provide-exports args))]
-         [else (spec-error expr "this can't be used inside another provide spec:")]))]
+         ;; Another transformer's, which the compiler expands
+         [else
+          (map (lambda (export) (cons (syntax-e (car export)) (cadr export)))
+               (#%spec-answer 'export expr))]))]
     [else (spec-error expr "bad provide spec:")]))
 
 ;; The names a spec's first identifier is written with, or its head's when it has none
@@ -466,9 +469,97 @@
           (append (require-parts (car args)) (list (cons '#:except (cdr args))))]))]
     [else (spec-error expr "bad require spec:")]))
 
+(define builtin-require-specs '(only-in prefix-in rename-in except-in for-syntax))
+
+(define (builtin-spec? expr)
+  (define e (syntax-e expr))
+  (cond
+    [(and (list? e) (pair? e) (spec-name? (car e)))
+     (let ([head (syntax-e (car e))]
+           [args (cdr e)])
+       (cond
+         [(equal? head '#%require-spec) #t]
+         [(not (member head builtin-require-specs)) #f]
+         [(equal? head 'prefix-in) (or (not (= (length args) 2)) (builtin-spec? (cadr args)))]
+         [else (or (null? args) (builtin-spec? (car args)))]))]
+    [else #t]))
+
+(define (spec-imports expr)
+  (define e (syntax-e expr))
+  (define (named imports name)
+    (let loop ([imports imports])
+      (cond
+        [(null? imports) #f]
+        [(equal? (syntax-e (car (car imports))) (syntax-e name)) (car imports)]
+        [else (loop (cdr imports))])))
+  (define (bound import name)
+    (cons name (cdr import)))
+  (if (and (list? e) (pair? e) (spec-name? (car e)) (member (syntax-e (car e)) builtin-require-specs))
+      (let ([head (syntax-e (car e))]
+            [args (cdr e)])
+        (when (null? args)
+          (spec-error expr "a require spec needs a module:"))
+        (cond
+          [(equal? head 'for-syntax)
+           (unless (= (length args) 1)
+             (spec-error expr "for-syntax expects one module to require:"))
+           (map (lambda (import) (list (first import) (second import) (third import) 1))
+                (spec-imports (car args)))]
+          [(equal? head 'prefix-in)
+           (unless (and (= (length args) 2) (spec-name? (car args)))
+             (spec-error expr "prefix-in expects a prefix and a require spec:"))
+           (map (lambda (import)
+                  (bound import
+                         (#%datum->syntax (car import)
+                                        (concat-symbols (syntax-e (car args))
+                                                        (syntax-e (car import))))))
+                (spec-imports (cadr args)))]
+          [(equal? head 'only-in)
+           (let ([imports (spec-imports (car args))])
+             (map (lambda (x)
+                    (unless (or (spec-name? x) (spec-pair? x))
+                      (spec-error x "only-in expects identifiers, or pairs of identifiers to rename:"))
+                    (let* ([from (if (spec-pair? x) (first (syntax-e x)) x)]
+                           [to (if (spec-pair? x) (second (syntax-e x)) x)]
+                           [import (named imports from)])
+                      (unless import
+                        (spec-error from "only-in: isn't included in the require spec inside it:"))
+                      (bound import to)))
+                  (cdr args)))]
+          [(equal? head 'rename-in)
+           (let ([imports (spec-imports (car args))]
+                 [renames (map (lambda (x)
+                                 (unless (spec-pair? x)
+                                   (spec-error x "rename-in expects pairs of the name it provides and the name to bind:"))
+                                 (syntax-e x))
+                               (cdr args))])
+             (for-each (lambda (pair)
+                         (unless (named imports (first pair))
+                           (spec-error (first pair) "rename-in: isn't imported by the require spec inside it:")))
+                       renames)
+             (apply append
+                    (map (lambda (import)
+                           (let ([to (filter (lambda (pair)
+                                               (equal? (syntax-e (first pair)) (syntax-e (car import))))
+                                             renames)])
+                             (if (null? to)
+                                 (list import)
+                                 (map (lambda (pair) (bound import (second pair))) to))))
+                         imports)))]
+          [(equal? head 'except-in)
+           (let ([imports (spec-imports (car args))])
+             (for-each (lambda (x)
+                         (unless (and (spec-name? x) (named imports x))
+                           (spec-error x "except-in: isn't imported by the require spec inside it:")))
+                       (cdr args))
+             (filter (lambda (import) (not (named (map list (cdr args)) (car import)))) imports))]))
+      (#%spec-answer 'import expr)))
+
 (define (require-spec expr)
-  (syntax/loc (cons '#%require-spec (require-parts expr))
-    (syntax-span expr)))
+  (if (builtin-spec? expr)
+      (syntax/loc (cons '#%require-spec (require-parts expr))
+        (syntax-span expr))
+      (#%imports->require-spec (spec-imports expr) '() expr)))
 
 (#%define-syntax (only-in expr)
                  (require-spec expr))
