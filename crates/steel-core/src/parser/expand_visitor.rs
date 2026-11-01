@@ -428,6 +428,7 @@ pub fn expand(
         prelude_only: false,
         head_body: true,
         scope_chain: ScopeChain::default(),
+        variables: None,
         prelude_base: 0,
     };
     expander.visit(expr)?;
@@ -444,6 +445,21 @@ pub(crate) fn expand_with_kernel(
     kernel: KernelExpander<'_>,
 ) -> Result<bool> {
     expand_with_kernel_defining(expr, map, globals, kernel, true)
+}
+
+// Expands a top-level form, where the variables earlier forms defined hide the kernel's macros
+pub(crate) fn expand_top_level_form(
+    expr: &mut ExprKind,
+    map: &FxHashMap<InternedString, SteelMacro>,
+    globals: GlobalMap,
+    kernel: KernelExpander<'_>,
+    variables: &FxHashSet<InternedString>,
+) -> Result<bool> {
+    let mut expander = Expander::new(map, &NO_EXCLUSIONS, globals).with_kernel(kernel);
+    expander.define_top_level_procedural = true;
+    expander.variables = Some(variables);
+    expander.expand(expr)?;
+    Ok(expander.changed)
 }
 
 // Like `expand_with_kernel`, but if `define_top_level` is false, procedural macros defined at
@@ -502,6 +518,7 @@ pub fn expand_with_source_id(
         prelude_only: false,
         head_body: true,
         scope_chain: ScopeChain::default(),
+        variables: None,
         prelude_base: 0,
     };
 
@@ -1209,6 +1226,30 @@ pub(crate) fn global_binding(
         }
         Some((None, name))
     })
+}
+
+// Where a name a module has is defined, when the modules it comes through are known
+pub(crate) fn defining_binding(
+    module: InternedString,
+    name: InternedString,
+) -> Option<(InternedString, InternedString)> {
+    MODULE_BINDINGS.with(|x| {
+        let bindings = x.borrow();
+        let (mut module, mut name) = (module, name);
+        for _ in 0..32 {
+            let entry = bindings.get(&module)?;
+            if entry.own.contains(&name) {
+                return Some((module, name));
+            }
+            (module, name) = *entry.imports.get(&name)?;
+        }
+        None
+    })
+}
+
+// Forgets what a module had, before it's compiled again
+pub(crate) fn forget_module_bindings(module: InternedString) {
+    MODULE_BINDINGS.with(|x| x.borrow_mut().remove(&module));
 }
 
 // Whether the module being compiled imports the name
@@ -2513,6 +2554,8 @@ pub struct Expander<'a> {
     pub(crate) define_top_level_procedural: bool,
     pub(crate) defined_procedural: Vec<(InternedString, steel_parser::span::Span)>,
     pub(crate) scope_chain: ScopeChain,
+    // The top level's variables from earlier forms, which hide the kernel's macros
+    variables: Option<&'a FxHashSet<InternedString>>,
 }
 
 #[derive(Debug)]
@@ -2593,6 +2636,7 @@ impl<'a> Expander<'a> {
             prelude_only: false,
             head_body: true,
             scope_chain: ScopeChain::default(),
+            variables: None,
             prelude_base: 0,
         }
     }
@@ -2626,6 +2670,7 @@ impl<'a> Expander<'a> {
             prelude_only: false,
             head_body: true,
             scope_chain: ScopeChain::default(),
+            variables: None,
             prelude_base: 0,
         }
     }
@@ -2654,6 +2699,11 @@ impl<'a> Expander<'a> {
             local_macros: self.local_macros,
             prelude_base: self.prelude_base,
         }
+    }
+
+    // Names the module imports as variables, which hide macros of the same names
+    pub(crate) fn import_variables(&mut self, names: impl IntoIterator<Item = InternedString>) {
+        self.scope_chain.top_level.extend(names);
     }
 
     pub(crate) fn with_state(mut self, state: Option<ExpanderState>) -> Self {
@@ -2803,8 +2853,25 @@ impl<'a> Expander<'a> {
                     ScopedDecision::Placeholder(local.name, local.scopes.clone())
                 }
             }
+            Meaning::Unbound if self.is_earlier_variable(head) => ScopedDecision::Variable,
             Meaning::Unbound => ScopedDecision::Unbound,
         })
+    }
+
+    // A top-level variable an earlier form defined, unless the top level defined a macro of
+    // the name since
+    fn is_earlier_variable(&self, syn: &SyntaxObject) -> bool {
+        let Some(name) = syn.ty.identifier() else {
+            return false;
+        };
+        !syn.scopes.introduced()
+            && self.variables.is_some_and(|x| x.contains(name))
+            && !self.kernel.as_ref().is_some_and(|kernel| {
+                kernel
+                    .environment
+                    .zip(kernel.map.as_ref())
+                    .is_some_and(|(environment, map)| map.has_own_macro(environment, name))
+            })
     }
 
     // What an identifier means by its scopes: the variable or local macro whose binder's
@@ -4241,7 +4308,7 @@ impl<'a> Expander<'a> {
                         }
                     }
 
-                    // The pairs of names a rename lists, and what a require spec does
+                    // A rename's pairs of names, and a require spec's operations
                     if renames {
                         if let ExprKind::List(names) = expr {
                             self.stamp_names(names);

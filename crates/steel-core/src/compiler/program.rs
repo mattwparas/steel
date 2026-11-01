@@ -655,8 +655,6 @@ define_symbols! {
     REQUIRE_IDENT_SPEC => "%require-ident-spec",
     PROVIDE => "provide",
     FOR_SYNTAX => "for-syntax",
-    PREFIX_IN => "prefix-in",
-    ONLY_IN => "only-in",
     DATUM_SYNTAX => "#%join-identifiers",
     SYNTAX_SPAN => "#%syntax-span",
     QUASISYNTAX_LOWERED => "#%quasisyntax",

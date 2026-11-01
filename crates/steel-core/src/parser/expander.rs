@@ -681,7 +681,9 @@ impl MacroCase {
                         }
 
                         fn visit_atom(&mut self, a: &mut Atom) {
-                            if let TokenType::Identifier(_) = a.syn.ty {
+                            // Also a string, for a module path a template wrote
+                            if let TokenType::Identifier(_) | TokenType::StringLiteral(_) = a.syn.ty
+                            {
                                 // Skip the module scopes if another template wrote it
                                 if !a.syn.scopes.introduced() {
                                     for scope in [self.1 .0, self.1 .1].into_iter().flatten() {

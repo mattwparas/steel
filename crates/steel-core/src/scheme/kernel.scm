@@ -161,10 +161,11 @@
            (let ()
              (begin
                funcs ...)
-             (hash-union (if (void? name)
+             ;; A macro defined again replaces the old one
+             (hash-union (#%syntax-transformer-module provide ids ...)
+                         (if (void? name)
                              (%proto-hash%)
-                             name)
-                         (#%syntax-transformer-module provide ids ...))))]
+                             name))))]
 
     ;; Normal case
     [(#%syntax-transformer-module provide name) (%proto-hash% 'name name)]
@@ -414,12 +415,13 @@
 (#%define-syntax (combine-out expr)
                  (provide-spec expr))
 
-;; Require specs, like Racket's require transformers. Each is a module and what the forms around
-;; it do to what's imported, from the inside out, for `(#%require-spec module what ...)`.
+;; Require specs, like Racket's require transformers. Each expands to `(#%require-spec module
+;; what ...)`: the module, then what each spec around it does to the names, innermost first.
 (define (require-parts expr)
   (define e (syntax-e expr))
   (define (identifier? x)
-    (symbol? (syntax-e x)))
+    (let ([x (syntax-e x)])
+      (and (symbol? x) (not (starts-with? (symbol->string x) "#:")))))
   (define (pair-of-identifiers? x)
     (let ([names (syntax-e x)])
       (and (list? names) (= (length names) 2) (identifier? (first names)) (identifier? (second names)))))
@@ -429,7 +431,14 @@
      (let ([head (syntax-e (car e))]
            [args (cdr e)])
        (cond
+         ;; Already expanded
          [(equal? head '#%require-spec) args]
+         [(equal? head 'for-syntax)
+          (unless (= (length args) 1)
+            (spec-error expr "for-syntax expects one module to require:"))
+          (list (list (car e) (require-spec (car args))))]
+         [(not (member head '(only-in prefix-in rename-in except-in)))
+          (spec-error expr "this can't be used inside another require spec:")]
          [(null? args) (spec-error expr "a require spec needs a module:")]
          [(equal? head 'only-in)
           (for-each (lambda (x)
@@ -452,8 +461,7 @@
                       (unless (identifier? x)
                         (spec-error x "except-in expects identifiers to leave out:")))
                     (cdr args))
-          (append (require-parts (car args)) (list (cons '#:except (cdr args))))]
-         [else (spec-error expr "this can't be used inside another require spec:")]))]
+          (append (require-parts (car args)) (list (cons '#:except (cdr args))))]))]
     [else (spec-error expr "bad require spec:")]))
 
 (define (require-spec expr)

@@ -27,7 +27,9 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rustc_hash::{FxHashMap, FxHashSet};
 // use smallvec::SmallVec;
-use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
+use steel_parser::{
+    ast::PROTO_HASH_GET, expr_list, parser::SourceId, scopes::ScopeSetId, span::Span,
+};
 
 use thin_vec::{thin_vec, ThinVec};
 
@@ -404,6 +406,9 @@ pub struct ModuleManager {
     rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
     // Phase 0 code that modules had kept when the last compile began
     rollback_deferred: crate::HashMap<PathBuf, DeferredCode>,
+    // A require a macro wrote is compiled partway through a program, which rolls back to where
+    // the program began
+    pub(crate) late_require: bool,
     // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 
@@ -429,6 +434,7 @@ impl ModuleManager {
             custom_builtins: HashMap::new(),
             rollback_metadata: crate::HashMap::new(),
             rollback_deferred: crate::HashMap::new(),
+            late_require: false,
             module_resolvers: Vec::new(),
             prelude_string: Cow::Borrowed(PRELUDE_STRING),
             origins: ModuleOrigins::default(),
@@ -531,8 +537,10 @@ impl ModuleManager {
         // Wipe the visited set on entry
         self.visited.clear();
 
-        self.rollback_metadata = self.file_metadata.clone();
-        self.rollback_deferred = self.compiled_modules.deferred.clone();
+        if !self.late_require {
+            self.rollback_metadata = self.file_metadata.clone();
+            self.rollback_deferred = self.compiled_modules.deferred.clone();
+        }
 
         // TODO
         // This is also explicitly wrong -> we should separate the global macro map from the macros found locally in this module
@@ -1497,6 +1505,8 @@ fn reexport_requires(
         .collect()
 }
 
+pub(crate) const BAD_REQUIRE_SPEC: &str = "require expects a module path, or a require spec such as only-in, prefix-in, rename-in, except-in or for-syntax";
+
 // A module path, or a spec the require parser knows
 pub(crate) fn is_require_spec(spec: &ExprKind) -> bool {
     match spec {
@@ -1528,6 +1538,120 @@ fn load_phase1(
         Vec::new(),
     )?;
     Ok(forms)
+}
+
+// What the module's expansion keeps for each of its forms
+#[derive(Clone, Default)]
+struct FormInfo {
+    // Expanded fully, in the second pass
+    expanded: bool,
+    // The module wrote it, rather than a macro
+    written: bool,
+    // The procedural macros it defines as written
+    procedural: FxHashSet<InternedString>,
+    span: Span,
+}
+
+impl FormInfo {
+    // A form a macro made, reported where the form it came from is
+    fn made(span: Span) -> Self {
+        FormInfo {
+            span,
+            ..Default::default()
+        }
+    }
+}
+
+// The scopes of the template that wrote a require spec's module path, if one did
+pub(crate) fn template_path(spec: &ExprKind) -> Option<ScopeSetId> {
+    match spec {
+        ExprKind::Atom(a) if matches!(a.syn.ty, TokenType::StringLiteral(_)) => a
+            .syn
+            .scopes
+            .introduced()
+            .then(|| a.syn.scopes.introductions()),
+        ExprKind::List(l) => l.args.iter().find_map(template_path),
+        _ => None,
+    }
+}
+
+// The prefix for the names a require a template wrote imports
+pub(crate) fn template_prefix() -> String {
+    static COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+    let n = COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    format!("#%template{n}:")
+}
+
+// Gives the template's identifiers the names its require imported them with
+pub(crate) fn rename_template_imports(
+    forms: &mut [ExprKind],
+    prefix: &str,
+    scopes: &ScopeSetId,
+    imported: &FxHashSet<InternedString>,
+) {
+    let mut renamer = TemplateImports {
+        prefix,
+        scopes,
+        imported,
+    };
+    forms.iter_mut().for_each(|x| renamer.visit(x));
+}
+
+struct TemplateImports<'a> {
+    prefix: &'a str,
+    scopes: &'a ScopeSetId,
+    imported: &'a FxHashSet<InternedString>,
+}
+
+impl VisitorMutRefUnit for TemplateImports<'_> {
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if !self.scopes.is_subset(&a.syn.scopes) {
+            return;
+        }
+        if let Some(name) = a.syn.ty.identifier_mut() {
+            let prefixed: InternedString = format!("{}{}", self.prefix, name.resolve()).into();
+            if self.imported.contains(&prefixed) {
+                *name = prefixed;
+            }
+        }
+    }
+
+    fn visit_quote(&mut self, _q: &mut Quote) {}
+}
+
+// A require in begin-for-syntax is a require for syntax, as in Racket
+fn lift_phase1_requires(forms: &mut Vec<ExprKind>) {
+    let mut lifted = Vec::with_capacity(forms.len());
+    for mut form in core::mem::take(forms) {
+        if let ExprKind::List(l) = &mut form {
+            if l.first_ident() == Some(&*crate::compiler::program::BEGIN_FOR_SYNTAX) {
+                let mut rest = ThinVec::new();
+                for mut x in l.args.drain(1..) {
+                    if !as_require(&mut x) {
+                        rest.push(x);
+                        continue;
+                    }
+                    let ExprKind::Require(mut require) = x else {
+                        unreachable!()
+                    };
+                    for spec in require.modules.iter_mut() {
+                        let inner = core::mem::replace(spec, ExprKind::empty());
+                        *spec = ExprKind::List(List::new(thin_vec![
+                            ExprKind::atom(*FOR_SYNTAX),
+                            inner
+                        ]));
+                    }
+                    lifted.push(ExprKind::Require(require));
+                }
+                if rest.is_empty() {
+                    continue;
+                }
+                l.args.extend(rest);
+            }
+        }
+        lifted.push(form);
+    }
+    *forms = lifted;
 }
 
 // Whether the form is a require, or a begin with one in it, as written or as a macro wrote it
@@ -1617,6 +1741,22 @@ pub static MANGLER_PREFIX: &str = "##mm";
 pub static MODULE_PREFIX: &str = "__module-";
 pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
 // The names a require brings in, each with its name in the module it comes from
+// The names a require imports as variables
+fn imported_variables(
+    kernel: Option<&Kernel>,
+    require_object: &RequireObject,
+    module: &CompiledModule,
+) -> Vec<InternedString> {
+    let macros = provided_kernel_macros(kernel, module, require_object);
+    imported_names(require_object, module)
+        .into_iter()
+        .filter(|(local, original)| {
+            !module.macro_map.contains_key(original) && !macros.contains_key(local)
+        })
+        .map(|(local, _)| local)
+        .collect()
+}
+
 fn imported_names(
     require_object: &RequireObject,
     module: &CompiledModule,
@@ -2975,11 +3115,11 @@ fn expand_head(
                     return Ok(());
                 };
 
-                // A head written by a template means what it means where the template is. The
-                // full expansion works that out
+                // A head a required module's template wrote means what it means in that module.
+                // The full expansion works that out
                 if l.first()
                     .and_then(ExprKind::atom_syntax_object)
-                    .is_some_and(|x| x.scopes.introduced())
+                    .is_some_and(|x| crate::parser::expand_visitor::is_foreign(&x.scopes))
                 {
                     return Ok(());
                 }
@@ -3608,34 +3748,11 @@ impl<'a> ModuleBuilder<'a> {
 
         // debug!(target: "requires", "Visiting: {:?}", self.name);
 
-        // @Matt - 10/3/23
-        // This has a relatively fatal flaw at the moment:
-        /*
-
-            (define-syntax register-plugin
-              (syntax-rules ()
-                [(register-plugin plugin-path identifiers ...)
-                 (begin
-                   (require plugin-path
-                            (only-in identifiers ...))
-                   (provide identifiers ...))]))
-        */
-        // This will fail to compile - anything that expands into a require will fail since
-        // require is more or less a top level primitive. What we need to do is figure
-        // out a way to have this be recursive - the whole compilation step should
-        // go again once we discover that there is another require. It shouldn't be too bad,
-        // but the base case has to be figured out such that we don't get infinite recursion.
-        // I think the condition is probably something along the following:
-        //
-        // - Did we expand anything
-        // - Are there require statements
-        //
-        // If we expanded anything, we then should check for require statements... maybe
-
         let mut new_exprs = Vec::new();
 
         // self.source_ast.pretty_print();
 
+        lift_phase1_requires(&mut self.source_ast);
         self.collect_requires()?;
 
         self.collect_provides()?;
@@ -3817,6 +3934,117 @@ impl<'a> ModuleBuilder<'a> {
 
     // Compiles the modules of the requires from `start` on, and gives the code to run before
     // this module's
+    // What the module's transformer code gets from the requires at phase 1: what modules
+    // provide for syntax, and a phase 1 instance of each module required for syntax, whose
+    // macros it can use. One instance of a module is shared, wherever it's required for syntax.
+    fn phase1_requires(
+        &mut self,
+        requires: &[RequireObject],
+        instantiated: &mut FxHashMap<PathBuf, String>,
+    ) -> Result<Option<(Vec<Phase1Import>, Vec<ExprKind>, Vec<String>)>> {
+        let Some(kernel) = self.kernel.as_mut() else {
+            return Ok(None);
+        };
+        let mut imports: Vec<Phase1Import> = requires
+            .iter()
+            .filter(|x| !x.for_syntax)
+            .filter_map(|require_object| {
+                let module = self
+                    .compiled_modules
+                    .compiled_modules
+                    .get(require_object.path.get_path().as_ref())?;
+                Some(provided_phase1_bindings(
+                    Some(&*kernel),
+                    module,
+                    require_object,
+                ))
+            })
+            .flatten()
+            .collect();
+        let mut for_syntax = Vec::new();
+        let mut prefixes = Vec::new();
+        let mut phase1_macros = FxHashMap::default();
+        let mut phase1_procedural = FxHashMap::default();
+
+        for require_object in requires.iter().filter(|x| x.for_syntax) {
+            // The required module's macros, for this module's transformer code
+            let path = require_object.path.get_path().into_owned();
+            let mut unused = Vec::new();
+            let (module, macros, _) = ModuleManager::find_in_scope_macros(
+                &mut self.compiled_modules,
+                Some(&mut *kernel),
+                &path,
+                require_object,
+                &mut unused,
+            );
+            phase1_procedural.extend(procedural_for_syntax(kernel, module, require_object));
+            let instance = instantiate_for_syntax(
+                kernel,
+                &self.compiled_modules.compiled_modules,
+                self.global_macro_map,
+                &self.builtin_modules,
+                require_object,
+                false,
+                &macros,
+                instantiated,
+            )?;
+            imports.extend(instance.imports);
+            for_syntax.extend(instance.code);
+            prefixes.extend(instance.prefixes);
+            phase1_macros.extend(macros);
+        }
+
+        kernel.add_phase1_macros(
+            self.name.to_str().unwrap(),
+            phase1_macros,
+            phase1_procedural,
+            Vec::new(),
+        );
+        Ok(Some((imports, for_syntax, prefixes)))
+    }
+
+    // Records the names the requires bring in. Like in Racket, a name can't come from two
+    // modules that mean different things by it, unless the module defines it itself.
+    fn record_imports(
+        &self,
+        requires: &[RequireObject],
+        imported: &mut FxHashMap<InternedString, (InternedString, InternedString)>,
+        own: &FxHashSet<InternedString>,
+    ) -> Result<()> {
+        let mut imports = FxHashMap::default();
+        for require_object in requires.iter().filter(|x| !x.for_syntax) {
+            let path = require_object.path.get_path();
+            let Some(module) = self.compiled_modules.compiled_modules.get(path.as_ref()) else {
+                continue;
+            };
+            let from: InternedString = module.name.to_string_lossy().as_ref().into();
+            for (local, original) in imported_names(require_object, module) {
+                let binding = (from, original);
+                if let Some(&existing) = imported.get(&local) {
+                    let defined = |(module, name)| {
+                        crate::parser::expand_visitor::defining_binding(module, name)
+                    };
+                    let different = defined(existing)
+                        .zip(defined(binding))
+                        .is_some_and(|(a, b)| a != b);
+                    if different && !own.contains(&local) {
+                        stop!(BadSyntax => format!("identifier imported twice with different bindings: {local}"); require_object.span);
+                    }
+                }
+                imported.insert(local, binding);
+                imports.insert(local, binding);
+            }
+        }
+        crate::parser::expand_visitor::record_module_bindings(
+            self.name.to_string_lossy().as_ref().into(),
+            crate::parser::expand_visitor::ModuleBindings {
+                own: FxHashSet::default(),
+                imports,
+            },
+        );
+        Ok(())
+    }
+
     fn load_requires(&mut self, start: usize) -> Result<Vec<ExprKind>> {
         let mut new_exprs = Vec::new();
 
@@ -4269,68 +4497,11 @@ impl<'a> ModuleBuilder<'a> {
         let mut instantiated = FxHashMap::default();
 
         // Attempt extracting the syntax transformers from this module
-        if let Some(kernel) = self.kernel.as_mut() {
-            let mut imports: Vec<Phase1Import> = self
-                .require_objects
-                .iter()
-                .filter(|x| !x.for_syntax)
-                .filter_map(|require_object| {
-                    let module = self
-                        .compiled_modules
-                        .compiled_modules
-                        .get(require_object.path.get_path().as_ref())?;
-
-                    Some(provided_phase1_bindings(
-                        Some(&*kernel),
-                        module,
-                        require_object,
-                    ))
-                })
-                .flatten()
-                .collect();
-
-            let mut for_syntax = Vec::new();
-            let mut for_syntax_prefixes = Vec::new();
-            let mut phase1_macros = FxHashMap::default();
-            let mut phase1_procedural = FxHashMap::default();
-
-            for require_object in self.require_objects.iter().filter(|x| x.for_syntax) {
-                // The required module's macros, for this module's transformer code
-                let path = require_object.path.get_path().into_owned();
-                let mut unused = Vec::new();
-                let (module, macros, _) = ModuleManager::find_in_scope_macros(
-                    &mut self.compiled_modules,
-                    Some(&mut *kernel),
-                    &path,
-                    require_object,
-                    &mut unused,
-                );
-
-                phase1_procedural.extend(procedural_for_syntax(kernel, module, require_object));
-
-                let instance = instantiate_for_syntax(
-                    kernel,
-                    &self.compiled_modules.compiled_modules,
-                    self.global_macro_map,
-                    &self.builtin_modules,
-                    require_object,
-                    false,
-                    &macros,
-                    &mut instantiated,
-                )?;
-
-                imports.extend(instance.imports);
-                for_syntax.extend(instance.code);
-                for_syntax_prefixes.extend(instance.prefixes);
-                phase1_macros.extend(macros);
-            }
-
-            kernel.add_phase1_macros(
-                self.name.to_str().unwrap(),
-                phase1_macros,
-                phase1_procedural,
-                Vec::new(),
-            );
+        let written_requires = self.require_objects.clone();
+        if let Some((imports, for_syntax, for_syntax_prefixes)) =
+            self.phase1_requires(&written_requires, &mut instantiated)?
+        {
+            let kernel = self.kernel.as_mut().unwrap();
 
             // Templates in phase 1 code refer to this module's definitions
             {
@@ -4351,7 +4522,7 @@ impl<'a> ModuleBuilder<'a> {
             }
 
             // Like in a Racket module, its own phase 1 code is loaded as expansion reaches it
-            kernel.declare_phase1_names(self.name.to_str().unwrap(), &ast);
+            kernel.declare_phase1_names(self.name.to_str().unwrap(), &ast)?;
             kernel.load_syntax_transformers(
                 &mut Vec::new(),
                 self.name.to_str().unwrap().to_string(),
@@ -4361,32 +4532,24 @@ impl<'a> ModuleBuilder<'a> {
             )?
         };
 
-        let loaded_syntax_transformers = ast.iter().any(|x| {
-            crate::parser::kernel::is_phase1_form(x) || crate::parser::kernel::has_phase1(x)
-        });
+        let loaded_syntax_transformers =
+            ast.iter().any(|x| crate::parser::kernel::is_phase1_form(x));
 
         let globals = collect_globals(&ast);
 
         // What its names refer to, for macros' literals and free-identifier=?
-        let module_name: InternedString = self.name.to_string_lossy().as_ref().into();
-        let mut imports = FxHashMap::default();
-        for require_object in self.require_objects.iter().filter(|x| !x.for_syntax) {
-            let path = require_object.path.get_path();
-            if let Some(module) = self.compiled_modules.compiled_modules.get(path.as_ref()) {
-                let from: InternedString = module.name.to_string_lossy().as_ref().into();
-                for (local, original) in imported_names(require_object, module) {
-                    imports.insert(local, (from, original));
-                }
-            }
-        }
+        let module_key: InternedString = self.name.to_string_lossy().as_ref().into();
+        crate::parser::expand_visitor::forget_module_bindings(module_key);
         crate::parser::expand_visitor::record_module_bindings(
-            module_name,
+            module_key,
             crate::parser::expand_visitor::ModuleBindings {
                 own: globals.iter().chain(own_names.iter()).copied().collect(),
-                imports,
+                imports: FxHashMap::default(),
             },
         );
-        let _current = crate::parser::expand_visitor::CurrentModule::set(module_name);
+        let mut imported = FxHashMap::default();
+        self.record_imports(&written_requires, &mut imported, &own_names)?;
+        let _current = crate::parser::expand_visitor::CurrentModule::set(module_key);
 
         let globals = GlobalMap::Set(&globals);
 
@@ -4418,7 +4581,7 @@ impl<'a> ModuleBuilder<'a> {
         // And it also seems like it needs to happen at the same time. So the lookups
         // should happen together.
 
-        if self.require_objects.is_empty() {
+        if self.require_objects.is_empty() && !ast.iter().any(has_require) {
             for expr in ast.iter_mut() {
                 // Expand both kinds of macros, each where it's used
                 crate::parser::expand_visitor::expand_with_kernel(
@@ -4440,7 +4603,6 @@ impl<'a> ModuleBuilder<'a> {
 
         let mut required_macros = Vec::new();
 
-        let written_requires = self.require_objects.clone();
         self.require_macros(
             &written_requires,
             &own_names,
@@ -4465,8 +4627,8 @@ impl<'a> ModuleBuilder<'a> {
             &ast,
         );
 
-        let module_name = self.name.to_str().unwrap().to_owned();
-        let module_name = module_name.as_str();
+        let name = self.name.to_str().unwrap().to_owned();
+        let module_name = name.as_str();
         let mut generated = Vec::new();
 
         // Like in a Racket module, every form's head is expanded first, in order, and forms
@@ -4474,40 +4636,40 @@ impl<'a> ModuleBuilder<'a> {
         // in the whole module. Then the rest are expanded, staying in place. Finally the forms
         // before the last one that defined a macro are expanded again, in case a macro was
         // defined deeper inside a form. A begin's forms are module forms, so its definitions
-        // and expressions are expanded along with the module's
-        // A begin with phase 1 code stays whole until it's loaded, since the variables its
-        // template defines are renamed across all of it
+        // and expressions are expanded along with the module's.
+        //
+        // A begin with phase 1 code stays whole until it's loaded, since its template's
+        // variables are renamed across all of it, unless it has a require to handle first
         let mut ast = ast
             .into_iter()
             .flat_map(|form| {
-                if crate::parser::kernel::has_phase1(&form) {
+                if crate::parser::kernel::has_phase1(&form) && !has_require(&form) {
                     vec![form]
                 } else {
                     splice_begins(vec![form])
                 }
             })
             .collect::<Vec<_>>();
-        let mut expanded = vec![false; ast.len()];
-        // Which forms the module wrote, rather than a macro
-        let mut written_forms = vec![true; ast.len()];
-
-        // The procedural macros each form defines as written, and the form spans
-        let mut written_procedural: Vec<FxHashSet<InternedString>> = ast
+        let mut info: Vec<FormInfo> = ast
             .iter()
             .map(|form| {
-                let mut names = FxHashSet::default();
-                crate::parser::expand_visitor::defined_procedural_macro_names(form, &mut names);
-                names
+                let mut procedural = FxHashSet::default();
+                crate::parser::expand_visitor::defined_procedural_macro_names(
+                    form,
+                    &mut procedural,
+                );
+                FormInfo {
+                    expanded: false,
+                    written: true,
+                    procedural,
+                    span: crate::parser::span_visitor::get_span(form),
+                }
             })
-            .collect();
-        let mut written_spans: Vec<Span> = ast
-            .iter()
-            .map(crate::parser::span_visitor::get_span)
             .collect();
 
         // A written procedural macro can only be defined once, including inside a begin
         let mut written_once = FxHashSet::default();
-        for (form, names) in ast.iter().zip(written_procedural.iter()) {
+        for (form, names) in ast.iter().zip(info.iter().map(|x| &x.procedural)) {
             for name in names {
                 if !written_once.insert(*name) {
                     let mut spans = FxHashMap::default();
@@ -4522,10 +4684,22 @@ impl<'a> ModuleBuilder<'a> {
         }
         let mut last_defining = None;
 
-        // Like in Racket, a require is handled when expansion reaches it, so one a macro wrote is
-        // too. Expansion stops there while its modules are compiled, then carries on with their
-        // macros, from the same place.
+        // Like in Racket, a require is handled where expansion reaches it, including one a macro
+        // wrote. Expansion stops while its modules compile, then carries on from there with
+        // their macros.
         let home = cogs_home();
+        let mut variables: Vec<InternedString> = written_requires
+            .iter()
+            .filter(|x| !x.for_syntax)
+            .filter_map(|x| {
+                let module = self
+                    .compiled_modules
+                    .compiled_modules
+                    .get(x.path.get_path().as_ref())?;
+                Some(imported_variables(self.kernel.as_ref(), x, module))
+            })
+            .flatten()
+            .collect();
         let mut phase1_queue = Vec::new();
         let mut state = None;
         let mut pass = 0;
@@ -4550,6 +4724,7 @@ impl<'a> ModuleBuilder<'a> {
                     )
                     .with_state(state.take());
             many_expander.define_top_level_procedural = true;
+            many_expander.import_variables(core::mem::take(&mut variables));
 
             let mut found = None;
             while pass < 3 {
@@ -4563,15 +4738,11 @@ impl<'a> ModuleBuilder<'a> {
                     // a time
                     if !at_end
                         && pass == 0
-                        && written_forms[index]
-                        && (crate::parser::kernel::is_phase1_form(&ast[index])
-                            || crate::parser::kernel::has_phase1(&ast[index]))
+                        && info[index].written
+                        && crate::parser::kernel::is_phase1_form(&ast[index])
                     {
                         phase1_queue.push(ast.remove(index));
-                        expanded.remove(index);
-                        written_forms.remove(index);
-                        written_procedural.remove(index);
-                        written_spans.remove(index);
+                        info.remove(index);
                         next = index;
                         continue;
                     }
@@ -4580,17 +4751,13 @@ impl<'a> ModuleBuilder<'a> {
                         let rest = load_phase1(&mut many_expander, &mut phase1_queue, module_name)?;
                         if !rest.is_empty() {
                             let count = rest.len();
-                            let span = written_spans
+                            let span = info
                                 .get(index)
-                                .or(written_spans.last())
-                                .copied()
+                                .or(info.last())
+                                .map(|x| x.span)
                                 .unwrap_or_default();
                             ast.splice(index..index, rest);
-                            expanded.splice(index..index, vec![false; count]);
-                            written_forms.splice(index..index, vec![false; count]);
-                            written_procedural
-                                .splice(index..index, vec![FxHashSet::default(); count]);
-                            written_spans.splice(index..index, vec![span; count]);
+                            info.splice(index..index, vec![FormInfo::made(span); count]);
                             next = index;
                             continue;
                         }
@@ -4614,13 +4781,9 @@ impl<'a> ModuleBuilder<'a> {
                             if let Some(forms) = begin_forms(&mut ast[index]) {
                                 check_begin_definitions(&forms)?;
                                 let count = forms.len();
-                                let span = written_spans[index];
+                                let span = info[index].span;
                                 ast.splice(index..=index, forms);
-                                expanded.splice(index..=index, vec![false; count]);
-                                written_forms.splice(index..=index, vec![false; count]);
-                                written_procedural
-                                    .splice(index..=index, vec![FxHashSet::default(); count]);
-                                written_spans.splice(index..=index, vec![span; count]);
+                                info.splice(index..=index, vec![FormInfo::made(span); count]);
                                 next = index;
                                 continue;
                             }
@@ -4632,7 +4795,7 @@ impl<'a> ModuleBuilder<'a> {
 
                             !defines_macros(&ast[index])
                         }
-                        1 => expanded[index],
+                        1 => info[index].expanded,
                         // Every form before the last one that defined a macro, in either pass
                         _ => last_defining.map_or(true, |last| index >= last),
                     };
@@ -4641,7 +4804,7 @@ impl<'a> ModuleBuilder<'a> {
                         continue;
                     }
 
-                    expanded[index] = true;
+                    info[index].expanded = true;
                     let expr = &mut ast[index];
                     let span = crate::parser::span_visitor::get_span(expr);
 
@@ -4693,7 +4856,7 @@ impl<'a> ModuleBuilder<'a> {
                         // A definition stays in the form until the kernel's last pass, so later
                         // rounds see it again. One the form wrote itself is a written macro.
                         procedural.retain(|x| {
-                            !form_defined.contains(x) && !written_procedural[index].contains(x)
+                            !form_defined.contains(x) && !info[index].procedural.contains(x)
                         });
 
                         // A name the form defines twice, as either kind of macro
@@ -4721,10 +4884,10 @@ impl<'a> ModuleBuilder<'a> {
                         // Like a written macro, a macro defined by the module's macros can only be
                         // defined once. The error points at the second definition.
                         for name in defined.iter().chain(repeated.iter()) {
-                            let written = written_procedural
+                            let written = info
                                 .iter()
-                                .position(|x| x.contains(name))
-                                .map(|i| written_spans[i])
+                                .find(|x| x.procedural.contains(name))
+                                .map(|x| x.span)
                                 .or_else(|| written_rule_spans.get(name).copied());
 
                             if written.is_some()
@@ -4735,17 +4898,15 @@ impl<'a> ModuleBuilder<'a> {
                                 // Point at where the form is written, since its expansion has the
                                 // template's spans
                                 let at = written
-                                    .filter(|written| {
-                                        written.start() > written_spans[index].start()
-                                    })
+                                    .filter(|written| written.start() > info[index].span.start())
                                     .or_else(|| name_spans.get(name).copied())
                                     .unwrap_or(span);
                                 stop!(BadSyntax => format!("Macro re defined within the top level definition: {name}"); at);
                             }
                         }
 
-                        // Like a written macro, a macro the module defines hides an imported one with
-                        // the same name
+                        // Like a written macro, a macro the module defines hides an imported one
+                        // with the same name
                         for overlay in many_expander.overlays.iter_mut() {
                             for name in &defined {
                                 overlay.map.in_scope_macros.remove(name);
@@ -4759,6 +4920,27 @@ impl<'a> ModuleBuilder<'a> {
                             break;
                         }
                     }
+
+                    // A require the expansion made is handled where it is, so the forms after it
+                    // see what it brings in
+                    if has_require(&ast[index]) {
+                        if let Some(forms) = begin_forms(&mut ast[index]) {
+                            check_begin_definitions(&forms)?;
+                            let count = forms.len();
+                            let before = forms.iter().take_while(|x| !has_require(x)).count();
+                            let span = info[index].span;
+                            ast.splice(index..=index, forms);
+                            let made = (0..count).map(|i| FormInfo {
+                                expanded: i < before,
+                                ..FormInfo::made(span)
+                            });
+                            info.splice(index..=index, made);
+                            if let Some(last) = last_defining.as_mut().filter(|x| **x >= index) {
+                                *last += count - 1;
+                            }
+                        }
+                        next = index;
+                    }
                 }
 
                 if found.is_some() {
@@ -4768,8 +4950,9 @@ impl<'a> ModuleBuilder<'a> {
             }
 
             let Some(index) = found else {
-                // Like in Racket, provide specs are expanded after the module's forms, so they can use
-                // the macros those forms define, and all-defined-out sees what the forms defined
+                // Like in Racket, provide specs are expanded after the module's forms, so they can
+                // use the macros those forms define, and all-defined-out sees what the forms
+                // defined
                 let defined: Vec<InternedString> = collect_globals(
                     &ast.iter()
                         .filter(|x| !is_builtin_import(x))
@@ -4779,7 +4962,7 @@ impl<'a> ModuleBuilder<'a> {
                 .into_iter()
                 .chain(generated.iter().copied())
                 .chain(self.local_macros.iter().copied())
-                .chain(written_procedural.iter().flatten().copied())
+                .chain(info.iter().flat_map(|x| x.procedural.iter().copied()))
                 .collect();
                 crate::parser::expand_visitor::record_module_bindings(
                     module_name.into(),
@@ -4799,95 +4982,62 @@ impl<'a> ModuleBuilder<'a> {
             let ExprKind::Require(mut require) = ast.remove(index) else {
                 unreachable!()
             };
-            expanded.remove(index);
-            written_forms.remove(index);
-            written_procedural.remove(index);
-            written_spans.remove(index);
+            info.remove(index);
+            if let Some(last) = last_defining.as_mut().filter(|x| **x > index) {
+                *last -= 1;
+            }
+            let template_paths: Vec<_> = require.modules.iter().map(template_path).collect();
             for spec in require.modules.iter_mut() {
                 many_expander.expand(spec)?;
             }
             state = Some(many_expander.into_state());
             resume = index;
+            // The forms after it are expanded with what it brings in
+            pass = pass.min(1);
 
+            // Like in Racket, a module path a template wrote binds its names for that template's
+            // code. They're imported with a prefix of their own, which the template's identifiers
+            // get.
             let start = self.require_objects.len();
-            for spec in &require.modules {
-                let require_object = self.parse_require_object(&home, &require, spec)?;
+            let mut hygienic = Vec::new();
+            for (spec, template) in require.modules.iter().zip(template_paths) {
+                let mut require_object = self.parse_require_object(&home, &require, spec)?;
+                if let Some(scopes) = template.filter(|_| !require_object.for_syntax) {
+                    let prefix = template_prefix();
+                    let inner = require_object.prefix.take().unwrap_or_default();
+                    require_object.prefix = Some(prefix.clone() + &inner);
+                    hygienic.push((prefix, scopes));
+                }
                 self.require_objects.push(require_object);
             }
             let mut code = self.load_requires(start)?;
             self.late_exprs.append(&mut code);
             self.resolve_except_in()?;
             let added = self.require_objects[start..].to_vec();
-
-            let mut imports = FxHashMap::default();
-            for require_object in &added {
-                let path = require_object.path.get_path();
-                if let Some(module) = self.compiled_modules.compiled_modules.get(path.as_ref()) {
-                    let from: InternedString = module.name.to_string_lossy().as_ref().into();
-                    for (local, original) in imported_names(require_object, module) {
-                        imports.insert(local, (from, original));
-                    }
+            for require_object in added.iter().filter(|x| !x.for_syntax) {
+                if let Some(module) = self
+                    .compiled_modules
+                    .compiled_modules
+                    .get(require_object.path.get_path().as_ref())
+                {
+                    variables.extend(imported_variables(
+                        self.kernel.as_ref(),
+                        require_object,
+                        module,
+                    ));
                 }
             }
-            crate::parser::expand_visitor::record_module_bindings(
-                module_name.into(),
-                crate::parser::expand_visitor::ModuleBindings {
-                    own: FxHashSet::default(),
-                    imports,
-                },
-            );
 
-            // Transformer code after the require sees what it brings in at phase 1: what a
-            // module provides for syntax, and a phase 1 instance of a module required for syntax
-            if let Some(kernel) = self.kernel.as_mut() {
-                let mut imports: Vec<Phase1Import> = added
-                    .iter()
-                    .filter(|x| !x.for_syntax)
-                    .filter_map(|require_object| {
-                        let module = self
-                            .compiled_modules
-                            .compiled_modules
-                            .get(require_object.path.get_path().as_ref())?;
-                        Some(provided_phase1_bindings(
-                            Some(&*kernel),
-                            module,
-                            require_object,
-                        ))
-                    })
-                    .flatten()
-                    .collect();
-                let mut for_syntax = Vec::new();
-                let mut for_syntax_prefixes = Vec::new();
+            let defined: FxHashSet<InternedString> =
+                own_names.iter().chain(generated.iter()).copied().collect();
+            self.record_imports(&added, &mut imported, &defined)?;
 
-                for require_object in added.iter().filter(|x| x.for_syntax) {
-                    let path = require_object.path.get_path().into_owned();
-                    let mut unused = Vec::new();
-                    let (module, macros, _) = ModuleManager::find_in_scope_macros(
-                        &mut self.compiled_modules,
-                        Some(&mut *kernel),
-                        &path,
-                        require_object,
-                        &mut unused,
-                    );
-                    let procedural = procedural_for_syntax(kernel, module, require_object);
-                    let instance = instantiate_for_syntax(
-                        kernel,
-                        &self.compiled_modules.compiled_modules,
-                        self.global_macro_map,
-                        &self.builtin_modules,
-                        require_object,
-                        false,
-                        &macros,
-                        &mut instantiated,
-                    )?;
-                    imports.extend(instance.imports);
-                    for_syntax.extend(instance.code);
-                    for_syntax_prefixes.extend(instance.prefixes);
-                    kernel.add_phase1_macros(module_name, macros, procedural, Vec::new());
-                }
-
+            // Transformer code after the require sees what it brings in at phase 1
+            if let Some((imports, for_syntax, for_syntax_prefixes)) =
+                self.phase1_requires(&added, &mut instantiated)?
+            {
                 if !imports.is_empty() || !for_syntax.is_empty() {
-                    kernel.load_syntax_transformers(
+                    self.kernel.as_mut().unwrap().load_syntax_transformers(
                         &mut Vec::new(),
                         module_name.to_owned(),
                         &imports,
@@ -4914,15 +5064,42 @@ impl<'a> ModuleBuilder<'a> {
                     .iter()
                     .flat_map(|x| x.provided_kernel_macros.keys().copied()),
             );
+
+            if !hygienic.is_empty() {
+                let mut imported: FxHashSet<InternedString> = required_macros[before..]
+                    .iter()
+                    .flat_map(|x| {
+                        x.in_scope_macros
+                            .keys()
+                            .chain(x.provided_kernel_macros.keys())
+                            .copied()
+                    })
+                    .collect();
+                for require_object in added.iter().filter(|x| !x.for_syntax) {
+                    if let Some(module) = self
+                        .compiled_modules
+                        .compiled_modules
+                        .get(require_object.path.get_path().as_ref())
+                    {
+                        imported.extend(
+                            imported_names(require_object, module)
+                                .into_iter()
+                                .map(|(local, _)| local),
+                        );
+                    }
+                }
+                for (prefix, scopes) in &hygienic {
+                    rename_template_imports(&mut ast, prefix, scopes, &imported);
+                }
+            }
         }
 
         self.local_macros.extend(generated);
 
         // Like in Racket, a name can only be defined once, as either a value or a macro
         let mut macros: FxHashSet<InternedString> = self.local_macros.iter().copied().collect();
-        written_procedural
-            .iter()
-            .for_each(|x| macros.extend(x.iter().copied()));
+        info.iter()
+            .for_each(|x| macros.extend(x.procedural.iter().copied()));
         for form in ast.iter().filter(|x| !is_builtin_import(x)) {
             if let Some(name) = collect_globals(core::slice::from_ref(form))
                 .into_iter()
@@ -5559,8 +5736,8 @@ impl<'a> ModuleBuilder<'a> {
             // (with-prefix <xyz>)
             ExprKind::List(l) => {
                 match l.first_ident() {
-                    // What the require spec forms in kernel.scm expand to: the module, then what
-                    // each form around it does to what's imported, from the inside out
+                    // What kernel.scm's require specs expand to: the module, then what each spec
+                    // around it does to the names, innermost first
                     Some(x) if x.resolve() == "#%require-spec" => {
                         let Some(path) = l.args.get(1) else {
                             stop!(BadSyntax => "#%require-spec expects a module"; l.location);
@@ -5573,32 +5750,41 @@ impl<'a> ModuleBuilder<'a> {
                             };
                             let names = &op.args[1..];
                             let kind = op.args[0].atom_syntax_object().map(|x| x.ty.to_string());
-                            match kind.as_deref().map(|x| x.trim_start_matches("#:")) {
-                                Some("only") => {
+                            match kind.as_deref() {
+                                Some("#:only") => {
                                     for name in names {
                                         let import = match name {
-                                            ExprKind::List(pair) if pair.len() == 2 => {
+                                            ExprKind::List(pair)
+                                                if pair.len() == 2
+                                                    && pair.args[0].atom_identifier().is_some()
+                                                    && pair.args[1].atom_identifier().is_some() =>
+                                            {
                                                 MaybeRenamed::Renamed(
                                                     pair.args[0].clone(),
                                                     pair.args[1].clone(),
                                                 )
                                             }
-                                            _ => MaybeRenamed::Normal(name.clone()),
+                                            _ if name.atom_identifier().is_some() => {
+                                                MaybeRenamed::Normal(name.clone())
+                                            }
+                                            _ => {
+                                                stop!(BadSyntax => "only-in expects identifiers, or pairs of identifiers to rename"; name.span());
+                                            }
                                         };
                                         require_object.idents_to_import.push(import);
                                     }
                                 }
-                                Some("prefix") => {
+                                Some("#:prefix") => {
                                     let Some(prefix) =
                                         names.first().and_then(ExprKind::atom_identifier)
                                     else {
-                                        stop!(BadSyntax => "#:prefix expects an identifier"; op.location);
+                                        stop!(BadSyntax => "prefix-in expects a prefix and a require spec"; op.location);
                                     };
                                     let inner = require_object.prefix.take().unwrap_or_default();
                                     require_object.prefix =
                                         Some(prefix.resolve().to_string() + &inner);
                                 }
-                                Some("rename") => {
+                                Some("#:rename") => {
                                     for pair in names {
                                         let renamed =
                                             pair.list().filter(|x| x.len() == 2).and_then(|x| {
@@ -5608,15 +5794,15 @@ impl<'a> ModuleBuilder<'a> {
                                                 ))
                                             });
                                         let Some(renamed) = renamed else {
-                                            stop!(BadSyntax => "#:rename expects pairs of names"; pair.span());
+                                            stop!(BadSyntax => "rename-in expects pairs of the name it provides and the name to bind"; pair.span());
                                         };
                                         require_object.renames.push(renamed);
                                     }
                                 }
-                                Some("except") => {
+                                Some("#:except") => {
                                     for name in names {
                                         let Some(name) = name.atom_identifier() else {
-                                            stop!(BadSyntax => "#:except expects identifiers"; name.span());
+                                            stop!(BadSyntax => "except-in expects identifiers to leave out"; name.span());
                                         };
                                         require_object.except.push(Excluded {
                                             name: *name,
@@ -5645,7 +5831,7 @@ impl<'a> ModuleBuilder<'a> {
                         require_object.for_syntax = true;
                     }
                     _ => {
-                        stop!(BadSyntax => "require expects a module path, or a require spec such as only-in, prefix-in, rename-in, except-in or for-syntax"; l.location)
+                        stop!(BadSyntax => BAD_REQUIRE_SPEC; l.location)
                     }
                 }
             }
@@ -5686,14 +5872,22 @@ impl<'a> ModuleBuilder<'a> {
 
         let home = cogs_home();
 
+        // A module's requires after its other forms are handled where they are, so its
+        // modules are instantiated in order. The program's are all collected.
+        let mut in_body = false;
+
         fn walk(
             module_builder: &mut ModuleBuilder,
             home: &Option<PathBuf>,
             exprs_without_requires: &mut Vec<ExprKind>,
             exprs: Vec<ExprKind>,
+            in_body: &mut bool,
         ) -> Result<()> {
             for expr in exprs {
                 match expr {
+                    ExprKind::Require(r) if *in_body => {
+                        exprs_without_requires.push(ExprKind::Require(r))
+                    }
                     // Include require/for-syntax here
                     // This way we have some understanding of what dependencies a file has
                     ExprKind::Require(r) => {
@@ -5714,17 +5908,35 @@ impl<'a> ModuleBuilder<'a> {
                             module_builder.require_objects.push(require_object);
                         }
                     }
-                    ExprKind::Begin(b) => {
-                        walk(module_builder, home, exprs_without_requires, b.exprs)?
+                    ExprKind::Begin(b) => walk(
+                        module_builder,
+                        home,
+                        exprs_without_requires,
+                        b.exprs,
+                        in_body,
+                    )?,
+                    _ => {
+                        let provide = expr
+                            .list()
+                            .is_some_and(|x| x.first_ident() == Some(&*PROVIDE));
+                        if !module_builder.main && !provide && !is_builtin_import(&expr) {
+                            *in_body = true;
+                        }
+                        exprs_without_requires.push(expr)
                     }
-                    _ => exprs_without_requires.push(expr),
                 }
             }
 
             Ok(())
         }
 
-        walk(self, &home, &mut exprs_without_requires, exprs)?;
+        walk(
+            self,
+            &home,
+            &mut exprs_without_requires,
+            exprs,
+            &mut in_body,
+        )?;
 
         self.source_ast = exprs_without_requires;
         Ok(())

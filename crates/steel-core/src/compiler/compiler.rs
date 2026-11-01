@@ -473,6 +473,9 @@ pub struct Compiler {
     // Prelude names given another value at the top level or by the host.
     // References to these stay as globals instead of `#%prim.` names.
     pub(crate) redefined_builtins: FxHashSet<InternedString>,
+
+    // The top level's variables, which hide the kernel's macros of the same names
+    top_level_variables: FxHashSet<InternedString>,
 }
 
 pub struct SerializableCompiler {
@@ -660,6 +663,7 @@ impl Compiler {
             sources,
             builtin_modules,
             redefined_builtins: FxHashSet::default(),
+            top_level_variables: FxHashSet::default(),
         }
     }
 
@@ -693,6 +697,7 @@ impl Compiler {
             sources,
             builtin_modules,
             redefined_builtins: FxHashSet::default(),
+            top_level_variables: FxHashSet::default(),
         }
     }
 
@@ -1002,10 +1007,10 @@ impl Compiler {
         expanded_statements: &mut Vec<ExprKind>,
         path: Option<PathBuf>,
     ) -> Result<()> {
-        // Its phase 1 code is loaded as expansion reaches it, a run at a time, with the names it
-        // defines known from the start
+        // Phase 1 code is loaded as expansion reaches it. Its names are declared first, so code
+        // loaded earlier can refer to later definitions
         if let Some(kernel) = self.kernel.as_mut() {
-            kernel.declare_phase1_names("top-level", expanded_statements);
+            kernel.declare_phase1_names("top-level", expanded_statements)?;
             kernel.load_syntax_transformers(
                 &mut Vec::new(),
                 "top-level".to_string(),
@@ -1019,10 +1024,16 @@ impl Compiler {
         let mut index = 0;
         'forms: while index <= expanded_statements.len() {
             let at_end = index == expanded_statements.len();
-            if !at_end
-                && (crate::parser::kernel::is_phase1_form(&expanded_statements[index])
-                    || crate::parser::kernel::has_phase1(&expanded_statements[index]))
-            {
+            // A begin's require is handled before the phase 1 code after it
+            if !at_end && crate::compiler::modules::has_require(&expanded_statements[index]) {
+                if let Some(forms) =
+                    crate::compiler::modules::begin_forms(&mut expanded_statements[index])
+                {
+                    expanded_statements.splice(index..=index, forms);
+                    continue;
+                }
+            }
+            if !at_end && crate::parser::kernel::is_phase1_form(&expanded_statements[index]) {
                 phase1_queue.push(expanded_statements.remove(index));
                 continue;
             }
@@ -1058,7 +1069,7 @@ impl Compiler {
                 // Both kinds of macros, each where it's used: the top level's and those its
                 // requires provide
                 let required = required_kernel_macros(&mut self.lifted_kernel_environments);
-                crate::parser::expand_visitor::expand_with_kernel(
+                crate::parser::expand_visitor::expand_top_level_form(
                     expr,
                     &self.macro_env,
                     GlobalMap::Map(self.symbol_map.map()),
@@ -1068,6 +1079,7 @@ impl Compiler {
                         "top-level",
                     )
                     .with_required(required),
+                    &self.top_level_variables,
                 )?;
 
                 let mut changed = false;
@@ -1079,48 +1091,8 @@ impl Compiler {
                 self.hide_required_kernel_macros(expr, &generated);
                 changed |= !generated.is_empty();
 
-                // Like at Racket's top level, a require a macro wrote is handled where it is:
-                // its modules are compiled and their names and macros added, as for the
-                // program's written requires
                 if crate::compiler::modules::has_require(expr) {
-                    let statements = match crate::compiler::modules::begin_forms(expr) {
-                        Some(forms) => forms,
-                        None => {
-                            crate::compiler::modules::as_require(expr);
-                            // Its specs can be the top level's macros
-                            if let ExprKind::Require(require) = expr {
-                                for spec in require.modules.iter_mut() {
-                                    crate::parser::expand_visitor::expand_with_kernel(
-                                        spec,
-                                        &self.macro_env,
-                                        GlobalMap::Map(self.symbol_map.map()),
-                                        crate::parser::expand_visitor::KernelExpander::in_environment(
-                                            self.kernel.as_mut(),
-                                            self.builtin_modules.clone(),
-                                            "top-level",
-                                        ),
-                                    )?;
-                                    if !crate::compiler::modules::is_require_spec(spec) {
-                                        stop!(BadSyntax => "require expects a module path, or a require spec such as only-in, prefix-in, rename-in, except-in or for-syntax"; crate::parser::span_visitor::get_span(spec));
-                                    }
-                                }
-                            }
-                            let require = core::mem::replace(expr, ExprKind::empty());
-                            let mut statements =
-                                self.expand_expressions(vec![require], path.clone())?;
-                            if let Some(kernel) = self.kernel.as_mut() {
-                                kernel.load_syntax_transformers(
-                                    &mut statements,
-                                    "top-level".to_string(),
-                                    &self.phase1_imports,
-                                    Vec::new(),
-                                    Vec::new(),
-                                )?;
-                            }
-                            statements
-                        }
-                    };
-                    expanded_statements.splice(index..=index, statements);
+                    self.top_level_require(expanded_statements, index, &path)?;
                     continue 'forms;
                 }
 
@@ -1155,9 +1127,125 @@ impl Compiler {
             if let Some(by_scopes) = by_scopes {
                 crate::compiler::passes::scopes_check::compare(expr, &by_scopes);
             }
+            // Its definitions hide the kernel's macros of the same names from here on
+            self.top_level_variables
+                .extend(crate::compiler::passes::mangle::collect_globals(
+                    core::slice::from_ref(expr),
+                ));
             index += 1;
         }
 
+        Ok(())
+    }
+
+    // Like at Racket's top level, a require a macro wrote is handled where it is: its modules are
+    // compiled and their names and macros added, as for the program's written requires. A begin's
+    // forms are spliced in first.
+    fn top_level_require(
+        &mut self,
+        statements: &mut Vec<ExprKind>,
+        index: usize,
+        path: &Option<PathBuf>,
+    ) -> Result<()> {
+        let mut form = core::mem::replace(&mut statements[index], ExprKind::empty());
+        if let Some(forms) = crate::compiler::modules::begin_forms(&mut form) {
+            statements.splice(index..=index, forms);
+            return Ok(());
+        }
+        crate::compiler::modules::as_require(&mut form);
+        let ExprKind::Require(require) = &mut form else {
+            unreachable!()
+        };
+
+        // Like in Racket, a module path a template wrote binds its names for that template's
+        // code. They're imported with a prefix of their own, which the template's identifiers get.
+        let mut hygienic = Vec::new();
+        let templates: Vec<_> = require
+            .modules
+            .iter()
+            .map(crate::compiler::modules::template_path)
+            .collect();
+        for (spec, template) in require.modules.iter_mut().zip(templates) {
+            let for_syntax = spec
+                .list()
+                .is_some_and(|x| x.first_ident() == Some(&*crate::compiler::program::FOR_SYNTAX));
+            if let Some(scopes) = template.filter(|_| !for_syntax) {
+                let prefix = crate::compiler::modules::template_prefix();
+                let inner = core::mem::replace(spec, ExprKind::empty());
+                *spec = ExprKind::List(crate::parser::ast::List::new(
+                    [
+                        ExprKind::atom("prefix-in"),
+                        ExprKind::atom(prefix.clone()),
+                        inner,
+                    ]
+                    .into_iter()
+                    .collect(),
+                ));
+                hygienic.push((prefix, scopes));
+            }
+        }
+
+        // Its specs can be the top level's macros
+        for spec in require.modules.iter_mut() {
+            crate::parser::expand_visitor::expand_with_kernel(
+                spec,
+                &self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+                crate::parser::expand_visitor::KernelExpander::in_environment(
+                    self.kernel.as_mut(),
+                    self.builtin_modules.clone(),
+                    "top-level",
+                ),
+            )?;
+            if !crate::compiler::modules::is_require_spec(spec) {
+                stop!(BadSyntax => crate::compiler::modules::BAD_REQUIRE_SPEC; crate::parser::span_visitor::get_span(spec));
+            }
+        }
+
+        self.module_manager.late_require = true;
+        let compiled = self.expand_expressions(vec![form], path.clone());
+        self.module_manager.late_require = false;
+        let mut compiled = compiled?;
+
+        // A name the program already has from the same module isn't defined again
+        let imported: HashSet<String> = statements[..index]
+            .iter()
+            .filter_map(required_value)
+            .collect();
+        compiled.retain(|x| required_value(x).map_or(true, |x| !imported.contains(&x)));
+        if let Some(kernel) = self.kernel.as_mut() {
+            kernel.load_syntax_transformers(
+                &mut compiled,
+                "top-level".to_string(),
+                &self.phase1_imports,
+                Vec::new(),
+                Vec::new(),
+            )?;
+        }
+
+        if !hygienic.is_empty() {
+            let imported: FxHashSet<InternedString> =
+                crate::compiler::passes::mangle::collect_globals(&compiled)
+                    .into_iter()
+                    .chain(self.macro_env.keys().copied())
+                    .chain(
+                        self.lifted_kernel_environments
+                            .values()
+                            .flat_map(|x| x.exported.keys().copied()),
+                    )
+                    .filter(|x| x.resolve().starts_with("#%template"))
+                    .collect();
+            for (prefix, scopes) in &hygienic {
+                crate::compiler::modules::rename_template_imports(
+                    &mut statements[index + 1..],
+                    prefix,
+                    scopes,
+                    &imported,
+                );
+            }
+        }
+
+        statements.splice(index..=index, compiled);
         Ok(())
     }
 
@@ -1855,6 +1943,18 @@ impl Compiler {
 
         Ok(expanded_statements)
     }
+}
+
+// A require's `(define name (hash-get module 'name))`, as text
+fn required_value(expr: &ExprKind) -> Option<String> {
+    let ExprKind::Define(define) = expr else {
+        return None;
+    };
+    let value = define.body.list()?;
+    if value.first_ident() != Some(&*steel_parser::ast::PROTO_HASH_GET) {
+        return None;
+    }
+    Some(format!("{} {}", define.name, value))
 }
 
 fn filter_provides(expanded_statements: Vec<ExprKind>) -> Vec<ExprKind> {

@@ -2816,8 +2816,8 @@ fn a_require_a_macro_writes_in_a_module() {
            (define (early) (twice 0))
            (define-syntax just-a (syntax-rules () [(_ path) (only-in path a)]))
            (require (just-a "late/values"))
-           (define-syntax use-macros (syntax-rules () [(_) (require "late/macros")]))
-           (use-macros)
+           (define-syntax use-macros (syntax-rules () [(_ path) (require path)]))
+           (use-macros "late/macros")
            (define results (list a (twice 3) (early)))"#
             .to_owned(),
     );
@@ -2841,8 +2841,8 @@ fn a_require_a_macro_writes_in_a_module() {
            (define-syntax fs (syntax-rules () [(_) (require (for-syntax "late/phase1"))]))
            (fs)
            (define-syntax (m stx) (datum->syntax stx (list 'quote (helper))))
-           (define-syntax use-shout (syntax-rules () [(_) (require "late/provides-for-syntax")]))
-           (use-shout)
+           (define-syntax use-shout (syntax-rules () [(_ path) (require path)]))
+           (use-shout "late/provides-for-syntax")
            (define-syntax (n stx) (datum->syntax stx (list 'quote (shout))))
            (define results (list (m) (n)))
            (provide results)"#
@@ -2864,8 +2864,8 @@ fn a_require_a_macro_writes_at_the_top_level() {
     assert_eq!(
         last(
             &mut engine,
-            r#"(define-syntax use-values (syntax-rules () [(_) (require "late/values")]))
-               (use-values)
+            r#"(define-syntax use-values (syntax-rules () [(_ path) (require path)]))
+               (use-values "late/values")
                (+ a b)"#
         )
         .to_string(),
@@ -2877,8 +2877,8 @@ fn a_require_a_macro_writes_at_the_top_level() {
     assert_eq!(
         last(
             &mut engine,
-            r#"(define-syntax use-macros (syntax-rules () [(_) (begin (require "late/macros"))]))
-               (use-macros)
+            r#"(define-syntax use-macros (syntax-rules () [(_ path) (begin (require path))]))
+               (use-macros "late/macros")
                (twice 5)"#
         )
         .to_string(),
@@ -2991,7 +2991,310 @@ fn phase1_code_is_loaded_in_module_order() {
            (m)"#
             .to_owned(),
     );
-    assert!(engine
+    let err = engine
         .compile_and_run_raw_program(r#"(require "order/before")"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("helper"), "{err}");
+}
+
+#[test]
+fn a_module_path_a_template_writes_binds_for_the_template() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "hyg/m".to_owned(),
+        r#"(provide foo mymac)
+           (define (foo) 'm-foo)
+           (define-syntax mymac (syntax-rules () [(_ x) (list 'mymac x)]))"#
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "hyg/n".to_owned(),
+        "(provide foo) (define (foo) 'n-foo)".to_owned(),
+    );
+    engine.register_steel_module(
+        "hyg/lib".to_owned(),
+        r#"(provide use-m)
+           (define-syntax use-m
+             (syntax-rules ()
+               [(_ name) (begin (require "hyg/m") (define (name) (list (foo) (mymac 1))))]))"#
+            .to_owned(),
+    );
+    // Like in Racket, the template's code sees what its require brings in, and the code that
+    // uses the macro doesn't
+    engine.register_steel_module(
+        "hyg/main".to_owned(),
+        r#"(provide results)
+           (require "hyg/lib")
+           (require "hyg/n")
+           (use-m g)
+           (define results (list (g) (foo)))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "hyg/main") results"#).to_string(),
+        "((m-foo (mymac 1)) n-foo)"
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "hyg/lib") (use-m h) (h)"#).to_string(),
+        "(m-foo (mymac 1))"
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "hyg/lib") (use-m k) (mymac 2)"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("mymac"), "{err}");
+}
+
+#[test]
+fn a_name_imported_from_two_modules_is_an_error() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "twice/n".to_owned(),
+        "(provide foo) (define (foo) 'n-foo)".to_owned(),
+    );
+    engine.register_steel_module(
+        "twice/n2".to_owned(),
+        "(provide foo) (define (foo) 'n2-foo)".to_owned(),
+    );
+    engine.register_steel_module(
+        "twice/again".to_owned(),
+        r#"(require "twice/n") (provide foo)"#.to_owned(),
+    );
+    engine.register_steel_module(
+        "twice/both".to_owned(),
+        r#"(require "twice/n") (require "twice/n2") (provide x) (define x (foo))"#.to_owned(),
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "twice/both")"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("imported twice"), "{err}");
+
+    // The same binding through another module is fine, and so is a name the module defines
+    engine.register_steel_module(
+        "twice/same".to_owned(),
+        r#"(require "twice/n") (require "twice/again") (provide x) (define x (foo))"#.to_owned(),
+    );
+    engine.register_steel_module(
+        "twice/own".to_owned(),
+        r#"(require "twice/n") (require "twice/n2") (provide x) (define (foo) 'own) (define x (foo))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require (prefix-in s: "twice/same") (prefix-in o: "twice/own")) (list s:x o:x)"#
+        )
+        .to_string(),
+        "(n-foo own)"
+    );
+}
+
+#[test]
+fn requires_are_handled_in_module_order() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "ord/log".to_owned(),
+        r#"(provide note! notes)
+           (define log (box '()))
+           (define (note! x) (set-box! log (cons x (unbox log))))
+           (define (notes) (reverse (unbox log)))"#
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "ord/a".to_owned(),
+        r#"(require "ord/log") (provide a) (define a 1) (note! 'a)"#.to_owned(),
+    );
+    engine.register_steel_module(
+        "ord/b".to_owned(),
+        r#"(require "ord/log") (provide b) (define b 2) (note! 'b)"#.to_owned(),
+    );
+    // The written require after the macro's is instantiated after it, as in Racket. A require
+    // left by the full expansion of a macro that expands to another is handled right there, so
+    // the forms after it can use the macros it brings in.
+    engine.register_steel_module(
+        "ord/main".to_owned(),
+        r#"(provide results)
+           (require "ord/log")
+           (define-syntax req (syntax-rules () [(_ p) (begin (define unused 0) (require p))]))
+           (define-syntax req2 (syntax-rules () [(_ p) (req p)]))
+           (req2 "ord/a")
+           (require "ord/b")
+           (req2 "macros/defines")
+           (define results (list (notes) a b))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "ord/main") results"#).to_string(),
+        "((a b) 1 2)"
+    );
+    // What a module requires isn't the requiring program's
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "ord/main") a"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("a"), "{err}");
+}
+
+#[test]
+fn a_late_require_of_a_required_module_at_the_top_level() {
+    let mut engine = require_engine();
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(define-syntax req (syntax-rules () [(_ p) (require p)]))
+               (require "late/values")
+               (define x a)
+               (req "late/values")
+               (list x b)"#
+        )
+        .to_string(),
+        "(1 2)"
+    );
+}
+
+#[test]
+fn require_specs_check_what_they_are_given() {
+    let mut engine = require_engine();
+    let err = engine
+        .compile_and_run_raw_program(r#"(require (only-in "late/values" #:a))"#)
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("only-in expects identifiers"),
+        "{err}"
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require (only-in (nope "late/values") a))"#)
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("can't be used inside another require spec"),
+        "{err}"
+    );
+
+    // for-syntax nests in the other specs, and a require in begin-for-syntax is for syntax
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require (only-in (for-syntax "late/phase1") helper))
+               (require (prefix-in p: (for-syntax "late/phase1")))
+               (begin-for-syntax (require (prefix-in q: "late/phase1")))
+               (define-syntax (m stx)
+                 (datum->syntax stx (list 'quote (list (helper) (p:helper) (q:helper)))))
+               (m)"#
+        )
+        .to_string(),
+        "(from-phase1 from-phase1 from-phase1)"
+    );
+}
+
+#[test]
+fn an_imported_value_hides_a_kernel_macro() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "hide/lib".to_owned(),
+        "(provide only-in) (define (only-in x) (list 'mine x))".to_owned(),
+    );
+    engine.register_steel_module(
+        "hide/user".to_owned(),
+        r#"(require "hide/lib") (provide x) (define x (only-in 1))"#.to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "hide/user") x"#).to_string(),
+        "(mine 1)"
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "hide/lib") (only-in 2)"#).to_string(),
+        "(mine 2)"
+    );
+}
+
+#[test]
+fn phase1_names_of_a_failed_compile_are_forgotten() {
+    let mut engine = engine();
+    assert!(engine
+        .run("(begin-for-syntax (define (g) (nope)))".to_owned())
         .is_err());
+    let err = engine
+        .run("(define-syntax (m stx) (datum->syntax stx (g)))".to_owned())
+        .unwrap_err();
+    assert!(err.to_string().contains("g"), "{err}");
+
+    // A use before the definition is loaded says so
+    let err = engine
+        .run(
+            r#"(begin-for-syntax (define (helper x) (other x)))
+               (define-syntax (m2 stx) (datum->syntax stx (helper 1)))
+               (m2)
+               (begin-for-syntax (define (other x) x))"#
+                .to_owned(),
+        )
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("cannot reference an identifier before its definition"),
+        "{err}"
+    );
+}
+
+#[test]
+fn phase1_definitions_are_known_through_begins_and_kernel_macros() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "fwd/lib".to_owned(),
+        r#"(provide results)
+           (define-syntax defk
+             (syntax-rules () [(_ n v) (begin (begin-for-syntax (define n v)) (define dummy 0))]))
+           (begin-for-syntax (define (f) (list (a) kk)))
+           (define-syntax (m stx) (datum->syntax stx (cons 'list (f))))
+           (begin-for-syntax (define-values (a b) (values (lambda () 1) 2)))
+           (defk kk 9)
+           (define results (m))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "fwd/lib") results"#).to_string(),
+        "(1 9)"
+    );
+}
+
+#[test]
+fn a_defmacro_defined_again_at_the_top_level_is_the_new_one() {
+    let mut engine = engine();
+    assert_eq!(
+        last(&mut engine, "(defmacro (dd stx) 1) (dd)").to_string(),
+        "1"
+    );
+    assert_eq!(
+        last(&mut engine, "(defmacro (dd stx) 2) (dd)").to_string(),
+        "2"
+    );
+}
+
+#[test]
+fn modules_required_for_syntax_keep_their_instance_at_the_top_level() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "inst/lib".to_owned(),
+        r#"(provide bump!)
+           (define counter 0)
+           (define (bump!) (set! counter (+ counter 1)) counter)"#
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "inst/x".to_owned(),
+        r#"(require (for-syntax "inst/lib"))
+           (provide mx)
+           (define-syntax (mx stx) (datum->syntax stx (bump!)))"#
+            .to_owned(),
+    );
+    engine.register_steel_module(
+        "inst/p".to_owned(),
+        "(begin-for-syntax (define p 1))".to_owned(),
+    );
+    assert_eq!(
+        last(&mut engine, r#"(require "inst/x") (mx)"#).to_string(),
+        "1"
+    );
+    assert_eq!(last(&mut engine, "(mx)").to_string(), "2");
+    // Compiling another module with phase 1 code leaves the top level's instances alone
+    engine.run(r#"(require "inst/p")"#.to_owned()).unwrap();
+    assert_eq!(last(&mut engine, "(mx)").to_string(), "3");
 }
