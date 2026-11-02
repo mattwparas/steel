@@ -21,6 +21,10 @@
           (filter (lambda (x) x)
                   (map (lambda (e)
                          (let ([name (rename (symbol->string (export-out-sym e)))])
+                           (unless (or (not name) (string? name))
+                             (error-with-span (syntax-span #'proc)
+                                              "filtered-out: expected the procedure to return a string or #f, found:"
+                                              name))
                            (and name
                                 (export (export-local-id e)
                                         (string->symbol name)

@@ -2856,9 +2856,7 @@ impl Kernel {
             .unwrap_or_else(|| phase1_variable(environment, name))
     }
 
-    // Expands transformer code with the environment's macros from modules required for
-    // syntax, and renames its phase 1 variables to their globals. `locals` are the variables
-    // in scope in a body.
+    // Runs an expression as transformer code of the environment
     pub(crate) fn eval_phase1(
         &mut self,
         environment: &str,
@@ -2902,6 +2900,9 @@ impl Kernel {
             .unwrap_or(SteelVal::Void))
     }
 
+    // Expands transformer code with the environment's macros from modules required for
+    // syntax, and renames its phase 1 variables to their globals. `locals` are the variables
+    // in scope in a body.
     fn expand_phase1(
         &mut self,
         environment: &str,

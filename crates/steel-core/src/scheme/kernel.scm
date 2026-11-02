@@ -386,7 +386,9 @@
             (let ([excluded (map syntax-e (cdr args))])
               (filter (lambda (export) (not (member (car export) excluded))) exports)))]
          [(equal? head 'combine-out) (apply append (map provide-exports args))]
-         ;; Another transformer's, which the compiler expands
+         [(member head '(for-syntax contract/out))
+          (spec-error expr (string-append (symbol->string head) " can't be inside another provide spec:"))]
+         ;; A spec from a provide transformer, expanded by the compiler
          [else
           (map (lambda (export) (cons (syntax-e (car export)) (cadr export)))
                (#%spec-answer 'export expr))]))]
@@ -552,14 +554,29 @@
                          (unless (and (spec-name? x) (named imports x))
                            (spec-error x "except-in: isn't imported by the require spec inside it:")))
                        (cdr args))
-             (filter (lambda (import) (not (named (map list (cdr args)) (car import)))) imports))]))
-      (#%spec-answer 'import expr)))
+             (let ([excluded (map syntax-e (cdr args))])
+               (filter (lambda (import) (not (member (syntax-e (car import)) excluded))) imports)))]))
+      (car (#%spec-answer 'import expr))))
+
+;; The modules a spec requires, as (path phase)
+(define (spec-sources expr)
+  (define e (syntax-e expr))
+  (if (and (list? e) (pair? e) (spec-name? (car e)) (member (syntax-e (car e)) builtin-require-specs))
+      (let ([head (syntax-e (car e))]
+            [args (cdr e)])
+        (cond
+          [(equal? head 'for-syntax)
+           (map (lambda (source) (list (first source) 1)) (spec-sources (car args)))]
+          [(equal? head 'prefix-in) (spec-sources (cadr args))]
+          [else (spec-sources (car args))]))
+      (cadr (#%spec-answer 'import expr))))
 
 (define (require-spec expr)
   (if (builtin-spec? expr)
       (syntax/loc (cons '#%require-spec (require-parts expr))
         (syntax-span expr))
-      (#%imports->require-spec (spec-imports expr) '() expr)))
+      (let ([imports (spec-imports expr)])
+        (#%imports->require-spec imports (spec-sources expr) expr))))
 
 (#%define-syntax (only-in expr)
                  (require-spec expr))

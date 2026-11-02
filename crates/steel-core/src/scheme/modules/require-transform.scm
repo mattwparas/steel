@@ -8,28 +8,20 @@
 (struct import (local-id src-sym src-mod-path mode req-mode orig-mode orig-stx) #:transparent)
 (struct import-source (mod-path-stx mode) #:transparent)
 
-(define (record->import record)
-  (import (first record) (second record) (third record) (list-ref record 3) 0 (list-ref record 3) (first record)))
+(define (record->import record stx)
+  (let ([phase (list-ref record 3)])
+    (import (first record) (second record) (third record) phase phase 0 stx)))
 
-(define (import->record import)
-  (list (import-local-id import) (import-src-sym import) (import-src-mod-path import) (import-mode import)))
-
-(define (sources-of imports)
-  (let loop ([imports imports]
-             [sources '()])
-    (if (null? imports)
-        (reverse sources)
-        (let* ([path (import-src-mod-path (car imports))]
-               [mode (import-mode (car imports))]
-               [seen? (lambda (source)
-                        (and (equal? (syntax-e (import-source-mod-path-stx source)) (syntax-e path))
-                             (equal? (import-source-mode source) mode)))])
-          (loop (cdr imports)
-                (if (null? (filter seen? sources)) (cons (import-source path mode) sources) sources))))))
+(define (import->record i)
+  (list (import-local-id i) (import-src-sym i) (import-src-mod-path i) (import-mode i)))
 
 (define (expand-import stx)
-  (let ([imports (map record->import (#%spec-answer 'import stx))])
-    (values imports (sources-of imports))))
+  (let ([answer (#%spec-answer 'import stx)])
+    (values (map (lambda (record) (record->import record stx)) (first answer))
+            (map (lambda (source) (import-source (first source) (second source))) (second answer)))))
+
+(define (all? pred xs)
+  (null? (filter (lambda (x) (not (pred x))) xs)))
 
 (define (make-require-transformer proc)
   (lambda (stx)
@@ -37,6 +29,10 @@
            [both? (and (list? result) (= (length result) 2) (list? (car result)) (list? (cadr result)))]
            [imports (if both? (car result) result)]
            [sources (if both? (cadr result) '())])
+      (unless (and (list? imports) (all? import? imports) (list? sources) (all? import-source? sources))
+        (error-with-span (syntax-span stx)
+                         "make-require-transformer: expected the procedure to return imports and import sources, found:"
+                         result))
       (#%imports->require-spec (map import->record imports)
                                (map (lambda (source)
                                       (list (import-source-mod-path-stx source) (import-source-mode source)))
@@ -45,7 +41,8 @@
 
 (define (module->exports mod)
   (let* ([exports (#%spec-answer 'exports mod)]
-         [at-phase-0 (lambda (names) (list (cons 0 (map (lambda (name) (list name '())) names))))])
+         [at-phase-0 (lambda (names)
+                       (if (null? names) '() (list (cons 0 (map (lambda (name) (list name '())) names)))))])
     (values (at-phase-0 (first exports)) (at-phase-0 (second exports)))))
 
 (define (current-require-module-path)

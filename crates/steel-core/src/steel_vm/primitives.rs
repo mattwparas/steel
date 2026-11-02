@@ -3388,6 +3388,87 @@ fn path_to_source_id(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Steel
     Some(path_to_source_id_impl(ctx, args))
 }
 
+fn path_up(relative: SteelString) -> SteelVal {
+    let (dir, _) = crate::compiler::modules::requiring_location();
+    dir.ancestors()
+        .map(|dir| dir.join(relative.as_str()))
+        .find(|path| path.is_file())
+        .map(|path| SteelVal::StringV(path.to_string_lossy().as_ref().into()))
+        .unwrap_or(SteelVal::BoolV(false))
+}
+
+fn wildcard(pattern: &[u8], name: &[u8]) -> bool {
+    let (mut p, mut n) = (0, 0);
+    let mut star = None;
+    while n < name.len() {
+        if p < pattern.len() && (pattern[p] == b'?' || pattern[p] == name[n]) {
+            p += 1;
+            n += 1;
+        } else if p < pattern.len() && pattern[p] == b'*' {
+            star = Some((p, n));
+            p += 1;
+        } else if let Some((at, matched)) = star {
+            star = Some((at, matched + 1));
+            p = at + 1;
+            n = matched + 1;
+        } else {
+            return false;
+        }
+    }
+    pattern[p..].iter().all(|x| *x == b'*')
+}
+
+// The files matching the pattern from the requiring module's directory, without the module itself
+fn glob(pattern: SteelString) -> SteelVal {
+    let (dir, own) = crate::compiler::modules::requiring_location();
+    let parts: Vec<&str> = pattern.as_str().split('/').collect();
+    let mut found = vec![std::path::PathBuf::new()];
+    for (i, part) in parts.iter().enumerate() {
+        let last = i + 1 == parts.len();
+        let wanted = |path: &std::path::Path| {
+            let full = dir.join(path);
+            if last {
+                full.is_file()
+            } else {
+                full.is_dir()
+            }
+        };
+        let mut next = Vec::new();
+        for path in found {
+            if !part.contains(['*', '?']) {
+                let path = path.join(part);
+                if wanted(&path) {
+                    next.push(path);
+                }
+                continue;
+            }
+            let mut names: Vec<String> = std::fs::read_dir(dir.join(&path))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|x| x.file_name().into_string().ok())
+                .filter(|x| wildcard(part.as_bytes(), x.as_bytes()))
+                .collect();
+            names.sort();
+            next.extend(
+                names
+                    .into_iter()
+                    .map(|x| path.join(x))
+                    .filter(|x| wanted(x)),
+            );
+        }
+        found = next;
+    }
+    let own = own.and_then(|x| std::fs::canonicalize(x).ok());
+    SteelVal::ListV(
+        found
+            .into_iter()
+            .filter(|x| own.is_none() || std::fs::canonicalize(dir.join(x)).ok() != own)
+            .map(|x| SteelVal::StringV(x.to_string_lossy().as_ref().into()))
+            .collect(),
+    )
+}
+
 fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
@@ -3406,64 +3487,8 @@ fn syntax_module() -> BuiltInModule {
             "#%imports->require-spec",
             crate::compiler::modules::imports_to_require_spec,
         )
-        .register_fn("#%path-up", |relative: SteelString| {
-            let module = crate::parser::expand_visitor::current_module()
-                .filter(|x| x.resolve() != "top-level")
-                .map(|x| std::path::PathBuf::from(x.resolve()));
-            let start = match module.as_ref().and_then(|x| x.parent()) {
-                Some(dir) => dir.to_path_buf(),
-                None => std::env::current_dir().unwrap_or_default(),
-            };
-            start
-                .ancestors()
-                .map(|dir| dir.join(relative.as_str()))
-                .find(|path| path.exists())
-                .map(|path| SteelVal::StringV(path.to_string_lossy().as_ref().into()))
-                .unwrap_or(SteelVal::BoolV(false))
-        })
-        .register_fn("#%glob", |pattern: SteelString| {
-            fn matches(pattern: &[u8], name: &[u8]) -> bool {
-                match (pattern.first(), name.first()) {
-                    (None, None) => true,
-                    (Some(b'*'), _) => {
-                        matches(&pattern[1..], name)
-                            || (!name.is_empty() && matches(pattern, &name[1..]))
-                    }
-                    (Some(b'?'), Some(_)) => matches(&pattern[1..], &name[1..]),
-                    (Some(p), Some(n)) => p == n && matches(&pattern[1..], &name[1..]),
-                    _ => false,
-                }
-            }
-            let module = crate::parser::expand_visitor::current_module()
-                .filter(|x| x.resolve() != "top-level")
-                .map(|x| std::path::PathBuf::from(x.resolve()));
-            let start = match module.as_ref().and_then(|x| x.parent()) {
-                Some(dir) => dir.to_path_buf(),
-                None => std::env::current_dir().unwrap_or_default(),
-            };
-            let (dir, file) = match pattern.as_str().rsplit_once('/') {
-                Some((dir, file)) => (Some(dir), file),
-                None => (None, pattern.as_str()),
-            };
-            let mut names: Vec<String> = std::fs::read_dir(start.join(dir.unwrap_or("")))
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter(|x| x.path().is_file())
-                .filter_map(|x| x.file_name().into_string().ok())
-                .filter(|x| matches(file.as_bytes(), x.as_bytes()))
-                .collect();
-            names.sort();
-            SteelVal::ListV(
-                names
-                    .into_iter()
-                    .map(|x| match dir {
-                        Some(dir) => SteelVal::StringV(format!("{dir}/{x}").into()),
-                        None => SteelVal::StringV(x.into()),
-                    })
-                    .collect(),
-            )
-        })
+        .register_fn("#%path-up", path_up)
+        .register_fn("#%glob", glob)
         .register_fn("#%module-exists?", |path: SteelString| {
             crate::compiler::modules::module_exists(path.as_str())
         })

@@ -3720,3 +3720,117 @@ fn filtered_procedures_see_the_modules_transformer_code() {
         "((1 3) 5)"
     );
 }
+
+#[test]
+fn transformers_asking_about_hundreds_of_modules() {
+    let mut engine = transformer_engine();
+    let count = 300;
+    let mut subtracted = String::new();
+    for i in 0..count {
+        engine.register_steel_module(
+            format!("tf/many/m{i}"),
+            format!("(provide v{i}) (define v{i} {i})"),
+        );
+        subtracted.push_str(&format!(" \"tf/many/m{i}\""));
+    }
+    let all: String = (0..count).map(|i| format!(" v{i}")).collect();
+    engine.register_steel_module(
+        "tf/many/all".to_owned(),
+        format!("(provide{all} kept) (define kept 'kept){}", {
+            (0..count)
+                .map(|i| format!(" (define v{i} {i})"))
+                .collect::<String>()
+        }),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            &format!(
+                r#"(require "steel/require")
+                   (require (subtract-in "tf/many/all"{subtracted}))
+                   kept"#
+            )
+        )
+        .to_string(),
+        "kept"
+    );
+}
+
+#[test]
+fn transformer_questions_outside_a_spec() {
+    let mut engine = transformer_engine();
+    let err = engine
+        .compile_and_run_raw_program(
+            r#"(require (for-syntax "steel/require-transform"))
+               (define-syntax (exports stx)
+                 (let-values ([(vars syntax) (module->exports "tf/s")]) #''()))
+               (exports)"#,
+        )
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("module->exports: only available while a require or provide spec expands"),
+        "{err}"
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(with-handler (lambda (e) 'caught) (error "inner"))"#
+        )
+        .to_string(),
+        "caught"
+    );
+}
+
+#[test]
+fn module_exports_of_a_module_providing_imported_macros() {
+    let mut engine = transformer_engine();
+    engine.register_steel_module(
+        "tf/again-all".to_owned(),
+        r#"(require "macros/defines") (provide mac pmac (all-from-out "macros/defines"))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "steel/require")
+               (require (values-in "tf/again-all"))
+               (require (prefix-in m: (macros-in "tf/again-all")))
+               (list (plain 1) (m:mac 2) (m:pmac 3))"#
+        )
+        .to_string(),
+        "((plain 1) (helper 2) (p 3))"
+    );
+}
+
+#[test]
+fn provide_specs_inside_others_have_locations() {
+    let mut engine = transformer_engine();
+    engine.register_steel_module(
+        "tf/nested-for-syntax".to_owned(),
+        "(define-syntax m (syntax-rules () [(_) 1])) (provide (prefix-out p: (for-syntax m)))"
+            .to_owned(),
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "tf/nested-for-syntax")"#)
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("for-syntax can't be inside another provide spec"),
+        "{err}"
+    );
+}
+
+#[test]
+fn regexp_replace_inserts() {
+    let mut engine = Engine::new();
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(list (regexp-replace "(a)(b)" "xaby" "[\\2\\1&\\&\\\\\\$0]")
+                     (regexp-replace* "o" "foo" "0"))"#
+        )
+        .to_string(),
+        r#"("x[baab&\\0]y" "f00")"#
+    );
+}

@@ -11,9 +11,6 @@ use std::io::Write as _;
 use icu_casemap::CaseMapper;
 use steel_derive::{function, native};
 
-/// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
-/// are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
-/// as UTF-8 encoded bytes.
 fn compiled_regex(pattern: &str) -> Result<regex::Regex> {
     thread_local! {
         static COMPILED: core::cell::RefCell<rustc_hash::FxHashMap<String, regex::Regex>> =
@@ -25,7 +22,13 @@ fn compiled_regex(pattern: &str) -> Result<regex::Regex> {
     let regex = regex::Regex::new(pattern).map_err(|e| {
         crate::rerrs::SteelErr::new(crate::rerrs::ErrorKind::Generic, e.to_string())
     })?;
-    COMPILED.with(|x| x.borrow_mut().insert(pattern.to_owned(), regex.clone()));
+    COMPILED.with(|x| {
+        let mut compiled = x.borrow_mut();
+        if compiled.len() >= 256 {
+            compiled.clear();
+        }
+        compiled.insert(pattern.to_owned(), regex.clone());
+    });
     Ok(regex)
 }
 
@@ -50,6 +53,31 @@ fn regexp_match(pattern: SteelString, input: SteelString) -> Result<SteelVal> {
     )
 }
 
+// Racket's insert strings: `&` and `\0` are the match, `\n` the nth group, `\&` and `\\` the
+// characters themselves, and `\$` nothing
+fn expand_insert(insert: &str, captures: &regex::Captures, out: &mut String) {
+    let mut chars = insert.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '&' => out.push_str(&captures[0]),
+            '\\' => match chars.next() {
+                Some(d) if d.is_ascii_digit() => {
+                    let mut n = d.to_digit(10).unwrap() as usize;
+                    while let Some(d) = chars.peek().and_then(|x| x.to_digit(10)) {
+                        n = n * 10 + d as usize;
+                        chars.next();
+                    }
+                    out.push_str(captures.get(n).map_or("", |x| x.as_str()));
+                }
+                Some('$') => {}
+                Some(other) => out.push(other),
+                None => out.push('\\'),
+            },
+            c => out.push(c),
+        }
+    }
+}
+
 fn regexp_replace(
     pattern: SteelString,
     input: SteelString,
@@ -58,7 +86,11 @@ fn regexp_replace(
     let regex = compiled_regex(pattern.as_str())?;
     Ok(SteelVal::StringV(
         regex
-            .replace(input.as_str(), insert.as_str())
+            .replace(input.as_str(), |captures: &regex::Captures| {
+                let mut out = String::new();
+                expand_insert(insert.as_str(), captures, &mut out);
+                out
+            })
             .as_ref()
             .into(),
     ))
@@ -72,12 +104,19 @@ fn regexp_replace_all(
     let regex = compiled_regex(pattern.as_str())?;
     Ok(SteelVal::StringV(
         regex
-            .replace_all(input.as_str(), insert.as_str())
+            .replace_all(input.as_str(), |captures: &regex::Captures| {
+                let mut out = String::new();
+                expand_insert(insert.as_str(), captures, &mut out);
+                out
+            })
             .as_ref()
             .into(),
     ))
 }
 
+/// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
+/// are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
+/// as UTF-8 encoded bytes.
 #[steel_derive::define_module(name = "steel/strings")]
 pub fn string_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/strings");

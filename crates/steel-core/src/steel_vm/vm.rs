@@ -1707,8 +1707,10 @@ impl SteelThread {
                     Ok(false) => e,
                     Err(e) => e,
                 };
-                // One headed further out is not for the handlers here
-                let escaping = vm_instance.thread.escaping.is_some();
+                // One headed further out is not for the handlers here, nor is a transformer's
+                // question to the compiler
+                let escaping = vm_instance.thread.escaping.is_some()
+                    || crate::parser::spec_requests::has_requests();
 
                 // The frames below belong to whoever called in
                 while vm_instance.pop_count > 0 {
@@ -2786,8 +2788,10 @@ impl<'a> VmCore<'a> {
                     Ok(false) => e,
                     Err(e) => e,
                 };
-                // One headed further out is not for the handlers here
-                let escaping = self.thread.escaping.is_some();
+                // One headed further out is not for the handlers here, nor is a transformer's
+                // question to the compiler
+                let escaping =
+                    self.thread.escaping.is_some() || crate::parser::spec_requests::has_requests();
 
                 // The frames below belong to whoever called in
                 while self.pop_count > 0 {

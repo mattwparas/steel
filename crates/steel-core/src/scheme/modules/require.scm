@@ -30,7 +30,7 @@
         (let-values ([(imports sources) (expand-import #'spec)])
           (let ([removed (apply append
                                 (map (lambda (spec)
-                                       (let-values ([(imports sources) (expand-import spec)])
+                                       (let-values ([(imports _) (expand-import spec)])
                                          (map (lambda (import) (syntax-e (import-local-id import)))
                                               imports)))
                                      (syntax->list #'(subtracted ...))))])
@@ -50,6 +50,10 @@
                             (map (lambda (i)
                                    (let* ([local (import-local-id i)]
                                           [name (rename (symbol->string (syntax-e local)))])
+                                     (unless (or (not name) (string? name))
+                                       (error-with-span (syntax-span #'proc)
+                                                        "filtered-in: expected the procedure to return a string or #f, found:"
+                                                        name))
                                      (and name
                                           (import (datum->syntax local (string->symbol name))
                                                   (import-src-sym i)
@@ -66,6 +70,8 @@
     [(_ relative ...)
      (cons '#%require-specs
            (map (lambda (relative)
+                  (unless (string? (syntax-e relative))
+                    (error-with-span (syntax-span relative) "path-up expects a string path, found:" (syntax->datum relative)))
                   (let ([found (#%path-up (syntax-e relative))])
                     (unless found
                       (error-with-span (syntax-span relative) "path-up: can't find" (syntax-e relative)))
@@ -73,12 +79,18 @@
                 (syntax->list #'(relative ...))))]))
 
 (define-syntax (multi-in stx)
-  (define (alternatives sub)
+  (define (all? pred xs)
+    (null? (filter (lambda (x) (not (pred x))) xs)))
+  (define (parts sub)
     (let ([e (syntax-e sub)])
-      (map (lambda (x)
-             (let ([x (if (syntax? x) (syntax-e x) x)])
-               (if (symbol? x) (symbol->string x) x)))
-           (if (list? e) e (list sub)))))
+      (when (and (list? e) (null? e))
+        (error-with-span (syntax-span sub) "multi-in expects a path or a list of paths, found:" e))
+      (if (list? e) e (list sub))))
+  (define (alternatives sub)
+    (map (lambda (x)
+           (let ([x (syntax-e x)])
+             (if (symbol? x) (symbol->string x) x)))
+         (parts sub)))
   (define (paths subs)
     (if (null? subs)
         (list "")
@@ -89,20 +101,35 @@
                     (alternatives (car subs))))))
   (syntax-case stx ()
     [(_ sub ...)
-     (cons '#%require-specs
-           (map (lambda (path) (datum->syntax stx path)) (paths (syntax->list #'(sub ...)))))]))
+     (let* ([subs (syntax->list #'(sub ...))]
+            [all (apply append (map parts subs))])
+       (when (null? subs)
+         (error-with-span (syntax-span stx) "multi-in expects at least one path:" (syntax->datum stx)))
+       (unless (or (all? (lambda (x) (string? (syntax-e x))) all)
+                   (all? (lambda (x) (symbol? (syntax-e x))) all))
+         (error-with-span (syntax-span stx)
+                          "multi-in expects all strings or all identifiers:"
+                          (syntax->datum stx)))
+       (cons '#%require-specs (map (lambda (path) (datum->syntax stx path)) (paths subs))))]))
 
 (begin-for-syntax
+  (define (exported-names exports)
+    (if (null? exports) '() (map car (cdr (car exports)))))
   (define (imports-of-kind stx kind)
     (syntax-case stx ()
       [(_ spec)
        (let-values ([(imports sources) (expand-import #'spec)])
-         (values (filter (lambda (i)
-                           (let-values ([(variables syntax) (module->exports (import-src-mod-path i))])
+         (let ([names (map (lambda (source)
+                             (let-values ([(variables syntax)
+                                           (module->exports (import-source-mod-path-stx source))])
+                               (cons (syntax-e (import-source-mod-path-stx source))
+                                     (exported-names (if (equal? kind 'variable) variables syntax)))))
+                           sources)])
+           (values (filter (lambda (i)
                              (member (import-src-sym i)
-                                     (map car (cdr (car (if (equal? kind 'variable) variables syntax)))))))
-                         imports)
-                 sources))])))
+                                     (cdr (assoc (syntax-e (import-src-mod-path i)) names))))
+                           imports)
+                   sources)))])))
 
 (define-syntax values-in
   (make-require-transformer (lambda (stx) (imports-of-kind stx 'variable))))
@@ -133,5 +160,8 @@
           (if (null? entries)
               'void
               (cons 'begin (map (lambda (entry) (list 'define (first entry) (second entry))) entries)))]
-         [(null? entries) (list 'require #'path)]
-         [else (list 'require (cons 'only-in (cons #'path (map first entries))))]))]))
+         [else
+          (let ([head (syntax/loc 'require (syntax-span stx))])
+            (if (null? entries)
+                (list head #'path)
+                (list head (cons (syntax/loc 'only-in (syntax-span stx)) (cons #'path (map first entries))))))]))]))

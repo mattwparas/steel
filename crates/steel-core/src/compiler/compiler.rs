@@ -1259,45 +1259,42 @@ impl Compiler {
         spec: &ExprKind,
         path: &Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        use crate::parser::spec_requests::{has_requests, take_requests};
+        use crate::compiler::modules::{
+            expand_answering, expand_spec_requests, not_a_require_spec,
+        };
+        use crate::parser::span_visitor::get_span;
 
-        for _ in 0..256 {
-            let mut expanded = spec.clone();
-            let Err(e) = self.expand_spec_once(&mut expanded) else {
+        let specs = expand_answering(
+            self,
+            get_span(spec),
+            |this| {
+                let mut expanded = spec.clone();
+                this.expand_spec_once(&mut expanded)?;
                 let mut specs = Vec::new();
                 crate::compiler::modules::flatten_require_specs(expanded, &mut specs);
-                return Ok(specs);
-            };
-            if !has_requests() {
-                return Err(e);
-            }
-            for _ in 0..256 {
-                if !has_requests() {
-                    break;
-                }
-                let requests = take_requests();
-                let pending = crate::compiler::modules::expand_spec_requests(requests, &mut |x| {
-                    self.expand_spec_once(x)
-                })?;
-                let pending = match pending {
-                    Ok(pending) => pending,
-                    Err(nested) => {
-                        take_requests();
-                        stop!(BadSyntax => crate::compiler::modules::not_a_require_spec(&nested); crate::parser::span_visitor::get_span(&nested));
-                    }
-                };
-                self.module_manager.answer_pending_specs(
+                Ok(specs)
+            },
+            |this, requests| {
+                let pending =
+                    match expand_spec_requests(requests, &mut |x| this.expand_spec_once(x))? {
+                        Ok(pending) => pending,
+                        Err(nested) => {
+                            stop!(BadSyntax => not_a_require_spec(&nested); get_span(&nested))
+                        }
+                    };
+                this.module_manager.answer_pending_specs(
                     pending,
-                    &mut self.macro_env,
-                    &mut self.kernel,
-                    &mut self.sources,
+                    &mut this.macro_env,
+                    &mut this.kernel,
+                    &mut this.sources,
                     path.clone(),
-                    self.builtin_modules.clone(),
-                    &self.search_dirs,
+                    this.builtin_modules.clone(),
+                    &this.search_dirs,
                 )?;
-            }
-        }
-        stop!(BadSyntax => "require spec transformers don't finish"; crate::parser::span_visitor::get_span(spec))
+                Ok(true)
+            },
+        )?;
+        Ok(specs.unwrap_or_default())
     }
 
     fn expand_ast(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<Vec<ExprKind>> {
