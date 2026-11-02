@@ -3691,3 +3691,32 @@ fn steel_require_and_provide_extras() {
         assert!(err.to_string().contains(name), "{err}");
     }
 }
+
+#[test]
+fn filtered_procedures_see_the_modules_transformer_code() {
+    let mut engine = transformer_engine();
+    engine.register_steel_module(
+        "tf/helpers".to_owned(),
+        r#"(provide add-prefix) (define (add-prefix n) (string-append "h-" n))"#.to_owned(),
+    );
+    engine.register_steel_module(
+        "tf/filtered".to_owned(),
+        r#"(require "steel/require" "steel/provide")
+           (require (for-syntax "tf/helpers"))
+           (begin-for-syntax (define (mine n) (string-append "m-" n)))
+           (require (filtered-in (lambda (n) (add-prefix n)) "tf/s"))
+           (require (filtered-in (lambda (n) (mine n)) "tf/s"))
+           (provide results (filtered-out (lambda (n) (mine n)) own))
+           (define own 5)
+           (define results (list h-str-a m-other))"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "tf/filtered") (list results m-own)"#
+        )
+        .to_string(),
+        "((1 3) 5)"
+    );
+}

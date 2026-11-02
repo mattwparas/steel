@@ -17,7 +17,7 @@
    (lambda (stx modes)
      (syntax-case stx ()
        [(_ proc spec)
-        (let ([rename (eval (syntax->datum #'proc))])
+        (let ([rename (#%spec-answer 'eval #'proc)])
           (filter (lambda (x) x)
                   (map (lambda (e)
                          (let ([name (rename (symbol->string (export-out-sym e)))])

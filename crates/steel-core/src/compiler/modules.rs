@@ -1685,6 +1685,29 @@ pub(crate) fn module_exists(path: &str) -> bool {
 pub(crate) enum PendingSpec {
     Imports(String, SteelVal, Vec<ExprKind>),
     Exports(String, SteelVal, ExprKind),
+    Eval(String, SteelVal, ExprKind),
+}
+
+pub(crate) fn answer_evals(
+    kernel: Option<&mut Kernel>,
+    environment: &str,
+    pending: Vec<PendingSpec>,
+) -> Result<Vec<PendingSpec>> {
+    let mut kernel = kernel;
+    let mut rest = Vec::new();
+    for pending in pending {
+        match pending {
+            PendingSpec::Eval(key, asked, expr) => {
+                let Some(kernel) = kernel.as_deref_mut() else {
+                    stop!(Generic => "transformer code needs the kernel");
+                };
+                let value = kernel.eval_phase1(environment, expr)?;
+                crate::parser::spec_requests::answer(key, &asked, value);
+            }
+            other => rest.push(other),
+        }
+    }
+    Ok(rest)
 }
 
 const MAX_SPEC_ROUNDS: usize = 256;
@@ -1697,13 +1720,22 @@ pub(crate) fn expand_spec_requests(
 
     let mut pending = Vec::new();
     for (key, request) in requests {
-        let (SpecRequest::Import(stx) | SpecRequest::Export(stx) | SpecRequest::Exports(stx)) =
-            &request;
+        let (SpecRequest::Import(stx)
+        | SpecRequest::Export(stx)
+        | SpecRequest::Exports(stx)
+        | SpecRequest::Eval(stx)) = &request;
         let asked = stx.clone();
         let mut spec = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(stx)?;
-        if let SpecRequest::Exports(_) = request {
-            pending.push(PendingSpec::Exports(key, asked, spec));
-            continue;
+        match request {
+            SpecRequest::Exports(_) => {
+                pending.push(PendingSpec::Exports(key, asked, spec));
+                continue;
+            }
+            SpecRequest::Eval(_) => {
+                pending.push(PendingSpec::Eval(key, asked, spec));
+                continue;
+            }
+            _ => {}
         }
         match expand(&mut spec) {
             Ok(()) => {}
@@ -4397,6 +4429,8 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn answer_pending(&mut self, pending: Vec<PendingSpec>) -> Result<()> {
+        let name = self.name.to_string_lossy().into_owned();
+        let pending = answer_evals(self.kernel.as_mut(), &name, pending)?;
         for pending in pending {
             match pending {
                 PendingSpec::Imports(key, asked, specs) => {
@@ -4414,6 +4448,7 @@ impl<'a> ModuleBuilder<'a> {
                     let exports = self.module_exports(&spec)?;
                     crate::parser::spec_requests::answer(key, &asked, exports);
                 }
+                PendingSpec::Eval(..) => {}
             }
         }
         Ok(())
@@ -5660,6 +5695,17 @@ impl<'a> ModuleBuilder<'a> {
                         let requests = crate::parser::spec_requests::take_requests();
                         let pending =
                             expand_spec_requests(requests, &mut |x| many_expander.expand(x))?;
+                        let pending = match pending {
+                            Ok(pending) => Ok(answer_evals(
+                                many_expander
+                                    .kernel
+                                    .as_mut()
+                                    .and_then(|x| x.map.as_deref_mut()),
+                                module_name,
+                                pending,
+                            )?),
+                            Err(spec) => Err(spec),
+                        };
                         if pending.is_err() || pending.is_ok_and(|x| !x.is_empty()) {
                             stop!(BadSyntax => "a provide spec can only ask about provide specs"; written.span());
                         }

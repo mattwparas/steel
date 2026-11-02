@@ -2859,6 +2859,49 @@ impl Kernel {
     // Expands transformer code with the environment's macros from modules required for
     // syntax, and renames its phase 1 variables to their globals. `locals` are the variables
     // in scope in a body.
+    pub(crate) fn eval_phase1(
+        &mut self,
+        environment: &str,
+        mut expr: ExprKind,
+    ) -> Result<SteelVal> {
+        self.expand_phase1(
+            environment,
+            core::slice::from_mut(&mut expr),
+            &FxHashMap::default(),
+            None,
+        )?;
+        let none = FxHashSet::default();
+        crate::parser::expand_visitor::expand_with_kernel_defining(
+            &mut expr,
+            &FxHashMap::default(),
+            crate::parser::expand_visitor::GlobalMap::Set(&none),
+            crate::parser::expand_visitor::KernelExpander::in_environment(
+                Some(&mut *self),
+                crate::steel_vm::engine::ModuleContainer::default(),
+                "default",
+            ),
+            false,
+        )?;
+        let renames = self.phase1_variables(environment);
+        Phase1Expander {
+            macros: &FxHashMap::default(),
+            procedural: &FxHashMap::default(),
+            kernel: None,
+            renames: &renames,
+            locals: vec![FxHashSet::default()],
+            patterns: 0,
+            pattern_scopes: Vec::new(),
+            hiding: false,
+            depth: 0,
+        }
+        .visit(&mut expr)?;
+        Ok(self
+            .engine
+            .run_raw_program_from_exprs(vec![expr])?
+            .pop()
+            .unwrap_or(SteelVal::Void))
+    }
+
     fn expand_phase1(
         &mut self,
         environment: &str,
