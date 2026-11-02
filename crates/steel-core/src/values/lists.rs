@@ -152,33 +152,31 @@ mod list_drop_handler {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
                             let taken = core::mem::take(obj);
 
-                            if let Some(iter) = taken.draining_iterator() {
-                                for value in iter {
-                                    match &value {
-                                        SteelVal::BoolV(_)
-                                        | SteelVal::NumV(_)
-                                        | SteelVal::IntV(_)
-                                        | SteelVal::CharV(_)
-                                        | SteelVal::Void
-                                        | SteelVal::StringV(_)
-                                        | SteelVal::FuncV(_)
-                                        | SteelVal::SymbolV(_)
-                                        | SteelVal::FutureFunc(_)
-                                        | SteelVal::FutureV(_)
-                                        | SteelVal::BoxedFunction(_)
-                                        | SteelVal::MutFunc(_)
-                                        | SteelVal::BuiltIn(_)
-                                        | SteelVal::BigNum(_)
-                                        | SteelVal::MutableVector(_) => continue,
-                                        SteelVal::ListV(l) => {
-                                            // println!("Value: {}", l.strong_count());
-                                            if l.strong_count() == 1 {
-                                                drop_buffer.push_back(value);
-                                            }
-                                        }
-                                        _ => {
+                            for value in taken.draining_iterator() {
+                                match &value {
+                                    SteelVal::BoolV(_)
+                                    | SteelVal::NumV(_)
+                                    | SteelVal::IntV(_)
+                                    | SteelVal::CharV(_)
+                                    | SteelVal::Void
+                                    | SteelVal::StringV(_)
+                                    | SteelVal::FuncV(_)
+                                    | SteelVal::SymbolV(_)
+                                    | SteelVal::FutureFunc(_)
+                                    | SteelVal::FutureV(_)
+                                    | SteelVal::BoxedFunction(_)
+                                    | SteelVal::MutFunc(_)
+                                    | SteelVal::BuiltIn(_)
+                                    | SteelVal::BigNum(_)
+                                    | SteelVal::MutableVector(_) => continue,
+                                    SteelVal::ListV(l) => {
+                                        // println!("Value: {}", l.strong_count());
+                                        if l.strong_count() == 1 {
                                             drop_buffer.push_back(value);
                                         }
+                                    }
+                                    _ => {
+                                        drop_buffer.push_back(value);
                                     }
                                 }
                             }
@@ -189,34 +187,32 @@ mod list_drop_handler {
                         } else {
                             let mut drop_buffer = VecDeque::new();
 
-                            if let Some(iter) = core::mem::take(obj).draining_iterator() {
-                                for value in iter {
-                                    match &value {
-                                        SteelVal::BoolV(_)
-                                        | SteelVal::NumV(_)
-                                        | SteelVal::IntV(_)
-                                        | SteelVal::CharV(_)
-                                        | SteelVal::Void
-                                        | SteelVal::StringV(_)
-                                        | SteelVal::FuncV(_)
-                                        | SteelVal::SymbolV(_)
-                                        | SteelVal::FutureFunc(_)
-                                        | SteelVal::FutureV(_)
-                                        | SteelVal::BoxedFunction(_)
-                                        | SteelVal::MutFunc(_)
-                                        | SteelVal::BuiltIn(_)
-                                        | SteelVal::BigNum(_)
-                                        | SteelVal::MutableVector(_) => continue,
+                            for value in core::mem::take(obj).draining_iterator() {
+                                match &value {
+                                    SteelVal::BoolV(_)
+                                    | SteelVal::NumV(_)
+                                    | SteelVal::IntV(_)
+                                    | SteelVal::CharV(_)
+                                    | SteelVal::Void
+                                    | SteelVal::StringV(_)
+                                    | SteelVal::FuncV(_)
+                                    | SteelVal::SymbolV(_)
+                                    | SteelVal::FutureFunc(_)
+                                    | SteelVal::FutureV(_)
+                                    | SteelVal::BoxedFunction(_)
+                                    | SteelVal::MutFunc(_)
+                                    | SteelVal::BuiltIn(_)
+                                    | SteelVal::BigNum(_)
+                                    | SteelVal::MutableVector(_) => continue,
 
-                                        SteelVal::ListV(l) => {
-                                            if l.strong_count() == 1 {
-                                                drop_buffer.push_back(value);
-                                            }
-                                        }
-
-                                        _ => {
+                                    SteelVal::ListV(l) => {
+                                        if l.strong_count() == 1 {
                                             drop_buffer.push_back(value);
                                         }
+                                    }
+
+                                    _ => {
+                                        drop_buffer.push_back(value);
                                     }
                                 }
                             }
@@ -226,32 +222,30 @@ mod list_drop_handler {
                     .is_err()
                 {
                     let mut drop_buffer = VecDeque::new();
-                    if let Some(iter) = core::mem::take(obj).draining_iterator() {
-                        for value in iter {
-                            match &value {
-                                SteelVal::BoolV(_)
-                                | SteelVal::NumV(_)
-                                | SteelVal::IntV(_)
-                                | SteelVal::CharV(_)
-                                | SteelVal::Void
-                                | SteelVal::StringV(_)
-                                | SteelVal::FuncV(_)
-                                | SteelVal::SymbolV(_)
-                                | SteelVal::FutureFunc(_)
-                                | SteelVal::FutureV(_)
-                                | SteelVal::BoxedFunction(_)
-                                | SteelVal::MutFunc(_)
-                                | SteelVal::BuiltIn(_)
-                                | SteelVal::BigNum(_)
-                                | SteelVal::MutableVector(_) => continue,
-                                SteelVal::ListV(l) => {
-                                    if l.strong_count() == 1 {
-                                        drop_buffer.push_back(value);
-                                    }
-                                }
-                                _ => {
+                    for value in core::mem::take(obj).draining_iterator() {
+                        match &value {
+                            SteelVal::BoolV(_)
+                            | SteelVal::NumV(_)
+                            | SteelVal::IntV(_)
+                            | SteelVal::CharV(_)
+                            | SteelVal::Void
+                            | SteelVal::StringV(_)
+                            | SteelVal::FuncV(_)
+                            | SteelVal::SymbolV(_)
+                            | SteelVal::FutureFunc(_)
+                            | SteelVal::FutureV(_)
+                            | SteelVal::BoxedFunction(_)
+                            | SteelVal::MutFunc(_)
+                            | SteelVal::BuiltIn(_)
+                            | SteelVal::BigNum(_)
+                            | SteelVal::MutableVector(_) => continue,
+                            SteelVal::ListV(l) => {
+                                if l.strong_count() == 1 {
                                     drop_buffer.push_back(value);
                                 }
+                            }
+                            _ => {
+                                drop_buffer.push_back(value);
                             }
                         }
                     }

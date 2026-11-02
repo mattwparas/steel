@@ -3787,8 +3787,7 @@ fn module_exports_of_a_module_providing_imported_macros() {
     let mut engine = transformer_engine();
     engine.register_steel_module(
         "tf/again-all".to_owned(),
-        r#"(require "macros/defines") (provide mac pmac (all-from-out "macros/defines"))"#
-            .to_owned(),
+        r#"(require "macros/defines") (provide mac (all-from-out "macros/defines"))"#.to_owned(),
     );
     assert_eq!(
         last(
@@ -3832,5 +3831,27 @@ fn regexp_replace_inserts() {
         )
         .to_string(),
         r#"("x[baab&\\0]y" "f00")"#
+    );
+}
+
+#[test]
+fn all_from_out_provides_procedural_macros_through_more_modules() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "macros/all-again".to_owned(),
+        r#"(require "macros/defines") (provide (all-from-out "macros/defines"))"#.to_owned(),
+    );
+    engine.register_steel_module(
+        "macros/all-twice".to_owned(),
+        r#"(require "macros/all-again") (provide (all-from-out "macros/all-again"))"#.to_owned(),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require (prefix-in z: "macros/all-twice"))
+               (list (z:plain 1) (z:mac 2) (z:pmac 3))"#
+        )
+        .to_string(),
+        "((plain 1) (helper 2) (p 3))"
     );
 }

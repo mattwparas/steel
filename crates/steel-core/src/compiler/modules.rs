@@ -2286,7 +2286,10 @@ fn imported_variables(
     imported_names(require_object, module)
         .into_iter()
         .filter(|(local, original)| {
-            !module.macro_map.contains_key(original) && !macros.contains_key(local)
+            !module.macro_map.contains_key(original)
+                && !macros.contains_key(local)
+                && !module.provides_for_syntax.contains(original)
+                && !module.reexports.iter().any(|x| x.provided == *original)
         })
         .map(|(local, _)| local)
         .collect()
@@ -2340,37 +2343,39 @@ fn imported_names(
         explicit.entry(from).or_default().push(to);
     }
 
-    let mut names = Vec::new();
-    for provide_expr in &module.provides {
-        let Some(provides) = provide_expr.list() else {
-            continue;
-        };
-        for provide in provides.args.iter().skip(1) {
-            let name = match provide {
-                ExprKind::Atom(_) => provide.atom_identifier(),
-                ExprKind::List(l) if l.first_ident() == Some(&*REQUIRE_IDENT_SPEC) => {
-                    l.args.get(1).and_then(ExprKind::atom_identifier)
-                }
-                _ => None,
-            };
-            let Some(name) = name.copied() else {
-                continue;
-            };
-            let locals = if explicit.is_empty() {
-                vec![name]
-            } else {
-                match explicit.get(&name) {
-                    Some(locals) => locals.clone(),
-                    None => continue,
-                }
-            };
-            for local in locals {
-                let local = match &require_object.prefix {
-                    Some(prefix) => (prefix.clone() + local.resolve()).into(),
-                    None => local,
-                };
-                names.push((local, name));
+    // Procedural macros and re-exported macros too
+    let provided = module
+        .provides
+        .iter()
+        .filter_map(ExprKind::list)
+        .flat_map(|provides| provides.args.iter().skip(1))
+        .filter_map(|provide| match provide {
+            ExprKind::Atom(_) => provide.atom_identifier(),
+            ExprKind::List(l) if l.first_ident() == Some(&*REQUIRE_IDENT_SPEC) => {
+                l.args.get(1).and_then(ExprKind::atom_identifier)
             }
+            _ => None,
+        })
+        .copied()
+        .chain(module.provides_for_syntax.iter().copied())
+        .chain(module.reexports.iter().map(|x| x.provided));
+
+    let mut names = Vec::new();
+    for name in provided {
+        let locals = if explicit.is_empty() {
+            vec![name]
+        } else {
+            match explicit.get(&name) {
+                Some(locals) => locals.clone(),
+                None => continue,
+            }
+        };
+        for local in locals {
+            let local = match &require_object.prefix {
+                Some(prefix) => (prefix.clone() + local.resolve()).into(),
+                None => local,
+            };
+            names.push((local, name));
         }
     }
     names
