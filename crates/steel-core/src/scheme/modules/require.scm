@@ -4,7 +4,11 @@
          subtract-in
          filtered-in
          path-up
-         multi-in)
+         multi-in
+         values-in
+         macros-in
+         glob-in
+         optional-in)
 
 (define-syntax matching-identifiers-in
   (make-require-transformer
@@ -87,3 +91,45 @@
     [(_ sub ...)
      (cons '#%require-specs
            (map (lambda (path) (datum->syntax stx path)) (paths (syntax->list #'(sub ...)))))]))
+
+(begin-for-syntax
+  (define (imports-of-kind stx kind)
+    (syntax-case stx ()
+      [(_ spec)
+       (let-values ([(imports sources) (expand-import #'spec)])
+         (values (filter (lambda (i)
+                           (let-values ([(variables syntax) (module->exports (import-src-mod-path i))])
+                             (member (import-src-sym i)
+                                     (map car (cdr (car (if (equal? kind 'variable) variables syntax)))))))
+                         imports)
+                 sources))])))
+
+(define-syntax values-in
+  (make-require-transformer (lambda (stx) (imports-of-kind stx 'variable))))
+
+(define-syntax macros-in
+  (make-require-transformer (lambda (stx) (imports-of-kind stx 'syntax))))
+
+(define-syntax (glob-in stx)
+  (syntax-case stx ()
+    [(_ pattern ...)
+     (cons '#%require-specs
+           (apply append
+                  (map (lambda (pattern)
+                         (map (lambda (path) (datum->syntax pattern path))
+                              (#%glob (syntax-e pattern))))
+                       (syntax->list #'(pattern ...)))))]))
+
+(define-syntax (optional-in stx)
+  (syntax-case stx ()
+    [(_ path entry ...)
+     (let ([entries (map (lambda (entry)
+                           (if (list? (syntax-e entry))
+                               (syntax->list entry)
+                               (list entry #f)))
+                         (syntax->list #'(entry ...)))])
+       (cond
+         [(not (#%spec-answer 'exists #'path))
+          (cons '#%require-fallbacks entries)]
+         [(null? entries) #'path]
+         [else (cons 'only-in (cons #'path (map car entries)))]))]))

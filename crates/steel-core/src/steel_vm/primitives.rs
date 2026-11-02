@@ -3421,6 +3421,49 @@ fn syntax_module() -> BuiltInModule {
                 .map(|path| SteelVal::StringV(path.to_string_lossy().as_ref().into()))
                 .unwrap_or(SteelVal::BoolV(false))
         })
+        .register_fn("#%glob", |pattern: SteelString| {
+            fn matches(pattern: &[u8], name: &[u8]) -> bool {
+                match (pattern.first(), name.first()) {
+                    (None, None) => true,
+                    (Some(b'*'), _) => {
+                        matches(&pattern[1..], name)
+                            || (!name.is_empty() && matches(pattern, &name[1..]))
+                    }
+                    (Some(b'?'), Some(_)) => matches(&pattern[1..], &name[1..]),
+                    (Some(p), Some(n)) => p == n && matches(&pattern[1..], &name[1..]),
+                    _ => false,
+                }
+            }
+            let module = crate::parser::expand_visitor::current_module()
+                .filter(|x| x.resolve() != "top-level")
+                .map(|x| std::path::PathBuf::from(x.resolve()));
+            let start = match module.as_ref().and_then(|x| x.parent()) {
+                Some(dir) => dir.to_path_buf(),
+                None => std::env::current_dir().unwrap_or_default(),
+            };
+            let (dir, file) = match pattern.as_str().rsplit_once('/') {
+                Some((dir, file)) => (Some(dir), file),
+                None => (None, pattern.as_str()),
+            };
+            let mut names: Vec<String> = std::fs::read_dir(start.join(dir.unwrap_or("")))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|x| x.path().is_file())
+                .filter_map(|x| x.file_name().into_string().ok())
+                .filter(|x| matches(file.as_bytes(), x.as_bytes()))
+                .collect();
+            names.sort();
+            SteelVal::ListV(
+                names
+                    .into_iter()
+                    .map(|x| match dir {
+                        Some(dir) => SteelVal::StringV(format!("{dir}/{x}").into()),
+                        None => SteelVal::StringV(x.into()),
+                    })
+                    .collect(),
+            )
+        })
         .register_fn("#%current-module-path", || {
             crate::parser::expand_visitor::current_module()
                 .filter(|x| x.resolve() != "top-level")

@@ -3653,3 +3653,41 @@ fn transformer_specs_written_by_macros_and_for_syntax() {
         "(1 2)"
     );
 }
+
+#[test]
+fn steel_require_and_provide_extras() {
+    let mut engine = transformer_engine();
+    engine.register_steel_module(
+        "tf/vm".to_owned(),
+        r#"(provide v m dm)
+           (define v 1)
+           (define-syntax m (syntax-rules () [(_) 2]))
+           (defmacro (dm stx) 3)"#
+            .to_owned(),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require "steel/require")
+               (require (prefix-in v: (values-in "tf/vm")) (prefix-in s: (macros-in "tf/vm")))
+               (require (optional-in "tf/nowhere" [missing (lambda () 'fallback)] unset))
+               (require (optional-in "tf/s" str-a))
+               (list v:v (s:m) (s:dm) (missing) unset str-a)"#
+        )
+        .to_string(),
+        "(1 2 3 fallback #false 1)"
+    );
+    for (program, name) in [
+        (
+            r#"(require "steel/require") (require (values-in "tf/vm")) (m)"#,
+            "m",
+        ),
+        (
+            r#"(require "steel/require") (require (macros-in "tf/vm")) v"#,
+            "v",
+        ),
+    ] {
+        let err = engine.compile_and_run_raw_program(program).unwrap_err();
+        assert!(err.to_string().contains(name), "{err}");
+    }
+}
