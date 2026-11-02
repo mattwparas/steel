@@ -1012,6 +1012,10 @@ impl Compiler {
         expanded_statements: &mut Vec<ExprKind>,
         path: Option<PathBuf>,
     ) -> Result<()> {
+        let _require_context = crate::compiler::modules::RequireContextGuard::set(
+            self.module_manager
+                .require_context(path.as_deref(), &self.search_dirs),
+        );
         let variables = self.top_level_variables.clone();
         let expanded = self.expand_top_level_forms(expanded_statements, path);
         if expanded.is_err() {
@@ -1189,13 +1193,8 @@ impl Compiler {
         crate::compiler::modules::split_for_syntax(require);
 
         let mut specs = Vec::new();
-        let mut definitions = Vec::new();
         for spec in &require.modules {
             for expanded in self.expand_top_level_spec(spec, path)? {
-                if crate::compiler::modules::is_fallbacks(&expanded) {
-                    definitions.extend(crate::compiler::modules::fallback_definitions(&expanded)?);
-                    continue;
-                }
                 if !crate::compiler::modules::is_require_spec(&expanded) {
                     stop!(BadSyntax => crate::compiler::modules::not_a_require_spec(&expanded); crate::parser::span_visitor::get_span(&expanded));
                 }
@@ -1235,7 +1234,6 @@ impl Compiler {
             )?;
         }
 
-        compiled.extend(definitions);
         statements.splice(index..=index, compiled);
         Ok(())
     }

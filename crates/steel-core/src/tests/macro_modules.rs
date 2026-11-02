@@ -3670,8 +3670,8 @@ fn steel_require_and_provide_extras() {
             &mut engine,
             r#"(require "steel/require")
                (require (prefix-in v: (values-in "tf/vm")) (prefix-in s: (macros-in "tf/vm")))
-               (require (optional-in "tf/nowhere" [missing (lambda () 'fallback)] unset))
-               (require (optional-in "tf/s" str-a))
+               (optional-require "tf/nowhere" [missing (lambda () 'fallback)] unset)
+               (optional-require "tf/s" str-a)
                (list v:v (s:m) (s:dm) (missing) unset str-a)"#
         )
         .to_string(),

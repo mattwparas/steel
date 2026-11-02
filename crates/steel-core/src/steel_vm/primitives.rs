@@ -3464,6 +3464,9 @@ fn syntax_module() -> BuiltInModule {
                     .collect(),
             )
         })
+        .register_fn("#%module-exists?", |path: SteelString| {
+            crate::compiler::modules::module_exists(path.as_str())
+        })
         .register_fn("#%current-module-path", || {
             crate::parser::expand_visitor::current_module()
                 .filter(|x| x.resolve() != "top-level")

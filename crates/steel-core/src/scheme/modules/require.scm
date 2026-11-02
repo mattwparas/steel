@@ -8,7 +8,7 @@
          values-in
          macros-in
          glob-in
-         optional-in)
+         optional-require)
 
 (define-syntax matching-identifiers-in
   (make-require-transformer
@@ -120,7 +120,7 @@
                               (#%glob (syntax-e pattern))))
                        (syntax->list #'(pattern ...)))))]))
 
-(define-syntax (optional-in stx)
+(define-syntax (optional-require stx)
   (syntax-case stx ()
     [(_ path entry ...)
      (let ([entries (map (lambda (entry)
@@ -129,7 +129,9 @@
                                (list entry #f)))
                          (syntax->list #'(entry ...)))])
        (cond
-         [(not (#%spec-answer 'exists #'path))
-          (cons '#%require-fallbacks entries)]
-         [(null? entries) #'path]
-         [else (cons 'only-in (cons #'path (map car entries)))]))]))
+         [(not (#%module-exists? (syntax-e #'path)))
+          (if (null? entries)
+              'void
+              (cons 'begin (map (lambda (entry) (list 'define (first entry) (second entry))) entries)))]
+         [(null? entries) (list 'require #'path)]
+         [else (list 'require (cons 'only-in (cons #'path (map first entries))))]))]))

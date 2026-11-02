@@ -10,7 +10,6 @@ pub(crate) enum SpecRequest {
     Import(SteelVal),
     Export(SteelVal),
     Exports(SteelVal),
-    Exists(SteelVal),
 }
 
 thread_local! {
@@ -51,7 +50,6 @@ pub(crate) fn spec_answer(kind: SteelVal, value: SteelVal) -> Result<SteelVal> {
         "import" => SpecRequest::Import(value),
         "export" => SpecRequest::Export(value),
         "exports" => SpecRequest::Exports(value),
-        "exists" => SpecRequest::Exists(value),
         _ => stop!(BadSyntax => "#%spec-answer: unknown request: {}", kind),
     };
     REQUESTS.with(|x| x.borrow_mut().push((key, request)));

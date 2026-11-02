@@ -548,6 +548,23 @@ impl ModuleManager {
         module_builder.answer_pending(pending)
     }
 
+    pub(crate) fn require_context(
+        &self,
+        path: Option<&Path>,
+        search_dirs: &[PathBuf],
+    ) -> RequireContext {
+        let dir = match path {
+            Some(path) => path.to_path_buf(),
+            None => std::env::current_dir().unwrap_or_default(),
+        };
+        RequireContext::new(
+            &dir,
+            &self.custom_builtins,
+            &self.module_resolvers,
+            search_dirs,
+        )
+    }
+
     pub(crate) fn rollback_metadata(&mut self) {
         self.file_metadata = self.rollback_metadata.clone();
         self.compiled_modules.deferred = self.rollback_deferred.clone();
@@ -1569,7 +1586,6 @@ pub(crate) fn is_require_spec(spec: &ExprKind) -> bool {
         ExprKind::List(l) => l.first_ident().is_some_and(|x| {
             x.resolve() == "#%require-spec"
                 || (x.resolve() == "#%require-specs" && l.args[1..].iter().all(is_require_spec))
-                || x.resolve() == "#%require-fallbacks"
                 || (*x == *FOR_SYNTAX && l.args.get(1).is_some_and(is_require_spec))
         }),
         _ => false,
@@ -1602,33 +1618,73 @@ pub(crate) fn flatten_require_specs(spec: ExprKind, out: &mut Vec<ExprKind>) {
     }
 }
 
-pub(crate) fn is_fallbacks(spec: &ExprKind) -> bool {
-    spec.list()
-        .and_then(|x| x.first_ident())
-        .is_some_and(|x| x.resolve() == "#%require-fallbacks")
+pub(crate) struct RequireContext {
+    dir: PathBuf,
+    custom_builtins: Vec<String>,
+    resolvers: Vec<Arc<dyn SourceModuleResolver>>,
+    search_dirs: Vec<PathBuf>,
 }
 
-pub(crate) fn fallback_definitions(spec: &ExprKind) -> Result<Vec<ExprKind>> {
-    let Some(l) = spec.list() else {
-        return Ok(Vec::new());
-    };
-    l.args[1..]
-        .iter()
-        .map(|x| match x.list().map(|x| x.args.as_slice()) {
-            Some([name, value]) if name.atom_identifier().is_some() => Ok(expr_list![
-                ExprKind::atom(*crate::compiler::program::DEFINE),
-                name.clone(),
-                value.clone()
-            ]),
-            _ => stop!(BadSyntax => "#%require-fallbacks expects pairs of a name and its value"; x.span()),
-        })
-        .collect()
+impl RequireContext {
+    fn new(
+        name: &Path,
+        custom_builtins: &HashMap<String, String>,
+        resolvers: &[Arc<dyn SourceModuleResolver>],
+        search_dirs: &[PathBuf],
+    ) -> Self {
+        let mut dir = name.to_path_buf();
+        if dir.is_file() {
+            dir.pop();
+        }
+        RequireContext {
+            dir,
+            custom_builtins: custom_builtins.keys().cloned().collect(),
+            resolvers: resolvers.to_vec(),
+            search_dirs: search_dirs.to_vec(),
+        }
+    }
+}
+
+thread_local! {
+    static REQUIRE_CONTEXTS: core::cell::RefCell<Vec<RequireContext>> =
+        const { core::cell::RefCell::new(Vec::new()) };
+}
+
+pub(crate) struct RequireContextGuard;
+
+impl RequireContextGuard {
+    pub(crate) fn set(context: RequireContext) -> Self {
+        REQUIRE_CONTEXTS.with(|x| x.borrow_mut().push(context));
+        RequireContextGuard
+    }
+}
+
+impl Drop for RequireContextGuard {
+    fn drop(&mut self) {
+        REQUIRE_CONTEXTS.with(|x| x.borrow_mut().pop());
+    }
+}
+
+pub(crate) fn module_exists(path: &str) -> bool {
+    if BUILT_INS.iter().any(|x| x.0 == path) {
+        return true;
+    }
+    REQUIRE_CONTEXTS.with(|x| {
+        let contexts = x.borrow();
+        let Some(context) = contexts.last() else {
+            return Path::new(path).exists();
+        };
+        context.custom_builtins.iter().any(|x| x == path)
+            || context.resolvers.iter().any(|x| x.exists(path))
+            || context.dir.join(path).exists()
+            || cogs_home().is_some_and(|home| home.join(path).exists())
+            || context.search_dirs.iter().any(|x| x.join(path).exists())
+    })
 }
 
 pub(crate) enum PendingSpec {
     Imports(String, SteelVal, Vec<ExprKind>),
     Exports(String, SteelVal, ExprKind),
-    Exists(String, SteelVal, ExprKind),
 }
 
 const MAX_SPEC_ROUNDS: usize = 256;
@@ -1641,22 +1697,13 @@ pub(crate) fn expand_spec_requests(
 
     let mut pending = Vec::new();
     for (key, request) in requests {
-        let (SpecRequest::Import(stx)
-        | SpecRequest::Export(stx)
-        | SpecRequest::Exports(stx)
-        | SpecRequest::Exists(stx)) = &request;
+        let (SpecRequest::Import(stx) | SpecRequest::Export(stx) | SpecRequest::Exports(stx)) =
+            &request;
         let asked = stx.clone();
         let mut spec = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(stx)?;
-        match request {
-            SpecRequest::Exports(_) => {
-                pending.push(PendingSpec::Exports(key, asked, spec));
-                continue;
-            }
-            SpecRequest::Exists(_) => {
-                pending.push(PendingSpec::Exists(key, asked, spec));
-                continue;
-            }
-            _ => {}
+        if let SpecRequest::Exports(_) = request {
+            pending.push(PendingSpec::Exports(key, asked, spec));
+            continue;
         }
         match expand(&mut spec) {
             Ok(()) => {}
@@ -4266,9 +4313,6 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn spec_imports(&mut self, spec: &ExprKind) -> Result<Vec<SteelVal>> {
-        if is_fallbacks(spec) {
-            stop!(BadSyntax => "fallback definitions can't be inside another require spec"; crate::parser::span_visitor::get_span(spec));
-        }
         let object = self.load_for_introspection(spec)?;
         let Some(module) = self
             .compiled_modules
@@ -4369,22 +4413,6 @@ impl<'a> ModuleBuilder<'a> {
                 PendingSpec::Exports(key, asked, spec) => {
                     let exports = self.module_exports(&spec)?;
                     crate::parser::spec_requests::answer(key, &asked, exports);
-                }
-                PendingSpec::Exists(key, asked, spec) => {
-                    let require = crate::parser::ast::Require::new(
-                        vec![spec.clone()],
-                        SyntaxObject::new(
-                            TokenType::Require,
-                            crate::parser::span_visitor::get_span(&spec),
-                        ),
-                    );
-                    let exists = self
-                        .parse_require(&cogs_home(), &require, &spec, false)
-                        .is_ok_and(|x| match &x.path {
-                            PathOrBuiltIn::Path(path) => path.exists(),
-                            PathOrBuiltIn::BuiltIn(_) => true,
-                        });
-                    crate::parser::spec_requests::answer(key, &asked, SteelVal::BoolV(exists));
                 }
             }
         }
@@ -5048,6 +5076,12 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn compile_this_module(&mut self) -> Result<ExprKind> {
+        let _require_context = RequireContextGuard::set(RequireContext::new(
+            &self.name,
+            self.custom_builtins,
+            self.module_resolvers,
+            self.search_dirs,
+        ));
         // A begin's forms are module forms, so its procedural macros are loaded together with
         // the module's written ones
         let mut ast = splice_begins(core::mem::take(&mut self.source_ast));
@@ -5683,23 +5717,7 @@ impl<'a> ModuleBuilder<'a> {
                 continue;
             }
             spec_rounds = 0;
-            let (fallbacks, specs): (Vec<_>, Vec<_>) = specs.into_iter().partition(is_fallbacks);
             require.modules = specs;
-            let mut definitions = Vec::new();
-            for spec in &fallbacks {
-                definitions.extend(fallback_definitions(spec)?);
-            }
-            if !definitions.is_empty() {
-                let count = definitions.len();
-                ast.splice(index..index, definitions);
-                info.splice(
-                    index..index,
-                    vec![FormInfo::from_macro(form_info.span); count],
-                );
-                if let Some(last) = last_defining.as_mut().filter(|x| **x >= index) {
-                    *last += count;
-                }
-            }
             state = Some(many_expander.into_state());
             resume = index;
             // Later forms are expanded again with its macros
@@ -6568,12 +6586,8 @@ impl<'a> ModuleBuilder<'a> {
                                 None => later = true,
                             }
                         }
-                        // A spec using the module's own macros waits for the expansion, and
-                        // one that defines fallbacks is handled where it is
-                        if later
-                            || !specs.iter().all(is_require_spec)
-                            || specs.iter().any(is_fallbacks)
-                        {
+                        // A spec using the module's own macros waits for the expansion
+                        if later || !specs.iter().all(is_require_spec) {
                             exprs_without_requires.push(ExprKind::Require(r));
                             continue;
                         }
