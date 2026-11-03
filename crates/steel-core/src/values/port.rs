@@ -21,6 +21,7 @@ use crate::gc::Gc;
 use crate::gc::GcMut;
 use crate::rvals::Result;
 use crate::SteelVal;
+use steel_parser::parser::ParserState;
 
 // use crate::rvals::{new_rc_ref_cell, RcRefSteelVal};
 
@@ -75,6 +76,16 @@ impl core::fmt::Display for SteelPort {
 const MIN_CHUNK: usize = 8 * 1024;
 const MAX_STREAM_CHUNK: usize = 64 * 1024;
 
+// A read that stops because the source would block leaves the parser's state
+// here, so that the retry picks up where it left off instead of parsing the
+// pending bytes again. `pending` is how much was in front of the parser when it
+// stopped: the state may only be resumed on those same bytes with more appended.
+#[derive(Debug)]
+struct SuspendedRead {
+    state: ParserState,
+    pending: usize,
+}
+
 #[derive(Debug)]
 pub struct Peekable<R> {
     inner: R,
@@ -83,6 +94,7 @@ pub struct Peekable<R> {
     chunk: usize,
     consumed_any: bool,
     deadline: bool,
+    suspended: Option<Box<SuspendedRead>>,
 }
 
 impl<T> Peekable<T> {
@@ -94,6 +106,7 @@ impl<T> Peekable<T> {
             chunk: MIN_CHUNK,
             consumed_any: false,
             deadline: false,
+            suspended: None,
         }
     }
 
@@ -120,6 +133,7 @@ impl<T> Peekable<T> {
 
     pub fn consume(&mut self, amt: usize) {
         self.consumed_any |= amt > 0;
+        self.suspended = None;
         self.chunk = MIN_CHUNK;
         self.pos = usize::min(self.pos + amt, self.buf.len());
 
@@ -132,8 +146,21 @@ impl<T> Peekable<T> {
         }
     }
 
+    pub fn take_parse_state(&mut self) -> Option<ParserState> {
+        let saved = self.suspended.take()?;
+
+        (saved.pending <= self.pending().len()).then_some(saved.state)
+    }
+
+    pub fn save_parse_state(&mut self, state: Option<ParserState>) {
+        let pending = self.pending().len();
+
+        self.suspended = state.map(|state| Box::new(SuspendedRead { state, pending }));
+    }
+
     fn take_pending(&mut self, out: &mut Vec<u8>) {
         self.consumed_any |= self.pos < self.buf.len();
+        self.suspended = None;
         out.extend_from_slice(&self.buf[self.pos..]);
         self.buf.clear();
         self.pos = 0;
@@ -378,6 +405,7 @@ impl<R: Read> Peekable<R> {
         self.buf.splice(..self.pos, bytes.iter().copied());
         self.pos = 0;
         self.consumed_any = !at_source_start;
+        self.suspended = None;
     }
 
     fn put_back(&mut self, bytes: Vec<u8>, at_source_start: bool) {
@@ -386,6 +414,7 @@ impl<R: Read> Peekable<R> {
         self.buf = bytes;
         self.pos = 0;
         self.consumed_any = !at_source_start;
+        self.suspended = None;
     }
 
     fn read_line_peeked_unbuffered(&mut self, buf: &mut String) -> Result<MaybeBlocking<usize>> {
@@ -768,6 +797,32 @@ impl SteelPortRepr {
             SteelPortRepr::DynReader(br) => br.at_source_start(),
             SteelPortRepr::TcpStream(t) => t.at_source_start(),
             _ => false,
+        }
+    }
+
+    pub fn take_parse_state(&mut self) -> Option<ParserState> {
+        match self {
+            SteelPortRepr::FileInput(_, br) => br.take_parse_state(),
+            SteelPortRepr::StdInput(br) => br.take_parse_state(),
+            SteelPortRepr::StringInput(s) => s.take_parse_state(),
+            SteelPortRepr::ChildStdOutput(br) => br.take_parse_state(),
+            SteelPortRepr::ChildStdError(br) => br.take_parse_state(),
+            SteelPortRepr::DynReader(br) => br.take_parse_state(),
+            SteelPortRepr::TcpStream(t) => t.take_parse_state(),
+            _ => None,
+        }
+    }
+
+    pub fn save_parse_state(&mut self, state: Option<ParserState>) {
+        match self {
+            SteelPortRepr::FileInput(_, br) => br.save_parse_state(state),
+            SteelPortRepr::StdInput(br) => br.save_parse_state(state),
+            SteelPortRepr::StringInput(s) => s.save_parse_state(state),
+            SteelPortRepr::ChildStdOutput(br) => br.save_parse_state(state),
+            SteelPortRepr::ChildStdError(br) => br.save_parse_state(state),
+            SteelPortRepr::DynReader(br) => br.save_parse_state(state),
+            SteelPortRepr::TcpStream(t) => t.save_parse_state(state),
+            _ => {}
         }
     }
 

@@ -390,6 +390,15 @@
 (check-equal? "read, a datum before bytes that are not utf8 still reads"
               '(a)
               (read (open-input-bytevector #u8(40 97 41 32 255))))
+(check-equal? "read, a datum which ends where bytes that are not utf8 begin still reads"
+              42
+              (read (open-input-bytevector #u8(52 50 255))))
+(check-equal? "read, a datum in front of a sequence that is cut short still reads"
+              42
+              (read (open-input-bytevector #u8(52 50 195))))
+(check-err? "read, a sequence that is cut short is an error rather than the end of the source"
+            (read (open-input-bytevector #u8(195)))
+            'unreachable)
 
 (check-equal? "read, deeply nested list"
               1
