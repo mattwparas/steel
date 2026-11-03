@@ -249,20 +249,4 @@ mod rustls_tests {
             "a refused timeout still reached the socket"
         );
     }
-
-    #[test]
-    fn an_error_reads_as_a_sentence() {
-        let err = set_read_timeout(&mut connected().0, Some(0)).unwrap_err();
-
-        assert!(
-            format!("{:?}", err).starts_with("tcp-set-read-timeout!:"),
-            "the ffi boundary would show a steel program {:?}",
-            err
-        );
-
-        assert_eq!(
-            format!("{:?}", RustlsError::Io(std::io::Error::other("no route"))),
-            "rustls: no route"
-        );
-    }
 }

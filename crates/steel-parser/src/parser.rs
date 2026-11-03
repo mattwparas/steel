@@ -336,7 +336,7 @@ fn can_continue<S>(ty: &TokenType<S>) -> bool {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Awaiting {
+struct PendingPrefix {
     kind: PrefixKind,
     span: Span,
     saved_quote_context: bool,
@@ -379,10 +379,10 @@ enum Level {
         stack: Vec<Frame>,
         current_frame: Frame,
         last: Span,
-        awaiting: Option<Awaiting>,
+        pending: Option<PendingPrefix>,
         datum_comment_base: usize,
     },
-    TopPrefix(Awaiting),
+    TopPrefix(PendingPrefix),
 }
 
 #[derive(Debug)]
@@ -733,11 +733,11 @@ impl<'a> Parser<'a> {
                 stack,
                 current_frame,
                 last,
-                awaiting,
+                pending,
                 datum_comment_base,
             }) => {
                 self.datum_comment_base = datum_comment_base;
-                (stack, current_frame, last, awaiting)
+                (stack, current_frame, last, pending)
             }
             Some(Level::TopPrefix(_)) => unreachable!("handled before entering"),
             None => {
@@ -756,11 +756,11 @@ impl<'a> Parser<'a> {
             }
         };
 
-        if let Some(awaiting) = resuming {
-            match self.await_prefix(awaiting) {
+        if let Some(pending) = resuming {
+            match self.parse_prefixed(pending) {
                 Ok(inner) => current_frame.push(inner)?,
                 Err(err) => {
-                    return Err(self.suspend_level(err, stack, current_frame, last, Some(awaiting)))
+                    return Err(self.suspend_level(err, stack, current_frame, last, Some(pending)))
                 }
             }
         }
@@ -825,9 +825,9 @@ impl<'a> Parser<'a> {
                 | TokenType::QuasiQuote
                 | TokenType::UnquoteSplice => {
                     let kind = PrefixKind::from_token(&token.ty).expect("matched above");
-                    let awaiting = self.enter_prefix(kind, token.span, false, stack.len());
+                    let pending = self.enter_prefix(kind, token.span, false, stack.len());
 
-                    match self.await_prefix(awaiting) {
+                    match self.parse_prefixed(pending) {
                         Ok(inner) => current_frame.push(inner)?,
                         Err(err) => {
                             return Err(self.suspend_level(
@@ -835,7 +835,7 @@ impl<'a> Parser<'a> {
                                 stack,
                                 current_frame,
                                 last,
-                                Some(awaiting),
+                                Some(pending),
                             ))
                         }
                     }
@@ -1131,7 +1131,7 @@ impl<'a> Parser<'a> {
         stack: Vec<Frame>,
         current_frame: Frame,
         last: Span,
-        awaiting: Option<Awaiting>,
+        pending: Option<PendingPrefix>,
     ) -> ParseError {
         let resumable = self.incremental && !self.resume_blocked && self.needs_more_input(&err);
 
@@ -1140,7 +1140,7 @@ impl<'a> Parser<'a> {
                 stack,
                 current_frame,
                 last,
-                awaiting,
+                pending,
                 datum_comment_base: self.datum_comment_base,
             });
 
@@ -1149,24 +1149,24 @@ impl<'a> Parser<'a> {
 
         self.resume_blocked = true;
 
-        if let Some(awaiting) = awaiting {
-            self.undo_prefix(awaiting.kind, awaiting.saved_quote_context);
+        if let Some(pending) = pending {
+            self.exit_prefix(pending.kind, pending.saved_quote_context);
         }
 
         err
     }
 
-    fn suspend_top_prefix(&mut self, err: ParseError, awaiting: Awaiting) -> ParseError {
+    fn suspend_top_prefix(&mut self, err: ParseError, pending: PendingPrefix) -> ParseError {
         let resumable = self.incremental && !self.resume_blocked && self.needs_more_input(&err);
 
         if resumable {
-            self.levels.push(Level::TopPrefix(awaiting));
+            self.levels.push(Level::TopPrefix(pending));
 
             return err;
         }
 
         self.resume_blocked = true;
-        self.undo_prefix(awaiting.kind, awaiting.saved_quote_context);
+        self.exit_prefix(pending.kind, pending.saved_quote_context);
 
         err
     }
@@ -1177,7 +1177,7 @@ impl<'a> Parser<'a> {
         span: Span,
         top_level: bool,
         depth: usize,
-    ) -> Awaiting {
+    ) -> PendingPrefix {
         let saved_quote_context = self.quote_context;
 
         match kind {
@@ -1209,7 +1209,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Awaiting {
+        PendingPrefix {
             kind,
             span,
             saved_quote_context,
@@ -1219,15 +1219,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn await_prefix(&mut self, awaiting: Awaiting) -> Result<ExprKind> {
-        let Awaiting {
+    fn parse_prefixed(&mut self, pending: PendingPrefix) -> Result<ExprKind> {
+        let PendingPrefix {
             kind,
             span,
             saved_quote_context,
             top_level,
             nested_base,
             owner_base: _,
-        } = awaiting;
+        } = pending;
 
         if self.prefix_depth >= MAX_PREFIX_DEPTH {
             return Err(self.too_deep(span));
@@ -1271,7 +1271,7 @@ impl<'a> Parser<'a> {
                     let quoted = self.construct_quote_vec(inner, span);
                     let lowered = self.maybe_lower(quoted);
 
-                    self.undo_prefix(kind, saved_quote_context);
+                    self.exit_prefix(kind, saved_quote_context);
 
                     return lowered;
                 }
@@ -1295,7 +1295,7 @@ impl<'a> Parser<'a> {
             }
         };
 
-        self.undo_prefix(kind, saved_quote_context);
+        self.exit_prefix(kind, saved_quote_context);
 
         Ok(wrapped)
     }
@@ -1309,7 +1309,7 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn undo_prefix(&mut self, kind: PrefixKind, saved_quote_context: bool) {
+    fn exit_prefix(&mut self, kind: PrefixKind, saved_quote_context: bool) {
         match kind {
             PrefixKind::QuoteSyntax
             | PrefixKind::QuasiQuoteSyntax
@@ -1514,12 +1514,12 @@ impl<'a> Parser<'a> {
                 | TokenType::QuasiQuote
                 | TokenType::UnquoteSplice => {
                     let kind = PrefixKind::from_token(&res.ty).expect("matched above");
-                    let awaiting = self.enter_prefix(kind, res.span, true, 0);
+                    let pending = self.enter_prefix(kind, res.span, true, 0);
 
-                    match self.await_prefix(awaiting) {
+                    match self.parse_prefixed(pending) {
                         Ok(value) => maybe_return![Ok(value)],
                         Err(err) => {
-                            return Some(Err(self.suspend_top_prefix(err, awaiting)));
+                            return Some(Err(self.suspend_top_prefix(err, pending)));
                         }
                     }
                 }
@@ -1577,14 +1577,14 @@ impl<'a> Iterator for Parser<'a> {
 impl<'a> Parser<'a> {
     fn next_inner(&mut self) -> Option<Result<ExprKind>> {
         let resumed = match self.levels.last() {
-            Some(Level::TopPrefix(awaiting)) => {
-                let awaiting = *awaiting;
+            Some(Level::TopPrefix(pending)) => {
+                let pending = *pending;
                 self.levels.pop();
-                self.datum_comment_base = awaiting.owner_base;
+                self.datum_comment_base = pending.owner_base;
 
                 Some(
-                    self.await_prefix(awaiting)
-                        .map_err(|err| self.suspend_top_prefix(err, awaiting)),
+                    self.parse_prefixed(pending)
+                        .map_err(|err| self.suspend_top_prefix(err, pending)),
                 )
             }
             Some(Level::Frames { current_frame, .. }) => {

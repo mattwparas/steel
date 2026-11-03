@@ -1,6 +1,6 @@
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
-use steel_parser::compare::{check, one_shot, rework};
+use steel_parser::compare::{check, one_shot, relex_ratio};
 use steel_parser::parser::{Parser, SourceId};
 
 fn atom_strategy() -> impl Strategy<Value = String> {
@@ -142,7 +142,7 @@ proptest! {
 
     #[test]
     fn chunked_reading_does_not_reparse(input in long_source_strategy()) {
-        let factor = rework(&input, 8);
+        let factor = relex_ratio(&input, 8);
         prop_assert!(factor < 1.5, "reparsed {:.1}x for {:?}", factor, input);
     }
 }

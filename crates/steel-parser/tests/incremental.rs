@@ -1,4 +1,4 @@
-use steel_parser::compare::{check, rework};
+use steel_parser::compare::{check, relex_ratio};
 
 fn programs() -> impl Iterator<Item = &'static str> {
     static PROGRAMS: &[&str] = &[
@@ -141,7 +141,7 @@ fn a_long_datum_matches_one_shot() {
 #[test]
 fn a_long_datum_is_not_reparsed() {
     for shape in shapes() {
-        let factor = rework(&shape, 1);
+        let factor = relex_ratio(&shape, 1);
 
         assert!(
             factor < 1.5,
@@ -155,6 +155,6 @@ fn a_long_datum_is_not_reparsed() {
 #[test]
 fn short_datums_resume_too() {
     for input in programs() {
-        assert!(rework(input, 1) < 1.5, "reparsed {:?}", input);
+        assert!(relex_ratio(input, 1) < 1.5, "reparsed {:?}", input);
     }
 }

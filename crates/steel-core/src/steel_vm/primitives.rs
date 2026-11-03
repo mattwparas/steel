@@ -2839,6 +2839,7 @@ fn _lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
 mod read_datum_tests {
     use super::*;
     use crate::gc::Gc;
+    use crate::primitives::ports::would_block_objectp;
     use crate::values::port::Peekable;
     use std::io::{BufReader, Read, Write};
     use std::net::{TcpListener, TcpStream};
@@ -2957,10 +2958,6 @@ mod read_datum_tests {
         }
     }
 
-    fn would_block(value: &SteelVal) -> bool {
-        crate::primitives::ports::would_block_objectp(value)
-    }
-
     fn read_until_ready(port: &SteelPort) -> (SteelVal, usize) {
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut retries = 0;
@@ -2968,7 +2965,7 @@ mod read_datum_tests {
         loop {
             let value = read_one(port).unwrap();
 
-            if !would_block(&value) {
+            if !would_block_objectp(&value) {
                 return (value, retries);
             }
 
@@ -3068,7 +3065,7 @@ mod read_datum_tests {
     fn a_blocked_source_does_not_wait() {
         let port = port_over(Blocks);
 
-        assert!(would_block(&read_one(&port).unwrap()));
+        assert!(would_block_objectp(&read_one(&port).unwrap()));
     }
 
     #[test]
@@ -3159,7 +3156,7 @@ mod read_datum_tests {
     fn a_block_keeps_the_parsers_place() {
         let port = trickle("(a b c)", 4, true);
 
-        assert!(would_block(&read_one(&port).unwrap()));
+        assert!(would_block_objectp(&read_one(&port).unwrap()));
         assert!(
             is_suspended(&port),
             "the retry would parse those bytes again"
@@ -3171,7 +3168,7 @@ mod read_datum_tests {
     fn read_char_drops_the_parsers_place() {
         let port = trickle("(a b c)", 4, true);
 
-        assert!(would_block(&read_one(&port).unwrap()));
+        assert!(would_block_objectp(&read_one(&port).unwrap()));
         assert_eq!(
             port.read_char().unwrap(),
             MaybeBlocking::Nonblocking(Some('('))
@@ -3186,7 +3183,7 @@ mod read_datum_tests {
     fn read_line_drops_the_parsers_place() {
         let port = trickle("(a b\nc)", 4, true);
 
-        assert!(would_block(&read_one(&port).unwrap()));
+        assert!(would_block_objectp(&read_one(&port).unwrap()));
         assert!(is_suspended(&port));
 
         let line = wait_for(|| match port.read_line().unwrap() {
@@ -3206,7 +3203,7 @@ mod read_datum_tests {
     fn read_all_drops_the_parsers_place() {
         let port = trickle("(a b c)", 4, true);
 
-        assert!(would_block(&read_one(&port).unwrap()));
+        assert!(would_block_objectp(&read_one(&port).unwrap()));
         assert!(is_suspended(&port));
 
         let rest = wait_for(|| match port.read_all_str().unwrap() {
@@ -3236,7 +3233,7 @@ mod read_datum_tests {
         client.write_all(b"(a b").unwrap();
 
         wait_for(|| {
-            assert!(would_block(&read_one(&port).unwrap()));
+            assert!(would_block_objectp(&read_one(&port).unwrap()));
 
             (!port.port.read().pending().is_empty()).then_some(())
         });

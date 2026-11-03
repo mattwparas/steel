@@ -863,17 +863,16 @@ mod would_block_tests {
     use super::*;
     use crate::gc::Gc;
     use crate::rvals::SteelByteVector;
+    use std::io;
     use std::io::{BufReader, Read, Write};
     use std::net::{TcpListener, TcpStream};
+    use std::time::Duration;
 
     struct NothingReady;
 
     impl Read for NothingReady {
-        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "nothing ready",
-            ))
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::WouldBlock, "nothing ready"))
         }
     }
 
@@ -881,11 +880,8 @@ mod would_block_tests {
     struct RanOutOfTime;
 
     impl Read for RanOutOfTime {
-        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "timed out",
-            ))
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::TimedOut, "timed out"))
         }
     }
 
@@ -906,32 +902,34 @@ mod would_block_tests {
     }
 
     // The client end comes back so the connection stays open, not closed
-    fn blocked_tcp_port() -> (SteelPort, TcpStream) {
+    fn connected() -> (TcpStream, TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, _) = listener.accept().unwrap();
+
+        (server, client)
+    }
+
+    fn tcp_port(server: TcpStream) -> SteelPort {
+        SteelPort {
+            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::with_deadline(server))),
+        }
+    }
+
+    fn blocked_tcp_port() -> (SteelPort, TcpStream) {
+        let (server, client) = connected();
         server.set_nonblocking(true).unwrap();
 
-        let port = SteelPort {
-            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::with_deadline(server))),
-        };
-
-        (port, client)
+        (tcp_port(server), client)
     }
 
     fn timed_out_tcp_port(ms: u64) -> (SteelPort, TcpStream) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-        let (server, _) = listener.accept().unwrap();
+        let (server, client) = connected();
         server
-            .set_read_timeout(Some(std::time::Duration::from_millis(ms)))
+            .set_read_timeout(Some(Duration::from_millis(ms)))
             .unwrap();
 
-        let port = SteelPort {
-            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::with_deadline(server))),
-        };
-
-        (port, client)
+        (tcp_port(server), client)
     }
 
     #[test]

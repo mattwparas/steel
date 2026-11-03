@@ -262,6 +262,41 @@ pub fn with_stdin_piped(builder: SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(builder)
 }
 
+// Takes the port apart into a handle a child can use, putting it back if it cannot
+fn port_as_stdio(
+    name: &str,
+    direction: &str,
+    accepts: fn(&SteelPort) -> bool,
+    port: SteelVal,
+) -> Result<Stdio, SteelErr> {
+    let SteelVal::PortV(port) = port else {
+        stop!(TypeMismatch => format!("{name} expected a port in the second position, found: {port}"))
+    };
+
+    if !accepts(&port) {
+        stop!(TypeMismatch => format!("{name} expected {direction} port in the second position, found: {port}"))
+    }
+
+    let mut guard = port.port.write();
+    let inner = guard.take();
+
+    match inner.as_stdio() {
+        Ok(stdio) => Ok(stdio),
+        Err(err) => {
+            let buffered = err.is_buffered();
+            // Drop the guard before formatting, since display takes a lock
+            *guard = err.into_port();
+            drop(guard);
+
+            if buffered {
+                stop!(Generic => format!("{name}: the port has buffered data that cannot be handed to a child process, found: {port}"))
+            }
+
+            stop!(TypeMismatch => format!("{name} expected {direction} file port in the second position, found: {port}"))
+        }
+    }
+}
+
 /// Redirect stdout from the process to the given port
 ///
 /// (with-stdout process port) -> CommandBuilder?
@@ -280,39 +315,11 @@ pub fn with_stdin_piped(builder: SteelVal) -> Result<SteelVal, SteelErr> {
 #[function(name = "with-stdout")]
 pub fn with_stdout(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelErr> {
     let mut command_guard = CommandBuilder::as_mut_ref(&builder)?;
+    let stdio = port_as_stdio("with-stdout", "an output", SteelPort::is_output, port)?;
 
-    if let SteelVal::PortV(port) = port {
-        if port.is_output() {
-            let mut guard = port.port.write();
-            let inner = guard.take();
-            let as_stdio = inner.as_stdio();
-
-            match as_stdio {
-                Ok(value) => {
-                    command_guard.command.stdout(value);
-                }
-
-                Err(err) => {
-                    let buffered = err.is_buffered();
-                    // Drop the guard before formatting, since display takes a lock
-                    *guard = err.into_port();
-                    drop(guard);
-
-                    if buffered {
-                        stop!(Generic => format!("with-stdout: the port has buffered data that cannot be handed to a child process, found: {}", port))
-                    }
-
-                    stop!(TypeMismatch => format!("with-stdout expected an output file port in the second position, found: {}", port))
-                }
-            }
-        } else {
-            stop!(TypeMismatch => format!("with-stdout expected an output port in the second position, found: {}", port))
-        }
-    } else {
-        stop!(TypeMismatch => format!("with-stdout expected a port in the second position, found: {}", port))
-    }
-
+    command_guard.command.stdout(stdio);
     drop(command_guard);
+
     Ok(builder)
 }
 
@@ -334,38 +341,11 @@ pub fn with_stdout(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelE
 #[function(name = "with-stderr")]
 pub fn with_stderr(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelErr> {
     let mut command_guard = CommandBuilder::as_mut_ref(&builder)?;
+    let stdio = port_as_stdio("with-stderr", "an output", SteelPort::is_output, port)?;
 
-    if let SteelVal::PortV(port) = port {
-        if port.is_output() {
-            let mut guard = port.port.write();
-            let inner = guard.take();
-            let as_stdio = inner.as_stdio();
-
-            match as_stdio {
-                Ok(value) => {
-                    command_guard.command.stderr(value);
-                }
-
-                Err(err) => {
-                    let buffered = err.is_buffered();
-                    *guard = err.into_port();
-                    drop(guard);
-
-                    if buffered {
-                        stop!(Generic => format!("with-stderr: the port has buffered data that cannot be handed to a child process, found: {}", port))
-                    }
-
-                    stop!(TypeMismatch => format!("with-stderr expected an output file port in the second position, found: {}", port))
-                }
-            }
-        } else {
-            stop!(TypeMismatch => format!("with-stderr expected an output port in the second position, found: {}", port))
-        }
-    } else {
-        stop!(TypeMismatch => format!("with-stderr expected a port in the second position, found: {}", port))
-    }
-
+    command_guard.command.stderr(stdio);
     drop(command_guard);
+
     Ok(builder)
 }
 
@@ -387,38 +367,11 @@ pub fn with_stderr(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelE
 #[function(name = "with-stdin")]
 pub fn with_stdin(builder: SteelVal, port: SteelVal) -> Result<SteelVal, SteelErr> {
     let mut command_guard = CommandBuilder::as_mut_ref(&builder)?;
+    let stdio = port_as_stdio("with-stdin", "an input", SteelPort::is_input, port)?;
 
-    if let SteelVal::PortV(port) = port {
-        if port.is_input() {
-            let mut guard = port.port.write();
-            let inner = guard.take();
-            let as_stdio = inner.as_stdio();
-
-            match as_stdio {
-                Ok(value) => {
-                    command_guard.command.stdin(value);
-                }
-
-                Err(err) => {
-                    let buffered = err.is_buffered();
-                    *guard = err.into_port();
-                    drop(guard);
-
-                    if buffered {
-                        stop!(Generic => format!("with-stdin: the port has buffered data that cannot be handed to a child process, found: {}", port))
-                    }
-
-                    stop!(TypeMismatch => format!("with-stdin expected an input file port in the second position, found: {}", port))
-                }
-            }
-        } else {
-            stop!(TypeMismatch => format!("with-stdin expected an input port in the second position, found: {}", port))
-        }
-    } else {
-        stop!(TypeMismatch => format!("with-stdin expected a port in the second position, found: {}", port))
-    }
-
+    command_guard.command.stdin(stdio);
     drop(command_guard);
+
     Ok(builder)
 }
 

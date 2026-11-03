@@ -92,7 +92,7 @@ pub fn check(input: &str, chunk: usize) -> Result<(), String> {
     ))
 }
 
-pub fn rework(input: &str, chunk: usize) -> f64 {
+pub fn relex_ratio(input: &str, chunk: usize) -> f64 {
     let chunk = usize::max(chunk, 1);
 
     let mut once = Parser::new_flat(input, SourceId::none());

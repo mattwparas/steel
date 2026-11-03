@@ -992,7 +992,7 @@ pub fn empty_channel() -> SteelVal {
     }
 }
 
-/// Returns `#t` if the value is an disconnected-channel object.
+/// Returns `#t` if the value is a disconnected-channel object.
 ///
 /// (disconnected-channel-object? any/c) -> bool?
 #[function(name = "disconnected-channel-object?")]

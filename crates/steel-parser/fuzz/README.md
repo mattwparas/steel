@@ -1,6 +1,5 @@
 # Fuzzer for the parser
 
-
 ## Running
 
 ```sh
