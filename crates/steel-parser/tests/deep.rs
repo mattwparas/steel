@@ -23,7 +23,7 @@ fn stacked_prefixes_have_headroom() {
 }
 
 #[test]
-fn nesting_past_the_cap_is_an_error() {
+fn nesting_past_the_cap() {
     std::thread::Builder::new()
         .stack_size(2 * 1024 * 1024)
         .spawn(|| {
@@ -43,7 +43,7 @@ fn nesting_past_the_cap_is_an_error() {
 }
 
 #[test]
-fn a_datum_comment_does_not_outlive_a_failed_read() {
+fn a_failed_read_drops_a_datum_comment() {
     let parsed: Vec<_> = Parser::new_flat("#;(a] 1 2", SourceId::none())
         .map(|res| res.map(|expr| expr.to_string()).map_err(|_| ()))
         .collect();

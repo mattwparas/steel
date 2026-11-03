@@ -326,7 +326,7 @@ pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
 /// * [port] : input-port? = (current-input-port)
 #[function(name = "#%read-port-to-string")]
 pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
-    let (_, result) = nonblocking(port.read_all_str()?)?;
+    let (_, result) = expect_ready(port.read_all_str()?)?;
 
     Ok(SteelVal::StringV(result.into()))
 }
@@ -351,7 +351,7 @@ pub fn read_port_to_string_ready(port: &SteelPort) -> Result<SteelVal> {
 /// * [port] : input-port? = (current-input-port)
 #[function(name = "#%read-port-to-bytes")]
 pub fn read_port_to_bytes(port: &SteelPort) -> Result<SteelVal> {
-    let (_, result) = nonblocking(port.read_all_bytes()?)?;
+    let (_, result) = expect_ready(port.read_all_bytes()?)?;
 
     Ok(SteelVal::ByteVector(SteelByteVector::new(result)))
 }
@@ -467,7 +467,7 @@ fn line(size: usize, mut result: String) -> SteelVal {
 /// * port : input-port? = (current-input-port)
 #[function(name = "#%read-line")]
 pub fn read_line(port: &SteelPort) -> Result<SteelVal> {
-    let (size, result) = nonblocking(port.read_line()?)?;
+    let (size, result) = expect_ready(port.read_line()?)?;
 
     Ok(line(size, result))
 }
@@ -493,7 +493,7 @@ pub fn read_line_ready(port: &SteelPort) -> Result<SteelVal> {
 /// (read-line-from-port port?) -> string?
 #[function(name = "read-line-from-port")]
 pub fn read_line_from_port(port: &SteelPort) -> Result<SteelVal> {
-    let (size, result) = nonblocking(port.read_line()?)?;
+    let (size, result) = expect_ready(port.read_line()?)?;
 
     if size == 0 {
         Ok(eof())
@@ -690,7 +690,7 @@ pub fn would_block_objectp(value: &SteelVal) -> bool {
     }
 }
 
-fn nonblocking<T>(value: MaybeBlocking<T>) -> Result<T> {
+fn expect_ready<T>(value: MaybeBlocking<T>) -> Result<T> {
     match value {
         MaybeBlocking::Nonblocking(value) => Ok(value),
         MaybeBlocking::WouldBlock => {
@@ -935,7 +935,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn every_read_reports_a_blocked_port_the_same_way() {
+    fn every_read_reports_a_block() {
         let buf = SteelByteVector::new(vec![0; 4]);
 
         let reads: Vec<(&str, SteelVal)> = vec![
@@ -969,7 +969,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn every_waiting_read_raises_the_same_thing() {
+    fn every_waiting_read_raises_alike() {
         let raises: Vec<(&str, String)> = vec![
             ("read-line", read_line(&blocked_port()).unwrap_err()),
             (
@@ -999,7 +999,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn a_waiting_read_raises_the_same_thing_whatever_backs_the_port() {
+    fn a_waiting_read_raises_on_any_port() {
         let (tcp, _client) = blocked_tcp_port();
 
         assert_eq!(
@@ -1010,7 +1010,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn a_read_that_runs_out_of_time_reports_the_same_whichever_error_the_os_gives() {
+    fn a_timeout_reports_alike_on_any_os() {
         assert!(
             would_block_objectp(&read_line_ready(&timed_out_port()).unwrap()),
             "read-line* reported a timed out read as something other than would-block"
@@ -1044,7 +1044,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn a_read_that_runs_out_of_time_reports_what_a_non_blocking_one_does() {
+    fn a_timeout_reports_as_a_block() {
         let (timed_out, _client) = timed_out_tcp_port(50);
 
         assert!(
@@ -1063,7 +1063,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn a_read_that_runs_out_of_time_keeps_what_already_arrived() {
+    fn a_timeout_keeps_what_arrived() {
         let (timed_out, mut client) = timed_out_tcp_port(500);
 
         client.write_all(b"ab").unwrap();

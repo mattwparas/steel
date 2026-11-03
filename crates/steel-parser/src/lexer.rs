@@ -1129,7 +1129,7 @@ mod lexer_tests {
     }
 
     #[test]
-    fn a_resumed_lexer_carries_on_where_the_last_one_stopped() {
+    fn test_resume_continues() {
         let source = "(define (f x) (+ x 1))";
 
         let mut first = TokenStream::new(source, true, None);
@@ -1146,7 +1146,7 @@ mod lexer_tests {
     }
 
     #[test]
-    fn a_resumed_lexer_sees_input_appended_since_it_stopped() {
+    fn test_resume_sees_appended_input() {
         let prefix = "(a b";
 
         let mut first = TokenStream::new(prefix, true, None);
@@ -1165,7 +1165,7 @@ mod lexer_tests {
     }
 
     #[test]
-    fn rewinding_lexes_a_token_again_from_its_start() {
+    fn test_rewind_relexes_token() {
         let source = "abc def";
 
         let mut stream = TokenStream::new(source, true, None);
@@ -1183,7 +1183,7 @@ mod lexer_tests {
     }
 
     #[test]
-    fn a_shebang_is_only_stripped_at_the_start_of_a_source() {
+    fn test_shebang_only_at_start() {
         let source = "#!/usr/bin/steel\n(a)";
 
         let from_start: Vec<_> = token_stream(source).map(|t| t.ty).collect();

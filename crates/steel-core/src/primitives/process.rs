@@ -738,7 +738,7 @@ mod process_tests {
     }
 
     #[test]
-    fn with_stdin_rejects_a_value_that_is_not_a_port() {
+    fn with_stdin_rejects_a_non_port() {
         let err = with_stdin(builder(), SteelVal::IntV(1)).unwrap_err();
 
         assert!(err

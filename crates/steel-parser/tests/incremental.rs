@@ -128,7 +128,7 @@ fn chunked_matches_one_shot() {
 }
 
 #[test]
-fn chunked_matches_one_shot_on_a_large_datum() {
+fn a_long_datum_matches_one_shot() {
     for input in shapes() {
         for chunk in [1usize, 3, 17, 256] {
             if let Err(err) = check(&input, chunk) {

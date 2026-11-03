@@ -453,7 +453,7 @@ fn filter_test() {
 }
 
 #[test]
-fn the_readers_that_never_wait_are_reachable_from_scheme() {
+fn the_ready_readers_work_from_scheme() {
     let mut vm = Engine::new();
 
     let res = vm

@@ -342,7 +342,7 @@ impl<R: Read> Peekable<R> {
         }
     }
 
-    pub fn read_to_end_peeked(&mut self, buf: &mut Vec<u8>) -> Result<MaybeBlocking<usize>> {
+    pub fn read_to_end_pending(&mut self, buf: &mut Vec<u8>) -> Result<MaybeBlocking<usize>> {
         let at_source_start = self.at_source_start();
         let start = buf.len();
 
@@ -363,7 +363,7 @@ impl<R: Read> Peekable<R> {
         Ok(MaybeBlocking::Nonblocking(buf.len() - start))
     }
 
-    pub fn read_to_string_peeked(&mut self, buf: &mut String) -> Result<MaybeBlocking<usize>> {
+    pub fn read_to_string_pending(&mut self, buf: &mut String) -> Result<MaybeBlocking<usize>> {
         let at_source_start = self.at_source_start();
         let mut bytes = Vec::new();
 
@@ -414,7 +414,7 @@ impl<R: Read> Peekable<R> {
         self.suspended = None;
     }
 
-    fn read_line_peeked_unbuffered(&mut self, buf: &mut String) -> Result<MaybeBlocking<usize>> {
+    fn read_line_pending_unbuffered(&mut self, buf: &mut String) -> Result<MaybeBlocking<usize>> {
         let mut scanned = 0;
 
         loop {
@@ -465,7 +465,7 @@ impl<R> Peekable<BufReader<R>> {
 }
 
 impl<R: BufRead> Peekable<R> {
-    pub fn read_line_peeked(&mut self, buf: &mut String) -> Result<MaybeBlocking<usize>> {
+    pub fn read_line_pending(&mut self, buf: &mut String) -> Result<MaybeBlocking<usize>> {
         if let Some(pos) = self.pending().iter().position(|b| *b == b'\n') {
             return self.take_line(pos + 1, buf);
         }
@@ -483,7 +483,7 @@ impl<R: BufRead> Peekable<R> {
 }
 
 impl Peekable<Stdin> {
-    pub fn read_line_peeked_stdin(&mut self, buf: &mut String) -> Result<MaybeBlocking<usize>> {
+    pub fn read_line_pending_stdin(&mut self, buf: &mut String) -> Result<MaybeBlocking<usize>> {
         if let Some(pos) = self.pending().iter().position(|b| *b == b'\n') {
             return self.take_line(pos + 1, buf);
         }
@@ -744,13 +744,13 @@ impl SteelPortRepr {
 
     pub fn read_line(&mut self) -> Result<MaybeBlocking<(usize, String)>> {
         match self {
-            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_line_peeked),
-            SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_line_peeked_stdin),
-            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_line_peeked),
-            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_line_peeked),
-            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_line_peeked),
-            SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_line_peeked),
-            SteelPortRepr::TcpStream(t) => port_read_str_fn!(t, read_line_peeked_unbuffered),
+            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_line_pending),
+            SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_line_pending_stdin),
+            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_line_pending),
+            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_line_pending),
+            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_line_pending),
+            SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_line_pending),
+            SteelPortRepr::TcpStream(t) => port_read_str_fn!(t, read_line_pending_unbuffered),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
@@ -852,26 +852,26 @@ impl SteelPortRepr {
 
     pub fn read_all_str(&mut self) -> Result<MaybeBlocking<(usize, String)>> {
         match self {
-            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_to_string_peeked),
-            SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_to_string_peeked),
-            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_to_string_peeked),
-            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_to_string_peeked),
-            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_to_string_peeked),
-            SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_to_string_peeked),
-            SteelPortRepr::TcpStream(t) => port_read_str_fn!(t, read_to_string_peeked),
+            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_to_string_pending),
+            SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_to_string_pending),
+            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_to_string_pending),
+            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_to_string_pending),
+            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_to_string_pending),
+            SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_to_string_pending),
+            SteelPortRepr::TcpStream(t) => port_read_str_fn!(t, read_to_string_pending),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
 
     pub fn read_all_bytes(&mut self) -> Result<MaybeBlocking<(usize, Vec<u8>)>> {
         match self {
-            SteelPortRepr::FileInput(_, br) => port_read_vec_fn!(br, read_to_end_peeked),
-            SteelPortRepr::StdInput(br) => port_read_vec_fn!(br, read_to_end_peeked),
-            SteelPortRepr::StringInput(s) => port_read_vec_fn!(s, read_to_end_peeked),
-            SteelPortRepr::ChildStdOutput(br) => port_read_vec_fn!(br, read_to_end_peeked),
-            SteelPortRepr::ChildStdError(br) => port_read_vec_fn!(br, read_to_end_peeked),
-            SteelPortRepr::DynReader(br) => port_read_vec_fn!(br, read_to_end_peeked),
-            SteelPortRepr::TcpStream(t) => port_read_vec_fn!(t, read_to_end_peeked),
+            SteelPortRepr::FileInput(_, br) => port_read_vec_fn!(br, read_to_end_pending),
+            SteelPortRepr::StdInput(br) => port_read_vec_fn!(br, read_to_end_pending),
+            SteelPortRepr::StringInput(s) => port_read_vec_fn!(s, read_to_end_pending),
+            SteelPortRepr::ChildStdOutput(br) => port_read_vec_fn!(br, read_to_end_pending),
+            SteelPortRepr::ChildStdError(br) => port_read_vec_fn!(br, read_to_end_pending),
+            SteelPortRepr::DynReader(br) => port_read_vec_fn!(br, read_to_end_pending),
+            SteelPortRepr::TcpStream(t) => port_read_vec_fn!(t, read_to_end_pending),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
@@ -1433,7 +1433,7 @@ mod port_tests {
         }
     }
 
-    fn nonblocking<T>(value: MaybeBlocking<T>) -> T {
+    fn expect_ready<T>(value: MaybeBlocking<T>) -> T {
         match value {
             MaybeBlocking::Nonblocking(value) => value,
             MaybeBlocking::WouldBlock => panic!("expected the read to go through"),
@@ -1442,7 +1442,7 @@ mod port_tests {
 
     fn filled(bytes: &[u8]) -> Peekable<Cursor<Vec<u8>>> {
         let mut peekable = Peekable::new(Cursor::new(bytes.to_vec()));
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         peekable
     }
 
@@ -1456,7 +1456,7 @@ mod port_tests {
     }
 
     #[test]
-    fn consume_past_the_end_clamps_and_clears() {
+    fn consume_past_the_end_clears() {
         let mut peekable = filled(b"abc");
 
         peekable.consume(99);
@@ -1467,7 +1467,7 @@ mod port_tests {
     }
 
     #[test]
-    fn consume_compacts_once_the_buffer_is_mostly_drained() {
+    fn consume_compacts_when_mostly_drained() {
         let mut peekable = filled(b"0123456789");
 
         peekable.consume(3);
@@ -1479,11 +1479,11 @@ mod port_tests {
     }
 
     #[test]
-    fn at_source_start_holds_until_something_is_handed_out() {
+    fn at_source_start_until_a_read() {
         let mut peekable = Peekable::new(Cursor::new(b"abc".to_vec()));
         assert!(peekable.at_source_start());
 
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         assert!(peekable.at_source_start(), "a fill hands nothing out");
 
         peekable.consume(0);
@@ -1497,10 +1497,10 @@ mod port_tests {
     }
 
     #[test]
-    fn read_byte_past_the_buffer_hands_a_byte_out() {
+    fn read_byte_past_the_buffer() {
         let mut peekable = Peekable::new(Cursor::new(b"abc".to_vec()));
 
-        assert_eq!(nonblocking(peekable.read_byte().unwrap()), Some(b'a'));
+        assert_eq!(expect_ready(peekable.read_byte().unwrap()), Some(b'a'));
         assert!(
             !peekable.at_source_start(),
             "the byte came straight from the source"
@@ -1508,11 +1508,11 @@ mod port_tests {
     }
 
     #[test]
-    fn read_bytes_past_the_buffer_hands_bytes_out() {
+    fn read_bytes_past_the_buffer() {
         let mut peekable = Peekable::new(Cursor::new(b"abc".to_vec()));
         let mut out = [0; 2];
 
-        assert_eq!(nonblocking(peekable.read_bytes_amt(&mut out).unwrap()), 2);
+        assert_eq!(expect_ready(peekable.read_bytes_amt(&mut out).unwrap()), 2);
         assert!(
             !peekable.at_source_start(),
             "the bytes came straight from the source"
@@ -1532,30 +1532,30 @@ mod port_tests {
     }
 
     #[test]
-    fn the_request_grows_while_a_datum_is_unfinished() {
+    fn the_chunk_grows_while_unfinished() {
         let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd", b"ef"]));
         assert_eq!(peekable.chunk, MIN_CHUNK);
 
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         assert_eq!(
             peekable.chunk, MIN_CHUNK,
             "nothing was pending, so no growth"
         );
 
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         assert_eq!(peekable.chunk, MIN_CHUNK * 2);
 
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         assert_eq!(peekable.chunk, MIN_CHUNK * 4);
         assert_eq!(peekable.pending(), b"abcdef");
     }
 
     #[test]
-    fn the_request_resets_once_a_datum_is_consumed() {
+    fn the_chunk_resets_on_consume() {
         let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd"]));
 
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         assert_eq!(peekable.chunk, MIN_CHUNK * 2);
 
         peekable.consume(1);
@@ -1563,11 +1563,11 @@ mod port_tests {
     }
 
     #[test]
-    fn the_request_never_exceeds_the_cap() {
+    fn the_chunk_is_capped() {
         let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd", b"ef"]));
 
-        nonblocking(peekable.fill_chunk(4).unwrap());
-        nonblocking(peekable.fill_chunk(4).unwrap());
+        expect_ready(peekable.fill_chunk(4).unwrap());
+        expect_ready(peekable.fill_chunk(4).unwrap());
 
         assert_eq!(peekable.chunk, 4);
     }
@@ -1576,17 +1576,17 @@ mod port_tests {
     fn an_interrupted_read_is_retried() {
         let mut peekable = Peekable::new(Interrupts { interrupted: false });
 
-        let amt = nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        let amt = expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
 
         assert_eq!(amt, 2);
         assert_eq!(peekable.pending(), b"ok");
     }
 
     #[test]
-    fn a_source_with_nothing_ready_leaves_the_buffer_alone() {
+    fn a_blocked_source_leaves_the_buffer() {
         let mut peekable = Peekable::new(Stalls::new(&[Some(b"abc"), None]));
 
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         assert_eq!(peekable.pending(), b"abc");
 
         assert!(matches!(
@@ -1605,7 +1605,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_source_that_ran_out_of_time_is_a_source_with_nothing_ready() {
+    fn a_timeout_reads_as_would_block() {
         let mut peekable = Peekable::with_deadline(RanOutOfTime);
 
         assert!(matches!(
@@ -1620,25 +1620,25 @@ mod port_tests {
 
         let mut line = String::new();
         assert!(matches!(
-            peekable.read_line_peeked_unbuffered(&mut line).unwrap(),
+            peekable.read_line_pending_unbuffered(&mut line).unwrap(),
             MaybeBlocking::WouldBlock
         ));
         assert_eq!(line, "");
     }
 
     #[test]
-    fn a_read_that_ran_out_of_time_partway_reports_what_it_already_took() {
+    fn a_timeout_keeps_what_it_took() {
         let mut peekable = Peekable::with_deadline(Timeouts {
             before: Some(b"abc"),
         });
 
         let mut buf = [0; 8];
-        assert_eq!(nonblocking(peekable.read_bytes_amt(&mut buf).unwrap()), 3);
+        assert_eq!(expect_ready(peekable.read_bytes_amt(&mut buf).unwrap()), 3);
         assert_eq!(&buf[..3], b"abc");
     }
 
     #[test]
-    fn a_source_that_cannot_have_a_deadline_reports_a_timeout_as_the_error_it_is() {
+    fn a_timeout_without_a_deadline_errors() {
         let mut peekable = Peekable::new(Timeouts {
             before: Some(b"abc"),
         });
@@ -1654,92 +1654,92 @@ mod port_tests {
     fn peek_char_does_not_consume() {
         let mut peekable = Peekable::new(Cursor::new("hé".as_bytes().to_vec()));
 
-        assert_eq!(nonblocking(peekable.peek_char().unwrap()), Some('h'));
+        assert_eq!(expect_ready(peekable.peek_char().unwrap()), Some('h'));
         assert_eq!(
-            nonblocking(peekable.peek_char().unwrap()),
+            expect_ready(peekable.peek_char().unwrap()),
             Some('h'),
             "peeking twice gives the same character"
         );
 
-        assert_eq!(nonblocking(peekable.read_byte().unwrap()), Some(b'h'));
-        assert_eq!(nonblocking(peekable.peek_char().unwrap()), Some('é'));
+        assert_eq!(expect_ready(peekable.read_byte().unwrap()), Some(b'h'));
+        assert_eq!(expect_ready(peekable.peek_char().unwrap()), Some('é'));
     }
 
     #[test]
-    fn peek_char_waits_for_a_character_split_across_reads() {
+    fn peek_char_joins_a_split_character() {
         let mut peekable = Peekable::new(Chunks::new(&[&[0xC3], &[0xA9]]));
 
-        assert_eq!(nonblocking(peekable.peek_char().unwrap()), Some('é'));
+        assert_eq!(expect_ready(peekable.peek_char().unwrap()), Some('é'));
     }
 
     #[test]
-    fn peek_char_reports_bytes_that_are_not_utf8_and_leaves_them() {
+    fn peek_char_reports_bad_utf8() {
         let mut peekable = Peekable::new(Cursor::new(vec![0xFF, b'a']));
 
         assert_eq!(
-            nonblocking(peekable.peek_char().unwrap()),
+            expect_ready(peekable.peek_char().unwrap()),
             Some(char::REPLACEMENT_CHARACTER)
         );
         assert_eq!(
-            nonblocking(peekable.peek_char().unwrap()),
+            expect_ready(peekable.peek_char().unwrap()),
             Some(char::REPLACEMENT_CHARACTER),
             "peeking again reports the same character"
         );
         assert_eq!(
-            nonblocking(peekable.read_byte().unwrap()),
+            expect_ready(peekable.read_byte().unwrap()),
             Some(0xFF),
             "and the byte is still there to be read"
         );
     }
 
     #[test]
-    fn peek_char_reports_a_character_the_source_cut_short() {
+    fn peek_char_reports_a_cut_character() {
         let mut peekable = Peekable::new(Cursor::new(vec![0xC3]));
 
         assert_eq!(
-            nonblocking(peekable.peek_char().unwrap()),
+            expect_ready(peekable.peek_char().unwrap()),
             Some(char::REPLACEMENT_CHARACTER)
         );
         assert_eq!(
-            nonblocking(peekable.peek_char().unwrap()),
+            expect_ready(peekable.peek_char().unwrap()),
             Some(char::REPLACEMENT_CHARACTER),
             "peeking again reports the same character"
         );
         assert_eq!(
-            nonblocking(peekable.read_char().unwrap()),
+            expect_ready(peekable.read_char().unwrap()),
             Some(char::REPLACEMENT_CHARACTER)
         );
         assert_eq!(
-            nonblocking(peekable.read_char().unwrap()),
+            expect_ready(peekable.read_char().unwrap()),
             None,
             "reading is what moves past the stub"
         );
     }
 
     #[test]
-    fn peek_char_at_the_end_is_nothing() {
+    fn peek_char_at_eof() {
         let mut peekable = Peekable::new(Cursor::new(Vec::new()));
 
-        assert_eq!(nonblocking(peekable.peek_char().unwrap()), None);
+        assert_eq!(expect_ready(peekable.peek_char().unwrap()), None);
     }
 
     #[test]
-    fn peek_char_leaves_a_byte_that_is_not_utf8_for_a_later_read_char() {
+    fn peek_char_leaves_bad_utf8_unread() {
         let mut peekable = Peekable::new(Cursor::new(vec![0xFF, b'a']));
 
         assert_eq!(
-            nonblocking(peekable.peek_char().unwrap()),
+            expect_ready(peekable.peek_char().unwrap()),
             Some(char::REPLACEMENT_CHARACTER)
         );
         assert_eq!(
-            nonblocking(peekable.read_char().unwrap()),
+            expect_ready(peekable.read_char().unwrap()),
             Some(char::REPLACEMENT_CHARACTER)
         );
-        assert_eq!(nonblocking(peekable.read_char().unwrap()), Some('a'));
+        assert_eq!(expect_ready(peekable.read_char().unwrap()), Some('a'));
     }
 
     #[test]
-    fn read_char_keeps_what_it_has_when_the_source_stalls() {
+    fn read_char_keeps_bytes_when_stalled() {
         let mut peekable = Peekable::new(Stalls::new(&[Some(&[0xCE]), None, Some(&[0xBB])]));
 
         assert!(matches!(
@@ -1747,14 +1747,14 @@ mod port_tests {
             MaybeBlocking::WouldBlock
         ));
         assert_eq!(peekable.pending(), &[0xCE]);
-        assert_eq!(nonblocking(peekable.read_char().unwrap()), Some('\u{3bb}'));
+        assert_eq!(expect_ready(peekable.read_char().unwrap()), Some('\u{3bb}'));
     }
 
     #[test]
-    fn read_char_takes_only_the_bytes_of_the_character_it_returns() {
+    fn read_char_takes_one_character() {
         let mut peekable = Peekable::new(Chunks::new(&[b"a", b"bc"]));
 
-        assert_eq!(nonblocking(peekable.read_char().unwrap()), Some('a'));
+        assert_eq!(expect_ready(peekable.read_char().unwrap()), Some('a'));
         assert_eq!(
             peekable.pending(),
             b"",
@@ -1763,102 +1763,102 @@ mod port_tests {
     }
 
     #[test]
-    fn read_char_joins_a_character_split_across_reads() {
+    fn read_char_joins_a_split_character() {
         let mut peekable = Peekable::new(Chunks::new(&[&[0xC3], &[0xA9], b"!"]));
 
-        assert_eq!(nonblocking(peekable.read_char().unwrap()), Some('\u{e9}'));
-        assert_eq!(nonblocking(peekable.read_char().unwrap()), Some('!'));
+        assert_eq!(expect_ready(peekable.read_char().unwrap()), Some('\u{e9}'));
+        assert_eq!(expect_ready(peekable.read_char().unwrap()), Some('!'));
     }
 
     #[test]
-    fn read_char_moves_past_bytes_that_are_not_utf8() {
+    fn read_char_moves_past_bad_utf8() {
         let mut peekable = Peekable::new(Cursor::new(vec![0xFF, b'a']));
 
         assert_eq!(
-            nonblocking(peekable.read_char().unwrap()),
+            expect_ready(peekable.read_char().unwrap()),
             Some(char::REPLACEMENT_CHARACTER)
         );
-        assert_eq!(nonblocking(peekable.read_char().unwrap()), Some('a'));
+        assert_eq!(expect_ready(peekable.read_char().unwrap()), Some('a'));
     }
 
     #[test]
-    fn read_char_reports_a_character_the_source_cut_short() {
+    fn read_char_reports_a_cut_character() {
         let mut peekable = Peekable::new(Cursor::new(vec![0xC3]));
 
         assert_eq!(
-            nonblocking(peekable.read_char().unwrap()),
+            expect_ready(peekable.read_char().unwrap()),
             Some(char::REPLACEMENT_CHARACTER)
         );
-        assert_eq!(nonblocking(peekable.read_char().unwrap()), None);
+        assert_eq!(expect_ready(peekable.read_char().unwrap()), None);
     }
 
     #[test]
-    fn read_char_at_the_end_is_nothing() {
+    fn read_char_at_eof() {
         let mut peekable = Peekable::new(Cursor::new(Vec::new()));
 
-        assert_eq!(nonblocking(peekable.read_char().unwrap()), None);
+        assert_eq!(expect_ready(peekable.read_char().unwrap()), None);
     }
 
     #[test]
-    fn read_char_on_a_closed_port_is_the_end_of_the_source() {
+    fn read_char_on_a_closed_port() {
         let mut port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abc".to_vec())));
         port.close_port();
 
-        assert_eq!(nonblocking(port.read_char().unwrap()), None);
+        assert_eq!(expect_ready(port.read_char().unwrap()), None);
     }
 
     #[test]
-    fn peek_char_on_a_closed_port_is_the_end_of_the_source() {
+    fn peek_char_on_a_closed_port() {
         let mut port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abc".to_vec())));
         port.close_port();
 
-        assert_eq!(nonblocking(port.peek_char().unwrap()), None);
+        assert_eq!(expect_ready(port.peek_char().unwrap()), None);
     }
 
     #[test]
-    fn peek_char_on_an_output_port_is_refused() {
+    fn peek_char_on_an_output_port() {
         let mut port = SteelPortRepr::StringOutput(Vec::new());
 
         assert!(port.peek_char().is_err());
     }
 
     #[test]
-    fn read_byte_drains_the_buffer_before_the_source() {
+    fn read_byte_drains_the_buffer_first() {
         let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd"]));
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
 
-        assert_eq!(nonblocking(peekable.read_byte().unwrap()), Some(b'a'));
-        assert_eq!(nonblocking(peekable.read_byte().unwrap()), Some(b'b'));
-        assert_eq!(nonblocking(peekable.read_byte().unwrap()), Some(b'c'));
+        assert_eq!(expect_ready(peekable.read_byte().unwrap()), Some(b'a'));
+        assert_eq!(expect_ready(peekable.read_byte().unwrap()), Some(b'b'));
+        assert_eq!(expect_ready(peekable.read_byte().unwrap()), Some(b'c'));
     }
 
     #[test]
-    fn read_bytes_amt_spans_the_buffer_and_the_source() {
+    fn read_bytes_spans_buffer_and_source() {
         let mut peekable = Peekable::new(Chunks::new(&[b"abc", b"def"]));
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         assert_eq!(peekable.pending(), b"abc");
 
         let mut buf = [0; 5];
-        let amt = nonblocking(peekable.read_bytes_amt(&mut buf).unwrap());
+        let amt = expect_ready(peekable.read_bytes_amt(&mut buf).unwrap());
 
         assert_eq!(amt, 5);
         assert_eq!(&buf, b"abcde");
     }
 
     #[test]
-    fn read_to_end_includes_what_was_already_buffered() {
+    fn read_to_end_includes_the_buffer() {
         let mut peekable = Peekable::new(Chunks::new(&[b"abc", b"def"]));
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
 
         let mut out = Vec::new();
-        let amt = nonblocking(peekable.read_to_end_peeked(&mut out).unwrap());
+        let amt = expect_ready(peekable.read_to_end_pending(&mut out).unwrap());
 
         assert_eq!(amt, 6);
         assert_eq!(out, b"abcdef");
     }
 
     #[test]
-    fn a_read_that_breaks_partway_reports_what_it_already_took() {
+    fn a_broken_read_keeps_its_bytes() {
         let mut reader = Breaks {
             before: Some(b"abc"),
         };
@@ -1871,7 +1871,7 @@ mod port_tests {
     }
 
     #[test]
-    fn filling_keeps_the_bytes_it_read_before_the_source_broke() {
+    fn filling_keeps_bytes_before_a_break() {
         let mut peekable = Peekable::new(Breaks {
             before: Some(b"abc"),
         });
@@ -1882,7 +1882,7 @@ mod port_tests {
     }
 
     #[test]
-    fn read_bytes_keeps_the_bytes_it_took_before_the_source_broke() {
+    fn read_bytes_keeps_bytes_on_a_break() {
         let mut peekable = Peekable::new(Breaks {
             before: Some(b"abc"),
         });
@@ -1898,12 +1898,12 @@ mod port_tests {
     }
 
     #[test]
-    fn read_bytes_keeps_the_peeked_prefix_when_the_source_breaks() {
+    fn read_bytes_keeps_the_pending_prefix() {
         let mut peekable = Peekable::new(Breaks {
             before: Some(b"abc"),
         });
 
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         assert_eq!(peekable.pending(), b"abc");
 
         let mut buf = [0; 8];
@@ -1912,19 +1912,19 @@ mod port_tests {
         assert!(peekable.at_source_start());
 
         assert_eq!(
-            nonblocking(peekable.read_bytes_amt(&mut buf[..3]).unwrap()),
+            expect_ready(peekable.read_bytes_amt(&mut buf[..3]).unwrap()),
             3
         );
         assert_eq!(&buf[..3], b"abc");
     }
 
     #[test]
-    fn read_to_end_keeps_what_it_has_when_the_source_stalls() {
+    fn read_to_end_keeps_bytes_when_stalled() {
         let mut peekable = Peekable::new(Stalls::new(&[Some(b"abc"), None, Some(b"def")]));
 
         let mut bytes = Vec::new();
         assert_eq!(
-            peekable.read_to_end_peeked(&mut bytes).unwrap(),
+            peekable.read_to_end_pending(&mut bytes).unwrap(),
             MaybeBlocking::WouldBlock
         );
         assert_eq!(peekable.pending(), b"abc");
@@ -1932,22 +1932,22 @@ mod port_tests {
 
         bytes.clear();
         assert_eq!(
-            nonblocking(peekable.read_to_end_peeked(&mut bytes).unwrap()),
+            expect_ready(peekable.read_to_end_pending(&mut bytes).unwrap()),
             6
         );
         assert_eq!(bytes, b"abcdef");
     }
 
     #[test]
-    fn read_to_end_keeps_the_bytes_it_had_already_buffered() {
+    fn read_to_end_keeps_the_buffer() {
         let mut peekable = Peekable::new(Stalls::new(&[Some(b"abc"), None]));
 
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         assert_eq!(peekable.pending(), b"abc");
 
         let mut bytes = Vec::new();
         assert_eq!(
-            peekable.read_to_end_peeked(&mut bytes).unwrap(),
+            peekable.read_to_end_pending(&mut bytes).unwrap(),
             MaybeBlocking::WouldBlock
         );
         assert_eq!(
@@ -1958,35 +1958,35 @@ mod port_tests {
     }
 
     #[test]
-    fn read_to_string_keeps_what_it_has_when_the_source_stalls() {
+    fn read_to_string_keeps_bytes_when_stalled() {
         let mut peekable = Peekable::new(Stalls::new(&[Some(b"abc"), None, Some(b"def")]));
 
         let mut str = String::new();
         assert_eq!(
-            peekable.read_to_string_peeked(&mut str).unwrap(),
+            peekable.read_to_string_pending(&mut str).unwrap(),
             MaybeBlocking::WouldBlock
         );
         assert_eq!(str, "");
         assert_eq!(peekable.pending(), b"abc");
 
         assert_eq!(
-            nonblocking(peekable.read_to_string_peeked(&mut str).unwrap()),
+            expect_ready(peekable.read_to_string_pending(&mut str).unwrap()),
             6
         );
         assert_eq!(str, "abcdef");
     }
 
     #[test]
-    fn read_to_string_keeps_bytes_that_are_not_utf8() {
+    fn read_to_string_keeps_bad_utf8() {
         let mut peekable = Peekable::new(Cursor::new(vec![b'a', 0xFF]));
 
         let mut str = String::new();
-        assert!(peekable.read_to_string_peeked(&mut str).is_err());
+        assert!(peekable.read_to_string_pending(&mut str).is_err());
         assert_eq!(str, "");
 
         let mut bytes = Vec::new();
         assert_eq!(
-            nonblocking(peekable.read_to_end_peeked(&mut bytes).unwrap()),
+            expect_ready(peekable.read_to_end_pending(&mut bytes).unwrap()),
             2
         );
         assert_eq!(
@@ -1997,24 +1997,24 @@ mod port_tests {
     }
 
     #[test]
-    fn read_to_string_joins_a_character_split_across_the_boundary() {
+    fn read_to_string_joins_a_split_character() {
         let mut peekable = Peekable::new(Cursor::new("é".as_bytes().to_vec()));
-        nonblocking(peekable.fill(1).unwrap());
+        expect_ready(peekable.fill(1).unwrap());
         assert_eq!(peekable.pending(), &[0xC3]);
 
         let mut out = String::new();
-        let amt = nonblocking(peekable.read_to_string_peeked(&mut out).unwrap());
+        let amt = expect_ready(peekable.read_to_string_pending(&mut out).unwrap());
 
         assert_eq!(amt, 2);
         assert_eq!(out, "é");
     }
 
     #[test]
-    fn read_line_takes_a_line_that_is_already_buffered() {
+    fn read_line_takes_a_buffered_line() {
         let mut peekable = filled(b"ab\ncd");
 
         let mut out = String::new();
-        let amt = nonblocking(peekable.read_line_peeked(&mut out).unwrap());
+        let amt = expect_ready(peekable.read_line_pending(&mut out).unwrap());
 
         assert_eq!(amt, 3);
         assert_eq!(out, "ab\n");
@@ -2022,55 +2022,55 @@ mod port_tests {
     }
 
     #[test]
-    fn read_line_spans_the_buffer_and_the_source() {
+    fn read_line_spans_buffer_and_source() {
         let mut peekable = Peekable::new(Cursor::new(b"ab\ncd".to_vec()));
-        nonblocking(peekable.fill(1).unwrap());
+        expect_ready(peekable.fill(1).unwrap());
         assert_eq!(peekable.pending(), b"a");
 
         let mut out = String::new();
-        let amt = nonblocking(peekable.read_line_peeked(&mut out).unwrap());
+        let amt = expect_ready(peekable.read_line_pending(&mut out).unwrap());
 
         assert_eq!(amt, 3);
         assert_eq!(out, "ab\n");
     }
 
     #[test]
-    fn read_line_returns_a_last_line_without_a_newline() {
+    fn read_line_takes_a_last_line() {
         let mut peekable = filled(b"cd");
 
         let mut out = String::new();
-        let amt = nonblocking(peekable.read_line_peeked(&mut out).unwrap());
+        let amt = expect_ready(peekable.read_line_pending(&mut out).unwrap());
 
         assert_eq!(amt, 2);
         assert_eq!(out, "cd");
     }
 
     #[test]
-    fn read_line_keeps_the_peeked_prefix_when_the_source_stalls() {
+    fn read_line_keeps_the_prefix_when_stalled() {
         let mut peekable = Peekable::new(BufReader::new(Stalls::new(&[
             Some(b"half "),
             None,
             Some(b"a line\n"),
         ])));
 
-        assert_eq!(nonblocking(peekable.peek_char().unwrap()), Some('h'));
+        assert_eq!(expect_ready(peekable.peek_char().unwrap()), Some('h'));
 
         let mut line = String::new();
         assert_eq!(
-            peekable.read_line_peeked(&mut line).unwrap(),
+            peekable.read_line_pending(&mut line).unwrap(),
             MaybeBlocking::WouldBlock
         );
         assert_eq!(line, "");
 
         assert_eq!(
-            nonblocking(peekable.read_line_peeked(&mut line).unwrap()),
+            expect_ready(peekable.read_line_pending(&mut line).unwrap()),
             "half a line\n".len()
         );
         assert_eq!(line, "half a line\n");
     }
 
     #[test]
-    fn read_line_keeps_a_partial_line_nothing_had_peeked_yet() {
+    fn read_line_keeps_a_partial_line() {
         let mut peekable = Peekable::new(BufReader::new(Stalls::new(&[
             Some(b"half "),
             None,
@@ -2079,25 +2079,25 @@ mod port_tests {
 
         let mut line = String::new();
         assert_eq!(
-            peekable.read_line_peeked(&mut line).unwrap(),
+            peekable.read_line_pending(&mut line).unwrap(),
             MaybeBlocking::WouldBlock
         );
         assert_eq!(line, "");
 
         assert_eq!(
-            nonblocking(peekable.read_line_peeked(&mut line).unwrap()),
+            expect_ready(peekable.read_line_pending(&mut line).unwrap()),
             "half a line\n".len()
         );
         assert_eq!(line, "half a line\n");
     }
 
     #[test]
-    fn read_line_moves_the_port_past_the_source_start() {
+    fn read_line_leaves_the_source_start() {
         let mut peekable = Peekable::new(BufReader::new(Cursor::new(b"one\ntwo\n".to_vec())));
 
         let mut line = String::new();
         assert_eq!(
-            nonblocking(peekable.read_line_peeked(&mut line).unwrap()),
+            expect_ready(peekable.read_line_pending(&mut line).unwrap()),
             4
         );
         assert!(
@@ -2107,21 +2107,24 @@ mod port_tests {
     }
 
     #[test]
-    fn read_line_at_the_end_is_zero() {
+    fn read_line_at_eof_is_zero() {
         let mut peekable = Peekable::new(Cursor::new(Vec::new()));
 
         let mut out = String::new();
 
-        assert_eq!(nonblocking(peekable.read_line_peeked(&mut out).unwrap()), 0);
+        assert_eq!(
+            expect_ready(peekable.read_line_pending(&mut out).unwrap()),
+            0
+        );
         assert_eq!(out, "");
     }
 
     #[test]
-    fn a_string_port_never_asks_for_more_than_is_left() {
+    fn a_string_port_never_overreads() {
         let mut port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abc".to_vec())));
 
         assert!(port.at_source_start());
-        assert_eq!(nonblocking(port.fill_more().unwrap()), 3);
+        assert_eq!(expect_ready(port.fill_more().unwrap()), 3);
         assert_eq!(port.pending(), b"abc");
 
         port.consume_pending(1);
@@ -2129,14 +2132,14 @@ mod port_tests {
         assert!(!port.at_source_start());
 
         assert_eq!(
-            nonblocking(port.fill_more().unwrap()),
+            expect_ready(port.fill_more().unwrap()),
             0,
             "the source is spent"
         );
     }
 
     #[test]
-    fn as_stdio_rewinds_what_was_buffered_but_not_consumed() {
+    fn as_stdio_rewinds_the_buffer() {
         let path = std::env::temp_dir().join(format!("steel-as-stdio-{}.txt", std::process::id()));
         std::fs::write(&path, b"(a) remainder").unwrap();
 
@@ -2161,7 +2164,7 @@ mod port_tests {
     }
 
     #[test]
-    fn as_stdio_rewinds_bytes_the_bufreader_is_holding_too() {
+    fn as_stdio_rewinds_the_bufreader() {
         let path =
             std::env::temp_dir().join(format!("steel-as-stdio-buf-{}.txt", std::process::id()));
         std::fs::write(&path, b"(a) remainder").unwrap();
@@ -2170,7 +2173,7 @@ mod port_tests {
         let mut observer = file.try_clone().unwrap();
         let mut peekable = Peekable::new(BufReader::new(file));
 
-        nonblocking(peekable.fill_chunk(4).unwrap());
+        expect_ready(peekable.fill_chunk(4).unwrap());
         assert_eq!(peekable.pending(), b"(a) ");
         assert!(
             !peekable.inner.buffer().is_empty(),
@@ -2192,7 +2195,7 @@ mod port_tests {
     }
 
     #[test]
-    fn as_stdio_hands_over_an_untouched_file_port_whole() {
+    fn as_stdio_hands_over_a_file_port() {
         let path =
             std::env::temp_dir().join(format!("steel-as-stdio-cold-{}.txt", std::process::id()));
         std::fs::write(&path, b"whole file").unwrap();
@@ -2215,7 +2218,7 @@ mod port_tests {
 
     #[cfg(unix)]
     #[test]
-    fn as_stdio_refuses_a_file_port_that_cannot_seek() {
+    fn as_stdio_refuses_an_unseekable_port() {
         use std::os::unix::io::{FromRawFd, IntoRawFd};
 
         let (mut writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
@@ -2226,7 +2229,7 @@ mod port_tests {
         let file = unsafe { File::from_raw_fd(reader.into_raw_fd()) };
         let mut peekable = Peekable::new(BufReader::new(file));
 
-        nonblocking(peekable.fill_chunk(usize::MAX).unwrap());
+        expect_ready(peekable.fill_chunk(usize::MAX).unwrap());
         assert!(peekable.buffered() > 0);
         peekable.consume(4);
 
@@ -2239,7 +2242,7 @@ mod port_tests {
     }
 
     #[test]
-    fn as_stdio_refuses_a_port_that_is_not_a_child_handle() {
+    fn as_stdio_refuses_a_plain_port() {
         let port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abc".to_vec())));
 
         let Err(err) = port.as_stdio() else {
@@ -2251,7 +2254,7 @@ mod port_tests {
     }
 
     #[test]
-    fn the_would_block_object_is_not_the_end_of_the_source() {
+    fn would_block_is_not_eof() {
         let blocked = would_block();
 
         assert!(!crate::primitives::ports::eof_objectp(&blocked));
@@ -2269,44 +2272,44 @@ mod port_tests {
     }
 
     #[test]
-    fn read_line_without_buffering_spans_several_reads() {
+    fn unbuffered_read_line_spans_reads() {
         let mut peekable = Peekable::new(Chunks::new(&[b"abc", b"def\nrest"]));
 
         let mut line = String::new();
         assert_eq!(
-            nonblocking(peekable.read_line_peeked_unbuffered(&mut line).unwrap()),
+            expect_ready(peekable.read_line_pending_unbuffered(&mut line).unwrap()),
             "abcdef\n".len()
         );
         assert_eq!(line, "abcdef\n");
 
         let mut rest = String::new();
-        nonblocking(peekable.read_line_peeked_unbuffered(&mut rest).unwrap());
+        expect_ready(peekable.read_line_pending_unbuffered(&mut rest).unwrap());
         assert_eq!(rest, "rest");
     }
 
     #[test]
-    fn read_line_without_buffering_ends_with_the_source() {
+    fn unbuffered_read_line_ends_at_eof() {
         let mut peekable = Peekable::new(Chunks::new(&[b"no newline here"]));
 
         let mut line = String::new();
-        nonblocking(peekable.read_line_peeked_unbuffered(&mut line).unwrap());
+        expect_ready(peekable.read_line_pending_unbuffered(&mut line).unwrap());
         assert_eq!(line, "no newline here");
 
         let mut nothing = String::new();
         assert_eq!(
-            nonblocking(peekable.read_line_peeked_unbuffered(&mut nothing).unwrap()),
+            expect_ready(peekable.read_line_pending_unbuffered(&mut nothing).unwrap()),
             0
         );
         assert_eq!(nothing, "");
     }
 
     #[test]
-    fn read_line_without_buffering_reports_a_source_that_blocks() {
+    fn unbuffered_read_line_reports_a_block() {
         let mut peekable = Peekable::new(Stalls::new(&[Some(b"half a line"), None]));
 
         let mut line = String::new();
         assert_eq!(
-            peekable.read_line_peeked_unbuffered(&mut line).unwrap(),
+            peekable.read_line_pending_unbuffered(&mut line).unwrap(),
             MaybeBlocking::WouldBlock
         );
         assert_eq!(line, "");
@@ -2314,39 +2317,39 @@ mod port_tests {
     }
 
     #[test]
-    fn read_line_without_buffering_moves_past_a_line_that_is_not_utf8() {
+    fn unbuffered_read_line_skips_bad_utf8() {
         let mut peekable = Peekable::new(Chunks::new(&[b"bad \xff\n", b"good\n"]));
 
         let mut line = String::new();
-        assert!(peekable.read_line_peeked_unbuffered(&mut line).is_err());
+        assert!(peekable.read_line_pending_unbuffered(&mut line).is_err());
 
         assert_eq!(
-            nonblocking(peekable.read_line_peeked_unbuffered(&mut line).unwrap()),
+            expect_ready(peekable.read_line_pending_unbuffered(&mut line).unwrap()),
             "good\n".len()
         );
         assert_eq!(line, "good\n");
     }
 
     #[test]
-    fn read_line_without_buffering_finishes_a_line_the_source_stalled_on() {
+    fn unbuffered_read_line_after_a_stall() {
         let mut peekable = Peekable::new(Stalls::new(&[Some(b"half "), None, Some(b"a line\n")]));
 
         let mut line = String::new();
         assert_eq!(
-            peekable.read_line_peeked_unbuffered(&mut line).unwrap(),
+            peekable.read_line_pending_unbuffered(&mut line).unwrap(),
             MaybeBlocking::WouldBlock
         );
         assert_eq!(line, "");
 
         assert_eq!(
-            nonblocking(peekable.read_line_peeked_unbuffered(&mut line).unwrap()),
+            expect_ready(peekable.read_line_pending_unbuffered(&mut line).unwrap()),
             "half a line\n".len()
         );
         assert_eq!(line, "half a line\n");
     }
 
     #[test]
-    fn read_line_without_buffering_spans_many_chunks() {
+    fn unbuffered_read_line_spans_chunks() {
         let long = vec![b'x'; MAX_STREAM_CHUNK * 3];
         let mut source = long.clone();
         source.extend_from_slice(b"\nnext\n");
@@ -2355,7 +2358,7 @@ mod port_tests {
 
         let mut line = String::new();
         assert_eq!(
-            nonblocking(peekable.read_line_peeked_unbuffered(&mut line).unwrap()),
+            expect_ready(peekable.read_line_pending_unbuffered(&mut line).unwrap()),
             long.len() + 1
         );
         assert_eq!(line.len(), long.len() + 1);
@@ -2363,7 +2366,7 @@ mod port_tests {
 
         line.clear();
         assert_eq!(
-            nonblocking(peekable.read_line_peeked_unbuffered(&mut line).unwrap()),
+            expect_ready(peekable.read_line_pending_unbuffered(&mut line).unwrap()),
             5
         );
         assert_eq!(line, "next\n");
@@ -2386,43 +2389,43 @@ mod port_tests {
     }
 
     #[test]
-    fn a_tcp_stream_port_reads_lines() {
+    fn a_tcp_port_reads_lines() {
         let mut port = tcp_port(b"first\nsecond\n");
 
         assert_eq!(
-            nonblocking(port.read_line().unwrap()),
+            expect_ready(port.read_line().unwrap()),
             (6, "first\n".to_string())
         );
         assert_eq!(
-            nonblocking(port.read_line().unwrap()),
+            expect_ready(port.read_line().unwrap()),
             (7, "second\n".to_string())
         );
-        assert_eq!(nonblocking(port.read_line().unwrap()), (0, String::new()));
+        assert_eq!(expect_ready(port.read_line().unwrap()), (0, String::new()));
     }
 
     #[test]
-    fn a_tcp_stream_port_peeks_a_char_back_to_back_with_a_read() {
+    fn a_tcp_port_peeks_then_reads() {
         let mut port = tcp_port("λ rest".as_bytes());
 
-        assert_eq!(nonblocking(port.peek_char().unwrap()), Some('λ'));
-        assert_eq!(nonblocking(port.peek_char().unwrap()), Some('λ'));
-        assert_eq!(nonblocking(port.read_char().unwrap()), Some('λ'));
-        assert_eq!(nonblocking(port.read_all_str().unwrap()).1, " rest");
+        assert_eq!(expect_ready(port.peek_char().unwrap()), Some('λ'));
+        assert_eq!(expect_ready(port.peek_char().unwrap()), Some('λ'));
+        assert_eq!(expect_ready(port.read_char().unwrap()), Some('λ'));
+        assert_eq!(expect_ready(port.read_all_str().unwrap()).1, " rest");
     }
 
     #[test]
-    fn a_tcp_stream_port_reads_the_bytes_left_after_a_peek() {
+    fn a_tcp_port_reads_after_a_peek() {
         let mut port = tcp_port(b"abc");
 
-        assert_eq!(nonblocking(port.peek_byte().unwrap()), Some(b'a'));
+        assert_eq!(expect_ready(port.peek_byte().unwrap()), Some(b'a'));
         assert_eq!(
-            nonblocking(port.read_all_bytes().unwrap()),
+            expect_ready(port.read_all_bytes().unwrap()),
             (3, b"abc".to_vec())
         );
     }
 
     #[test]
-    fn a_tcp_stream_port_writes_to_the_other_end() {
+    fn a_tcp_port_writes() {
         let (client, server) = tcp_pair();
         let mut port = SteelPortRepr::TcpStream(Peekable::new(client));
 
@@ -2435,12 +2438,12 @@ mod port_tests {
     }
 
     #[test]
-    fn a_dyn_reader_port_reads_lines() {
+    fn a_dyn_port_reads_lines() {
         let reader: Box<dyn Read + Send + Sync> = Box::new(Cursor::new(b"first\nsecond".to_vec()));
         let mut port = SteelPortRepr::DynReader(Peekable::new(BufReader::new(reader)));
 
         assert_eq!(
-            nonblocking(port.read_line().unwrap()),
+            expect_ready(port.read_line().unwrap()),
             (6, "first\n".to_string())
         );
     }

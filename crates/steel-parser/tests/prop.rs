@@ -93,7 +93,7 @@ proptest! {
     }
 
     #[test]
-    fn chunking_does_not_change_the_result_for_arbitrary_text(
+    fn chunking_does_not_change_arbitrary_text(
         input in ".{0,200}",
         chunk in 1usize..40,
     ) {

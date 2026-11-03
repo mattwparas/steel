@@ -2947,7 +2947,7 @@ mod read_datum_tests {
         let mut out = Vec::new();
 
         loop {
-            let value = read_retrying(port).0;
+            let value = read_until_ready(port).0;
 
             if crate::primitives::ports::eof_objectp(&value) {
                 return out;
@@ -2961,7 +2961,7 @@ mod read_datum_tests {
         crate::primitives::ports::would_block_objectp(value)
     }
 
-    fn read_retrying(port: &SteelPort) -> (SteelVal, usize) {
+    fn read_until_ready(port: &SteelPort) -> (SteelVal, usize) {
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut retries = 0;
 
@@ -2981,7 +2981,7 @@ mod read_datum_tests {
         }
     }
 
-    fn within<T>(mut attempt: impl FnMut() -> Option<T>) -> T {
+    fn wait_for<T>(mut attempt: impl FnMut() -> Option<T>) -> T {
         let deadline = Instant::now() + Duration::from_secs(10);
 
         loop {
@@ -2996,7 +2996,7 @@ mod read_datum_tests {
     }
 
     // Looking at where the parser left off has to leave it where it was.
-    fn kept_its_place(port: &SteelPort) -> bool {
+    fn is_suspended(port: &SteelPort) -> bool {
         let kept = port.port.write().take_parse_state();
         let there = kept.is_some();
 
@@ -3022,7 +3022,7 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn number_is_not_cut_short_by_a_read_boundary() {
+    fn a_number_spans_a_read_boundary() {
         let port = stream(&["4", "2", " "], true);
         assert_eq!(read_one(&port).unwrap(), whole("42"));
     }
@@ -3052,27 +3052,27 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn leftover_stays_for_the_next_read() {
+    fn leftover_stays_on_the_port() {
         let port = stream(&["(a) (b)"], true);
         assert_eq!(read_one(&port).unwrap(), whole("(a)"));
         assert_eq!(read_one(&port).unwrap(), whole("(b)"));
     }
 
     #[test]
-    fn unterminated_datum_at_eof_is_an_error() {
+    fn unterminated_datum_at_eof() {
         let port = stream(&["(a ", "b"], false);
         assert!(read_one(&port).is_err());
     }
 
     #[test]
-    fn a_source_with_nothing_ready_does_not_block() {
+    fn a_blocked_source_does_not_wait() {
         let port = port_over(Blocks);
 
         assert!(would_block(&read_one(&port).unwrap()));
     }
 
     #[test]
-    fn a_source_hands_over_the_same_datums_however_it_breaks_them_up() {
+    fn chunking_does_not_change_the_datums() {
         static PROGRAMS: &[&str] = &[
             "1 2 3",
             "(a b) (c d)",
@@ -3110,14 +3110,14 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_character_split_across_reads_is_put_back_together() {
+    fn a_character_split_across_reads() {
         let port = byte_stream(&[b"(a \xc3", b"\xa9)"], true);
 
         assert_eq!(read_one(&port).unwrap(), whole("(a \u{e9})"));
     }
 
     #[test]
-    fn a_datum_in_front_of_a_sequence_cut_short_still_reads() {
+    fn a_datum_before_a_cut_sequence() {
         let port = SteelPort::new_input_port_bytevector(vec![b'4', b'2', 0xC3]);
 
         assert_eq!(read_one(&port).unwrap(), whole("42"));
@@ -3125,7 +3125,7 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_datum_in_front_of_a_byte_that_is_never_utf8_still_reads() {
+    fn a_datum_touching_bad_utf8() {
         let port = SteelPort::new_input_port_bytevector(vec![b'4', b'2', 0xFF]);
 
         assert_eq!(read_one(&port).unwrap(), whole("42"));
@@ -3133,7 +3133,7 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn bytes_that_are_not_utf8_are_an_error_rather_than_the_end_of_the_source() {
+    fn bad_utf8_is_an_error_not_eof() {
         for bytes in [vec![0xC3], vec![0xFF]] {
             let port = SteelPort::new_input_port_bytevector(bytes.clone());
 
@@ -3146,29 +3146,29 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_source_that_stalls_part_way_through_still_reads() {
+    fn a_stalling_source_still_reads() {
         let port = trickle("(a b c)", 3, true);
 
-        let (value, retries) = read_retrying(&port);
+        let (value, retries) = read_until_ready(&port);
 
         assert_eq!(value, whole("(a b c)"));
         assert!(retries > 0, "the source never stalled");
     }
 
     #[test]
-    fn the_parser_keeps_its_place_when_the_source_would_block() {
+    fn a_block_keeps_the_parsers_place() {
         let port = trickle("(a b c)", 4, true);
 
         assert!(would_block(&read_one(&port).unwrap()));
         assert!(
-            kept_its_place(&port),
+            is_suspended(&port),
             "the retry would parse those bytes again"
         );
-        assert_eq!(read_retrying(&port).0, whole("(a b c)"));
+        assert_eq!(read_until_ready(&port).0, whole("(a b c)"));
     }
 
     #[test]
-    fn reading_a_character_in_between_drops_the_parsers_place() {
+    fn read_char_drops_the_parsers_place() {
         let port = trickle("(a b c)", 4, true);
 
         assert!(would_block(&read_one(&port).unwrap()));
@@ -3177,52 +3177,52 @@ mod read_datum_tests {
             MaybeBlocking::Nonblocking(Some('('))
         );
         assert!(
-            !kept_its_place(&port),
+            !is_suspended(&port),
             "the parser's place outlived the bytes it was looking at"
         );
     }
 
     #[test]
-    fn reading_a_line_in_between_drops_the_parsers_place() {
+    fn read_line_drops_the_parsers_place() {
         let port = trickle("(a b\nc)", 4, true);
 
         assert!(would_block(&read_one(&port).unwrap()));
-        assert!(kept_its_place(&port));
+        assert!(is_suspended(&port));
 
-        let line = within(|| match port.read_line().unwrap() {
+        let line = wait_for(|| match port.read_line().unwrap() {
             MaybeBlocking::Nonblocking((_, line)) => Some(line),
             MaybeBlocking::WouldBlock => None,
         });
 
         assert_eq!(line, "(a b\n");
         assert!(
-            !kept_its_place(&port),
+            !is_suspended(&port),
             "the parser's place outlived the bytes it was looking at"
         );
-        assert_eq!(read_retrying(&port).0, whole("c"));
+        assert_eq!(read_until_ready(&port).0, whole("c"));
     }
 
     #[test]
-    fn reading_the_rest_of_the_source_in_between_drops_the_parsers_place() {
+    fn read_all_drops_the_parsers_place() {
         let port = trickle("(a b c)", 4, true);
 
         assert!(would_block(&read_one(&port).unwrap()));
-        assert!(kept_its_place(&port));
+        assert!(is_suspended(&port));
 
-        let rest = within(|| match port.read_all_str().unwrap() {
+        let rest = wait_for(|| match port.read_all_str().unwrap() {
             MaybeBlocking::Nonblocking((_, text)) => Some(text),
             MaybeBlocking::WouldBlock => None,
         });
 
         assert_eq!(rest, "(a b c)");
         assert!(
-            !kept_its_place(&port),
+            !is_suspended(&port),
             "the parser's place outlived the bytes it was looking at"
         );
     }
 
     #[test]
-    fn a_socket_which_has_not_been_written_to_yet_keeps_the_parsers_place() {
+    fn a_socket_keeps_the_parsers_place() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, _) = listener.accept().unwrap();
@@ -3235,31 +3235,31 @@ mod read_datum_tests {
 
         client.write_all(b"(a b").unwrap();
 
-        within(|| {
+        wait_for(|| {
             assert!(would_block(&read_one(&port).unwrap()));
 
             (!port.port.read().pending().is_empty()).then_some(())
         });
 
         assert!(
-            kept_its_place(&port),
+            is_suspended(&port),
             "the retry would parse those bytes again"
         );
 
         client.write_all(b" c)").unwrap();
 
-        assert_eq!(read_retrying(&port).0, whole("(a b c)"));
+        assert_eq!(read_until_ready(&port).0, whole("(a b c)"));
     }
 
     #[test]
-    fn input_that_is_not_utf8_is_an_error() {
+    fn bad_utf8_is_an_error() {
         let port = SteelPort::new_input_port_bytevector(vec![b'(', 0xFF, b')']);
 
         assert!(read_one(&port).is_err());
     }
 
     #[test]
-    fn a_datum_before_bytes_that_are_not_utf8_still_reads() {
+    fn a_datum_before_bad_utf8() {
         let port = SteelPort::new_input_port_bytevector(vec![b'(', b'a', b')', b' ', 0xFF]);
 
         assert_eq!(read_one(&port).unwrap(), whole("(a)"));
@@ -3267,7 +3267,7 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn an_error_leaves_what_follows_on_the_port() {
+    fn an_error_leaves_the_rest() {
         let port = SteelPort::new_input_port_string(") (a)".to_string());
 
         assert!(read_one(&port).is_err());
@@ -3282,7 +3282,7 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_datum_comment_split_across_reads_is_skipped() {
+    fn a_datum_comment_split_across_reads() {
         let port = stream(&["#;(a", ") (b", ")"], true);
 
         assert_eq!(read_one(&port).unwrap(), whole("(b)"));

@@ -292,7 +292,7 @@ mod tcp_tests {
     }
 
     #[test]
-    fn a_timeout_in_milliseconds_reaches_the_socket() {
+    fn a_timeout_reaches_the_socket() {
         let (stream, _client) = connected();
 
         tcp_stream_set_read_timeout(&stream, &SteelVal::IntV(250)).unwrap();
@@ -304,7 +304,7 @@ mod tcp_tests {
     }
 
     #[test]
-    fn a_false_timeout_goes_back_to_waiting_forever() {
+    fn a_false_timeout_waits_forever() {
         let (stream, _client) = connected();
 
         tcp_stream_set_read_timeout(&stream, &SteelVal::IntV(250)).unwrap();
@@ -317,7 +317,7 @@ mod tcp_tests {
     }
 
     #[test]
-    fn a_timeout_that_is_not_a_wait_is_refused() {
+    fn a_zero_timeout_is_refused() {
         let (stream, _client) = connected();
 
         for ms in [SteelVal::IntV(0), SteelVal::IntV(-1)] {
@@ -335,7 +335,7 @@ mod tcp_tests {
     }
 
     #[test]
-    fn a_timeout_that_is_not_a_number_is_refused() {
+    fn a_non_numeric_timeout_is_refused() {
         let (stream, _client) = connected();
 
         for ms in [SteelVal::BoolV(true), SteelVal::StringV("250".into())] {
@@ -347,7 +347,7 @@ mod tcp_tests {
     }
 
     #[test]
-    fn only_a_tcp_stream_takes_a_read_timeout() {
+    fn a_timeout_needs_a_tcp_stream() {
         assert!(tcp_stream_set_read_timeout(&SteelVal::IntV(1), &SteelVal::IntV(250)).is_err());
     }
 }

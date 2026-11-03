@@ -195,7 +195,7 @@ mod rustls_tests {
     }
 
     #[test]
-    fn a_timeout_in_milliseconds_reaches_the_socket() {
+    fn a_timeout_reaches_the_socket() {
         let (mut stream, _client) = connected();
 
         set_read_timeout(&mut stream, Some(250)).unwrap();
@@ -207,7 +207,7 @@ mod rustls_tests {
     }
 
     #[test]
-    fn a_timeout_survives_being_moved_into_a_tls_stream() {
+    fn a_timeout_survives_the_tls_stream() {
         let (mut stream, _client) = connected();
 
         set_read_timeout(&mut stream, Some(250)).unwrap();
@@ -223,7 +223,7 @@ mod rustls_tests {
     }
 
     #[test]
-    fn a_false_timeout_goes_back_to_waiting_forever() {
+    fn a_false_timeout_waits_forever() {
         let (mut stream, _client) = connected();
 
         set_read_timeout(&mut stream, Some(250)).unwrap();
@@ -233,7 +233,7 @@ mod rustls_tests {
     }
 
     #[test]
-    fn a_timeout_that_is_not_a_wait_is_refused() {
+    fn a_zero_timeout_is_refused() {
         let (mut stream, _client) = connected();
 
         for ms in [0, -1] {
@@ -251,7 +251,7 @@ mod rustls_tests {
     }
 
     #[test]
-    fn an_error_reads_as_a_sentence_rather_than_a_struct() {
+    fn an_error_reads_as_a_sentence() {
         let err = set_read_timeout(&mut connected().0, Some(0)).unwrap_err();
 
         assert!(
