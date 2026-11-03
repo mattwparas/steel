@@ -16,33 +16,32 @@
          http-serve)
 
 ;;@doc
-;; What this server calls itself in the `Server` header.
+;; The value sent in the `Server` header.
 (define *server-name* "steel-http/0.1.0")
 
 ;;@doc
-;; How much of a request body this server is willing to read. A longer one is
-;; answered with a 413 rather than read, since a body is as long as the other
-;; end says it is.
+;; The largest request body this server reads. A longer one is answered with a
+;; 413 instead of being read.
 (define *max-body-bytes* 8388608)
 
 (struct server (listener address read-timeout) #:transparent)
 
 ;;@doc
-;; Binds a listener. A port of `0` asks the os for a free one, which
-;; `server-address` then reports. A *read-timeout* in milliseconds is put on
-;; every connection accepted, so a client that says nothing is given up on.
+;; Binds a listener. A port of `0` takes a free port from the os, which
+;; `server-address` then reports. A *read-timeout* in milliseconds is set on
+;; every connection accepted.
 (define (http-listen address #:read-timeout [read-timeout #f])
   (define listener (tcp-listen address))
   (server listener (tcp-listener-local-addr listener) read-timeout))
 
 (define (request-line-parts line)
-  ;; A request line is three fields with one space between them; anything else
-  ;; is refused rather than guessed at.
+  ;; A request line is three fields separated by single spaces; anything else
+  ;; is an error.
   (define parts (split-many line " "))
   (if (equal? (length parts) 3) parts #f))
 
-;; The target may be origin form (`/a?b`), absolute form (`http://host/a`, what
-;; a proxy is sent), or `*` for an `OPTIONS` about the server itself.
+;; The target may be origin form (`/a?b`), absolute form (`http://host/a`, as
+;; sent to a proxy), or `*` for an `OPTIONS` about the server itself.
 (define (target->url target host)
   (cond
     [(equal? target "*") (make-url (or host "") #:path "*")]
@@ -50,8 +49,8 @@
     [(not (starts-with? target "/")) #f]
     [host (parse-url (string-append "http://" host target))]
     [else
-     ;; An HTTP/1.0 request may arrive with no Host at all, leaving a path with
-     ;; no authority to go under it.
+     ;; An HTTP/1.0 request may arrive with no `Host`, leaving the path with no
+     ;; authority.
      (let ([split (split-once target "?")])
        (if (list? split)
            (make-url "" #:path (car split) #:query (list-ref split 1))
@@ -69,18 +68,19 @@
     [(and declared (> declared *max-body-bytes*))
      (problem-report 413
                      (string-append "a request declared a body of " (int->string declared) " bytes"))]
-    ;; No framing at all means no body: reading until the connection closed
-    ;; instead would leave nothing to answer on.
+    ;; No framing means no body; reading until the connection closed would
+    ;; leave nothing to answer on.
     [declared declared]
     [else 'none]))
 
-;; What this server answers with when a request cannot be read. A raise cannot
-;; carry a value through `with-handler`, and re-raising inside a handler panics
-;; the interpreter, so a problem travels as a return value.
+;; How a request that cannot be read is reported. A raise cannot carry a value
+;; through `with-handler`, and re-raising inside a handler panics the
+;; interpreter, so this is returned instead.
 (struct problem-report (status text) #:transparent)
 
-;; Anything the shared reader raises - an unparseable header line, a chunk size
-;; that is not a number, a body cut short - is a request this server cannot read.
+;; Anything the shared reader raises (an unparseable header line, a chunk size
+;; that is not a number, a body cut short) is a request this server cannot
+;; read.
 (define (or-bad-request thunk)
   (with-handler (lambda (err) (problem-report 400 (trim (to-string (error-object-message err)))))
                 (thunk)))
@@ -90,8 +90,8 @@
   (and expectation (token-member? expectation "100-continue")))
 
 (define (read-request-line reader)
-  ;; An empty line before the request line is a stray crlf left by the previous
-  ;; request, and is skipped rather than treated as a request.
+  ;; An empty line before the request line is a stray crlf from the previous
+  ;; request, and is skipped.
   (let loop ([skipped 0])
     (define line (read-wire-line reader))
     (cond
@@ -121,7 +121,8 @@
     [else
      (let ([hosts (header-ref* headers "Host")])
        (cond
-         ;; Two `Host` headers leave the next hop to decide which one counts.
+         ;; Two `Host` headers would leave the next hop to decide which one
+         ;; counts.
          [(> (length hosts) 1) (problem-report 400 "a request carried more than one Host header")]
          [(and (equal? version "HTTP/1.1") (empty? hosts))
           (problem-report 400 "an HTTP/1.1 request without a Host header")]
@@ -141,8 +142,8 @@
   (cond
     [(problem-report? mode) mode]
     [else
-     ;; `Expect: 100-continue` has the client waiting for a go ahead, which has
-     ;; to go out before the body is read.
+     ;; With `Expect: 100-continue` the client waits for the interim response,
+     ;; which has to be written before the body is read.
      (when (and writer (expects-continue? headers))
        (with-handler (lambda (err) void)
                      (begin
@@ -167,8 +168,7 @@
 
 ;;@doc
 ;; Reads one request off *reader*. Returns the eof object when the connection
-;; closed cleanly between requests, so a read loop can tell that from a request
-;; this server cannot read, which raises.
+;; closed cleanly between requests; a request this server cannot read raises.
 ;;
 ;; The body is a bytevector, or `#false` for a request with no framing.
 ;; Trailers that follow a chunked body are added to the headers. Give
@@ -182,8 +182,8 @@
      (error "http:" (problem-report-text outcome) "- would answer" (problem-report-status outcome))]
     [else outcome]))
 
-;; A 1xx, a 204 and a 304 carry no body, so they go out with no length either:
-;; a `Content-Length: 0` on a 304 contradicts the body it stands in for.
+;; A 1xx, a 204 and a 304 carry no body, so no length is sent either; a
+;; `Content-Length: 0` on a 304 contradicts the body it stands in for.
 (define (bodyless-status? status)
   (or (equal? status 204) (equal? status 304) (and (>= status 100) (< status 200))))
 
@@ -198,12 +198,12 @@
      "http: this server sends a body with a Content-Length, not chunked - take Transfer-Encoding off the response"))
   (if (bodyless-status? (response-status received))
       (header-remove headers "Content-Length")
-      ;; The length is the body's even for a HEAD, whose answer carries the
+      ;; The length is the body's even for a HEAD, whose response carries the
       ;; headers of the body it does not send.
       (header-default headers "Content-Length" (int->string (bytes-length body)))))
 
 ;; The head and the body as they go out. A response this server cannot frame is
-;; refused here, before any of it has been written.
+;; rejected here, before anything has been written.
 (define (response->wire received keep-alive method)
   (define status (response-status received))
   (define reason (response-reason received))
@@ -227,27 +227,27 @@
   (flush-output-port writer))
 
 ;;@doc
-;; Writes *response* out over *writer*. The head and the body go out in one
-;; write. *method* is the method being answered: the answer to a `HEAD` carries
-;; the headers of a body it does not send, and a 1xx, a 204 and a 304 send no
-;; body whatever the method.
+;; Writes *response* over *writer*. The head and the body go out in one write.
+;; *method* is the method being answered: the response to a `HEAD` carries the
+;; headers of a body it does not send, and a 1xx, a 204 and a 304 send no body
+;; for any method.
 (define (http-write-response! writer received #:keep-alive [keep-alive #f] #:method [method "GET"])
   (write-wire! writer (response->wire received keep-alive method)))
 
 (define (answer-to handler sent)
   (define answered
     (with-handler (lambda (err)
-                    ;; What the handler raised stays on this side of the wire.
+                    ;; What the handler raised is not sent to the client.
                     (make-response 500))
                   (handler sent)))
   (if (framable? answered (request-method sent))
       answered
       (make-response 500)))
 
-;; A response this server cannot frame - one carrying `Transfer-Encoding`, or
-;; built with the bare constructor and no body - is a 500 rather than the end
-;; of the loop serving the connection. `http-write-response!` still raises, for
-;; a caller writing an answer themselves.
+;; A response this server cannot frame (one carrying `Transfer-Encoding`, or
+;; built with the bare constructor and no body) becomes a 500 rather than
+;; ending the loop serving the connection. `http-write-response!` still raises,
+;; for a caller writing an answer directly.
 (define (framable? answered method)
   (and (response? answered)
        (with-handler (lambda (err) #f)
@@ -255,16 +255,16 @@
                        (response->wire answered #f method)
                        #t))))
 
-;; The body is the reason phrase and nothing else; a detail read off the wire
-;; would be going straight back out again. `http-read-request` raises with the
-;; detail, for a caller reading a request itself.
+;; The body is the reason phrase alone; a detail read off the wire would be
+;; echoed straight back. `http-read-request` raises with the detail, for a
+;; caller reading a request directly.
 (define (problem-response report)
   (make-response (problem-report-status report)
                  #:headers (list (cons "Content-Type" "text/plain; charset=utf-8"))
                  #:body (string-append (reason-phrase (problem-report-status report)) "\n")))
 
-;; A client that hangs up before its answer is written ends the connection
-;; rather than the loop serving it.
+;; A client that closes before its answer is written ends the connection, not
+;; the loop serving it.
 (define (write-answer writer answered keep-alive? method)
   (with-handler (lambda (err) #f)
                 (begin
@@ -273,11 +273,11 @@
 
 ;;@doc
 ;; Serves requests on one connection until it ends, and returns how many it
-;; served. *handler* is called with a `request?` and returns a `response?`;
-;; anything else, or a raise, becomes a 500. A request this server cannot read
-;; is answered with a 4xx or a 5xx and ends the connection. The connection is
-;; held open for another request when both ends are willing, and `#:keep-alive
-;; #false` serves exactly one whatever the request asked for.
+;; served. *handler* is called with a `request?` and returns a `response?`; any
+;; other value, or a raise, becomes a 500. A request this server cannot read is
+;; answered with a 4xx or a 5xx and ends the connection. The connection is held
+;; open for another request when both ends allow it, and `#:keep-alive #false`
+;; serves exactly one request.
 (define (http-serve-connection reader writer handler #:keep-alive [keep-alive #t] #:limit [limit #f])
   (let loop ([served 0])
     (cond
@@ -288,7 +288,7 @@
            [(eof-object? outcome) served]
            [(problem-report? outcome)
             ;; A request that could not be read leaves the connection at an
-            ;; unknown place in the stream, so this is the last answer on it.
+            ;; unknown point in the stream, so this is the last answer on it.
             (if (write-answer writer (problem-response outcome) #f "GET")
                 (+ served 1)
                 served)]
@@ -310,7 +310,7 @@
   (cons (tcp-stream-buffered-reader stream) (tcp-stream-writer stream)))
 
 ;;@doc
-;; Waits for one connection, serves requests on it, and hangs up. Returns how
+;; Waits for one connection, serves requests on it, and closes it. Returns how
 ;; many requests it served.
 (define (http-serve-one server handler #:keep-alive [keep-alive #t] #:limit [limit #f])
   (define stream (tcp-accept (server-listener server)))
@@ -319,12 +319,13 @@
    (lambda () void)
    (lambda ()
      (http-serve-connection (car ports) (cdr ports) handler #:keep-alive keep-alive #:limit limit))
-   ;; A client that has already hung up makes this raise.
+   ;; A client that has already closed makes this raise.
    (lambda () (with-handler (lambda (err) void) (tcp-shutdown! stream)))))
 
 ;;@doc
-;; Serves connections one after another, and returns how many it served. A slow
-;; request holds up the next one. Pass `#:connections` to stop after that many.
+;; Serves connections one after another, and returns how many it served.
+;; Connections are served in sequence, so a slow request delays the next one.
+;; Pass `#:connections` to stop after that many.
 ;;
 ;; ```scheme
 ;; (define server (http-listen "127.0.0.1:0"))

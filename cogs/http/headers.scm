@@ -13,8 +13,7 @@
          parse-header-line)
 
 ;;@doc
-;; Whether two header names are the same name. Header names are not case
-;; sensitive.
+;; Whether two header names are the same. Header names are not case sensitive.
 (define (header-name=? left right)
   (string-ci=? left right))
 
@@ -33,16 +32,15 @@
       (string-contains? "!#$%&'*+-.^_`|~" (string char))))
 
 ;;@doc
-;; Whether *str* is a token: letters, digits and `!#$%&'*+-.^_`|~`, and at
-;; least one of them. A header name is one, and so is a request method.
-;; Anything else, a space included, is read differently by different proxies.
+;; Whether *str* is a token: one or more of letters, digits and
+;; `!#$%&'*+-.^_`|~`. Header names and request methods are tokens.
 (define (token? str)
   (and (> (string-length str) 0)
        (let loop ([at 0])
          (or (>= at (string-length str)) (and (token-char? (string-ref str at)) (loop (+ at 1)))))))
 
-;; A value carrying a newline would let a caller write their own headers after
-;; it, so none of them get through.
+;; A newline in a value would let a caller append headers of their own, so a
+;; value with one is refused.
 (define (check-header name value)
   (unless (token? name)
     (error "http: not a usable header name:" name))
@@ -51,9 +49,8 @@
   (cons name value))
 
 ;;@doc
-;; Accepts headers given as an association list, as a list of two element
-;; lists, or as a hashmap, and returns the association list the rest of these
-;; functions take.
+;; Converts headers given as an association list, a list of two element lists,
+;; or a hashmap into the association list the other functions here take.
 (define (normalize-headers headers)
   (cond
     [(hash? headers)
@@ -86,51 +83,49 @@
   (map cdr (filter (lambda (entry) (header-name=? (car entry) name)) headers)))
 
 ;;@doc
-;; Whether *name* is present at all.
+;; Whether *name* is present.
 (define (header-contains? headers name)
   (not (empty? (header-ref* headers name))))
 
 ;;@doc
-;; Drops every value held under *name*.
+;; Removes every value held under *name*.
 (define (header-remove headers name)
   (filter (lambda (entry) (not (header-name=? (car entry) name))) headers))
 
 ;;@doc
-;; Adds *name* at the end, keeping any value already held under it. This is
-;; what repeated headers want.
+;; Adds *name* at the end, keeping any value already held under it.
 (define (header-add headers name value)
   (append headers (list (check-header name (header-value->string value)))))
 
 ;;@doc
-;; Puts *name* at the end with just this value, dropping anything already held
-;; under it.
+;; Sets *name* at the end to this value, removing anything already held under
+;; it.
 (define (header-set headers name value)
   (header-add (header-remove headers name) name value))
 
 ;;@doc
-;; Sets *name* only if it is not already there, which is how the client fills
-;; in a header without taking one away from the caller.
+;; Sets *name* only if it is not already present.
 (define (header-default headers name value)
   (if (header-contains? headers name)
       headers
       (header-add headers name value)))
 
 ;;@doc
-;; The names, in order, as they were given.
+;; The header names, in order.
 (define (header-names headers)
   (map car headers))
 
 ;;@doc
-;; Writes headers out as the lines of a request or response head, each one
-;; ending in a crlf. The blank line that ends the head is not included.
+;; Formats headers as the lines of a request or response head, each ending in a
+;; crlf. The blank line that ends the head is not included.
 (define (headers->string headers)
   (apply string-append
          (map (lambda (entry) (string-append (car entry) ": " (cdr entry) "\r\n")) headers)))
 
 ;;@doc
-;; Reads one header line into a (name . value) pair, or answers `#false` when
-;; the line is not a header. Surrounding whitespace is dropped from the value,
-;; and kept inside it.
+;; Parses one header line into a `(name . value)` pair, or `#false` when the
+;; line is not a header. Leading and trailing whitespace is removed from the
+;; value.
 (define (parse-header-line line)
   (define split (split-once line ":"))
   (if (or (not (list? split)) (equal? (car split) ""))

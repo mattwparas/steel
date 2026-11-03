@@ -6,8 +6,6 @@
          *max-header-lines*
          *max-line-length*
          known-version?
-         ;; The bare struct constructors. `make-request` and `make-response` are
-         ;; what a caller wants; these are for building a message off the wire.
          request
          response
          request?
@@ -44,17 +42,16 @@
          read-chunked)
 
 ;;@doc
-;; The version on every request line and status line this cog writes.
+;; The version written on every request line and status line.
 (define *http-version* "HTTP/1.1")
 
 ;;@doc
-;; How many header lines a message is allowed before reading it gives up, so
-;; that the other end cannot hold a connection open forever.
+;; The maximum number of header lines in a message. Reading a message with more
+;; than this raises.
 (define *max-header-lines* 200)
 
 ;;@doc
-;; How long one line of a head is allowed to be. A line with no end to it would
-;; otherwise get past `*max-header-lines*` on its own.
+;; The maximum length of one line of a head. Reading a longer line raises.
 (define *max-line-length* 8192)
 
 (struct request (method url headers body version) #:transparent)
@@ -90,8 +87,8 @@
      (header-set headers
                  "Authorization"
                  (string-append "Basic " (base64-encode (basic-credentials auth))))]
-    ;; A url is allowed to carry its credentials, and they belong in the header
-    ;; rather than on the wire in the request line.
+    ;; A url may carry credentials; they go in the `Authorization` header
+    ;; rather than in the request line.
     [(url-userinfo url)
      (header-set headers
                  "Authorization"
@@ -132,8 +129,8 @@
            version))
 
 ;;@doc
-;; The target as it goes on the request line: the path, with the query after it
-;; when there is one.
+;; The target for the request line: the path, followed by the query when there
+;; is one.
 (define (request-target sent)
   (url-target (request-url sent)))
 
@@ -143,14 +140,14 @@
   (header-ref (request-headers sent) name default))
 
 ;;@doc
-;; Every value of a request header, which is what `Cookie` can need.
+;; Every value of a request header.
 (define (request-header* sent name)
   (header-ref* (request-headers sent) name))
 
 ;;@doc
-;; Whether the connection may carry another exchange after this request,
-;; according to the request itself. A 1.1 request keeps the connection unless it
-;; says otherwise, and a 1.0 one drops it unless it asks to keep it.
+;; Whether the request allows another exchange on the connection. An HTTP/1.1
+;; request keeps the connection open unless it sends `Connection: close`; an
+;; HTTP/1.0 request closes it unless it sends `Connection: keep-alive`.
 (define (request-keep-alive? sent)
   (define asked (request-header sent "Connection"))
   (cond
@@ -167,8 +164,8 @@
   (and (>= (response-status received) 200) (< (response-status received) 300)))
 
 ;;@doc
-;; The body read as utf8. Raises if the body is not utf8, so reach for
-;; `response-body` when it might not be text.
+;; The body decoded as utf8. Raises when the body is not utf8; use
+;; `response-body` when it may not be text.
 (define (response-text received)
   (bytes->string/utf8 (response-body received)))
 
@@ -178,13 +175,12 @@
   (header-ref (response-headers received) name default))
 
 ;;@doc
-;; Every value of a response header, which is what `Set-Cookie` needs.
+;; Every value of a response header.
 (define (response-header* received name)
   (header-ref* (response-headers received) name))
 
 ;;@doc
-;; Whether the connection may be used for another exchange, according to the
-;; response itself.
+;; Whether the response allows another exchange on the connection.
 (define (response-keep-alive? received)
   (define asked (response-header received "Connection"))
   (cond
@@ -193,8 +189,8 @@
     [asked (token-member? asked "keep-alive")]
     [else #f]))
 
-;; The phrases from RFC 9110, for the codes a server is likely to send. A code
-;; that is not here gets an empty phrase, which is allowed.
+;; The phrases from RFC 9110, for the codes a server commonly sends. A code
+;; that is not listed gets an empty phrase, which is allowed.
 (define *reasons*
   (list (cons 100 "Continue")
         (cons 101 "Switching Protocols")
@@ -234,8 +230,8 @@
         (cons 505 "HTTP Version Not Supported")))
 
 ;;@doc
-;; The reason phrase that goes with *status*, or `""` for a code with no
-;; well known phrase.
+;; The reason phrase for *status*, or `""` for a code with no well known
+;; phrase.
 (define (reason-phrase status)
   (define found (assv status *reasons*))
   (if found
@@ -259,8 +255,8 @@
             (or (body->bytes body) (bytes))))
 
 (define (strip-cr line)
-  ;; A tcp reader hands back the `\r` of a crlf and a string port does not, so
-  ;; every line read here goes through this.
+  ;; A tcp reader returns the `\r` of a crlf and a string port does not, so
+  ;; every line read here is passed through this.
   (if (ends-with? line "\r")
       (substring line 0 (- (string-length line) 1))
       line))
@@ -271,8 +267,8 @@
 (define (line-so-far chars)
   (strip-cr (list->string (reverse chars))))
 
-;; `read-line` reads to the end of the line however far off that is, so a line
-;; is taken a character at a time and given up on at `*max-line-length*`.
+;; `read-line` reads to the end of the line however long it is, so a line is
+;; read a character at a time and stops at `*max-line-length*`.
 (define (read-wire-line reader)
   (let loop ([chars '()]
              [length 0])
@@ -289,7 +285,7 @@
       [else (loop (cons char chars) (+ length 1))])))
 
 ;;@doc
-;; Whether *version* is one this cog speaks.
+;; Whether *version* is a version this library supports.
 (define (known-version? version)
   (or (equal? version "HTTP/1.1") (equal? version "HTTP/1.0")))
 
@@ -323,7 +319,7 @@
 
 (define (content-length headers)
   ;; One `Content-Length: 11, 11` and two `Content-Length: 11` headers mean the
-  ;; same thing. Two that disagree are refused rather than guessed at.
+  ;; same thing. Values that disagree are an error.
   (define parts
     (apply append
            (map (lambda (value) (map trim (split-many value ",")))
@@ -343,8 +339,8 @@
                  lengths)
        (car lengths))]))
 
-;; `read-bytes` allocates what it is asked for before it reads anything, so a
-;; length the other end declared is read a chunk at a time rather than at once.
+;; `read-bytes` allocates the whole amount before reading, so a length the
+;; other end declared is read a chunk at a time.
 (define *read-chunk-bytes* 65536)
 
 (define (read-exactly reader amount)
@@ -377,9 +373,8 @@
 
 ;;@doc
 ;; Reads a chunked body off *reader*, and returns it with the trailer headers
-;; that followed it. With a *limit*, a body that grows past it is given up on
-;; and `'too-large` comes back instead, since nothing can be read after a body
-;; that was not read whole.
+;; that followed it. With a *limit*, a body longer than it returns `'too-large`
+;; instead, and nothing further can be read from the connection.
 (define (read-chunked reader #:limit [limit #f])
   (let loop ([chunks '()]
              [read-so-far 0])
@@ -391,8 +386,8 @@
       [(and limit (> (+ read-so-far size) limit)) 'too-large]
       [(equal? size 0) (cons (apply bytes-append (reverse chunks)) (read-wire-headers reader))]
       [else
-       ;; let*, because the chunk has to come off the port before the crlf
-       ;; that follows it.
+       ;; `let*`, since the chunk has to be read before the crlf that follows
+       ;; it.
        (let* ([chunk (read-exactly reader size)]
               [terminator (read-wire-line reader)])
          (unless (equal? terminator "")

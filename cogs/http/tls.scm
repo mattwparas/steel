@@ -19,17 +19,17 @@
                                      gz-decode)))
     (set-box! *loaded* #t)))
 
-;; The dylib's own names are pulled out one at a time, rather than by building
-;; an expression around the arguments, because a bytevector does not survive
-;; being written back into one.
+;; The dylib's names are looked up one at a time rather than by building an
+;; expression around the arguments, since a bytevector does not survive being
+;; written into one.
 (define (rustls name)
   (load-rustls!)
   (eval name))
 
 (define (tls-ports host address read-timeout)
   (define socket ((rustls 'tcp-connect) address))
-  ;; The deadline goes on the socket before the tls stream is built on top of
-  ;; it, so that it covers the handshake as well as the reads after it.
+  ;; The deadline is set on the socket before the tls stream is built on it, so
+  ;; it covers the handshake as well as later reads.
   ((rustls 'tcp-set-read-timeout!) socket read-timeout)
   (define connection ((rustls 'client-connection) host))
   (define stream ((rustls 'tls-stream) connection socket))
@@ -37,14 +37,13 @@
 
 ;;@doc
 ;; Opens a tls connection to the host of *url*. The handshake happens on the
-;; first read or write, so a certificate that does not check out is reported
-;; from there rather than from here.
+;; first read or write, so a certificate that does not verify is reported from
+;; there rather than from here.
 ;;
 ;; With a *read-timeout* in milliseconds, a read that waits that long raises.
-;; The deadline covers the handshake too, so a server that accepts the
-;; connection and never answers the ClientHello is given up on.
+;; The timeout covers the handshake as well.
 ;;
-;; Needs the `steel-rustls` dylib, which the readme says how to install.
+;; Requires the `steel-rustls` dylib.
 (define (tls-connector url #:read-timeout [read-timeout #f])
   (define host (url-host url))
   (define ports (tls-ports host (string-append host ":" (int->string (url-port url))) read-timeout))
@@ -55,26 +54,25 @@
                             (with-handler (lambda (err) void) (close-port (list-ref ports 1))))))
 
 ;;@doc
-;; A connector that speaks both schemes: `https` over tls, `http` over plain
-;; tcp. Parameterize `current-http-connector` with it to let the client follow
-;; a redirect from one to the other.
+;; A connector for both schemes: `https` over tls, `http` over plain tcp.
+;; Parameterize `current-http-connector` with it to follow a redirect from one
+;; to the other.
 ;;
 ;; ```scheme
 ;; (parameterize ([current-http-connector https-connector])
 ;;   (response-text (http-get "https://example.com")))
 ;; ```
 ;;
-;; A *read-timeout* in milliseconds is handed to whichever of the two it ends
-;; up using.
+;; A *read-timeout* in milliseconds is passed to whichever of the two is used.
 (define (https-connector url #:read-timeout [read-timeout #f])
   (if (equal? (url-scheme url) "https")
       (tls-connector url #:read-timeout read-timeout)
       (tcp-connector url #:read-timeout read-timeout)))
 
 ;;@doc
-;; Decompresses a gzipped body. The client asks for `Accept-Encoding: identity`
+;; Decompresses a gzipped body. The client sends `Accept-Encoding: identity`
 ;; unless told otherwise, so this is only needed when it has been.
 ;;
-;; Needs the `steel-rustls` dylib, which the readme says how to install.
+;; Requires the `steel-rustls` dylib.
 (define (gzip-decode body)
   (read-port-to-bytes ((rustls 'gz-decode) body)))

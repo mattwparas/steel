@@ -56,13 +56,12 @@
          http-options)
 
 ;;@doc
-;; What this client calls itself in the `User-Agent` header.
+;; The value sent in the `User-Agent` header.
 (define *user-agent* "steel-http/0.1.0")
 
-;; A transport is the pair of ports a request travels over, and a thunk that
-;; hangs up. Everything above this knows nothing about sockets, so
-;; `current-http-connector` can put tls, a unix socket or a canned reply under
-;; the same client.
+;; A transport is the pair of ports a request travels over, plus a thunk that
+;; closes them. Nothing above this layer refers to sockets, so
+;; `current-http-connector` can supply tls, a unix socket or a fixture instead.
 (struct transport (reader writer close) #:transparent)
 
 ;;@doc
@@ -81,11 +80,10 @@
 
 ;;@doc
 ;; Opens a plain tcp connection to the host of *url*. This is the default
-;; connector, and it only speaks `http`.
+;; connector, and it handles `http` only.
 ;;
-;; With a *read-timeout* in milliseconds, a read that waits that long raises
-;; rather than holding the calling thread. The deadline covers a single wait and
-;; not the whole response, so a server that trickles bytes in can outlast it.
+;; With a *read-timeout* in milliseconds, a read that waits that long raises.
+;; The timeout applies to a single read and not to the whole response.
 (define (tcp-connector url #:read-timeout [read-timeout #f])
   (unless (equal? (url-scheme url) "http")
     (error "http: the tcp connector only speaks http, not"
@@ -95,13 +93,13 @@
   (tcp-stream-set-read-timeout! stream read-timeout)
   (transport (tcp-stream-buffered-reader stream)
              (tcp-stream-writer stream)
-             ;; Hanging up on a connection the far end already dropped raises.
+             ;; Shutting down a connection the far end already closed raises.
              (lambda () (with-handler (lambda (err) void) (tcp-shutdown! stream)))))
 
 ;;@doc
-;; The procedure the client calls to reach a host. It takes a url and returns a
-;; `transport?`. Parameterize it to add tls, to answer from a fixture, or to
-;; give the default connector a read timeout:
+;; The procedure the client uses to reach a host. It takes a url and returns a
+;; `transport?`. Parameterize it for tls, for a fixture, or to give the default
+;; connector a read timeout:
 ;;
 ;; ```scheme
 ;; (parameterize ([current-http-connector
@@ -114,7 +112,7 @@
 
 ;;@doc
 ;; Opens a connection to the origin of *target*. The connection stays open
-;; until `http-close!`, so it can carry more than one exchange.
+;; until `http-close!` and can carry more than one exchange.
 (define (http-connect target)
   (define url (parse-url target))
   (unless (url-port url)
@@ -122,19 +120,19 @@
   (connection ((current-http-connector) url) (url-origin url)))
 
 ;;@doc
-;; Hangs up a connection.
+;; Closes a connection.
 (define (http-close! connection)
   ((transport-close (connection-transport connection))))
 
 ;;@doc
-;; Opens a connection to *target*, calls *proc* with it, and hangs up
+;; Opens a connection to *target*, calls *proc* with it, and closes it
 ;; afterwards, whether or not *proc* raised.
 (define (call-with-http-connection target proc)
   (define connection (http-connect target))
   (dynamic-wind (lambda () void) (lambda () (proc connection)) (lambda () (http-close! connection))))
 
-;; POST and friends say "no body" with a length of zero, rather than by leaving
-;; the length out, which a server is free to read as a truncated request.
+;; These methods send a `Content-Length: 0` for an empty body rather than
+;; leaving the length out, which a server may read as a truncated request.
 (define (expects-body? method)
   (member method (list "POST" "PUT" "PATCH")))
 
@@ -146,8 +144,8 @@
         (header-default "Host" (url-authority url))
         (header-default "User-Agent" *user-agent*)
         (header-default "Accept" "*/*")
-        ;; Nothing here can inflate a response, so don't let a server send one
-        ;; compressed.
+        ;; Nothing here decompresses a response, so ask for an uncompressed
+        ;; one.
         (header-default "Accept-Encoding" "identity")
         (header-default "Connection" (if keep-alive? "keep-alive" "close"))))
   (when (header-contains? headers "Transfer-Encoding")
@@ -159,8 +157,8 @@
     [else headers]))
 
 ;;@doc
-;; Writes *request* out over *connection*. The head and the body go out in one
-;; write, so that a small request lands in a single segment.
+;; Writes *request* over *connection*. The head and the body go out in one
+;; write.
 (define (http-write-request! connection request #:keep-alive [keep-alive #f])
   (define head
     (string-append (request-method request)
@@ -197,9 +195,9 @@
             (list-ref after-code 1)
             "")))
 
-;; A 1xx other than a 101 is an interim answer; the real response follows it.
-;; They are counted, because a server that sends nothing else would hold the
-;; read forever.
+;; A 1xx other than a 101 is an interim answer and the real response follows
+;; it. They are counted, since a server that sends only these would block the
+;; read indefinitely.
 (define *max-interim-responses* 8)
 
 (define (read-status-line-past-interim reader [interim 0])
@@ -236,11 +234,11 @@
     [else 'until-close]))
 
 ;;@doc
-;; Reads one response off *reader*. *method* is needed because the answer to a
-;; `HEAD` has the headers of a body it does not send.
+;; Reads one response off *reader*. *method* is needed because the response to
+;; a `HEAD` carries the headers of a body it does not send.
 ;;
-;; The body is always a bytevector, empty for a response that cannot carry
-;; one. Trailers that follow a chunked body are added to the headers.
+;; The body is always a bytevector, empty for a response that cannot carry one.
+;; Trailers that follow a chunked body are added to the headers.
 (define (http-read-response reader #:method [method "GET"])
   (define status-line (read-status-line-past-interim reader))
   (define status (list-ref status-line 1))
@@ -261,8 +259,8 @@
 ;;@doc
 ;; Writes *request* over *connection* and reads the response back.
 ;;
-;; Pass `#:keep-alive #true` to ask the server to hold the connection open for
-;; another exchange, and check `response-keep-alive?` before reaching for one.
+;; Pass `#:keep-alive #true` to ask the server to keep the connection open for
+;; another exchange, and check `response-keep-alive?` before using it again.
 (define (http-exchange connection request #:keep-alive [keep-alive #f])
   (http-write-request! connection request #:keep-alive keep-alive)
   (http-read-response (transport-reader (connection-transport connection))
@@ -271,8 +269,8 @@
 (define (redirect-status? status)
   (member status (list 301 302 303 307 308)))
 
-;; 301, 302 and 303 turn into a GET without a body, which is what every client
-;; does and what servers expect; 307 and 308 ask for the same request again.
+;; 301, 302 and 303 become a GET with no body, which is what clients send and
+;; servers expect; 307 and 308 repeat the same request.
 (define (redirect-request sent received)
   (define location (response-header received "Location"))
   (cond
@@ -283,8 +281,9 @@
             [same-origin? (equal? (url-origin from) (url-origin to))]
             [carried (if same-origin?
                          (request-headers sent)
-                         ;; Credentials and a `Host` belong to the origin they
-                         ;; were written for, and do not follow a redirect.
+                         ;; Credentials and `Host` belong to the origin they
+                         ;; were written for, so they are not carried across a
+                         ;; redirect.
                          (~> (request-headers sent)
                              (header-remove "Host")
                              (header-remove "Authorization")
@@ -302,10 +301,11 @@
            (request (request-method sent) to carried (request-body sent) (request-version sent))))]))
 
 ;;@doc
-;; Opens a connection, sends one request, reads the response, and hangs up.
+;; Opens a connection, sends one request, reads the response, and closes the
+;; connection.
 ;;
-;; Redirects are followed up to *follow* times, with `#:follow 0` handing the
-;; 3xx back instead. The other keywords are the ones `make-request` takes.
+;; Redirects are followed up to *follow* times; `#:follow 0` returns the 3xx
+;; instead. The other keywords are those of `make-request`.
 (define (http-send method
                    target
                    #:headers [headers '()]

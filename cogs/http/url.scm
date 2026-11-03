@@ -23,8 +23,7 @@
 (struct url (scheme userinfo host port path query fragment) #:transparent)
 
 ;;@doc
-;; The port a scheme is served on when a url does not say, or `#false` for a
-;; scheme with no default.
+;; The default port for *scheme*, or `#false` when it has none.
 (define (scheme-default-port scheme)
   (cond
     [(equal? scheme "http") 80]
@@ -32,7 +31,7 @@
     [else #f]))
 
 ;;@doc
-;; Builds a url out of its parts. The port defaults to the one belonging to
+;; Builds a url out of its parts. The port defaults to the default port for
 ;; *scheme*.
 (define (make-url host
                   #:scheme [scheme "http"]
@@ -49,8 +48,8 @@
                query
                fragment))
 
-;; A space or a newline in a path would end the request line and let the
-;; caller write their own headers after it, so nothing unencoded gets through.
+;; A space or newline in a path would end the request line and let the caller
+;; append headers of their own, so these are refused.
 (define (check-url-part what str)
   (when str
     (let loop ([at 0])
@@ -109,16 +108,16 @@
                     (loop (+ at 1))))))))
 
 ;; The scheme of a url that has one. A scheme is a letter followed by letters,
-;; digits, `+`, `-` and `.`, so a reference that carries a `://` further along,
-;; as `/login?next=https://b` does, has none and is relative.
+;; digits, `+`, `-` and `.`, so a reference with a `://` later in it, such as
+;; `/login?next=https://b`, has no scheme and is relative.
 (define (leading-scheme str)
   (define split (split-once str "://"))
   (and (list? split) (scheme-name? (car split)) (string-downcase (car split))))
 
 (define (split-host-and-port authority)
   (cond
-    ;; An ipv6 literal keeps its brackets out of the host, so that the host is
-    ;; what goes in the `Host` header and what gets looked up.
+    ;; An ipv6 literal's brackets are kept out of the host, so the host is what
+    ;; goes in the `Host` header and what is looked up.
     [(starts-with? authority "[")
      (let ([close (index-of-any authority (list #\]))])
        (unless close
@@ -142,10 +141,10 @@
        port)]))
 
 ;;@doc
-;; Parses a url. Already parsed urls are handed back as they are.
+;; Parses a url. An already parsed url is returned unchanged.
 ;;
-;; A url with no scheme is taken to be `http`, and an empty path is taken to be
-;; `/`. Percent escapes are left exactly as they were given.
+;; A url with no scheme is read as `http`, and an empty path as `/`. Percent
+;; escapes are left as given.
 (define (parse-url input)
   (if (url? input)
       input
@@ -199,8 +198,8 @@
       host))
 
 ;;@doc
-;; The host and port of a url, as it belongs in a `Host` header. The port is
-;; left out when it is the default for the scheme.
+;; The host and port of a url, in the form a `Host` header takes. The port is
+;; omitted when it is the default for the scheme.
 (define (url-authority url)
   (define host (bracketed-host (url-host url)))
   (if (or (not (url-port url)) (equal? (url-port url) (scheme-default-port (url-scheme url))))
@@ -208,21 +207,19 @@
       (string-append host ":" (int->string (url-port url)))))
 
 ;;@doc
-;; The scheme, host and port of a url. Two urls with the same origin can share
-;; a connection.
+;; The scheme, host and port of a url.
 (define (url-origin url)
   (string-append (url-scheme url) "://" (url-authority url)))
 
 ;;@doc
-;; The request target of a url, which is the path and the query. This is what
-;; goes on the request line.
+;; The request target of a url: the path and the query.
 (define (url-target url)
   (if (url-query url)
       (string-append (url-path url) "?" (url-query url))
       (url-path url)))
 
 ;;@doc
-;; Writes a url back out as a string.
+;; Formats a url as a string.
 (define (url->string url)
   (string-append (url-scheme url)
                  "://"
@@ -250,8 +247,8 @@
                       [else (alist->query query)])
             #:fragment (url-fragment url)))
 
-;; `/a/./b/../c` -> `/a/c`, the way a client has to read a `Location` before it
-;; can ask for it.
+;; `/a/./b/../c` -> `/a/c`, as a client has to resolve a `Location` before it
+;; can request it.
 (define (remove-dot-segments path)
   (define absolute? (starts-with? path "/"))
   (define segments (split-many path "/"))
@@ -283,9 +280,9 @@
                                       reference)))
 
 ;;@doc
-;; Resolves *reference* against *base*, the way a `Location` header has to be
-;; read. The reference may be a full url, a `//host/path`, an absolute path, a
-;; relative path, a bare query or a bare fragment.
+;; Resolves *reference* against *base*, as a `Location` header is resolved. The
+;; reference may be a full url, a `//host/path`, an absolute path, a relative
+;; path, a bare query or a bare fragment.
 (define (url-join base reference)
   (define from (parse-url base))
   (cond
@@ -347,8 +344,8 @@
 
 ;;@doc
 ;; Percent encodes a string. Letters, digits and `-._~` are left alone, every
-;; other byte becomes `%XX`. The ascii characters in *safe* are left alone too,
-;; which is what keeps the `/` in a path.
+;; other byte becomes `%XX`. The ascii characters in *safe* are left alone as
+;; well.
 (define (url-encode str #:safe [safe ""])
   (define out (open-output-string))
   (define safe-bytes (filter (lambda (byte) (< byte 128)) (bytes->list (string->bytes safe))))
@@ -367,8 +364,8 @@
     [else #f]))
 
 ;;@doc
-;; Undoes `url-encode`. A `+` becomes a space, since that is what form encoding
-;; does, and a `%` that is not followed by two hex digits is left as it is.
+;; Decodes a percent encoded string. A `+` becomes a space, and a `%` that is
+;; not followed by two hex digits is left as it is.
 (define (url-decode str)
   (define len (string-length str))
   (define out (bytes))
@@ -421,14 +418,14 @@
                "&"))
 
 ;; An escape that is not utf8 cannot become a string, so the part keeps the
-;; escapes it was written with rather than taking the whole query down.
+;; escapes as written rather than failing the whole query.
 (define (url-decode-or-raw part)
   (with-handler (lambda (err) part) (url-decode part)))
 
 ;;@doc
-;; Decodes a query string into an association list. A key with no `=` comes
-;; back with an empty value, and repeated keys are all kept, in order. A part
-;; whose escapes are not utf8 is left as it was written.
+;; Decodes a query string into an association list. A key with no `=` gets an
+;; empty value, and repeated keys are all kept, in order. A part whose escapes
+;; are not utf8 is left as written.
 (define (query->alist query)
   (if (not query)
       '()

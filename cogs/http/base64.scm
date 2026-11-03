@@ -71,8 +71,8 @@
 (define (base64-decode str)
   (define digits (digits-of str))
   (define out (bytes))
-  ;; The digits are walked rather than indexed, because asking a list its
-  ;; length once per group of four is quadratic in the length of the input.
+  ;; Walked rather than indexed: asking a list its length once per group of
+  ;; four is quadratic in the length of the input.
   (let loop ([rest digits])
     (cond
       [(empty? rest) out]
