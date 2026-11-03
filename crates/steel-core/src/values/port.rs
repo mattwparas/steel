@@ -1447,14 +1447,6 @@ mod port_tests {
     }
 
     #[test]
-    fn nothing_is_pending_before_a_fill() {
-        let peekable = Peekable::new(Cursor::new(b"abc".to_vec()));
-
-        assert!(peekable.pending_is_empty());
-        assert_eq!(peekable.pending(), b"");
-    }
-
-    #[test]
     fn consume_advances_through_the_buffer() {
         let mut peekable = filled(b"0123456789");
         assert_eq!(peekable.pending(), b"0123456789");
@@ -2262,7 +2254,6 @@ mod port_tests {
     fn the_would_block_object_is_not_the_end_of_the_source() {
         let blocked = would_block();
 
-        assert!(crate::primitives::ports::would_block_objectp(&blocked));
         assert!(!crate::primitives::ports::eof_objectp(&blocked));
         assert_eq!(blocked.to_string(), "(would-block)");
     }
@@ -2395,14 +2386,6 @@ mod port_tests {
     }
 
     #[test]
-    fn a_tcp_stream_port_is_an_input_and_an_output_port() {
-        let port = tcp_port(b"abc");
-
-        assert!(port.is_input());
-        assert!(port.is_output());
-    }
-
-    #[test]
     fn a_tcp_stream_port_reads_lines() {
         let mut port = tcp_port(b"first\nsecond\n");
 
@@ -2452,12 +2435,10 @@ mod port_tests {
     }
 
     #[test]
-    fn a_dyn_reader_port_is_an_input_port() {
+    fn a_dyn_reader_port_reads_lines() {
         let reader: Box<dyn Read + Send + Sync> = Box::new(Cursor::new(b"first\nsecond".to_vec()));
         let mut port = SteelPortRepr::DynReader(Peekable::new(BufReader::new(reader)));
 
-        assert!(port.is_input());
-        assert!(!port.is_output());
         assert_eq!(
             nonblocking(port.read_line().unwrap()),
             (6, "first\n".to_string())

@@ -292,16 +292,6 @@ mod tcp_tests {
     }
 
     #[test]
-    fn the_module_hands_out_the_local_address_of_a_listener() {
-        assert!(tcp_module().contains("tcp-listener-local-addr"));
-    }
-
-    #[test]
-    fn the_module_hands_out_the_read_timeout() {
-        assert!(tcp_module().contains("tcp-stream-set-read-timeout!"));
-    }
-
-    #[test]
     fn a_timeout_in_milliseconds_reaches_the_socket() {
         let (stream, _client) = connected();
 

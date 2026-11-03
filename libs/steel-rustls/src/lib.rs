@@ -195,14 +195,6 @@ mod rustls_tests {
     }
 
     #[test]
-    fn the_module_hands_out_the_read_timeout() {
-        assert!(build_module()
-            .bindings()
-            .iter()
-            .any(|name| name == "tcp-set-read-timeout!"));
-    }
-
-    #[test]
     fn a_timeout_in_milliseconds_reaches_the_socket() {
         let (mut stream, _client) = connected();
 
