@@ -5,6 +5,7 @@ use std::{io::Read, path::PathBuf};
 
 use helpers::*;
 use steel::steel_vm::engine::Engine;
+use steel::SteelVal;
 use steel::PRELUDE;
 
 #[test]
@@ -453,33 +454,46 @@ fn filter_test() {
 }
 
 #[test]
-fn the_ready_readers_work_from_scheme() {
+fn the_ready_readers_work_from_steel() {
     let mut vm = Engine::new();
+
+    vm.compile_and_run_raw_program(
+        r#"
+        (define (collect port)
+          (let loop ([out '()])
+            (let ([line (read-line* port)])
+              (if (eof-object? line) (reverse out) (loop (cons line out))))))
+        "#,
+    )
+    .unwrap();
 
     let res = vm
         .compile_and_run_raw_program(
             r#"
-            (define (collect port)
-              (let loop ([out '()])
-                (let ([line (read-line* port)])
-                  (if (eof-object? line) (reverse out) (loop (cons line out))))))
-
-            (list (equal? (collect (open-input-string "one\ntwo\n")) '("one" "two"))
-                  (equal? (read-port-to-string* (open-input-string "whole")) "whole")
-                  (equal? (read-port-to-bytes* (open-input-string "abc")) (bytes 97 98 99))
-                  (equal? (port->string* (open-input-string "aliased")) "aliased")
-                  (equal? (port->bytes* (open-input-string "ab")) (bytes 97 98))
-                  (would-block-object? (read-line* (open-input-string "x")))
-                  (eof-object? (read-line* (open-input-string "")))
-                  (eq? port->string* read-port-to-string*)
-                  (eq? port->bytes* read-port-to-bytes*))
-            "#
-            .to_string(),
+            (collect (open-input-string "one\ntwo\n"))
+            (read-port-to-string* (open-input-string "whole"))
+            (read-port-to-bytes* (open-input-string "abc"))
+            (port->string* (open-input-string "aliased"))
+            (port->bytes* (open-input-string "ab"))
+            (would-block-object? (read-line* (open-input-string "x")))
+            (eof-object? (read-line* (open-input-string "")))
+            (eq? port->string* read-port-to-string*)
+            (eq? port->bytes* read-port-to-bytes*)
+            "#,
         )
         .unwrap();
 
-    assert_eq!(
-        res[1].to_string(),
-        "(#true #true #true #true #true #false #true #true #true)"
-    );
+    assert_eq!(res[0], steel::list!["one", "two"]);
+    assert_eq!(res[1], SteelVal::StringV("whole".into()));
+    assert_eq!(res[2], bytevector(b"abc"));
+    assert_eq!(res[3], SteelVal::StringV("aliased".into()));
+    assert_eq!(res[4], bytevector(b"ab"));
+    assert_eq!(res[5], SteelVal::BoolV(false));
+    assert_eq!(res[6], SteelVal::BoolV(true));
+    assert_eq!(res[7], SteelVal::BoolV(true));
+    assert_eq!(res[8], SteelVal::BoolV(true));
+}
+
+fn bytevector(bytes: &[u8]) -> SteelVal {
+    SteelVal::ByteVector(steel::rvals::SteelByteVector::new(bytes.to_vec()))
 }
