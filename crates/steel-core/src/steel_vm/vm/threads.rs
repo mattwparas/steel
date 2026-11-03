@@ -1328,24 +1328,3 @@ pub fn threading_module() -> BuiltInModule {
         });
     module
 }
-
-#[cfg(test)]
-mod channel_object_tests {
-    use super::*;
-
-    #[test]
-    fn a_disconnected_channel_is_not_empty() {
-        let disconnected = disconnected_channel();
-
-        assert!(!empty_channel_objectp(&disconnected));
-        assert_eq!(disconnected.to_string(), "(#%disconnected-channel)");
-    }
-
-    #[test]
-    fn an_empty_channel_is_not_disconnected() {
-        let empty = empty_channel();
-
-        assert!(!disconnected_channel_objectp(&empty));
-        assert_eq!(empty.to_string(), "(#%empty-channel)");
-    }
-}

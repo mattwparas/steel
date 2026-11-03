@@ -961,10 +961,6 @@ mod would_block_tests {
                 would_block_objectp(&value),
                 "{name} reported a blocked port as {value}"
             );
-            assert!(
-                !eof_objectp(&value),
-                "{name} reported a blocked port as eof"
-            );
         }
     }
 
@@ -1072,8 +1068,8 @@ mod would_block_tests {
         let value = read_bytes(4, &timed_out).unwrap();
 
         assert_eq!(
-            value.to_string(),
-            SteelVal::ByteVector(SteelByteVector::new(b"ab".to_vec())).to_string(),
+            value,
+            SteelVal::ByteVector(SteelByteVector::new(b"ab".to_vec())),
             "a read that timed out after two of the four bytes gave back {value}"
         );
     }

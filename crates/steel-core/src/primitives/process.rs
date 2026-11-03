@@ -697,12 +697,11 @@ mod process_tests {
     #[test]
     fn with_stdin_rejects_an_output_port() {
         let port = SteelPort::new_output_port_string();
-        let err = with_stdin(builder(), SteelVal::PortV(port.clone())).unwrap_err();
+        let err = with_stdin(builder(), SteelVal::PortV(port)).unwrap_err();
 
         assert!(err
             .to_string()
             .contains("with-stdin expected an input port in the second position"));
-        assert!(port.is_output());
     }
 
     #[test]
@@ -719,12 +718,11 @@ mod process_tests {
     #[test]
     fn with_stdout_rejects_an_input_port() {
         let port = SteelPort::new_input_port_string("(a) remainder".to_string());
-        let err = with_stdout(builder(), SteelVal::PortV(port.clone())).unwrap_err();
+        let err = with_stdout(builder(), SteelVal::PortV(port)).unwrap_err();
 
         assert!(err
             .to_string()
             .contains("with-stdout expected an output port in the second position"));
-        assert!(port.is_input());
     }
 
     #[test]

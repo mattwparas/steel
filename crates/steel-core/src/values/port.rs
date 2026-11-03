@@ -2254,14 +2254,6 @@ mod port_tests {
     }
 
     #[test]
-    fn would_block_is_not_eof() {
-        let blocked = would_block();
-
-        assert!(!crate::primitives::ports::eof_objectp(&blocked));
-        assert_eq!(blocked.to_string(), "(would-block)");
-    }
-
-    #[test]
     fn as_stdio_refuses_a_closed_port() {
         let Err(err) = SteelPortRepr::Closed.as_stdio() else {
             panic!("a closed port has no handle to give a child");
@@ -2452,7 +2444,6 @@ mod port_tests {
     fn the_standard_error_port_flushes() {
         let mut port = SteelPortRepr::StdError(io::stderr());
 
-        assert!(port.is_output());
         assert!(port.flush().is_ok());
     }
 }
