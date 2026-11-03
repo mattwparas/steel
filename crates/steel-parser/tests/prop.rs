@@ -1,6 +1,6 @@
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
-use steel_parser::differential::{check, one_shot, rework};
+use steel_parser::compare::{check, one_shot, rework};
 use steel_parser::parser::{Parser, SourceId};
 
 fn atom_strategy() -> impl Strategy<Value = String> {

@@ -10,7 +10,7 @@ fn main() {
 
         let chunk = (*first as usize % 64) + 1;
 
-        if let Err(err) = steel_parser::differential::check(text, chunk) {
+        if let Err(err) = steel_parser::compare::check(text, chunk) {
             panic!("{}", err);
         }
     });

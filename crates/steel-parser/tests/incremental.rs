@@ -1,4 +1,4 @@
-use steel_parser::differential::{check, rework};
+use steel_parser::compare::{check, rework};
 
 fn programs() -> impl Iterator<Item = &'static str> {
     static PROGRAMS: &[&str] = &[
