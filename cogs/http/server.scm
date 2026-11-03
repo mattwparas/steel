@@ -25,8 +25,6 @@
 ;; end says it is.
 (define *max-body-bytes* 8388608)
 
-;; ------------------------------------------------------------------ listening
-
 (struct server (listener address read-timeout) #:transparent)
 
 ;;@doc
@@ -36,8 +34,6 @@
 (define (http-listen address #:read-timeout [read-timeout #f])
   (define listener (tcp-listen address))
   (server listener (tcp-listener-local-addr listener) read-timeout))
-
-;; ------------------------------------------------------------------- requests
 
 (define (request-line-parts line)
   ;; A request line is three fields with one space between them; anything else
@@ -186,8 +182,6 @@
      (error "http:" (problem-report-text outcome) "- would answer" (problem-report-status outcome))]
     [else outcome]))
 
-;; ------------------------------------------------------------------ responses
-
 ;; A 1xx, a 204 and a 304 carry no body, so they go out with no length either:
 ;; a `Content-Length: 0` on a 304 contradicts the body it stands in for.
 (define (bodyless-status? status)
@@ -239,8 +233,6 @@
 ;; body whatever the method.
 (define (http-write-response! writer received #:keep-alive [keep-alive #f] #:method [method "GET"])
   (write-wire! writer (response->wire received keep-alive method)))
-
-;; ------------------------------------------------------------------- serving
 
 (define (answer-to handler sent)
   (define answered

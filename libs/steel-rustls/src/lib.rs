@@ -114,10 +114,8 @@ fn connect(addr: &str) -> Result<RustlsTcpStream, RustlsError> {
         .map_err(RustlsError::Io)
 }
 
-// The deadline goes on the socket rather than on the tls stream above it, so it
-// covers the handshake: that is where a server which accepts the connection and
-// then says nothing would otherwise hold the calling thread. `tls-stream` moves
-// this socket in, and a deadline belongs to the socket, so it stays in force.
+// The deadline goes on the socket rather than the tls stream above it so that it
+// covers the handshake; `tls-stream` moves the socket in and it stays in force.
 fn set_read_timeout(stream: &mut RustlsTcpStream, ms: Option<isize>) -> Result<(), RustlsError> {
     stream
         .0
@@ -128,8 +126,6 @@ fn set_read_timeout(stream: &mut RustlsTcpStream, ms: Option<isize>) -> Result<(
 fn read_timeout(ms: Option<isize>) -> Result<Option<Duration>, RustlsError> {
     match ms {
         None => Ok(None),
-        // A zero timeout means "no timeout at all" to the os, so it is refused
-        // rather than turned into waiting forever.
         Some(ms) if ms > 0 => Ok(Some(Duration::from_millis(ms as u64))),
         Some(ms) => Err(RustlsError::Argument(format!(
             "tcp-set-read-timeout!: expected a positive number of milliseconds, found {}",

@@ -109,8 +109,6 @@ impl<T> Peekable<T> {
         }
     }
 
-    // For a source a read deadline can be set on: a socket, or anything a
-    // dylib hands over, which may be a socket underneath.
     pub fn with_deadline(inner: T) -> Self {
         Peekable {
             deadline: true,
@@ -510,10 +508,8 @@ fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
     MaybeBlocking::Nonblocking(Some((char::REPLACEMENT_CHARACTER, amt)))
 }
 
-// A read that reaches the deadline set by `tcp-stream-set-read-timeout!` reports
-// it as `WouldBlock` on unix and `TimedOut` on windows. Both say the same thing:
-// nothing more has arrived yet, and what already came off the stream stands. A
-// source that cannot carry a deadline has hit a real error instead.
+// A read that reaches a deadline is `WouldBlock` on unix and `TimedOut` on
+// windows; a source that cannot carry a deadline has hit a real error instead.
 fn blocked(err: &io::Error, deadline: bool) -> bool {
     err.kind() == io::ErrorKind::WouldBlock || (deadline && err.kind() == io::ErrorKind::TimedOut)
 }
@@ -1608,8 +1604,6 @@ mod port_tests {
         assert_eq!(peekable.pending(), b"abc", "the pending bytes survive");
     }
 
-    // A socket that hit the deadline set by `tcp-stream-set-read-timeout!` reports
-    // it this way on windows rather than as a read that would block
     struct RanOutOfTime;
 
     impl Read for RanOutOfTime {

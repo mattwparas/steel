@@ -49,9 +49,6 @@
         (loop (+ at 3)))))
   (get-output-string out))
 
-;;@doc
-;; Decodes base64 into bytes. Padding and whitespace are optional, and anything
-;; outside the alphabet is an error.
 (define (digits-of str)
   (let loop ([chars (string->list str)]
              [digits '()]
@@ -68,6 +65,9 @@
            (error "base64: not a base64 digit:" (car chars)))
          (loop (cdr chars) (cons value digits) padded))])))
 
+;;@doc
+;; Decodes base64 into bytes. Padding and whitespace are optional, and anything
+;; outside the alphabet is an error.
 (define (base64-decode str)
   (define digits (digits-of str))
   (define out (bytes))

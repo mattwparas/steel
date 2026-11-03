@@ -690,7 +690,6 @@ pub fn would_block_objectp(value: &SteelVal) -> bool {
     }
 }
 
-// Every waiting read raises this, so callers have one message to match
 fn nonblocking<T>(value: MaybeBlocking<T>) -> Result<T> {
     match value {
         MaybeBlocking::Nonblocking(value) => Ok(value),
@@ -920,7 +919,6 @@ mod would_block_tests {
         (port, client)
     }
 
-    // The same, with a deadline rather than a refusal to wait at all
     fn timed_out_tcp_port(ms: u64) -> (SteelPort, TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();

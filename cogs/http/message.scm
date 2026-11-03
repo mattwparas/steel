@@ -57,8 +57,6 @@
 ;; otherwise get past `*max-header-lines*` on its own.
 (define *max-line-length* 8192)
 
-;; ------------------------------------------------------------------ requests
-
 (struct request (method url headers body version) #:transparent)
 
 (define (method->string method)
@@ -161,8 +159,6 @@
     [asked (token-member? asked "keep-alive")]
     [else #f]))
 
-;; ----------------------------------------------------------------- responses
-
 (struct response (version status reason headers body) #:transparent)
 
 ;;@doc
@@ -261,8 +257,6 @@
             (or reason (reason-phrase status))
             (normalize-headers headers)
             (or (body->bytes body) (bytes))))
-
-;; ------------------------------------------------------------------- reading
 
 (define (strip-cr line)
   ;; A tcp reader hands back the `\r` of a crlf and a string port does not, so

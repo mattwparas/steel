@@ -2043,10 +2043,8 @@ fn attempt_parse(
     let outcome = {
         let pending = port.pending();
 
-        // Bytes that cannot become valid utf8 end the text for good, so a
-        // datum which stops in front of them is finished rather than held
-        // back for input that could never complete it. A sequence that is
-        // only cut short can still be completed until the source is done.
+        // Bytes that can never be valid utf8 end the text for good; a sequence
+        // that is only cut short can still be completed, until the source is done.
         let (text, bad_end) = match core::str::from_utf8(pending) {
             Ok(text) => (text, None),
             Err(err) => {
@@ -2983,7 +2981,6 @@ mod read_datum_tests {
         }
     }
 
-    // The far end of a socket takes a moment to arrive.
     fn within<T>(mut attempt: impl FnMut() -> Option<T>) -> T {
         let deadline = Instant::now() + Duration::from_secs(10);
 
@@ -3007,22 +3004,6 @@ mod read_datum_tests {
 
         there
     }
-
-    const PROGRAMS: &[&str] = &[
-        "1 2 3",
-        "(a b) (c d)",
-        "'(1 2) `(3 ,x ,@y) #'q",
-        "#;(skipped) (kept) #;(also skipped) 42",
-        "\"a string with ) and ( in it\" (after)",
-        "#\\a #\\space (c)",
-        "#u8(1 2 3) #(4 5)",
-        "(nested (deeply (enough))) tail",
-        "; a comment\n(after the comment)",
-        "#| a block comment |# 7",
-        "1/2 2.5 1+2i 10000000000000000000000",
-        "(a\u{e9}b \"\u{1f600}\") end",
-        "#!/usr/bin/env steel\n(shebang) 2",
-    ];
 
     fn whole(input: &str) -> SteelVal {
         read_one(&SteelPort::new_input_port_string(input.to_string())).unwrap()
@@ -3092,6 +3073,22 @@ mod read_datum_tests {
 
     #[test]
     fn a_source_hands_over_the_same_datums_however_it_breaks_them_up() {
+        static PROGRAMS: &[&str] = &[
+            "1 2 3",
+            "(a b) (c d)",
+            "'(1 2) `(3 ,x ,@y) #'q",
+            "#;(skipped) (kept) #;(also skipped) 42",
+            "\"a string with ) and ( in it\" (after)",
+            "#\\a #\\space (c)",
+            "#u8(1 2 3) #(4 5)",
+            "(nested (deeply (enough))) tail",
+            "; a comment\n(after the comment)",
+            "#| a block comment |# 7",
+            "1/2 2.5 1+2i 10000000000000000000000",
+            "(a\u{e9}b \"\u{1f600}\") end",
+            "#!/usr/bin/env steel\n(shebang) 2",
+        ];
+
         for program in PROGRAMS {
             let expected = datums(&SteelPort::new_input_port_string(program.to_string()));
 

@@ -59,8 +59,6 @@
 ;; What this client calls itself in the `User-Agent` header.
 (define *user-agent* "steel-http/0.1.0")
 
-;; ---------------------------------------------------------------- transports
-
 ;; A transport is the pair of ports a request travels over, and a thunk that
 ;; hangs up. Everything above this knows nothing about sockets, so
 ;; `current-http-connector` can put tls, a unix socket or a canned reply under
@@ -112,8 +110,6 @@
 ;; ```
 (define current-http-connector (make-parameter tcp-connector))
 
-;; --------------------------------------------------------------- connections
-
 (struct connection (transport origin) #:transparent)
 
 ;;@doc
@@ -136,8 +132,6 @@
 (define (call-with-http-connection target proc)
   (define connection (http-connect target))
   (dynamic-wind (lambda () void) (lambda () (proc connection)) (lambda () (http-close! connection))))
-
-;; ------------------------------------------------------------------ requests
 
 ;; POST and friends say "no body" with a length of zero, rather than by leaving
 ;; the length out, which a server is free to read as a truncated request.
@@ -183,8 +177,6 @@
       (write-bytes (bytes-append (string->bytes head) body) writer)
       (display head writer))
   (flush-output-port writer))
-
-;; ------------------------------------------------------------------- reading
 
 (define (parse-status-line line)
   (define after-version (split-once line " "))
@@ -275,8 +267,6 @@
   (http-write-request! connection request #:keep-alive keep-alive)
   (http-read-response (transport-reader (connection-transport connection))
                       #:method (request-method request)))
-
-;; ----------------------------------------------------------------- redirects
 
 (define (redirect-status? status)
   (member status (list 301 302 303 307 308)))

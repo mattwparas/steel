@@ -12,8 +12,6 @@
 
 (provide __http-module)
 
-;; ---------------------------------------------------------------- fixtures
-
 ;; Answers every connection with the next canned reply, and keeps what the
 ;; client wrote so that a test can look at the request it sent.
 (define (fixture-connector replies requests)
@@ -81,8 +79,6 @@
 
 (define (redirect-to location)
   (string-append "HTTP/1.1 302 Found\r\nLocation: " location "\r\nContent-Length: 0\r\n\r\n"))
-
-;; --------------------------------------------------------------------- urls
 
 (test-module
  "http-url-tests"
@@ -162,8 +158,6 @@
                (url->string (url-join "http://a/b/c" "/login?next=https://b/x")))
  (check-equal? "a non ascii safe character is encoded anyway" "%C3%A9" (url-encode "é" #:safe "é")))
 
-;; ------------------------------------------------------------------ headers
-
 (test-module
  "http-headers-tests"
  (check-equal? "headers come from pairs or from two element lists"
@@ -205,8 +199,6 @@
                "X-Not_A.Token!: 1\r\n"
                (headers->string (header-add '() "X-Not_A.Token!" 1))))
 
-;; ------------------------------------------------------------------- base64
-
 (test-module
  "http-base64-tests"
  (check-equal? "the empty string encodes to nothing" "" (base64-encode ""))
@@ -226,8 +218,6 @@
                #t
                (let ([long (apply string-append (map (lambda (n) "0123456789") (range 0 30)))])
                  (equal? long (bytes->string/utf8 (base64-decode (base64-encode long)))))))
-
-;; ---------------------------------------------------------- reading a reply
 
 (test-module
  "http-response-tests"
@@ -365,8 +355,6 @@
                        (lambda () (http-get "http://x/")))
              'raises))
 
-;; -------------------------------------------------------- writing a request
-
 (test-module
  "http-request-tests"
  (check-equal?
@@ -467,8 +455,6 @@
              (make-request "POST" "http://x/" #:body 42)
              'raises))
 
-;; ---------------------------------------------------------------- redirects
-
 (test-module
  "http-redirect-tests"
  (check-equal? "a relative location is resolved and followed"
@@ -545,8 +531,6 @@
              (reply-to (list (redirect-to "/1") (redirect-to "/2"))
                        (lambda () (http-get "http://a/" #:follow 1)))
              'raises))
-
-;; ------------------------------------------------------------- over a socket
 
 (test-module
  "http-socket-tests"
@@ -646,8 +630,6 @@
           (response-text
            (http-exchange connection (make-request "GET" "http://127.0.0.1/two") #:keep-alive #t))))))
 
-;; ------------------------------------------- what the client refuses to send
-
 (test-module
  "http-framing-tests"
  (check-err? "a newline in a path is refused, rather than written into the request line"
@@ -698,8 +680,6 @@
                (response-status
                 (reply-to (list "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n")
                           (lambda () (http-get "http://x/"))))))
-
-;; ------------------------------------------------------------ the server side
 
 ;; Serves *text* as if it had arrived on a connection, and returns
 ;; (requests-served . what-went-back).
