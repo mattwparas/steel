@@ -76,10 +76,9 @@ impl core::fmt::Display for SteelPort {
 const MIN_CHUNK: usize = 8 * 1024;
 const MAX_STREAM_CHUNK: usize = 64 * 1024;
 
-// A read that stops because the source would block leaves the parser's state
-// here, so that the retry picks up where it left off instead of parsing the
-// pending bytes again. `pending` is how much was in front of the parser when it
-// stopped: the state may only be resumed on those same bytes with more appended.
+// Where a read that stopped because the source would block leaves the parser.
+// `pending` is how much was in front of it at the time: the state may only be
+// resumed on those same bytes with more appended.
 #[derive(Debug)]
 struct SuspendedRead {
     state: ParserState,

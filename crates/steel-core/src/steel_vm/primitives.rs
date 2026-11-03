@@ -2033,62 +2033,61 @@ fn attempt_parse(
     state: &mut Option<ParserState>,
     at_eof: bool,
 ) -> Result<Attempt> {
+    if port.pending().is_empty() {
+        return Ok(Attempt::Nothing);
+    }
+
     let saved = state.take();
     let at_source_start = port.at_source_start();
 
     let outcome = {
         let pending = port.pending();
 
-        if pending.is_empty() {
-            Outcome::Empty
-        } else {
-            // Bytes that cannot become valid utf8 end the text for good, so a
-            // datum which stops in front of them is finished rather than held
-            // back for input that could never complete it. A sequence that is
-            // only cut short can still be completed, until the source is done.
-            let (text, bad_end) = match core::str::from_utf8(pending) {
-                Ok(text) => (text, None),
-                Err(err) => {
-                    let valid = core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap();
+        // Bytes that cannot become valid utf8 end the text for good, so a
+        // datum which stops in front of them is finished rather than held
+        // back for input that could never complete it. A sequence that is
+        // only cut short can still be completed until the source is done.
+        let (text, bad_end) = match core::str::from_utf8(pending) {
+            Ok(text) => (text, None),
+            Err(err) => {
+                let valid = core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap();
 
-                    match err.error_len() {
-                        Some(len) => (valid, Some(err.valid_up_to() + len)),
-                        None if at_eof => (valid, Some(pending.len())),
-                        None => (valid, None),
-                    }
+                match err.error_len() {
+                    Some(len) => (valid, Some(err.valid_up_to() + len)),
+                    None if at_eof => (valid, Some(pending.len())),
+                    None => (valid, None),
                 }
-            };
-
-            let hold_back = !at_eof && bad_end.is_none();
-
-            let mut parser = match saved {
-                Some(state) => {
-                    Parser::resume(text, SourceId::none(), state, hold_back, at_source_start)
-                }
-                None => Parser::new_incremental(text, SourceId::none(), hold_back, at_source_start),
-            };
-
-            let result = parser.next();
-            let offset = parser.offset();
-
-            match (result, bad_end) {
-                (Some(Ok(expr)), _) => Outcome::Parsed(expr, offset),
-                (_, Some(bad_end)) => Outcome::NotUtf8(bad_end),
-                (Some(Err(err)), _) if parser.needs_more_input(&err) => {
-                    Outcome::Incomplete(parser.take_state())
-                }
-                (Some(Err(err)), _) => {
-                    let bad = usize::min(usize::max(err.span().end as usize, 1), pending.len());
-
-                    Outcome::Bad(err, bad)
-                }
-                (None, _) => Outcome::Nothing(parser.take_state()),
             }
+        };
+
+        let hold_back = !at_eof && bad_end.is_none();
+
+        let mut parser = match saved {
+            Some(state) => {
+                Parser::resume(text, SourceId::none(), state, hold_back, at_source_start)
+            }
+            None => Parser::new_incremental(text, SourceId::none(), hold_back, at_source_start),
+        };
+
+        let result = parser.next();
+        let offset = parser.offset();
+
+        match (result, bad_end) {
+            (Some(Ok(expr)), _) => Outcome::Parsed(expr, offset),
+            (_, Some(bad_end)) => Outcome::NotUtf8(bad_end),
+            (Some(Err(err)), _) if parser.needs_more_input(&err) => {
+                Outcome::Incomplete(parser.take_state())
+            }
+            (Some(Err(err)), _) => {
+                let bad = usize::min(usize::max(err.span().end as usize, 1), pending.len());
+
+                Outcome::Bad(err, bad)
+            }
+            (None, _) => Outcome::Nothing(parser.take_state()),
         }
     };
 
     match outcome {
-        Outcome::Empty => Ok(Attempt::Nothing),
         Outcome::Parsed(expr, offset) => Ok(Attempt::Parsed(expr, offset)),
         Outcome::Incomplete(saved) => {
             *state = saved;
@@ -2110,7 +2109,6 @@ fn attempt_parse(
 }
 
 enum Outcome {
-    Empty,
     Parsed(ExprKind, usize),
     Incomplete(Option<ParserState>),
     Nothing(Option<ParserState>),
@@ -2151,9 +2149,6 @@ fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> R
                 match filled {
                     MaybeBlocking::Nonblocking(0) => at_eof = true,
                     MaybeBlocking::Nonblocking(_) => {}
-                    // The parser's state goes back to the port, so that the
-                    // retry carries on from here instead of parsing the pending
-                    // bytes over again.
                     MaybeBlocking::WouldBlock => {
                         port.port.write().save_parse_state(state.take());
 
@@ -2847,7 +2842,9 @@ mod read_datum_tests {
     use super::*;
     use crate::gc::Gc;
     use crate::values::port::Peekable;
-    use std::io::{BufReader, Read};
+    use std::io::{BufReader, Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::time::{Duration, Instant};
 
     struct Chunks {
         chunks: Vec<&'static [u8]>,
@@ -2869,8 +2866,6 @@ mod read_datum_tests {
         }
     }
 
-    // Hands over `chunk` bytes at a time, and when it stalls says it would
-    // block in between, the way a socket with nothing ready does.
     struct Trickle {
         bytes: Vec<u8>,
         at: usize,
@@ -2950,7 +2945,7 @@ mod read_datum_tests {
         })
     }
 
-    fn datums(port: &SteelPort) -> Vec<String> {
+    fn datums(port: &SteelPort) -> Vec<SteelVal> {
         let mut out = Vec::new();
 
         loop {
@@ -2960,7 +2955,7 @@ mod read_datum_tests {
                 return out;
             }
 
-            out.push(format!("{:?}", value));
+            out.push(value);
         }
     }
 
@@ -2969,6 +2964,7 @@ mod read_datum_tests {
     }
 
     fn read_retrying(port: &SteelPort) -> (SteelVal, usize) {
+        let deadline = Instant::now() + Duration::from_secs(10);
         let mut retries = 0;
 
         loop {
@@ -2978,9 +2974,55 @@ mod read_datum_tests {
                 return (value, retries);
             }
 
+            assert!(
+                Instant::now() < deadline,
+                "the source never finished the datum"
+            );
+
             retries += 1;
         }
     }
+
+    // The far end of a socket takes a moment to arrive.
+    fn within<T>(mut attempt: impl FnMut() -> Option<T>) -> T {
+        let deadline = Instant::now() + Duration::from_secs(10);
+
+        loop {
+            if let Some(value) = attempt() {
+                return value;
+            }
+
+            assert!(Instant::now() < deadline, "the bytes never turned up");
+
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    // Looking at where the parser left off has to leave it where it was.
+    fn kept_its_place(port: &SteelPort) -> bool {
+        let kept = port.port.write().take_parse_state();
+        let there = kept.is_some();
+
+        port.port.write().save_parse_state(kept);
+
+        there
+    }
+
+    const PROGRAMS: &[&str] = &[
+        "1 2 3",
+        "(a b) (c d)",
+        "'(1 2) `(3 ,x ,@y) #'q",
+        "#;(skipped) (kept) #;(also skipped) 42",
+        "\"a string with ) and ( in it\" (after)",
+        "#\\a #\\space (c)",
+        "#u8(1 2 3) #(4 5)",
+        "(nested (deeply (enough))) tail",
+        "; a comment\n(after the comment)",
+        "#| a block comment |# 7",
+        "1/2 2.5 1+2i 10000000000000000000000",
+        "(a\u{e9}b \"\u{1f600}\") end",
+        "#!/usr/bin/env steel\n(shebang) 2",
+    ];
 
     fn whole(input: &str) -> SteelVal {
         read_one(&SteelPort::new_input_port_string(input.to_string())).unwrap()
@@ -3047,22 +3089,6 @@ mod read_datum_tests {
 
         assert!(would_block(&read_one(&port).unwrap()));
     }
-
-    const PROGRAMS: &[&str] = &[
-        "1 2 3",
-        "(a b) (c d)",
-        "'(1 2) `(3 ,x ,@y) #'q",
-        "#;(skipped) (kept) #;(also skipped) 42",
-        "\"a string with ) and ( in it\" (after)",
-        "#\\a #\\space (c)",
-        "#u8(1 2 3) #(4 5)",
-        "(nested (deeply (enough))) tail",
-        "; a comment\n(after the comment)",
-        "#| a block comment |# 7",
-        "1/2 2.5 1+2i 10000000000000000000000",
-        "(a\u{e9}b \"\u{1f600}\") end",
-        "#!/usr/bin/env steel\n(shebang) 2",
-    ];
 
     #[test]
     fn a_source_hands_over_the_same_datums_however_it_breaks_them_up() {
@@ -3137,12 +3163,10 @@ mod read_datum_tests {
         let port = trickle("(a b c)", 4, true);
 
         assert!(would_block(&read_one(&port).unwrap()));
-
-        let kept = port.port.write().take_parse_state();
-        assert!(kept.is_some(), "the retry would parse those bytes again");
-
-        port.port.write().save_parse_state(kept);
-
+        assert!(
+            kept_its_place(&port),
+            "the retry would parse those bytes again"
+        );
         assert_eq!(read_retrying(&port).0, whole("(a b c)"));
     }
 
@@ -3156,9 +3180,78 @@ mod read_datum_tests {
             MaybeBlocking::Nonblocking(Some('('))
         );
         assert!(
-            port.port.write().take_parse_state().is_none(),
+            !kept_its_place(&port),
             "the parser's place outlived the bytes it was looking at"
         );
+    }
+
+    #[test]
+    fn reading_a_line_in_between_drops_the_parsers_place() {
+        let port = trickle("(a b\nc)", 4, true);
+
+        assert!(would_block(&read_one(&port).unwrap()));
+        assert!(kept_its_place(&port));
+
+        let line = within(|| match port.read_line().unwrap() {
+            MaybeBlocking::Nonblocking((_, line)) => Some(line),
+            MaybeBlocking::WouldBlock => None,
+        });
+
+        assert_eq!(line, "(a b\n");
+        assert!(
+            !kept_its_place(&port),
+            "the parser's place outlived the bytes it was looking at"
+        );
+        assert_eq!(read_retrying(&port).0, whole("c"));
+    }
+
+    #[test]
+    fn reading_the_rest_of_the_source_in_between_drops_the_parsers_place() {
+        let port = trickle("(a b c)", 4, true);
+
+        assert!(would_block(&read_one(&port).unwrap()));
+        assert!(kept_its_place(&port));
+
+        let rest = within(|| match port.read_all_str().unwrap() {
+            MaybeBlocking::Nonblocking((_, text)) => Some(text),
+            MaybeBlocking::WouldBlock => None,
+        });
+
+        assert_eq!(rest, "(a b c)");
+        assert!(
+            !kept_its_place(&port),
+            "the parser's place outlived the bytes it was looking at"
+        );
+    }
+
+    #[test]
+    fn a_socket_which_has_not_been_written_to_yet_keeps_the_parsers_place() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+
+        server.set_nonblocking(true).unwrap();
+
+        let port = SteelPort {
+            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::with_deadline(server))),
+        };
+
+        client.write_all(b"(a b").unwrap();
+
+        within(|| {
+            assert!(would_block(&read_one(&port).unwrap()));
+
+            (!port.port.read().pending().is_empty()).then_some(())
+        });
+
+        assert!(
+            kept_its_place(&port),
+            "the retry would parse those bytes again"
+        );
+
+        client.write_all(b" c)").unwrap();
+
+        assert_eq!(read_retrying(&port).0, whole("(a b c)"));
     }
 
     #[test]

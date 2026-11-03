@@ -390,7 +390,7 @@
 (check-equal? "read, a datum before bytes that are not utf8 still reads"
               '(a)
               (read (open-input-bytevector #u8(40 97 41 32 255))))
-(check-equal? "read, a datum which ends where bytes that are not utf8 begin still reads"
+(check-equal? "read, a datum that touches bytes that are not utf8 still reads"
               42
               (read (open-input-bytevector #u8(52 50 255))))
 (check-equal? "read, a datum in front of a sequence that is cut short still reads"
