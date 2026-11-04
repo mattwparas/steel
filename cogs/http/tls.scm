@@ -19,16 +19,12 @@
                                      gz-decode)))
     (set-box! *loaded* #t)))
 
-;; Each name is looked up on its own: a bytevector does not survive being
-;; written into an expression.
 (define (rustls name)
   (load-rustls!)
   (eval name))
 
 (define (tls-ports host address read-timeout)
   (define socket ((rustls 'tcp-connect) address))
-  ;; The deadline goes on the socket before the tls stream, so it covers the
-  ;; handshake.
   ((rustls 'tcp-set-read-timeout!) socket read-timeout)
   (define connection ((rustls 'client-connection) host))
   (define stream ((rustls 'tls-stream) connection socket))
@@ -36,7 +32,7 @@
 
 ;;@doc
 ;; Opens a tls connection to the host of a url. Needs the `steel-rustls`
-;; dylib. A certificate that does not verify is reported on the first read.
+;; dylib.
 (define (tls-connector url #:read-timeout [read-timeout #f])
   (define host (url-host url))
   (define ports (tls-ports host (string-append host ":" (int->string (url-port url))) read-timeout))
@@ -47,7 +43,7 @@
                             (with-handler (lambda (err) void) (close-port (list-ref ports 1))))))
 
 ;;@doc
-;; A connector for both schemes: `https` over tls, `http` over plain tcp
+;; Builds a connector for both `https` and `http`
 ;;
 ;; ```scheme
 ;; (parameterize ([current-http-connector https-connector])

@@ -57,8 +57,6 @@
       [(empty? chars) (reverse digits)]
       [(char=? (car chars) #\=) (loop (cdr chars) digits #t)]
       [(char-whitespace? (car chars)) (loop (cdr chars) digits padded)]
-      ;; Padding ends the input: a digit after it is an error, so `QQ=A` is
-      ;; refused.
       [padded (error "base64: a digit after the padding:" str)]
       [else
        (let ([value (hash-try-get *values-by-char* (car chars))])
@@ -71,7 +69,6 @@
 (define (base64-decode str)
   (define digits (digits-of str))
   (define out (bytes))
-  ;; A list has no constant time length, so the digits are walked.
   (let loop ([rest digits])
     (cond
       [(empty? rest) out]

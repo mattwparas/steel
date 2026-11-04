@@ -20,10 +20,13 @@
 (define *server-name* "steel-http/0.1.0")
 
 ;;@doc
-;; The largest request body this server reads. A longer one gets a 413.
+;; The largest request body this server reads
 (define *max-body-bytes* 8388608)
 
 (struct server (listener address read-timeout) #:transparent)
+
+;; TODO: hacking around a bug where re-raising inside handler panics
+(struct problem-report (status text) #:transparent)
 
 ;;@doc
 ;; Binds a listener. A port of `0` takes a free port from the os.
@@ -32,13 +35,9 @@
   (server listener (tcp-listener-local-addr listener) read-timeout))
 
 (define (request-line-parts line)
-  ;; A request line is three fields separated by single spaces; anything else
-  ;; is an error.
   (define parts (split-many line " "))
   (if (equal? (length parts) 3) parts #f))
 
-;; The target may be origin form (`/a?b`), absolute form (`http://host/a`, as
-;; sent to a proxy), or `*` for an `OPTIONS` about the server itself.
 (define (target->url target host)
   (cond
     [(equal? target "*") (make-url (or host "") #:path "*")]
@@ -46,8 +45,6 @@
     [(not (starts-with? target "/")) #f]
     [host (parse-url (string-append "http://" host target))]
     [else
-     ;; An HTTP/1.0 request may arrive with no `Host`, leaving the path with no
-     ;; authority.
      (let ([split (split-once target "?")])
        (if (list? split)
            (make-url "" #:path (car split) #:query (list-ref split 1))
@@ -69,10 +66,6 @@
     ;; answer on.
     [declared declared]
     [else 'none]))
-
-;; A raise cannot carry a value through `with-handler`, and re-raising inside a
-;; handler panics the interpreter, so this is returned.
-(struct problem-report (status text) #:transparent)
 
 ;; Anything the shared reader raises (a bad header line, a bad chunk size, a
 ;; body cut short) becomes a 400.
@@ -137,8 +130,6 @@
   (cond
     [(problem-report? mode) mode]
     [else
-     ;; With `Expect: 100-continue` the interim response has to be written
-     ;; before the body is read.
      (when (and writer (expects-continue? headers))
        (with-handler (lambda (err) void)
                      (begin
@@ -161,9 +152,6 @@
                    (car body-and-trailers)
                    (list-ref parts 2))]))]))
 
-;;@doc
-;; Reads one request off `reader`, or the eof object between requests. Give
-;; `continue` the writer to answer an `Expect: 100-continue`.
 (define (http-read-request reader #:continue [continue #f])
   (define outcome (read-request reader continue))
   (cond
@@ -172,7 +160,6 @@
      (error "http:" (problem-report-text outcome) "- would answer" (problem-report-status outcome))]
     [else outcome]))
 
-;; A 1xx, a 204 and a 304 carry no body, and no `Content-Length` either.
 (define (bodyless-status? status)
   (or (equal? status 204) (equal? status 304) (and (>= status 100) (< status 200))))
 
@@ -190,8 +177,6 @@
       ;; A HEAD response carries the body's length but not the body.
       (header-default headers "Content-Length" (int->string (bytes-length body)))))
 
-;; The head and the body as bytes. An unframable response is rejected here,
-;; before anything is written.
 (define (response->wire received keep-alive method)
   (define status (response-status received))
   (define reason (response-reason received))
@@ -214,9 +199,6 @@
       (write-bytes (bytes-append (string->bytes (car wire)) (cdr wire)) writer))
   (flush-output-port writer))
 
-;;@doc
-;; Writes `response` over `writer` in one write. `method` is the method being
-;; answered.
 (define (http-write-response! writer received #:keep-alive [keep-alive #f] #:method [method "GET"])
   (write-wire! writer (response->wire received keep-alive method)))
 
@@ -230,9 +212,6 @@
       answered
       (make-response 500)))
 
-;; An unframable response - one carrying `Transfer-Encoding`, or built with the
-;; bare constructor and no body - becomes a 500 here. `http-write-response!`
-;; still raises.
 (define (framable? answered method)
   (and (response? answered)
        (with-handler (lambda (err) #f)
@@ -240,14 +219,11 @@
                        (response->wire answered #f method)
                        #t))))
 
-;; The body is the reason phrase alone, so nothing read off the wire is sent
-;; back. `http-read-request` raises with the detail.
 (define (problem-response report)
   (make-response (problem-report-status report)
                  #:headers (list (cons "Content-Type" "text/plain; charset=utf-8"))
                  #:body (string-append (reason-phrase (problem-report-status report)) "\n")))
 
-;; A closed client ends the connection, not the loop serving it.
 (define (write-answer writer answered keep-alive? method)
   (with-handler (lambda (err) #f)
                 (begin
@@ -257,7 +233,7 @@
 ;;@doc
 ;; Serves requests on one connection until it ends, and returns how many it
 ;; served. `handler` takes a `request?` and returns a `response?`; a raise, or
-;; any other value, becomes a 500.
+;; any other value, becomes a 500. TODO: Add thread pool support here
 ;;
 ;; (http-serve-connection reader writer handler [#:keep-alive keep-alive]
 ;;                        [#:limit limit]) -> int?
@@ -311,8 +287,7 @@
    (lambda () (with-handler (lambda (err) void) (tcp-shutdown! stream)))))
 
 ;;@doc
-;; Serves connections in sequence, and returns how many it served. A slow
-;; request delays the next connection.
+;; TODO: Add threads here
 ;;
 ;; ```scheme
 ;; (define server (http-listen "127.0.0.1:0"))

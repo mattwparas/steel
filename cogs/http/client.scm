@@ -59,8 +59,6 @@
 ;; The value sent in the `User-Agent` header
 (define *user-agent* "steel-http/0.1.0")
 
-;; A pair of ports and a thunk to close them. Nothing above this names a
-;; socket, so `current-http-connector` can supply tls or a fixture.
 (struct transport (reader writer close) #:transparent)
 
 ;;@doc
@@ -77,8 +75,7 @@
                  (int->string (url-port url))))
 
 ;;@doc
-;; Opens a plain tcp connection to the host of a url. The default connector,
-;; for `http` only.
+;; Opens a plain tcp connection to the host of a url
 (define (tcp-connector url #:read-timeout [read-timeout #f])
   (unless (equal? (url-scheme url) "http")
     (error "http: the tcp connector only speaks http, not"
@@ -105,7 +102,7 @@
 (struct connection (transport origin) #:transparent)
 
 ;;@doc
-;; Opens a connection to the origin of `target`, for one or more exchanges.
+;; Opens a connection to the origin of `target`
 (define (http-connect target)
   (define url (parse-url target))
   (unless (url-port url)
@@ -123,8 +120,6 @@
   (define connection (http-connect target))
   (dynamic-wind (lambda () void) (lambda () (proc connection)) (lambda () (http-close! connection))))
 
-;; These methods send `Content-Length: 0` for an empty body; an omitted length
-;; can read as a truncated request.
 (define (expects-body? method)
   (member method (list "POST" "PUT" "PATCH")))
 
@@ -136,8 +131,7 @@
         (header-default "Host" (url-authority url))
         (header-default "User-Agent" *user-agent*)
         (header-default "Accept" "*/*")
-        ;; Nothing here decompresses a response, so ask for an uncompressed
-        ;; one.
+        ;; TODO: Add encoding things
         (header-default "Accept-Encoding" "identity")
         (header-default "Connection" (if keep-alive? "keep-alive" "close"))))
   (when (header-contains? headers "Transfer-Encoding")
@@ -149,7 +143,7 @@
     [else headers]))
 
 ;;@doc
-;; Writes `request` over `connection`, head and body in one write.
+;; Write the `request` over `connection`
 (define (http-write-request! connection request #:keep-alive [keep-alive #f])
   (define head
     (string-append (request-method request)
@@ -186,8 +180,6 @@
             (list-ref after-code 1)
             "")))
 
-;; A 1xx other than a 101 is interim; the real response follows. Counted, since
-;; an endless stream of them would block the read.
 (define *max-interim-responses* 8)
 
 (define (read-status-line-past-interim reader [interim 0])
@@ -253,8 +245,6 @@
 (define (redirect-status? status)
   (member status (list 301 302 303 307 308)))
 
-;; 301, 302 and 303 become a GET with no body; 307 and 308 repeat the same
-;; request.
 (define (redirect-request sent received)
   (define location (response-header received "Location"))
   (cond
@@ -265,9 +255,6 @@
             [same-origin? (equal? (url-origin from) (url-origin to))]
             [carried (if same-origin?
                          (request-headers sent)
-                         ;; Credentials and `Host` belong to the origin they
-                         ;; were written for, so they are not carried across a
-                         ;; redirect.
                          (~> (request-headers sent)
                              (header-remove "Host")
                              (header-remove "Authorization")

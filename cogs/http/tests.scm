@@ -12,8 +12,6 @@
 
 (provide __http-module)
 
-;; Answers every connection with the next canned reply, and records what the
-;; client wrote.
 (define (fixture-connector replies requests)
   (lambda (url)
     (when (empty? (unbox replies))
@@ -24,8 +22,6 @@
     (set-box! requests (append (unbox requests) (list (cons (url->string url) writer))))
     (make-transport (open-input-string reply) writer)))
 
-;; Runs `thunk` against `replies` and returns (response . requests), where each
-;; request is (url . text).
 (define (exchange replies thunk)
   (define requests (box '()))
   (define response
@@ -47,8 +43,6 @@
 (define (request-line text)
   (car (split-many text "\r\n")))
 
-;; The same over a loopback socket. The reply is written before the near end is
-;; returned, so one thread serves both ends.
 (define (socket-connector reply)
   (lambda (url)
     (define listener (tcp-listen "127.0.0.1:0"))
@@ -583,9 +577,6 @@
         [far-end (box #f)])
     (parameterize ([current-http-connector (lambda (url)
                                              (define sent (tcp-connector url #:read-timeout 10000))
-                                             ;; The far end is kept in a box; a
-                                             ;; collected socket would close on
-                                             ;; the client mid-request.
                                              (set-box! far-end (tcp-accept listener))
                                              (display *ok* (tcp-stream-writer (unbox far-end)))
                                              sent)])

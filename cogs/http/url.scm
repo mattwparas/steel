@@ -58,8 +58,6 @@
                query
                fragment))
 
-;; A space or newline in a path would end the request line and let the caller
-;; append headers of their own.
 (define (check-url-part what str)
   (when str
     (let loop ([at 0])
@@ -117,15 +115,12 @@
                         (char=? char #\.))
                     (loop (+ at 1))))))))
 
-;; A scheme is a letter followed by letters, digits, `+`, `-` and `.`. A `://`
-;; later in the string, as in `/login?next=https://b`, is not one.
 (define (leading-scheme str)
   (define split (split-once str "://"))
   (and (list? split) (scheme-name? (car split)) (string-downcase (car split))))
 
 (define (split-host-and-port authority)
   (cond
-    ;; The brackets of an ipv6 literal are not part of the host.
     [(starts-with? authority "[")
      (let ([close (index-of-any authority (list #\]))])
        (unless close
@@ -149,8 +144,8 @@
        port)]))
 
 ;;@doc
-;; Parses a url, leaving percent escapes as given. An already parsed url comes
-;; back unchanged.
+;; Parses a url, leaving percent escapes as given. Leavs urls that are already parsed
+;; the same
 (define (parse-url input)
   (if (url? input)
       input
@@ -203,28 +198,20 @@
       (string-append "[" host "]")
       host))
 
-;;@doc
-;; The host and port of a url, as a `Host` header takes it
 (define (url-authority url)
   (define host (bracketed-host (url-host url)))
   (if (or (not (url-port url)) (equal? (url-port url) (scheme-default-port (url-scheme url))))
       host
       (string-append host ":" (int->string (url-port url)))))
 
-;;@doc
-;; The scheme, host and port of a url
 (define (url-origin url)
   (string-append (url-scheme url) "://" (url-authority url)))
 
-;;@doc
-;; The request target of a url: the path and the query
 (define (url-target url)
   (if (url-query url)
       (string-append (url-path url) "?" (url-query url))
       (url-path url)))
 
-;;@doc
-;; Formats a url as a string.
 (define (url->string url)
   (string-append (url-scheme url)
                  "://"
@@ -237,8 +224,6 @@
                      (string-append "#" (url-fragment url))
                      "")))
 
-;;@doc
-;; The same url with a different query, as a string or an alist to encode
 (define (url-with-query url query)
   (make-url (url-host url)
             #:scheme (url-scheme url)
@@ -251,7 +236,6 @@
                       [else (alist->query query)])
             #:fragment (url-fragment url)))
 
-;; `/a/./b/../c` -> `/a/c`.
 (define (remove-dot-segments path)
   (define absolute? (starts-with? path "/"))
   (define segments (split-many path "/"))
@@ -282,8 +266,6 @@
                                           "/")
                                       reference)))
 
-;;@doc
-;; Resolves `reference` against `base`, as a `Location` header is resolved.
 (define (url-join base reference)
   (define from (parse-url base))
   (cond
@@ -343,8 +325,6 @@
       (= byte 95)
       (= byte 126)))
 
-;;@doc
-;; Percent encodes a string, leaving letters, digits, `-._~` and `safe` alone.
 (define (url-encode str #:safe [safe ""])
   (define out (open-output-string))
   (define safe-bytes (filter (lambda (byte) (< byte 128)) (bytes->list (string->bytes safe))))
@@ -362,8 +342,6 @@
     [(char-between? char #\A #\F) (- (char->integer char) 55)]
     [else #f]))
 
-;;@doc
-;; Decodes a percent encoded string, with `+` for a space.
 (define (url-decode str)
   (define len (string-length str))
   (define out (bytes))
@@ -414,13 +392,9 @@
                     alist)
                "&"))
 
-;; An escape that is not utf8 cannot become a string, so the part is left as
-;; written.
 (define (url-decode-or-raw part)
   (with-handler (lambda (err) part) (url-decode part)))
 
-;;@doc
-;; Decodes a query string into an alist, keeping repeated keys in order.
 (define (query->alist query)
   (if (not query)
       '()
