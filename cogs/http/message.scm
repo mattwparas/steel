@@ -95,10 +95,10 @@
     [else headers]))
 
 ;;@doc
-;; Builds a request. Either *body* or *form* may be given, not both: *form* is
+;; Builds a request. Either `body` or `form` may be given, not both: `form` is
 ;; an association list, which is url encoded and sent as
-;; `application/x-www-form-urlencoded`. *query* replaces the query of *target*,
-;; and *auth* becomes a basic `Authorization` header.
+;; `application/x-www-form-urlencoded`. `query` replaces the query of `target`,
+;; and `auth` becomes a basic `Authorization` header.
 (define (make-request method
                       target
                       #:headers [headers '()]
@@ -134,7 +134,7 @@
   (url-target (request-url sent)))
 
 ;;@doc
-;; The first value of a request header, or *default* when it is absent.
+;; The first value of a request header, or `default` when it is absent.
 (define (request-header sent name [default #f])
   (header-ref (request-headers sent) name default))
 
@@ -169,7 +169,7 @@
   (bytes->string/utf8 (response-body received)))
 
 ;;@doc
-;; The first value of a response header, or *default* when it is absent.
+;; The first value of a response header, or `default` when it is absent.
 (define (response-header received name [default #f])
   (header-ref (response-headers received) name default))
 
@@ -228,7 +228,7 @@
         (cons 505 "HTTP Version Not Supported")))
 
 ;;@doc
-;; The reason phrase for *status*, or `""` for a code with no well known
+;; The reason phrase for `status`, or `""` for a code with no well known
 ;; phrase.
 (define (reason-phrase status)
   (define found (assv status *reasons*))
@@ -237,7 +237,7 @@
       ""))
 
 ;;@doc
-;; Builds a response. The reason phrase is filled in from *status* when it is
+;; Builds a response. The reason phrase is filled in from `status` when it is
 ;; not given, and the body may be a string or a bytevector.
 (define (make-response status
                        #:reason [reason #f]
@@ -281,7 +281,7 @@
       [else (loop (cons char chars) (+ length 1))])))
 
 ;;@doc
-;; Whether *version* is a version this library supports.
+;; Whether `version` is a version this library supports.
 (define (known-version? version)
   (or (equal? version "HTTP/1.1") (equal? version "HTTP/1.0")))
 
@@ -368,8 +368,8 @@
   size)
 
 ;;@doc
-;; Reads a chunked body off *reader*, and returns it with the trailer headers
-;; that followed it. With a *limit*, a body longer than it returns
+;; Reads a chunked body off `reader`, and returns it with the trailer headers
+;; that followed it. With a `limit`, a body longer than it returns
 ;; `'too-large`, and nothing further can be read from the connection.
 (define (read-chunked reader #:limit [limit #f])
   (let loop ([chunks '()]

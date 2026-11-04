@@ -24,7 +24,7 @@
     (set-box! requests (append (unbox requests) (list (cons (url->string url) writer))))
     (make-transport (open-input-string reply) writer)))
 
-;; Runs *thunk* against *replies* and returns (response . requests), where each
+;; Runs `thunk` against `replies` and returns (response . requests), where each
 ;; request is (url . text).
 (define (exchange replies thunk)
   (define requests (box '()))
@@ -681,7 +681,7 @@
                 (reply-to (list "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n")
                           (lambda () (http-get "http://x/"))))))
 
-;; Serves *text* as if it had arrived on a connection, and returns
+;; Serves `text` as if it had arrived on a connection, and returns
 ;; (requests-served . what-went-back).
 (define (over-ports text handler #:keep-alive [keep-alive #t] #:limit [limit #f])
   (define writer (open-output-string))

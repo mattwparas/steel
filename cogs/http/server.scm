@@ -28,7 +28,7 @@
 
 ;;@doc
 ;; Binds a listener. A port of `0` takes a free port from the os, which
-;; `server-address` then reports. A *read-timeout* in milliseconds is set on
+;; `server-address` then reports. A `read-timeout` in milliseconds is set on
 ;; every connection accepted.
 (define (http-listen address #:read-timeout [read-timeout #f])
   (define listener (tcp-listen address))
@@ -165,12 +165,12 @@
                    (list-ref parts 2))]))]))
 
 ;;@doc
-;; Reads one request off *reader*. Returns the eof object when the connection
+;; Reads one request off `reader`. Returns the eof object when the connection
 ;; closed cleanly between requests; a request this server cannot read raises.
 ;;
 ;; The body is a bytevector, or `#false` for a request with no framing.
 ;; Trailers that follow a chunked body are added to the headers. Give
-;; *continue* the writer of the same connection to answer an
+;; `continue` the writer of the same connection to answer an
 ;; `Expect: 100-continue`.
 (define (http-read-request reader #:continue [continue #f])
   (define outcome (read-request reader continue))
@@ -223,8 +223,8 @@
   (flush-output-port writer))
 
 ;;@doc
-;; Writes *response* over *writer*. The head and the body go out in one write.
-;; *method* is the method being answered: the response to a `HEAD` carries the
+;; Writes `response` over `writer`. The head and the body go out in one write.
+;; `method` is the method being answered: the response to a `HEAD` carries the
 ;; headers of a body it does not send, and a 1xx, a 204 and a 304 send no body
 ;; for any method.
 (define (http-write-response! writer received #:keep-alive [keep-alive #f] #:method [method "GET"])
@@ -266,7 +266,7 @@
 
 ;;@doc
 ;; Serves requests on one connection until it ends, and returns how many it
-;; served. *handler* is called with a `request?` and returns a `response?`; any
+;; served. `handler` is called with a `request?` and returns a `response?`; any
 ;; other value, or a raise, becomes a 500. A request this server cannot read is
 ;; answered with a 4xx or a 5xx and ends the connection. The connection is held
 ;; open for another request when both ends allow it, and `#:keep-alive #false`

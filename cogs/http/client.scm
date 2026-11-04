@@ -78,10 +78,10 @@
                  (int->string (url-port url))))
 
 ;;@doc
-;; Opens a plain tcp connection to the host of *url*. This is the default
+;; Opens a plain tcp connection to the host of `url`. This is the default
 ;; connector, and it handles `http` only.
 ;;
-;; With a *read-timeout* in milliseconds, a read that waits that long raises.
+;; With a `read-timeout` in milliseconds, a read that waits that long raises.
 ;; The timeout applies to a single read and not to the whole response.
 (define (tcp-connector url #:read-timeout [read-timeout #f])
   (unless (equal? (url-scheme url) "http")
@@ -110,7 +110,7 @@
 (struct connection (transport origin) #:transparent)
 
 ;;@doc
-;; Opens a connection to the origin of *target*. The connection stays open
+;; Opens a connection to the origin of `target`. The connection stays open
 ;; until `http-close!` and can carry more than one exchange.
 (define (http-connect target)
   (define url (parse-url target))
@@ -124,8 +124,8 @@
   ((transport-close (connection-transport connection))))
 
 ;;@doc
-;; Opens a connection to *target*, calls *proc* with it, and closes it
-;; afterwards, whether or not *proc* raised.
+;; Opens a connection to `target`, calls `proc` with it, and closes it
+;; afterwards, whether or not `proc` raised.
 (define (call-with-http-connection target proc)
   (define connection (http-connect target))
   (dynamic-wind (lambda () void) (lambda () (proc connection)) (lambda () (http-close! connection))))
@@ -156,7 +156,7 @@
     [else headers]))
 
 ;;@doc
-;; Writes *request* over *connection*. The head and the body go out in one
+;; Writes `request` over `connection`. The head and the body go out in one
 ;; write.
 (define (http-write-request! connection request #:keep-alive [keep-alive #f])
   (define head
@@ -232,7 +232,7 @@
     [else 'until-close]))
 
 ;;@doc
-;; Reads one response off *reader*. *method* is needed because the response to
+;; Reads one response off `reader`. `method` is needed because the response to
 ;; a `HEAD` carries the headers of a body it does not send.
 ;;
 ;; The body is always a bytevector, empty for a response that cannot carry one.
@@ -255,7 +255,7 @@
             (car body-and-trailers)))
 
 ;;@doc
-;; Writes *request* over *connection* and reads the response back.
+;; Writes `request` over `connection` and reads the response back.
 ;;
 ;; Pass `#:keep-alive #true` to ask the server to keep the connection open for
 ;; another exchange, and check `response-keep-alive?` before using it again.
@@ -302,7 +302,7 @@
 ;; Opens a connection, sends one request, reads the response, and closes the
 ;; connection.
 ;;
-;; Redirects are followed up to *follow* times; `#:follow 0` returns the 3xx.
+;; Redirects are followed up to `follow` times; `#:follow 0` returns the 3xx.
 ;; The other keywords are those of `make-request`.
 (define (http-send method
                    target

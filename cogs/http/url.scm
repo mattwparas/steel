@@ -23,7 +23,7 @@
 (struct url (scheme userinfo host port path query fragment) #:transparent)
 
 ;;@doc
-;; The default port for *scheme*, or `#false` when it has none.
+;; The default port for `scheme`, or `#false` when it has none.
 (define (scheme-default-port scheme)
   (cond
     [(equal? scheme "http") 80]
@@ -32,7 +32,7 @@
 
 ;;@doc
 ;; Builds a url out of its parts. The port defaults to the default port for
-;; *scheme*.
+;; `scheme`.
 (define (make-url host
                   #:scheme [scheme "http"]
                   #:userinfo [userinfo #f]
@@ -277,7 +277,7 @@
                                       reference)))
 
 ;;@doc
-;; Resolves *reference* against *base*, as a `Location` header is resolved. The
+;; Resolves `reference` against `base`, as a `Location` header is resolved. The
 ;; reference may be a full url, a `//host/path`, an absolute path, a relative
 ;; path, a bare query or a bare fragment.
 (define (url-join base reference)
@@ -341,7 +341,7 @@
 
 ;;@doc
 ;; Percent encodes a string. Letters, digits and `-._~` are left alone, every
-;; other byte becomes `%XX`. The ascii characters in *safe* are left alone as
+;; other byte becomes `%XX`. The ascii characters in `safe` are left alone as
 ;; well.
 (define (url-encode str #:safe [safe ""])
   (define out (open-output-string))

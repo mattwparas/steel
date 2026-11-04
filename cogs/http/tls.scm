@@ -35,11 +35,11 @@
   (list ((rustls 'tls-reader) stream) ((rustls 'tls-writer) stream)))
 
 ;;@doc
-;; Opens a tls connection to the host of *url*. The handshake happens on the
+;; Opens a tls connection to the host of `url`. The handshake happens on the
 ;; first read or write, so a certificate that does not verify is reported
 ;; there.
 ;;
-;; With a *read-timeout* in milliseconds, a read that waits that long raises.
+;; With a `read-timeout` in milliseconds, a read that waits that long raises.
 ;; The timeout covers the handshake as well.
 ;;
 ;; Requires the `steel-rustls` dylib.
@@ -62,7 +62,7 @@
 ;;   (response-text (http-get "https://example.com")))
 ;; ```
 ;;
-;; A *read-timeout* in milliseconds is passed to whichever of the two is used.
+;; A `read-timeout` in milliseconds is passed to whichever of the two is used.
 (define (https-connector url #:read-timeout [read-timeout #f])
   (if (equal? (url-scheme url) "https")
       (tls-connector url #:read-timeout read-timeout)

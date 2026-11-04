@@ -32,7 +32,7 @@
       (string-contains? "!#$%&'*+-.^_`|~" (string char))))
 
 ;;@doc
-;; Whether *str* is a token: one or more of letters, digits and
+;; Whether `str` is a token: one or more of letters, digits and
 ;; `!#$%&'*+-.^_`|~`. Header names and request methods are tokens.
 (define (token? str)
   (and (> (string-length str) 0)
@@ -68,7 +68,7 @@
     [else (error "http: headers have to be a list or a hashmap, got:" headers)]))
 
 ;;@doc
-;; The first value held under *name*, or *default* when there is none.
+;; The first value held under `name`, or `default` when there is none.
 (define (header-ref headers name [default #f])
   (let loop ([rest headers])
     (cond
@@ -77,33 +77,33 @@
       [else (loop (cdr rest))])))
 
 ;;@doc
-;; Every value held under *name*, in order.
+;; Every value held under `name`, in order.
 (define (header-ref* headers name)
   (map cdr (filter (lambda (entry) (header-name=? (car entry) name)) headers)))
 
 ;;@doc
-;; Whether *name* is present.
+;; Whether `name` is present.
 (define (header-contains? headers name)
   (not (empty? (header-ref* headers name))))
 
 ;;@doc
-;; Removes every value held under *name*.
+;; Removes every value held under `name`.
 (define (header-remove headers name)
   (filter (lambda (entry) (not (header-name=? (car entry) name))) headers))
 
 ;;@doc
-;; Adds *name* at the end, keeping any value already held under it.
+;; Adds `name` at the end, keeping any value already held under it.
 (define (header-add headers name value)
   (append headers (list (check-header name (header-value->string value)))))
 
 ;;@doc
-;; Sets *name* at the end to this value, removing anything already held under
+;; Sets `name` at the end to this value, removing anything already held under
 ;; it.
 (define (header-set headers name value)
   (header-add (header-remove headers name) name value))
 
 ;;@doc
-;; Sets *name* only if it is not already present.
+;; Sets `name` only if it is not already present.
 (define (header-default headers name value)
   (if (header-contains? headers name)
       headers
