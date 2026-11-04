@@ -2043,8 +2043,8 @@ fn attempt_parse(
     let outcome = {
         let pending = port.pending();
 
-        // An invalid sequence ends the text here. One that is only cut short
-        // could still be completed, so we wait unless the source is done.
+        // If we hit an invalid sequence, the text ends here. One that's only cut
+        // short might still be completed, so hold back unless the source is done.
         let (text, bad_end) = match core::str::from_utf8(pending) {
             Ok(text) => (text, None),
             Err(err) => {
@@ -2992,7 +2992,7 @@ mod read_datum_tests {
         }
     }
 
-    // Checking for a suspended parse must not disturb it
+    // Check for a suspended parse, and put the state back the way we found it
     fn is_suspended(port: &SteelPort) -> bool {
         let kept = port.port.write().take_parse_state();
         let there = kept.is_some();

@@ -76,8 +76,8 @@ impl core::fmt::Display for SteelPort {
 const MIN_CHUNK: usize = 8 * 1024;
 const MAX_STREAM_CHUNK: usize = 64 * 1024;
 
-// Parser state left behind by a read that blocked part way through. It can only
-// be resumed on the same `pending` bytes with more appended.
+// Parser state left behind by a read that blocked part way through. We can only
+// resume it on the same `pending` bytes with more appended.
 #[derive(Debug)]
 struct SuspendedRead {
     state: ParserState,
@@ -507,8 +507,8 @@ fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
     MaybeBlocking::Nonblocking(Some((char::REPLACEMENT_CHARACTER, amt)))
 }
 
-// A read that reaches a deadline is `WouldBlock` on unix and `TimedOut` on
-// windows. Without a deadline, `TimedOut` is a real error.
+// A read that hit a deadline comes back as `WouldBlock` on unix, `TimedOut` on
+// windows. If there's no deadline, `TimedOut` is a real error.
 fn blocked(err: &io::Error, deadline: bool) -> bool {
     err.kind() == io::ErrorKind::WouldBlock || (deadline && err.kind() == io::ErrorKind::TimedOut)
 }
@@ -2102,7 +2102,7 @@ mod port_tests {
             TempFile { path }
         }
 
-        // The second handle shows where `as_stdio` left the first
+        // Use the second handle to see where `as_stdio` left the first
         fn open(&self) -> (File, File) {
             let file = File::open(&self.path).unwrap();
             let observer = file.try_clone().unwrap();
@@ -2188,7 +2188,7 @@ mod port_tests {
         writer.write_all(b"(a) remainder").unwrap();
         drop(writer);
 
-        // A socket is not seekable, so there is nowhere to put bytes already read
+        // A socket isn't seekable, so there's nowhere to put bytes already read
         let file = unsafe { File::from_raw_fd(reader.into_raw_fd()) };
         let mut peekable = Peekable::new(BufReader::new(file));
 

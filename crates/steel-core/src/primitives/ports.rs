@@ -661,8 +661,8 @@ pub fn eof_object() -> SteelVal {
     eof()
 }
 
-/// Returns a would-block object, which the `*` readers return when a port has
-/// nothing ready to read.
+/// Returns a would-block object. This is what the `*` readers return when a
+/// port has nothing ready to read.
 ///
 /// (would-block) -> would-block-object?
 #[function(name = "would-block")]
@@ -876,7 +876,7 @@ mod would_block_tests {
         }
     }
 
-    // Windows reports a read deadline as TimedOut, not WouldBlock
+    // On windows a read deadline comes back as TimedOut, not WouldBlock
     struct RanOutOfTime;
 
     impl Read for RanOutOfTime {
