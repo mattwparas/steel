@@ -2043,8 +2043,8 @@ fn attempt_parse(
     let outcome = {
         let pending = port.pending();
 
-        // Bytes that can never be valid utf8 end the text for good; a sequence
-        // that is only cut short can still be completed, until the source is done.
+        // An invalid sequence ends the text here. One that is only cut short
+        // could still be completed, so we wait unless the source is done.
         let (text, bad_end) = match core::str::from_utf8(pending) {
             Ok(text) => (text, None),
             Err(err) => {
@@ -2992,7 +2992,7 @@ mod read_datum_tests {
         }
     }
 
-    // Looking at where the parser left off has to leave it where it was.
+    // Checking for a suspended parse must not disturb it
     fn is_suspended(port: &SteelPort) -> bool {
         let kept = port.port.write().take_parse_state();
         let there = kept.is_some();

@@ -661,8 +661,8 @@ pub fn eof_object() -> SteelVal {
     eof()
 }
 
-/// Returns a would-block object, which a read reports when it has nothing
-/// ready and the port would otherwise have to wait.
+/// Returns a would-block object, which the `*` readers return when a port has
+/// nothing ready to read.
 ///
 /// (would-block) -> would-block-object?
 #[function(name = "would-block")]
@@ -876,7 +876,7 @@ mod would_block_tests {
         }
     }
 
-    // What a socket with a read deadline reports on windows
+    // Windows reports a read deadline as TimedOut, not WouldBlock
     struct RanOutOfTime;
 
     impl Read for RanOutOfTime {
@@ -901,7 +901,7 @@ mod would_block_tests {
         port_over(Box::new(RanOutOfTime))
     }
 
-    // The client end comes back so the connection stays open, not closed
+    // Hand back the client too - dropping it would close the connection
     fn connected() -> (TcpStream, TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();

@@ -38,10 +38,9 @@ impl RustlsClientConnection {
         let root_store = RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.into(),
         };
-        // The provider is named rather than inferred from the crate features:
-        // `ClientConfig::builder` looks at which of rustls' `aws-lc-rs` and
-        // `ring` features are on and panics when both are, which happens as soon
-        // as anything else in the build turns on the other - `ureq` does.
+        // `ClientConfig::builder` panics when both of rustls' `aws-lc-rs` and
+        // `ring` features are on, and anything else in the build can turn on the
+        // other one - `ureq` does - so name the provider here.
         let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
         let mut config = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
@@ -87,8 +86,8 @@ enum RustlsError {
     Argument(String),
 }
 
-// Written out rather than derived because the ffi boundary formats an error with
-// `{:?}`, so this is the form that reaches a steel program.
+// The ffi boundary formats errors with `{:?}`, so this is what a steel program
+// sees
 impl std::fmt::Debug for RustlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -114,8 +113,8 @@ fn connect(addr: &str) -> Result<RustlsTcpStream, RustlsError> {
         .map_err(RustlsError::Io)
 }
 
-// The deadline goes on the socket rather than the tls stream above it so that it
-// covers the handshake; `tls-stream` moves the socket in and it stays in force.
+// Setting the deadline on the socket covers the handshake too. `tls-stream`
+// moves the socket in, so it stays in force.
 fn set_read_timeout(stream: &mut RustlsTcpStream, ms: Option<isize>) -> Result<(), RustlsError> {
     stream
         .0

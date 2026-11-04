@@ -76,9 +76,8 @@ impl core::fmt::Display for SteelPort {
 const MIN_CHUNK: usize = 8 * 1024;
 const MAX_STREAM_CHUNK: usize = 64 * 1024;
 
-// Where a read that stopped because the source would block leaves the parser.
-// `pending` is how much was in front of it at the time: the state may only be
-// resumed on those same bytes with more appended.
+// Parser state left behind by a read that blocked part way through. It can only
+// be resumed on the same `pending` bytes with more appended.
 #[derive(Debug)]
 struct SuspendedRead {
     state: ParserState,
@@ -509,7 +508,7 @@ fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
 }
 
 // A read that reaches a deadline is `WouldBlock` on unix and `TimedOut` on
-// windows; a source that cannot carry a deadline has hit a real error instead.
+// windows. Without a deadline, `TimedOut` is a real error.
 fn blocked(err: &io::Error, deadline: bool) -> bool {
     err.kind() == io::ErrorKind::WouldBlock || (deadline && err.kind() == io::ErrorKind::TimedOut)
 }
@@ -2103,7 +2102,7 @@ mod port_tests {
             TempFile { path }
         }
 
-        // The second handle is the one that shows where `as_stdio` left the first
+        // The second handle shows where `as_stdio` left the first
         fn open(&self) -> (File, File) {
             let file = File::open(&self.path).unwrap();
             let observer = file.try_clone().unwrap();
