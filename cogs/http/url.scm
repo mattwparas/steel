@@ -49,7 +49,7 @@
                fragment))
 
 ;; A space or newline in a path would end the request line and let the caller
-;; append headers of their own, so these are refused.
+;; append headers of their own.
 (define (check-url-part what str)
   (when str
     (let loop ([at 0])
@@ -107,17 +107,15 @@
                         (char=? char #\.))
                     (loop (+ at 1))))))))
 
-;; The scheme of a url that has one. A scheme is a letter followed by letters,
-;; digits, `+`, `-` and `.`, so a reference with a `://` later in it, such as
-;; `/login?next=https://b`, has no scheme and is relative.
+;; A scheme is a letter followed by letters, digits, `+`, `-` and `.`. A `://`
+;; later in the string, as in `/login?next=https://b`, is not one.
 (define (leading-scheme str)
   (define split (split-once str "://"))
   (and (list? split) (scheme-name? (car split)) (string-downcase (car split))))
 
 (define (split-host-and-port authority)
   (cond
-    ;; An ipv6 literal's brackets are kept out of the host, so the host is what
-    ;; goes in the `Host` header and what is looked up.
+    ;; The brackets of an ipv6 literal are not part of the host.
     [(starts-with? authority "[")
      (let ([close (index-of-any authority (list #\]))])
        (unless close
@@ -247,8 +245,7 @@
                       [else (alist->query query)])
             #:fragment (url-fragment url)))
 
-;; `/a/./b/../c` -> `/a/c`, as a client has to resolve a `Location` before it
-;; can request it.
+;; `/a/./b/../c` -> `/a/c`.
 (define (remove-dot-segments path)
   (define absolute? (starts-with? path "/"))
   (define segments (split-many path "/"))
@@ -417,8 +414,8 @@
                     alist)
                "&"))
 
-;; An escape that is not utf8 cannot become a string, so the part keeps the
-;; escapes as written rather than failing the whole query.
+;; An escape that is not utf8 cannot become a string, so the part is left as
+;; written.
 (define (url-decode-or-raw part)
   (with-handler (lambda (err) part) (url-decode part)))
 

@@ -13,7 +13,7 @@
 (provide __http-module)
 
 ;; Answers every connection with the next canned reply, and records what the
-;; client wrote so a test can check the request it sent.
+;; client wrote.
 (define (fixture-connector replies requests)
   (lambda (url)
     (when (empty? (unbox replies))
@@ -47,17 +47,16 @@
 (define (request-line text)
   (car (split-many text "\r\n")))
 
-;; The same over a loopback socket: the far end writes the whole reply before
-;; the near end is returned, so one thread can play both parts.
+;; The same over a loopback socket. The reply is written before the near end is
+;; returned, so one thread serves both ends.
 (define (socket-connector reply)
   (lambda (url)
     (define listener (tcp-listen "127.0.0.1:0"))
     (define client (tcp-connect (tcp-listener-local-addr listener)))
     (define server (tcp-accept listener))
     (display reply (tcp-stream-writer server))
-    ;; The close thunk holds the only reference to the far end once this
-    ;; returns; a collected socket closes on the client in the middle of its
-    ;; request.
+    ;; The close thunk holds the only reference to the far end; a collected
+    ;; socket would close on the client mid-request.
     (make-transport (tcp-stream-buffered-reader client)
                     (tcp-stream-writer client)
                     #:close (lambda ()
@@ -585,9 +584,8 @@
     (parameterize ([current-http-connector (lambda (url)
                                              (define sent (tcp-connector url #:read-timeout 10000))
                                              ;; The far end is kept in a box; a
-                                             ;; collected socket closes on the
-                                             ;; client in the middle of its
-                                             ;; request.
+                                             ;; collected socket would close on
+                                             ;; the client mid-request.
                                              (set-box! far-end (tcp-accept listener))
                                              (display *ok* (tcp-stream-writer (unbox far-end)))
                                              sent)])
@@ -598,8 +596,7 @@
                       [target (string-append "http://" (tcp-listener-local-addr listener) "/a")]
                       [sent (tcp-connector (parse-url target) #:read-timeout 50)]
                       ;; The far end is held open and sends nothing, so the
-                      ;; read reaches its deadline rather than ending on a
-                      ;; close.
+                      ;; read hits its deadline.
                       [far-end (tcp-accept listener)]
                       [outcome (with-handler (lambda (err)
                                                (string-contains? (error-object-message err)
@@ -699,8 +696,7 @@
 (define (answer text handler)
   (cdr (over-ports text handler)))
 
-;; The status line of the response, so a test can check a code without matching
-;; the whole message.
+;; The status line of the response.
 (define (answer-status text handler)
   (car (split-many (answer text handler) "\r\n")))
 
@@ -709,10 +705,9 @@
 
 (define *get* "GET /a HTTP/1.1\r\nHost: x\r\n\r\n")
 
-;; One thread, no canned replies: the client writes a request over a real
-;; socket, the server answers it, and the client reads the answer back.
-;; `#:limit 1` keeps the server from waiting for a second request on a
-;; connection the client holds open.
+;; One thread, no canned replies: the client writes, the server answers, the
+;; client reads it back. `#:limit 1` stops the server waiting for a second
+;; request.
 (define (round-trip request handler)
   (define server (http-listen "127.0.0.1:0"))
   (define connection (http-connect (string-append "http://" (server-address server) "/")))
@@ -982,7 +977,7 @@
                  (list (car out)
                        (string-contains? back "hello /one")
                        (string-contains? back "hello /two")
-                       ;; The second answer is the one that ends the stream.
+                       ;; The second answer ends the stream.
                        (substring back (- (string-length back) 10) (string-length back)))))
  (check-equal?
   "a request that asks to close the connection is the last one on it"

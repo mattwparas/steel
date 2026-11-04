@@ -87,8 +87,7 @@
      (header-set headers
                  "Authorization"
                  (string-append "Basic " (base64-encode (basic-credentials auth))))]
-    ;; A url may carry credentials; they go in the `Authorization` header
-    ;; rather than in the request line.
+    ;; Credentials in the url belong in the `Authorization` header.
     [(url-userinfo url)
      (header-set headers
                  "Authorization"
@@ -189,8 +188,7 @@
     [asked (token-member? asked "keep-alive")]
     [else #f]))
 
-;; The phrases from RFC 9110, for the codes a server commonly sends. A code
-;; that is not listed gets an empty phrase, which is allowed.
+;; The phrases from RFC 9110. A code that is not listed gets an empty phrase.
 (define *reasons*
   (list (cons 100 "Continue")
         (cons 101 "Switching Protocols")
@@ -255,8 +253,7 @@
             (or (body->bytes body) (bytes))))
 
 (define (strip-cr line)
-  ;; A tcp reader returns the `\r` of a crlf and a string port does not, so
-  ;; every line read here is passed through this.
+  ;; A tcp reader returns the `\r` of a crlf and a string port does not.
   (if (ends-with? line "\r")
       (substring line 0 (- (string-length line) 1))
       line))
@@ -267,8 +264,7 @@
 (define (line-so-far chars)
   (strip-cr (list->string (reverse chars))))
 
-;; `read-line` reads to the end of the line however long it is, so a line is
-;; read a character at a time and stops at `*max-line-length*`.
+;; `read-line` has no limit, so lines are read a character at a time.
 (define (read-wire-line reader)
   (let loop ([chars '()]
              [length 0])
@@ -339,8 +335,8 @@
                  lengths)
        (car lengths))]))
 
-;; `read-bytes` allocates the whole amount before reading, so a length the
-;; other end declared is read a chunk at a time.
+;; `read-bytes` allocates the whole amount up front, so a declared length is
+;; read a chunk at a time.
 (define *read-chunk-bytes* 65536)
 
 (define (read-exactly reader amount)
@@ -373,8 +369,8 @@
 
 ;;@doc
 ;; Reads a chunked body off *reader*, and returns it with the trailer headers
-;; that followed it. With a *limit*, a body longer than it returns `'too-large`
-;; instead, and nothing further can be read from the connection.
+;; that followed it. With a *limit*, a body longer than it returns
+;; `'too-large`, and nothing further can be read from the connection.
 (define (read-chunked reader #:limit [limit #f])
   (let loop ([chunks '()]
              [read-so-far 0])

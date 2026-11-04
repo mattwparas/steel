@@ -59,9 +59,8 @@
 ;; The value sent in the `User-Agent` header.
 (define *user-agent* "steel-http/0.1.0")
 
-;; A transport is the pair of ports a request travels over, plus a thunk that
-;; closes them. Nothing above this layer refers to sockets, so
-;; `current-http-connector` can supply tls, a unix socket or a fixture instead.
+;; A pair of ports and a thunk to close them. Nothing above this names a
+;; socket, so `current-http-connector` can supply tls or a fixture.
 (struct transport (reader writer close) #:transparent)
 
 ;;@doc
@@ -131,8 +130,8 @@
   (define connection (http-connect target))
   (dynamic-wind (lambda () void) (lambda () (proc connection)) (lambda () (http-close! connection))))
 
-;; These methods send a `Content-Length: 0` for an empty body rather than
-;; leaving the length out, which a server may read as a truncated request.
+;; These methods send `Content-Length: 0` for an empty body; an omitted length
+;; can read as a truncated request.
 (define (expects-body? method)
   (member method (list "POST" "PUT" "PATCH")))
 
@@ -195,9 +194,8 @@
             (list-ref after-code 1)
             "")))
 
-;; A 1xx other than a 101 is an interim answer and the real response follows
-;; it. They are counted, since a server that sends only these would block the
-;; read indefinitely.
+;; A 1xx other than a 101 is interim; the real response follows. Counted, since
+;; an endless stream of them would block the read.
 (define *max-interim-responses* 8)
 
 (define (read-status-line-past-interim reader [interim 0])
@@ -269,8 +267,8 @@
 (define (redirect-status? status)
   (member status (list 301 302 303 307 308)))
 
-;; 301, 302 and 303 become a GET with no body, which is what clients send and
-;; servers expect; 307 and 308 repeat the same request.
+;; 301, 302 and 303 become a GET with no body; 307 and 308 repeat the same
+;; request.
 (define (redirect-request sent received)
   (define location (response-header received "Location"))
   (cond
@@ -304,8 +302,8 @@
 ;; Opens a connection, sends one request, reads the response, and closes the
 ;; connection.
 ;;
-;; Redirects are followed up to *follow* times; `#:follow 0` returns the 3xx
-;; instead. The other keywords are those of `make-request`.
+;; Redirects are followed up to *follow* times; `#:follow 0` returns the 3xx.
+;; The other keywords are those of `make-request`.
 (define (http-send method
                    target
                    #:headers [headers '()]

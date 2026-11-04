@@ -39,8 +39,7 @@
        (let loop ([at 0])
          (or (>= at (string-length str)) (and (token-char? (string-ref str at)) (loop (+ at 1)))))))
 
-;; A newline in a value would let a caller append headers of their own, so a
-;; value with one is refused.
+;; A newline in a value would let a caller append headers of their own.
 (define (check-header name value)
   (unless (token? name)
     (error "http: not a usable header name:" name))

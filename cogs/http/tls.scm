@@ -19,17 +19,16 @@
                                      gz-decode)))
     (set-box! *loaded* #t)))
 
-;; The dylib's names are looked up one at a time rather than by building an
-;; expression around the arguments, since a bytevector does not survive being
-;; written into one.
+;; Each name is looked up on its own: a bytevector does not survive being
+;; written into an expression.
 (define (rustls name)
   (load-rustls!)
   (eval name))
 
 (define (tls-ports host address read-timeout)
   (define socket ((rustls 'tcp-connect) address))
-  ;; The deadline is set on the socket before the tls stream is built on it, so
-  ;; it covers the handshake as well as later reads.
+  ;; The deadline goes on the socket before the tls stream, so it covers the
+  ;; handshake.
   ((rustls 'tcp-set-read-timeout!) socket read-timeout)
   (define connection ((rustls 'client-connection) host))
   (define stream ((rustls 'tls-stream) connection socket))
@@ -37,8 +36,8 @@
 
 ;;@doc
 ;; Opens a tls connection to the host of *url*. The handshake happens on the
-;; first read or write, so a certificate that does not verify is reported from
-;; there rather than from here.
+;; first read or write, so a certificate that does not verify is reported
+;; there.
 ;;
 ;; With a *read-timeout* in milliseconds, a read that waits that long raises.
 ;; The timeout covers the handshake as well.

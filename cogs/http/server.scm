@@ -21,7 +21,7 @@
 
 ;;@doc
 ;; The largest request body this server reads. A longer one is answered with a
-;; 413 instead of being read.
+;; 413.
 (define *max-body-bytes* 8388608)
 
 (struct server (listener address read-timeout) #:transparent)
@@ -68,19 +68,17 @@
     [(and declared (> declared *max-body-bytes*))
      (problem-report 413
                      (string-append "a request declared a body of " (int->string declared) " bytes"))]
-    ;; No framing means no body; reading until the connection closed would
-    ;; leave nothing to answer on.
+    ;; No framing means no body; reading until close would leave nothing to
+    ;; answer on.
     [declared declared]
     [else 'none]))
 
-;; How a request that cannot be read is reported. A raise cannot carry a value
-;; through `with-handler`, and re-raising inside a handler panics the
-;; interpreter, so this is returned instead.
+;; A raise cannot carry a value through `with-handler`, and re-raising inside a
+;; handler panics the interpreter, so this is returned.
 (struct problem-report (status text) #:transparent)
 
-;; Anything the shared reader raises (an unparseable header line, a chunk size
-;; that is not a number, a body cut short) is a request this server cannot
-;; read.
+;; Anything the shared reader raises (a bad header line, a bad chunk size, a
+;; body cut short) becomes a 400.
 (define (or-bad-request thunk)
   (with-handler (lambda (err) (problem-report 400 (trim (to-string (error-object-message err)))))
                 (thunk)))
@@ -91,7 +89,7 @@
 
 (define (read-request-line reader)
   ;; An empty line before the request line is a stray crlf from the previous
-  ;; request, and is skipped.
+  ;; request.
   (let loop ([skipped 0])
     (define line (read-wire-line reader))
     (cond
@@ -142,8 +140,8 @@
   (cond
     [(problem-report? mode) mode]
     [else
-     ;; With `Expect: 100-continue` the client waits for the interim response,
-     ;; which has to be written before the body is read.
+     ;; With `Expect: 100-continue` the interim response has to be written
+     ;; before the body is read.
      (when (and writer (expects-continue? headers))
        (with-handler (lambda (err) void)
                      (begin
@@ -182,8 +180,7 @@
      (error "http:" (problem-report-text outcome) "- would answer" (problem-report-status outcome))]
     [else outcome]))
 
-;; A 1xx, a 204 and a 304 carry no body, so no length is sent either; a
-;; `Content-Length: 0` on a 304 contradicts the body it stands in for.
+;; A 1xx, a 204 and a 304 carry no body, and no `Content-Length` either.
 (define (bodyless-status? status)
   (or (equal? status 204) (equal? status 304) (and (>= status 100) (< status 200))))
 
@@ -198,12 +195,11 @@
      "http: this server sends a body with a Content-Length, not chunked - take Transfer-Encoding off the response"))
   (if (bodyless-status? (response-status received))
       (header-remove headers "Content-Length")
-      ;; The length is the body's even for a HEAD, whose response carries the
-      ;; headers of the body it does not send.
+      ;; A HEAD response carries the body's length but not the body.
       (header-default headers "Content-Length" (int->string (bytes-length body)))))
 
-;; The head and the body as they go out. A response this server cannot frame is
-;; rejected here, before anything has been written.
+;; The head and the body as bytes. An unframable response is rejected here,
+;; before anything is written.
 (define (response->wire received keep-alive method)
   (define status (response-status received))
   (define reason (response-reason received))
@@ -244,10 +240,9 @@
       answered
       (make-response 500)))
 
-;; A response this server cannot frame (one carrying `Transfer-Encoding`, or
-;; built with the bare constructor and no body) becomes a 500 rather than
-;; ending the loop serving the connection. `http-write-response!` still raises,
-;; for a caller writing an answer directly.
+;; An unframable response - one carrying `Transfer-Encoding`, or built with the
+;; bare constructor and no body - becomes a 500 here. `http-write-response!`
+;; still raises.
 (define (framable? answered method)
   (and (response? answered)
        (with-handler (lambda (err) #f)
@@ -255,16 +250,14 @@
                        (response->wire answered #f method)
                        #t))))
 
-;; The body is the reason phrase alone; a detail read off the wire would be
-;; echoed straight back. `http-read-request` raises with the detail, for a
-;; caller reading a request directly.
+;; The body is the reason phrase alone, so nothing read off the wire is sent
+;; back. `http-read-request` raises with the detail.
 (define (problem-response report)
   (make-response (problem-report-status report)
                  #:headers (list (cons "Content-Type" "text/plain; charset=utf-8"))
                  #:body (string-append (reason-phrase (problem-report-status report)) "\n")))
 
-;; A client that closes before its answer is written ends the connection, not
-;; the loop serving it.
+;; A closed client ends the connection, not the loop serving it.
 (define (write-answer writer answered keep-alive? method)
   (with-handler (lambda (err) #f)
                 (begin
@@ -287,8 +280,8 @@
          (cond
            [(eof-object? outcome) served]
            [(problem-report? outcome)
-            ;; A request that could not be read leaves the connection at an
-            ;; unknown point in the stream, so this is the last answer on it.
+            ;; An unreadable request leaves the stream at an unknown point, so
+            ;; the connection ends after this answer.
             (if (write-answer writer (problem-response outcome) #f "GET")
                 (+ served 1)
                 served)]
