@@ -35,14 +35,8 @@
   (list ((rustls 'tls-reader) stream) ((rustls 'tls-writer) stream)))
 
 ;;@doc
-;; Opens a tls connection to the host of `url`. The handshake happens on the
-;; first read or write, so a certificate that does not verify is reported
-;; there.
-;;
-;; With a `read-timeout` in milliseconds, a read that waits that long raises.
-;; The timeout covers the handshake as well.
-;;
-;; Requires the `steel-rustls` dylib.
+;; Opens a tls connection to the host of a url. Needs the `steel-rustls`
+;; dylib. A certificate that does not verify is reported on the first read.
 (define (tls-connector url #:read-timeout [read-timeout #f])
   (define host (url-host url))
   (define ports (tls-ports host (string-append host ":" (int->string (url-port url))) read-timeout))
@@ -53,25 +47,18 @@
                             (with-handler (lambda (err) void) (close-port (list-ref ports 1))))))
 
 ;;@doc
-;; A connector for both schemes: `https` over tls, `http` over plain tcp.
-;; Parameterize `current-http-connector` with it to follow a redirect from one
-;; to the other.
+;; A connector for both schemes: `https` over tls, `http` over plain tcp
 ;;
 ;; ```scheme
 ;; (parameterize ([current-http-connector https-connector])
 ;;   (response-text (http-get "https://example.com")))
 ;; ```
-;;
-;; A `read-timeout` in milliseconds is passed to whichever of the two is used.
 (define (https-connector url #:read-timeout [read-timeout #f])
   (if (equal? (url-scheme url) "https")
       (tls-connector url #:read-timeout read-timeout)
       (tcp-connector url #:read-timeout read-timeout)))
 
 ;;@doc
-;; Decompresses a gzipped body. The client sends `Accept-Encoding: identity`
-;; unless told otherwise, so this is only needed when it has been.
-;;
-;; Requires the `steel-rustls` dylib.
+;; Decompresses a gzipped body. Needs the `steel-rustls` dylib.
 (define (gzip-decode body)
   (read-port-to-bytes ((rustls 'gz-decode) body)))

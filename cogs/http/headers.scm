@@ -13,7 +13,7 @@
          parse-header-line)
 
 ;;@doc
-;; Whether two header names are the same. Header names are not case sensitive.
+;; Whether two header names are the same, ignoring case
 (define (header-name=? left right)
   (string-ci=? left right))
 
@@ -32,8 +32,7 @@
       (string-contains? "!#$%&'*+-.^_`|~" (string char))))
 
 ;;@doc
-;; Whether `str` is a token: one or more of letters, digits and
-;; `!#$%&'*+-.^_`|~`. Header names and request methods are tokens.
+;; Whether `str` is an http token: letters, digits and `!#$%&'*+-.^_`|~`
 (define (token? str)
   (and (> (string-length str) 0)
        (let loop ([at 0])
@@ -48,8 +47,8 @@
   (cons name value))
 
 ;;@doc
-;; Converts headers given as an association list, a list of two element lists,
-;; or a hashmap into the association list the other functions here take.
+;; Converts an alist, a list of two element lists, or a hashmap into a header
+;; alist
 (define (normalize-headers headers)
   (cond
     [(hash? headers)
@@ -68,7 +67,7 @@
     [else (error "http: headers have to be a list or a hashmap, got:" headers)]))
 
 ;;@doc
-;; The first value held under `name`, or `default` when there is none.
+;; The first value held under `name`, or `default` when there is none
 (define (header-ref headers name [default #f])
   (let loop ([rest headers])
     (cond
@@ -77,12 +76,12 @@
       [else (loop (cdr rest))])))
 
 ;;@doc
-;; Every value held under `name`, in order.
+;; Every value held under `name`, in order
 (define (header-ref* headers name)
   (map cdr (filter (lambda (entry) (header-name=? (car entry) name)) headers)))
 
 ;;@doc
-;; Whether `name` is present.
+;; Whether `name` is present
 (define (header-contains? headers name)
   (not (empty? (header-ref* headers name))))
 
@@ -92,39 +91,36 @@
   (filter (lambda (entry) (not (header-name=? (car entry) name))) headers))
 
 ;;@doc
-;; Adds `name` at the end, keeping any value already held under it.
+;; Adds `name` at the end, keeping any value already there.
 (define (header-add headers name value)
   (append headers (list (check-header name (header-value->string value)))))
 
 ;;@doc
-;; Sets `name` at the end to this value, removing anything already held under
-;; it.
+;; Sets `name` at the end, removing any value already there.
 (define (header-set headers name value)
   (header-add (header-remove headers name) name value))
 
 ;;@doc
-;; Sets `name` only if it is not already present.
+;; Sets `name` only when it is not already present.
 (define (header-default headers name value)
   (if (header-contains? headers name)
       headers
       (header-add headers name value)))
 
 ;;@doc
-;; The header names, in order.
+;; The header names, in order
 (define (header-names headers)
   (map car headers))
 
 ;;@doc
-;; Formats headers as the lines of a request or response head, each ending in a
-;; crlf. The blank line that ends the head is not included.
+;; Formats headers as crlf terminated head lines, without the blank line that
+;; ends the head.
 (define (headers->string headers)
   (apply string-append
          (map (lambda (entry) (string-append (car entry) ": " (cdr entry) "\r\n")) headers)))
 
 ;;@doc
-;; Parses one header line into a `(name . value)` pair, or `#false` when the
-;; line is not a header. Leading and trailing whitespace is removed from the
-;; value.
+;; Parses one header line into a trimmed `(name . value)` pair, or `#false`.
 (define (parse-header-line line)
   (define split (split-once line ":"))
   (if (or (not (list? split)) (equal? (car split) ""))

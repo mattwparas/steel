@@ -14,7 +14,7 @@
   (string-ref *alphabet* at))
 
 ;;@doc
-;; Encodes bytes, or the utf8 bytes of a string, as base64 with padding.
+;; Encodes bytes, or the utf8 bytes of a string, as padded base64.
 ;;
 ;; ```scheme
 ;; (base64-encode "user:password") ;; => "dXNlcjpwYXNzd29yZA=="
@@ -67,8 +67,7 @@
          (loop (cdr chars) (cons value digits) padded))])))
 
 ;;@doc
-;; Decodes base64 into bytes. Padding and whitespace are optional, and anything
-;; outside the alphabet is an error.
+;; Decodes base64 into bytes. Padding and whitespace are optional.
 (define (base64-decode str)
   (define digits (digits-of str))
   (define out (bytes))

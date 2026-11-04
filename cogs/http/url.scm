@@ -23,7 +23,7 @@
 (struct url (scheme userinfo host port path query fragment) #:transparent)
 
 ;;@doc
-;; The default port for `scheme`, or `#false` when it has none.
+;; The default port for `scheme`, or `#false` when it has none
 (define (scheme-default-port scheme)
   (cond
     [(equal? scheme "http") 80]
@@ -31,8 +31,18 @@
     [else #f]))
 
 ;;@doc
-;; Builds a url out of its parts. The port defaults to the default port for
-;; `scheme`.
+;; Builds a url out of its parts, with the scheme's default port.
+;;
+;; (make-url host [#:scheme scheme] [#:userinfo userinfo] [#:port port]
+;;           [#:path path] [#:query query] [#:fragment fragment]) -> url?
+;;
+;; * host : string?
+;; * scheme : string? = "http"
+;; * userinfo : (or/c string? #f) = #f
+;; * port : (or/c int? #f) = #f
+;; * path : string? = "/"
+;; * query : (or/c string? #f) = #f
+;; * fragment : (or/c string? #f) = #f
 (define (make-url host
                   #:scheme [scheme "http"]
                   #:userinfo [userinfo #f]
@@ -139,10 +149,8 @@
        port)]))
 
 ;;@doc
-;; Parses a url. An already parsed url is returned unchanged.
-;;
-;; A url with no scheme is read as `http`, and an empty path as `/`. Percent
-;; escapes are left as given.
+;; Parses a url, leaving percent escapes as given. An already parsed url comes
+;; back unchanged.
 (define (parse-url input)
   (if (url? input)
       input
@@ -196,8 +204,7 @@
       host))
 
 ;;@doc
-;; The host and port of a url, in the form a `Host` header takes. The port is
-;; omitted when it is the default for the scheme.
+;; The host and port of a url, as a `Host` header takes it
 (define (url-authority url)
   (define host (bracketed-host (url-host url)))
   (if (or (not (url-port url)) (equal? (url-port url) (scheme-default-port (url-scheme url))))
@@ -205,12 +212,12 @@
       (string-append host ":" (int->string (url-port url)))))
 
 ;;@doc
-;; The scheme, host and port of a url.
+;; The scheme, host and port of a url
 (define (url-origin url)
   (string-append (url-scheme url) "://" (url-authority url)))
 
 ;;@doc
-;; The request target of a url: the path and the query.
+;; The request target of a url: the path and the query
 (define (url-target url)
   (if (url-query url)
       (string-append (url-path url) "?" (url-query url))
@@ -231,8 +238,7 @@
                      "")))
 
 ;;@doc
-;; The same url with a different query, given either as a string or as an
-;; association list to encode.
+;; The same url with a different query, as a string or an alist to encode
 (define (url-with-query url query)
   (make-url (url-host url)
             #:scheme (url-scheme url)
@@ -277,9 +283,7 @@
                                       reference)))
 
 ;;@doc
-;; Resolves `reference` against `base`, as a `Location` header is resolved. The
-;; reference may be a full url, a `//host/path`, an absolute path, a relative
-;; path, a bare query or a bare fragment.
+;; Resolves `reference` against `base`, as a `Location` header is resolved.
 (define (url-join base reference)
   (define from (parse-url base))
   (cond
@@ -340,9 +344,7 @@
       (= byte 126)))
 
 ;;@doc
-;; Percent encodes a string. Letters, digits and `-._~` are left alone, every
-;; other byte becomes `%XX`. The ascii characters in `safe` are left alone as
-;; well.
+;; Percent encodes a string, leaving letters, digits, `-._~` and `safe` alone.
 (define (url-encode str #:safe [safe ""])
   (define out (open-output-string))
   (define safe-bytes (filter (lambda (byte) (< byte 128)) (bytes->list (string->bytes safe))))
@@ -361,8 +363,7 @@
     [else #f]))
 
 ;;@doc
-;; Decodes a percent encoded string. A `+` becomes a space, and a `%` that is
-;; not followed by two hex digits is left as it is.
+;; Decodes a percent encoded string, with `+` for a space.
 (define (url-decode str)
   (define len (string-length str))
   (define out (bytes))
@@ -399,8 +400,7 @@
     [else (error "url: a query value has to be a string, symbol, number or boolean, got:" value)]))
 
 ;;@doc
-;; Encodes an association list as a query string. Keys and values are percent
-;; encoded, and a `#false` value means a key with no `=`.
+;; Encodes an alist as a query string, where a `#false` value means no `=`.
 ;;
 ;; ```scheme
 ;; (alist->query '(("q" . "a b") ("page" . 2))) ;; => "q=a%20b&page=2"
@@ -420,9 +420,7 @@
   (with-handler (lambda (err) part) (url-decode part)))
 
 ;;@doc
-;; Decodes a query string into an association list. A key with no `=` gets an
-;; empty value, and repeated keys are all kept, in order. A part whose escapes
-;; are not utf8 is left as written.
+;; Decodes a query string into an alist, keeping repeated keys in order.
 (define (query->alist query)
   (if (not query)
       '()

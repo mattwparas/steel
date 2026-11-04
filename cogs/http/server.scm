@@ -16,20 +16,17 @@
          http-serve)
 
 ;;@doc
-;; The value sent in the `Server` header.
+;; The value sent in the `Server` header
 (define *server-name* "steel-http/0.1.0")
 
 ;;@doc
-;; The largest request body this server reads. A longer one is answered with a
-;; 413.
+;; The largest request body this server reads. A longer one gets a 413.
 (define *max-body-bytes* 8388608)
 
 (struct server (listener address read-timeout) #:transparent)
 
 ;;@doc
-;; Binds a listener. A port of `0` takes a free port from the os, which
-;; `server-address` then reports. A `read-timeout` in milliseconds is set on
-;; every connection accepted.
+;; Binds a listener. A port of `0` takes a free port from the os.
 (define (http-listen address #:read-timeout [read-timeout #f])
   (define listener (tcp-listen address))
   (server listener (tcp-listener-local-addr listener) read-timeout))
@@ -165,13 +162,8 @@
                    (list-ref parts 2))]))]))
 
 ;;@doc
-;; Reads one request off `reader`. Returns the eof object when the connection
-;; closed cleanly between requests; a request this server cannot read raises.
-;;
-;; The body is a bytevector, or `#false` for a request with no framing.
-;; Trailers that follow a chunked body are added to the headers. Give
-;; `continue` the writer of the same connection to answer an
-;; `Expect: 100-continue`.
+;; Reads one request off `reader`, or the eof object between requests. Give
+;; `continue` the writer to answer an `Expect: 100-continue`.
 (define (http-read-request reader #:continue [continue #f])
   (define outcome (read-request reader continue))
   (cond
@@ -223,10 +215,8 @@
   (flush-output-port writer))
 
 ;;@doc
-;; Writes `response` over `writer`. The head and the body go out in one write.
-;; `method` is the method being answered: the response to a `HEAD` carries the
-;; headers of a body it does not send, and a 1xx, a 204 and a 304 send no body
-;; for any method.
+;; Writes `response` over `writer` in one write. `method` is the method being
+;; answered.
 (define (http-write-response! writer received #:keep-alive [keep-alive #f] #:method [method "GET"])
   (write-wire! writer (response->wire received keep-alive method)))
 
@@ -266,11 +256,17 @@
 
 ;;@doc
 ;; Serves requests on one connection until it ends, and returns how many it
-;; served. `handler` is called with a `request?` and returns a `response?`; any
-;; other value, or a raise, becomes a 500. A request this server cannot read is
-;; answered with a 4xx or a 5xx and ends the connection. The connection is held
-;; open for another request when both ends allow it, and `#:keep-alive #false`
-;; serves exactly one request.
+;; served. `handler` takes a `request?` and returns a `response?`; a raise, or
+;; any other value, becomes a 500.
+;;
+;; (http-serve-connection reader writer handler [#:keep-alive keep-alive]
+;;                        [#:limit limit]) -> int?
+;;
+;; * reader : input-port?
+;; * writer : output-port?
+;; * handler : procedure?
+;; * keep-alive : bool? = #true - hold the connection open for another request
+;; * limit : (or/c int? #f) = #f - stop after this many requests
 (define (http-serve-connection reader writer handler #:keep-alive [keep-alive #t] #:limit [limit #f])
   (let loop ([served 0])
     (cond
@@ -303,8 +299,7 @@
   (cons (tcp-stream-buffered-reader stream) (tcp-stream-writer stream)))
 
 ;;@doc
-;; Waits for one connection, serves requests on it, and closes it. Returns how
-;; many requests it served.
+;; Waits for one connection, serves it, and closes it.
 (define (http-serve-one server handler #:keep-alive [keep-alive #t] #:limit [limit #f])
   (define stream (tcp-accept (server-listener server)))
   (define ports (connection-ports server stream))
@@ -316,9 +311,8 @@
    (lambda () (with-handler (lambda (err) void) (tcp-shutdown! stream)))))
 
 ;;@doc
-;; Serves connections one after another, and returns how many it served.
-;; Connections are served in sequence, so a slow request delays the next one.
-;; Pass `#:connections` to stop after that many.
+;; Serves connections in sequence, and returns how many it served. A slow
+;; request delays the next connection.
 ;;
 ;; ```scheme
 ;; (define server (http-listen "127.0.0.1:0"))

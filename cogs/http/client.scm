@@ -56,7 +56,7 @@
          http-options)
 
 ;;@doc
-;; The value sent in the `User-Agent` header.
+;; The value sent in the `User-Agent` header
 (define *user-agent* "steel-http/0.1.0")
 
 ;; A pair of ports and a thunk to close them. Nothing above this names a
@@ -64,8 +64,7 @@
 (struct transport (reader writer close) #:transparent)
 
 ;;@doc
-;; Builds a transport out of an input port, an output port, and the thunk that
-;; closes them.
+;; Builds a transport out of a reader, a writer, and a thunk that closes them.
 (define (make-transport reader writer #:close [close (lambda () void)])
   (transport reader writer close))
 
@@ -78,11 +77,8 @@
                  (int->string (url-port url))))
 
 ;;@doc
-;; Opens a plain tcp connection to the host of `url`. This is the default
-;; connector, and it handles `http` only.
-;;
-;; With a `read-timeout` in milliseconds, a read that waits that long raises.
-;; The timeout applies to a single read and not to the whole response.
+;; Opens a plain tcp connection to the host of a url. The default connector,
+;; for `http` only.
 (define (tcp-connector url #:read-timeout [read-timeout #f])
   (unless (equal? (url-scheme url) "http")
     (error "http: the tcp connector only speaks http, not"
@@ -96,9 +92,8 @@
              (lambda () (with-handler (lambda (err) void) (tcp-shutdown! stream)))))
 
 ;;@doc
-;; The procedure the client uses to reach a host. It takes a url and returns a
-;; `transport?`. Parameterize it for tls, for a fixture, or to give the default
-;; connector a read timeout:
+;; The procedure the client uses to reach a host: a url in, a `transport?`
+;; out
 ;;
 ;; ```scheme
 ;; (parameterize ([current-http-connector
@@ -110,8 +105,7 @@
 (struct connection (transport origin) #:transparent)
 
 ;;@doc
-;; Opens a connection to the origin of `target`. The connection stays open
-;; until `http-close!` and can carry more than one exchange.
+;; Opens a connection to the origin of `target`, for one or more exchanges.
 (define (http-connect target)
   (define url (parse-url target))
   (unless (url-port url)
@@ -124,8 +118,7 @@
   ((transport-close (connection-transport connection))))
 
 ;;@doc
-;; Opens a connection to `target`, calls `proc` with it, and closes it
-;; afterwards, whether or not `proc` raised.
+;; Opens a connection to `target`, calls `proc` with it, and closes it after.
 (define (call-with-http-connection target proc)
   (define connection (http-connect target))
   (dynamic-wind (lambda () void) (lambda () (proc connection)) (lambda () (http-close! connection))))
@@ -156,8 +149,7 @@
     [else headers]))
 
 ;;@doc
-;; Writes `request` over `connection`. The head and the body go out in one
-;; write.
+;; Writes `request` over `connection`, head and body in one write.
 (define (http-write-request! connection request #:keep-alive [keep-alive #f])
   (define head
     (string-append (request-method request)
@@ -232,11 +224,8 @@
     [else 'until-close]))
 
 ;;@doc
-;; Reads one response off `reader`. `method` is needed because the response to
-;; a `HEAD` carries the headers of a body it does not send.
-;;
-;; The body is always a bytevector, empty for a response that cannot carry one.
-;; Trailers that follow a chunked body are added to the headers.
+;; Reads one response off `reader`. `method` is needed because a `HEAD`
+;; response carries the headers of a body it does not send.
 (define (http-read-response reader #:method [method "GET"])
   (define status-line (read-status-line-past-interim reader))
   (define status (list-ref status-line 1))
@@ -256,9 +245,6 @@
 
 ;;@doc
 ;; Writes `request` over `connection` and reads the response back.
-;;
-;; Pass `#:keep-alive #true` to ask the server to keep the connection open for
-;; another exchange, and check `response-keep-alive?` before using it again.
 (define (http-exchange connection request #:keep-alive [keep-alive #f])
   (http-write-request! connection request #:keep-alive keep-alive)
   (http-read-response (transport-reader (connection-transport connection))
@@ -299,11 +285,15 @@
            (request (request-method sent) to carried (request-body sent) (request-version sent))))]))
 
 ;;@doc
-;; Opens a connection, sends one request, reads the response, and closes the
-;; connection.
+;; Opens a connection, sends one request, reads the response, and closes it.
 ;;
-;; Redirects are followed up to `follow` times; `#:follow 0` returns the 3xx.
-;; The other keywords are those of `make-request`.
+;; (http-send method target [#:headers headers] [#:body body] [#:form form]
+;;            [#:query query] [#:auth auth] [#:follow follow]) -> response?
+;;
+;; * method : (or/c string? symbol?)
+;; * target : (or/c string? url?)
+;; * headers, body, form, query, auth - as in `make-request`
+;; * follow : int? = 5 - redirects to follow, where `0` returns the 3xx
 (define (http-send method
                    target
                    #:headers [headers '()]
@@ -341,37 +331,36 @@
              response))])))
 
 ;;@doc
-;; Sends a `GET`. Takes the keywords of `http-send`.
+;; Sends a `GET`, with the keywords of `http-send`.
 (define (http-get target . options)
   (apply http-send "GET" target options))
 
 ;;@doc
-;; Sends a `HEAD`, which returns headers and an empty body. Takes the keywords
-;; of `http-send`.
+;; Sends a `HEAD`, with the keywords of `http-send`.
 (define (http-head target . options)
   (apply http-send "HEAD" target options))
 
 ;;@doc
-;; Sends a `POST`. Takes the keywords of `http-send`, including `#:form`.
+;; Sends a `POST`, with the keywords of `http-send`.
 (define (http-post target . options)
   (apply http-send "POST" target options))
 
 ;;@doc
-;; Sends a `PUT`. Takes the keywords of `http-send`.
+;; Sends a `PUT`, with the keywords of `http-send`.
 (define (http-put target . options)
   (apply http-send "PUT" target options))
 
 ;;@doc
-;; Sends a `PATCH`. Takes the keywords of `http-send`.
+;; Sends a `PATCH`, with the keywords of `http-send`.
 (define (http-patch target . options)
   (apply http-send "PATCH" target options))
 
 ;;@doc
-;; Sends a `DELETE`. Takes the keywords of `http-send`.
+;; Sends a `DELETE`, with the keywords of `http-send`.
 (define (http-delete target . options)
   (apply http-send "DELETE" target options))
 
 ;;@doc
-;; Sends an `OPTIONS`. Takes the keywords of `http-send`.
+;; Sends an `OPTIONS`, with the keywords of `http-send`.
 (define (http-options target . options)
   (apply http-send "OPTIONS" target options))

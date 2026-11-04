@@ -42,16 +42,15 @@
          read-chunked)
 
 ;;@doc
-;; The version written on every request line and status line.
+;; The version written on every request line and status line
 (define *http-version* "HTTP/1.1")
 
 ;;@doc
-;; The maximum number of header lines in a message. Reading a message with more
-;; than this raises.
+;; The maximum number of header lines in a message. Reading more raises.
 (define *max-header-lines* 200)
 
 ;;@doc
-;; The maximum length of one line of a head. Reading a longer line raises.
+;; The maximum length of one line of a head. A longer line raises.
 (define *max-line-length* 8192)
 
 (struct request (method url headers body version) #:transparent)
@@ -95,10 +94,20 @@
     [else headers]))
 
 ;;@doc
-;; Builds a request. Either `body` or `form` may be given, not both: `form` is
-;; an association list, which is url encoded and sent as
-;; `application/x-www-form-urlencoded`. `query` replaces the query of `target`,
-;; and `auth` becomes a basic `Authorization` header.
+;; Builds a request. Give it either a `body` or a `form`, not both.
+;;
+;; (make-request method target [#:headers headers] [#:body body]
+;;               [#:form form] [#:query query] [#:auth auth]
+;;               [#:version version]) -> request?
+;;
+;; * method : (or/c string? symbol?)
+;; * target : (or/c string? url?)
+;; * headers : (or/c list? hash?) = '()
+;; * body : (or/c string? bytes? #f) = #f
+;; * form : (or/c list? #f) = #f - an alist, sent url encoded
+;; * query : (or/c string? list? #f) = #f - replaces the target's query
+;; * auth : (or/c string? pair? #f) = #f - "user:password" or (user . password)
+;; * version : string? = *http-version*
 (define (make-request method
                       target
                       #:headers [headers '()]
@@ -128,25 +137,22 @@
            version))
 
 ;;@doc
-;; The target for the request line: the path, followed by the query when there
-;; is one.
+;; The target for the request line: the path, and the query when there is one
 (define (request-target sent)
   (url-target (request-url sent)))
 
 ;;@doc
-;; The first value of a request header, or `default` when it is absent.
+;; The first value of a request header, or `default` when it is absent
 (define (request-header sent name [default #f])
   (header-ref (request-headers sent) name default))
 
 ;;@doc
-;; Every value of a request header.
+;; Every value of a request header
 (define (request-header* sent name)
   (header-ref* (request-headers sent) name))
 
 ;;@doc
-;; Whether the request allows another exchange on the connection. An HTTP/1.1
-;; request keeps the connection open unless it sends `Connection: close`; an
-;; HTTP/1.0 request closes it unless it sends `Connection: keep-alive`.
+;; Whether the request allows another exchange on the connection
 (define (request-keep-alive? sent)
   (define asked (request-header sent "Connection"))
   (cond
@@ -158,28 +164,27 @@
 (struct response (version status reason headers body) #:transparent)
 
 ;;@doc
-;; Whether the status is a 2xx.
+;; Whether the status is a 2xx
 (define (response-ok? received)
   (and (>= (response-status received) 200) (< (response-status received) 300)))
 
 ;;@doc
-;; The body decoded as utf8. Raises when the body is not utf8; use
-;; `response-body` when it may not be text.
+;; The body decoded as utf8. Raises when the body is not utf8.
 (define (response-text received)
   (bytes->string/utf8 (response-body received)))
 
 ;;@doc
-;; The first value of a response header, or `default` when it is absent.
+;; The first value of a response header, or `default` when it is absent
 (define (response-header received name [default #f])
   (header-ref (response-headers received) name default))
 
 ;;@doc
-;; Every value of a response header.
+;; Every value of a response header
 (define (response-header* received name)
   (header-ref* (response-headers received) name))
 
 ;;@doc
-;; Whether the response allows another exchange on the connection.
+;; Whether the response allows another exchange on the connection
 (define (response-keep-alive? received)
   (define asked (response-header received "Connection"))
   (cond
@@ -228,8 +233,7 @@
         (cons 505 "HTTP Version Not Supported")))
 
 ;;@doc
-;; The reason phrase for `status`, or `""` for a code with no well known
-;; phrase.
+;; The reason phrase for `status`, or `""` when there is no well known one
 (define (reason-phrase status)
   (define found (assv status *reasons*))
   (if found
@@ -237,8 +241,7 @@
       ""))
 
 ;;@doc
-;; Builds a response. The reason phrase is filled in from `status` when it is
-;; not given, and the body may be a string or a bytevector.
+;; Builds a response, filling in the reason phrase for `status`.
 (define (make-response status
                        #:reason [reason #f]
                        #:headers [headers '()]
@@ -281,7 +284,7 @@
       [else (loop (cons char chars) (+ length 1))])))
 
 ;;@doc
-;; Whether `version` is a version this library supports.
+;; Whether `version` is a version this library supports
 (define (known-version? version)
   (or (equal? version "HTTP/1.1") (equal? version "HTTP/1.0")))
 
@@ -368,9 +371,8 @@
   size)
 
 ;;@doc
-;; Reads a chunked body off `reader`, and returns it with the trailer headers
-;; that followed it. With a `limit`, a body longer than it returns
-;; `'too-large`, and nothing further can be read from the connection.
+;; Reads a chunked body off `reader`, and returns it with its trailer headers.
+;; A body past `limit` returns `'too-large`.
 (define (read-chunked reader #:limit [limit #f])
   (let loop ([chunks '()]
              [read-so-far 0])
