@@ -2992,7 +2992,7 @@ mod read_datum_tests {
         }
     }
 
-    // Check for a suspended parse, and put the state back the way we found it
+    // Peek at the saved state by taking it and putting it straight back
     fn is_suspended(port: &SteelPort) -> bool {
         let kept = port.port.write().take_parse_state();
         let there = kept.is_some();

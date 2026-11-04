@@ -76,8 +76,9 @@ impl core::fmt::Display for SteelPort {
 const MIN_CHUNK: usize = 8 * 1024;
 const MAX_STREAM_CHUNK: usize = 64 * 1024;
 
-// Parser state left behind by a read that blocked part way through. We can only
-// resume it on the same `pending` bytes with more appended.
+// Parser state left behind by a read that blocked part way through. `pending` is
+// how many bytes were in front of it, and we can only resume on those same bytes
+// with more appended.
 #[derive(Debug)]
 struct SuspendedRead {
     state: ParserState,

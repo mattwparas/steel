@@ -284,7 +284,7 @@ fn port_as_stdio(
         Ok(stdio) => Ok(stdio),
         Err(err) => {
             let buffered = err.is_buffered();
-            // Drop the guard before formatting, since display takes a lock
+            // Drop the guard before formatting, since display takes the same lock
             *guard = err.into_port();
             drop(guard);
 
