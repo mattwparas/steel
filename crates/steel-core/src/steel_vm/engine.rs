@@ -1874,19 +1874,23 @@ impl Engine {
         &mut self,
         program: RawProgramWithSymbols,
     ) -> Result<Executable> {
-        let symbol_map_offset = self.virtual_machine.compiler.read().symbol_map.len();
+        // Building binds each defined name to a slot. A redefinition does not add a
+        // name, it repoints an existing one (the old slot goes to the free list), so
+        // truncating back to the previous length cannot undo it: the name would be
+        // left on an empty slot, or dropped, and the old definition lost. Restore the
+        // whole map instead.
+        let symbol_map_snapshot = self.virtual_machine.compiler.read().symbol_map.clone();
 
         let result = program.build(
             "TestProgram".to_string(),
             &mut self.virtual_machine.compiler.write().symbol_map,
         );
 
-        // Revisit if we need to do this at all?
         if result.is_err() {
             let mut guard = self.virtual_machine.compiler.write();
 
+            guard.symbol_map = symbol_map_snapshot;
             // Reset the compiled modules as well.
-            guard.symbol_map.roll_back(symbol_map_offset);
             guard.module_manager.rollback_metadata();
         }
 
@@ -2809,6 +2813,32 @@ fn test_raw_engine() {
     let res = engine.run("(foo)").unwrap();
 
     assert_eq!(res[0], SteelVal::IntV(10));
+}
+
+#[test]
+fn test_failed_compile_leaves_existing_globals_intact() {
+    // Compiling a define bound its name to a fresh slot before the program was fully
+    // checked; when compilation then failed, the name kept pointing at that empty
+    // slot, so the earlier, working definition was lost.
+    let mut engine = Engine::new();
+    engine.run("(define y 1) (define (f s) (* s 2))").unwrap();
+
+    // A typo elsewhere in the same program.
+    assert!(engine
+        .run("(define (bad) (undefined-thing)) (define y 2)")
+        .is_err());
+    assert_eq!(engine.run("y").unwrap()[0], SteelVal::IntV(1));
+
+    // A program that reads a global and then redefines it is rejected at compile
+    // time; the existing definition must survive that too.
+    assert!(engine
+        .run("(define old-f f) (define (f s) (+ (old-f s) 1))")
+        .is_err());
+    assert_eq!(engine.run("(f 3)").unwrap()[0], SteelVal::IntV(6));
+
+    // A program that compiles still redefines as before.
+    engine.run("(define y 3)").unwrap();
+    assert_eq!(engine.run("y").unwrap()[0], SteelVal::IntV(3));
 }
 
 #[test]
