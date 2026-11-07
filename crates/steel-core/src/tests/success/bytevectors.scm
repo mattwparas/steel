@@ -25,3 +25,6 @@
 (assert-equal! (bytes-append (bytes 0 1 2) (bytes 3 4 5)) (bytes 0 1 2 3 4 5))
 
 (assert-equal! (list->bytes (list 0 1 2 3 4 5)) (bytes 0 1 2 3 4 5))
+
+(assert-equal! (list (bytes 1 2)) (list (bytes 1 2)))
+(assert! (not (equal? (list (bytes 1 2)) (list (bytes 1 3)))))

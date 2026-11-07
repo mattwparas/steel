@@ -365,3 +365,14 @@
 (assert-number-roundtrip! 1+2i "1+10i" 2)
 (assert-number-roundtrip! -16 "-20" 8)
 (assert-number-roundtrip! 10 "10")
+
+;; Numbers inside lists, pairs, vectors and hash map keys
+(assert-equal! (list 1/3) (list 1/3))
+(assert-equal! (cons 1/3 2) (cons 1/3 2))
+(assert-equal! (vector 1/3 2) (vector 1/3 2))
+(assert-equal! (list 100000000000000000000000000/3) (list 100000000000000000000000000/3))
+(assert-equal! (list 3+1i) (list 3+1i))
+(assert! (not (equal? (list 1/3) (list 1/4))))
+(assert! (not (equal? (list 100000000000000000000000000/3) (list 100000000000000000000000001/3))))
+(assert! (not (equal? (list 3+1i) (list 3+2i))))
+(assert! (hash-contains? (hash (list 1/3 2) 0) (list 1/3 2)))
