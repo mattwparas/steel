@@ -39,6 +39,39 @@ If *proc* returns, then the port will be closed and the return value of *proc* r
 
 - port : port?
 - proc : procedure?
+### **file-position**
+Returns where the next read or write on a port will land, or moves it there.
+
+(file-position port [position]) -> (or/c int? void?)
+
+* port : port?
+* [position] : (or/c int? eof-object?)
+### **file-position\***
+Returns where the next read or write on a port will land, or `#f` for a port
+that has no position.
+
+(file-position* port) -> (or/c int? #f)
+
+* port : port?
+### **file-truncate**
+Sets the length of the file behind an output port.
+
+(file-truncate port length) -> void?
+
+* port : output-port?
+* length : int?
+### **fsync**
+Flushes a port, and waits for the os to put a file port's bytes on the disk.
+
+(fsync port) -> void?
+
+* port : output-port?
+### **ftell**
+Returns where the next read or write on a port will land.
+
+(ftell port) -> int?
+
+* port : port?
 ### **peek-byte**
 Peeks the next byte from an input port.
 

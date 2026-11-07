@@ -3,7 +3,9 @@ use std::fs::OpenOptions;
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::primitives::lists::plist_get_impl;
-use crate::rvals::{FromSteelVal, Result, SteelByteVector, SteelString, SteelVal, SteelValDisplay};
+use crate::rvals::{
+    FromSteelVal, IntoSteelVal, Result, SteelByteVector, SteelString, SteelVal, SteelValDisplay,
+};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::values::port::{
     would_block, MaybeBlocking, Peekable, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT,
@@ -32,6 +34,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(OPEN_STDOUT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_FILE_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_FILE_DEFINITION)
+        .register_native_fn_definition(OPEN_INPUT_OUTPUT_FILE_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(WRITE_LINE_DEFINITION)
@@ -39,6 +42,16 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(WRITE_DEFINITION)
         .register_native_fn_definition(WRITE_CHAR_DEFINITION)
         .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(PORT_POSITION_DEFINITION)
+        .register_native_fn_definition(SET_PORT_POSITION_DEFINITION)
+        .register_native_fn_definition(PORT_TRUNCATE_DEFINITION)
+        .register_native_fn_definition(PORT_SYNC_DEFINITION)
+        .register_native_fn_definition(SEEK_DEFINITION)
+        .register_native_fn_definition(PORT_HAS_POSITION_DEFINITION)
+        .register_native_fn_definition(PORT_HAS_SET_POSITION_DEFINITION)
+        .register_value("SEEK_SET", SteelVal::IntV(0))
+        .register_value("SEEK_CUR", SteelVal::IntV(1))
+        .register_value("SEEK_END", SteelVal::IntV(2))
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_READY_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_BYTES_DEFINITION)
@@ -82,6 +95,7 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(OPEN_STDOUT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_FILE_SANDBOXED_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_FILE_SANDBOXED_DEFINITION)
+        .register_native_fn_definition(OPEN_INPUT_OUTPUT_FILE_SANDBOXED_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(WRITE_LINE_DEFINITION)
@@ -89,6 +103,16 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(WRITE_DEFINITION)
         .register_native_fn_definition(WRITE_CHAR_DEFINITION)
         .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(PORT_POSITION_DEFINITION)
+        .register_native_fn_definition(SET_PORT_POSITION_DEFINITION)
+        .register_native_fn_definition(PORT_TRUNCATE_DEFINITION)
+        .register_native_fn_definition(PORT_SYNC_DEFINITION)
+        .register_native_fn_definition(SEEK_DEFINITION)
+        .register_native_fn_definition(PORT_HAS_POSITION_DEFINITION)
+        .register_native_fn_definition(PORT_HAS_SET_POSITION_DEFINITION)
+        .register_value("SEEK_SET", SteelVal::IntV(0))
+        .register_value("SEEK_CUR", SteelVal::IntV(1))
+        .register_value("SEEK_END", SteelVal::IntV(2))
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_READY_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_BYTES_DEFINITION)
@@ -170,8 +194,14 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 }
 
 /// Takes a filename `path` referring to a file to be created and returns an output port.
+/// `exists` says what to do when the file is already there: `'error` raises, `'truncate` drops
+/// what was in it, `'append` writes at the end, `'update` keeps it and positions the port at the
+/// start, and `'can-update` does the same but also creates the file when it is missing.
 ///
-/// (open-output-file string?) -> output-port?
+/// (open-output-file path [#:exists exists]) -> output-port?
+///
+/// * path : string?
+/// * exists : symbol? = 'error
 ///
 /// # Examples
 /// ```scheme
@@ -180,11 +210,34 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 #[native(name = "open-output-file", arity = "AtLeast(1)")]
 pub fn open_output_file(args: &[SteelVal]) -> Result<SteelVal> {
     let path = SteelString::from_steelval(&args[0])?;
-    let opts = create_open_options(&args[1..])?;
+    let opts = create_open_options(&args[1..], "error")?;
     SteelPort::new_textual_file_output_with_options(&path, opts).map(SteelVal::PortV)
 }
 
-pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
+/// Takes a filename `path` and returns a port that both reads and writes that file. The
+/// two directions share one position: a write lands where the last read left off, and a
+/// read picks up after the last write. `exists` is as it is on `open-output-file`, except
+/// that it defaults to `'can-update`, which keeps a file that is already there.
+///
+/// (open-input-output-file path [#:exists exists]) -> port?
+///
+/// * path : string?
+/// * exists : symbol? = 'can-update
+///
+/// # Examples
+/// ```scheme
+/// > (open-input-output-file "foo-bar.txt") ;; => #<input-output-port:foo-bar.txt>
+/// ```
+#[native(name = "open-input-output-file", arity = "AtLeast(1)")]
+pub fn open_input_output_file(args: &[SteelVal]) -> Result<SteelVal> {
+    let path = SteelString::from_steelval(&args[0])?;
+    let mut opts = create_open_options(&args[1..], "can-update")?;
+    opts.read(true);
+
+    SteelPort::new_file_input_output_with_options(&path, opts).map(SteelVal::PortV)
+}
+
+pub fn create_open_options(args: &[SteelVal], default: &str) -> Result<OpenOptions> {
     #[cfg(feature = "sync")]
     static EXISTS_FLAG: once_cell::sync::Lazy<SteelVal> =
         once_cell::sync::Lazy::new(|| SteelVal::SymbolV("#:exists".into()));
@@ -205,27 +258,26 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
     // We want to write the file no matter what in this context
     options.write(true).create(true);
 
-    match exists_flag {
-        Some(flag) => {
-            let flag = flag.symbol_or_else(
-                throw!(Generic => "#:exists flag expects a symbol, found: {}", flag),
-            )?;
+    let flag = match exists_flag.as_ref() {
+        Some(flag) => flag
+            .symbol_or_else(throw!(Generic => "#:exists flag expects a symbol, found: {}", flag))?,
+        None => default,
+    };
 
-            match flag {
-                "append" => {
-                    options.append(true);
-                    options.truncate(false)
-                }
-                "truncate" => options.truncate(true),
-                // Default behavior
-                "error" => options.create_new(true),
-                _ => stop!(Generic => "unexpected option provided to open options"),
-            };
+    match flag {
+        "append" => {
+            options.append(true);
+            options.truncate(false)
         }
-        None => {
-            options.create_new(true);
+        "truncate" => options.truncate(true),
+        "update" => {
+            options.create(false);
+            options.truncate(false)
         }
-    }
+        "can-update" => options.truncate(false),
+        "error" => options.create_new(true),
+        _ => stop!(Generic => "unexpected option provided to open options"),
+    };
 
     Ok(options)
 }
@@ -260,6 +312,17 @@ pub fn open_input_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
 /// ```
 #[function(name = "open-output-file")]
 pub fn open_output_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
+    stop!(Generic => "A sandboxed engine cannot open the file system.")
+}
+
+/// Takes a filename `path` and returns a port that both reads and writes that file.
+///
+/// (open-input-output-file path [#:exists exists]) -> port?
+///
+/// * path : string?
+/// * exists : symbol? = 'can-update
+#[function(name = "open-input-output-file")]
+pub fn open_input_output_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
     stop!(Generic => "A sandboxed engine cannot open the file system.")
 }
 
@@ -587,6 +650,113 @@ pub fn get_output_bytevector(port: &SteelPort) -> Result<SteelVal> {
 #[function(name = "flush-output-port")]
 pub fn flush_output_port(port: &SteelPort) -> Result<SteelVal> {
     port.flush().map(|_| SteelVal::Void)
+}
+
+/// Returns where the next read or write on a port will land, in bytes from the
+/// start of the stream. Only file ports and string ports have a position.
+///
+/// (port-position port) -> int?
+///
+/// * port : port?
+#[function(name = "port-position")]
+pub fn port_position(port: &SteelPort) -> Result<SteelVal> {
+    port.position()?.into_steelval()
+}
+
+/// Moves a port to `position` bytes from the start of the stream, or to the end
+/// if given the eof object. A file opened with `#:exists 'append` is written at
+/// the end no matter where its port is positioned.
+///
+/// (set-port-position! port position) -> void?
+///
+/// * port : port?
+/// * position : (or/c int? eof-object?)
+#[function(name = "set-port-position!")]
+pub fn set_port_position(port: &SteelPort, position: &SteelVal) -> Result<SteelVal> {
+    let from = if eof_objectp(position) {
+        std::io::SeekFrom::End(0)
+    } else {
+        std::io::SeekFrom::Start(u64::from_steelval(position)?)
+    };
+
+    port.set_position(from).map(|_| SteelVal::Void)
+}
+
+/// Sets the length of the file behind an output port. Bytes past `length` are
+/// dropped, and a `length` past the end reads back as zeros.
+///
+/// (port-truncate! port length) -> void?
+///
+/// * port : output-port?
+/// * length : int?
+#[function(name = "port-truncate!")]
+pub fn port_truncate(port: &SteelPort, length: u64) -> Result<SteelVal> {
+    port.truncate(length).map(|_| SteelVal::Void)
+}
+
+/// Moves a port and returns where it ended up. `whence` says what `offset` counts from:
+/// `SEEK_SET` the start of the stream, `SEEK_CUR` where the port is now, and `SEEK_END`
+/// the end of the stream.
+///
+/// (seek port offset whence) -> int?
+///
+/// * port : port?
+/// * offset : int?
+/// * whence : int?
+///
+/// # Examples
+/// ```scheme
+/// > (seek port 0 SEEK_END) ;; => 4096
+/// > (seek port -16 SEEK_CUR) ;; => 4080
+/// ```
+#[function(name = "seek")]
+pub fn seek(port: &SteelPort, offset: isize, whence: isize) -> Result<SteelVal> {
+    let from = match whence {
+        0 => match u64::try_from(offset) {
+            Ok(at) => std::io::SeekFrom::Start(at),
+            Err(_) => {
+                stop!(ContractViolation => "seek from SEEK_SET expects an offset of zero or more, found {}", offset)
+            }
+        },
+        1 => std::io::SeekFrom::Current(offset as i64),
+        2 => std::io::SeekFrom::End(offset as i64),
+        _ => {
+            stop!(ContractViolation => "seek expects SEEK_SET, SEEK_CUR or SEEK_END for whence, found {}", whence)
+        }
+    };
+
+    port.set_position(from)?.into_steelval()
+}
+
+/// Returns `#t` if a port can report a position.
+///
+/// (port-has-port-position? port) -> bool?
+///
+/// * port : port?
+#[function(name = "port-has-port-position?")]
+pub fn port_has_position(port: &SteelPort) -> bool {
+    port.has_position()
+}
+
+/// Returns `#t` if a port can be moved to a position.
+///
+/// (port-has-set-port-position!? port) -> bool?
+///
+/// * port : port?
+#[function(name = "port-has-set-port-position!?")]
+pub fn port_has_set_position(port: &SteelPort) -> bool {
+    port.has_set_position()
+}
+
+/// Flushes a port, and for a file port waits for the os to put the bytes on the
+/// disk.
+///
+/// (port-sync! port) -> void?
+///
+/// * port : output-port?
+#[function(name = "port-sync!")]
+pub fn port_sync(port: &SteelPort) -> Result<SteelVal> {
+    port.sync().map(|_| SteelVal::Void)
 }
 
 #[function(name = "#%default-input-port")]

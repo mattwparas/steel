@@ -2,6 +2,7 @@ use steel_derive::function;
 
 use crate::{
     gc::shared::ShareableMut,
+    gc::Gc,
     rerrs::ErrorKind,
     rvals::{FromSteelVal, IntoSteelVal, RestArgsIter, Result, SteelByteVector},
     steel_vm::builtin::BuiltInModule,
@@ -17,6 +18,7 @@ pub fn bytevector_module() -> BuiltInModule {
         .register_native_fn_definition(BYTES_DEFINITION)
         .register_native_fn_definition(IS_BYTES_DEFINITION)
         .register_native_fn_definition(BYTEVECTOR_COPY_NEW_DEFINITION)
+        .register_native_fn_definition(BYTEVECTOR_COPY_INTO_DEFINITION)
         .register_native_fn_definition(MAKE_BYTES_DEFINITION)
         .register_native_fn_definition(IS_BYTE_DEFINITION)
         .register_native_fn_definition(BYTES_LENGTH_DEFINITION)
@@ -178,6 +180,94 @@ pub fn bytevector_copy_new(
         .ok_or_else(throw!(Generic => "index out of bounds: attempted to slice range: {:?} for bytevector: {:?}", start..end, guard))?.to_vec();
 
     Ok(SteelVal::ByteVector(SteelByteVector::new(copy)))
+}
+
+// The bytes of `source` the caller asked for, as an index range
+fn copy_range(
+    rest: &mut RestArgsIter<'_, isize>,
+    source: usize,
+) -> Result<core::ops::Range<usize>> {
+    let mut index = |fallback: usize| -> Result<usize> {
+        let Some(value) = rest.next() else {
+            return Ok(fallback);
+        };
+
+        let value = value?;
+
+        value.try_into().map_err(|_err| {
+            SteelErr::new(
+                ErrorKind::ConversionError,
+                format!("Unable to convert isize to usize for indexing: {}", value),
+            )
+        })
+    };
+
+    let start = index(0)?;
+    let end = index(source)?;
+
+    if let Some(extra) = rest.next() {
+        stop!(ArityMismatch => format!("bytevector-copy! expected 3 to 5 arguments, got an additional argument {}", extra?))
+    }
+
+    if start > end || end > source {
+        stop!(Generic => "index out of bounds: attempted to slice range: {:?} of a bytevector of {} bytes", start..end, source);
+    }
+
+    Ok(start..end)
+}
+
+/// Copies the bytes of `from` into `to`, starting at index `at`. The two can be the same
+/// bytevector, and the ranges are allowed to overlap.
+///
+/// (bytevector-copy! to at from [start end])
+///
+/// * to : bytes?
+/// * at : int?
+/// * from : bytes?
+/// * start : int? = 0
+/// * end : int? = (bytes-length from)
+///
+/// # Examples
+///
+/// ```scheme
+/// (define vec (bytes 0 1 2 3 4))
+///
+/// (bytevector-copy! vec 1 (bytes 10 20)) ;; vec => (bytes 0 10 20 3 4)
+/// (bytevector-copy! vec 0 vec 3 5) ;; vec => (bytes 3 4 20 3 4)
+/// ```
+#[function(name = "bytes-copy!", alias = "bytevector-copy!")]
+pub fn bytevector_copy_into(
+    to: &SteelByteVector,
+    at: usize,
+    from: &SteelByteVector,
+    mut rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    // One lock, taken once, when both arguments are the same bytevector
+    if Gc::ptr_eq(&to.vec, &from.vec) {
+        let mut guard = to.vec.write();
+        let range = copy_range(&mut rest, guard.len())?;
+        fits(at, range.len(), guard.len())?;
+        guard.copy_within(range, at);
+
+        return Ok(SteelVal::Void);
+    }
+
+    let source = from.vec.read();
+    let range = copy_range(&mut rest, source.len())?;
+    let mut guard = to.vec.write();
+    fits(at, range.len(), guard.len())?;
+    guard[at..at + range.len()].copy_from_slice(&source[range]);
+
+    Ok(SteelVal::Void)
+}
+
+fn fits(at: usize, amount: usize, length: usize) -> Result<()> {
+    match at.checked_add(amount) {
+        Some(end) if end <= length => Ok(()),
+        _ => {
+            stop!(Generic => "index out of bounds: {} bytes do not fit at index {} of a bytevector of {} bytes", amount, at, length)
+        }
+    }
 }
 
 /// Creates a bytevector given a length and a default value.

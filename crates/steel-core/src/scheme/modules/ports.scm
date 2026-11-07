@@ -34,7 +34,62 @@
          call-with-output-string
          call-with-input-string
          with-output-to-string
-         with-input-from-string)
+         with-input-from-string
+         file-position
+         file-position*
+         file-truncate
+         ftell
+         fsync)
+
+;;@doc
+;; Returns where the next read or write on a port will land, or moves it there.
+;;
+;; (file-position port [position]) -> (or/c int? void?)
+;;
+;; * port : port?
+;; * [position] : (or/c int? eof-object?)
+(define file-position
+  (case-lambda
+    [(port) (port-position port)]
+    [(port position) (set-port-position! port position)]))
+
+;;@doc
+;; Returns where the next read or write on a port will land, or `#f` for a port
+;; that has no position.
+;;
+;; (file-position* port) -> (or/c int? #f)
+;;
+;; * port : port?
+(define (file-position* port)
+  (and (port-has-port-position? port) (port-position port)))
+
+;;@doc
+;; Sets the length of the file behind an output port.
+;;
+;; (file-truncate port length) -> void?
+;;
+;; * port : output-port?
+;; * length : int?
+(define (file-truncate port length)
+  (port-truncate! port length))
+
+;;@doc
+;; Returns where the next read or write on a port will land.
+;;
+;; (ftell port) -> int?
+;;
+;; * port : port?
+(define (ftell port)
+  (port-position port))
+
+;;@doc
+;; Flushes a port, and waits for the os to put a file port's bytes on the disk.
+;;
+;; (fsync port) -> void?
+;;
+;; * port : output-port?
+(define (fsync port)
+  (port-sync! port))
 
 ;;@doc
 ;; Reads the entire content of an input port into a string.
