@@ -653,7 +653,8 @@ pub fn flush_output_port(port: &SteelPort) -> Result<SteelVal> {
 }
 
 /// Returns where the next read or write on a port will land, in bytes from the
-/// start of the stream. Only file ports and string ports have a position.
+/// start of the stream. Only file ports and string ports have a position, and a
+/// file opened with `#:exists 'append` reports zero until something is written.
 ///
 /// (port-position port) -> int?
 ///

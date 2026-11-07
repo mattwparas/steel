@@ -182,10 +182,9 @@ pub fn bytevector_copy_new(
     Ok(SteelVal::ByteVector(SteelByteVector::new(copy)))
 }
 
-// The bytes of `source` the caller asked for, as an index range
 fn copy_range(
     rest: &mut RestArgsIter<'_, isize>,
-    source: usize,
+    length: usize,
 ) -> Result<core::ops::Range<usize>> {
     let mut index = |fallback: usize| -> Result<usize> {
         let Some(value) = rest.next() else {
@@ -203,14 +202,14 @@ fn copy_range(
     };
 
     let start = index(0)?;
-    let end = index(source)?;
+    let end = index(length)?;
 
     if let Some(extra) = rest.next() {
         stop!(ArityMismatch => format!("bytevector-copy! expected 3 to 5 arguments, got an additional argument {}", extra?))
     }
 
-    if start > end || end > source {
-        stop!(Generic => "index out of bounds: attempted to slice range: {:?} of a bytevector of {} bytes", start..end, source);
+    if start > end || end > length {
+        stop!(Generic => "index out of bounds: attempted to slice range: {:?} of a bytevector of {} bytes", start..end, length);
     }
 
     Ok(start..end)
@@ -242,7 +241,7 @@ pub fn bytevector_copy_into(
     from: &SteelByteVector,
     mut rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
-    // One lock, taken once, when both arguments are the same bytevector
+    // Reading and writing the same bytevector would take the same lock twice
     if Gc::ptr_eq(&to.vec, &from.vec) {
         let mut guard = to.vec.write();
         let range = copy_range(&mut rest, guard.len())?;

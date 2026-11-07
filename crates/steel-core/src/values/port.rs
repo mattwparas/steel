@@ -474,8 +474,6 @@ impl<R> Peekable<BufReader<R>> {
 }
 
 impl<R: Read + Seek> Peekable<BufReader<R>> {
-    // Where the program is, which is behind the os position by whatever we read
-    // ahead
     fn position(&mut self) -> io::Result<u64> {
         let ahead = self.buffered() as u64;
 
@@ -493,8 +491,8 @@ impl<R: Read + Seek> Peekable<BufReader<R>> {
         }
 
         let at = self.position()?;
-        self.discard_read_ahead();
         self.inner.seek(io::SeekFrom::Start(at))?;
+        self.discard_read_ahead();
 
         Ok(())
     }
@@ -594,8 +592,8 @@ fn read_full<R: Read>(
 pub enum SteelPortRepr {
     FileInput(String, Peekable<BufReader<File>>),
     FileOutput(String, BufWriter<File>),
-    // Reads are buffered, writes are not: a write first puts the file handle
-    // back where the program is, which a read ahead would otherwise have moved.
+    // Reads are buffered, writes are not: a read ahead moves the file handle
+    // past where the program is, so a write puts it back first.
     FileInputOutput(String, Peekable<BufReader<File>>),
     StdInput(Peekable<Stdin>),
     StdOutput(Stdout),
@@ -735,8 +733,6 @@ macro_rules! port_read_vec_fn {
     }};
 }
 
-// The handle a child gets has to start where the program is, so rewind it over
-// whatever we read ahead
 fn file_as_stdio(
     name: String,
     peekable: Peekable<BufReader<File>>,
@@ -870,17 +866,19 @@ impl SteelPortRepr {
 
         match self {
             SteelPortRepr::FileInput(_, br) | SteelPortRepr::FileInputOutput(_, br) => {
-                br.discard_read_ahead();
+                // Seek before dropping anything, so a seek that fails leaves
+                // the port where it was
                 let at = br.inner.seek(from)?;
+                br.discard_read_ahead();
                 br.consumed_any = at != 0;
 
                 Ok(at)
             }
-            // Seeking a `BufWriter` flushes it on the way
+            // Seeking a `BufWriter` flushes it first
             SteelPortRepr::FileOutput(_, bw) => Ok(bw.seek(from)?),
             SteelPortRepr::StringInput(s) => {
-                s.discard_read_ahead();
                 let at = s.inner.seek(from)?;
+                s.discard_read_ahead();
                 s.consumed_any = at != 0;
 
                 Ok(at)
@@ -2779,15 +2777,27 @@ mod port_tests {
     fn an_unseekable_port_has_no_position() {
         use std::os::unix::io::{FromRawFd, IntoRawFd};
 
-        let (writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (mut writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
+        writer.write_all(b"abc").unwrap();
         drop(writer);
 
         let file = unsafe { File::from_raw_fd(reader.into_raw_fd()) };
         let mut port =
             SteelPortRepr::FileInput("socket".to_string(), Peekable::new(BufReader::new(file)));
 
+        assert_eq!(ready(port.fill_more()), 3);
         assert!(port.position().is_err());
         assert!(port.set_position(io::SeekFrom::Start(0)).is_err());
+        assert_eq!(port.pending(), b"abc");
+    }
+
+    #[test]
+    fn a_seek_that_fails_keeps_the_read_ahead() {
+        let mut port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abcdef".to_vec())));
+
+        assert_eq!(ready(port.fill_more()), 6);
+        assert!(port.set_position(io::SeekFrom::End(-10)).is_err());
+        assert_eq!(port.pending(), b"abcdef");
     }
 
     fn read_write(temp: &TempFile) -> SteelPortRepr {
@@ -2908,9 +2918,9 @@ mod port_tests {
         assert!(file_input.has_position());
         assert!(file_input.has_set_position());
 
-        let mut read_write = read_write(&temp);
-        assert!(read_write.has_position());
-        assert!(read_write.has_set_position());
+        let mut both = read_write(&temp);
+        assert!(both.has_position());
+        assert!(both.has_set_position());
 
         let mut string_output = SteelPortRepr::StringOutput(Vec::new());
         assert!(string_output.has_position());
