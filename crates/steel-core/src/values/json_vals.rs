@@ -135,7 +135,12 @@ impl TryFrom<SteelVal> for Value {
     fn try_from(val: SteelVal) -> core::result::Result<Self, Self::Error> {
         match val {
             SteelVal::BoolV(b) => Ok(Value::Bool(b)),
-            SteelVal::NumV(n) => Ok(Value::Number(Number::from_f64(n).unwrap())),
+            SteelVal::NumV(n) => match Number::from_f64(n) {
+                Some(n) => Ok(Value::Number(n)),
+                None => {
+                    stop!(ConversionError => format!("{n} cannot be represented as a JSON number"))
+                }
+            },
             SteelVal::IntV(n) => Ok(Value::Number(Number::from(n))),
             SteelVal::CharV(c) => Ok(Value::String(c.to_string())),
             // SteelVal::Pair(_) => Ok(Value::Array(
@@ -217,5 +222,16 @@ mod json_tests {
         );
 
         assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_non_finite_float_to_jsexpr_is_an_error() {
+        for n in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let result = std::panic::catch_unwind(|| serialize_val_to_string(NumV(n)));
+            assert!(
+                matches!(result, Ok(Err(_))),
+                "expected an error converting {n} to json"
+            );
+        }
     }
 }
