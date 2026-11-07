@@ -2018,6 +2018,27 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
+                (Rational(l), Rational(r)) => {
+                    if l != r {
+                        return false;
+                    }
+
+                    continue;
+                }
+                (BigRational(l), BigRational(r)) => {
+                    if l != r {
+                        return false;
+                    }
+
+                    continue;
+                }
+                (Complex(l), Complex(r)) => {
+                    if l != r {
+                        return false;
+                    }
+
+                    continue;
+                }
                 (CharV(l), CharV(r)) => {
                     if l != r {
                         return false;
@@ -2085,6 +2106,18 @@ impl<'a> RecursiveEqualityHandler<'a> {
                 }
                 (MutFunc(l), MutFunc(r)) => {
                     if l as usize != r as usize {
+                        return false;
+                    }
+                    continue;
+                }
+                (BoxedFunction(l), BoxedFunction(r)) => {
+                    if !Gc::ptr_eq(&l, &r) {
+                        return false;
+                    }
+                    continue;
+                }
+                (ByteVector(l), ByteVector(r)) => {
+                    if l != r {
                         return false;
                     }
                     continue;

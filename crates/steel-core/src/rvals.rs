@@ -3111,4 +3111,17 @@ mod or_else_tests {
             assert_eq!(l.partial_cmp(&r), Some(Ordering::Equal));
         }
     }
+
+    #[test]
+    fn boxed_functions_in_lists_compare_by_pointer() {
+        let f = SteelVal::anonymous_boxed_function(alloc::sync::Arc::new(|_: &[SteelVal]| {
+            Ok(SteelVal::Void)
+        }));
+        let g = SteelVal::anonymous_boxed_function(alloc::sync::Arc::new(|_: &[SteelVal]| {
+            Ok(SteelVal::Void)
+        }));
+        let list = |v: &SteelVal| SteelVal::ListV(vec![v.clone()].into());
+        assert_eq!(list(&f), list(&f));
+        assert_ne!(list(&f), list(&g));
+    }
 }
