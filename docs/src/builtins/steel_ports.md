@@ -21,6 +21,8 @@ Extracts the contents from a port created with `open-output-bytevector`.
 (get-output-bytevector port?) -> bytes?
 ### **get-output-string**
 Extracts the string contents from a port created with `open-output-string`.
+Bytes written to the port that are not valid UTF-8 read back as the
+replacement character.
 
 (get-output-string port?) -> string?
 ### **input-port?**

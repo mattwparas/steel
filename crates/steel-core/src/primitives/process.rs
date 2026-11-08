@@ -262,7 +262,7 @@ pub fn with_stdin_piped(builder: SteelVal) -> Result<SteelVal, SteelErr> {
     Ok(builder)
 }
 
-// Pulls a stdio handle out of the port, and puts the port back if that fails
+// Puts the port back if the handle can't be taken
 fn port_as_stdio(
     name: &str,
     direction: &str,

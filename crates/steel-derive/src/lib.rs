@@ -1230,7 +1230,11 @@ pub fn function(
     };
 
     let aliases = match keyword_map.get("alias") {
-        Some(alias) => quote! { &[ #alias ] },
+        Some(aliases) => {
+            let names = aliases.split(',').map(str::trim).collect::<Vec<_>>();
+
+            quote! { &[ #(#names),* ] }
+        }
         None => quote! { &[] },
     };
 
@@ -1602,7 +1606,11 @@ pub fn custom_function(
     };
 
     let aliases = match keyword_map.get("alias") {
-        Some(alias) => quote! { &[ #alias ] },
+        Some(aliases) => {
+            let names = aliases.split(',').map(str::trim).collect::<Vec<_>>();
+
+            quote! { &[ #(#names),* ] }
+        }
         None => quote! { &[] },
     };
 

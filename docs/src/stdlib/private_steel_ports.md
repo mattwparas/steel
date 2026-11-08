@@ -45,7 +45,7 @@ Returns where the next read or write on a port will land, or moves it there.
 (file-position port [position]) -> (or/c int? void?)
 
 * port : port?
-* [position] : (or/c int? eof-object?)
+* position : (or/c int? eof-object?)
 ### **file-position\***
 Returns where the next read or write on a port will land, or `#f` for a port
 that has no position.
@@ -151,25 +151,25 @@ Reads the entire content of an input port into a byte vector.
 
 (read-port-to-bytes [port]) -> string?
 
-* [port] : input-port? = (current-input-port)
+* port : input-port? = (current-input-port)
 ### **read-port-to-bytes\***
 Reads the entire content of an input port into a byte vector, without waiting.
 
 (read-port-to-bytes* [port]) -> (or bytes? would-block-object?)
 
-* [port] : input-port? = (current-input-port)
+* port : input-port? = (current-input-port)
 ### **read-port-to-string**
 Reads the entire content of an input port into a string.
 
 (read-port-to-string [port]) -> string?
 
-* [port] : input-port? = (current-input-port)
+* port : input-port? = (current-input-port)
 ### **read-port-to-string\***
 Reads the entire content of an input port into a string, without waiting.
 
 (read-port-to-string* [port]) -> (or string? would-block-object?)
 
-* [port] : input-port? = (current-input-port)
+* port : input-port? = (current-input-port)
 ### **read-u8**
 Alias of `read-byte`.
 ### **with-input-from-file**

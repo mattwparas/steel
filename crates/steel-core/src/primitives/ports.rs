@@ -389,7 +389,7 @@ pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
 ///
 /// (read-port-to-string [port]) -> string?
 ///
-/// * [port] : input-port? = (current-input-port)
+/// * port : input-port? = (current-input-port)
 #[function(name = "#%read-port-to-string")]
 pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
     let (_, result) = expect_ready(port.read_all_str()?)?;
@@ -401,7 +401,7 @@ pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
 ///
 /// (read-port-to-string* [port]) -> (or string? would-block-object?)
 ///
-/// * [port] : input-port? = (current-input-port)
+/// * port : input-port? = (current-input-port)
 #[function(name = "#%read-port-to-string*")]
 pub fn read_port_to_string_ready(port: &SteelPort) -> Result<SteelVal> {
     match port.read_all_str()? {
@@ -414,7 +414,7 @@ pub fn read_port_to_string_ready(port: &SteelPort) -> Result<SteelVal> {
 ///
 /// (read-port-to-bytes [port]) -> string?
 ///
-/// * [port] : input-port? = (current-input-port)
+/// * port : input-port? = (current-input-port)
 #[function(name = "#%read-port-to-bytes")]
 pub fn read_port_to_bytes(port: &SteelPort) -> Result<SteelVal> {
     let (_, result) = expect_ready(port.read_all_bytes()?)?;
@@ -426,7 +426,7 @@ pub fn read_port_to_bytes(port: &SteelPort) -> Result<SteelVal> {
 ///
 /// (read-port-to-bytes* [port]) -> (or bytes? would-block-object?)
 ///
-/// * [port] : input-port? = (current-input-port)
+/// * port : input-port? = (current-input-port)
 #[function(name = "#%read-port-to-bytes*")]
 pub fn read_port_to_bytes_ready(port: &SteelPort) -> Result<SteelVal> {
     match port.read_all_bytes()? {
@@ -623,6 +623,8 @@ pub fn write_string(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
 }
 
 /// Extracts the string contents from a port created with `open-output-string`.
+/// Bytes written to the port that are not valid UTF-8 read back as the
+/// replacement character.
 ///
 /// (get-output-string port?) -> string?
 #[function(name = "get-output-string")]
@@ -631,11 +633,7 @@ pub fn get_output_string(port: &SteelPort) -> Result<SteelVal> {
         stop!(TypeMismatch => "get-output-string expects an output port created with open-output-string");
     };
 
-    let Ok(s) = String::from_utf8(bytes) else {
-        stop!(Generic => "Port contents are not valid UTF-8");
-    };
-
-    Ok(s.into())
+    Ok(String::from_utf8_lossy(&bytes).into_owned().into())
 }
 
 /// Extracts the contents from a port created with `open-output-bytevector`.

@@ -74,3 +74,13 @@
   (assert-equal! (read-bytes! buf input-port) 4)
   (assert-equal! buf (string->utf8 " twoe\0\0"))
   (assert! (eof-object? (peek-char input-port))))
+
+;; Malformed bytes decode to the replacement character, as they do in racket
+(define replacement (bytes->string/utf-8 (bytes #xef #xbf #xbd)))
+
+(let ([out (open-output-string)])
+  (write-bytes (bytes 97 255 98) out)
+  (assert-equal! (get-output-string out) (string-append "a" replacement "b")))
+
+(assert-equal! (bytes->string/utf-8 (bytes 97 98)) "ab")
+(assert-equal! 'raised (with-handler (lambda (err) 'raised) (bytes->string/utf-8 (bytes 97 255 98))))

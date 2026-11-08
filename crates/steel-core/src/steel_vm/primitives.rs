@@ -2040,25 +2040,19 @@ fn attempt_parse(
     let saved = state.take();
     let at_source_start = port.at_source_start();
 
+    port.sanitize_pending(at_eof);
+
     let outcome = {
         let pending = port.pending();
 
-        // If we hit an invalid sequence, the text ends here. One that's only cut
-        // short might still be completed, so hold back unless the source is done.
-        let (text, bad_end) = match core::str::from_utf8(pending) {
-            Ok(text) => (text, None),
-            Err(err) => {
-                let valid = core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap();
-
-                match err.error_len() {
-                    Some(len) => (valid, Some(err.valid_up_to() + len)),
-                    None if at_eof => (valid, Some(pending.len())),
-                    None => (valid, None),
-                }
-            }
+        // Whatever is left malformed is a sequence cut short, which the next
+        // read may complete
+        let text = match core::str::from_utf8(pending) {
+            Ok(text) => text,
+            Err(err) => core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap(),
         };
 
-        let hold_back = !at_eof && bad_end.is_none();
+        let hold_back = !at_eof;
 
         let mut parser = match saved {
             Some(state) => {
@@ -2070,18 +2064,17 @@ fn attempt_parse(
         let result = parser.next();
         let offset = parser.offset();
 
-        match (result, bad_end) {
-            (Some(Ok(expr)), _) => Outcome::Parsed(expr, offset),
-            (_, Some(bad_end)) => Outcome::NotUtf8(bad_end),
-            (Some(Err(err)), _) if parser.needs_more_input(&err) => {
+        match result {
+            Some(Ok(expr)) => Outcome::Parsed(expr, offset),
+            Some(Err(err)) if parser.needs_more_input(&err) => {
                 Outcome::Incomplete(parser.take_state())
             }
-            (Some(Err(err)), _) => {
+            Some(Err(err)) => {
                 let bad = usize::min(usize::max(err.span().end as usize, 1), pending.len());
 
                 Outcome::Bad(err, bad)
             }
-            (None, _) => Outcome::Nothing(parser.take_state()),
+            None => Outcome::Nothing(parser.take_state()),
         }
     };
 
@@ -2099,10 +2092,6 @@ fn attempt_parse(
             port.consume_pending(amt);
             Err(err.into())
         }
-        Outcome::NotUtf8(amt) => {
-            port.consume_pending(amt);
-            stop!(Generic => "read: input is not valid utf8")
-        }
     }
 }
 
@@ -2111,7 +2100,6 @@ enum Outcome {
     Incomplete(Option<ParserState>),
     Nothing(Option<ParserState>),
     Bad(ParseError, usize),
-    NotUtf8(usize),
 }
 
 fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
@@ -3069,6 +3057,14 @@ mod read_datum_tests {
     }
 
     #[test]
+    fn a_sequence_cut_short_waits_for_the_rest() {
+        // One three byte character, a byte at a time
+        let port = byte_stream(&[b"\xe5", b"\x8d", b"\x83", b" "], false);
+
+        assert_eq!(datums(&port), vec![SteelVal::SymbolV("\u{5343}".into())]);
+    }
+
+    #[test]
     fn chunking_does_not_change_the_datums() {
         static PROGRAMS: &[&str] = &[
             "1 2 3",
@@ -3114,28 +3110,27 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_datum_before_a_cut_sequence() {
+    fn a_cut_sequence_joins_the_token_in_front_of_it() {
         let port = SteelPort::new_input_port_bytevector(vec![b'4', b'2', 0xC3]);
 
-        assert_eq!(read_one(&port).unwrap(), whole("42"));
-        assert!(read_one(&port).is_err());
+        assert_eq!(datums(&port), vec![whole("42\u{fffd}")]);
     }
 
     #[test]
-    fn a_datum_touching_bad_utf8() {
+    fn malformed_bytes_join_the_token_in_front_of_them() {
         let port = SteelPort::new_input_port_bytevector(vec![b'4', b'2', 0xFF]);
 
-        assert_eq!(read_one(&port).unwrap(), whole("42"));
-        assert!(read_one(&port).is_err());
+        assert_eq!(datums(&port), vec![whole("42\u{fffd}")]);
     }
 
     #[test]
-    fn bad_utf8_is_an_error_not_eof() {
+    fn malformed_bytes_are_not_the_end_of_the_source() {
         for bytes in [vec![0xC3], vec![0xFF]] {
             let port = SteelPort::new_input_port_bytevector(bytes.clone());
 
-            assert!(
-                read_one(&port).is_err(),
+            assert_eq!(
+                datums(&port),
+                vec![whole("\u{fffd}")],
                 "{:?} read as the end of the source",
                 bytes
             );
@@ -3249,18 +3244,17 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn bad_utf8_is_an_error() {
+    fn malformed_bytes_inside_a_list_substitute() {
         let port = SteelPort::new_input_port_bytevector(vec![b'(', 0xFF, b')']);
 
-        assert!(read_one(&port).is_err());
+        assert_eq!(datums(&port), vec![whole("(\u{fffd})")]);
     }
 
     #[test]
-    fn a_datum_before_bad_utf8() {
+    fn a_datum_before_malformed_bytes() {
         let port = SteelPort::new_input_port_bytevector(vec![b'(', b'a', b')', b' ', 0xFF]);
 
-        assert_eq!(read_one(&port).unwrap(), whole("(a)"));
-        assert!(read_one(&port).is_err());
+        assert_eq!(datums(&port), vec![whole("(a)"), whole("\u{fffd}")]);
     }
 
     #[test]

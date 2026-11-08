@@ -384,8 +384,12 @@ Converts the bytevector to the equivalent list representation.
 ```scheme
 (bytes->list (bytes 0 1 2 3 4 5)) ;; => '(0 1 2 3 4 5)
 ```
+### **bytes->string/utf-8**
+Alias of `bytes->string/utf8`.
 ### **bytes->string/utf8**
-Decodes a string from a bytevector containing valid UTF-8.
+Decodes a string from a bytevector containing valid UTF-8. Raises if the
+bytes are not valid UTF-8, where reading from a port substitutes the
+replacement character instead.
 
 (bytes->string/utf8 buf [start] [end]) -> string?
 
@@ -1874,6 +1878,8 @@ Extracts the contents from a port created with `open-output-bytevector`.
 (get-output-bytevector port?) -> bytes?
 ### **get-output-string**
 Extracts the string contents from a port created with `open-output-string`.
+Bytes written to the port that are not valid UTF-8 read back as the
+replacement character.
 
 (get-output-string port?) -> string?
 ### **get-tls**

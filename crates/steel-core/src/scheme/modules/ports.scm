@@ -47,7 +47,7 @@
 ;; (file-position port [position]) -> (or/c int? void?)
 ;;
 ;; * port : port?
-;; * [position] : (or/c int? eof-object?)
+;; * position : (or/c int? eof-object?)
 (define file-position
   (case-lambda
     [(port) (port-position port)]
@@ -96,7 +96,7 @@
 ;;
 ;; (read-port-to-string [port]) -> string?
 ;;
-;; * [port] : input-port? = (current-input-port)
+;; * port : input-port? = (current-input-port)
 (define read-port-to-string
   (case-lambda
     [() (#%read-port-to-string (current-input-port))]
@@ -107,7 +107,7 @@
 ;;
 ;; (read-port-to-string* [port]) -> (or string? would-block-object?)
 ;;
-;; * [port] : input-port? = (current-input-port)
+;; * port : input-port? = (current-input-port)
 (define read-port-to-string*
   (case-lambda
     [() (#%read-port-to-string* (current-input-port))]
@@ -126,7 +126,7 @@
 ;;
 ;; (read-port-to-bytes [port]) -> string?
 ;;
-;; * [port] : input-port? = (current-input-port)
+;; * port : input-port? = (current-input-port)
 (define read-port-to-bytes
   (case-lambda
     [() (#%read-port-to-bytes (current-input-port))]
@@ -137,7 +137,7 @@
 ;;
 ;; (read-port-to-bytes* [port]) -> (or bytes? would-block-object?)
 ;;
-;; * [port] : input-port? = (current-input-port)
+;; * port : input-port? = (current-input-port)
 (define read-port-to-bytes*
   (case-lambda
     [() (#%read-port-to-bytes* (current-input-port))]

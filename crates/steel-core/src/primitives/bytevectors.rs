@@ -477,7 +477,9 @@ pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<Stee
     Ok(SteelVal::ByteVector(SteelByteVector::new(vector)))
 }
 
-/// Decodes a string from a bytevector containing valid UTF-8.
+/// Decodes a string from a bytevector containing valid UTF-8. Raises if the
+/// bytes are not valid UTF-8, where reading from a port substitutes the
+/// replacement character instead.
 ///
 /// (bytes->string/utf8 buf [start] [end]) -> string?
 ///
@@ -489,7 +491,10 @@ pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<Stee
 /// ```scheme
 /// (bytes->string/utf8 (bytes #xe5 #x8d #x83 #xe8 #x91 #x89)) ;; => "千葉"
 /// ```
-#[function(name = "bytes->string/utf8", alias = "utf8->string")]
+#[function(
+    name = "bytes->string/utf8",
+    alias = "utf8->string,bytes->string/utf-8"
+)]
 pub fn bytes_to_string(
     value: &SteelByteVector,
     mut rest: RestArgsIter<'_, isize>,
