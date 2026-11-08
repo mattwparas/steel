@@ -2706,6 +2706,28 @@ mod engine_sandbox_tests {
             .compile_and_run_raw_program(r#"(create-directory! "foo-bar")"#)
             .is_err());
     }
+
+    #[test]
+    fn opening_a_file_says_the_engine_is_sandboxed() {
+        let mut engine = Engine::new_sandboxed();
+
+        for program in [
+            r#"(open-input-file "foo-bar.txt")"#,
+            r#"(open-output-file "foo-bar.txt")"#,
+            r#"(open-output-file "foo-bar.txt" #:exists 'append)"#,
+            r#"(open-input-output-file "foo-bar.txt")"#,
+            r#"(open-input-output-file "foo-bar.txt" #:exists 'update)"#,
+        ] {
+            let error = engine.compile_and_run_raw_program(program).unwrap_err();
+
+            assert!(
+                error.to_string().contains("sandboxed engine"),
+                "{}: {}",
+                program,
+                error
+            );
+        }
+    }
 }
 
 #[cfg(test)]

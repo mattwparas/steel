@@ -310,8 +310,8 @@ pub fn open_input_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// > (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 /// ```
-#[function(name = "open-output-file")]
-pub fn open_output_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
+#[native(name = "open-output-file", arity = "AtLeast(1)")]
+pub fn open_output_file_sandboxed(_args: &[SteelVal]) -> Result<SteelVal> {
     stop!(Generic => "A sandboxed engine cannot open the file system.")
 }
 
@@ -321,8 +321,8 @@ pub fn open_output_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
 ///
 /// * path : string?
 /// * exists : symbol? = 'can-update
-#[function(name = "open-input-output-file")]
-pub fn open_input_output_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
+#[native(name = "open-input-output-file", arity = "AtLeast(1)")]
+pub fn open_input_output_file_sandboxed(_args: &[SteelVal]) -> Result<SteelVal> {
     stop!(Generic => "A sandboxed engine cannot open the file system.")
 }
 
