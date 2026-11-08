@@ -603,8 +603,7 @@ impl ChildProcess {
             .wait_with_output()?
             .stdout;
 
-        String::from_utf8(stdout)
-            .map_err(|e| SteelErr::new(crate::rerrs::ErrorKind::ConversionError, e.to_string()))
+        Ok(String::from_utf8_lossy(&stdout).into_owned())
     }
 
     pub fn wait_with_stdout(&mut self) -> SteelResult<String, SteelErr> {

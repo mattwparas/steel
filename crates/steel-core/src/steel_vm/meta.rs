@@ -209,9 +209,7 @@ fn drain_custom_output_port() -> String {
                 .expect("Unable to flush the captured output port");
         }
 
-        core::str::from_utf8(&x.write().get_mut().drain(0..).collect::<Vec<u8>>())
-            .unwrap_or("Unable to capture std out")
-            .to_string()
+        String::from_utf8_lossy(&x.write().get_mut().drain(0..).collect::<Vec<u8>>()).into_owned()
     })
 }
 

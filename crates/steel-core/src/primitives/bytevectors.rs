@@ -477,13 +477,37 @@ pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<Stee
     Ok(SteelVal::ByteVector(SteelByteVector::new(vector)))
 }
 
+fn decode_with(bytes: &[u8], on_error: char) -> String {
+    let mut decoded = String::with_capacity(bytes.len());
+    let mut rest = bytes;
+
+    loop {
+        let err = match core::str::from_utf8(rest) {
+            Ok(str) => {
+                decoded.push_str(str);
+
+                return decoded;
+            }
+            Err(err) => err,
+        };
+
+        let valid = err.valid_up_to();
+        decoded.push_str(core::str::from_utf8(&rest[..valid]).unwrap());
+        decoded.push(on_error);
+
+        rest = &rest[valid + err.error_len().unwrap_or(rest.len() - valid)..];
+    }
+}
+
 /// Decodes a string from a bytevector containing valid UTF-8. Raises if the
-/// bytes are not valid UTF-8, where reading from a port substitutes the
-/// replacement character instead.
+/// bytes are not valid UTF-8, unless `err-char` is given to stand in for them.
+/// Reading the same bytes from a port substitutes the replacement character
+/// rather than raising.
 ///
-/// (bytes->string/utf8 buf [start] [end]) -> string?
+/// (bytes->string/utf8 buf [err-char] [start] [end]) -> string?
 ///
 /// * buf : bytes?
+/// * err-char : (or/c char? #f) = #f
 /// * start: int? = 0
 /// * end: int? = (bytes-length buf)
 ///
@@ -497,37 +521,56 @@ pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<Stee
 )]
 pub fn bytes_to_string(
     value: &SteelByteVector,
-    mut rest: RestArgsIter<'_, isize>,
+    rest: RestArgsIter<'_, &SteelVal>,
 ) -> Result<SteelVal> {
-    let borrowed = value.vec.read();
+    let args = rest.collect::<Result<Vec<_>>>()?;
 
-    let start = rest.next().transpose()?.unwrap_or(0);
-    let end = rest.next().transpose()?.unwrap_or(borrowed.len() as isize);
-
-    if rest.next().is_some() {
-        stop!(ArityMismatch => "expected at most 3 arguments");
-    }
-
-    if start < 0 {
-        stop!(ContractViolation => "start should be a positive number, got {}", start);
-    }
-
-    if end < 0 {
-        stop!(ContractViolation => "end should be a positive number, got {}", end);
-    }
-
-    if end < start {
-        stop!(ContractViolation => "start should be smaller than end, got {} and {}", start, end);
-    }
-
-    let start = start as usize;
-    let end = end as usize;
-
-    let Ok(s) = core::str::from_utf8(&(&*borrowed)[start..end]) else {
-        stop!(ConversionError => "bytevector contains malformed UTF-8")
+    // Racket spells the stand-in for malformed bytes in this position, where
+    // r7rs spells `start`
+    let given = match args.first().copied() {
+        Some(SteelVal::CharV(c)) => Some(Some(*c)),
+        Some(SteelVal::BoolV(false)) => Some(None),
+        _ => None,
     };
 
-    Ok(s.to_string().into())
+    let (on_error, args) = match given {
+        Some(on_error) => (on_error, &args[1..]),
+        None => (None, &args[..]),
+    };
+
+    if args.len() > 2 {
+        stop!(ArityMismatch => "expected at most 4 arguments");
+    }
+
+    let borrowed = value.vec.read();
+
+    let index = |at: usize, fallback: usize| -> Result<usize> {
+        let Some(value) = args.get(at) else {
+            return Ok(fallback);
+        };
+
+        let value = isize::from_steelval(value)?;
+
+        value.try_into().map_err(|_err| {
+            SteelErr::new(
+                ErrorKind::ConversionError,
+                format!("Unable to convert isize to usize for indexing: {}", value),
+            )
+        })
+    };
+
+    let start = index(0, 0)?;
+    let end = index(1, borrowed.len())?;
+
+    let Some(bytes) = borrowed.get(start..end) else {
+        stop!(Generic => "index out of bounds: attempted to slice range: {:?} of a bytevector of {} bytes", start..end, borrowed.len());
+    };
+
+    match (core::str::from_utf8(bytes), on_error) {
+        (Ok(str), _) => Ok(str.to_string().into()),
+        (Err(_), Some(on_error)) => Ok(decode_with(bytes, on_error).into()),
+        (Err(_), None) => stop!(ConversionError => "bytevector contains malformed UTF-8"),
+    }
 }
 
 // The doc comments need the element width as a literal unfortunately
