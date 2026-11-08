@@ -757,7 +757,11 @@ fn arity_code_injection(
         .get("arity")
         .expect("native definition requires an arity");
 
-    let func_name = input.sig.ident.to_string();
+    // The name the caller typed, not the rust one
+    let func_name = keyword_map
+        .get("name")
+        .cloned()
+        .unwrap_or_else(|| input.sig.ident.to_string());
 
     //Context functions have 'ctx' as the first argument, so we get the second one for them
     let sig_inputs = if is_context_function {

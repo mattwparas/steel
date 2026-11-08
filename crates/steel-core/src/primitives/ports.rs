@@ -304,7 +304,10 @@ pub fn open_input_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
 
 /// Takes a filename `path` referring to a file to be created and returns an output port.
 ///
-/// (open-output-file string?) -> output-port?
+/// (open-output-file path [#:exists exists]) -> output-port?
+///
+/// * path : string?
+/// * exists : symbol? = 'error
 ///
 /// # Examples
 /// ```scheme
