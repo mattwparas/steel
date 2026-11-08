@@ -3,6 +3,7 @@ use crate::core::labels::Expr;
 use crate::gc::shared::StandardShared;
 use crate::gc::Shared;
 use crate::parser::span_visitor::get_span;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 use crate::{
     compiler::constants::ConstantMap,
@@ -962,26 +963,42 @@ pub struct SerializableRawProgramWithSymbols {
 }
 
 impl SerializableRawProgramWithSymbols {
-    pub fn write_to_file(&self, filename: &str) -> Result<()> {
-        use std::io::prelude::*;
+    pub fn serialize_to_path(&self, path: impl AsRef<Path>) -> Result<()> {
+        let buffer = bincode::serialize(self).map_err(|e| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                format!(
+                    "unable to serialize the program for {:?}: {e}",
+                    path.as_ref()
+                ),
+            )
+        })?;
 
-        let mut file = File::create(format!("{filename}.txt")).unwrap();
+        std::fs::write(path.as_ref(), buffer)?;
 
-        let buffer = bincode::serialize(self).unwrap();
-
-        file.write_all(&buffer)?;
         Ok(())
     }
 
+    pub fn deserialize_from_path(path: impl AsRef<Path>) -> Result<Self> {
+        let buffer = std::fs::read(path.as_ref())?;
+
+        bincode::deserialize(&buffer).map_err(|e| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                format!(
+                    "unable to deserialize the program at {:?}: {e}",
+                    path.as_ref()
+                ),
+            )
+        })
+    }
+
+    pub fn write_to_file(&self, filename: &str) -> Result<()> {
+        self.serialize_to_path(format!("{filename}.txt"))
+    }
+
     pub fn read_from_file(filename: &str) -> Result<Self> {
-        use std::io::prelude::*;
-
-        let mut file = File::open(format!("{filename}.txt")).unwrap();
-        let mut buffer = Vec::new();
-        let _ = file.read_to_end(&mut buffer).unwrap();
-        let program: Self = bincode::deserialize(&buffer).unwrap();
-
-        Ok(program)
+        Self::deserialize_from_path(format!("{filename}.txt"))
     }
 
     pub fn into_raw_program(self) -> RawProgramWithSymbols {
@@ -1170,6 +1187,44 @@ impl RawProgramWithSymbols {
             constant_map: self.constant_map.to_bytes()?,
             version: self.version,
         })
+    }
+
+    pub(crate) fn merge_constants_into(&mut self, target: &mut ConstantMap) -> Result<()> {
+        if self.constant_map.shares_storage_with(target) {
+            return Ok(());
+        }
+
+        for expression in &mut self.instructions {
+            let mut previous_op = None;
+
+            for instruction in expression.iter_mut() {
+                let references_constant = match instruction.op_code {
+                    OpCode::PUSHCONST | OpCode::EQUALCONST => true,
+                    OpCode::PASS => matches!(
+                        previous_op,
+                        Some(OpCode::ADDREGISTER | OpCode::SUBREGISTER | OpCode::LTEREGISTER)
+                    ),
+                    _ => false,
+                };
+
+                if references_constant {
+                    let index = instruction.payload_size.to_usize();
+
+                    let Some(value) = self.constant_map.try_get(index) else {
+                        stop!(Generic => format!("deserialized program references constant index {index} which is outside of its own constant map"));
+                    };
+
+                    instruction.payload_size = u24::from_usize(target.add_or_get(value));
+                }
+
+                previous_op = Some(instruction.op_code);
+            }
+        }
+
+        target.flush();
+        self.constant_map = target.clone();
+
+        Ok(())
     }
 
     pub fn debug_print(&self) {
