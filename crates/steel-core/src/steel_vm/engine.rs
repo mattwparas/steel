@@ -2692,6 +2692,31 @@ mod engine_api_tests {
             .compile_and_run_raw_program("(external-get-value-imm *external*)")
             .is_err());
     }
+
+    #[test]
+    fn kept_closure_keeps_the_globals_of_its_shadowed_callees() {
+        let mut engine = Engine::new();
+        engine
+            .run("(define sink 0) (define kept (mutable-vector #f))")
+            .unwrap();
+        // The padding stops inlining. `outer` then calls `inner` through its global slot.
+        let pad = "(set! sink (+ sink 1)) ".repeat(40);
+        let defs = |n: usize| {
+            format!(
+                "(define (inner x) (begin {pad} (+ x {n})))
+                 (define (outer x) (begin {pad} (inner x)))"
+            )
+        };
+        engine.run(defs(0)).unwrap();
+        engine
+            .run("(vector-set! kept 0 (lambda (x) (outer x)))")
+            .unwrap();
+        for n in 1..=300 {
+            engine.run(defs(n)).unwrap();
+            let result = engine.run("((vector-ref kept 0) 1)").unwrap();
+            assert_eq!(result, vec![SteelVal::IntV(1)], "after {n} redefinitions");
+        }
+    }
 }
 
 #[cfg(test)]
