@@ -285,6 +285,14 @@
                (response-keep-alive?
                 (reply-to (list "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
                           (lambda () (http-get "http://x/")))))
+ (check-equal? "a Connection: close is believed wherever it was written"
+               #f
+               (response-keep-alive?
+                (reply-to (list (string-append "HTTP/1.1 200 OK\r\n"
+                                               "Connection: keep-alive\r\n"
+                                               "Connection: close\r\n"
+                                               "Content-Length: 0\r\n\r\n"))
+                          (lambda () (http-get "http://x/")))))
  (check-err? "two lengths that disagree are refused, rather than guessed at"
              (reply-to (list "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Length: 3\r\n\r\nab")
                        (lambda () (http-get "http://x/")))
@@ -297,6 +305,17 @@
   'raises)
  (check-err? "an unknown transfer encoding is refused"
              (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\nxx")
+                       (lambda () (http-get "http://x/")))
+             'raises)
+ (check-err? "a transfer encoding that is chunked and something else is refused"
+             (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n")
+                       (lambda () (http-get "http://x/")))
+             'raises)
+ (check-err? "a transfer encoding written over two lines reads as one list"
+             (reply-to (list (string-append "HTTP/1.1 200 OK\r\n"
+                                            "Transfer-Encoding: chunked\r\n"
+                                            "Transfer-Encoding: gzip\r\n\r\n"
+                                            "5\r\nhello\r\n0\r\n\r\n"))
                        (lambda () (http-get "http://x/")))
              'raises)
  (check-err? "a body cut short is refused"
@@ -741,6 +760,19 @@
                                "Transfer-Encoding: chunked\r\n\r\n"
                                "5\r\nhello\r\n6\r\n world\r\n0\r\nX-Trailer: t\r\n\r\n")))])
     (list (bytes->string/utf8 (request-body sent)) (request-header sent "X-Trailer"))))
+ (check-equal? "a transfer encoding that is chunked and something else is a 501"
+               "HTTP/1.1 501 Not Implemented"
+               (answer-status (string-append "POST /a HTTP/1.1\r\nHost: x\r\n"
+                                             "Transfer-Encoding: gzip, chunked\r\n\r\n"
+                                             "0\r\n\r\n")
+                              hello))
+ (check-equal? "a transfer encoding written over two lines reads as one list"
+               "HTTP/1.1 501 Not Implemented"
+               (answer-status (string-append "POST /a HTTP/1.1\r\nHost: x\r\n"
+                                             "Transfer-Encoding: chunked\r\n"
+                                             "Transfer-Encoding: gzip\r\n\r\n"
+                                             "0\r\n\r\n")
+                              hello))
  (check-equal? "a connection that closes between requests is the end of them, not an error"
                #t
                (eof-object? (http-read-request (open-input-string ""))))
@@ -790,7 +822,13 @@
          (http-read-request (open-input-string "GET /a HTTP/1.0\r\nConnection: keep-alive\r\n\r\n")))
         (request-keep-alive?
          (http-read-request
-          (open-input-string "GET /a HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))))))
+          (open-input-string "GET /a HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")))))
+ (check-equal? "a Connection written over two lines reads as one list"
+               #f
+               (request-keep-alive?
+                (http-read-request (open-input-string (string-append "GET /a HTTP/1.1\r\nHost: x\r\n"
+                                                                     "Connection: keep-alive\r\n"
+                                                                     "Connection: close\r\n\r\n"))))))
 
 (test-module
  "http-server-answer-tests"

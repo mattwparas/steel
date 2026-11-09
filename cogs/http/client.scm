@@ -203,15 +203,18 @@
       (and (>= status 100) (< status 200))))
 
 (define (body-mode headers status method)
-  (define encoding (header-ref headers "Transfer-Encoding"))
+  ;; `chunked` has to be the whole list and the last of it, so anything else
+  ;; leaves the sender and this client disagreeing about where the body ends.
+  (define encodings (header-tokens headers "Transfer-Encoding"))
   (define declared (content-length headers))
   (cond
     [(bodyless-status? status method) 'none]
-    [(and encoding (token-member? encoding "chunked"))
+    [(equal? encodings '("chunked"))
      (when declared
        (error "http: a response carried both Transfer-Encoding: chunked and Content-Length"))
      'chunked]
-    [encoding (error "http: unsupported Transfer-Encoding:" encoding)]
+    [(not (empty? encodings))
+     (error "http: unsupported Transfer-Encoding:" (string-join encodings ", "))]
     [declared declared]
     [else 'until-close]))
 

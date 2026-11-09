@@ -84,3 +84,9 @@
 
 (assert-equal! (bytes->string/utf-8 (bytes 97 98)) "ab")
 (assert-equal! 'raised (with-handler (lambda (err) 'raised) (bytes->string/utf-8 (bytes 97 255 98))))
+
+;; A doc comment is a comment to the reader, not a desugar
+(let ([port (open-input-string ";;@doc a\n;; b\n(define-syntax m (syntax-rules () ((_) 1)))\n(tail)\n")])
+  (assert-equal! (read port) '(define-syntax m (syntax-rules () ((_) 1))))
+  (assert-equal! (read port) '(tail))
+  (assert! (eof-object? (read port))))

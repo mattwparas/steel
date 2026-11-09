@@ -33,7 +33,6 @@
          make-response
          reason-phrase
          method->string
-         token-member?
          content-length
          read-wire-line
          read-wire-headers
@@ -151,15 +150,18 @@
 (define (request-header* sent name)
   (header-ref* (request-headers sent) name))
 
+(define (keeping-alive? version headers)
+  (define tokens (header-tokens headers "Connection"))
+  (cond
+    [(member "close" tokens) #f]
+    [(equal? version "HTTP/1.1") #t]
+    [(member "keep-alive" tokens) #t]
+    [else #f]))
+
 ;;@doc
 ;; Whether the request allows another exchange on the connection
 (define (request-keep-alive? sent)
-  (define asked (request-header sent "Connection"))
-  (cond
-    [(and asked (token-member? asked "close")) #f]
-    [(equal? (request-version sent) "HTTP/1.1") #t]
-    [asked (token-member? asked "keep-alive")]
-    [else #f]))
+  (keeping-alive? (request-version sent) (request-headers sent)))
 
 (struct response (version status reason headers body) #:transparent)
 
@@ -186,12 +188,7 @@
 ;;@doc
 ;; Whether the response allows another exchange on the connection
 (define (response-keep-alive? received)
-  (define asked (response-header received "Connection"))
-  (cond
-    [(and asked (token-member? asked "close")) #f]
-    [(equal? (response-version received) "HTTP/1.1") #t]
-    [asked (token-member? asked "keep-alive")]
-    [else #f]))
+  (keeping-alive? (response-version received) (response-headers received)))
 
 ;; The phrases from RFC 9110. A code that is not listed gets an empty phrase.
 (define *reasons*
@@ -287,11 +284,6 @@
 ;; Whether `version` is a version this library supports
 (define (known-version? version)
   (or (equal? version "HTTP/1.1") (equal? version "HTTP/1.0")))
-
-(define (token-member? value token)
-  (if (member token (map (lambda (part) (string-downcase (trim part))) (split-many value ",")))
-      #t
-      #f))
 
 (define (continuation-line? line)
   (or (starts-with? line " ") (starts-with? line "\t")))

@@ -51,14 +51,19 @@
            (make-url "" #:path target)))]))
 
 (define (request-body-mode headers)
-  (define encoding (header-ref headers "Transfer-Encoding"))
+  ;; `chunked` has to be the whole list and the last of it, so anything else
+  ;; leaves the sender and this server disagreeing about where the body ends.
+  (define encodings (header-tokens headers "Transfer-Encoding"))
   (define declared (content-length headers))
   (cond
-    [(and encoding (token-member? encoding "chunked"))
+    [(equal? encodings '("chunked"))
      (if declared
          (problem-report 400 "a request carried both Transfer-Encoding: chunked and Content-Length")
          'chunked)]
-    [encoding (problem-report 501 (string-append "unsupported Transfer-Encoding: " encoding))]
+    [(not (empty? encodings))
+     (problem-report
+      501
+      (string-append "unsupported Transfer-Encoding: " (string-join encodings ", ")))]
     [(and declared (> declared *max-body-bytes*))
      (problem-report 413
                      (string-append "a request declared a body of " (int->string declared) " bytes"))]
@@ -74,8 +79,7 @@
                 (thunk)))
 
 (define (expects-continue? headers)
-  (define expectation (header-ref headers "Expect"))
-  (and expectation (token-member? expectation "100-continue")))
+  (if (member "100-continue" (header-tokens headers "Expect")) #t #f))
 
 (define (read-request-line reader)
   ;; An empty line before the request line is a stray crlf from the previous

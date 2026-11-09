@@ -301,6 +301,7 @@ pub struct Parser<'a> {
     context: Vec<ParsingContext>,
     comment_buffer: Vec<&'a str>,
     collecting_comments: bool,
+    collect_doc_comments: bool,
     keep_lists: bool,
 
     queued: Option<ExprKind>,
@@ -459,6 +460,9 @@ impl<'a> Parser<'a> {
         }
 
         parser.incremental = true;
+        // `read` hands back the datum that was written, so the `@doc` desugar -
+        // which can turn one datum into two expressions - has no place here
+        parser.collect_doc_comments = false;
         parser.more_to_come = more_to_come;
         parser.input_len = input.len() as u32;
         parser.shebang_incomplete =
@@ -538,6 +542,7 @@ impl<'a> Parser<'a> {
             context: Vec::new(),
             comment_buffer: Vec::new(),
             collecting_comments: false,
+            collect_doc_comments: true,
             keep_lists: false,
             queued: None,
             incremental: false,
@@ -1468,7 +1473,8 @@ impl<'a> Parser<'a> {
 
             match res.ty {
                 TokenType::Comment => {
-                    if self.comment_buffer.is_empty()
+                    if self.collect_doc_comments
+                        && self.comment_buffer.is_empty()
                         && !self.collecting_comments
                         && res.source().trim_start_matches(';').starts_with("@doc")
                     {

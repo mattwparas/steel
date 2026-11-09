@@ -3,6 +3,7 @@
          normalize-headers
          header-ref
          header-ref*
+         header-tokens
          header-contains?
          header-set
          header-add
@@ -79,6 +80,17 @@
 ;; Every value held under `name`, in order
 (define (header-ref* headers name)
   (map cdr (filter (lambda (entry) (header-name=? (car entry) name)) headers)))
+
+;;@doc
+;; Every comma separated value held under `name`, lowercased and in order. A
+;; field written over several lines means the same as one line holding its
+;; values in that order, so both read the same way.
+(define (header-tokens headers name)
+  (filter (lambda (token) (not (equal? token "")))
+          (map (lambda (part) (string-downcase (trim part)))
+               (apply append
+                      (map (lambda (value) (split-many value ","))
+                           (header-ref* headers name))))))
 
 ;;@doc
 ;; Whether `name` is present

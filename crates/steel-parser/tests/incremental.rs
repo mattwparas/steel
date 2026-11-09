@@ -1,4 +1,5 @@
 use steel_parser::compare::{check, relex_ratio};
+use steel_parser::parser::{Parser, ParserState, SourceId};
 
 fn programs() -> impl Iterator<Item = &'static str> {
     static PROGRAMS: &[&str] = &[
@@ -156,5 +157,80 @@ fn a_long_datum_is_not_reparsed() {
 fn short_datums_resume_too() {
     for input in programs() {
         assert!(relex_ratio(input, 1) < 1.5, "reparsed {:?}", input);
+    }
+}
+
+static DOC_COMMENTED: &str =
+    ";;@doc a\n;; b\n(define-syntax m (syntax-rules () ((_) 1)))\n(tail)\n";
+
+// `@doc` cannot go in `programs` - the reader and the compiler are meant to
+// disagree about it, so `check` would call that a mismatch
+fn drain(input: &str, chunk: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut base = 0;
+    let mut fed = 0;
+    let mut state: Option<ParserState> = None;
+
+    loop {
+        if fed < input.len() {
+            fed = usize::min(fed + usize::max(chunk, 1), input.len());
+
+            while fed < input.len() && !input.is_char_boundary(fed) {
+                fed += 1;
+            }
+        }
+
+        let visible = &input[base..fed];
+        let more = fed < input.len();
+
+        let mut parser = match state.take() {
+            Some(state) => Parser::resume(visible, SourceId::none(), state, more, base == 0),
+            None => Parser::new_incremental(visible, SourceId::none(), more, base == 0),
+        };
+
+        let result = parser.next();
+        let offset = parser.offset();
+
+        match result {
+            Some(Ok(expr)) => {
+                out.push(expr.to_string());
+                base += offset;
+            }
+            Some(Err(err)) if more && parser.needs_more_input(&err) => state = parser.take_state(),
+            Some(Err(_)) => {
+                out.push("ERR".to_string());
+                return out;
+            }
+            None if more => state = parser.take_state(),
+            None => return out,
+        }
+    }
+}
+
+#[test]
+fn the_compiler_desugars_a_doc_comment() {
+    let expressions = Parser::new_flat(DOC_COMMENTED, SourceId::none())
+        .map(|expr| expr.unwrap().to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        expressions,
+        [
+            "(@doc \"b\" #%macro m)",
+            "(define-syntax m (syntax-rules () ((_) 1)))",
+            "(tail)"
+        ]
+    );
+}
+
+#[test]
+fn the_reader_hands_back_the_datum_instead() {
+    let expected = [
+        "(define-syntax m (syntax-rules () ((_) 1)))".to_string(),
+        "(tail)".to_string(),
+    ];
+
+    for chunk in 1..=DOC_COMMENTED.len() {
+        assert_eq!(drain(DOC_COMMENTED, chunk), expected, "chunk {}", chunk);
     }
 }
