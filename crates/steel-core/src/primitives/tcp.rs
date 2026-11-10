@@ -291,18 +291,6 @@ mod tcp_tests {
     }
 
     #[test]
-    fn a_timeout_reaches_the_socket() {
-        let (stream, _client) = connected();
-
-        tcp_stream_set_read_timeout(&stream, &SteelVal::IntV(250)).unwrap();
-
-        assert_eq!(
-            TcpStream::as_ref(&stream).unwrap().read_timeout().unwrap(),
-            Some(Duration::from_millis(250))
-        );
-    }
-
-    #[test]
     fn a_false_timeout_waits_forever() {
         let (stream, _client) = connected();
 

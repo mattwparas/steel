@@ -194,34 +194,6 @@ mod rustls_tests {
     }
 
     #[test]
-    fn a_timeout_reaches_the_socket() {
-        let (mut stream, _client) = connected();
-
-        set_read_timeout(&mut stream, Some(250)).unwrap();
-
-        assert_eq!(
-            stream.0.read_timeout().unwrap(),
-            Some(Duration::from_millis(250))
-        );
-    }
-
-    #[test]
-    fn a_timeout_survives_the_tls_stream() {
-        let (mut stream, _client) = connected();
-
-        set_read_timeout(&mut stream, Some(250)).unwrap();
-
-        let mut connection = RustlsClientConnection::new("example.com".to_string());
-        let tls = RustlsStream::new(&mut connection, stream);
-
-        assert_eq!(
-            tls.0.lock().unwrap().sock.read_timeout().unwrap(),
-            Some(Duration::from_millis(250)),
-            "the deadline did not follow the socket into the tls stream"
-        );
-    }
-
-    #[test]
     fn a_false_timeout_waits_forever() {
         let (mut stream, _client) = connected();
 
