@@ -43,23 +43,24 @@
 (define (request-line text)
   (car (split-many text "\r\n")))
 
-(define (socket-connector reply)
+(define (socket-connector reply #:reader [reader tcp-stream-buffered-reader])
   (lambda (url)
     (define listener (tcp-listen "127.0.0.1:0"))
     (define client (tcp-connect (tcp-listener-local-addr listener)))
     (define server (tcp-accept listener))
     (display reply (tcp-stream-writer server))
     ;; The close thunk holds the only reference to the far end; a collected
-    ;; socket would close on the client mid-request.
-    (make-transport (tcp-stream-buffered-reader client)
+    ;; socket would close on the client mid-request. Windows answers that
+    ;; close with a reset, which drops the reply the client had not read yet.
+    (make-transport (reader client)
                     (tcp-stream-writer client)
                     #:close (lambda ()
                               (with-handler (lambda (err) void) (tcp-shutdown! client))
                               (with-handler (lambda (err) void) (tcp-shutdown! server))
                               listener))))
 
-(define (over-socket reply thunk)
-  (parameterize ([current-http-connector (socket-connector reply)])
+(define (over-socket reply thunk #:reader [reader tcp-stream-buffered-reader])
+  (parameterize ([current-http-connector (socket-connector reply #:reader reader)])
     (thunk)))
 
 (define *ok* "HTTP/1.1 200 OK\r\nContent-Length: 11\r\nContent-Type: text/plain\r\n\r\nhello world")
@@ -572,15 +573,9 @@
                        (equal? (response-text response) body))))
  (check-equal? "an unbuffered reader reads a response too"
                "hello world"
-               (parameterize ([current-http-connector
-                               (lambda (url)
-                                 (define listener (tcp-listen "127.0.0.1:0"))
-                                 (define client (tcp-connect (tcp-listener-local-addr listener)))
-                                 (define server (tcp-accept listener))
-                                 (display *ok* (tcp-stream-writer server))
-                                 (make-transport (tcp-stream-reader client)
-                                                 (tcp-stream-writer client)))])
-                 (response-text (http-get "http://127.0.0.1/a"))))
+               (response-text (over-socket *ok*
+                                           (lambda () (http-get "http://127.0.0.1/a"))
+                                           #:reader tcp-stream-reader)))
  (check-equal? "a body with no length ends when the peer hangs up"
                "until the end"
                (let* ([listener (tcp-listen "127.0.0.1:0")]
