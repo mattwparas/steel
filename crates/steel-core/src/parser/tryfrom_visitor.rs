@@ -300,7 +300,9 @@ fn convert_location(s: &SyntaxObject) -> Result<SteelVal> {
 
     let atom = SteelVal::try_from(s.clone())?;
 
-    Ok(Syntax::proto(atom.clone(), atom, span).into())
+    Ok(Syntax::proto(atom.clone(), atom, span)
+        .with_mark(s.mark)
+        .into())
 }
 
 impl VisitorMut for SyntaxObjectFromExprKindRef {
@@ -434,7 +436,9 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         // TODO: Don't need to copy the whole syntax object in
         let atom = SteelVal::try_from(a.syn.ty.clone()).map_err(|e| e.with_span(span))?;
 
-        Ok(Syntax::proto(atom.clone(), atom, span).into())
+        Ok(Syntax::proto(atom.clone(), atom, span)
+            .with_mark(a.syn.mark)
+            .into())
     }
 
     fn visit_list(&mut self, l: &steel_parser::ast::List) -> Self::Output {
@@ -705,10 +709,13 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
         let span = a.syn.span;
+        let mark = a.syn.mark;
 
         let atom = SteelVal::try_from(a.syn)?;
 
-        Ok(Syntax::proto(atom.clone(), atom, span).into())
+        Ok(Syntax::proto(atom.clone(), atom, span)
+            .with_mark(mark)
+            .into())
     }
 
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {

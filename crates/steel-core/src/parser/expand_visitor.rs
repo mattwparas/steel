@@ -142,6 +142,98 @@ pub fn expand_with_source_id(
     expander.visit(expr)
 }
 
+fn is_let_head(head: &ExprKind) -> bool {
+    match head {
+        ExprKind::Atom(Atom {
+            syn: SyntaxObject {
+                ty: TokenType::Let, ..
+            },
+        }) => true,
+        ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(i),
+                    ..
+                },
+        }) => *i == *LET,
+        _ => false,
+    }
+}
+
+fn visit_let_form<V: VisitorMutRef<Output = Result<()>>>(
+    visitor: &mut V,
+    scope: fn(&mut V) -> &mut ScopeSet<InternedString, FxBuildHasher>,
+    l: &mut List,
+) -> Result<()> {
+    let name = l.args.get(1).and_then(|x| x.atom_identifier()).copied();
+    let bindings_index = if name.is_some() { 2 } else { 1 };
+
+    scope(visitor).push_layer();
+
+    if let Some(name) = name {
+        scope(visitor).define(name);
+    }
+
+    if let Some(ExprKind::List(bindings)) = l.args.get_mut(bindings_index) {
+        for arg in &mut bindings.args {
+            if let ExprKind::List(binding) = arg {
+                if let Some(ident) = binding.first_ident() {
+                    scope(visitor).define(*ident);
+                }
+
+                if let Some(expr) = binding.args.get_mut(0) {
+                    visitor.visit(expr)?;
+                }
+
+                if let Some(expr) = binding.args.get_mut(1) {
+                    visitor.visit(expr)?;
+                }
+            }
+        }
+    }
+
+    if let Some(body_args) = l.args.get_mut(bindings_index + 1..) {
+        for body_expr in body_args {
+            visitor.visit(body_expr)?;
+        }
+    }
+
+    scope(visitor).pop_layer();
+
+    Ok(())
+}
+
+// HACK: template identifiers that collide with a local get renamed to `##name`. If that
+// identifier was a reference to a macro, put the original name back so that things
+// behave
+fn restore_hygienic_macro_head(
+    l: &mut List,
+    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+    is_macro: impl Fn(&InternedString) -> bool,
+) {
+    if let Some(ExprKind::Atom(Atom {
+        syn:
+            SyntaxObject {
+                ty: TokenType::Identifier(s),
+                unresolved: true,
+                ..
+            },
+    })) = l.args.first_mut()
+    {
+        if in_scope.contains(s) || is_macro(s) {
+            return;
+        }
+
+        if let Some(original) = s.resolve().strip_prefix("##") {
+            let original: InternedString = original.into();
+
+            if is_macro(&original) {
+                *s = original;
+            }
+        }
+    }
+}
+
 pub struct Expander<'a> {
     map: &'a FxHashMap<InternedString, SteelMacro>,
     exclusions: &'a HashSet<InternedString>,
@@ -244,6 +336,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
+                restore_hygienic_macro_head(l, &self.in_scope_values, |name| {
+                    self.map.contains_key(name) && !self.exclusions.contains(name)
+                });
+
                 match l.first() {
                     // TODO: Come back to this?
                     Some(ExprKind::Atom(
@@ -310,84 +406,8 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         return Ok(());
                     }
 
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Identifier(i),
-                                ..
-                            },
-                    })) if *i == *LET => {
-                        self.in_scope_values.push_layer();
-                        if let Some(bindings) = l.args.get_mut(1) {
-                            if let ExprKind::List(l) = bindings {
-                                for arg in &mut l.args {
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(ident) = l.first_ident() {
-                                            self.in_scope_values.define(*ident);
-                                        }
-                                    }
-
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(expr) = l.args.get_mut(0) {
-                                            self.visit(expr)?;
-                                        }
-
-                                        if let Some(expr) = l.args.get_mut(1) {
-                                            self.visit(expr)?;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(body_args) = l.args.get_mut(2..) {
-                                for body_expr in body_args {
-                                    self.visit(body_expr)?;
-                                }
-                            }
-                        }
-
-                        self.in_scope_values.pop_layer();
-
-                        return Ok(());
-                    }
-
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Let, ..
-                            },
-                    })) => {
-                        self.in_scope_values.push_layer();
-                        if let Some(bindings) = l.args.get_mut(1) {
-                            if let ExprKind::List(l) = bindings {
-                                for arg in &mut l.args {
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(ident) = l.first_ident() {
-                                            self.in_scope_values.define(*ident);
-                                        }
-                                    }
-
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(expr) = l.args.get_mut(0) {
-                                            self.visit(expr)?;
-                                        }
-                                        if let Some(expr) = l.args.get_mut(1) {
-                                            self.visit(expr)?;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(body_args) = l.args.get_mut(2..) {
-                            for body_expr in body_args {
-                                self.visit(body_expr)?;
-                            }
-                        }
-
-                        self.in_scope_values.pop_layer();
-
-                        return Ok(());
+                    Some(head) if is_let_head(head) => {
+                        return visit_let_form(self, |v| &mut v.in_scope_values, l);
                     }
 
                     Some(ExprKind::Atom(Atom {
@@ -474,19 +494,37 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             stop!(BadSyntax => "define has neither head nor body"; l.location);
                         }
 
-                        match &l.args[1] {
+                        let is_function = match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
                                 self.in_scope_values.define(*l.first_ident().unwrap());
+                                true
                             }
 
                             ExprKind::Atom(a) if a.ident().is_some() => {
                                 self.in_scope_values.define(*a.ident().unwrap());
+                                false
                             }
-                            _ => {}
+                            _ => false,
+                        };
+
+                        if is_function {
+                            self.in_scope_values.push_layer();
+
+                            if let ExprKind::List(signature) = &l.args[1] {
+                                for arg in signature.args.iter().skip(1) {
+                                    if let Some(ident) = arg.atom_identifier() {
+                                        self.in_scope_values.define(*ident);
+                                    }
+                                }
+                            }
                         }
 
                         for expr in l.args[2..].iter_mut() {
                             self.visit(expr)?;
+                        }
+
+                        if is_function {
+                            self.in_scope_values.pop_layer();
                         }
 
                         return Ok(());
@@ -505,11 +543,12 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         if let Some(m) = self.map.get(s) {
                             if !self.exclusions.contains(s) {
                                 // If this macro has been overwritten by any local value, respect
-                                // the local binding and do not expand the macro
-                                if !self.in_scope_values.contains(s) && self.source_id.is_none()
-                                    || sp.source_id() == m.location.source_id()
-                                    || *unresolved
-                                {
+                                // the local binding and do not expand the macro, unless the
+                                // identifier came from a macro template
+                                let visible = self.source_id.is_none()
+                                    || sp.source_id() == m.location.source_id();
+
+                                if *unresolved || visible && !self.in_scope_values.contains(s) {
                                     let span = *sp;
 
                                     let mut expanded = m.expand(
@@ -574,6 +613,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
     }
 
     fn visit_define(&mut self, define: &mut super::ast::Define) -> Self::Output {
+        if let Some(ident) = define.name.atom_identifier() {
+            self.in_scope_values.define(*ident);
+        }
+
         self.visit(&mut define.body)?;
         Ok(())
     }
@@ -695,6 +738,13 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
+                restore_hygienic_macro_head(l, &self.in_scope_values, |name| {
+                    self.overlays
+                        .iter()
+                        .any(|x| x.map.in_scope_macros.contains_key(name))
+                        || self.map.contains_key(name)
+                });
+
                 match l.first() {
                     // TODO: Come back to this?
                     Some(ExprKind::Atom(
@@ -722,83 +772,8 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             unreachable!()
                         }
                     }
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Identifier(i),
-                                ..
-                            },
-                    })) if *i == *LET => {
-                        self.in_scope_values.push_layer();
-                        if let Some(bindings) = l.args.get_mut(1) {
-                            if let ExprKind::List(l) = bindings {
-                                for arg in &mut l.args {
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(ident) = l.first_ident() {
-                                            self.in_scope_values.define(*ident);
-                                        }
-                                    }
-
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(expr) = l.args.get_mut(0) {
-                                            self.visit(expr)?;
-                                        }
-
-                                        if let Some(expr) = l.args.get_mut(1) {
-                                            self.visit(expr)?;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(body_args) = l.args.get_mut(2..) {
-                                for body_expr in body_args {
-                                    self.visit(body_expr)?;
-                                }
-                            }
-                        }
-
-                        self.in_scope_values.pop_layer();
-
-                        return Ok(());
-                    }
-
-                    Some(ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Let, ..
-                            },
-                    })) => {
-                        self.in_scope_values.push_layer();
-                        if let Some(bindings) = l.args.get_mut(1) {
-                            if let ExprKind::List(l) = bindings {
-                                for arg in &mut l.args {
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(ident) = l.first_ident() {
-                                            self.in_scope_values.define(*ident);
-                                        }
-                                    }
-
-                                    if let ExprKind::List(l) = arg {
-                                        if let Some(expr) = l.args.get_mut(0) {
-                                            self.visit(expr)?;
-                                        }
-
-                                        if let Some(expr) = l.args.get_mut(1) {
-                                            self.visit(expr)?;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(body) = l.args.get_mut(2) {
-                            self.visit(body)?;
-                        }
-
-                        self.in_scope_values.pop_layer();
-
-                        return Ok(());
+                    Some(head) if is_let_head(head) => {
+                        return visit_let_form(self, |v| &mut v.in_scope_values, l);
                     }
                     Some(ExprKind::Atom(Atom {
                         syn:
@@ -883,19 +858,37 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             stop!(BadSyntax => "define has neither head nor body"; l.location);
                         }
 
-                        match &l.args[1] {
+                        let is_function = match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
                                 self.in_scope_values.define(*l.first_ident().unwrap());
+                                true
                             }
 
                             ExprKind::Atom(a) if a.ident().is_some() => {
                                 self.in_scope_values.define(*a.ident().unwrap());
+                                false
                             }
-                            _ => {}
+                            _ => false,
+                        };
+
+                        if is_function {
+                            self.in_scope_values.push_layer();
+
+                            if let ExprKind::List(signature) = &l.args[1] {
+                                for arg in signature.args.iter().skip(1) {
+                                    if let Some(ident) = arg.atom_identifier() {
+                                        self.in_scope_values.define(*ident);
+                                    }
+                                }
+                            }
                         }
 
                         for expr in l.args[2..].iter_mut() {
                             self.visit(expr)?;
+                        }
+
+                        if is_function {
+                            self.in_scope_values.pop_layer();
                         }
 
                         return Ok(());
@@ -906,6 +899,7 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             SyntaxObject {
                                 ty: TokenType::Identifier(s),
                                 span: sp,
+                                unresolved,
                                 ..
                             },
                     })) => {
@@ -927,10 +921,12 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             .or_else(|| self.map.get(s))
                         {
                             // If this macro has been overwritten by any local value, respect
-                            // the local binding and do not expand the macro
-                            if !self.in_scope_values.contains(s) && self.source_id.is_none()
-                                || self.source_id == m.location.source_id()
-                            {
+                            // the local binding and do not expand the macro, unless the
+                            // identifier came from a macro template
+                            let visible = self.source_id.is_none()
+                                || self.source_id == m.location.source_id();
+
+                            if *unresolved || visible && !self.in_scope_values.contains(s) {
                                 // if s.resolve().ends_with("skip-compile") {
                                 //     println!("Expanding skip compile: {}", l);
                                 // }
@@ -1002,6 +998,10 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
     }
 
     fn visit_define(&mut self, define: &mut super::ast::Define) -> Self::Output {
+        if let Some(ident) = define.name.atom_identifier() {
+            self.in_scope_values.define(*ident);
+        }
+
         self.visit(&mut define.body)?;
         Ok(())
     }
@@ -1723,84 +1723,8 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
             ExprKind::List(l) => {
                 {
                     match l.first() {
-                        Some(ExprKind::Atom(Atom {
-                            syn:
-                                SyntaxObject {
-                                    ty: TokenType::Identifier(i),
-                                    ..
-                                },
-                        })) if *i == *LET => {
-                            self.in_scope_values.push_layer();
-                            if let Some(bindings) = l.args.get_mut(1) {
-                                if let ExprKind::List(l) = bindings {
-                                    for arg in &mut l.args {
-                                        if let ExprKind::List(l) = arg {
-                                            if let Some(ident) = l.first_ident() {
-                                                self.in_scope_values.define(*ident);
-                                            }
-                                        }
-
-                                        if let ExprKind::List(l) = arg {
-                                            if let Some(expr) = l.args.get_mut(0) {
-                                                self.visit(expr)?;
-                                            }
-
-                                            if let Some(expr) = l.args.get_mut(1) {
-                                                self.visit(expr)?;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if let Some(body_args) = l.args.get_mut(2..) {
-                                    for body_expr in body_args {
-                                        self.visit(body_expr)?;
-                                    }
-                                }
-                            }
-
-                            self.in_scope_values.pop_layer();
-
-                            return Ok(());
-                        }
-
-                        Some(ExprKind::Atom(Atom {
-                            syn:
-                                SyntaxObject {
-                                    ty: TokenType::Let, ..
-                                },
-                        })) => {
-                            self.in_scope_values.push_layer();
-                            if let Some(bindings) = l.args.get_mut(1) {
-                                if let ExprKind::List(l) = bindings {
-                                    for arg in &mut l.args {
-                                        if let ExprKind::List(l) = arg {
-                                            if let Some(ident) = l.first_ident() {
-                                                self.in_scope_values.define(*ident);
-                                            }
-                                        }
-
-                                        if let ExprKind::List(l) = arg {
-                                            if let Some(expr) = l.args.get_mut(0) {
-                                                self.visit(expr)?;
-                                            }
-                                            if let Some(expr) = l.args.get_mut(1) {
-                                                self.visit(expr)?;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(body_args) = l.args.get_mut(2..) {
-                                for body_expr in body_args {
-                                    self.visit(body_expr)?;
-                                }
-                            }
-
-                            self.in_scope_values.pop_layer();
-
-                            return Ok(());
+                        Some(head) if is_let_head(head) => {
+                            return visit_let_form(self, |v| &mut v.in_scope_values, l);
                         }
                         Some(ExprKind::Atom(
                             ident @ Atom {

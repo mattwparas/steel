@@ -5,8 +5,8 @@ use crate::{
         modules::{MANGLER_PREFIX, MANGLER_SEPARATOR},
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
-            opt::SingleExprOptimizer, shadow::RenameShadowedVariables, VisitorMutRefUnit,
-            VisitorMutUnitRef,
+            hygiene::ResolveExpansionMarks, opt::SingleExprOptimizer,
+            shadow::RenameShadowedVariables, VisitorMutRefUnit, VisitorMutUnitRef,
         },
     },
     core::{instructions::u24, labels::Expr},
@@ -542,7 +542,11 @@ impl Compiler {
             }
 
             // All the macros that exist in the modules macro environments
-            for module in self.modules().values() {
+            for (path, module) in self.modules() {
+                if let Some(id) = self.sources.get_source_id(path) {
+                    sources.add(id);
+                }
+
                 for expr in &module.ast {
                     sources.visit(expr);
                 }
@@ -1001,6 +1005,8 @@ impl Compiler {
 
             // for expr in expanded_statements.iter_mut() {
             lower_entire_ast(expr)?;
+
+            ResolveExpansionMarks::resolve(expr);
         }
 
         // @Matt 11/15/2024
@@ -1194,6 +1200,8 @@ impl Compiler {
 
             // for expr in expanded_statements.iter_mut() {
             lower_entire_ast(expr)?;
+
+            ResolveExpansionMarks::resolve(expr);
         }
 
         // TODO: Check that defines are in legal positions, post expansion.

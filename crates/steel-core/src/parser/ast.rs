@@ -1,6 +1,8 @@
 use crate::{
     parser::{
-        parser::SyntaxObject, tokens::TokenType::*, tryfrom_visitor::TryFromExprKindForSteelVal,
+        parser::{ExpansionMark, SyntaxObject},
+        tokens::TokenType::*,
+        tryfrom_visitor::TryFromExprKindForSteelVal,
     },
     rvals::SteelComplex,
 };
@@ -99,9 +101,11 @@ impl TryFromSteelValVisitorForExprKind {
                 SyntaxObject::default(Keyword(x.as_str().into())),
             ))),
 
-            SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                Identifier(x.as_str().into()),
-            )))),
+            SymbolV(x) => {
+                let mut syn = SyntaxObject::default(Identifier(x.as_str().into()));
+                syn.mark = ExpansionMark::UNKNOWN;
+                Ok(ExprKind::Atom(Atom::new(syn)))
+            }
 
             // TODO: Change the implementation here to respect quotes correctly
             SyntaxObject(s) => self.visit_syntax_object(s),
@@ -259,9 +263,11 @@ impl TryFrom<&SteelVal> for ExprKind {
                 SymbolV(x) if x.starts_with("#:") => Ok(ExprKind::Atom(Atom::new(
                     SyntaxObject::default(Keyword(x.as_str().into())),
                 ))),
-                SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    Identifier(x.as_str().into()),
-                )))),
+                SymbolV(x) => {
+                    let mut syn = SyntaxObject::default(Identifier(x.as_str().into()));
+                    syn.mark = ExpansionMark::UNKNOWN;
+                    Ok(ExprKind::Atom(Atom::new(syn)))
+                }
                 SyntaxObject(s) => s
                     .to_exprkind()
                     .map_err(|_| "Unable to convert syntax object back to exprkind"),

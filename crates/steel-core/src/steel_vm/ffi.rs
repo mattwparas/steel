@@ -9,12 +9,12 @@ use std::{
 
 use crate::{
     gc::{
-        shared::{ScopedWriteContainer, ShareableMut},
+        shared::{MutContainer, ScopedReadContainer, ScopedWriteContainer, ShareableMut},
         Gc,
     },
     rerrs::ErrorKind,
     rvals::{
-        as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
+        as_underlying_type, as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
         MaybeSendSyncStatic, Result, SteelByteVector, SteelHashMap, SteelVal, SteelVector,
     },
     values::{
@@ -34,6 +34,7 @@ use abi_stable::{
 };
 use futures_util::FutureExt;
 
+use crate::values::closed::ffi_borrows;
 use crate::values::HashMap;
 pub use async_ffi::{FfiFuture, FutureExt as FfiFutureExt};
 
@@ -76,8 +77,8 @@ impl FFIModule {
         predicate_name: &'static str,
     ) -> &mut Self {
         self.register_fn(predicate_name, |value: FFIArg| {
-            if let FFIArg::CustomRef(CustomRef { mut custom, .. }) = value {
-                as_underlying_ffi_type::<T>(custom.get_mut()).is_some()
+            if let FFIArg::CustomRef(CustomRef { custom, .. }) = value {
+                custom.get().obj.downcast_as::<T>().is_ok()
             } else {
                 false
             }
@@ -401,12 +402,12 @@ impl<'a, T: Custom + Clone + 'static> FromFFIArg<'a> for T {
                 }
             }
 
-            FFIArg::CustomRef(mut custom) => {
-                let inner = as_underlying_ffi_type::<T>(custom.custom.get_mut());
+            FFIArg::CustomRef(custom) => {
+                let inner = custom.custom.get().obj.downcast_as::<T>();
 
                 match inner {
-                    Some(v) => RResult::ROk(v.clone()),
-                    None => conversion_error!(custom, "#<opaque>"),
+                    Ok(v) => RResult::ROk(v.clone()),
+                    Err(_) => conversion_error!(custom, "#<opaque>"),
                 }
             }
 
@@ -783,7 +784,7 @@ impl<RET: IntoFFIVal, SELF: AsRefFFIVal, FN: Fn(&SELF) -> RET + SendSyncStatic>
             name,
             FFIValue::BoxedFunction(RBox::new(FFIBoxedDynFunction {
                 name: RString::from(name),
-                arity: 0,
+                arity: SHARED_RECEIVER,
                 function: RFn_TO::from_ptr(RArc::new(f), TD_CanDowncast),
             })),
         );
@@ -886,11 +887,11 @@ macro_rules! impl_register_fn_ffi {
                     }
 
                     let mut arg_iter = args.into_iter();
-                    let mut rarg1 = arg_iter.next().unwrap();
+                    let rarg1 = arg_iter.next().unwrap();
 
-                    let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&mut rarg1));
+                    let arg1 = ffi_try!(<SELF>::as_ref(&rarg1));
 
-                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_arg(core::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
+                    let res = func(arg1, $(ffi_try!(<$param>::from_ffi_arg(core::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
 
                     res.into_ffi_val()
                 };
@@ -899,7 +900,7 @@ macro_rules! impl_register_fn_ffi {
                     name,
                     FFIValue::BoxedFunction(RBox::new(FFIBoxedDynFunction {
                         name: RString::from(name),
-                        arity: 0,
+                        arity: SHARED_RECEIVER,
                         // function: Arc::new(f),
                         function: RFn_TO::from_ptr(RArc::new(f), TD_CanDowncast),
                     })),
@@ -1101,11 +1102,16 @@ pub fn as_underlying_ffi_type<'a, T: 'static>(
 
 pub fn is_opaque_type<T: 'static>(val: FFIArg) -> bool {
     if let FFIArg::CustomRef(CustomRef { custom, .. }) = val {
-        as_underlying_ffi_type::<T>(custom.into_mut()).is_some()
+        custom.get().obj.downcast_as::<T>().is_ok()
     } else {
         false
     }
 }
+
+// NOTE: @Matt
+// This isn't my favorite thing, but it lets us store a little bit more
+// without needing a new field.
+pub(crate) const SHARED_RECEIVER: usize = 1 << (usize::BITS - 1);
 
 #[repr(C)]
 #[derive(StableAbi)]
@@ -1607,6 +1613,17 @@ pub struct FFIBoxedDynFunction {
     >,
 }
 
+impl FFIBoxedDynFunction {
+    // Check if this thing was registered with &self
+    fn has_shared_receiver(&self) -> bool {
+        self.arity & SHARED_RECEIVER != 0
+    }
+
+    fn arity(&self) -> usize {
+        self.arity & !SHARED_RECEIVER
+    }
+}
+
 impl Clone for FFIBoxedDynFunction {
     fn clone(&self) -> Self {
         Self {
@@ -1619,7 +1636,7 @@ impl Clone for FFIBoxedDynFunction {
 
 impl core::fmt::Debug for FFIBoxedDynFunction {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "#<{}:{}>", self.name, self.arity)
+        write!(f, "#<{}:{}>", self.name, self.arity())
     }
 }
 
@@ -1795,7 +1812,116 @@ impl HostRuntimeFunction {
 
 impl Custom for HostRuntimeFunction {}
 
-fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
+// TODO: Remove this once I decouple the dyn Custom from the RwLock and
+// move the flag inside
+#[derive(Default)]
+struct BorrowedArguments<'a> {
+    count: usize,
+    shared: Option<ScopedReadContainer<'a, Box<dyn CustomType>>>,
+}
+
+// TODO: @Matt this is again not my favorite hack, but it allows
+// us to have multiple readers on &self FFI args
+type FakeLock = Option<MutContainer<Box<dyn CustomType>>>;
+
+struct Placeholder;
+
+impl Custom for Placeholder {}
+
+impl<'a> BorrowedArguments<'a> {
+    fn insert(&mut self, address: usize) {
+        if ffi_borrows::push(address) {
+            self.count += 1;
+        }
+    }
+}
+
+impl<'a> Drop for BorrowedArguments<'a> {
+    fn drop(&mut self) {
+        if self.count > 0 {
+            ffi_borrows::pop(self.count);
+        }
+    }
+}
+
+fn as_shared_ffi_argument<'a>(
+    value: &'a SteelVal,
+    borrowed: &mut BorrowedArguments<'a>,
+    fake: &mut FakeLock,
+) -> Result<FFIArg<'a>> {
+    if let SteelVal::Custom(c) = value {
+        let address = c.as_ptr() as usize;
+
+        // Wait on other threads, error if this thread already holds it.
+        #[cfg(feature = "sync")]
+        let guard = match c.try_read_recursive() {
+            Some(guard) => Some(guard),
+            None if ffi_borrows::held_by_current_thread(address) => None,
+            None => Some(c.read()),
+        };
+        #[cfg(not(feature = "sync"))]
+        let guard = c.try_read().ok();
+
+        let Some(guard) = guard else {
+            stop!(Generic => "value is mutably borrowed, and cannot be borrowed over the ffi boundary: {:?}", value)
+        };
+
+        if let Some(inner) = as_underlying_type::<OpaqueFFIValueReturn>(guard.as_ref()) {
+            let inner = &inner.inner as *const OpaqueObject_TO<'static, RBox<()>>;
+
+            borrowed.insert(address);
+            borrowed.shared = Some(guard);
+
+            let fake = fake.insert(MutContainer::new(Box::new(Placeholder)))
+                as *const MutContainer<Box<dyn CustomType>>;
+
+            // SAFETY:
+            // function that set `SHARED_RECEIVER` only read the receiver via &self
+            unsafe {
+                let fake = &*fake;
+
+                #[cfg(feature = "sync")]
+                let fake_guard = fake.write();
+                #[cfg(not(feature = "sync"))]
+                let fake_guard = fake.borrow_mut();
+
+                return Ok(FFIArg::CustomRef(CustomRef {
+                    custom: RMut::from_raw(inner as *mut _),
+                    guard: fake_guard,
+                }));
+            }
+        }
+    }
+
+    as_ffi_argument(value, borrowed)
+}
+
+fn as_ffi_arguments<'a>(
+    args: &'a [SteelVal],
+    shared_receiver: bool,
+    borrowed: &mut BorrowedArguments<'a>,
+    fake: &mut FakeLock,
+) -> Result<smallvec::SmallVec<[FFIArg<'a>; 16]>> {
+    let mut converted = smallvec::SmallVec::with_capacity(args.len());
+    let mut args = args.iter();
+
+    if shared_receiver {
+        if let Some(receiver) = args.next() {
+            converted.push(as_shared_ffi_argument(receiver, borrowed, fake)?);
+        }
+    }
+
+    for value in args {
+        converted.push(as_ffi_argument(value, borrowed)?);
+    }
+
+    Ok(converted)
+}
+
+fn as_ffi_argument<'a>(
+    value: &'a SteelVal,
+    borrowed: &mut BorrowedArguments<'a>,
+) -> Result<FFIArg<'a>> {
     match value {
         SteelVal::BoolV(b) => Ok(FFIArg::BoolV(*b)),
         SteelVal::IntV(i) => Ok(FFIArg::IntV(*i)),
@@ -1809,9 +1935,18 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
         // We can really only look at values that were made from the FFI boundary.
         SteelVal::Custom(c) => {
             // let mut guard = if let Ok(guard) = RefCell::try_borrow_mut(c) {
-            let mut guard = if let Ok(guard) = c.try_write() {
-                guard
-            } else {
+            let address = c.as_ptr() as usize;
+
+            #[cfg(feature = "sync")]
+            let guard = match c.try_write() {
+                Ok(guard) => Some(guard),
+                Err(_) if ffi_borrows::held_by_current_thread(address) => None,
+                Err(_) => Some(c.write()),
+            };
+            #[cfg(not(feature = "sync"))]
+            let guard = c.try_write().ok();
+
+            let Some(mut guard) = guard else {
                 stop!(Generic => "value cannot be borrowed mutably twice over the ffi boundary: {:?}", value)
             };
 
@@ -1822,6 +1957,7 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                 // TODO: I think it is possible that if the same value is used multiple times,
                 // we could be borrowing this value more than once. We need a stickier way
                 // to borrow since the RefCell cannot be passed along?
+                borrowed.insert(address);
                 unsafe {
                     Ok(FFIArg::CustomRef(CustomRef {
                         custom: RMut::from_raw(&mut c.inner as *mut _),
@@ -1829,6 +1965,7 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                     }))
                 }
             } else if let Some(c) = as_underlying_type_mut::<FFIVector>(guard.as_mut()) {
+                borrowed.insert(address);
                 unsafe {
                     let mut_ptr = &mut c.vec as *mut RVec<FFIValue>;
 
@@ -1839,6 +1976,7 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                     }))
                 }
             } else if let Some(c) = as_underlying_type_mut::<MutableString>(guard.as_mut()) {
+                borrowed.insert(address);
                 unsafe {
                     let mut_ptr = &mut c.string as *mut RString;
 
@@ -1854,6 +1992,7 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                     function: RFn_TO::from_sabi(c.function.obj.shallow_clone()),
                 }))
             } else if let Some(c) = as_underlying_type_mut::<MutableByteVector>(guard.as_mut()) {
+                borrowed.insert(address);
                 unsafe {
                     let mut_ptr = &mut c.buffer as *mut RVec<u8>;
                     Ok(FFIArg::ByteVectorRef(ByteVectorRef {
@@ -1868,8 +2007,8 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
         SteelVal::HashMapV(h) => h
             .iter()
             .map(|(key, value)| {
-                let key = as_ffi_argument(key)?;
-                let value = as_ffi_argument(value)?;
+                let key = as_ffi_argument(key, borrowed)?;
+                let value = as_ffi_argument(value, borrowed)?;
 
                 if !key.is_hashable() {
                     stop!(Generic => "key not hashable once converted to ffi type: {:?}", key);
@@ -1881,7 +2020,7 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
             .map(FFIArg::HashMap),
         SteelVal::ListV(l) => l
             .into_iter()
-            .map(as_ffi_argument)
+            .map(|value| as_ffi_argument(value, borrowed))
             .collect::<Result<_>>()
             .map(FFIArg::Vector),
 
@@ -1908,10 +2047,10 @@ impl FFIBoxedDynFunction {
             let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             // Attempt collecting and passing as an rslice?
-            let mut other_args = args
-                .iter()
-                .map(as_ffi_argument)
-                .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
+            let mut fake = None;
+            let mut borrowed = BorrowedArguments::default();
+            let mut other_args =
+                as_ffi_arguments(args, this.has_shared_receiver(), &mut borrowed, &mut fake)?;
 
             let lifted_slice = unsafe {
                 core::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
@@ -1932,7 +2071,7 @@ impl FFIBoxedDynFunction {
 
         BoxedDynFunction {
             name: Some(Arc::new(name)),
-            arity: Some(self.arity as _),
+            arity: Some(self.arity() as _),
             function: Arc::new(function),
         }
     }
@@ -1942,15 +2081,15 @@ impl FFIBoxedDynFunction {
 impl From<FFIBoxedDynFunction> for BoxedDynFunction {
     fn from(value: FFIBoxedDynFunction) -> Self {
         let name = value.name.clone().into_string();
-        let arity = value.arity;
+        let arity = value.arity();
+        let shared_receiver = value.has_shared_receiver();
 
         let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
             let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
-            let mut other_args = args
-                .iter()
-                .map(as_ffi_argument)
-                .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
+            let mut fake = None;
+            let mut borrowed = BorrowedArguments::default();
+            let mut other_args = as_ffi_arguments(args, shared_receiver, &mut borrowed, &mut fake)?;
 
             let lifted_slice = unsafe {
                 core::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
@@ -1983,15 +2122,15 @@ impl BoxedDynFunction {
         max_allowed_enum: usize,
     ) -> SteelVal {
         let name = value.name.clone().into_string();
-        let arity = value.arity;
+        let arity = value.arity();
+        let shared_receiver = value.has_shared_receiver();
 
         let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
             let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
-            let mut other_args = args
-                .iter()
-                .map(as_ffi_argument)
-                .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
+            let mut fake = None;
+            let mut borrowed = BorrowedArguments::default();
+            let mut other_args = as_ffi_arguments(args, shared_receiver, &mut borrowed, &mut fake)?;
 
             // Check the args: If the discriminant is larger than our allowed one,
             // then we'll error.
